@@ -112,10 +112,13 @@ describe("autoStartServer", () => {
 
     const result = await autoStartServer(baseConfig, deps);
 
-    expect(deps.notify).toHaveBeenCalledWith(
-      "Dashboard server failed to start: exited",
-      "warning",
-    );
+    expect(deps.notify).toHaveBeenCalledTimes(1);
+    const [msg, level] = (deps.notify as any).mock.calls[0];
+    expect(msg).toMatch(/Dashboard server failed to start: exited/);
+    // Spec requirement (fix-windows-server-parity): failure notification
+    // MUST include the absolute path to ~/.pi/dashboard/server.log.
+    expect(msg).toMatch(/server\.log/);
+    expect(level).toBe("warning");
     expect(result.server).toBeUndefined();
   });
 

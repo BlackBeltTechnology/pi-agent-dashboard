@@ -12,6 +12,7 @@ import { detectEditors, EDITORS } from "../editor-registry.js";
 import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import { createTunnel, deleteTunnel, getTunnelStatus } from "../tunnel.js";
+import { spawnRestart } from "../restart-helper.js";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
@@ -213,42 +214,23 @@ export function registerSystemRoutes(
 
       // Find the TypeScript loader from process.execArgv (--import <loader>)
       const importIdx = process.execArgv.indexOf("--import");
-      const loaderArgs = importIdx >= 0 ? ["--import", process.execArgv[importIdx + 1]] : [];
+      const loader = importIdx >= 0 ? (process.execArgv[importIdx + 1] ?? "") : "";
 
       // Allow overriding dev mode via request body
       const useDev = request.body?.dev ?? config.dev;
-      const args = ["start"];
-      if (useDev) args.push("--dev");
+      const extraArgs: string[] = [];
+      if (useDev) extraArgs.push("--dev");
 
-      // Spawn a shell script that:
-      // 1. Waits for the old server's port to be free (up to 10s)
-      // 2. Starts the new server
-      // 3. Verifies health (up to 10s)
-      // 4. If health check fails, logs error
-      const port = config.port;
-      const nodeCmd = `${JSON.stringify(process.execPath)} ${loaderArgs.map(a => JSON.stringify(a)).join(" ")} ${JSON.stringify(cliPath)} ${args.join(" ")}`;
-      const script = [
-        // Wait for port to be free
-        `for i in $(seq 1 20); do`,
-        `  lsof -i :${port} -sTCP:LISTEN >/dev/null 2>&1 || break`,
-        `  sleep 0.5`,
-        `done`,
-        // Start new server
-        nodeCmd,
-        // Verify health
-        `for i in $(seq 1 20); do`,
-        `  curl -sf http://localhost:${port}/api/health >/dev/null 2>&1 && exit 0`,
-        `  sleep 0.5`,
-        `done`,
-        `echo "[dashboard] Restart health check failed" >&2`,
-      ].join("\n");
-
-      const child = spawn("sh", ["-c", script], {
-        detached: true,
-        stdio: "ignore",
-        env: { ...process.env },
+      // Cross-platform restart: spawns a detached Node orchestrator that
+      // polls the port via net, spawns the new server, polls /api/health
+      // via http. No dependency on sh/lsof/curl — works on Windows too.
+      // See change: fix-windows-server-parity.
+      spawnRestart({
+        cliPath,
+        loader,
+        port: config.port,
+        extraArgs,
       });
-      child.unref();
 
       setTimeout(() => process.exit(0), 200);
       return { ok: true };

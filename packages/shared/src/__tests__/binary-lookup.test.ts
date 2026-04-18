@@ -13,9 +13,15 @@ const { mockExecSync, mockExistsSync } = vi.hoisted(() => ({
 vi.mock("node:child_process", () => ({ execSync: mockExecSync }));
 vi.mock("node:fs", () => ({ existsSync: mockExistsSync }));
 
-import { ToolResolver } from "../tool-resolver.js";
+import { ToolResolver } from "../platform/binary-lookup.js";
 
 const MANAGED_BIN = path.join(os.homedir(), ".pi-dashboard", "node_modules", ".bin");
+
+// On Windows, ToolResolver.which() appends ".cmd" to the binary name when
+// probing managed bin / extra dirs (shim convention for npm-installed bins).
+// Unix has no extension. Tests must mirror this so assertions line up with
+// what the implementation actually queries.
+const BIN_EXT = process.platform === "win32" ? ".cmd" : "";
 
 describe("ToolResolver", () => {
   beforeEach(() => {
@@ -26,7 +32,7 @@ describe("ToolResolver", () => {
 
   describe("which()", () => {
     it("finds binary in managed bin first", () => {
-      const managedPi = path.join(MANAGED_BIN, "pi");
+      const managedPi = path.join(MANAGED_BIN, "pi" + BIN_EXT);
       mockExistsSync.mockImplementation((p: string) => p === managedPi);
 
       const resolver = new ToolResolver();
@@ -35,21 +41,24 @@ describe("ToolResolver", () => {
 
     it("finds binary in extra bin dirs before system PATH", () => {
       const extraDir = "/custom/bin";
-      const extraPi = path.join(extraDir, "pi");
+      const extraPi = path.join(extraDir, "pi" + BIN_EXT);
       mockExistsSync.mockImplementation((p: string) => p === extraPi);
 
       const resolver = new ToolResolver({ extraBinDirs: [extraDir] });
       expect(resolver.which("pi")).toBe(extraPi);
     });
 
-    it("falls back to system PATH via which", () => {
+    it("falls back to system PATH via which/where", () => {
+      // Resolver uses `where` on Windows, `which` on Unix.
+      const lookupCmd = process.platform === "win32" ? "where pi" : "which pi";
+      const expected = process.platform === "win32" ? "C:\\Windows\\pi.exe" : "/usr/bin/pi";
       mockExecSync.mockImplementation((cmd: string) => {
-        if (typeof cmd === "string" && cmd.includes("which pi")) return "/usr/bin/pi\n";
+        if (typeof cmd === "string" && cmd.includes(lookupCmd)) return expected + "\n";
         throw new Error("not found");
       });
 
       const resolver = new ToolResolver();
-      expect(resolver.which("pi")).toBe("/usr/bin/pi");
+      expect(resolver.which("pi")).toBe(expected);
     });
 
     it("tries login shell when enabled and PATH fails", () => {
@@ -123,7 +132,7 @@ describe("ToolResolver", () => {
     });
 
     it("falls back to which(node) when no context paths", () => {
-      const managedNode = path.join(MANAGED_BIN, "node");
+      const managedNode = path.join(MANAGED_BIN, "node" + BIN_EXT);
       mockExistsSync.mockImplementation((p: string) => p === managedNode);
 
       const resolver = new ToolResolver();
@@ -143,7 +152,11 @@ describe("ToolResolver", () => {
 
     it("does not duplicate managed bin if already present", () => {
       const resolver = new ToolResolver();
-      const env = resolver.buildSpawnEnv({ PATH: `${MANAGED_BIN}:/usr/bin` });
+      // Use the platform's PATH delimiter (`;` on Windows, `:` on Unix) so
+      // MANAGED_BIN is parsed as its own PATH entry — otherwise on Windows
+      // `${MANAGED_BIN}:/usr/bin` is treated as one single (broken) path.
+      const existingPath = [MANAGED_BIN, "/usr/bin"].join(path.delimiter);
+      const env = resolver.buildSpawnEnv({ PATH: existingPath });
       const count = env.PATH!.split(path.delimiter).filter(p => p === MANAGED_BIN).length;
       expect(count).toBe(1);
     });

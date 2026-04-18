@@ -7,8 +7,14 @@ import { spawnPiSession } from "../process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createBranchedSessionFile } from "../session-file-reader.js";
 import { execSync } from "node:child_process";
+import {
+  isProcessAlive as platformIsProcessAlive,
+  killPidWithGroup,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 function killHeadlessBySessionId(sessionId: string): boolean {
+  // `ps -eo` + `grep` is Unix-only; Windows headless spawns use a different
+  // wrapper with no detectable sentinel string.
   if (process.platform === "win32") return false;
   try {
     const output = execSync(
@@ -19,7 +25,10 @@ function killHeadlessBySessionId(sessionId: string): boolean {
     for (const line of output.split("\n")) {
       const pid = parseInt(line.trim(), 10);
       if (pid > 0) {
-        try { process.kill(-pid, "SIGTERM"); } catch {
+        try {
+          // Target the process group on Unix (shared primitive).
+          killPidWithGroup(pid, "SIGTERM");
+        } catch {
           try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ }
         }
       }
@@ -185,16 +194,32 @@ export function handleKillProcess(
 }
 
 /**
+ * Pure predicate: does a `ps`/cmdline output string look like a pi/node process?
+ * Exported for testing — no I/O, no platform awareness.
+ * See change: fix-windows-server-parity.
+ */
+export function isPiCommandLine(output: string): boolean {
+  return /\bpi\b|\bnode\b/.test(output);
+}
+
+/**
  * Check if a PID belongs to a pi/node process (safety check before SIGKILL).
  * Returns true if the process looks like a pi-related process, false otherwise.
+ *
+ * Platform-guarded: on Windows, returns true without invoking Unix-only
+ * commands (ps, /proc). The Windows path relies on the PID registry's own
+ * bookkeeping rather than a post-hoc command-line inspection — there is no
+ * cheap cross-platform substitute (tasklist /V is expensive and format-unstable).
+ * See change: fix-windows-server-parity.
  */
 function isPiProcess(pid: number): boolean {
+  if (process.platform === "win32") return true;
   try {
     const cmd = process.platform === "darwin"
       ? `ps -p ${pid} -o command=`
       : `cat /proc/${pid}/cmdline 2>/dev/null || ps -p ${pid} -o command=`;
     const output = execSync(cmd, { encoding: "utf8", timeout: 2000 }).trim();
-    return /\bpi\b|\bnode\b/.test(output);
+    return isPiCommandLine(output);
   } catch {
     // Process already exited — treat as dead
     return false;
@@ -203,14 +228,10 @@ function isPiProcess(pid: number): boolean {
 
 /**
  * Check if a process is still alive.
+ * Delegates to the shared platform primitive.
  */
 function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  return platformIsProcessAlive(pid);
 }
 
 export async function handleForceKill(

@@ -2,6 +2,8 @@
  * Auto-start logic for the dashboard server.
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
+import os from "node:os";
+import path from "node:path";
 
 export interface DiscoveredServer {
   host: string;
@@ -82,6 +84,12 @@ export async function autoStartServer(
     return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
   }
 
-  deps.notify(`Dashboard server failed to start: ${result.message}`, "warning");
+  // Surface the log path so users can inspect the crash output without having
+  // to know the convention. See change: fix-windows-server-parity.
+  const logPath = path.join(os.homedir(), ".pi", "dashboard", "server.log");
+  deps.notify(
+    `Dashboard server failed to start: ${result.message}\nSee log: ${logPath}`,
+    "warning",
+  );
   return {};
 }

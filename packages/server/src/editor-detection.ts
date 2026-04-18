@@ -2,21 +2,24 @@
  * Auto-detection of code-server / openvscode-server binary.
  * Checks config override first, then PATH.
  */
-import { execSync } from "node:child_process";
 import type { EditorDetectionResult } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { EditorConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { buildSpawnEnv } from "./process-manager.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/tool-resolver.js";
 
 export const BINARIES_TO_CHECK = ["code-server", "openvscode-server"] as const;
 
+/**
+ * Look up a binary using the unified ToolResolver, which handles the
+ * where/which split (Windows vs Unix), managed-bin paths, and login-shell
+ * fallback for GUI apps. Previously used raw `which` which silently failed
+ * on Windows. See change: fix-windows-server-parity.
+ */
 export function whichBinary(name: string): string | null {
-  try {
-    // Use buildSpawnEnv to include ~/.local/bin and other user dirs
-    // that Electron apps miss (no shell profile sourced)
-    return execSync(`which ${name}`, { stdio: "pipe", encoding: "utf-8", env: buildSpawnEnv() }).trim() || null;
-  } catch {
-    return null;
-  }
+  const resolver = new ToolResolver({
+    processExecPath: process.execPath,
+    useLoginShell: true,
+  });
+  return resolver.which(name);
 }
 
 let cachedResult: EditorDetectionResult | null = null;

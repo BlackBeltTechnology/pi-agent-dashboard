@@ -19,10 +19,26 @@ import { createServer, type ServerConfig } from "./server.js";
 import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { readPid, isProcessAlive, removePid, isServerRunning } from "./server-pid.js";
+import { readPid, removePid, isServerRunning } from "./server-pid.js";
+import {
+  findPortHolders as platformFindPortHolders,
+  isProcessAlive as platformIsProcessAlive,
+  killProcess as platformKillProcess,
+  parseNetstatListeners as platformParseNetstatListeners,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+
+// Re-exports for back-compat — other modules / tests may import these from cli.
+export const parseNetstatListeners = platformParseNetstatListeners;
+export function findPortHolders(
+  port: number,
+  execImpl?: (cmd: string, opts: { encoding: "utf-8" }) => string,
+): number[] {
+  return platformFindPortHolders(port, execImpl ? { exec: execImpl } : undefined);
+}
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { resolveJitiImport } from "@blackbelt-technology/pi-dashboard-shared/resolve-jiti.js";
@@ -149,10 +165,14 @@ async function cmdStart(config: ServerConfig): Promise<void> {
   try {
     tsLoader = resolveJitiImport();
   } catch {
-    // Fallback to tsx when jiti is not available (e.g. running outside pi)
+    // Fallback to tsx when jiti is not available (e.g. running outside pi).
+    // The loader is passed to `node --import`; on Windows, Node >= 20 rejects
+    // raw absolute paths with a drive letter (parsed as URL scheme), so we
+    // return a file:// URL. See change: fix-windows-server-parity.
     try {
       const tsxMain = createRequire(cliPath).resolve("tsx");
-      tsLoader = path.join(path.dirname(tsxMain), "esm", "index.mjs");
+      const tsxLoaderPath = path.join(path.dirname(tsxMain), "esm", "index.mjs");
+      tsLoader = pathToFileURL(tsxLoaderPath).href;
     } catch {
       console.error(
         "[pi-dashboard] Cannot find TypeScript loader. " +
@@ -162,17 +182,30 @@ async function cmdStart(config: ServerConfig): Promise<void> {
     }
   }
 
-  // Redirect daemon stdout/stderr to a log file for crash diagnosis
-  const logDir = path.join(process.env.HOME ?? "~", ".pi", "dashboard");
+  // Redirect daemon stdout/stderr to a log file for crash diagnosis.
+  // Log is opened in append mode ("a") so output from prior start attempts
+  // is preserved across retries — critical for diagnosing intermittent or
+  // silent launch failures. A timestamped header line distinguishes runs.
+  // See change: fix-windows-server-parity.
+  const logDir = path.join(os.homedir(), ".pi", "dashboard");
   fs.mkdirSync(logDir, { recursive: true });
-  const logFd = fs.openSync(path.join(logDir, "server.log"), "w");
+  const logPath = path.join(logDir, "server.log");
+  const logFd = fs.openSync(logPath, "a");
+  fs.writeSync(
+    logFd,
+    `\n[${new Date().toISOString()}] pi-dashboard start (parent pid ${process.pid}, port ${config.port})\n`,
+  );
 
+  // tsLoader is a file:// URL (required on Windows for node --import).
+  // See change: fix-windows-server-parity.
   const child = spawn(process.execPath, ["--import", tsLoader, cliPath, ...args], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
     env: { ...process.env },
   });
   child.unref();
+  // Close the parent's copy of the fd — child has its own via stdio inheritance.
+  try { fs.closeSync(logFd); } catch { /* ignore */ }
 
   // Wait for dashboard to become available (up to 5 seconds)
   const deadline = Date.now() + 5000;
@@ -199,31 +232,21 @@ async function cmdStart(config: ServerConfig): Promise<void> {
 /**
  * Stop the running server daemon.
  */
-/** Kill a process by PID, wait for exit, force-kill if needed. */
+/**
+ * Kill a process by PID with logging. Delegates to the shared platform
+ * primitive (`packages/shared/src/platform/process.ts`) which handles the
+ * Windows (taskkill) vs Unix (SIGTERM→SIGKILL) split.
+ * See change: consolidate-platform-handlers.
+ */
 async function killProcess(pid: number, label: string): Promise<boolean> {
-  if (!isProcessAlive(pid)) return false;
-  try { process.kill(pid, "SIGTERM"); } catch { return false; }
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 200));
-    if (!isProcessAlive(pid)) {
-      console.log(`${label} stopped (pid ${pid})`);
-      return true;
-    }
-  }
-  try { process.kill(pid, "SIGKILL"); } catch { /* already dead */ }
-  console.log(`${label} stopped (forced, pid ${pid})`);
+  const result = await platformKillProcess(pid);
+  if (!result.ok) return false;
+  console.log(`${label} stopped${result.forced ? " (forced)" : ""} (pid ${pid})`);
   return true;
 }
 
-/** Find PIDs holding a port via lsof (macOS/Linux). */
-function findPortHolders(port: number): number[] {
-  try {
-    const { execSync } = require("node:child_process");
-    const output = execSync(`lsof -t -i :${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf-8" });
-    return output.trim().split("\n").map(Number).filter((n: number) => n > 0 && n !== process.pid);
-  } catch { return []; }
-}
+// Local alias to preserve prior internal references.
+const isProcessAlive = (pid: number) => platformIsProcessAlive(pid);
 
 async function cmdStop(): Promise<void> {
   const config = loadConfig();

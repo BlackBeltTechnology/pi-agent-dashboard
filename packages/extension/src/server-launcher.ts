@@ -4,6 +4,8 @@
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -60,16 +62,43 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
   const args = buildSpawnArgs(config);
 
   try {
-    // Spawn server using pi's jiti TypeScript loader (resolved to absolute path).
-    // The server writes its own PID file on startup, so
-    // `pi-dashboard status` can detect it.
+    // Spawn server using pi's jiti TypeScript loader.
+    // resolveJitiImport() returns a file:// URL (required for Windows;
+    // see change: fix-windows-server-parity). The server writes its own
+    // PID file on startup, so `pi-dashboard status` can detect it.
+    //
+    // Capture stdout/stderr to ~/.pi/dashboard/server.log (append mode) so
+    // launch failures are visible — previously stdio was "ignore" and any
+    // early crash (e.g. the Windows ERR_UNSUPPORTED_ESM_URL_SCHEME) was
+    // silent. Matches the log location used by `pi-dashboard start`.
+    let stdio: "ignore" | ["ignore", number, number] = "ignore";
+    let logFd: number | null = null;
+    try {
+      const logDir = path.join(os.homedir(), ".pi", "dashboard");
+      fs.mkdirSync(logDir, { recursive: true });
+      const logPath = path.join(logDir, "server.log");
+      logFd = fs.openSync(logPath, "a");
+      fs.writeSync(
+        logFd,
+        `\n[${new Date().toISOString()}] bridge auto-start (parent pid ${process.pid}, port ${config.port})\n`,
+      );
+      stdio = ["ignore", logFd, logFd];
+    } catch {
+      // If we can't open the log, fall back to "ignore" so spawn still works
+      stdio = "ignore";
+    }
+
     const child = spawn(process.execPath, ["--import", resolveJitiImport(), cliPath, ...args], {
       detached: true,
-      stdio: "ignore",
+      stdio,
       env: { ...process.env },
     });
 
     child.unref();
+    // Close the parent's copy of the log fd — the child has its own via stdio inheritance.
+    if (logFd !== null) {
+      try { fs.closeSync(logFd); } catch { /* ignore */ }
+    }
 
     // Monitor for early exit (within 2s)
     const earlyExit = await new Promise<boolean>((resolve) => {

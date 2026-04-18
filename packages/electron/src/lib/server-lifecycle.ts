@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { createRequire } from "node:module";
@@ -172,7 +172,13 @@ export function resolveJitiFromPi(): string | null {
   return null;
 }
 
-/** Resolve jiti register hook from an anchor file path (package.json or binary). */
+/**
+ * Resolve jiti register hook from an anchor file path (package.json or binary).
+ * Returns a file:// URL (not a raw path) so `node --import <value>` works on
+ * Windows; Node >= 20 rejects raw absolute paths with drive letters because it
+ * parses them as URL schemes (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+ * See change: fix-windows-server-parity.
+ */
 function resolveJitiFromAnchor(anchorPath: string): string | null {
   if (!existsSync(anchorPath)) return null;
   try {
@@ -181,7 +187,7 @@ function resolveJitiFromAnchor(anchorPath: string): string | null {
       try {
         const pkgJson = req.resolve(`${jiti}/package.json`);
         const registerPath = path.join(path.dirname(pkgJson), "lib", "jiti-register.mjs");
-        if (existsSync(registerPath)) return registerPath;
+        if (existsSync(registerPath)) return pathToFileURL(registerPath).href;
       } catch { /* next */ }
     }
   } catch { /* ignore */ }

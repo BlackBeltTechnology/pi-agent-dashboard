@@ -3,7 +3,8 @@
  * and optionally enriches with git diffs.
  */
 import { execSync } from "node:child_process";
-import { resolve, relative, isAbsolute } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, relative, isAbsolute, sep as pathSep } from "node:path";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FileChangeEvent, FileDiffEntry, EditOperation } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { isGitRepo } from "./git-operations.js";
@@ -105,7 +106,11 @@ function normalizePath(rawPath: string, cwd: string): string | null {
     return null;
   }
 
-  return rel;
+  // Normalize to posix separators. These paths are embedded into git diff
+  // headers (`diff --git a/<path> b/<path>`) which expect forward slashes,
+  // and are also used by the client for display and URL construction.
+  // See change: fix-windows-server-parity.
+  return pathSep === "/" ? rel : rel.split(pathSep).join("/");
 }
 
 /**
@@ -150,12 +155,14 @@ export function enrichWithGitDiff(
       }).trim();
 
       if (status.startsWith("??") || status.startsWith("A")) {
-        // Untracked or newly added — generate synthetic diff
-        const content = execSync(`cat ${JSON.stringify(resolve(cwd, file.path))}`, {
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"],
-          timeout: GIT_TIMEOUT,
-        });
+        // Untracked or newly added — generate synthetic diff.
+        // Read via fs.readFileSync rather than `cat` for cross-platform
+        // support (Windows has no `cat`). See change: fix-windows-server-parity.
+        const absPath = resolve(cwd, file.path);
+        if (!existsSync(absPath)) {
+          return file;
+        }
+        const content = readFileSync(absPath, "utf-8");
         const lines = content.split("\n");
         const diffLines = [
           `diff --git a/${file.path} b/${file.path}`,
