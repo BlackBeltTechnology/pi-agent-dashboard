@@ -632,6 +632,23 @@ Returns:
 
 Agent metrics are collected every 15s via heartbeats and include `eventLoopMaxMs` — useful for diagnosing connection drops during long-running operations.
 
+### Troubleshooting: dashboard server doesn't start
+
+If `pi` launches but the dashboard never becomes reachable (no `http://localhost:8000`, no `🌐 Dashboard started` notification), inspect the launch log:
+
+```bash
+cat ~/.pi/dashboard/server.log          # Linux / macOS
+type %USERPROFILE%\.pi\dashboard\server.log   # Windows
+```
+
+The log is opened in append mode and prefixed with a timestamped header on every start attempt, so previous crashes are preserved. Common issues:
+
+- **`ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows** — fixed in pi-agent-dashboard 0.2.10+; upgrade the package.
+- **`Port 8000 is occupied by another service`** — another process is bound to the port. On Windows: `netstat -ano | findstr :8000` then `taskkill /F /PID <pid>`. On Unix: `lsof -t -i :8000 | xargs kill`. Or change `port` in `~/.pi/dashboard/config.json`.
+- **`Cannot find pi's TypeScript loader`** — pi is not installed globally. Run `npm install -g @mariozechner/pi-coding-agent`.
+
+The `POST /api/restart` endpoint and `pi-dashboard restart` command work identically on Windows, macOS, and Linux (no `sh`/`lsof`/`curl` dependency).
+
 ## Extension UI Events
 
 Your own extensions can broadcast UI events to the dashboard:
