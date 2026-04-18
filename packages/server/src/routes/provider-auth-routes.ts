@@ -1,7 +1,6 @@
 /**
  * REST routes for browser-based pi provider authentication.
  */
-import { exec } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import {
   getProviderHandler,
@@ -66,15 +65,16 @@ function makeFlowId(): string {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// Delegate to the shared platform primitive. The cross-OS dispatch
+// (open/start/xdg-open) and URL escaping live in
+// `packages/shared/src/platform/commands.ts`.
+// See change: consolidate-platform-handlers.
+import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
+
 /** Open a URL in the system's default browser */
 function openInBrowser(url: string): void {
-  const cmd = process.platform === "darwin"
-    ? `open ${JSON.stringify(url)}`
-    : process.platform === "win32"
-      ? `start "" ${JSON.stringify(url)}`
-      : `xdg-open ${JSON.stringify(url)}`;
-  exec(cmd, (err) => {
-    if (err) console.error("[provider-auth] Failed to open browser:", err.message);
+  platformOpenBrowser(url, {
+    onError: (err) => console.error("[provider-auth] Failed to open browser:", err.message),
   });
 }
 

@@ -251,7 +251,10 @@ make clean              # Destroy all cloned VMs
 | `public/manifest.json` | PWA web app manifest for installability |
 | `public/sw.js` | Minimal service worker for PWA installability |
 | `src/client/components/ZrokInstallGuide.tsx` | OS-aware zrok installation guide view (macOS/Linux/Windows) |
-| `src/server/cli.ts` | CLI entry point with subcommands (start/stop/restart/status) |
+| `src/server/cli.ts` | CLI entry point with subcommands (start/stop/restart/status); `findPortHolders` is cross-platform (netstat/taskkill on Windows, lsof on Unix) and `server.log` is opened append-mode with timestamped headers |
+| `src/server/restart-helper.ts` | Cross-platform `/api/restart` orchestrator: spawns a detached `node -e` child using only Node built-ins (net, http) — no sh/lsof/curl dependency; exports pure `buildOrchestratorScript(params)` for testing |
+| `src/shared/resolve-jiti.ts` | Resolves pi's jiti register hook as a `file://` URL (required for `node --import` on Windows); exports pure `buildJitiRegisterUrl(pkgJsonPath)` helper and `resolveJitiFromAnchor(anchorPath)` for managed-install/system-pi callers |
+| `src/shared/platform/` | Unified cross-OS primitives (see `index.ts` barrel). All exported helpers take an optional `platform: NodeJS.Platform` parameter so tests can exercise both branches without mutating `process.platform`. Sub-modules: `binary-lookup.ts` (`where`/`which`, `.cmd` ext, `ToolResolver` class for pi/tsx/node resolution), `process.ts` (`findPortHolders`, `killProcess`, `isProcessAlive`, `killPidWithGroup`, `parseNetstatListeners`), `process-scan.ts` (`isProcessRunning` via pgrep/tasklist, `parseEtime`), `shell.ts` (`detectShell` for SHELL/COMSPEC, `getTerminalEnvHints`), `commands.ts` (`openBrowser`, `isVirtualMachine`). See change: consolidate-platform-handlers. |
 | `src/shared/rest-api.ts` | REST API type definitions |
 | `scripts/reload-all.sh` | Build bridge + reload all pi sessions |
 | `CHANGELOG.md` | Human-authored release notes per version (Keep a Changelog 1.1.0); source of GitHub Release bodies. Contributors append bullets to `## [Unreleased]`; release author promotes at tag time. |

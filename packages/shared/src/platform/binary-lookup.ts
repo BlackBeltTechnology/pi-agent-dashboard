@@ -164,10 +164,14 @@ export class ToolResolver {
 function whichSync(cmd: string): string | null {
   const whichCmd = process.platform === "win32" ? "where" : "which";
   try {
-    return execSync(`${whichCmd} ${cmd}`, {
+    // Coerce to string — execSync returns Buffer without encoding, string with
+    // it, and test mocks vary between the two. String() handles both safely.
+    const raw = execSync(`${whichCmd} ${cmd}`, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
-    }).trim().split("\n")[0];
+    });
+    const text = typeof raw === "string" ? raw : String(raw);
+    return text.trim().split("\n")[0] || null;
   } catch {
     return null;
   }
@@ -177,11 +181,12 @@ function whichSync(cmd: string): string | null {
 function whichViaLoginShell(cmd: string): string | null {
   const shell = process.env.SHELL || "/bin/zsh";
   try {
-    const output = execSync(`${shell} -ilc "which ${cmd}"`, {
+    const raw = execSync(`${shell} -ilc "which ${cmd}"`, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
-    }).trim();
+    });
+    const output = (typeof raw === "string" ? raw : String(raw)).trim();
     // Extract absolute path from potentially noisy login shell output
     const pathLine = output.split("\n").find(l => l.trim().startsWith("/"));
     return pathLine?.trim() || null;

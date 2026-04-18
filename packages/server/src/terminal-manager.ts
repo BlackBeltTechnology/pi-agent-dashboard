@@ -10,13 +10,18 @@ import type { WebSocket } from "ws";
 
 const DEFAULT_BUFFER_SIZE = 256 * 1024; // 256KB
 
+// Delegate shell detection to the shared platform primitive. Back-compat
+// wrapper preserved so callers (and tests) that import `detectShell` from
+// this module continue to work. See change: consolidate-platform-handlers.
+import {
+  detectShell as platformDetectShell,
+  getTerminalEnvHints as platformTerminalEnvHints,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/shell.js";
+
 /** Detect the appropriate shell for the current platform. */
 export function detectShell(platform?: string): string {
-  const p = platform ?? process.platform;
-  if (p === "win32") {
-    return process.env.COMSPEC || "powershell.exe";
-  }
-  return process.env.SHELL || "/bin/bash";
+  // Keep the old `platform?: string` signature; coerce to the shared primitive's opts.
+  return platformDetectShell(platform ? { platform: platform as NodeJS.Platform } : undefined);
 }
 
 /** Circular buffer for PTY output replay. */
@@ -110,10 +115,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     const shell = detectShell();
     const id = generateId();
 
-    const env = { ...process.env } as Record<string, string>;
-    if (process.platform === "win32" && !env.TERM) {
-      env.TERM = "cygwin";
-    }
+    const env = { ...process.env, ...platformTerminalEnvHints() } as Record<string, string>;
 
     const p = pty.spawn(shell, [], {
       cwd,

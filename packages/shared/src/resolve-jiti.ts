@@ -8,7 +8,7 @@
  */
 
 import { createRequire } from "node:module";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -59,4 +59,32 @@ export function resolveJitiImport(): string {
     "Cannot find pi's TypeScript loader (jiti). " +
     "Is @mariozechner/pi-coding-agent or @oh-my-pi/pi-coding-agent installed?"
   );
+}
+
+/**
+ * Resolve jiti's register hook from an arbitrary anchor path (e.g. a
+ * pi-coding-agent package.json in a managed install, or a pi binary on
+ * the system PATH). Returns a file:// URL or null if jiti cannot be
+ * resolved from the anchor.
+ *
+ * This is the Electron/managed-install variant of `resolveJitiImport`
+ * — the difference is the caller supplies the anchor explicitly
+ * instead of using `process.argv[1]`. Consolidates what used to be a
+ * duplicate `resolveJitiFromAnchor` in
+ * `packages/electron/src/lib/server-lifecycle.ts`.
+ * See change: consolidate-platform-handlers.
+ */
+export function resolveJitiFromAnchor(anchorPath: string): string | null {
+  if (!existsSync(anchorPath)) return null;
+  try {
+    const req = createRequire(anchorPath);
+    for (const jiti of JITI_PACKAGES) {
+      try {
+        const pkgJson = req.resolve(`${jiti}/package.json`);
+        const registerPath = path.join(path.dirname(pkgJson), "lib", "jiti-register.mjs");
+        if (existsSync(registerPath)) return pathToFileURL(registerPath).href;
+      } catch { /* next */ }
+    }
+  } catch { /* ignore */ }
+  return null;
 }

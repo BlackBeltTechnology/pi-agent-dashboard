@@ -37,40 +37,13 @@ describe("editor-registry", () => {
     });
   });
 
-  describe("isProcessRunningWin32", () => {
-    it("returns true when tasklist finds process", () => {
-      mockedExecSync.mockReturnValue("Code.exe                     12345 Console  1  150,000 K");
-      expect(isProcessRunningWin32("Code.exe")).toBe(true);
-    });
-
-    it("returns false when tasklist shows no matching process", () => {
-      mockedExecSync.mockReturnValue("INFO: No tasks are running which match the specified criteria.");
-      expect(isProcessRunningWin32("Code.exe")).toBe(false);
-    });
-  });
-
-  describe("isProcessRunning", () => {
-    it("should return true when pgrep finds matching process", () => {
-      mockedExecSync.mockReturnValue(Buffer.from("12345\n"));
-      expect(isProcessRunning("/Applications/Zed.app")).toBe(true);
-    });
-
-    it("should return false when pgrep finds no match", () => {
-      mockedExecSync.mockImplementation(() => {
-        throw new Error("exit code 1");
-      });
-      expect(isProcessRunning("/Applications/Zed.app")).toBe(false);
-    });
-
-    it("should return false when pgrep is not available", () => {
-      mockedExecSync.mockImplementation(() => {
-        const err = new Error("command not found") as any;
-        err.status = 127;
-        throw err;
-      });
-      expect(isProcessRunning("/Applications/Zed.app")).toBe(false);
-    });
-  });
+  // Note: dedicated `isProcessRunning` / `isProcessRunningWin32` tests are
+  // intentionally absent — both wrappers now delegate to the shared primitive
+  // in `packages/shared/src/platform/process-scan.ts`, whose tests
+  // (`platform-process-scan.test.ts`) cover the pgrep / tasklist branches
+  // directly via injected `platform`. The detectEditors tests below still
+  // exercise the end-to-end integration.
+  // See change: consolidate-platform-handlers.
 
   describe("detectEditors", () => {
     it("should return editor when process is running AND CLI is available", () => {

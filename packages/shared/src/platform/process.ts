@@ -7,6 +7,8 @@
  * consolidate-platform-handlers.
  */
 
+import { execSync } from "node:child_process";
+
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8" }) => string;
 export type KillFn = (pid: number, signal: NodeJS.Signals | number) => void;
 
@@ -20,8 +22,6 @@ export interface ProcessOpts {
 }
 
 function defaultExec(cmd: string, opts: { encoding: "utf-8" }): string {
-  // Lazy-import to keep the module tree-shakable and testable without mocks.
-  const { execSync } = require("node:child_process") as typeof import("node:child_process");
   return execSync(cmd, opts) as unknown as string;
 }
 

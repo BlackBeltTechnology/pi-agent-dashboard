@@ -8,6 +8,9 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+
+const zrokResolver = new ToolResolver({ processExecPath: process.execPath });
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 
@@ -37,13 +40,10 @@ let pendingCreate: Promise<string | null> | null = null;
 // ── Binary Detection ────────────────────────────────────────────────
 
 function checkZrokOnPath(): boolean {
-  const cmd = process.platform === "win32" ? "where zrok" : "which zrok";
-  try {
-    execSync(cmd, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
+  // Delegate binary lookup to the shared platform primitive (handles the
+  // where/which split on Windows vs Unix, managed-bin search, and login
+  // shell fallback). See change: consolidate-platform-handlers.
+  return zrokResolver.which("zrok") !== null;
 }
 
 /**

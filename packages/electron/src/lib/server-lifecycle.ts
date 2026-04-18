@@ -11,7 +11,8 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { resolveJitiFromAnchor } from "@blackbelt-technology/pi-dashboard-shared/resolve-jiti.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { createRequire } from "node:module";
@@ -142,15 +143,15 @@ export async function ensureServer(): Promise<string> {
   return `http://localhost:${config.port}`;
 }
 
-const JITI_PACKAGES = [
-  "@mariozechner/jiti",
-  "@oh-my-pi/jiti",
-];
-
 /**
  * Attempt to resolve jiti's register hook from a pi installation.
  * Tries managed pi first, then system pi detected via PATH.
- * Returns the absolute path to jiti-register.mjs, or null.
+ * Returns a file:// URL to jiti-register.mjs, or null.
+ *
+ * Anchor-resolution logic is delegated to the shared primitive. This was
+ * previously a duplicate of `packages/shared/src/resolve-jiti.ts` — the
+ * very drift vector that `fix-windows-server-parity` had to patch in two
+ * places. The duplicate is now removed; see change: consolidate-platform-handlers.
  */
 export function resolveJitiFromPi(): string | null {
   // 1. Try managed pi install
@@ -169,28 +170,6 @@ export function resolveJitiFromPi(): string | null {
     } catch { /* ignore */ }
   }
 
-  return null;
-}
-
-/**
- * Resolve jiti register hook from an anchor file path (package.json or binary).
- * Returns a file:// URL (not a raw path) so `node --import <value>` works on
- * Windows; Node >= 20 rejects raw absolute paths with drive letters because it
- * parses them as URL schemes (ERR_UNSUPPORTED_ESM_URL_SCHEME).
- * See change: fix-windows-server-parity.
- */
-function resolveJitiFromAnchor(anchorPath: string): string | null {
-  if (!existsSync(anchorPath)) return null;
-  try {
-    const req = createRequire(anchorPath);
-    for (const jiti of JITI_PACKAGES) {
-      try {
-        const pkgJson = req.resolve(`${jiti}/package.json`);
-        const registerPath = path.join(path.dirname(pkgJson), "lib", "jiti-register.mjs");
-        if (existsSync(registerPath)) return pathToFileURL(registerPath).href;
-      } catch { /* next */ }
-    }
-  } catch { /* ignore */ }
   return null;
 }
 

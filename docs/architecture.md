@@ -552,6 +552,49 @@ The `POST /api/restart` endpoint and `pi-dashboard restart` command perform faul
 
 The restart endpoint accepts `{ dev: boolean }` to switch between dev/production mode.
 
+### Cross-Platform Server Launch
+
+The dashboard server is spawned via `node --import <loader> <cli.ts>` from three call sites (`packages/server/src/cli.ts` `cmdStart`, `packages/extension/src/server-launcher.ts` `launchServer`, `packages/electron/src/lib/server-lifecycle.ts` `launchServer`). On Node ≥ 20, Windows rejects raw absolute paths passed to `--import` because it parses the drive-letter prefix (e.g. `B:`) as a URL scheme (`ERR_UNSUPPORTED_ESM_URL_SCHEME`). Every resolver therefore returns a `file://` URL, not a raw path:
+
+- `packages/shared/src/resolve-jiti.ts` — `resolveJitiImport()` (anchor = `process.argv[1]`) and `resolveJitiFromAnchor(anchorPath)` (anchor supplied explicitly) both return `pathToFileURL(registerPath).href`
+- `packages/electron/src/lib/server-lifecycle.ts` — `resolveJitiFromPi()` now imports `resolveJitiFromAnchor` from shared (previously duplicated; consolidated in the `consolidate-platform-handlers` change)
+- `packages/server/src/cli.ts` — the tsx fallback wraps `esm/index.mjs` the same way
+
+The URL form is cross-platform safe (Linux/macOS accept both raw paths and `file://` URLs) so no platform gating is needed in the resolvers.
+
+### Cross-OS Platform Primitives
+
+Cross-OS behavior (`process.platform === "win32"` branches) is centralized in `packages/shared/src/platform/` (pure Node, consumed by server + extension + Electron). The module has an `index.ts` barrel plus per-concern files:
+
+| File | Concerns |
+|---|---|
+| `binary-lookup.ts` | `where`/`which` dispatch, `.cmd` extension on Windows, managed-bin search, login-shell fallback. Exports `ToolResolver` class + pi/tsx/node resolve helpers. |
+| `process.ts` | `findPortHolders` (netstat vs lsof), `killProcess` (taskkill tree on Windows, SIGTERM→SIGKILL on Unix), `isProcessAlive`, `killPidWithGroup` (negative-pid on Unix, positive on Windows). |
+| `process-scan.ts` | `isProcessRunning` (tasklist vs pgrep), pure `parseEtime`. |
+| `shell.ts` | `detectShell` (COMSPEC on Windows, SHELL on Unix, with fallbacks), `getTerminalEnvHints` (TERM=cygwin hint for node-pty on Windows). |
+| `commands.ts` | `openBrowser` (`open`/`start`/`xdg-open`), `isVirtualMachine` (`sysctl`/`systemd-detect-virt`/`wmic`). |
+
+Every exported helper that depends on OS takes an optional `platform: NodeJS.Platform` parameter (and usually `exec`/`kill`/`env` for full injection). Tests exercise both branches via these parameters rather than mutating `process.platform`. This is the pattern to follow for any new cross-OS primitives.
+
+Electron-bound presentation concerns (tray icons, menu template, dock behavior, bundled Node path) remain in `packages/electron/src/lib/` because they import from the `electron` package and cannot live in shared.
+
+Residual `process.platform` branches elsewhere in the tree fall into three allowed categories:
+
+1. **Strategy selection** (not a primitive): `packages/server/src/process-manager.ts` chooses between tmux / headless / WSL spawn strategies and consumes platform primitives to build each command. Strategy logic is session-spawn domain, not platform primitive.
+2. **Data access by key**: code that indexes into a per-OS config object (e.g. `editor.processPattern[platform]`) legitimately reads `process.platform` as a map key.
+3. **Unix-only guards**: some functions (e.g. `killHeadlessBySessionId` which greps `ps` output for a sentinel string) short-circuit to `return false` on Windows because the whole strategy is Unix-only.
+
+### Server Log Hygiene
+
+The daemon log at `~/.pi/dashboard/server.log` is opened in **append mode** (`"a"`) so crash output from prior start attempts survives subsequent retries — essential for diagnosing silent failures. Each attempt writes a timestamped header to distinguish runs:
+
+```
+[2026-04-18T14:30:00.000Z] pi-dashboard start (parent pid 12345, port 8000)
+[2026-04-18T14:30:02.000Z] bridge auto-start (parent pid 23456, port 8000)
+```
+
+Both `pi-dashboard start` (CLI) and the bridge extension's `launchServer` write to this file. Previously the extension used `stdio: "ignore"` (losing all error output) and the CLI opened the log with `"w"` (truncating prior runs); both were fixed in `fix-windows-server-parity`. On auto-start failure, the bridge now surfaces the log path in its `ui.notify` message so users can open the file directly.
+
 ### Auto-Start Flow
 
 When `autoStart` is `true` (default), the bridge extension automatically starts the dashboard server:

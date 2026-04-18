@@ -34,36 +34,10 @@ log(`platform=${process.platform} arch=${process.arch} pid=${process.pid}`);
 log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);
 log(`execPath=${process.execPath}`);
 
-// Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox)
-// Must be called before app.whenReady()
-function isVirtualMachine(): boolean {
-  try {
-    const { execSync } = require("node:child_process");
-    if (process.platform === "darwin") {
-      const model = execSync("sysctl -n hw.model", { encoding: "utf-8" }).trim();
-      return model.includes("VMware") || model.includes("VirtualBox") || model.includes("Parallels");
-    }
-    if (process.platform === "linux") {
-      const virt = execSync("systemd-detect-virt 2>/dev/null || echo none", { encoding: "utf-8" }).trim();
-      return virt !== "none";
-    }
-    if (process.platform === "win32") {
-      // Check multiple sources — wmic serialnumber, manufacturer, and model
-      const checks = [
-        "wmic bios get serialnumber",
-        "wmic computersystem get manufacturer,model",
-      ];
-      for (const cmd of checks) {
-        try {
-          const out = execSync(cmd, { encoding: "utf-8", timeout: 5000 });
-          if (/VMware|VirtualBox|VBOX|Parallels|Virtual Machine|Hyper-V/i.test(out)) return true;
-        } catch { /* try next */ }
-      }
-      return false;
-    }
-  } catch { /* ignore */ }
-  return false;
-}
+// Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
+// VM detection now lives in the shared platform primitive.
+// See change: consolidate-platform-handlers.
+import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 
 const isVM = isVirtualMachine();
 const disableGpu = process.env.ELECTRON_DISABLE_GPU || isVM;

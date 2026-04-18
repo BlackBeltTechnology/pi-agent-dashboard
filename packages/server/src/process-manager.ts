@@ -7,7 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/tool-resolver.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 /** Server-side resolver — knows the current process node binary. */
 const resolver = new ToolResolver({ processExecPath: process.execPath });

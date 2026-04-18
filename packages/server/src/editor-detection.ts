@@ -4,7 +4,7 @@
  */
 import type { EditorDetectionResult } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { EditorConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/tool-resolver.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 export const BINARIES_TO_CHECK = ["code-server", "openvscode-server"] as const;
 

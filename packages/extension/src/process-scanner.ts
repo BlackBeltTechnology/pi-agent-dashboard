@@ -24,36 +24,12 @@ export interface ChildProcessInfo {
 
 /**
  * Parse ps ETIME format into milliseconds.
- * Formats: mm:ss, hh:mm:ss, dd-hh:mm:ss
+ * Re-exported from the shared platform primitive to keep the public API of
+ * this module stable while centralizing the pure helper.
+ * See change: consolidate-platform-handlers.
  */
-export function parseEtime(etime: string): number {
-  const trimmed = etime.trim();
-  if (!trimmed) return 0;
-
-  let days = 0;
-  let rest = trimmed;
-
-  const dashIdx = rest.indexOf("-");
-  if (dashIdx !== -1) {
-    days = parseInt(rest.slice(0, dashIdx), 10);
-    if (isNaN(days)) return 0;
-    rest = rest.slice(dashIdx + 1);
-  }
-
-  const parts = rest.split(":").map((p) => parseInt(p, 10));
-  if (parts.some(isNaN)) return 0;
-
-  let hours = 0, minutes = 0, seconds = 0;
-  if (parts.length === 3) {
-    [hours, minutes, seconds] = parts;
-  } else if (parts.length === 2) {
-    [minutes, seconds] = parts;
-  } else {
-    return 0;
-  }
-
-  return ((days * 86400) + (hours * 3600) + (minutes * 60) + seconds) * 1000;
-}
+export { parseEtime } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
+import { parseEtime } from "@blackbelt-technology/pi-dashboard-shared/platform/process-scan.js";
 
 const DEFAULT_MIN_ELAPSED_MS = 30_000;
 
