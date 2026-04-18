@@ -4,10 +4,7 @@
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { safeRealpathSync } from "../resolve-path.js";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 
 export function handlePinDirectory(
   msg: Extract<BrowserToServerMessage, { type: "pin_directory" }>,
@@ -89,8 +86,11 @@ export function handleOpenSpecBulkArchive(
   ctx: BrowserHandlerContext,
 ): void {
   if (ctx.directoryService) {
-    execFileAsync("openspec", ["archive", "--completed"], { cwd: msg.cwd, timeout: 30000 })
-      .catch(() => {})
+    // Delegate to the shared openspec tool module. The runner handles
+    // windowsHide, timeout, and argv-array escaping.
+    // See change: platform-command-executor.
+    openspecArchiveCompleted({ cwd: msg.cwd });
+    Promise.resolve()
       .then(() => ctx.directoryService!.refreshOpenSpec(msg.cwd))
       .then((data) => {
         if (data) ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });

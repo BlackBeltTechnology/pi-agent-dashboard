@@ -17,7 +17,7 @@
  */
 import { createServer, type ServerConfig } from "./server.js";
 import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { spawn } from "node:child_process";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import fs from "node:fs";

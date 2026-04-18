@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 
 const zrokResolver = new ToolResolver({ processExecPath: process.execPath });

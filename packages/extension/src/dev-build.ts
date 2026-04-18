@@ -2,7 +2,7 @@
  * Dev build-on-reload helper.
  * Builds the Vite client and requests server shutdown.
  */
-import { execSync as defaultExecSync } from "node:child_process";
+import { execSync as defaultExecSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 export interface DevBuildOptions {
   packageRoot: string;

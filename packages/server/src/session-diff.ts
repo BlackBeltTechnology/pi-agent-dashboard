@@ -2,9 +2,9 @@
  * Session diff extraction — scans session events for file changes
  * and optionally enriches with git diffs.
  */
-import { execSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, sep as pathSep } from "node:path";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FileChangeEvent, FileDiffEntry, EditOperation } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { isGitRepo } from "./git-operations.js";
@@ -135,24 +135,17 @@ export function enrichWithGitDiff(
 
   const enriched = files.map((file) => {
     try {
-      const diff = execSync(`git diff HEAD -- ${JSON.stringify(file.path)}`, {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: GIT_TIMEOUT,
-      }).trim();
+      // Delegate to the shared git tool module. The runner handles
+      // windowsHide, timeout, argv-array escaping (no shell), and the
+      // "no diff" exit-1 tolerance. See change: platform-command-executor.
+      const diff = git.diffOr({ cwd, path: file.path }).trim();
 
       if (diff) {
         return { ...file, gitDiff: diff };
       }
 
       // No diff from HEAD — try untracked (new file)
-      const status = execSync(`git status --porcelain -- ${JSON.stringify(file.path)}`, {
-        cwd,
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: GIT_TIMEOUT,
-      }).trim();
+      const status = git.statusPorcelainOr({ cwd, path: file.path }).trim();
 
       if (status.startsWith("??") || status.startsWith("A")) {
         // Untracked or newly added — generate synthetic diff.

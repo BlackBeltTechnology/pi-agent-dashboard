@@ -13,7 +13,7 @@ import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection
 import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import { createTunnel, deleteTunnel, getTunnelStatus } from "../tunnel.js";
 import { spawnRestart } from "../restart-helper.js";
-import { spawn } from "node:child_process";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import path from "node:path";
 import os from "node:os";
 import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";

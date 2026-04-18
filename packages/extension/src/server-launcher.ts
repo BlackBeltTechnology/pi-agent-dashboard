@@ -3,7 +3,7 @@
  * The spawned server runs in foreground mode (no subcommand) and writes
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

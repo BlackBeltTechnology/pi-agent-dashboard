@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { execSync } from "node:child_process";
+import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 export interface ProgressEvent {
   type: "start" | "progress" | "complete" | "error";
   action: "install" | "remove" | "update" | "clone" | "pull";
@@ -46,7 +46,8 @@ async function loadPiPackageManager() {
   // Resolve from global npm install (pi is typically installed globally)
   for (const pkgName of ["@mariozechner/pi-coding-agent", "@oh-my-pi/pi-coding-agent"]) {
     try {
-      const npmRoot = execSync("npm root -g", { encoding: "utf-8", timeout: 10_000 }).trim();
+      const npmRoot = npm.rootGlobalOr("");
+      if (!npmRoot) throw new Error("npm root -g failed");
       const entryPath = path.join(npmRoot, pkgName, "dist", "index.js");
       const mod = await import(pathToFileURL(entryPath).href);
       if (mod.DefaultPackageManager) {
@@ -106,24 +107,6 @@ export class PackageManagerWrapper {
 
   isBusy(): boolean {
     return this.busy;
-  }
-
-  /**
-   * Run an arbitrary async operation under the wrapper's busy-lock.
-   * Used by adjacent subsystems (e.g. PiCoreUpdater) to coordinate with
-   * extension install/update operations. Throws PackageOperationBusyError
-   * if a package operation is already running.
-   */
-  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.busy) {
-      throw new PackageOperationBusyError();
-    }
-    this.busy = true;
-    try {
-      return await fn();
-    } finally {
-      this.busy = false;
-    }
   }
 
   /**

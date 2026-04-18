@@ -1,8 +1,13 @@
 /**
  * Checks for newer versions of pi and openspec.
  * Runs on launch and every 24 hours.
+ *
+ * Delegates all npm invocations to the shared `platform/npm.ts` module
+ * so cross-cutting concerns (windowsHide, timeouts, exit-1 tolerance for
+ * `npm outdated`) are centralized.
+ * See change: platform-command-executor.
  */
-import { execSync } from "node:child_process";
+import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import os from "node:os";
 import path from "node:path";
 import { readModeFile } from "./wizard-state.js";
@@ -28,12 +33,10 @@ export function checkOutdated(): OutdatedPackage[] {
   const results: OutdatedPackage[] = [];
 
   for (const pkg of PACKAGES_TO_CHECK) {
-    try {
-      const outdated = modeConfig?.mode === "standalone"
-        ? checkManagedOutdated(pkg)
-        : checkGlobalOutdated(pkg);
-      if (outdated) results.push(outdated);
-    } catch { /* network error or not installed — skip silently */ }
+    const outdated = modeConfig?.mode === "standalone"
+      ? checkManagedOutdated(pkg)
+      : checkGlobalOutdated(pkg);
+    if (outdated) results.push(outdated);
   }
 
   return results;
@@ -41,43 +44,21 @@ export function checkOutdated(): OutdatedPackage[] {
 
 function checkManagedOutdated(pkg: string): OutdatedPackage | null {
   const managedDir = path.join(os.homedir(), ".pi-dashboard");
-  try {
-    const output = execSync(`npm outdated ${pkg} --json`, {
-      cwd: managedDir,
-      encoding: "utf-8",
-      timeout: 30_000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return parseOutdatedJson(pkg, output);
-  } catch (err: any) {
-    // npm outdated exits with code 1 when packages are outdated
-    if (err.stdout) return parseOutdatedJson(pkg, err.stdout);
-    return null;
-  }
+  const data = npm.outdatedOr({ cwd: managedDir, pkg }) as Record<string, any> | null;
+  return parseOutdatedEntry(pkg, data);
 }
 
 function checkGlobalOutdated(pkg: string): OutdatedPackage | null {
-  try {
-    const output = execSync(`npm outdated -g ${pkg} --json`, {
-      encoding: "utf-8",
-      timeout: 30_000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    return parseOutdatedJson(pkg, output);
-  } catch (err: any) {
-    if (err.stdout) return parseOutdatedJson(pkg, err.stdout);
-    return null;
-  }
+  const data = npm.outdatedGlobalOr({ pkg }) as Record<string, any> | null;
+  return parseOutdatedEntry(pkg, data);
 }
 
-function parseOutdatedJson(pkg: string, output: string): OutdatedPackage | null {
-  try {
-    const data = JSON.parse(output);
-    const info = data[pkg];
-    if (info?.current && info?.latest && info.current !== info.latest) {
-      return { name: pkg, current: info.current, latest: info.latest };
-    }
-  } catch { /* malformed JSON */ }
+function parseOutdatedEntry(pkg: string, data: Record<string, any> | null): OutdatedPackage | null {
+  if (!data) return null;
+  const info = data[pkg];
+  if (info?.current && info?.latest && info.current !== info.latest) {
+    return { name: pkg, current: info.current, latest: info.latest };
+  }
   return null;
 }
 
@@ -88,9 +69,11 @@ export function updatePackage(pkg: string): void {
   const modeConfig = readModeFile();
   if (modeConfig?.mode === "standalone") {
     const managedDir = path.join(os.homedir(), ".pi-dashboard");
-    execSync(`npm install ${pkg}@latest`, { cwd: managedDir, stdio: "pipe", timeout: 120_000 });
+    const r = npm.install({ cwd: managedDir, pkg, version: "latest" });
+    if (!r.ok) throw new Error(`npm install failed: ${JSON.stringify(r.error)}`);
   } else {
-    execSync(`npm install -g ${pkg}@latest`, { stdio: "pipe", timeout: 120_000 });
+    const r = npm.installGlobal({ pkg, version: "latest" });
+    if (!r.ok) throw new Error(`npm install -g failed: ${JSON.stringify(r.error)}`);
   }
 }
 

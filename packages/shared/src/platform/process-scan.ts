@@ -8,7 +8,7 @@
  * See change: consolidate-platform-handlers.
  */
 
-import { execSync } from "node:child_process";
+import { execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8"; stdio?: any }) => string;
 
@@ -20,7 +20,7 @@ export interface ProcessScanOpts {
 }
 
 function defaultExec(cmd: string, opts: { encoding: "utf-8"; stdio?: any }): string {
-  return execSync(cmd, opts) as unknown as string;
+  return execSync(cmd, { ...opts, windowsHide: true }) as unknown as string;
 }
 
 // ── Elapsed-time parsing (pure, platform-agnostic) ──────────────────────────

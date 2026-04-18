@@ -11,7 +11,7 @@
  *
  * See change: fix-windows-server-parity.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -47,7 +47,7 @@ export function buildOrchestratorScript(params: RestartParams): string {
   return `
 const net = require("node:net");
 const http = require("node:http");
-const { spawn } = require("node:child_process");
+const { spawn } = require("node:child_process"); // ban:child_process-ok — runs in a detached 'node -e' process, not in-host
 const fs = require("node:fs");
 const path = require("node:path");
 

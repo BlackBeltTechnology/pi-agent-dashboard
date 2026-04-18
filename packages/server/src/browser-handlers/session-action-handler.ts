@@ -6,7 +6,7 @@ import type { BrowserHandlerContext } from "./handler-context.js";
 import { spawnPiSession } from "../process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createBranchedSessionFile } from "../session-file-reader.js";
-import { execSync } from "node:child_process";
+import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   isProcessAlive as platformIsProcessAlive,
   killPidWithGroup,

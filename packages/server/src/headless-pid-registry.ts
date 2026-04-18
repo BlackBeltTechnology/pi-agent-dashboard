@@ -3,7 +3,7 @@
  * Tracks PID + cwd at spawn time, links to sessionId when the bridge connects.
  * Persists entries to disk so a restarted server can clean up orphans.
  */
-import type { ChildProcess } from "node:child_process";
+import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { EventEmitter } from "node:events";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { killPidWithGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";

@@ -3,7 +3,7 @@
  * Checks all required binaries, services, and configuration.
  * Reports what's found, what's missing, and can fix missing pieces.
  */
-import { execSync } from "node:child_process";
+import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";

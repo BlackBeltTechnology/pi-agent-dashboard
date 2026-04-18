@@ -3,7 +3,7 @@
  * Uses system npm when available, falls back to bundled npm.
  * All installs run async (child_process.exec) to avoid blocking Electron's main process.
  */
-import { exec, spawn as cpSpawn } from "node:child_process";
+import { exec, spawn as cpSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";

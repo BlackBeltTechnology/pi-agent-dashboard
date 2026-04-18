@@ -2,7 +2,8 @@
  * Detects whether required CLI tools are installed.
  * Checks system PATH first, then the managed install at ~/.pi-dashboard/.
  */
-import { execSync } from "node:child_process";
+import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -98,14 +99,14 @@ export function detectDashboardPackage(): DetectionResult {
     return { found: true, path: managedPkg, source: "managed" };
   }
 
-  // Check global npm install
-  try {
-    const npmRoot = execSync("npm root -g", { encoding: "utf-8", timeout: 10_000 }).trim();
+  // Check global npm install (shared npm module handles windowsHide + caching).
+  const npmRoot = npm.rootGlobalOr("");
+  if (npmRoot) {
     const globalPkg = path.join(npmRoot, "@blackbelt-technology", "pi-agent-dashboard", "package.json");
     if (existsSync(globalPkg)) {
       return { found: true, path: globalPkg, source: "system" };
     }
-  } catch { /* ignore */ }
+  }
 
   return { found: false };
 }

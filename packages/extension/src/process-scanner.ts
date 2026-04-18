@@ -12,8 +12,8 @@
  * This handles the reparenting problem: children get reparented to PID 1
  * when the bash wrapper exits, but we captured their PGIDs while alive.
  */
-import { spawnSync as defaultSpawnSync } from "node:child_process";
-import type { SpawnSyncReturns } from "node:child_process";
+import { spawnSync as defaultSpawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import type { SpawnSyncReturns } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 export interface ChildProcessInfo {
   pid: number;
@@ -260,7 +260,15 @@ function getWindowsDescendants(parentPid: number, spawnSync: SpawnSyncFn): Child
     const result = spawnSync(
       "wmic",
       ["process", "where", `ParentProcessId=${parentPid}`, "get", "CommandLine,CreationDate,ParentProcessId,ProcessId", "/format:list"],
-      { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] }
+      {
+        encoding: "utf-8",
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+        // Critical: without this, every 10-second process scan flashes a
+        // console window. wmic is deprecated on Win 11 but still the
+        // default here; PowerShell fallback also needs windowsHide.
+        windowsHide: true,
+      },
     );
     if (result.status !== 0 || !result.stdout) {
       // wmic removed in newer Windows 11 — fallback to tasklist
@@ -314,7 +322,13 @@ function getWindowsDescendantsTasklist(parentPid: number, spawnSync: SpawnSyncFn
     const result = spawnSync(
       "powershell",
       ["-NoProfile", "-Command", `Get-CimInstance Win32_Process -Filter "ParentProcessId=${parentPid}" | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json`],
-      { encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"] }
+      {
+        encoding: "utf-8",
+        timeout: 10000,
+        stdio: ["pipe", "pipe", "pipe"],
+        // Suppress console flash for the PowerShell fallback path.
+        windowsHide: true,
+      },
     );
     if (result.status !== 0 || !result.stdout) return [];
 
@@ -361,6 +375,7 @@ export function killWindowsProcess(pid: number, options?: ScanOptions): boolean 
   const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
   try {
     const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      windowsHide: true,
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["pipe", "pipe", "pipe"],

@@ -1,7 +1,7 @@
 /**
  * Process manager for spawning pi sessions via tmux or headless (RPC mode).
  */
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";

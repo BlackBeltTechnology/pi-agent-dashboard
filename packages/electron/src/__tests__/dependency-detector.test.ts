@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockExecSync, mockExistsSync, mockReadFileSync } = vi.hoisted(() => ({
+const { mockExecSync, mockExistsSync, mockReadFileSync, mockNpmRootGlobalOr } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
   mockExistsSync: vi.fn(),
   mockReadFileSync: vi.fn(),
+  mockNpmRootGlobalOr: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
   execSync: mockExecSync,
+}));
+
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/npm.js", () => ({
+  rootGlobalOr: mockNpmRootGlobalOr,
 }));
 
 vi.mock("node:fs", () => ({
@@ -137,10 +142,8 @@ describe("dependency-detector", () => {
         return false;
       });
       mockReadFileSync.mockReturnValue(JSON.stringify({ packages: ["npm:other-pkg"] }));
-      mockExecSync.mockImplementation((cmd: string) => {
-        if (String(cmd).includes("npm root -g")) return "/usr/lib/node_modules\n";
-        throw new Error("not found");
-      });
+      mockNpmRootGlobalOr.mockReturnValue("/usr/lib/node_modules");
+      mockExecSync.mockImplementation(() => { throw new Error("not found"); });
       const result = detectBridgeExtension();
       expect(result.found).toBe(true);
       expect(result.source).toBe("system");

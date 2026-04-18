@@ -8,7 +8,7 @@
  * See change: consolidate-platform-handlers.
  */
 
-import { exec as childExec, execSync } from "node:child_process";
+import { exec as childExec, execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8"; timeout?: number }) => string;
 export type AsyncExecFn = (cmd: string, cb: (err: Error | null) => void) => void;
@@ -23,11 +23,11 @@ export interface CommandsOpts {
 }
 
 function defaultExec(cmd: string, opts: { encoding: "utf-8"; timeout?: number }): string {
-  return execSync(cmd, opts) as unknown as string;
+  return execSync(cmd, { ...opts, windowsHide: true }) as unknown as string;
 }
 
 function defaultAsyncExec(cmd: string, cb: (err: Error | null) => void): void {
-  childExec(cmd, (err) => cb(err));
+  childExec(cmd, { windowsHide: true }, (err) => cb(err));
 }
 
 // ── Open URL in default browser ─────────────────────────────────────────────

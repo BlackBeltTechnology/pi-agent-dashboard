@@ -7,7 +7,7 @@
  * consolidate-platform-handlers.
  */
 
-import { execSync } from "node:child_process";
+import { execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8" }) => string;
 export type KillFn = (pid: number, signal: NodeJS.Signals | number) => void;
@@ -22,7 +22,10 @@ export interface ProcessOpts {
 }
 
 function defaultExec(cmd: string, opts: { encoding: "utf-8" }): string {
-  return execSync(cmd, opts) as unknown as string;
+  // Always suppress the cmd.exe window flash on Windows. The primitives that
+  // use this (findPortHolders via netstat, killProcess via taskkill) don't
+  // need user visibility.
+  return execSync(cmd, { ...opts, windowsHide: true }) as unknown as string;
 }
 
 function defaultKill(pid: number, signal: NodeJS.Signals | number): void {

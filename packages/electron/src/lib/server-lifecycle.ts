@@ -7,7 +7,7 @@
  * Electron app, those packages are inside resources/server/node_modules/ which is NOT
  * on the ESM module resolution path. All config reading and health checking is inlined.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, mkdirSync, openSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";

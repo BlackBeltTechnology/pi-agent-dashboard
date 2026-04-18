@@ -1,7 +1,11 @@
 /**
  * Git info gathering — detects branch, remote URL, and PR number.
+ * Delegates to the shared git tool module so there's no inline execSync
+ * and every call benefits from the runner's safety defaults (windowsHide,
+ * timeout, tolerated exit codes).
+ * See change: platform-command-executor.
  */
-import { execSync } from "node:child_process";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { buildGitLinks, type GitLinks } from "./git-link-builder.js";
 
 export interface GitInfo {
@@ -11,39 +15,25 @@ export interface GitInfo {
   gitPrUrl?: string;
 }
 
-/** Run a shell command and return trimmed stdout, or undefined on failure. */
-function runGit(command: string, cwd: string): string | undefined {
-  try {
-    return execSync(command, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: 5000 }).trim();
-  } catch {
-    return undefined;
-  }
-}
-
 /** Detect the current git branch. Returns short SHA for detached HEAD. */
 export function detectBranch(cwd: string): string | undefined {
-  const ref = runGit("git rev-parse --abbrev-ref HEAD", cwd);
+  const ref = git.currentBranchOr({ cwd });
   if (!ref) return undefined;
   if (ref === "HEAD") {
     // Detached HEAD — return short commit SHA
-    return runGit("git rev-parse --short HEAD", cwd) ?? "HEAD";
+    return git.headShaOr({ cwd, short: true }) ?? "HEAD";
   }
   return ref;
 }
 
 /** Detect the remote origin URL. */
 export function detectRemoteUrl(cwd: string): string | undefined {
-  return runGit("git remote get-url origin", cwd);
+  return git.remoteUrlOr({ cwd });
 }
 
 /** Detect the PR number via gh CLI (best effort). */
 export function detectPrNumber(cwd: string): number | undefined {
-  const result = runGit("gh pr view --json number -q .number", cwd);
-  if (result) {
-    const num = parseInt(result, 10);
-    if (!isNaN(num)) return num;
-  }
-  return undefined;
+  return git.prNumberOr({ cwd });
 }
 
 /** Gather all git info for a directory. Returns undefined if not a git repo. */

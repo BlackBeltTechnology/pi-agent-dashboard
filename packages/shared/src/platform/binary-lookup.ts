@@ -3,7 +3,7 @@
  * Replaces scattered whichSync/resolvePiCommand/resolveTsxCommand implementations
  * with a single configurable resolver.
  */
-import { execSync } from "node:child_process";
+import { execSync } from "./exec.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -171,7 +171,11 @@ function whichSync(cmd: string): string | null {
       stdio: ["pipe", "pipe", "pipe"],
     });
     const text = typeof raw === "string" ? raw : String(raw);
-    return text.trim().split("\n")[0] || null;
+    // Split on any newline (\n or \r\n) and trim each line — Windows `where`
+    // emits CRLF-terminated lines; without the per-line trim, a trailing \r
+    // sneaks into the resolved path and causes ENOENT.
+    const first = text.split(/\r?\n/)[0]?.trim();
+    return first || null;
   } catch {
     return null;
   }

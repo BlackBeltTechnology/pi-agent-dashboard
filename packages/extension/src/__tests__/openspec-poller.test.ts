@@ -1,119 +1,124 @@
+/**
+ * Tests for openspec-poller.ts — the higher-level aggregator that combines
+ * `openspec list` + per-change `openspec status` into the dashboard's
+ * `OpenSpecData` shape.
+ *
+ * The file now delegates to `platform/openspec.ts` for the subprocess work.
+ * We mock that module so the tests focus on the aggregation logic
+ * (empty results, artifact mapping, per-change status failures) without
+ * spawning openspec.
+ *
+ * See change: platform-command-executor.
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SpawnSyncReturns } from "node:child_process";
 
-// We need to mock spawnSync before importing the module under test
-const mockSpawnSync = vi.fn<(...args: any[]) => any>();
-const mockExecFile = vi.fn<(...args: any[]) => any>();
-vi.mock("node:child_process", () => ({
-  spawnSync: mockSpawnSync,
-  execFile: mockExecFile,
-  // re-export defaults that node:child_process has
-  default: { spawnSync: mockSpawnSync, execFile: mockExecFile },
+const { listOr, statusOr } = vi.hoisted(() => ({
+  listOr: vi.fn(),
+  statusOr: vi.fn(),
 }));
 
-// Import after mock is set up
-const { pollOpenSpec } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/openspec.js", () => ({
+  listOr,
+  statusOr,
+}));
 
-function ok(data: unknown): Partial<SpawnSyncReturns<string>> {
-  return { status: 0, stdout: JSON.stringify(data), stderr: "" };
-}
-
-function fail(): Partial<SpawnSyncReturns<string>> {
-  return { status: 1, stdout: "", stderr: "error" };
-}
-
-function mockCli(responses: Map<string, unknown>) {
-  mockSpawnSync.mockImplementation((_cmd: any, args: any) => {
-    const a = args as string[];
-    if (a.includes("list")) {
-      const d = responses.get("list");
-      return d ? ok(d) : fail();
-    }
-    if (a.includes("status")) {
-      const idx = a.indexOf("--change");
-      const name = idx >= 0 ? a[idx + 1] : "";
-      const d = responses.get(`status:${name}`);
-      return d ? ok(d) : fail();
-    }
-    return fail();
-  });
-}
-
-beforeEach(() => {
-  mockSpawnSync.mockReset();
-});
+import { pollOpenSpec } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 
 describe("pollOpenSpec", () => {
-  it("returns initialized=false when CLI throws", () => {
-    mockSpawnSync.mockImplementation(() => { throw new Error("ENOENT"); });
-    const result = pollOpenSpec("/project");
-    expect(result).toEqual({ initialized: false, changes: [] });
+  beforeEach(() => {
+    listOr.mockReset();
+    statusOr.mockReset();
   });
 
-  it("returns initialized=false when list returns non-zero exit", () => {
-    mockSpawnSync.mockReturnValue(fail());
-    const result = pollOpenSpec("/project");
-    expect(result).toEqual({ initialized: false, changes: [] });
+  it("returns initialized=false when list fails", () => {
+    listOr.mockReturnValue(null);
+    expect(pollOpenSpec("/test")).toEqual({ initialized: false, changes: [] });
+  });
+
+  it("returns initialized=false when list returns non-array changes", () => {
+    listOr.mockReturnValue({ changes: "not an array" });
+    expect(pollOpenSpec("/test")).toEqual({ initialized: false, changes: [] });
   });
 
   it("returns initialized=true with changes on success", () => {
-    mockCli(new Map([
-      ["list", {
-        changes: [
-          { name: "feat-a", status: "in-progress", completedTasks: 3, totalTasks: 5 },
-          { name: "feat-b", status: "complete", completedTasks: 4, totalTasks: 4 },
-        ],
-      }],
-      ["status:feat-a", {
-        artifacts: [
-          { id: "proposal", status: "done" },
-          { id: "design", status: "ready" },
-          { id: "tasks", status: "blocked" },
-        ],
-      }],
-      ["status:feat-b", {
-        artifacts: [
-          { id: "proposal", status: "done" },
-          { id: "tasks", status: "done" },
-        ],
-      }],
-    ]));
-
-    const result = pollOpenSpec("/project");
-    expect(result.initialized).toBe(true);
-    expect(result.changes).toHaveLength(2);
-    expect(result.changes[0]).toEqual({
-      name: "feat-a",
-      status: "in-progress",
-      completedTasks: 3,
-      totalTasks: 5,
-      artifacts: [
-        { id: "proposal", status: "done" },
-        { id: "design", status: "ready" },
-        { id: "tasks", status: "blocked" },
+    listOr.mockReturnValue({
+      changes: [
+        { name: "add-auth", status: "in-progress", completedTasks: 3, totalTasks: 10 },
       ],
     });
-    expect(result.changes[1].status).toBe("complete");
-  });
+    statusOr.mockReturnValue({
+      artifacts: [
+        { id: "proposal", status: "done" },
+        { id: "tasks", status: "ready" },
+      ],
+    });
 
-  it("handles invalid JSON gracefully", () => {
-    mockSpawnSync.mockReturnValue({ status: 0, stdout: "not json {{{", stderr: "" });
-    const result = pollOpenSpec("/project");
-    expect(result).toEqual({ initialized: false, changes: [] });
+    const result = pollOpenSpec("/test");
+    expect(result.initialized).toBe(true);
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      name: "add-auth",
+      status: "in-progress",
+      completedTasks: 3,
+      totalTasks: 10,
+    });
+    expect(result.changes[0].artifacts).toEqual([
+      { id: "proposal", status: "done" },
+      { id: "tasks", status: "ready" },
+    ]);
   });
 
   it("handles status call failure gracefully (empty artifacts)", () => {
-    mockCli(new Map([
-      ["list", {
-        changes: [
-          { name: "feat-a", status: "no-tasks", completedTasks: 0, totalTasks: 0 },
-        ],
-      }],
-      // No status:feat-a — status call fails
-    ]));
+    listOr.mockReturnValue({
+      changes: [
+        { name: "x", status: "complete", completedTasks: 5, totalTasks: 5 },
+      ],
+    });
+    statusOr.mockReturnValue(null); // status failed
 
-    const result = pollOpenSpec("/project");
+    const result = pollOpenSpec("/test");
     expect(result.initialized).toBe(true);
     expect(result.changes[0].artifacts).toEqual([]);
+  });
+
+  it("normalizes unknown status values to 'no-tasks'", () => {
+    listOr.mockReturnValue({
+      changes: [
+        { name: "x", status: "weird-future-status", completedTasks: 0, totalTasks: 0 },
+      ],
+    });
+    statusOr.mockReturnValue(null);
+
+    const result = pollOpenSpec("/test");
+    expect(result.changes[0].status).toBe("no-tasks");
+  });
+
+  it("normalizes unknown artifact statuses to 'blocked'", () => {
+    listOr.mockReturnValue({
+      changes: [
+        { name: "x", status: "in-progress", completedTasks: 0, totalTasks: 1 },
+      ],
+    });
+    statusOr.mockReturnValue({
+      artifacts: [{ id: "proposal", status: "some-new-state" }],
+    });
+
+    const result = pollOpenSpec("/test");
+    expect(result.changes[0].artifacts[0].status).toBe("blocked");
+  });
+
+  it("calls statusOr once per change, with the change name", () => {
+    listOr.mockReturnValue({
+      changes: [
+        { name: "a", status: "in-progress", completedTasks: 0, totalTasks: 1 },
+        { name: "b", status: "complete", completedTasks: 2, totalTasks: 2 },
+      ],
+    });
+    statusOr.mockReturnValue({ artifacts: [] });
+
+    pollOpenSpec("/test");
+    expect(statusOr).toHaveBeenCalledTimes(2);
+    expect(statusOr).toHaveBeenNthCalledWith(1, { cwd: "/test", change: "a" });
+    expect(statusOr).toHaveBeenNthCalledWith(2, { cwd: "/test", change: "b" });
   });
 });

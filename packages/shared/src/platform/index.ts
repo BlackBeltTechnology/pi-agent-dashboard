@@ -3,3 +3,8 @@ export * from "./process.js";
 export * from "./process-scan.js";
 export * from "./shell.js";
 export * from "./commands.js";
+export * from "./exec.js";
+export * from "./runner.js";
+export * as git from "./git.js";
+export * as openspec from "./openspec.js";
+export * as npm from "./npm.js";
