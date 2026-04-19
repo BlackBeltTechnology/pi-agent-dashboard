@@ -47,6 +47,8 @@ import { registerRecommendedRoutes, invalidateRecommendedCache } from "./routes/
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { PiCoreChecker } from "./pi-core-checker.js";
 import { PiCoreUpdater } from "./pi-core-updater.js";
+import { registerToolRoutes } from "./routes/tool-routes.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { PackageManagerWrapper } from "./package-manager-wrapper.js";
 import { createEditorManager, type EditorManager } from "./editor-manager.js";
@@ -367,6 +369,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion });
+  registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Package management
   const packageManagerWrapper = new PackageManagerWrapper();
 
@@ -385,6 +388,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       scope: result.scope,
       success: result.success,
       error: result.error,
+      diagnostics: result.diagnostics,
       sessionsReloaded: (result as any).sessionsReloaded,
     } as any);
     if (result.success) invalidateRecommendedCache();
@@ -451,6 +455,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       });
     },
   });
+
+  // Warm pi-coding-agent module import + DefaultPackageManager instances
+  // on startup so the first user request to /api/packages/* doesn't pay
+  // the 3-5s cold-load cost. Runs in background; errors are swallowed
+  // (user-visible flow surfaces any real problem with the full diagnostic
+  // trail via the OperationResult.diagnostics field).
+  // See change: consolidate-tool-resolution.
+  void Promise.allSettled([
+    packageManagerWrapper.listInstalled("global"),
+    packageManagerWrapper.listInstalled("local"),
+  ]);
 
   // Editor (code-server) routes and proxy.
   // NOTE: routes are *registered* here but cannot dispatch until fastify.listen runs

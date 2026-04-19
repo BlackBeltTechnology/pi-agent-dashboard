@@ -1,68 +1,62 @@
 /**
  * Detects whether required CLI tools are installed.
- * Checks system PATH first, then the managed install at ~/.pi-dashboard/.
+ *
+ * All detection delegates to the shared `ToolRegistry`. This module
+ * translates `Resolution` records into the `DetectionResult` shape
+ * still consumed by the Electron wizard and `doctor.ts`. New code
+ * SHOULD read the registry directly via
+ * `getDefaultRegistry().resolve(name)` to access the full diagnostic
+ * trail.
+ *
+ * See change: consolidate-tool-resolution.
  */
 import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { MANAGED_DIR, MANAGED_BIN } from "./managed-paths.js";
+import {
+  getDefaultRegistry,
+  type Resolution,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { MANAGED_BIN, MANAGED_DIR } from "./managed-paths.js";
+
+// Local resolver for inline lookups (pi-dashboard existence check).
+// The registry doesn't cover `pi-dashboard` since it's the package
+// this code is part of, not a spawn target.
+const resolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
 
 export interface DetectionResult {
   found: boolean;
   path?: string;
   source?: "system" | "managed" | "settings";
+  /** Full resolution trail from the ToolRegistry (new field — optional for callers). */
+  resolution?: Resolution;
 }
 
-/** Resolve a command on PATH. Returns the absolute path or null.
- *  On macOS/Linux, falls back to a login shell to pick up nvm/volta/homebrew paths
- *  that GUI apps don't inherit from the system PATH.
+// ── Registry → DetectionResult adapter ──────────────────────────────────────
+
+/**
+ * Convert a registry `Resolution` into the legacy `DetectionResult`
+ * shape. `source` collapses the richer Source union into the three
+ * values existing callers understand: "managed" (from managed-install
+ * strategy) or "system" (everything else that resolved).
  */
-function whichSync(cmd: string): string | null {
-  const whichCmd = process.platform === "win32" ? "where" : "which";
-  // 1. Try current process PATH
-  try {
-    return execSync(`${whichCmd} ${cmd}`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim().split("\n")[0];
-  } catch { /* not on process PATH */ }
-
-  // 2. On macOS/Linux, try a login shell to get the full user PATH
-  //    (GUI apps don't inherit shell rc files where nvm/volta/homebrew are configured)
-  if (process.platform !== "win32") {
-    const shell = process.env.SHELL || "/bin/zsh";
-    try {
-      const output = execSync(`${shell} -ilc "which ${cmd}"`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 5000,
-      }).trim();
-      // Extract the absolute path from output (login shells may emit session
-      // restore noise like "Restored session:..." and "Saving session...")
-      const pathLine = output.split("\n").find(l => l.trim().startsWith("/"));
-      return pathLine?.trim() || null;
-    } catch { /* not found in login shell either */ }
+function fromResolution(res: Resolution): DetectionResult {
+  if (!res.ok || !res.path) {
+    return { found: false, resolution: res };
   }
-
-  return null;
+  const source: DetectionResult["source"] = res.source === "managed" ? "managed" : "system";
+  return { found: true, path: res.path, source, resolution: res };
 }
 
-/** Check system PATH, then managed install. */
-function detect(binaryName: string): DetectionResult {
-  // 1. System PATH
-  const systemPath = whichSync(binaryName);
-  if (systemPath) {
-    return { found: true, path: systemPath, source: "system" };
-  }
-
-  // 2. Managed install
-  const ext = process.platform === "win32" ? ".cmd" : "";
-  const managedPath = path.join(MANAGED_BIN, binaryName + ext);
-  if (existsSync(managedPath)) {
-    return { found: true, path: managedPath, source: "managed" };
-  }
-
-  return { found: false };
+function detect(toolName: string): DetectionResult {
+  const registry = getDefaultRegistry();
+  if (!registry.has(toolName)) return { found: false };
+  return fromResolution(registry.resolve(toolName));
 }
+
+// ── Public API ──────────────────────────────────────────────────────────────
 
 export function detectPi(): DetectionResult {
   return detect("pi");
@@ -72,42 +66,53 @@ export function detectOpenSpec(): DetectionResult {
   return detect("openspec");
 }
 
+/**
+ * Detect Node.js with version ≥ 20.6 enforcement.
+ *
+ * The registry only resolves a path; the version gate is a downstream
+ * policy concern, so we check it here. A resolved-but-too-old Node is
+ * reported as `{ found: false }` so the installer prompts for an
+ * upgrade (existing behavior preserved).
+ */
 export function detectSystemNode(): DetectionResult {
-  const nodePath = whichSync("node");
-  if (!nodePath) return { found: false };
+  const base = detect("node");
+  if (!base.found || !base.path) return { found: false };
 
-  // Check version >= 20.6
   try {
-    const version = execSync(`"${nodePath}" --version`, { encoding: "utf-8" }).trim();
+    const version = execSync(`"${base.path}" --version`, { encoding: "utf-8" }).trim();
     const match = version.match(/^v(\d+)\.(\d+)/);
     if (match) {
       const major = parseInt(match[1], 10);
       const minor = parseInt(match[2], 10);
-      if (major > 20 || (major === 20 && minor >= 6)) {
-        return { found: true, path: nodePath, source: "system" };
-      }
+      if (major > 20 || (major === 20 && minor >= 6)) return base;
     }
   } catch { /* ignore */ }
-
-  return { found: false };
+  return { found: false, resolution: base.resolution };
 }
 
+/**
+ * Detect the dashboard package itself. `pi-dashboard` is deliberately
+ * NOT a registered tool (it's the package this code is part of, not an
+ * external dep) — so we do the managed + npm-global existence check
+ * inline instead of going through the registry.
+ */
 export function detectDashboardPackage(): DetectionResult {
-  // Check managed install
-  const managedPkg = path.join(MANAGED_DIR, "node_modules", "@blackbelt-technology", "pi-agent-dashboard", "package.json");
+  const pkg = "@blackbelt-technology/pi-agent-dashboard";
+  const managedPkg = path.join(MANAGED_DIR, "node_modules", pkg, "package.json");
   if (existsSync(managedPkg)) {
     return { found: true, path: managedPkg, source: "managed" };
   }
-
-  // Check global npm install (shared npm module handles windowsHide + caching).
-  const npmRoot = npm.rootGlobalOr("");
-  if (npmRoot) {
-    const globalPkg = path.join(npmRoot, "@blackbelt-technology", "pi-agent-dashboard", "package.json");
+  // Fall back to the global npm tree. `resolver.which` finds the pi
+  // binary; we derive the global node_modules from its package.json.
+  try {
+    const npmRoot = resolver.which("npm");
+    if (!npmRoot) return { found: false };
+    // Best-effort: check the standard global layout derived from pi's install.
+    const globalPkg = path.join(path.dirname(path.dirname(npmRoot)), "node_modules", pkg, "package.json");
     if (existsSync(globalPkg)) {
       return { found: true, path: globalPkg, source: "system" };
     }
-  }
-
+  } catch { /* ignore */ }
   return { found: false };
 }
 
@@ -117,11 +122,9 @@ export function detectDashboardPackage(): DetectionResult {
  * 2. npm package locations (managed + global) as fallback
  */
 export function detectBridgeExtension(): DetectionResult {
-  // 1. Check pi's settings.json packages array
   const settingsPath = path.join(os.homedir(), ".pi", "agent", "settings.json");
   try {
-    const settingsExist = existsSync(settingsPath);
-    if (settingsExist) {
+    if (existsSync(settingsPath)) {
       const raw = readFileSync(settingsPath, "utf-8").trim();
       if (raw) {
         const data = JSON.parse(raw);
@@ -134,23 +137,30 @@ export function detectBridgeExtension(): DetectionResult {
       }
     }
   } catch { /* corrupt or unreadable settings */ }
-
-  // 2. Fall back to npm package location checks
   return detectDashboardPackage();
 }
 
 /**
- * Detect the pi-dashboard CLI on PATH.
- * Excludes npx cache shims (.npm/_npx/) to avoid matching ephemeral installs.
+ * Detect the pi-dashboard CLI on PATH. Excludes npx cache shims.
+ *
+ * pi-dashboard isn't a registered tool (it's the dashboard itself),
+ * so we resolve it inline via the same `which` primitive the registry
+ * uses — via `ToolResolver.which` through a minimal registry path.
  */
 export function detectPiDashboardCli(): DetectionResult {
-  const cliPath = whichSync("pi-dashboard");
-  if (!cliPath) return { found: false };
+  // Resolve by registering an ephemeral binary tool. Simpler and more
+  // direct: call ToolResolver.which via a small helper.
+  // Keep consistent with historical classification (npx exclusion).
+  const managed = path.join(MANAGED_BIN, process.platform === "win32" ? "pi-dashboard.cmd" : "pi-dashboard");
+  if (existsSync(managed)) return { found: true, path: managed, source: "managed" };
 
-  // Exclude npx cache paths
-  if (cliPath.includes(".npm/_npx") || cliPath.includes(".npm\\_npx")) {
+  try {
+    const cmd = process.platform === "win32" ? `where pi-dashboard` : `which pi-dashboard`;
+    const out = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
+    if (!out) return { found: false };
+    if (out.includes(".npm/_npx") || out.includes(".npm\\_npx")) return { found: false };
+    return { found: true, path: out, source: "system" };
+  } catch {
     return { found: false };
   }
-
-  return { found: true, path: cliPath, source: "system" };
 }

@@ -102,26 +102,26 @@ export const NPM_RECIPES = {
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-/** Cached global npm root — resolved once per process. */
-let cachedGlobalRoot: string | null = null;
-
 /**
- * `npm root -g` with per-process caching. Returns a `Result` for explicit
- * error handling; use `rootGlobalOr` for best-effort semantics.
+ * `npm root -g`. Returns a `Result` for explicit error handling; use
+ * `rootGlobalOr` for best-effort semantics.
+ *
+ * Previous versions cached the result in a module-level variable. That
+ * cache is now owned by `ToolRegistry` (the runner consults the
+ * registry for every resolved binary including `npm` itself). Cache
+ * invalidation flows through `registry.rescan()`.
+ *
+ * See change: consolidate-tool-resolution.
  */
 export function rootGlobal(): Result<string> {
-  if (cachedGlobalRoot !== null) {
-    return { ok: true, value: cachedGlobalRoot };
-  }
-  const result = run(NPM_ROOT_GLOBAL, {}, {});
-  if (result.ok) cachedGlobalRoot = result.value;
-  return result;
+  return run(NPM_ROOT_GLOBAL, {}, {});
 }
 
-/** Test-only: clear the cached global root. */
-export function _resetNpmRootCache(): void {
-  cachedGlobalRoot = null;
-}
+/**
+ * Test-only no-op kept for backward compatibility with existing test
+ * suites. The `cachedGlobalRoot` variable no longer exists.
+ */
+export function _resetNpmRootCache(): void { /* no-op */ }
 
 export function outdated(input: WithCwd & { pkg?: string }): Result<unknown | null> {
   return run(NPM_OUTDATED, input, { cwd: input.cwd });

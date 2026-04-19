@@ -195,18 +195,16 @@ export function registerRecommendedRoutes(
 			}>;
 		}
 
-		let installedGlobal: Array<{ source: string; installedPath?: string }> = [];
-		let installedLocal: Array<{ source: string; installedPath?: string }> = [];
-		try {
-			installedGlobal = (await deps.packageManagerWrapper.listInstalled("global")) as any[];
-		} catch {
-			/* proceed with empty */
-		}
-		try {
-			installedLocal = (await deps.packageManagerWrapper.listInstalled("local")) as any[];
-		} catch {
-			/* proceed with empty */
-		}
+		// Run global + local listInstalled in parallel to halve cold-start
+		// latency. On Windows where each call instantiates pi's
+		// DefaultPackageManager (1-3s cold), sequential awaits were making
+		// the "Loading recommended extensions" spinner stick for ~15s.
+		const [installedGlobalRes, installedLocalRes] = await Promise.allSettled([
+			deps.packageManagerWrapper.listInstalled("global"),
+			deps.packageManagerWrapper.listInstalled("local"),
+		]);
+		const installedGlobal = (installedGlobalRes.status === "fulfilled" ? installedGlobalRes.value : []) as Array<{ source: string; installedPath?: string }>;
+		const installedLocal = (installedLocalRes.status === "fulfilled" ? installedLocalRes.value : []) as Array<{ source: string; installedPath?: string }>;
 
 		// Include both global + project-local settings.json `packages[]`.
 		// The server's CWD is a reasonable proxy for the active project.

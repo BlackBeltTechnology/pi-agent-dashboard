@@ -73,8 +73,22 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
     } as any);
   });
 
-  // Initial OpenSpec poll for all known directories
-  await Promise.all(
-    directoryService.knownDirectories().map((cwd) => directoryService.refreshOpenSpec(cwd)),
+  // Initial OpenSpec poll for all known directories.
+  //
+  // NOTE: `refreshOpenSpec` / `pollOpenSpec` is currently synchronous internally
+  // (spawnSync per change) — on Windows with many active changes (~19) and
+  // multiple pinned directories this can block the event loop for minutes,
+  // making the HTTP server unresponsive during startup. We intentionally do
+  // NOT await it here so HTTP + WebSocket startup completes immediately;
+  // openspec data populates in the background and pushes `openspec_update`
+  // broadcasts to browsers as each directory finishes.
+  //
+  // A proper fix is to migrate the openspec Recipe to async spawn; tracked
+  // separately. See change: consolidate-tool-resolution.
+  void Promise.all(
+    directoryService.knownDirectories().map(async (cwd) => {
+      try { await directoryService.refreshOpenSpec(cwd); }
+      catch (err) { console.error(`[dashboard] initial openspec poll failed for ${cwd}:`, err); }
+    }),
   );
 }

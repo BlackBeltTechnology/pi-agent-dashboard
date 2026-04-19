@@ -100,22 +100,32 @@ export function createDirectoryService(
     return data;
   }
 
+  // Re-entry guard: if the previous poll hasn't finished yet (common on
+  // Windows with many changes), skip this tick instead of stacking up
+  // overlapping polls that starve the event loop.
+  let pollInFlight = false;
   async function pollAllDirectories() {
-    const dirs = computeKnownDirectories();
-    // Poll all directories in parallel, non-blocking
-    await Promise.all(dirs.map(async (cwd) => {
-      const [data] = await Promise.all([
-        pollOpenSpecAsync(cwd),
-        refreshPiResourcesInternal(cwd),
-      ]);
-      const prev = openspecCache.get(cwd);
-      const prevJson = prev ? JSON.stringify(prev) : undefined;
-      const newJson = JSON.stringify(data);
-      openspecCache.set(cwd, data);
-      if (newJson !== prevJson) {
-        onChangeCallback?.(cwd, data);
-      }
-    }));
+    if (pollInFlight) return;
+    pollInFlight = true;
+    try {
+      const dirs = computeKnownDirectories();
+      // Poll all directories in parallel, non-blocking
+      await Promise.all(dirs.map(async (cwd) => {
+        const [data] = await Promise.all([
+          pollOpenSpecAsync(cwd),
+          refreshPiResourcesInternal(cwd),
+        ]);
+        const prev = openspecCache.get(cwd);
+        const prevJson = prev ? JSON.stringify(prev) : undefined;
+        const newJson = JSON.stringify(data);
+        openspecCache.set(cwd, data);
+        if (newJson !== prevJson) {
+          onChangeCallback?.(cwd, data);
+        }
+      }));
+    } finally {
+      pollInFlight = false;
+    }
   }
 
   return {

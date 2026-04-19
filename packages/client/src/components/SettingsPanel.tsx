@@ -9,6 +9,7 @@ import { ModelSelector } from "./ModelSelector.js";
 import { KnownServersSection } from "./KnownServersSection.js";
 import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
 import { PackageBrowser } from "./PackageBrowser.js";
+import { ToolsSection } from "./ToolsSection.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
@@ -403,6 +404,8 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
               <Section title="Developer">
                 <ToggleField label="Dev Build on Reload" value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
               </Section>
+
+              <ToolsSection />
             </>
           )}
 

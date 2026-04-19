@@ -80,6 +80,16 @@ export interface BrowseResult {
   entries: BrowseEntry[];
   parent: string | null;
   current: string;
+  /**
+   * The server's `process.platform` — lets the client use OS-correct path
+   * handling (separator, case-sensitivity, drive-letter rules) without
+   * having to sniff `navigator.userAgent`. Optional for backward
+   * compatibility; consumers fall back to inferring from the `current`
+   * path shape when absent.
+   *
+   * See change: platform-path-normalization.
+   */
+  platform?: NodeJS.Platform;
 }
 
 export type BrowseResponse = ApiResponse<BrowseResult>;
@@ -352,3 +362,19 @@ export interface NetworkInterface {
 export type ListRecommendedExtensionsResponse = ApiResponse<{
   recommended: EnrichedRecommendedExtension[];
 }>;
+
+// ── Tool registry ────────────────────
+
+import type { Resolution } from "./tool-registry/types.js";
+export type { Resolution, Source, TriedEntry } from "./tool-registry/types.js";
+
+export type ListToolsResponse = ApiResponse<{ tools: Resolution[] }>;
+export type GetToolResponse = ApiResponse<Resolution>;
+
+export interface RescanToolsRequest {
+  name?: string;
+}
+
+export interface SetToolOverrideRequest {
+  path: string;
+}

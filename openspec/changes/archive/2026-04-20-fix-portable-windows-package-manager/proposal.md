@@ -1,3 +1,6 @@
+> **SUPERSEDED** by [`consolidate-tool-resolution`](../consolidate-tool-resolution/proposal.md).
+> The broader change introduces a unified `ToolRegistry` whose `managed` strategy for `pi-coding-agent` covers the exact case this proposal targets (`~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent/dist/index.js` plus the `@oh-my-pi` alias). After `consolidate-tool-resolution` lands, this change should be archived without implementation.
+
 ## Why
 
 On portable Windows (Electron standalone mode), the package manager UI shows "pi-coding-agent is not installed" because `loadPiPackageManager()` doesn't check the managed install directory (`~/.pi-dashboard/node_modules/`) where the Electron wizard installs pi. This blocks all package operations (install, remove, update) on portable Windows.

@@ -159,23 +159,20 @@ export async function installDashboardGlobal(onProgress?: ProgressCallback): Pro
 
 // ── Recommended extensions installer ───────────────────────────
 
-// Lazy-imported to keep the startup path light.
+// Lazy-imported to keep the startup path light. Delegates to the shared
+// ToolRegistry so we use the same ordered strategy chain (override ->
+// bare-import -> managed -> npm-global) the server uses.
+// See change: consolidate-tool-resolution.
 async function loadPiPackageManager() {
-  const globalModulePath = path.join(
-    MANAGED_DIR,
-    "node_modules",
-    "@mariozechner",
-    "pi-coding-agent",
-    "dist",
-    "index.js",
+  const { getDefaultRegistry } = await import(
+    "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js"
   );
-  if (existsSync(globalModulePath)) {
-    const mod = await import(`file://${globalModulePath}`);
-    if (mod?.DefaultPackageManager && mod?.SettingsManager) return mod;
-  }
-  // Fallback to the system install.
-  const mod = await import("@mariozechner/pi-coding-agent" as any);
-  return mod as any;
+  const registry = getDefaultRegistry();
+  const { module } = await registry.resolveModule<{
+    DefaultPackageManager: any;
+    SettingsManager: any;
+  }>("pi-coding-agent");
+  return module;
 }
 
 /**

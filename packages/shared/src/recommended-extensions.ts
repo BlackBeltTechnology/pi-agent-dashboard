@@ -82,7 +82,7 @@ export interface EnrichedRecommendedExtension extends RecommendedExtension {
 export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 	{
 		id: "pi-anthropic-messages",
-		source: "git@github.com:BlackBeltTechnology/pi-anthropic-messages.git",
+		source: "https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
 		displayName: "pi-anthropic-messages",
 		fallbackDescription:
 			"Protocol bridge that makes pi's custom tools work with any " +
@@ -114,7 +114,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 	},
 	{
 		id: "pi-flows",
-		source: "git@github.com:BlackBeltTechnology/pi-flows.git",
+		source: "https://github.com/BlackBeltTechnology/pi-flows.git",
 		displayName: "pi-flows",
 		fallbackDescription:
 			"Flow engine, dashboard, and orchestration extensions for pi. " +
