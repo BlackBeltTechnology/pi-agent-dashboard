@@ -3,11 +3,31 @@
  * Replaces scattered whichSync/resolvePiCommand/resolveTsxCommand implementations
  * with a single configurable resolver.
  */
-import { execSync } from "./exec.js";
+import { execSync, spawnSync, buildSafeArgv } from "./exec.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
+
+/**
+ * Well-known globalThis symbol for the default `ToolRegistry`.
+ *
+ * The registry publishes itself here when first constructed (see
+ * `tool-registry/index.ts::getDefaultRegistry`). Delegation avoids a
+ * static import cycle (tool-registry strategies already import from
+ * this file).
+ *
+ * See change: consolidate-windows-spawn-and-platform-handlers.
+ */
+const GLOBAL_REGISTRY_KEY = Symbol.for("pi-dashboard.tool-registry");
+interface LazyRegistry {
+  has(n: string): boolean;
+  resolveExecutor(n: string): { ok: boolean; argv: string[] };
+}
+function tryGetRegistry(): LazyRegistry | null {
+  const reg = (globalThis as unknown as { [k: symbol]: LazyRegistry | undefined })[GLOBAL_REGISTRY_KEY];
+  return reg ?? null;
+}
 
 export interface ResolverContext {
   /** Extra bin dirs to search before system PATH (e.g., bundled Node dir). */
@@ -59,25 +79,27 @@ export class ToolResolver {
   }
 
   /**
-   * Resolve pi as [cmd, ...prefixArgs].
-   * On Windows, avoids .cmd by returning [node.exe, cli.js].
+   * Resolve pi as spawn-ready argv `[cmd, ...prefixArgs]`.
+   *
+   * Fully delegates to `ToolRegistry.resolveExecutor("pi")`, which
+   * owns per-OS discovery + interpreter assembly (on Windows: find
+   * `pi-coding-agent/dist/cli.js` via managed/bare-import/npm-global
+   * and prepend `node.exe`; on Unix: find `pi` binary on PATH).
+   *
+   * Returns null when the registry is not yet constructed AND pi is
+   * not on PATH (very early boot / standalone tests). Production code
+   * always has the registry available before spawn.
    */
   resolvePi(): string[] | null {
-    if (process.platform === "win32") {
-      // Avoid .cmd — resolve pi's JS entry point directly
-      const piCli = path.join(MANAGED_BIN, "..", "@mariozechner", "pi-coding-agent", "dist", "cli.js");
-      if (existsSync(piCli)) {
-        const node = this.resolveNode();
-        if (node) return [node, piCli];
-      }
-      // Fallback to .cmd
-      const cmd = path.join(MANAGED_BIN, "pi.cmd");
-      if (existsSync(cmd)) return [cmd];
+    const registry = tryGetRegistry();
+    if (registry?.has("pi")) {
+      const exec = registry.resolveExecutor("pi");
+      if (exec.ok && exec.argv.length > 0) return exec.argv;
     }
-
+    // No registry in this process (e.g. legacy bootstrap) — fall back
+    // to PATH lookup so the method still works for non-server callers.
     const piPath = this.which("pi");
-    if (piPath) return [piPath];
-    return null;
+    return piPath ? [piPath] : null;
   }
 
   /**
@@ -160,25 +182,93 @@ export class ToolResolver {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-/** Resolve a command on the current process PATH via which/where. */
-function whichSync(cmd: string): string | null {
-  const whichCmd = process.platform === "win32" ? "where" : "which";
+/**
+ * Run `where|which <target>` and return ALL stdout lines (trimmed,
+ * non-empty), or `[]`.
+ *
+ * Uses `spawnSync` via `buildSafeArgv` — no shell interpretation at
+ * all. `execSync("where tmux")` used to route through cmd.exe (because
+ * execSync takes a shell command string); spawnSync with argv bypasses
+ * that entirely. Guaranteed no cmd.exe console flash.
+ *
+ * See change: consolidate-windows-spawn-and-platform-handlers.
+ */
+function whereAllLines(whichCmd: string, target: string): string[] {
   try {
-    // Coerce to string — execSync returns Buffer without encoding, string with
-    // it, and test mocks vary between the two. String() handles both safely.
-    const raw = execSync(`${whichCmd} ${cmd}`, {
+    const { argv, spawnOptions } = buildSafeArgv(whichCmd, [target]);
+    const result = spawnSync<string>(argv[0], argv.slice(1), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
+      ...spawnOptions,
     });
-    const text = typeof raw === "string" ? raw : String(raw);
-    // Split on any newline (\n or \r\n) and trim each line — Windows `where`
-    // emits CRLF-terminated lines; without the per-line trim, a trailing \r
-    // sneaks into the resolved path and causes ENOENT.
-    const first = text.split(/\r?\n/)[0]?.trim();
-    return first || null;
+    if (result.status !== 0) return [];
+    const text = typeof result.stdout === "string" ? result.stdout : String(result.stdout ?? "");
+    return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** Extract the file extension (lower-cased, including the dot) from a path, or "". */
+function extOf(p: string): string {
+  const slash = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  const dot = p.lastIndexOf(".");
+  return dot > slash ? p.slice(dot).toLowerCase() : "";
+}
+
+/**
+ * Resolve a command on PATH.
+ *
+ * Unix: the first `which <name>` hit is authoritative.
+ *
+ * Windows: `where <name>` lists ALL PATH matches — a directory may contain
+ * both a bash shim (extensionless, e.g. `pi`) and a Windows-native form
+ * (`pi.cmd`). Node's `spawn()` cannot execute extensionless shims on
+ * Windows without `shell: true`, so we pick the first line whose extension
+ * is in PATHEXT. Falls back to the first line if none match (preserves
+ * whatever the user set up).
+ *
+ * Single `where` invocation — no per-extension probe loop — to keep
+ * resolution fast (especially when the command is missing entirely).
+ */
+function whichSync(cmd: string): string | null {
+  const isWin = process.platform === "win32";
+  if (!isWin) {
+    const lines = whereAllLines("which", cmd);
+    return lines[0] ?? null;
+  }
+
+  const lines = whereAllLines("where", cmd);
+  if (lines.length === 0) return null;
+
+  // If the caller already specified an extension, trust their pick.
+  const callerHasExt = /\.[A-Za-z0-9]+$/.test(cmd);
+  if (callerHasExt) return lines[0];
+
+  // Preference order: PATHEXT (user's actual Windows search path) or a
+  // standard default. Lower-cased for case-insensitive matching.
+  const pathextRaw = process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PS1";
+  const pathext = pathextRaw.split(";").map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+  // Pick the first line whose extension matches PATHEXT, scanning by
+  // preference order (lower index = more preferred).
+  let best: string | null = null;
+  let bestRank = Infinity;
+  for (const line of lines) {
+    const rank = pathext.indexOf(extOf(line));
+    if (rank === -1) continue;
+    if (rank < bestRank) {
+      best = line;
+      bestRank = rank;
+    }
+  }
+  if (best) return best;
+
+  // No PATHEXT-matching entry — fall back to first line (could be a bash
+  // shim). The runner layer handles the `.cmd` / `.bat` spawn-via-shell
+  // case separately; extensionless shims will still ENOENT but that's
+  // the right signal to the caller.
+  return lines[0];
 }
 
 /** Resolve a command via login shell (picks up nvm/volta/homebrew paths). */
@@ -189,6 +279,7 @@ function whichViaLoginShell(cmd: string): string | null {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
+      windowsHide: true,
     });
     const output = (typeof raw === "string" ? raw : String(raw)).trim();
     // Extract absolute path from potentially noisy login shell output

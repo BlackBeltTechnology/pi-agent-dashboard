@@ -3,7 +3,7 @@
  * The spawned server runs in foreground mode (no subcommand) and writes
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawnDetached, waitForReady } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { resolveJitiImport } from "@blackbelt-technology/pi-dashboard-shared/resolve-jiti.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -62,17 +63,9 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
   const args = buildSpawnArgs(config);
 
   try {
-    // Spawn server using pi's jiti TypeScript loader.
-    // resolveJitiImport() returns a file:// URL (required for Windows;
-    // see change: fix-windows-server-parity). The server writes its own
-    // PID file on startup, so `pi-dashboard status` can detect it.
-    //
-    // Capture stdout/stderr to ~/.pi/dashboard/server.log (append mode) so
-    // launch failures are visible — previously stdio was "ignore" and any
-    // early crash (e.g. the Windows ERR_UNSUPPORTED_ESM_URL_SCHEME) was
-    // silent. Matches the log location used by `pi-dashboard start`.
-    let stdio: "ignore" | ["ignore", number, number] = "ignore";
-    let logFd: number | null = null;
+    // Open the server.log in append mode so any startup error is visible.
+    // Matches the log location used by `pi-dashboard start`.
+    let logFd: number | undefined;
     try {
       const logDir = path.join(os.homedir(), ".pi", "dashboard");
       fs.mkdirSync(logDir, { recursive: true });
@@ -82,43 +75,45 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
         logFd,
         `\n[${new Date().toISOString()}] bridge auto-start (parent pid ${process.pid}, port ${config.port})\n`,
       );
-      stdio = ["ignore", logFd, logFd];
-    } catch {
-      // If we can't open the log, fall back to "ignore" so spawn still works
-      stdio = "ignore";
-    }
+    } catch { /* if we can't open the log, spawn still works */ }
 
-    const child = spawn(process.execPath, ["--import", resolveJitiImport(), cliPath, ...args], {
-      detached: true,
-      stdio,
+    // Spawn server via the detached-spawn primitive. resolveJitiImport()
+    // returns a file:// URL (required on Windows for node --import).
+    const r = await spawnDetached({
+      cmd: process.execPath,
+      args: ["--import", resolveJitiImport(), cliPath, ...args],
       env: { ...process.env },
+      logFd,
     });
 
-    child.unref();
-    // Close the parent's copy of the log fd — the child has its own via stdio inheritance.
-    if (logFd !== null) {
+    // Close the parent's copy of the log fd — the child has its own.
+    if (logFd !== undefined) {
       try { fs.closeSync(logFd); } catch { /* ignore */ }
     }
 
-    // Monitor for early exit (within 2s)
-    const earlyExit = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        resolve(false); // No early exit — server is running
-      }, 2000);
+    if (!r.ok || !r.process) {
+      return { success: false, message: `Server process failed to spawn: ${r.error ?? "unknown"}` };
+    }
 
-      child.on("exit", () => {
-        clearTimeout(timer);
-        resolve(true); // Exited early — failure
-      });
-
-      child.on("error", () => {
-        clearTimeout(timer);
-        resolve(true);
-      });
+    // Wait for the server to actually become available (positive probe),
+    // not just "didn't crash in 2s". Fastify boot on Windows can take
+    // 3–6s with jiti compiling CJS deps; a 2s window is too short and
+    // would report success even when the server crashes at 3s with
+    // ERR_INTERNAL_ASSERTION in Fastify's ajv-compiler. Positive probe
+    // guarantees a user-visible "Dashboard started" message only fires
+    // when the HTTP server is actually accepting connections.
+    const ready = await waitForReady({
+      probe: async () => (await isDashboardRunning(config.port)).running,
+      deadlineMs: 15_000,
+      pollIntervalMs: 300,
+      child: r.process,
     });
 
-    if (earlyExit) {
-      return { success: false, message: "Server process exited immediately" };
+    if (!ready.ok) {
+      return {
+        success: false,
+        message: `Server failed to become ready within 15s (${ready.error}). See ~/.pi/dashboard/server.log`,
+      };
     }
 
     return { success: true, message: "Server started" };

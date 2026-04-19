@@ -14,6 +14,40 @@
  */
 import { spawnSync as defaultSpawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { SpawnSyncReturns } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+
+/**
+ * Resolve a Windows system tool name (wmic / powershell / tasklist /
+ * taskkill) to its full `.exe` path via the global tool registry. If
+ * the registry lookup fails we fall back to the bare name and let
+ * `spawnSync` do PATHEXT resolution.
+ *
+ * Spawning the FULL path bypasses any cmd.exe / PATHEXT resolution
+ * layers, keeping `windowsHide: true` honored end-to-end. See change:
+ * consolidate-windows-spawn-and-platform-handlers.
+ *
+ * Uses `getDefaultRegistry` (not `peek*`) because the bridge extension
+ * runs inside pi's process and may be the FIRST caller to construct
+ * the registry in that process. Idempotent and cached per-process.
+ */
+const systemToolCache = new Map<string, string>();
+function resolveSystemTool(name: string): string {
+  const cached = systemToolCache.get(name);
+  if (cached) return cached;
+  try {
+    const reg = getDefaultRegistry();
+    if (reg.has(name)) {
+      const res = reg.resolve(name);
+      if (res.ok && res.path) {
+        systemToolCache.set(name, res.path);
+        return res.path;
+      }
+    }
+  } catch { /* registry unavailable in some test contexts */ }
+  // Cache the bare name so we only miss once per process.
+  systemToolCache.set(name, name);
+  return name;
+}
 
 export interface ChildProcessInfo {
   pid: number;
@@ -258,7 +292,7 @@ function wmicDateToElapsedMs(creationDate: string): number {
 function getWindowsDescendants(parentPid: number, spawnSync: SpawnSyncFn): ChildProcessInfo[] {
   try {
     const result = spawnSync(
-      "wmic",
+      resolveSystemTool("wmic"),
       ["process", "where", `ParentProcessId=${parentPid}`, "get", "CommandLine,CreationDate,ParentProcessId,ProcessId", "/format:list"],
       {
         encoding: "utf-8",
@@ -267,6 +301,9 @@ function getWindowsDescendants(parentPid: number, spawnSync: SpawnSyncFn): Child
         // Critical: without this, every 10-second process scan flashes a
         // console window. wmic is deprecated on Win 11 but still the
         // default here; PowerShell fallback also needs windowsHide.
+        // Also: `resolveSystemTool` above returns the FULL .exe path
+        // when the registry is available, so there's no PATHEXT /
+        // cmd.exe resolution layer that could leak a console.
         windowsHide: true,
       },
     );
@@ -320,13 +357,15 @@ function getWindowsDescendantsTasklist(parentPid: number, spawnSync: SpawnSyncFn
     // tasklist /FI filters by parent — but tasklist doesn't support ParentProcessId filter
     // Use PowerShell Get-CimInstance as fallback
     const result = spawnSync(
-      "powershell",
+      resolveSystemTool("powershell"),
       ["-NoProfile", "-Command", `Get-CimInstance Win32_Process -Filter "ParentProcessId=${parentPid}" | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json`],
       {
         encoding: "utf-8",
         timeout: 10000,
         stdio: ["pipe", "pipe", "pipe"],
         // Suppress console flash for the PowerShell fallback path.
+        // `resolveSystemTool` returns the full .exe path when registry
+        // is available.
         windowsHide: true,
       },
     );
@@ -374,7 +413,7 @@ export function scanWindowsProcesses(
 export function killWindowsProcess(pid: number, options?: ScanOptions): boolean {
   const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
   try {
-    const result = spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+    const result = spawnSync(resolveSystemTool("taskkill"), ["/PID", String(pid), "/T", "/F"], {
       windowsHide: true,
       encoding: "utf-8",
       timeout: 5000,

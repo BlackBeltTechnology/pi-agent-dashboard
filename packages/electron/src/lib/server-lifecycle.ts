@@ -7,7 +7,7 @@
  * Electron app, those packages are inside resources/server/node_modules/ which is NOT
  * on the ESM module resolution path. All config reading and health checking is inlined.
  */
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawnDetached, waitForReady } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import { existsSync, mkdirSync, openSync, writeFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -235,10 +235,9 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
   const launchInfo = `[${new Date().toISOString()}] Launching via CLI: ${cliPath} start --port ${port} --pi-port ${piPort}\n`;
   try { writeFileSync(logPath, launchInfo); } catch { /* ignore */ }
 
-  let stdio: any = "ignore";
+  let logFd: number | undefined;
   try {
-    const logFd = openSync(logPath, "a");
-    stdio = ["ignore", logFd, logFd];
+    logFd = openSync(logPath, "a");
   } catch { /* can't write log, use ignore */ }
 
   // Build env with the CLI's bin directory on PATH so node/tsx are available
@@ -247,35 +246,29 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
   const env = { ...process.env };
   env.PATH = `${cliBinDir}${path.delimiter}${env.PATH || ""}`;
 
-  const isWin = process.platform === "win32";
-  const child = spawn(cliPath, ["start", "--port", String(port), "--pi-port", String(piPort)], {
-    detached: !isWin,
-    stdio,
+  const r = await spawnDetached({
+    cmd: cliPath,
+    args: ["start", "--port", String(port), "--pi-port", String(piPort)],
     env,
-    windowsHide: true,
+    logFd,
   });
-
-  let spawnError: string | null = null;
-  child.on("error", (err) => { spawnError = err.message; });
-  child.unref();
-
-  // Wait for server to become available
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 500));
-    if (spawnError) {
-      throw new Error(`pi-dashboard CLI failed to spawn: ${spawnError}`);
-    }
-    const check = await isDashboardRunning(port);
-    if (check.running) return;
+  if (!r.ok) {
+    throw new Error(`pi-dashboard CLI failed to spawn: ${r.error}`);
   }
+
+  const ready = await waitForReady({
+    probe: async () => (await isDashboardRunning(port)).running,
+    deadlineMs: 15_000,
+    child: r.process,
+  });
+  if (ready.ok) return;
 
   let logContent = "";
   try { logContent = readFileSync(logPath, "utf-8"); } catch { /* ignore */ }
   const lastLines = logContent.split("\n").slice(-20).join("\n");
 
   throw new Error(
-    `pi-dashboard CLI failed to start server within 15 seconds.\n` +
+    `pi-dashboard CLI failed to start server within 15 seconds (${ready.error}).\n` +
     `Command: ${cliPath} start --port ${port} --pi-port ${piPort}\n` +
     (lastLines ? `\nServer log:\n${lastLines}` : "\nNo server log available.")
   );
@@ -364,46 +357,38 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   ].join("\n");
   try { writeFileSync(logPath, launchInfo); } catch { /* ignore */ }
 
-  let stdio: any = "ignore";
+  let logFd: number | undefined;
   try {
-    const logFd = openSync(logPath, "a");
-    stdio = ["ignore", logFd, logFd];
+    logFd = openSync(logPath, "a");
   } catch { /* can't write log, use ignore */ }
 
-  // Launch: tsx <cli.ts> (tsx handles all TypeScript loading + __dirname shimming)
-  // On Windows: detached:true creates a visible console window for console apps (node.exe).
-  // Use detached:false + unref() instead — Electron manages server lifecycle via stopServerIfNeeded().
-  const isWin = process.platform === "win32";
-  const child = spawn(spawnBin, spawnArgs, {
-    detached: !isWin,
-    stdio,
+  // Launch via spawnDetached primitive — uniform detached/windowsHide/
+  // shell:false/stdio:ignore+fd defaults on every platform.
+  // Electron manages lifecycle via stopServerIfNeeded().
+  const r = await spawnDetached({
+    cmd: spawnBin,
+    args: spawnArgs,
     env,
     cwd,
-    windowsHide: true,
+    logFd,
   });
-
-  let spawnError: string | null = null;
-  child.on("error", (err) => { spawnError = err.message; });
-  child.unref();
-
-  // Wait for server to become available
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 500));
-    if (spawnError) {
-      throw new Error(`Server process failed to spawn: ${spawnError}`);
-    }
-    const check = await isDashboardRunning(port);
-    if (check.running) return;
+  if (!r.ok) {
+    throw new Error(`Server process failed to spawn: ${r.error}`);
   }
 
-  // Read log for error details
+  const ready = await waitForReady({
+    probe: async () => (await isDashboardRunning(port)).running,
+    deadlineMs: 15_000,
+    child: r.process,
+  });
+  if (ready.ok) return;
+
   let logContent = "";
   try { logContent = readFileSync(logPath, "utf-8"); } catch { /* ignore */ }
   const lastLines = logContent.split("\n").slice(-20).join("\n");
 
   throw new Error(
-    `Server failed to start within 15 seconds.\n` +
+    `Server failed to start within 15 seconds (${ready.error}).\n` +
     `Command: ${spawnBin} ${spawnArgs.join(" ")}\n` +
     `CWD: ${cwd}\n` +
     (lastLines ? `\nServer log:\n${lastLines}` : "\nNo server log available.")

@@ -189,6 +189,8 @@ Only needed for Option B/C (the Electron app handles everything automatically).
 
 Config file: **`~/.pi/dashboard/config.json`** (auto-created with defaults on first run)
 
+Tool path overrides (optional, machine-local): **`~/.pi/dashboard/tool-overrides.json`** — see [Tool resolution & overrides](#tool-resolution--overrides) below.
+
 ```json
 {
   "port": 8000,
@@ -201,6 +203,40 @@ Config file: **`~/.pi/dashboard/config.json`** (auto-created with defaults on fi
   "devBuildOnReload": false
 }
 ```
+
+### Tool resolution & overrides
+
+The dashboard resolves every external tool it calls (`pi`, `pi-coding-agent`, `openspec`, `npm`, `node`, `tsx`, `git`, `zrok`, `pi-dashboard`) through a single `ToolRegistry`. Each tool has an ordered strategy chain (override → managed install → bare-import / npm-global → PATH search), and every resolution records a diagnostic trail of which strategies were tried and why each succeeded or failed.
+
+**Inspecting and overriding** — Settings → General → **Tools** shows every resolved tool, its source, and the trail. You can set a per-tool override path, rescan a single tool or all of them, and export the full diagnostic report for bug reports.
+
+**Overrides file** — `~/.pi/dashboard/tool-overrides.json`:
+
+```json
+{
+  "version": 1,
+  "overrides": {
+    "pi":              { "path": "C:\\custom\\pi.cmd" },
+    "pi-coding-agent": { "path": "D:\\dev\\pi-coding-agent\\dist\\index.js" }
+  }
+}
+```
+
+The file is deliberately separate from `config.json` so machine-specific paths don't follow a dotfiles sync to another host. Invalid overrides (path doesn't exist) are recorded in the diagnostic trail and the registry falls through to the next strategy automatically.
+
+**Troubleshooting** — if the dashboard says it can't find `pi`, `openspec`, `npm`, or any other tool, open Settings → General → Tools, click the chevron next to the failing tool to see the full `tried[]` trail, then either (a) install the missing tool on PATH / in the managed location shown in the trail, or (b) set an explicit override via the row's path input. Hit **Rescan** to pick up the change without a server restart.
+
+**Troubleshooting: sessions don't group under my pinned folder** — since v0.3+, session grouping uses OS-aware path equality (`platform/paths.ts`). Sessions group correctly under a pinned folder even when the path stored on pin and the path reported by the session differ in trailing separator, separator style, or case (on Windows and macOS). If you still see two entries for what should be one folder, the paths are likely on different Windows drives (`A:\Foo` and `B:\Foo` are different filesystems and never merge) — that's correct behavior, not a bug. If the paths really are the same filesystem, file an issue with both the pinned path (visible in Settings → Tools → Export diagnostics) and the session `cwd` as reported in `/api/sessions`.
+
+### Windows session durability
+
+**Behavior change**: Since the `consolidate-windows-spawn-and-platform-handlers` release, pi sessions on Windows now **survive dashboard server restart**, matching macOS/Linux behavior. Previously, killing or restarting the dashboard process (Task Manager, Ctrl+C, `/api/restart`, crash) would terminate every running pi session because the children were in the server's libuv kill-on-close Job Object. The fix uses `detached: true` so children are excluded from the parent's job — the Windows equivalent of Unix PGID detachment.
+
+If you previously relied on "closing the dashboard cleans everything up," use the per-session **Force Kill** action instead (or `POST /api/session/:id/force-kill` via the REST API).
+
+**Recommended: install Windows Terminal** (`wt.exe`) for tabbed interactive sessions on Windows 10/11. The dashboard prefers `wt` when available (new tab in an existing WT window, respects your default profile — cmd / PowerShell / WSL / whatever), and falls back to WSL tmux and then headless mode when absent. Windows Terminal is bundled with Windows 11; on Windows 10 install it from the Microsoft Store (search for "Windows Terminal").
+
+**Troubleshooting: Windows Terminal tab doesn't appear** — if `wt.exe` is on PATH but launching does nothing, check Settings → Apps → Advanced app settings → App execution aliases. If the "wt" alias is disabled, `wt.exe` is found but can't be executed. Enable the alias or uninstall/reinstall Windows Terminal.
 
 ### Authentication (Optional)
 

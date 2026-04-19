@@ -573,16 +573,33 @@ Cross-OS behavior (`process.platform === "win32"` branches) is centralized in `p
 | `process-scan.ts` | `isProcessRunning` (tasklist vs pgrep), pure `parseEtime`. |
 | `shell.ts` | `detectShell` (COMSPEC on Windows, SHELL on Unix, with fallbacks), `getTerminalEnvHints` (TERM=cygwin hint for node-pty on Windows). |
 | `commands.ts` | `openBrowser` (`open`/`start`/`xdg-open`), `isVirtualMachine` (`sysctl`/`systemd-detect-virt`/`wmic`). |
+| `detached-spawn.ts` | `spawnDetached` (libuv-correct detached defaults on every OS — on Windows, `detached: true` excludes the child from the parent's kill-on-close job for PGID-equivalent lifecycle), `waitForNoCrash` (short window: did the child survive?), `waitForReady` (positive probe: is it serving HTTP yet?). |
+| `spawn-mechanism.ts` | `SpawnMechanism` enum (`tmux`/`wt`/`wsl-tmux`/`headless`) and pure `selectMechanism` selector. `buildWtArgs` builds argv for Windows Terminal `new-tab`. `sessionFlagsToArgv` is the uniform `--session`/`--fork` builder every mechanism MUST use so no branch drops options. |
+| `process-identify.ts` | `findPidByMarker` + `isProcessLikePi` + `isPiCommandLine`. Unix implementations run `ps`/`/proc`; Windows stubs return empty/true because command-line lookup is delegated to `headlessPidRegistry`. |
 
 Every exported helper that depends on OS takes an optional `platform: NodeJS.Platform` parameter (and usually `exec`/`kill`/`env` for full injection). Tests exercise both branches via these parameters rather than mutating `process.platform`. This is the pattern to follow for any new cross-OS primitives.
 
+**Invariant guard:** `packages/shared/src/__tests__/no-direct-platform-branch.test.ts` scans all `packages/**/src/` for `process.platform === "<os>"` branches. Every violation must either move into a platform primitive or be listed in the documented allowlist (seeded with extension's process-scanner, Electron's dependency-detector/main/doctor/forge.config, server's process-manager/editor-registry/tunnel/browse, and the inference-comment in client's session-grouping).
+
 Electron-bound presentation concerns (tray icons, menu template, dock behavior, bundled Node path) remain in `packages/electron/src/lib/` because they import from the `electron` package and cannot live in shared.
 
-Residual `process.platform` branches elsewhere in the tree fall into three allowed categories:
+### Session spawn dispatch
 
-1. **Strategy selection** (not a primitive): `packages/server/src/process-manager.ts` chooses between tmux / headless / WSL spawn strategies and consumes platform primitives to build each command. Strategy logic is session-spawn domain, not platform primitive.
-2. **Data access by key**: code that indexes into a per-OS config object (e.g. `editor.processPattern[platform]`) legitimately reads `process.platform` as a map key.
-3. **Unix-only guards**: some functions (e.g. `killHeadlessBySessionId` which greps `ps` output for a sentinel string) short-circuit to `return false` on Windows because the whole strategy is Unix-only.
+Session spawning uses a two-tier type system:
+
+- **`SpawnStrategy`** (user-visible, in `shared/config.ts`): `"tmux" | "headless"`. What the user wrote in their config.
+- **`SpawnMechanism`** (internal, in `platform/spawn-mechanism.ts`): `"tmux" | "wt" | "wsl-tmux" | "headless"`. What the system actually runs on this platform given availability.
+
+`selectMechanism({ platform, userStrategy, electronMode, available })` is the single pure function that maps (config, platform, availability) → mechanism. Rules:
+
+1. `electronMode` → `headless`.
+2. `userStrategy === "headless"` → `headless`.
+3. Unix with tmux → `tmux`; Unix without → `headless`.
+4. Windows: `wt` if available, else `wsl-tmux` if available, else `headless`.
+
+Every mechanism branch forwards `sessionFile` + `mode` via the shared `sessionFlagsToArgv` helper; no branch may silently drop them. This was the root cause of the Windows fork/continue bugs fixed in `consolidate-windows-spawn-and-platform-handlers` — the WSL/cmd fallback paths in the old code invoked pi without `--fork`/`--session`, silently downgrading to a fresh session.
+
+On Windows, `spawnDetached` uses `detached: true` which (via libuv's `src/win/process.c`) emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` and critically does NOT call `AssignProcessToJobObject` on the parent's global Job Object. This excludes the child from the parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` job, so pi sessions survive when the dashboard server exits — matching Unix PGID behavior. The `headlessPidRegistry` reconciles these survivors on server restart.
 
 ### Server Log Hygiene
 
@@ -840,3 +857,112 @@ These call the same internal methods as the browser-gateway WebSocket handlers �
 - `references/api-reference.md` — Complete REST API documentation
 - `references/recipes.md` — Multi-step orchestration patterns (spawn→prompt→monitor, batch operations, health checks)
 - `scripts/dashboard-api.sh` — curl wrapper with port detection, optional auth token, graceful jq fallback
+
+## Tool Resolution (`ToolRegistry`)
+
+Every external binary, module, and directory the dashboard depends on is resolved through a single `ToolRegistry` service in `packages/shared/src/tool-registry/`. Previously, resolution logic was scattered across `ToolResolver` (low-level PATH search), `runner.ts`'s private `resolverCache`, `npm.ts`'s `cachedGlobalRoot`, and two copies of `loadPiPackageManager()` (server + electron). The registry consolidates all of that behind one API, adds user-facing overrides, and records a diagnostic trail so "tool not found" is never a silent failure.
+
+### Registered tools
+
+| Tool | Kind | Strategy chain |
+|---|---|---|
+| `pi` | binary | override → managed (`MANAGED_BIN/pi[.cmd]`) → where |
+| `pi-coding-agent` | module | override → bare-import → managed (`MANAGED_DIR/node_modules/.../dist/index.js`) → npm-global; probes both `@mariozechner/*` and `@oh-my-pi/*` aliases |
+| `openspec`, `npm`, `node`, `tsx`, `git`, `zrok` | binary | override → managed → where |
+| `pi-dashboard` | module | override → managed → npm-global (presence of `package.json` is enough) |
+
+### Resolution record
+
+`registry.resolve(name)` returns a `Resolution` with:
+
+- `ok` — whether any strategy succeeded
+- `path` / `source` — winning path and its classification (`override`, `managed`, `system`, `npm-global`, `bare-import`)
+- `tried[]` — ordered trail: `[{ strategy, result }]` where `result` is `"ok"` on success or the strategy's failure reason
+- `resolvedAt` — epoch ms
+
+### Overrides
+
+User-set overrides live at `~/.pi/dashboard/tool-overrides.json`:
+
+```json
+{
+  "version": 1,
+  "overrides": {
+    "pi":              { "path": "C:\custom\pi.cmd" },
+    "pi-coding-agent": { "path": "D:\dev\pi-coding-agent\dist\index.js" }
+  }
+}
+```
+
+The file is machine-local (deliberately separate from `config.json` so dotfile syncs don't follow paths across machines). Invalid overrides (path doesn't exist) are recorded as `invalid: <reason>` in `tried[]` and the registry falls through to the next strategy.
+
+### Caching
+
+- One `Resolution` per tool, cached in the registry instance.
+- Loaded ES modules (for `kind: "module"`) cached alongside.
+- `registry.rescan(name?)` invalidates one or all entries + re-reads the overrides file.
+- The runner's old `resolverCache` and `npm.ts`'s old `cachedGlobalRoot` are gone — the registry owns caching now.
+
+### REST API (`/api/tools`)
+
+Guarded by the same network guard as `/api/config`.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/tools` | Snapshot of every registered tool's Resolution |
+| `GET /api/tools/:name` | Single Resolution (404 for unregistered) |
+| `POST /api/tools/rescan` | Invalidate all caches (body empty) or one (`{ name }`) + return refreshed list |
+| `PUT /api/tools/:name` | Set an override (`{ path }`) + return refreshed Resolution |
+| `DELETE /api/tools/:name` | Clear the override + return refreshed Resolution |
+| `POST /api/tools/diagnostics` | Plain-text export — one block per tool with the full `tried[]` trail, for bug reports |
+
+### Settings UI
+
+Settings → General → **Tools** renders one row per registered tool: status badge, source, truncated path, expand-to-trail, override input, per-row rescan. The header has **Rescan all**, **Reset overrides**, **Export diagnostics**.
+
+### Migration path
+
+`ToolResolver` remains the low-level PATH search primitive. The registry calls `ToolResolver.which()` from its `where` strategy. Unregistered binary names (e.g., ad-hoc `code-server` detection) still flow through `ToolResolver` directly. This keeps `ToolResolver` useful for one-off lookups and lets the registry focus on tools the dashboard formally depends on.
+
+See change: `consolidate-tool-resolution`.
+
+## Path Handling (`platform/paths.ts`)
+
+Filesystem paths are OS-aware, and the dashboard touches them in three user-visible places: pin-directory storage (server), session-grouping (client), and the path picker UI (client). All three go through a single module — `packages/shared/src/platform/paths.ts` — rather than inventing their own logic.
+
+### Primitives
+
+| Function | Purpose |
+|---|---|
+| `normalizePath(p, platform?)` | Canonical form for storage/comparison: OS-native separator, trailing sep stripped (except roots), `..`/`.` resolved, case preserved. |
+| `samePath(a, b, platform?)` | Filesystem equality — case-insensitive on Win/macOS, case-sensitive on Linux, tolerant of trailing/separator drift. Different Windows drives (`A:\` vs `B:\`) NEVER match. |
+| `parsePathInput(value, platform?)` | Split user-typed input into `{ parent, partial }` — handles Windows drive-letter roots, UNC roots, Unix roots, mixed separators. |
+| `withTrailingSep(p, platform?)` | Append OS-native separator if not already terminated. |
+| `isFilesystemRoot(p, platform?)` | True for `/`, `C:\`, `\server\share\` uniformly — replaces `resolved === "/"` checks that only recognized Unix roots. |
+
+### Platform injection pattern
+
+Every OS-dependent function takes an optional trailing `platform: NodeJS.Platform` parameter defaulting to `process.platform`. Tests exercise both branches on any host (Windows tests run on Linux CI and vice versa) without mutating `process.platform`. Client code uses `inferPlatform(samples)` (in `client/src/lib/session-grouping.ts`) to sniff the server's platform from observed path shapes — backslash or drive-letter prefix → Windows, leading `/` → POSIX.
+
+### Windows multi-drive invariants
+
+| Drive letter | Contract |
+|---|---|
+| A:, B:, C:, …, Z: | each a distinct filesystem root |
+| `B:\` vs `b:\` | case-insensitive (match) |
+| `A:\Foo` vs `B:\Foo` | never match (different drives) |
+| `\server\share` vs `B:` | never match |
+| Bare `B:` input | treated as `B:\`, not cwd-relative |
+| `B:Dev` input | drive root + partial (defensive) |
+| `B:/Dev/BB` (fwd slash) | canonicalizes to `B:\Dev\BB` |
+| Browse at `B:\` | `parent: null` (root is its own dead-end) |
+
+### Protocol extension
+
+`BrowseResult` includes an optional `platform` field (`"win32" | "darwin" | "linux"`) populated from `process.platform` on the server. Path picker prefers this server-issued value and falls back to client-side inference when absent (for backward compatibility with older servers).
+
+### Common gotcha: `Array.prototype.map(normalizePath)`
+
+`Array.prototype.map` passes `(element, index, array)`. When a function takes `platform` as an optional second argument, the index (a number) gets passed as `platform`, silently failing the `=== "win32"` check and taking the POSIX branch. Always wrap: `.map((p) => normalizePath(p))` instead of `.map(normalizePath)`.
+
+See change: `platform-path-normalization`.

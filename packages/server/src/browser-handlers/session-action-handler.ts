@@ -6,37 +6,33 @@ import type { BrowserHandlerContext } from "./handler-context.js";
 import { spawnPiSession } from "../process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createBranchedSessionFile } from "../session-file-reader.js";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   isProcessAlive as platformIsProcessAlive,
   killPidWithGroup,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import {
+  findPidByMarker,
+  isProcessLikePi,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 
+/**
+ * Find headless pi PIDs associated with a session-id marker and kill them.
+ * Delegates platform branching to `platform/process-identify.ts` — Windows
+ * returns `[]` because command-line lookup isn't viable; Windows kills go
+ * through `headlessPidRegistry` instead.
+ * See change: consolidate-windows-spawn-and-platform-handlers.
+ */
 function killHeadlessBySessionId(sessionId: string): boolean {
-  // `ps -eo` + `grep` is Unix-only; Windows headless spawns use a different
-  // wrapper with no detectable sentinel string.
-  if (process.platform === "win32") return false;
-  try {
-    const output = execSync(
-      `ps -eo pid,command | grep "${sessionId}" | grep "sleep 2147483647" | grep -v grep`,
-      { encoding: "utf8", timeout: 3000 },
-    ).trim();
-    if (!output) return false;
-    for (const line of output.split("\n")) {
-      const pid = parseInt(line.trim(), 10);
-      if (pid > 0) {
-        try {
-          // Target the process group on Unix (shared primitive).
-          killPidWithGroup(pid, "SIGTERM");
-        } catch {
-          try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ }
-        }
-      }
+  const pids = findPidByMarker(sessionId);
+  if (pids.length === 0) return false;
+  for (const pid of pids) {
+    try {
+      killPidWithGroup(pid, "SIGTERM");
+    } catch {
+      try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ }
     }
-    return true;
-  } catch {
-    return false;
   }
+  return true;
 }
 
 export async function handleSendPrompt(
@@ -195,35 +191,18 @@ export function handleKillProcess(
 
 /**
  * Pure predicate: does a `ps`/cmdline output string look like a pi/node process?
- * Exported for testing — no I/O, no platform awareness.
- * See change: fix-windows-server-parity.
+ * Re-exported from `platform/process-identify.ts` for backwards compat with
+ * any external consumer of this handler.
  */
-export function isPiCommandLine(output: string): boolean {
-  return /\bpi\b|\bnode\b/.test(output);
-}
+export { isPiCommandLine } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 
 /**
- * Check if a PID belongs to a pi/node process (safety check before SIGKILL).
- * Returns true if the process looks like a pi-related process, false otherwise.
- *
- * Platform-guarded: on Windows, returns true without invoking Unix-only
- * commands (ps, /proc). The Windows path relies on the PID registry's own
- * bookkeeping rather than a post-hoc command-line inspection — there is no
- * cheap cross-platform substitute (tasklist /V is expensive and format-unstable).
- * See change: fix-windows-server-parity.
+ * Check if a PID belongs to a pi/node process. Delegates to
+ * `platform/process-identify.ts` — no direct platform branching here.
+ * See change: consolidate-windows-spawn-and-platform-handlers.
  */
 function isPiProcess(pid: number): boolean {
-  if (process.platform === "win32") return true;
-  try {
-    const cmd = process.platform === "darwin"
-      ? `ps -p ${pid} -o command=`
-      : `cat /proc/${pid}/cmdline 2>/dev/null || ps -p ${pid} -o command=`;
-    const output = execSync(cmd, { encoding: "utf8", timeout: 2000 }).trim();
-    return isPiCommandLine(output);
-  } catch {
-    // Process already exited — treat as dead
-    return false;
-  }
+  return isProcessLikePi(pid);
 }
 
 /**

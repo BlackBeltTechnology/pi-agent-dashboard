@@ -15,8 +15,14 @@
  */
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { spawnSync } from "./exec.js";
+import { spawnSync, spawn, buildSafeArgv } from "./exec.js";
 import { ToolResolver } from "./binary-lookup.js";
+// The tool registry publishes itself on a well-known `globalThis` symbol
+// when `getDefaultRegistry()` is first called from any consumer. The
+// runner reads that global to avoid a load-order cycle (tool-registry
+// → platform/npm.ts → this file) that would otherwise trip Node's
+// ESM/CJS translator with ERR_INTERNAL_ASSERTION on certain boots.
+// See change: consolidate-tool-resolution.
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -57,19 +63,44 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: ExecError }
 
 // ── Resolver cache ──────────────────────────────────────────────────────────
 
-/** Per-command resolution cache. Reset via `resetResolverCache()` for tests. */
-const resolverCache = new Map<string, string | null>();
+/**
+ * Low-level ToolResolver kept as the fallback for unregistered binary
+ * names. Registered names flow through the shared `ToolRegistry` so
+ * user overrides apply uniformly to every Recipe.
+ * See change: consolidate-tool-resolution.
+ */
 const sharedResolver = new ToolResolver({
   processExecPath: process.execPath,
   useLoginShell: true,
 });
 
 /**
- * Test-only hook: clear the binary-resolution cache. Call in `beforeEach`
- * when a test needs to simulate a command appearing/disappearing from PATH.
+ * Test-only hook: invalidate the registry cache. Preserved as a thin
+ * shim over `registry.rescan()` so existing test suites keep working
+ * after migrating away from the runner's private `resolverCache`.
  */
 export function resetResolverCache(): void {
-  resolverCache.clear();
+  try {
+    const reg = tryGetRegistry();
+    if (reg) reg.rescan();
+  } catch { /* isolated tests */ }
+}
+
+// Lazy registry accessor via `globalThis` symbol. The tool-registry
+// module writes itself there inside `getDefaultRegistry()`. Returns
+// `null` until some consumer (e.g. the server's `/api/tools` route or
+// the package-manager wrapper) constructs the registry; the runner
+// then falls back to `ToolResolver.which()` for that single call.
+interface LazyRegistry {
+  has(n: string): boolean;
+  resolve(n: string): { ok: boolean; path: string | null };
+  resolveExecutor(n: string): { ok: boolean; argv: string[] };
+  rescan(): void;
+}
+const GLOBAL_REGISTRY_KEY = Symbol.for("pi-dashboard.tool-registry");
+function tryGetRegistry(): LazyRegistry | null {
+  const reg = (globalThis as unknown as { [k: symbol]: LazyRegistry | undefined })[GLOBAL_REGISTRY_KEY];
+  return reg ?? null;
 }
 
 /**
@@ -84,17 +115,68 @@ function isPathLike(cmd: string): boolean {
   return false;
 }
 
+/**
+ * Resolve a binary name to an absolute path.
+ *
+ * Strategy:
+ *   1. Path-like argv (absolute / relative) → use as-is if it exists.
+ *   2. Name is registered in `ToolRegistry` → delegate to the registry
+ *      so overrides, managed strategies, and diagnostics apply
+ *      uniformly. The registry has its own per-instance cache; the
+ *      runner no longer maintains a private `resolverCache`.
+ *   3. Name is not registered → fall back to `ToolResolver.which` for
+ *      ad-hoc binaries (zrok, code-server, custom tools) that the
+ *      dashboard hasn't formally declared.
+ *
+ * Imported lazily from `../tool-registry/index.js` to keep the runner
+ * usable at module-init time even if the registry hasn't finished
+ * loading its overrides yet.
+ */
 function resolveBinary(name: string): string | null {
-  // Absolute or relative paths: caller already resolved it; use as-is if it exists.
   if (isPathLike(name)) {
     if (existsSync(name)) return name;
     return null;
   }
-  // Bare command name: route through ToolResolver (where/which + managed bin).
-  if (resolverCache.has(name)) return resolverCache.get(name) ?? null;
-  const resolved = sharedResolver.which(name);
-  resolverCache.set(name, resolved);
-  return resolved;
+  // Registered tools flow through the registry (overrides + diagnostics).
+  // The `tool-registry` module imports this file transitively via
+  // `platform/npm.ts`; the cycle is benign at function-call time because
+  // every module has finished evaluating by the time `resolveBinary` is
+  // first invoked (it's called only from inside `run()`).
+  const registry = tryGetRegistry();
+  if (registry && registry.has(name)) {
+    const resolved = registry.resolve(name);
+    return resolved.ok ? resolved.path : null;
+  }
+  return sharedResolver.which(name);
+}
+
+/**
+ * Resolve a Recipe's argv[0] to a spawn-ready argv via the tool
+ * registry's `resolveExecutor`. This is the path that lets `npm`,
+ * `openspec`, `pi` all resolve to `[node.exe, <script>.js]` on
+ * Windows — bypassing `.cmd` shims and the console-flash chain.
+ *
+ * Returns `null` when the binary is unknown AND not on PATH.
+ *
+ * Non-registered names fall back to `ToolResolver.which()` (single
+ * path, no executor wrapping). Path-like names (absolute/relative
+ * paths) are trusted as-is.
+ */
+function resolveExecutorArgv(name: string, recipeArgs: readonly string[]): string[] | null {
+  if (isPathLike(name)) {
+    if (existsSync(name)) return [name, ...recipeArgs];
+    return null;
+  }
+  const registry = tryGetRegistry();
+  if (registry && registry.has(name)) {
+    const exec = registry.resolveExecutor(name);
+    if (exec.ok && exec.argv.length > 0) {
+      return [...exec.argv, ...recipeArgs];
+    }
+    return null;
+  }
+  const p = sharedResolver.which(name);
+  return p ? [p, ...recipeArgs] : null;
 }
 
 // ── The engine ──────────────────────────────────────────────────────────────
@@ -116,22 +198,33 @@ export function run<Input, Output>(
     return { ok: false, error: { kind: "spawn-failure", message: "Recipe produced empty argv" } };
   }
 
-  const [rawCmd, ...args] = argv;
-  const resolved = resolveBinary(rawCmd);
-  if (!resolved) {
+  const [rawCmd, ...recipeArgs] = argv;
+  const execArgv = resolveExecutorArgv(rawCmd, recipeArgs);
+  if (!execArgv) {
     return { ok: false, error: { kind: "not-found", binary: rawCmd } };
   }
 
   const timeout = ctx.timeout ?? recipe.timeout ?? DEFAULT_TIMEOUT_MS;
 
+  // Route every command through `buildSafeArgv` — the canonical
+  // Windows-safe subprocess invocation. `execArgv` is already
+  // `[node.exe, <script>.js, ...args]` for executor-kind tools, so
+  // buildSafeArgv sees node.exe (.exe → direct spawn) and returns
+  // the argv unchanged. For non-executor tools resolving to `.cmd`,
+  // buildSafeArgv wraps in `cmd.exe /d /s /c`.
+  //
+  // See change: consolidate-windows-spawn-and-platform-handlers.
+  const [execCmd, ...execArgs] = execArgv;
+  const { argv: safeArgv, spawnOptions } = buildSafeArgv(execCmd, execArgs);
+
   try {
-    const result = spawnSync(resolved, args, {
+    const result = spawnSync(safeArgv[0], safeArgv.slice(1), {
       cwd: ctx.cwd,
       env: ctx.env ? { ...process.env, ...ctx.env } : undefined,
       encoding: "utf-8",
       timeout,
       stdio: ["pipe", "pipe", "pipe"],
-      // windowsHide: true comes from exec.ts by default; no shell interpolation.
+      ...spawnOptions, // shell: false, windowsHide: true
     });
 
     // spawnSync error path: either it set .error (e.g. spawn failure) or
@@ -166,6 +259,103 @@ export function run<Input, Output>(
   }
 }
 
+/**
+ * Async sibling of `run()`. Same Recipe contract, same binary
+ * resolution, same `.cmd`/shell handling, same error normalization
+ * — but spawns via `platform/exec.ts`'s wrapped `spawn` (with stdout
+ * captured to a Promise) instead of `spawnSync`, so callers can run
+ * many recipes concurrently without blocking the event loop.
+ *
+ * Use this from server code paths that iterate over many inputs (e.g.
+ * `openspec status --change <name>` across ~20 changes). The sync
+ * `run()` is fine for one-off calls or for callers that must stay
+ * sync (the bridge extension's sync hooks).
+ *
+ * `windowsHide: true` comes from the shared `spawn` wrapper — the
+ * same invariant the sync runner relies on. Do not re-introduce a
+ * bare `child_process.spawn` elsewhere.
+ *
+ * See change: consolidate-tool-resolution (async runner follow-up).
+ */
+export function runAsync<Input, Output>(
+  recipe: Recipe<Input, Output>,
+  input: Input,
+  ctx: RunCtx = {},
+): Promise<Result<Output>> {
+  const argv = recipe.argv(input);
+  if (argv.length === 0) {
+    return Promise.resolve({ ok: false, error: { kind: "spawn-failure", message: "Recipe produced empty argv" } });
+  }
+
+  const [rawCmd, ...recipeArgs] = argv;
+  const execArgv = resolveExecutorArgv(rawCmd, recipeArgs);
+  if (!execArgv) {
+    return Promise.resolve({ ok: false, error: { kind: "not-found", binary: rawCmd } });
+  }
+
+  const timeout = ctx.timeout ?? recipe.timeout ?? DEFAULT_TIMEOUT_MS;
+
+  // Executor-kind tools resolve to `[node.exe, script.js, ...]` on
+  // Windows so buildSafeArgv's `.cmd` wrapping is a no-op here — pure
+  // node.exe spawn, no cmd.exe in the chain.
+  const [execCmd, ...execArgs] = execArgv;
+  const { argv: safeArgv, spawnOptions } = buildSafeArgv(execCmd, execArgs);
+
+  return new Promise<Result<Output>>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const settle = (r: Result<Output>) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+
+    let child: import("node:child_process").ChildProcess;
+    try {
+      child = spawn(safeArgv[0], safeArgv.slice(1), {
+        cwd: ctx.cwd,
+        env: ctx.env ? { ...process.env, ...ctx.env } : undefined,
+        stdio: ["ignore", "pipe", "pipe"],
+        ...spawnOptions, // shell: false, windowsHide: true
+      });
+    } catch (err) {
+      settle({ ok: false, error: { kind: "spawn-failure", message: err instanceof Error ? err.message : String(err) } });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd } });
+    }, timeout);
+
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf-8"); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf-8"); });
+
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      if (err.code === "ETIMEDOUT" || err.message?.includes("ETIMEDOUT")) {
+        settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd } });
+        return;
+      }
+      settle({ ok: false, error: { kind: "spawn-failure", message: err.message } });
+    });
+
+    child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timer);
+      const tolerated = code !== 0 && code !== null && recipe.tolerate?.includes(code);
+      if (code === 0 || tolerated) {
+        try {
+          settle({ ok: true, value: recipe.parse(stdout, input) });
+        } catch (err) {
+          settle({ ok: false, error: { kind: "spawn-failure", message: err instanceof Error ? err.message : String(err) } });
+        }
+        return;
+      }
+      settle({ ok: false, error: { kind: "exit", code, signal, stdout, stderr } });
+    });
+  });
+}
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**

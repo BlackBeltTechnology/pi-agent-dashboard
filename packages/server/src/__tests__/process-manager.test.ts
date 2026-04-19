@@ -1,24 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import { detectPlatform, buildTmuxCommand, buildHeadlessArgs, shellEscape, spawnPiSession, buildSpawnEnv, type SessionOptions } from "../process-manager.js";
+import { buildTmuxCommand, buildHeadlessArgs, shellEscape, spawnPiSession, buildSpawnEnv, type SessionOptions } from "../process-manager.js";
+
+// Note: platform-dispatch tests live in packages/shared/src/__tests__/
+// spawn-mechanism.test.ts. `detectPlatform` was removed in change:
+// consolidate-windows-spawn-and-platform-handlers — its job is now
+// owned by platform/spawn-mechanism.ts `selectMechanism`.
 
 describe("Process Manager", () => {
-  describe("detectPlatform", () => {
-    it("should detect macOS", () => {
-      const result = detectPlatform("darwin");
-      expect(result.strategy).toBe("tmux");
-    });
-
-    it("should detect Linux", () => {
-      const result = detectPlatform("linux");
-      expect(result.strategy).toBe("tmux");
-    });
-
-    it("should detect Windows with WSL fallback", () => {
-      const result = detectPlatform("win32");
-      expect(result.strategy).toBe("wsl");
-    });
-  });
-
   describe("buildTmuxCommand", () => {
     it("should create new session when no pi-dashboard session exists", () => {
       const cmd = buildTmuxCommand("/home/user/project", false);
@@ -182,6 +170,45 @@ describe("Process Manager", () => {
       const result = await spawnPiSession("/nonexistent-path-12345", { electronMode: true });
       expect(result.success).toBe(false);
       expect(result.message).toContain("does not exist");
+    });
+  });
+
+  // ── Fork/continue option forwarding ──────────────────────────────────────
+  // Regression guard for B1/B2: Windows WSL/cmd fallback used to drop
+  // sessionFile + mode silently. buildTmuxCommand and buildHeadlessArgs
+  // both go through `sessionFlagsToArgv`; make sure neither drops.
+  describe("session-flag forwarding", () => {
+    it("buildHeadlessArgs includes --fork for fork mode", () => {
+      const args = buildHeadlessArgs({ sessionFile: "C:\\x\\session.jsonl", mode: "fork" });
+      expect(args).toEqual(["--mode", "rpc", "--fork", "C:\\x\\session.jsonl"]);
+    });
+
+    it("buildHeadlessArgs includes --session for continue mode", () => {
+      const args = buildHeadlessArgs({ sessionFile: "/s/abc.jsonl", mode: "continue" });
+      expect(args).toEqual(["--mode", "rpc", "--session", "/s/abc.jsonl"]);
+    });
+
+    it("buildHeadlessArgs omits session flags when absent", () => {
+      const args = buildHeadlessArgs({});
+      expect(args).toEqual(["--mode", "rpc"]);
+    });
+
+    it("buildTmuxCommand includes --fork in the pi command", () => {
+      const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "fork" });
+      expect(cmd).toContain("pi --fork /s/abc.jsonl");
+    });
+
+    it("buildTmuxCommand includes --session in the pi command", () => {
+      const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "continue" });
+      expect(cmd).toContain("pi --session /s/abc.jsonl");
+    });
+
+    it("buildTmuxCommand with special-character sessionFile still shell-escapes", () => {
+      const cmd = buildTmuxCommand("/project", false, {
+        sessionFile: "/s/with space.jsonl",
+        mode: "fork",
+      });
+      expect(cmd).toContain("--fork '/s/with space.jsonl'");
     });
   });
 });

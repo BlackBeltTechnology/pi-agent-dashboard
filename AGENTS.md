@@ -18,8 +18,8 @@ See [docs/architecture.md](docs/architecture.md) for full details.
 
 ```bash
 npm install          # Install dependencies
-npm test             # Run all tests (vitest) — ISOLATED HOME, safe for live sessions
-npm run test:watch   # Watch mode — also isolated
+npm test             # Run all tests (vitest)
+npm run test:watch   # Watch mode
 npm run build        # Build web client (Vite)
 npm run dev          # Start Vite dev server
 npm run reload       # Reload all connected pi sessions
@@ -27,69 +27,6 @@ npm run reload:check # Type-check + reload all pi sessions
 pi-dashboard         # Start dashboard server
 pi-dashboard --dev   # Start with Vite proxy
 ```
-
-## Test Isolation (READ BEFORE RUNNING VITEST)
-
-**Always run tests via `npm test` or `npm run test:watch`.** Never run `npx vitest` / `vitest` directly without also setting `HOME` to an ephemeral directory first.
-
-### Why this matters
-
-Integration tests call `createServer()`, which on startup runs destructive sweeps against `$HOME/.pi/dashboard/`:
-- `headlessPidRegistry.cleanupOrphans()` — reads `headless-pids.json` and may SIGTERM PIDs it considers orphans (including the **live pi process running the bridge**).
-- `headlessPidRegistry.killAll()` — SIGTERMs every tracked PID on server shutdown.
-- `editorPidRegistry.cleanupOrphans()` — SIGTERMs orphan code-server processes.
-
-If tests run against your real `$HOME`, these sweeps can **kill the pi session that launched the tests**. They also write `.meta.json` sidecars into `~/.pi/agent/sessions/`, racing live bridges and corrupting real session state.
-
-### How isolation works
-
-Three independent layers (defense-in-depth):
-
-1. **Process-level HOME override** (`package.json` `test` / `test:watch` scripts): `HOME=$(mktemp -d -t pi-test-XXXXXX) vitest ...` — vitest starts with a fresh HOME under `os.tmpdir()`.
-2. **globalSetup tripwire** (`packages/shared/src/test-support/setup-home.ts`, wired via `globalSetup` in every `vitest.config.ts`): runs ONCE at vitest boot, throws if `process.env.HOME === os.userInfo().homedir` — aborts the run before any test file loads. Pre-creates `.pi/agent/sessions/` and `.pi/dashboard/` subdirs.
-3. **Production-code guards** (`packages/server/src/test-env-guard.ts`): `headlessPidRegistry.cleanupOrphans`/`killAll` and `editorPidRegistry.cleanupOrphans` no-op with `console.warn` when `process.env.VITEST === "true"` AND HOME matches the real user home.
-
-### Running tests safely
-
-```bash
-npm test                         # Preferred — all isolation layers active
-npm run test:watch               # Also safe
-```
-
-If you must invoke vitest directly (e.g. for a single file):
-
-```bash
-HOME=$(mktemp -d -t pi-test-XXXXXX) npx vitest run path/to/test.ts
-```
-
-Without the `HOME=$(mktemp -d)` prefix, the globalSetup tripwire will abort the run with an instructive error — but **don't rely on that alone**: if you stash or delete the tripwire code, the prefix is your only remaining safety net.
-
-### Writing integration tests
-
-Tests that boot a real `DashboardServer` SHOULD use the `createTestServer()` helper:
-
-```ts
-import { createTestServer } from "@blackbelt-technology/pi-dashboard-server/test-support/test-server.js";
-
-const { server, httpPort, piPort, stop } = await createTestServer();
-// httpPort and piPort are OS-assigned (port: 0) — no hard-coded port ranges,
-// no risk of colliding with the live dashboard on :8000 / :9999.
-// ...
-await stop();
-```
-
-Avoid hard-coding ports like `19070`, `19080`, `19090`, etc. in new tests — the helper handles port allocation and safe defaults (`autoShutdown: false`, `tunnel: false`).
-
-### Verifying isolation after test changes
-
-```bash
-find ~/.pi/agent/sessions -name "*.meta.json" -exec md5 -q {} \; | sort > /tmp/before.txt
-npm test
-find ~/.pi/agent/sessions -name "*.meta.json" -exec md5 -q {} \; | sort > /tmp/after.txt
-diff /tmp/before.txt /tmp/after.txt | grep -v "pi-agent-dashboard"  # should be empty
-```
-
-Files under the **current** session's directory (`~/.pi/agent/sessions/--Users-...-pi-agent-dashboard--/`) will legitimately change during the test run because the live bridge keeps writing heartbeats. Only files in **other** session directories indicate a leak.
 
 ## Cross-Platform QA Testing
 
@@ -131,7 +68,7 @@ make clean              # Destroy all cloned VMs
 | `src/extension/server-probe.ts` | TCP probe to detect running server |
 | `src/shared/server-identity.ts` | Identity-verified health check (`isDashboardRunning`) replacing bare TCP probes |
 | `src/shared/mdns-discovery.ts` | mDNS advertise/discover/browse for `_pi-dashboard._tcp` services |
-| `src/extension/server-launcher.ts` | Auto-start server as detached process |
+| `src/extension/server-launcher.ts` | Auto-start server as detached process; captures stdout/stderr to `~/.pi/dashboard/server.log` (append mode) so launch failures are visible |
 | `src/extension/command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands |
 | `src/extension/prompt-expander.ts` | Slash command → prompt template expansion (supports colon-to-hyphen aliasing: `/opsx:cmd` → `opsx-cmd.md`) |
 | `src/extension/dev-build.ts` | Dev build-on-reload helper (client build + server shutdown) |
@@ -149,7 +86,7 @@ make clean              # Destroy all cloned VMs
 | `src/extension/prompt-bus.ts` | PromptBus — unified prompt routing to registered adapters (TUI, dashboard, custom). First-response-wins, cross-adapter dismissal. |
 | `src/extension/dashboard-default-adapter.ts` | Built-in PromptBus adapter that renders prompts as generic interactive dialogs in dashboard chat |
 | `src/client/lib/prompt-component-registry.ts` | Client-side component registry mapping prompt type strings to render metadata (placement, component) |
-| `src/extension/ask-user-tool.ts` | `ask_user` tool registration (bundled in bridge, registered at session_start to avoid static tool-name conflicts with other extensions). Supports five methods: `confirm`, `select`, `multiselect`, `input`, and `batch` (multiple related questions in one call, answers returned as ordered array; cancel mid-batch returns partial results + `cancelled: true`). `prepareArguments` rescues common LLM drift: stringified `params`/`questions`/`options`, `question`/`header` → `title`, `input_type` wrapper flattening, `{label,value}[]` → `label[]` with warning surfaced via `details.warnings`. |
+| `src/extension/ask-user-tool.ts` | `ask_user` tool registration (bundled in bridge, registered at session_start to avoid static tool-name conflicts with other extensions) |
 | `src/shared/openspec-activity-detector.ts` | Detects OpenSpec activity from tool events; auto-attach requires only changeName (phase optional) |
 | `src/shared/openspec-poller.ts` | OpenSpec CLI polling (shared, used by server DirectoryService) |
 | `src/shared/state-replay.ts` | Synthesizes events from pi entries (shared, used by server + bridge) |
@@ -165,7 +102,7 @@ make clean              # Destroy all cloned VMs
 | `src/server/idle-timer.ts` | Auto-shutdown idle timer with sleep-wake resilience |
 | `src/server/session-bootstrap.ts` | Startup session discovery and OpenSpec polling init |
 | `src/server/pi-gateway.ts` | Extension WebSocket gateway (port 9999) |
-| `src/server/browser-gateway.ts` | Browser WebSocket gateway (dispatches to handler modules; logs handler exceptions as `[browser-gw] handler error type=<msg.type>: <err>` instead of silently swallowing them — only malformed JSON frames are dropped silently) |
+| `src/server/browser-gateway.ts` | Browser WebSocket gateway (dispatches to handler modules) |
 | `src/server/browser-handlers/handler-context.ts` | Shared context type for browser message handlers |
 | `src/server/browser-handlers/subscription-handler.ts` | Subscribe/unsubscribe with async batched replay, backpressure, lazy loading |
 | `src/server/browser-handlers/session-action-handler.ts` | Send prompt, abort, resume, spawn, shutdown, force kill, flow control |
@@ -181,28 +118,25 @@ make clean              # Destroy all cloned VMs
 | `src/client/components/ArchiveBrowserView.tsx` | Searchable archive browser: date-grouped list, two-level nav to artifact reader |
 | `src/client/hooks/useArchiveListing.ts` | Fetch hook + pure helpers (groupByDate, filterEntries) for archive endpoint |
 | `src/server/openspec-archive.ts` | Scans `openspec/changes/archive/` and returns structured ArchiveEntry list |
-| `packages/server/src/openspec-tasks.ts` | Parses an OpenSpec change's `tasks.md` (top-level `- [ ]` / `- [x]` lines under `## ` headings) and rewrites a single checkbox line atomically (tmp + rename, byte-for-byte preservation of other lines). Exports `parseTasksMarkdown`, `readTasks`, `toggleTask`, plus typed `NotFoundError` / `LineMismatchError` / `NotACheckboxError` consumed by `routes/openspec-routes.ts` to map to HTTP 404/409/400. |
-| `packages/client/src/lib/openspec-tasks-api.ts` | Client fetch helpers for `GET /api/openspec/tasks` and `POST /api/openspec/tasks/toggle`. Throws typed `LineMismatchError` on HTTP 409 so `TasksPopover` can refetch + show a banner without string-matching error text. |
-| `packages/client/src/components/StatePill.tsx` | Compact color-coded pill (zinc/blue/amber/green) showing `deriveChangeState(change)` next to the attached-change badge on the session card. Exports `stateToLabel` and the `STATE_PILL_CLASS` map for reuse. |
-| `packages/client/src/components/TasksPopover.tsx` | Portal-rendered popover (anchored to the session card's `Tasks N/M` button) listing every parseable `tasks.md` checkbox grouped by `## ` heading. Optimistic toggle; HTTP 409 triggers a refetch + “File changed” banner; broadcast-driven openspec poll keeps the card counts fresh after each tick.
 | `src/client/components/SessionOpenSpecActions.tsx` | Session-level OpenSpec: searchable attach dialog, action buttons, detach |
 | `src/client/components/DialogPortal.tsx` | Portal wrapper rendering dialogs at document.body with scroll lock |
-| `src/client/components/PinDirectoryDialog.tsx` | Dialog to pin a directory (wraps PathPicker). Mounted once at the app root in `App.tsx` via `DialogPortal`; opened by both the sidebar "Add folder" button and the LandingPage Step ② CTA through a shared `onOpenPinDialog` callback. |
-| `packages/client/src/components/LandingPage.tsx` | Empty-state onboarding view. Renders three cards (Setup credentials → Add folder → Start session) that collapse to ✔ rows once each step is satisfied. Accepts `{ providersReady, pinnedCount, sessionsCount, firstPinnedCwd, onOpenPinDialog, onSpawnSession, navigate }`. Falls back to the legacy `π + "Select a session to get started"` placeholder when no onboarding props are supplied (preserves existing test surface). |
-| `packages/client/src/hooks/useProvidersReady.ts` | Hook observing `GET /api/providers`: returns `{ loading, ready, count }` where `ready=true` iff at least one provider has a non-empty `apiKey`. Refetches on window `focus` and on `provider-auth-event` custom events. Used by `LandingPage` via `App.tsx` to drive Step ① state. |
+| `src/client/components/PinDirectoryDialog.tsx` | Dialog to pin a directory (wraps PathPicker) |
 | `src/client/components/PathPicker.tsx` | Reusable keyboard-first path picker with typeahead directory list |
 | `src/client/lib/browse-api.ts` | Client-side browse API helper for PathPicker |
 | `src/server/browse.ts` | Directory listing logic for browse API endpoint |
 | `src/server/pi-resource-scanner.ts` | Discovers pi extensions, skills, prompts from local, global, and package sources |
-| `src/server/package-manager-wrapper.ts` | Thin adapter around pi's `DefaultPackageManager` with operation serialization, progress forwarding, and session reload. `loadPiPackageManager()` resolution order: (1) direct import of `@mariozechner/pi-coding-agent`, (2) managed install at `~/.pi-dashboard/node_modules/` (used by Electron portable/standalone on Windows where pi isn't globally installed), (3) `npm root -g`. Without step (2) portable Windows users see a red "pi-coding-agent is not installed" banner in the Packages tab. |
+| `src/server/package-manager-wrapper.ts` | Thin adapter around pi's `DefaultPackageManager` with operation serialization, progress forwarding, and session reload; delegates module resolution to `ToolRegistry.resolveModule("pi-coding-agent")` |
+| `src/shared/tool-registry/registry.ts` | `ToolRegistry` service — single-source resolver for every external binary/module (pi, pi-coding-agent, openspec, npm, node, tsx, git, zrok, pi-dashboard). Ordered strategy chain per tool, per-resolution diagnostic trail, in-memory cache, override-aware |
+| `src/shared/tool-registry/definitions.ts` | Registers the standard tool set. Each definition declares an ordered strategy chain (override → bare-import → managed → npm-global → where) and a classifier (strategy → source) |
+| `src/shared/tool-registry/strategies.ts` | Reusable resolution strategies: `overrideStrategy`, `managedBinStrategy`, `managedModuleStrategy`, `npmGlobalStrategy`, `whereStrategy`, `bareImportStrategy` (uses `createRequire` for sync probe). All take injectable `StrategyDeps` for tests |
+| `src/shared/tool-registry/overrides.ts` | Read/write `~/.pi/dashboard/tool-overrides.json` (machine-local, separate from `config.json`). Lazy-loaded, atomic write via tmp+rename, malformed-file tolerant |
+| `src/shared/tool-registry/types.ts` | `ToolDefinition`, `Strategy`, `StrategyResult`, `Resolution`, `Source`, `UnknownToolError`, `ModuleResolutionError` |
+| `src/shared/tool-registry/index.ts` | Barrel export + `getDefaultRegistry()` singleton accessor |
+| `src/server/routes/tool-routes.ts` | REST routes: `GET /api/tools`, `GET /api/tools/:name`, `POST /api/tools/rescan`, `PUT/DELETE /api/tools/:name`, `POST /api/tools/diagnostics` (text/plain export) |
+| `src/client/lib/tools-api.ts` | Client-side fetch helpers for `/api/tools*` (`fetchTools`, `rescanAll`, `rescanOne`, `setOverride`, `clearOverride`, `downloadDiagnostics`) |
+| `src/client/components/ToolsSection.tsx` | Settings → General → **Tools** section. One row per registered tool: status badge, source, truncated path, expand-to-trail, override input, per-row rescan. Top-level: Rescan all / Reset overrides / Export diagnostics |
 | `src/server/npm-search-proxy.ts` | Cached proxy for npm registry search (`keywords:pi-package`) and README fetch |
 | `src/server/routes/package-routes.ts` | REST routes: search, readme, installed, install, remove, update, check-updates |
-| `packages/server/src/pi-core-checker.ts` | Discovers pi ecosystem CORE CLI packages (pi itself, pi-dashboard, pi-model-proxy, etc.) from global npm + `~/.pi-dashboard/node_modules/` and compares against the npm registry. Complements PackageManagerWrapper which only manages extensions in `settings.json packages[]`. 5-min cache. |
-| `packages/server/src/pi-core-updater.ts` | Runs `npm update -g <pkg>` (global install) or `npm update <pkg>` in `~/.pi-dashboard/` (managed install), streams progress via listener, acquires `PackageManagerWrapper.runExclusive()` busy-lock, auto-reloads sessions on any successful update. |
-| `packages/server/src/routes/pi-core-routes.ts` | REST routes: `GET /api/pi-core/versions[?refresh=true]`, `POST /api/pi-core/update` with `{ packages?: string[] }` (empty = update all with `updateAvailable`). 409 when busy, 400 on unknown package names. |
-| `packages/client/src/hooks/usePiCoreVersions.ts` | Fetch + 30-min poll hook for pi core version status. Refetches (with `?refresh=true`) when `pi_core_update_complete` arrives via the `pi-core-event` window event. |
-| `packages/client/src/components/PiCoreVersionsSection.tsx` | Settings → Packages tab section showing core packages with current → latest versions, per-package Update button, Update All, Check Now, live progress/error surfaced from WS `pi_core_update_progress`/`complete`. |
-| `packages/client/src/components/PiUpdateBadge.tsx` | Header badge (count of available pi core updates). Hidden when zero. Clicking navigates to `/settings?tab=packages`. Mounted next to `ServerSelector` in `App.tsx` `headerExtra`. |
 | `src/client/components/SortablePinnedGroup.tsx` | Drag-to-reorder wrapper for pinned directory groups |
 | `src/server/preferences-store.ts` | Global UI preferences (pinned dirs, session order) in `preferences.json` |
 | `src/server/meta-persistence.ts` | Per-session debounced `.meta.json` writer |
@@ -213,10 +147,12 @@ make clean              # Destroy all cloned VMs
 | `src/server/pending-fork-registry.ts` | Tracks pending fork operations for session placement |
 | `src/server/pending-resume-registry.ts` | Queues prompts for auto-resume of ended sessions |
 | `src/server/json-store.ts` | Atomic JSON file read/write helpers |
-| `src/server/process-manager.ts` | Session spawning via tmux or headless mode |
+| `src/server/process-manager.ts` | Session spawning: dispatches via `platform/spawn-mechanism.ts` `selectMechanism` → `tmux` / `wt` / `wsl-tmux` / `headless`. All mechanisms forward `sessionFile`/`mode` uniformly via `sessionFlagsToArgv`. Windows headless uses `spawnDetached` primitive with `detached: true` (PGID-equivalent via libuv) and stderr-to-file-fd (crash-visible). |
+| `src/shared/platform/detached-spawn.ts` | Three primitives: `spawnDetached` (libuv-correct detached defaults on every OS), `waitForNoCrash` (negative liveness — did it survive the window?), `waitForReady` (positive liveness — did a probe turn true?). All spawn sites with long-lived detached children delegate here. |
+| `src/shared/platform/spawn-mechanism.ts` | `SpawnMechanism` enum (`tmux`/`wt`/`wsl-tmux`/`headless`) + pure `selectMechanism({ platform, userStrategy, electronMode, available })` selector. `buildWtArgs` builds argv for Windows Terminal `new-tab`. `sessionFlagsToArgv` is the uniform flag builder every mechanism MUST call. |
+| `src/shared/platform/process-identify.ts` | `findPidByMarker` + `isProcessLikePi` + `isPiCommandLine` — consolidates the three `process.platform === "win32"` branches that previously lived inside `session-action-handler.ts`. Windows stubs are documented (command-line lookup goes via `headlessPidRegistry` instead). |
 | `src/server/editor-registry.ts` | Detects available native editors (running processes + CLI) |
 | `src/server/editor-manager.ts` | Lifecycle manager for code-server child processes (spawn, stop, idle, heartbeat) |
-| `packages/server/src/editor-pid-registry.ts` | Persists spawned code-server PIDs to `~/.pi/dashboard/editor-pids.json` and sweeps orphaned code-server processes on server boot (runs in `server.start()` before `fastify.listen`). Verifies ownership via cmdline check against `~/.pi/dashboard/editors/` prefix to avoid killing unrelated user-run code-server instances. SIGTERM → 1s grace → SIGKILL escalation. |
 | `src/server/editor-proxy.ts` | Reverse proxy for `/editor/:id/*` to code-server instances |
 | `src/server/editor-detection.ts` | Auto-detect code-server/openvscode-server binary on PATH |
 | `src/server/routes/editor-routes.ts` | REST routes: editor start, stop, heartbeat, status, detect |
@@ -240,12 +176,8 @@ make clean              # Destroy all cloned VMs
 | `src/server/routes/known-servers-routes.ts` | REST routes: known servers CRUD, on-demand mDNS discovery scan |
 | `src/server/terminal-manager.ts` | PTY lifecycle, ring buffer, spawn/attach/kill terminals |
 | `src/server/terminal-gateway.ts` | Binary WebSocket upgrade handler for `/ws/terminal/:id` |
-| `scripts/fix-pty-permissions.cjs` | Postinstall: locates `node-pty` via `require.resolve("node-pty/package.json")` (hoist-aware) and chmods every `prebuilds/*/spawn-helper` and `prebuilds/*/pty.node` to `0o755`. Wired up at the workspace-root `postinstall` so it applies regardless of which workspace triggered `npm install`. |
-| `src/server/fix-pty-permissions.ts` | Runtime spawn-helper permission fix — called once by `createTerminalManager()`, uses `createRequire().resolve("node-pty")` to handle any install layout including Electron bundles |
-| `src/server/tunnel.ts` | Zrok tunnel with reserved shares for persistent URLs. Serialized creation via in-flight promise (`pendingCreate`) prevents parallel reservations from UI double-clicks. `releaseShare(token)` + `scavengeOrphanZrokProcesses(port)` clean up leaked reservations and processes on startup (unconditional when zrok binary is present, even in `--no-tunnel`), on `/api/restart`, `/api/shutdown`, and `/api/tunnel-disconnect`. Retry cap of 1 prevents cascade leaks; timeout path SIGTERM→SIGKILL escalation + release just-in-time tokens. |
-| `packages/client/vite.config.ts` | Client build. `rollupOptions.output.manualChunks` splits bundle into vendor chunks (`react-vendor`, `markdown`, `syntax`, `diff`, `xterm`, `dnd`, `util`) so the initial chunk is ~570 KB (~150 KB gzipped) instead of a 3 MB monolith — avoids tunnel abort thresholds on large assets. |
-| `packages/client/scripts/precompress.mjs` | Post-build step (runs from `build` / `prepare`): zero-dependency Node script that writes `.gz` siblings for every compressible file in `dist/`. `@fastify/static` serves them with `preCompressed: true` so responses ship a stable `Content-Length` header — avoids streaming-compression quirks in intermediate HTTP/2 proxies. |
-| `packages/server/src/server.ts` | Fastify server. Registers `@fastify/compress` globally with gzip+deflate (brotli intentionally disabled — zrok free proxy stream-resets `content-encoding: br`). Serves static client with `preCompressed: true`. CORS callback allows localhost, the active zrok tunnel URL (via `getTunnelUrl()`), any `*.share.zrok.io` host, and configured origins; on mismatch returns `cb(null, false)` rather than throwing — throwing causes `@fastify/cors` to surface HTTP 500 on every asset response (the hidden root cause of browser-only 500s over zrok tunnels, since Vite's `<script type="module" crossorigin>` entries always request in CORS mode). |
+| `scripts/fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
+| `src/server/tunnel.ts` | Zrok tunnel with reserved shares for persistent URLs, binary detection, PID tracking, stale cleanup |
 | `src/client/components/TunnelButton.tsx` | Unified tunnel/QR button — tunnel icon when not set up, QR icon when inactive, green QR icon when connected; opens QR dialog with disconnect/setup |
 | `src/client/components/QrCodeDialog.tsx` | QR code dialog showing tunnel URL as scannable QR code with copy, disconnect, and setup buttons |
 | `public/manifest.json` | PWA web app manifest for installability |
@@ -254,14 +186,11 @@ make clean              # Destroy all cloned VMs
 | `src/server/cli.ts` | CLI entry point with subcommands (start/stop/restart/status); `findPortHolders` is cross-platform (netstat/taskkill on Windows, lsof on Unix) and `server.log` is opened append-mode with timestamped headers |
 | `src/server/restart-helper.ts` | Cross-platform `/api/restart` orchestrator: spawns a detached `node -e` child using only Node built-ins (net, http) — no sh/lsof/curl dependency; exports pure `buildOrchestratorScript(params)` for testing |
 | `src/shared/resolve-jiti.ts` | Resolves pi's jiti register hook as a `file://` URL (required for `node --import` on Windows); exports pure `buildJitiRegisterUrl(pkgJsonPath)` helper and `resolveJitiFromAnchor(anchorPath)` for managed-install/system-pi callers |
+| `src/shared/platform/paths.ts` | OS-aware path primitives: `normalizePath`, `samePath` (filesystem-level equality), `parsePathInput` (picker input), `withTrailingSep`, `isFilesystemRoot`. All accept optional trailing `platform: NodeJS.Platform` for testability. Windows multi-drive invariant: A:\, B:\, C:\ never merge; bare `B:` input treated as drive root, not cwd-relative. Exported from `platform/index.ts` as `paths.*` namespace alongside `git.*`, `openspec.*`, `npm.*` |
+| `src/client/lib/session-grouping.ts` | `inferPlatform(samples)` heuristic (backslash/drive-letter = Windows, leading `/` = POSIX) + `groupSessionsByDirectory` that uses `normalizePath`-keyed Maps so sessions group under their pinned folder across separator/case/trailing drift |
 | `src/shared/platform/` | Unified cross-OS primitives (see `index.ts` barrel). Sub-modules: `exec.ts` (**the only module that imports `node:child_process`** — wraps `execSync`/`exec`/`execFile`/`spawn`/`spawnSync` with `windowsHide: true` by default; enforced by `no-direct-child-process.test.ts`), `runner.ts` (the Recipe engine — `run(recipe, input)` resolves binaries via `ToolResolver`, applies timeout / tolerate / error normalization, returns `Result<T>`), `git.ts` / `openspec.ts` / `npm.ts` (Recipe-based tool modules — typed functions like `git.diff(...)`, `openspec.list(...)`, `npm.rootGlobal()` that never touch `child_process` or `process.platform`), `binary-lookup.ts` (`where`/`which`, `.cmd` ext, `ToolResolver` class), `process.ts` (`findPortHolders`, `killProcess`, `isProcessAlive`, `killPidWithGroup`, `parseNetstatListeners`), `process-scan.ts` (`isProcessRunning` via pgrep/tasklist, `parseEtime`), `shell.ts` (`detectShell` for SHELL/COMSPEC, `getTerminalEnvHints`), `commands.ts` (`openBrowser`, `isVirtualMachine`). All exported helpers that depend on OS take an optional `platform: NodeJS.Platform` parameter so tests can exercise both branches without mutating `process.platform`. See changes: consolidate-platform-handlers, platform-command-executor. |
 | `src/shared/rest-api.ts` | REST API type definitions |
 | `scripts/reload-all.sh` | Build bridge + reload all pi sessions |
-| `CHANGELOG.md` | Human-authored release notes per version (Keep a Changelog 1.1.0); source of GitHub Release bodies. Contributors append bullets to `## [Unreleased]`; release author promotes at tag time. |
-| `packages/shared/src/test-support/setup-home.ts` | Vitest `globalSetup` module. Runs ONCE at vitest boot. Tripwire: throws if `process.env.HOME === os.userInfo().homedir` (i.e. tests would run against real user home), aborting the entire run before any test file loads. Warns if HOME is outside `os.tmpdir()`. Pre-creates `<HOME>/.pi/agent/sessions/` and `<HOME>/.pi/dashboard/`. Wired via `test.globalSetup` in every package's `vitest.config.ts`. |
-| `packages/server/src/test-env-guard.ts` | `isUnsafeTestHomeScan()` — returns true when `VITEST=true` AND HOME matches `os.userInfo().homedir`. Gates destructive sweeps in `headlessPidRegistry.cleanupOrphans/killAll` and `editorPidRegistry.cleanupOrphans` so tests never SIGTERM live pi processes even if higher isolation layers are bypassed. |
-| `packages/server/src/test-support/test-server.ts` | `createTestServer(overrides)` helper — boots a real `DashboardServer` on OS-assigned ports (`port: 0`, `piPort: 0`) with safe defaults (no auto-shutdown, no tunnel). Returns `{ server, httpPort, piPort, stop }`. Prefer over hard-coded `19xxx` port constants in new integration tests. |
-| `docs/release-process.md` | Canonical how-to for cutting a release: commit conventions, Unreleased promotion, version bump, tag + push, CI behavior, manual fallback. |
 | `src/client/components/PiResourcesView.tsx` | Content area view for browsing pi extensions, skills, and prompts (with Installed/Packages tabs) |
 | `src/client/components/PackageBrowser.tsx` | Reusable inline package browser: npm search, type filters, install/uninstall, manual URL input |
 | `src/client/components/PackageCard.tsx` | Package card with type badges, downloads, install/uninstall actions |
@@ -284,9 +213,7 @@ make clean              # Destroy all cloned VMs
 | `src/client/components/TerminalsView.tsx` | Tabbed terminal container per folder (tab bar, keep-alive, rename) |
 | `src/client/components/EditorView.tsx` | code-server iframe embedding with lazy start and heartbeat |
 | `src/client/components/EditorInstallGuide.tsx` | Platform-specific code-server installation guide |
-| `src/client/components/FolderActionBar.tsx` | Unified action bar per folder: +Session, Terminals(N), Editor, Zed, Pi Resources |
-| `packages/client/src/hooks/useImagePaste.ts` | Shared clipboard-image-paste hook (pendingImages, imageError, handlePaste, removeImage, clearImages). Used by `CommandInput` and `ExploreDialog` so behavior is identical across both prompt surfaces. Exports `MAX_IMAGE_SIZE` and `SUPPORTED_IMAGE_TYPES`. |
-| `packages/client/src/components/ImagePreviewStrip.tsx` | Shared image preview strip: error banner + horizontal thumbnail row with remove buttons; thumbnails open `ImageLightbox`. Used by `CommandInput` and `ExploreDialog`. |
+| `src/client/components/FolderActionBar.tsx` | Unified action bar per folder: +Session, +Terminal, Terminals(N), Editor, Zed, Pi Resources |
 | `src/client/lib/folder-encoding.ts` | Base64url encode/decode for folder paths in URL routes |
 | `src/shared/editor-types.ts` | Editor instance types shared across components |
 | `src/client/components/TerminalCard.tsx` | Sidebar card for terminal sessions (cyan accent) |
@@ -295,11 +222,6 @@ make clean              # Destroy all cloned VMs
 | `src/client/components/MobileActionMenu.tsx` | Kebab menu for session actions on mobile (includes OpenSpec commands) |
 | `src/client/components/MobileOverlay.tsx` | Hamburger button and sidebar overlay for mobile |
 | `src/client/components/SessionHeader.tsx` | Session header with OpenSpec attach/detach, flow launcher, MobileAttachButton |
-| `packages/client/src/components/PiLogo.tsx` | Inline-SVG Pi brand-mark component. `fill="currentColor"`, transparent background, themeable via parent `color`. Used in both sidebar headers (`SessionList.tsx`, `SessionSidebar.tsx`). |
-| `packages/client/src/components/SessionSidebar.tsx` | Alternate sidebar; header brand button renders `<PiLogo size={24} />` (inherits `text-blue-500 hover:text-blue-400`) instead of a literal `π` glyph. |
-| `packages/client/src/components/SessionList.tsx` | Desktop sidebar; header brand button uses `<PiLogo />`. Pin-folder button renders `📌 Add folder` label (tooltip: "Pin a folder to the sidebar") instead of icon-only `📌+`. |
-| `packages/client/src/index.css` | Global styles. `.card-working-pulse` layers a 45° repeating-linear-gradient (amber, `background-size: 28.2843px` = one full diagonal period) over a flat amber tint; `background-position` scrolls **horizontally** by `56.5685px` (2 periods) over 2s linear — scroll must be across stripes, diagonal scroll is pattern-invariant. An opacity pulse `0.6 → 1 → 0.6` runs in parallel over 3s ease-in-out (coprime with 2s stripes so they never lock). `prefers-reduced-motion: reduce` disables both animations but keeps the static stripe pattern as a state cue. `.card-input-pulse` (ask_user) intentionally stays pulse-only — stripes = working, pulse-only = waiting on you. |
-| `packages/client/vite.config.ts` | Client build config. `publicDir: "../../../public"` — resolved relative to `root: "src"`, three `../` hops reach the project-root `public/` directory (icon-192.png, icon-512.png, manifest.json, sw.js). Earlier `"../../public"` silently resolved to a non-existent `packages/public/` and caused all PWA assets to 404 in production. |
 | `src/client/hooks/useSwipeBack.ts` | iOS-style left-edge swipe-back gesture (40px edge zone, document-level listeners) |
 | `src/client/components/ChatView.tsx` | Chat message view with scroll-lock: pauses auto-scroll when user scrolls up, floating scroll-to-bottom button, per-session scroll position persistence |
 | `src/client/lib/mobile-depth.ts` | Pure function computing MobileShell depth from route state |
@@ -332,8 +254,6 @@ make clean              # Destroy all cloned VMs
 | `src/client/lib/diff-tree.ts` | Directory tree builder from flat file paths |
 | `src/server/session-api.ts` | REST wrappers for WebSocket-only session operations (prompt, abort, spawn, resume, etc.) |
 | `.pi/skills/pi-dashboard/SKILL.md` | Bundled skill: monitor and control the dashboard from any pi session |
-| `.pi/skills/release-cut/SKILL.md` | Skill: cut a new release — pre-flight (clean tree, tests, build), CHANGELOG `[Unreleased]` → versioned promotion, workspace version bump, `chore(release): v<version>` commit, tag + push develop. Stops at the CI-generated draft GitHub Release per `docs/release-process.md`. |
-| `.pi/skills/release-revoke/SKILL.md` | Skill: revoke/rollback a release — delete GitHub Release (draft or published) via `gh release delete`, remove git tag locally + on origin, `npm deprecate` the version (never `npm unpublish` — blocked after 72h / with dependents), optionally revert the `chore(release): v<version>` commit. Handles partial CI failures gracefully. |
 | `.pi/skills/pi-dashboard/references/api-reference.md` | Complete REST API reference for the skill |
 | `.pi/skills/pi-dashboard/references/recipes.md` | Multi-step orchestration recipes |
 | `.pi/skills/pi-dashboard/scripts/dashboard-api.sh` | Helper script with port auto-detection and auth |
@@ -369,12 +289,6 @@ make clean              # Destroy all cloned VMs
 | `packages/electron/scripts/test-electron-install-inner.sh` | Inner test script run inside Docker container |
 | `packages/electron/resources/icon.png` | Master 1024×1024 app icon (π on dark navy) |
 | `.github/workflows/publish.yml` | CI: builds DMG (macOS), DEB+AppImage (Linux), NSIS+ZIP+portable (Windows) on native runners; publishes npm + GitHub Release |
-| `.github/workflows/deploy-site.yml` | CI: builds marketing site in `/site` with Astro, enforces 50 KB gzipped JS budget, deploys to GitHub Pages via `actions/deploy-pages@v4` on push to `develop` when `site/**` changes |
-| `site/` | Public marketing site (Astro + Tailwind + MDX + Preact). Self-contained, published at `BlackBeltTechnology.github.io/pi-agent-dashboard` (later `pi-dashboard.dev`). Uses Pi-blue palette, Supabase-style playful bento grid, 4-state storytelling hero animation. |
-| `site/src/components/HeroAnimation.tsx` | Preact island — the only hydrated hero component. Cycles through dashboard state screenshots every 6s with motion-one crossfade; pauses on hover/touch; respects `prefers-reduced-motion`. |
-| `site/src/content/features.ts` | Data-driven feature list rendered by `BentoGrid.astro` into the 12-card bento layout. |
-| `site/scripts/screenshots/capture.ts` | Playwright screenshot pipeline. Two modes: `SCREENSHOT_TARGET_URL=<url> npm run screenshots` captures against an existing dashboard (recommended); plain `npm run screenshots` spawns a temp `pi-dashboard` with fixture sessions, captures desktop (1440) + mobile (390), and cleans up. Outputs to `site/public/screenshots/{desktop,mobile}/`. |
-| `site/scripts/check-js-size.mjs` | Enforces the 50 KB gzipped JavaScript budget on `site/dist/**/*.js` (wired to `npm run size` and to the deploy workflow). |
 
 ## Build & Restart Workflow
 

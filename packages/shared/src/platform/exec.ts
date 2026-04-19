@@ -35,6 +35,72 @@ import {
 } from "node:child_process";
 import { promisify } from "node:util";
 
+// ── Argv safety (Windows .cmd / .bat handling) ─────────────────────────────
+
+/**
+ * Build a spawn-safe argv for ANY command on ANY platform.
+ *
+ * The canonical way to invoke subprocesses without flashing cmd.exe
+ * console windows on Windows. Handles three cases:
+ *
+ *   1. Windows + `.cmd` / `.bat` shim → explicit `cmd.exe /c <cmd> <args>`.
+ *      This is the ONLY reliable way to invoke `.cmd` files without the
+ *      flashing-console bug (Node issue #21825, which happens when
+ *      `shell: true` is combined with `.cmd` + `detached` + `windowsHide`).
+ *      cmd.exe respects `windowsHide: true` on its own console directly.
+ *
+ *   2. Windows + native binary (`.exe`) → direct argv.
+ *
+ *   3. Unix (any binary or shell script) → direct argv.
+ *
+ * Always returns `{ shell: false, windowsHide: true }` — NEVER uses
+ * `shell: true`. Callers pass these spawn options along with the argv.
+ *
+ * Example:
+ *   const { argv, spawnOptions } = buildSafeArgv("npm.cmd", ["root", "-g"]);
+ *   spawnSync(argv[0], argv.slice(1), { cwd, env, ...spawnOptions });
+ *
+ * See change: consolidate-windows-spawn-and-platform-handlers.
+ */
+export interface SafeArgv {
+  argv: string[];
+  spawnOptions: { shell: false; windowsHide: true };
+}
+
+export function buildSafeArgv(
+  cmd: string,
+  args: readonly string[] = [],
+  platform: NodeJS.Platform = process.platform,
+): SafeArgv {
+  if (platform === "win32") {
+    // Route through cmd.exe for TWO cases:
+    //   1. Explicit .cmd/.bat shim — Node can't spawn these directly
+    //      with shell:false (CVE-2024-27980 fix in Node >= 20.12).
+    //   2. Extensionless name (e.g. "npm", "pi", "git") — Windows
+    //      resolves these via PATHEXT, but only shells do. Without
+    //      cmd.exe, spawn("npm") returns ENOENT because there's no
+    //      literal "npm" binary — just "npm.cmd".
+    // Native .exe / absolute paths bypass cmd.exe (no PATHEXT needed).
+    //
+    // /d = skip AutoRun, /s = treat quoted first token as command
+    // (preserves spaces), /c = run and exit. cmd.exe honors
+    // windowsHide on its console, so inner .cmd's node.exe inherits an
+    // invisible console — no flash.
+    const isShim = /\.(cmd|bat)$/i.test(cmd);
+    const hasExtension = /\.[A-Za-z0-9]+$/.test(cmd);
+    if (isShim || !hasExtension) {
+      return {
+        argv: ["cmd.exe", "/d", "/s", "/c", cmd, ...args],
+        spawnOptions: { shell: false, windowsHide: true },
+      };
+    }
+  }
+  return {
+    argv: [cmd, ...args],
+    spawnOptions: { shell: false, windowsHide: true },
+  };
+}
+
 // ── Option helpers ──────────────────────────────────────────────────────────
 
 type AnyOptions = { windowsHide?: boolean } | undefined;
