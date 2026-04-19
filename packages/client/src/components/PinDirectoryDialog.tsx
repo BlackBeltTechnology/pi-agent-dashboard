@@ -1,5 +1,7 @@
 import React from "react";
 import { PathPicker } from "./PathPicker.js";
+import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { inferPlatform } from "../lib/session-grouping.js";
 
 interface Props {
   onPin: (path: string) => void;
@@ -13,7 +15,15 @@ export function PinDirectoryDialog({ onPin, onCancel }: Props) {
         <h3 className="text-lg font-semibold mb-4">Pin Directory</h3>
 
         <PathPicker
-          onSelect={(path) => path.trim() && onPin(path.replace(/\/+$/, "") || "/")}
+          onSelect={(p) => {
+            const trimmed = p.trim();
+            if (!trimmed) return;
+            // Normalize OS-correctly instead of the old Unix-only strip.
+            // Infer platform from the input itself — backslash / drive
+            // letter = Windows, otherwise POSIX.
+            const platform = inferPlatform([trimmed]);
+            onPin(normalizePath(trimmed, platform));
+          }}
           onCancel={onCancel}
           rows={8}
         />

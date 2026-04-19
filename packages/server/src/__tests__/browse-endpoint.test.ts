@@ -102,6 +102,22 @@ describe("listDirectories", () => {
       expect(entry.path).toBe(path.join(projectRoot, entry.name));
     }
   });
+
+  it("should return the server's platform", async () => {
+    const result = await listDirectories(REPO_ROOT);
+    expect(result.platform).toBe(process.platform);
+  });
+
+  it("returns parent=null at the filesystem root", async () => {
+    // Use whichever root is appropriate for the host: "/" on Unix, the
+    // process's drive root on Windows. Previously this test only
+    // exercised Unix; `isFilesystemRoot` covers both branches now.
+    const root = process.platform === "win32"
+      ? path.parse(process.cwd()).root    // e.g., "C:\\" or "B:\\"
+      : "/";
+    const result = await listDirectories(root);
+    expect(result.parent).toBeNull();
+  });
 });
 
 describe("listDirectories with q filter", () => {

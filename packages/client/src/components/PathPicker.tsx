@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { browseDirectory, createDirectory } from "../lib/browse-api.js";
-import type { BrowseEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { BrowseResult, BrowseEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { inferPlatform } from "../lib/session-grouping.js";
 
 interface Props {
   initialPath?: string;
@@ -10,20 +12,13 @@ interface Props {
 }
 
 /**
- * Parse input value into the resolved parent directory and the partial filter text.
- * "/Users/robson/Pro" → { parent: "/Users/robson", partial: "Pro" }
- * "/Users/robson/"    → { parent: "/Users/robson", partial: "" }
+ * Delegates to the shared `parsePathInput` primitive. Platform is
+ * inferred from the input so the picker works correctly on both Windows
+ * (backslash / drive letter) and POSIX.
  */
 function parseInput(value: string): { parent: string; partial: string } {
-  if (value.endsWith("/")) {
-    const parent = value.slice(0, -1) || "/";
-    return { parent, partial: "" };
-  }
-  const lastSlash = value.lastIndexOf("/");
-  if (lastSlash < 0) return { parent: "/", partial: value };
-  const parent = value.slice(0, lastSlash) || "/";
-  const partial = value.slice(lastSlash + 1);
-  return { parent, partial };
+  const platform = inferPlatform([value]);
+  return parsePathInput(value, platform);
 }
 
 const DEBOUNCE_MS = 150;
@@ -125,7 +120,13 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props)
       void fetchDir(parent, partial);
     } else {
       fetchDir(undefined, "").then((result) => {
-        if (result) setInputValue(result.current + "/");
+        if (result) {
+          // Append OS-native separator using the platform the server
+          // reports (falls back to inference if absent for backward-
+          // compat with older servers).
+          const platform = result.platform ?? inferPlatform([result.current]);
+          setInputValue(withTrailingSep(result.current, platform));
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +177,11 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props)
   };
 
   const descendInto = (dirPath: string) => {
-    const newValue = dirPath + "/";
+    // Use OS-native separator so a Windows-resolved path stays in
+    // backslash form (previously `dirPath + "/"` produced mixed
+    // separators like `C:\Users\me/`).
+    const platform = inferPlatform([dirPath]);
+    const newValue = withTrailingSep(dirPath, platform);
     setInputValue(newValue);
     setHighlightIndex(-1);
     // force refetch for the new directory (no query)

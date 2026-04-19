@@ -4,6 +4,47 @@
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+
+/**
+ * Infer the server's platform from any path we've seen. Client doesn't
+ * have `process.platform`; rather than adding a separate protocol round
+ * trip just for grouping, we sniff: anything with a `\` or a
+ * `<letter>:` drive prefix is Windows, otherwise POSIX.
+ *
+ * Exposed for tests so they can exercise both branches deterministically.
+ */
+export function inferPlatform(
+  samples: Array<string | undefined>,
+  override?: NodeJS.Platform,
+): NodeJS.Platform {
+  if (override) return override;
+  for (const s of samples) {
+    if (!s) continue;
+    if (/^[A-Za-z]:[\\/]/.test(s) || s.includes("\\")) return "win32";
+    if (s.startsWith("/")) return "linux";
+  }
+  return "linux";
+}
+
+/**
+ * Build a key suitable for Map/Set lookup that collapses
+ * cosmetic path drift (trailing separator, mixed separators,
+ * drive-letter case on Windows, case on macOS). The original
+ * display path is retained on the group's `cwd` field.
+ *
+ * Case folding for Windows/macOS happens here so a naive
+ * string-keyed Map can host same-path entries.
+ *
+ * See change: platform-path-normalization.
+ */
+function pathKey(p: string, platform: NodeJS.Platform): string {
+  const normalized = normalizePath(p, platform);
+  // Match samePath's folding: case-insensitive on win32/darwin,
+  // case-sensitive on linux.
+  if (platform === "linux") return normalized;
+  return normalized.toLowerCase();
+}
 
 export interface DirectoryGroup {
   cwd: string;
@@ -46,40 +87,64 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
   return [...ordered, ...unordered];
 }
 
-/** Group sessions by cwd, with pinned directories first (in pinned order), then unpinned sorted by recency. */
+/**
+ * Group sessions by cwd, with pinned directories first (in pinned order),
+ * then unpinned sorted by recency.
+ *
+ * Keyed by `pathKey(cwd)` to collapse cosmetic drift (trailing separator,
+ * separator style, case on Windows/macOS). The `cwd` field on each group
+ * keeps the original path for display. Pass `platform` (from
+ * `BrowseResult.platform` or a session event) for OS-correct matching;
+ * falls back to `process.platform` when absent.
+ */
 export function groupSessionsByDirectory(
   sessions: DashboardSession[],
   orderMap?: Map<string, string[]>,
   pinnedDirectories?: string[],
+  platform?: NodeJS.Platform,
 ): { pinned: DirectoryGroup[]; unpinned: DirectoryGroup[] } {
-  const groups = new Map<string, DashboardSession[]>();
+  // Infer platform from observed paths (session cwds + pinned entries)
+  // when not explicitly supplied. Covers 99% of cases without a protocol
+  // round trip. Callers can still pass `platform` to force a value.
+  const plat = inferPlatform(
+    [...sessions.map((s) => s.cwd), ...(pinnedDirectories ?? [])],
+    platform,
+  );
+
+  // groups keyed by canonical key; value carries original-display cwd + sessions
+  const groups = new Map<string, { cwd: string; sessions: DashboardSession[] }>();
   for (const session of sessions) {
-    const existing = groups.get(session.cwd);
+    const key = pathKey(session.cwd, plat);
+    const existing = groups.get(key);
     if (existing) {
-      existing.push(session);
+      existing.sessions.push(session);
     } else {
-      groups.set(session.cwd, [session]);
+      groups.set(key, { cwd: session.cwd, sessions: [session] });
     }
   }
 
-  const pinnedSet = new Set(pinnedDirectories ?? []);
+  const pinnedKeys = new Set((pinnedDirectories ?? []).map((d) => pathKey(d, plat)));
 
-  // Build pinned groups in pinned order (including zero-session groups)
+  // Build pinned groups in pinned order (including zero-session groups).
+  // Uses the pinned path as the display cwd so the header matches what the
+  // user pinned, not what some session happened to report.
   const pinned: DirectoryGroup[] = [];
   for (const dir of pinnedDirectories ?? []) {
+    const key = pathKey(dir, plat);
+    const group = groups.get(key);
     pinned.push({
       cwd: dir,
-      sessions: sortSessionsByOrder(groups.get(dir) ?? [], orderMap?.get(dir)),
+      sessions: sortSessionsByOrder(group?.sessions ?? [], orderMap?.get(dir) ?? orderMap?.get(group?.cwd ?? "")),
       pinned: true,
     });
   }
 
   // Build unpinned groups sorted by most recent activity
   const unpinned = Array.from(groups.entries())
-    .filter(([cwd]) => !pinnedSet.has(cwd))
-    .map(([cwd, groupSessions]) => ({
-      cwd,
-      sessions: sortSessionsByOrder(groupSessions, orderMap?.get(cwd)),
+    .filter(([key]) => !pinnedKeys.has(key))
+    .map(([, g]) => ({
+      cwd: g.cwd,
+      sessions: sortSessionsByOrder(g.sessions, orderMap?.get(g.cwd)),
       pinned: false,
     }))
     .sort((a, b) => {

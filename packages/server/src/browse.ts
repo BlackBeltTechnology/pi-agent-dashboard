@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { isFilesystemRoot } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 
 const MAX_ENTRIES = 200;
 const WORD_BOUNDARY_CHARS = new Set(["-", "_", ".", " ", "/"]);
@@ -85,10 +86,14 @@ export async function listDirectories(dirPath?: string, q?: string): Promise<Bro
     })
   );
 
-  // Parent: null for root
-  const parent = resolved === "/" ? null : path.dirname(resolved);
+  // Parent: null for any filesystem root (`/`, `C:\`, `\\server\share\`).
+  // Previously this was `resolved === "/"`, which only recognized the Unix
+  // root — on Windows `path.dirname("B:\\")` returns `"B:\\"`, so the
+  // picker showed a useless `..` entry at drive roots.
+  // See change: platform-path-normalization.
+  const parent = isFilesystemRoot(resolved) ? null : path.dirname(resolved);
 
-  return { entries, parent, current: resolved };
+  return { entries, parent, current: resolved, platform: process.platform };
 }
 
 /**
