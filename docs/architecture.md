@@ -161,9 +161,26 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 ### Force Kill Escalation
 The Stop button supports two-click escalation for stuck sessions:
 1. **Click 1 (Abort)**: Sends `abort` → bridge → `ctx.abort()`. Button transitions to orange pulsing "Force Stop".
-2. **Click 2 (Force Kill)**: Sends `force_kill` → server kills the process via SIGTERM → 2s wait → SIGKILL (with PID safety check). Session marked "ended" (not removed), resumable via fork/continue.
+2. **Click 2 (Force Kill)**: Sends `force_kill` → server delegates termination to the **platform layer** (`packages/shared/src/platform/process.ts::killProcess(pid, { timeoutMs: 2000 })`), which:
+   - on **Windows** runs `taskkill /F /T /PID <pid>` (genuine tree kill — descendant `node.exe`, pi children, tmux panes, `wt` tabs, code-server subtrees all die together),
+   - on **POSIX** sends `SIGTERM`, polls liveness every 200ms for up to 2s, then escalates to `SIGKILL` if the process is still alive.
+
+   Session marked "ended" (not removed), resumable via fork/continue.
 
 The bridge includes `process.pid` in `session_register` so the server can kill the process. The server also force-closes the bridge WebSocket and uses the headless PID registry as a fallback. If no PID is available, only the WebSocket is closed.
+
+### Platform-routed kill paths
+All process termination across the codebase goes through `packages/shared/src/platform/process.ts`. No code outside that module may call `process.kill(...)` directly — enforcement is handled by `packages/shared/src/__tests__/no-direct-process-kill.test.ts`, a repo-level lint that scans every `.ts` file under `packages/*/src/` and fails CI if a direct call slips in. The three canonical helpers are:
+
+| Helper | POSIX | Windows |
+|--------|-------|---------|
+| `isProcessAlive(pid)` | `kill(pid, 0)` | same |
+| `killProcess(pid, {timeoutMs})` | SIGTERM → wait → SIGKILL (tree via pgroup) | `taskkill /F /T /PID <pid>` |
+| `killPidWithGroup(pid, sig)` | `kill(-pid, sig)` (process group) | `kill(pid, sig)` (leaf) |
+
+Sites routed through these helpers: `session-action-handler.ts::handleForceKill`, `process-scanner.ts::killProcessByPgid`, `tunnel.ts::cleanupStaleZrok` + `deleteTunnel`, `editor-manager.ts::stop`, `headless-pid-registry.ts`, `server-pid.ts`. See specs: [`command-executor`](../openspec/specs/command-executor/spec.md), [`force-kill-handler`](../openspec/specs/force-kill-handler/spec.md).
+
+`taskkill` is invoked via the platform's `execSync` wrapper (`platform/exec.ts`) so it inherits `windowsHide: true` — no console flash — and stays consistent with the `no-direct-child_process-import` invariant.
 
 Inline stop buttons also appear on running tool cards in `ToolCallStep`, providing contextual abort access right where the stuck command is visible.
 
@@ -561,6 +578,28 @@ The dashboard server is spawned via `node --import <loader> <cli.ts>` from three
 - `packages/server/src/cli.ts` — the tsx fallback wraps `esm/index.mjs` the same way
 
 The URL form is cross-platform safe (Linux/macOS accept both raw paths and `file://` URLs) so no platform gating is needed in the resolvers.
+
+#### stdout + stderr capture parity
+
+Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extension/src/server-launcher.ts`) capture **both** stdout and stderr into `~/.pi/dashboard/server.log`. The CLI uses `stdio: ["ignore", logFd, logFd]` on its direct `spawn()` call; the bridge uses `spawnDetached({ stdoutFd: logFd, logFd })`. Without this parity, crash diagnostics from jiti / Fastify / ajv-compiler that reach stdout would be invisible via the bridge path while remaining visible via the CLI path. See change: `fix-bridge-autostart-diagnostics`.
+
+#### CJS preload for Fastify (nodejs/node#58515 mitigation)
+
+Every server-spawn call site injects `--require <preload-fastify.cjs>` BEFORE `--import <jiti-loader>` in the child's argv, as long as the resolver `resolvePreloadFastifyPath()` in `packages/shared/src/platform/preload-fastify.ts` finds the preload file. The order matters: Node processes `--require` before `--import`, so the preload runs through Node's **legacy synchronous CJS loader** (which predates and bypasses the ESM→CJS translator). The preload synchronously `require()`s `@fastify/ajv-compiler/standalone`, `@fastify/ajv-compiler`, and `fastify` — populating `require.cache` with those modules in `kEvaluated` state.
+
+When jiti's ESM hook later resolves an `import "fastify"`, Node's translator finds the modules already cached and short-circuits — it never enters the recursive require chain that triggers the `Unexpected module status 3` assertion on Node <22.18 / 24.1–24.2.
+
+This is a **race-independent fix**: it doesn't try to close the timing window, it removes the racy code path from the execution trace. All four spawn sites (CLI daemon, bridge auto-start, Electron, restart orchestrator) share the resolver and the same injection pattern. See change: `preload-fastify-cjs`.
+
+#### Node-version preflight
+
+`packages/shared/src/platform/node-version-check.ts` exports `isKnownBadNode(version)` — a pure predicate flagging Node builds affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) (ESM loader assertion when Fastify's `@fastify/ajv-compiler` requires CJS modules). Affected ranges: `>=22.0.0 <22.18.0` and `>=24.1.0 <24.3.0`. Three consumers share the predicate:
+
+- **CLI** (`cmdStart`) — emits a warning to stderr and appends it to `server.log` before spawning. Advisory only; CLI still proceeds.
+- **Bridge auto-start** (`server-launcher.ts`) — `buildReadyTimeoutMessage()` includes an issue-#58515 upgrade hint in the failure notification when `waitForReady` times out on an affected Node.
+- **Electron doctor** (`doctor.ts`) — "Node runtime compatibility" row shows `warning` with upgrade guidance.
+
+`packages/server/package.json` declares `"engines": { "node": ">=22.18.0 <23 || >=24.3.0" }` as an npm-level advisory.
 
 ### Cross-OS Platform Primitives
 
