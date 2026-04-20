@@ -273,17 +273,31 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   registry.register(binaryDef("git", deps));
   registry.register(binaryDef("zrok", deps));
 
+  // Platform-conditional process-inspection utilities. These are only
+  // called by `packages/shared/src/platform/process.ts` on their native
+  // platform — registering the non-native tools would surface as red
+  // "not found" rows in the Settings → Tools UI even though the code
+  // never calls them there.
+  //
+  // Honours the registry's `platform` so tests that inject `platform:
+  // "win32"` from a Linux host still exercise the Windows tool set.
+  //
   // Windows system utilities used by the bridge's process scanner.
   // Registered so callers resolve to full `.exe` paths (e.g.
   // `C:\Windows\System32\wbem\wmic.exe`) and spawn directly — no
   // PATHEXT resolution, no cmd.exe wrapping, windowsHide:true honored
   // all the way down. See change: consolidate-windows-spawn-and-platform-handlers.
-  registry.register(binaryDef("wmic", deps));
-  registry.register(binaryDef("powershell", deps));
-  registry.register(binaryDef("tasklist", deps));
-  registry.register(binaryDef("taskkill", deps));
-  registry.register(binaryDef("ps", deps));
-  registry.register(binaryDef("pgrep", deps));
+  if (registry.getPlatform() === "win32") {
+    registry.register(binaryDef("wmic", deps));
+    registry.register(binaryDef("powershell", deps));
+    registry.register(binaryDef("tasklist", deps));
+    registry.register(binaryDef("taskkill", deps));
+  } else {
+    // POSIX process-inspection utilities. Used by `isProcessRunning`,
+    // `findPidByMarker`, `isProcessLikePi` in platform/process.ts.
+    registry.register(binaryDef("ps", deps));
+    registry.register(binaryDef("pgrep", deps));
+  }
   // Windows Terminal — optional, override + where only (not part of
   // managed install, not on Unix).
   registry.register({

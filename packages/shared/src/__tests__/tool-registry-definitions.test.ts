@@ -208,6 +208,30 @@ describe("registered tool set", () => {
     expect(r.has("tsx")).toBe(false);
   });
 
+  it("registers Windows-only process utilities on win32, NOT ps/pgrep", () => {
+    const r = freshRegistry({ platform: "win32" });
+    expect(r.has("tasklist")).toBe(true);
+    expect(r.has("taskkill")).toBe(true);
+    expect(r.has("wmic")).toBe(true);
+    expect(r.has("powershell")).toBe(true);
+    // ps/pgrep are POSIX-only; they'd always show "not found" on Windows
+    // and pollute the Tools UI with red rows the code never calls.
+    expect(r.has("ps")).toBe(false);
+    expect(r.has("pgrep")).toBe(false);
+  });
+
+  it("registers POSIX process utilities on linux/darwin, NOT tasklist etc.", () => {
+    for (const platform of ["linux", "darwin"] as NodeJS.Platform[]) {
+      const r = freshRegistry({ platform });
+      expect(r.has("ps")).toBe(true);
+      expect(r.has("pgrep")).toBe(true);
+      expect(r.has("tasklist")).toBe(false);
+      expect(r.has("taskkill")).toBe(false);
+      expect(r.has("wmic")).toBe(false);
+      expect(r.has("powershell")).toBe(false);
+    }
+  });
+
   it("does NOT register pi-dashboard (it's the package this code is part of)", () => {
     const r = freshRegistry({});
     expect(r.has("pi-dashboard")).toBe(false);

@@ -64,6 +64,16 @@ export class ToolRegistry {
     this.now = deps.now ?? (() => Date.now());
   }
 
+  /**
+   * Platform the registry was created for (or the current runtime's
+   * `process.platform`). Exposed so platform-conditional tool registration
+   * (e.g. skip `ps`/`pgrep` on Windows) in `registerDefaultTools` honours
+   * the test's injected platform instead of always reading the host.
+   */
+  getPlatform(): NodeJS.Platform {
+    return this.platform;
+  }
+
   /** Register a tool definition. Last registration wins (tests re-register). */
   register(def: ToolDefinition): void {
     this.definitions.set(def.name, def);
