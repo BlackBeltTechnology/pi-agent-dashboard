@@ -24,7 +24,7 @@ Goal: develop is less broken on fresh Windows install after this phase even if n
 - [x] 0.6 Validation: `npm install && npm test` green — 2161/2161 passed in 97.7s
 - [x] 0.7 Validation: `npm run build` green — client + server built, precompress ran (5.79 MB → 1.73 MB)
 - [ ] 0.8 Validation: start dashboard via `npm run dev`, confirm bridge auto-registers on a fresh `~/.pi/agent/settings.json` (delete + restart if pre-seeded) _SKIPPED in agent session (destructive to live pi session); manual gate for operator_
-- [ ] 0.9 `git push origin windows-integration-v3 pre-windows-v3-merge` _deferred per user direction (option 3: no push until phase 4 done)_
+- [x] 0.9 `git push origin windows-integration-v3 pre-windows-v3-merge` — pushed after Phase 4 per user direction (branch + tag now on origin; CI triggered)
 
 ## Phase 1. platform/ primitives foundation (bucket #1) — 9 commits
 
