@@ -167,4 +167,92 @@ describe("autoStartServer", () => {
 
     expect(result.server).toEqual({ host: "myhost.local", port: 8000, piPort: 9999 });
   });
+
+  describe("onLaunchStart / onLaunchEnd callbacks", () => {
+    it("fires onLaunchStart then onLaunchEnd(true) when launch succeeds", async () => {
+      const onLaunchStart = vi.fn();
+      const onLaunchEnd = vi.fn();
+      const deps = makeDeps({
+        launchServer: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
+        onLaunchStart,
+        onLaunchEnd,
+      });
+
+      await autoStartServer(baseConfig, deps);
+
+      expect(onLaunchStart).toHaveBeenCalledTimes(1);
+      expect(onLaunchEnd).toHaveBeenCalledTimes(1);
+      expect(onLaunchEnd).toHaveBeenCalledWith(true);
+    });
+
+    it("fires onLaunchStart then onLaunchEnd(false) when launch fails", async () => {
+      const onLaunchStart = vi.fn();
+      const onLaunchEnd = vi.fn();
+      const deps = makeDeps({
+        launchServer: vi.fn().mockResolvedValue({ success: false, message: "boom" }),
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+        onLaunchStart,
+        onLaunchEnd,
+      });
+
+      await autoStartServer(baseConfig, deps);
+
+      expect(onLaunchStart).toHaveBeenCalledTimes(1);
+      expect(onLaunchEnd).toHaveBeenCalledTimes(1);
+      expect(onLaunchEnd).toHaveBeenCalledWith(false);
+    });
+
+    it("fires onLaunchEnd(true) when launch fails but recheck finds running server", async () => {
+      // Race scenario: another agent started the server during our launch attempt.
+      const onLaunchStart = vi.fn();
+      const onLaunchEnd = vi.fn();
+      const deps = makeDeps({
+        launchServer: vi.fn().mockResolvedValue({ success: false, message: "EADDRINUSE" }),
+        isDashboardRunning: vi.fn()
+          .mockResolvedValueOnce({ running: false })   // before launch
+          .mockResolvedValueOnce({ running: true }),   // after launch (recheck)
+        onLaunchStart,
+        onLaunchEnd,
+      });
+
+      await autoStartServer(baseConfig, deps);
+
+      expect(onLaunchStart).toHaveBeenCalledTimes(1);
+      expect(onLaunchEnd).toHaveBeenCalledWith(true);
+    });
+
+    it("does NOT fire onLaunchStart when mDNS finds a local server (no launch happens)", async () => {
+      const onLaunchStart = vi.fn();
+      const onLaunchEnd = vi.fn();
+      const local: DiscoveredServer = {
+        host: "localhost", port: 8000, piPort: 9999,
+        isLocal: true, source: "mdns",
+      };
+      const deps = makeDeps({
+        discoverDashboard: vi.fn().mockResolvedValue([local]),
+        onLaunchStart,
+        onLaunchEnd,
+      });
+
+      await autoStartServer(baseConfig, deps);
+
+      expect(onLaunchStart).not.toHaveBeenCalled();
+      expect(onLaunchEnd).not.toHaveBeenCalled();
+    });
+
+    it("does NOT fire onLaunchStart when health check finds an already-running server", async () => {
+      const onLaunchStart = vi.fn();
+      const onLaunchEnd = vi.fn();
+      const deps = makeDeps({
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: true }),
+        onLaunchStart,
+        onLaunchEnd,
+      });
+
+      await autoStartServer(baseConfig, deps);
+
+      expect(onLaunchStart).not.toHaveBeenCalled();
+      expect(onLaunchEnd).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -18,6 +18,20 @@ export interface AutoStartDeps {
   isDashboardRunning: (port: number) => Promise<{ running: boolean; portConflict?: boolean }>;
   launchServer: (config: any) => Promise<{ success: boolean; message: string }>;
   notify: (message: string, level: "info" | "warning") => void;
+  /**
+   * Optional callback fired immediately BEFORE `launchServer(config)` is
+   * invoked. Used by TUI-aware callers (bridge extension) to show a
+   * "starting dashboard server" spinner. NOT fired during mDNS discovery
+   * or health-check phases — only when an actual server process is
+   * about to be spawned.
+   */
+  onLaunchStart?: () => void;
+  /**
+   * Optional callback fired after `launchServer` resolves (success or
+   * failure), AND after the post-launch mDNS re-discovery + recheck.
+   * Passes the final success state so the caller can clear spinners.
+   */
+  onLaunchEnd?: (success: boolean) => void;
 }
 
 export interface AutoStartResult {
@@ -60,8 +74,10 @@ export async function autoStartServer(
   }
 
   // 3. Auto-start server
+  deps.onLaunchStart?.();
   const result = await deps.launchServer(config);
   if (result.success) {
+    deps.onLaunchEnd?.(true);
     deps.notify(`🌐 Dashboard started at http://localhost:${config.port}`, "info");
 
     // Wait for mDNS advertisement from the newly started server (up to 10s)
@@ -81,11 +97,13 @@ export async function autoStartServer(
   // Another agent may have started the server concurrently — recheck before warning
   const recheck = await deps.isDashboardRunning(config.port);
   if (recheck.running) {
+    deps.onLaunchEnd?.(true);
     return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
   }
 
   // Surface the log path so users can inspect the crash output without having
   // to know the convention. See change: fix-windows-server-parity.
+  deps.onLaunchEnd?.(false);
   const logPath = path.join(os.homedir(), ".pi", "dashboard", "server.log");
   deps.notify(
     `Dashboard server failed to start: ${result.message}\nSee log: ${logPath}`,
