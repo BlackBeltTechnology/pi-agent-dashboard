@@ -408,7 +408,19 @@ async function spawnHeadlessDetached(
   // the cost of RPC mode working reliably. A future keeper-process
   // approach could restore the durability invariant.
   //
-  // See change: consolidate-windows-spawn-and-platform-handlers.
+  // detach: false — restores the behaviour of commit d331850 that was
+  // silently overridden by 5ab7956's universal `detached: true` invariant.
+  // On Windows, `detached: true` allocates a new console for the child
+  // unless all stdio slots are "ignore" (libuv `src/win/process.c` only
+  // sets CREATE_NO_WINDOW when no slot has UV_INHERIT_FD). With `stdin:
+  // "pipe"` we ALWAYS have UV_INHERIT_FD on stdio[0], so CREATE_NO_WINDOW
+  // can never fire, and `windowsHide: true` only applies SW_HIDE after
+  // allocation — producing brief console flashes on every session spawn.
+  // `detach: false` keeps the child inside the parent's Job Object (no
+  // new console needed — no flash). "pi dies with dashboard" invariant is
+  // unchanged: stdin-EOF on parent death already ties them together.
+  //
+  // See change: prep-for-develop-merge.
   const r = await spawnDetached({
     cmd: bin,
     args: [...prefixArgs, ...args],
@@ -416,6 +428,7 @@ async function spawnHeadlessDetached(
     env,
     logFd,
     stdinMode: "pipe",
+    detach: false,
   });
 
   // We don't need the parent's copy of the log fd; the child has its own.
