@@ -17,6 +17,22 @@ describe("server-launcher", () => {
     it("should point to a file that actually exists on disk", () => {
       expect(existsSync(resolveServerCliPath())).toBe(true);
     });
+
+    it("uses require.resolve so it adapts to installed layout", () => {
+      // Regression: the monorepo-relative path math
+      // (`<extension>/../../server/src/cli.ts`) produced
+      // `<scope>/server/src/cli.ts` instead of
+      // `<scope>/pi-dashboard-server/src/cli.ts` when the extension
+      // was installed into `node_modules/@blackbelt-technology/`. The
+      // resolver must locate the server via package name, not sibling
+      // path arithmetic.
+      const cliPath = resolveServerCliPath();
+      // Either layout is fine; we just must NOT produce the broken
+      // `@blackbelt-technology/server/src/cli.ts` shape.
+      expect(cliPath).not.toMatch(/@blackbelt-technology[\\/]+server[\\/]+src[\\/]+cli\.ts$/);
+      // And must land on pi-dashboard-server (installed) or packages/server (dev).
+      expect(cliPath).toMatch(/(pi-dashboard-server|packages[\\/]+server)[\\/]+src[\\/]+cli\.ts$/);
+    });
   });
 
   describe("buildSpawnArgs", () => {
