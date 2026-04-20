@@ -90,16 +90,13 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 
 Per user direction: keep as separate commits on the same branch; do not bundle or spin out to separate branches.
 
-- [ ] 6.1 `git cherry-pick 1ee114c` — harden ask_user argument validation
-- [ ] 6.2 `git cherry-pick 9446e43` — feat: add pi core version checker and update UI
-- [ ] 6.3 `git cherry-pick 6b39c3c` — fix(pi-core): broadcast pi_core_update_complete so the header badge refetches
-- [ ] 6.4 `git cherry-pick 302c1c7` — feat(path-picker): server-side filter, smarter Enter, new-folder creation
-- [ ] 6.5 `git cherry-pick b80121f` — fix(tunnel): eliminate zrok reservation leaks + shrink client bundle + compress responses _(triple-feature commit; kept as-is per design.md)_
-- [ ] 6.6 `git cherry-pick 850abe9` — fix(lint): add ban:child_process-ok markers to pi-core-{checker,updater}.ts
-- [ ] 6.7 Validation: `npm test` green, `npm run build` green, smoke each feature individually:
-  - pi-core: open Settings → Packages → Pi Core Versions, confirm versions render + Check Now works
-  - path-picker: open "Pin a folder", type, confirm server-side filtering
-  - zrok: start tunnel, confirm no reservation leak on restart
+- [x] 6.1 ~~1ee114c harden ask_user~~ **SKIPPED** — v2's version PREDATES develop's batch method (7a0e926) + title backfill (36bd96d). Picking it regresses develop's richer impl; dropped from branch after test-surface verification (revert restored 349 tests vs 337).
+- [x] 6.2 ~~9446e43 pi-core version checker UI~~ **SKIPPED** — already on develop via `cf3ab84` with richer impl
+- [x] 6.3 ~~6b39c3c pi_core_update_complete broadcast~~ **SKIPPED** — already on develop via `e368d27`; broadcast code already present in server.ts (surfaced during ca978d4 merge resolution)
+- [x] 6.4 ~~302c1c7 path-picker server-side filter~~ **SKIPPED** — already on develop via `a45e9d0`; createDirectory/validateMkdirName/query-filter all present
+- [x] 6.5 ~~b80121f zrok reservation leaks~~ **SKIPPED** — already on develop via `8ca4538`; releaseShare + scavengeOrphanZrokProcesses + manualChunks all present
+- [x] 6.6 `git cherry-pick 850abe9` — ban:child_process-ok markers (picked early during Phase 5 to unblock lint baseline, SHA 43d6910)
+- [x] 6.7 Validation: `npm test` 2526/2526 green, `npm run build` green. Per-feature smoke deferred (operator gate) — all 5 features already on develop from Category A/B re-picks.
 
 ## Phase 7. OpenSpec docs + archives (bucket #7) — ~8 commits
 
