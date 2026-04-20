@@ -951,17 +951,51 @@ function initBridge(pi: ExtensionAPI) {
     }
 
     // Discover or auto-start server (non-blocking — connection will reconnect)
+    //
+    // When a real launchServer() is about to run (not on mDNS/health-check
+    // paths), show an animated TUI status bar with a Braille spinner +
+    // elapsed time. The spinner ticks every 250ms and auto-clears when
+    // the launch resolves (success or failure). Keeps the user informed
+    // during cold-start waits that can run 15–30s on Windows.
+    const SPINNER_FRAMES = ["⠇", "⠋", "⠙", "⠸", "⢰", "⣠", "⣄", "⡆"];
+    let spinnerTimer: NodeJS.Timeout | null = null;
+    let spinnerStart = 0;
+    const stopSpinner = () => {
+      if (spinnerTimer) {
+        clearInterval(spinnerTimer);
+        spinnerTimer = null;
+      }
+      ctx.ui.setStatus("pi-dashboard-launch", undefined);
+    };
     autoStartServer(config, {
       discoverDashboard,
       isDashboardRunning,
       launchServer,
       notify: (msg, level) => ctx.ui.notify(msg, level),
+      onLaunchStart: () => {
+        spinnerStart = Date.now();
+        let frame = 0;
+        const tick = () => {
+          const elapsed = Math.floor((Date.now() - spinnerStart) / 1000);
+          ctx.ui.setStatus(
+            "pi-dashboard-launch",
+            `${SPINNER_FRAMES[frame]} starting dashboard server … (${elapsed}s)`,
+          );
+          frame = (frame + 1) % SPINNER_FRAMES.length;
+        };
+        tick(); // immediate, before first interval fires
+        spinnerTimer = setInterval(tick, 250);
+      },
+      onLaunchEnd: () => {
+        stopSpinner();
+      },
     }).then((result) => {
+      stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== config.piPort) {
         // Server found on a different piPort than configured — update connection URL
         connection.updateUrl(`ws://${result.server.host === 'localhost' ? 'localhost' : result.server.host}:${result.server.piPort}`);
       }
-    }).catch(() => {});
+    }).catch(() => { stopSpinner(); });
 
     // Send initial git info
     sendGitInfoIfChanged(ctx.cwd);
