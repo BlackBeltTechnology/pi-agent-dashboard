@@ -94,9 +94,20 @@ export interface DashboardServer {
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
+  //
+  // __serverDir = <repo>/packages/server/src
+  // baseDir MUST be <repo>/ so findBundledExtension resolves
+  // <repo>/packages/extension. Three levels up, not two.
   const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-  const extPath = findBundledExtension(path.resolve(__serverDir, "..", ".."));
-  if (extPath) registerBridgeExtension(extPath);
+  const extPath = findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
+  if (extPath) {
+    registerBridgeExtension(extPath);
+    console.log(`[dashboard] Bridge extension registered: ${extPath}`);
+  } else {
+    console.warn(`[dashboard] Bridge extension NOT found (searched from ${__serverDir}). ` +
+      `Sessions will spawn but never connect to the gateway. ` +
+      `Manually add the extension path to ~/.pi/agent/settings.json packages[] as a workaround.`);
+  }
 
   // Run migration from sessions.json + state.json if needed
   if (needsMigration()) {
