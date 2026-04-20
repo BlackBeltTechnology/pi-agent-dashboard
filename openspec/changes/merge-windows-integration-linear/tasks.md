@@ -7,10 +7,10 @@ SHAs below are short-form. Run `git show <sha>` on the source remote before pick
 
 ## Phase -1. Preflight
 
-- [ ] -1.1 `git fetch origin` — ensure `origin/windows-integration`, `origin/windows-integration-v2`, `origin/develop` are current
-- [ ] -1.2 Confirm develop HEAD is `2a4445d` (`docs(openspec): add adapt-windows-integration-pr9 proposal`); if develop has moved, update this proposal's base-SHA reference and reconfirm 80/54 net-new counts via `git cherry develop origin/windows-integration-v2` / `git cherry develop origin/windows-integration`
-- [ ] -1.3 `git tag -a pre-windows-v3-merge develop -m "rollback anchor before windows-integration-v3"` — local only initially; push after Phase 0 completes
-- [ ] -1.4 `git checkout -b windows-integration-v3 develop`
+- [x] -1.1 `git fetch origin` — ensure `origin/windows-integration`, `origin/windows-integration-v2`, `origin/develop` are current
+- [x] -1.2 Confirm develop base. Local develop at `e7a51e2` (`docs(openspec): add bootstrap hardening proposals`); net-new counts reconfirmed: 80 (v2) / 54 (WI). Branching off local `develop` HEAD (includes this proposal commit `5084108` + bootstrap-hardening commit `e7a51e2`).
+- [x] -1.3 `git tag -a pre-windows-v3-merge develop -m "rollback anchor before windows-integration-v3"` — tagged at `e7a51e2`; local only, push after Phase 0
+- [x] -1.4 `git checkout -b windows-integration-v3 develop` — branch created at `e7a51e2`
 
 ## Phase 0. Safety fixes (bucket #5) — 5 commits
 
