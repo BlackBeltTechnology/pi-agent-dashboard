@@ -194,6 +194,42 @@ describe("waitForReady", () => {
     }
   });
 
+  it("waits indefinitely when deadlineMs is undefined (succeeds eventually)", async () => {
+    let calls = 0;
+    const start = Date.now();
+    const r = await waitForReady({
+      probe: async () => ++calls >= 5,
+      // deadlineMs intentionally omitted
+      pollIntervalMs: 30,
+    });
+    const elapsed = Date.now() - start;
+    expect(r.ok).toBe(true);
+    expect(calls).toBeGreaterThanOrEqual(5);
+    // ~5 polls at 30ms interval ≈ 120–180ms. Just ensure we're not
+    // short-circuiting suspiciously fast or hanging absurdly long.
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  it("waits indefinitely until child crashes (no deadline, child-exit wins)", async () => {
+    // Spawn a short-lived child that exits non-zero after ~200ms.
+    const bad = await spawnDetached({
+      cmd: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(1), 200)"],
+    });
+    expect(bad.ok).toBe(true);
+    const start = Date.now();
+    const r = await waitForReady({
+      probe: async () => false, // never ready
+      // deadlineMs intentionally omitted — relies on child-exit
+      pollIntervalMs: 50,
+      child: bad.process!,
+    });
+    const elapsed = Date.now() - start;
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/child exited/);
+    expect(elapsed).toBeLessThan(2000); // short-circuited, not stuck
+  });
+
   it("polls at pollIntervalMs until probe flips", async () => {
     let calls = 0;
     const r = await waitForReady({

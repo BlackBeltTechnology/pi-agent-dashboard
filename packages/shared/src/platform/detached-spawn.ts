@@ -231,14 +231,20 @@ export async function waitForNoCrash(opts: WaitForNoCrashOptions): Promise<WaitF
 export interface WaitForReadyOptions {
   /** Called repeatedly until it resolves true, or deadline elapses. */
   probe: () => Promise<boolean>;
-  /** Maximum total wait (ms). */
-  deadlineMs: number;
+  /**
+   * Maximum total wait (ms). Omit (or pass `undefined`) to wait
+   * indefinitely — in that case the only way to end the wait early is
+   * the optional `child` crashing. Use the infinite form when the
+   * caller trusts child-exit detection to cover the failure path and
+   * doesn't want a false-positive timeout on slow-but-working starts
+   * (e.g., cold jiti compile on Windows).
+   */
+  deadlineMs?: number;
   /** Poll interval (ms). Default 500. */
   pollIntervalMs?: number;
   /**
    * Optional child for early failure detection. If provided, an `error`
-   * event or non-zero `exit` within the deadline short-circuits the
-   * wait.
+   * event or non-zero `exit` short-circuits the wait.
    */
   child?: ChildProcess;
 }
@@ -250,6 +256,8 @@ export interface WaitForReadyResult {
 
 /**
  * Poll `probe()` until it resolves true, or return timeout / early-failure.
+ * When `deadlineMs` is undefined, polls indefinitely until the probe
+ * succeeds or the child crashes.
  */
 export async function waitForReady(opts: WaitForReadyOptions): Promise<WaitForReadyResult> {
   const { probe, deadlineMs, pollIntervalMs = 500, child } = opts;
@@ -269,7 +277,7 @@ export async function waitForReady(opts: WaitForReadyOptions): Promise<WaitForRe
     child.on("exit", onExit);
   }
 
-  const deadline = Date.now() + deadlineMs;
+  const deadline = deadlineMs === undefined ? Infinity : Date.now() + deadlineMs;
   try {
     while (Date.now() < deadline) {
       if (childError) return { ok: false, error: childError };
