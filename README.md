@@ -105,7 +105,7 @@ On first launch, a setup wizard guides you through:
 
 ### Option B: pi Package (recommended for CLI users)
 
-Requires [pi](https://github.com/badlogic/pi-mono) (or [Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent)) and Node.js ≥ 20.
+Requires [pi](https://github.com/badlogic/pi-mono) (or [Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent)) and Node.js **≥ 22.18.0** (or ≥ 24.3.0). Older Node 22.x / 24.x builds are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) which crashes Fastify at startup.
 
 ```bash
 pi install npm:@blackbelt-technology/pi-dashboard
@@ -175,7 +175,7 @@ Only needed for Option B/C (the Electron app handles everything automatically).
 | Requirement | Why | Install |
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** or **[Oh My Pi](https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent)** | The AI coding agent that the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
-| **Node.js ≥ 20** | Runtime for the dashboard server | [nodejs.org](https://nodejs.org/) |
+| **Node.js ≥ 22.18.0** | Runtime for the dashboard server (older 22.x / 24.x affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515)) | [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for terminal emulation | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 
 ### Optional tools
