@@ -95,24 +95,27 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
       return { success: false, message: `Server process failed to spawn: ${r.error ?? "unknown"}` };
     }
 
-    // Wait for the server to actually become available (positive probe),
-    // not just "didn't crash in 2s". Fastify boot on Windows can take
-    // 3–6s with jiti compiling CJS deps; a 2s window is too short and
-    // would report success even when the server crashes at 3s with
-    // ERR_INTERNAL_ASSERTION in Fastify's ajv-compiler. Positive probe
-    // guarantees a user-visible "Dashboard started" message only fires
-    // when the HTTP server is actually accepting connections.
+    // Wait for the server to actually become available via positive
+    // HTTP probe. NO deadline — we rely on child-exit for failure
+    // detection. A timeout here only catches the pathological case
+    // "process alive but never ready", which is rarer than the
+    // false-positive case "slow cold-start mistakenly flagged as
+    // failure" (Fastify + jiti compile + session scan can take 15–30s
+    // on Windows). If the child crashes, `waitForReady` returns
+    // { ok: false, error: "child exited with code N" } via its
+    // `child` listener. If the child hangs alive-but-broken, the user
+    // can kill it manually — timers don't help that case anyway.
     const ready = await waitForReady({
       probe: async () => (await isDashboardRunning(config.port)).running,
-      deadlineMs: 15_000,
       pollIntervalMs: 300,
       child: r.process,
+      // deadlineMs intentionally omitted — wait indefinitely.
     });
 
     if (!ready.ok) {
       return {
         success: false,
-        message: `Server failed to become ready within 15s (${ready.error}). See ~/.pi/dashboard/server.log`,
+        message: `Server process failed: ${ready.error ?? "unknown"}. See ~/.pi/dashboard/server.log`,
       };
     }
 
