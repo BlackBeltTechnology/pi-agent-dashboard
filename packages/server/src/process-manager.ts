@@ -131,12 +131,29 @@ function isWtAvailable(): boolean {
   }
 }
 
+// Cache the WSL-tmux probe for the server lifetime. On machines with a broken
+// WSL install (e.g. Docker Desktop WSL mount failure) this single probe can
+// cost 30+ seconds — we MUST NOT pay it on every + Session click. The result
+// can only change if the user installs/uninstalls WSL or tmux, which requires
+// a server restart anyway.
+let _wslTmuxAvailabilityCache: boolean | null = null;
+let _wslFallbackLogged = false;
+
+/** Test-only: reset the cache so tests can exercise both branches. */
+export function _resetWslTmuxCacheForTests(): void {
+  _wslTmuxAvailabilityCache = null;
+  _wslFallbackLogged = false;
+}
+
 function isWslTmuxAvailable(): boolean {
   // WSL tmux probe. Route through `buildSafeArgv` so there is NO
   // cmd.exe-as-shell in the path — `spawnSync("wsl", ["which", "tmux"])`
   // with windowsHide:true + shell:false keeps the console invisible.
   // `wsl.exe` itself still spins up WSL briefly, but that's background
   // (no visible window). Only invoked after `wt` is known absent.
+  //
+  // Cached for the server lifetime (see comment on _wslTmuxAvailabilityCache).
+  if (_wslTmuxAvailabilityCache !== null) return _wslTmuxAvailabilityCache;
   try {
     const { argv, spawnOptions } = buildSafeArgv("wsl", ["which", "tmux"]);
     const r = spawnSync(argv[0], argv.slice(1), {
@@ -144,10 +161,19 @@ function isWslTmuxAvailable(): boolean {
       timeout: 1500,
       ...spawnOptions,
     });
-    return r.status === 0;
+    _wslTmuxAvailabilityCache = r.status === 0;
   } catch {
-    return false;
+    _wslTmuxAvailabilityCache = false;
   }
+  if (!_wslTmuxAvailabilityCache && !_wslFallbackLogged) {
+    _wslFallbackLogged = true;
+    console.error(
+      "[spawn] Windows Terminal (wt.exe) not on PATH and WSL tmux unavailable \u2014 " +
+      "falling back to headless session spawn. Install Windows Terminal for a " +
+      "nicer UX: https://aka.ms/terminal",
+    );
+  }
+  return _wslTmuxAvailabilityCache;
 }
 
 function dashboardSessionExists(): boolean {
