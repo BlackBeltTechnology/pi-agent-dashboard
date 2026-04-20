@@ -170,21 +170,17 @@ function initBridge(pi: ExtensionAPI) {
       pi.events.emit("ui:list-modules", probe);
     } catch { /* ignore */ }
     const modules = (probe.modules as any[]) ?? [];
-    console.error(`[dashboard] refreshUiModules: ${modules.length} modules found for sessionId=${sessionId.slice(0,8)}`);
     
     // 1. Send schemas to dashboard
     connection.send({ type: "ui_modules_list", sessionId, modules });
 
     // 2. Proactively refresh data for any module that has a dataEvent
     for (const module of modules) {
-      console.error(`[dashboard] processing module: ${module.id} (${module.command})`);
       for (const view of module.views) {
         if (view.dataEvent) {
-           console.error(`[dashboard] requesting initial data for event: ${view.dataEvent}`);
            const dataProbe: any = { event: view.dataEvent, action: "list" };
            pi.events.emit("ui:get-data", dataProbe);
            if (dataProbe.items && Array.isArray(dataProbe.items)) {
-             console.error(`[dashboard] sending initial data: ${dataProbe.items.length} items for ${view.dataEvent}`);
              connection.send({
                type: "ui_data_list",
                sessionId,
