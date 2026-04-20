@@ -153,14 +153,30 @@ export async function handleSpawnSession(
 ): Promise<void> {
   const { ws, headlessPidRegistry, pendingDashboardSpawns, sendTo } = ctx;
   const config = loadConfig();
-  const spawnResult = await spawnPiSession(msg.cwd, { strategy: config.spawnStrategy });
-  if (spawnResult.process && spawnResult.pid) {
-    headlessPidRegistry.register(spawnResult.pid, msg.cwd, spawnResult.process);
+  const strategy = config.spawnStrategy ?? "tmux";
+
+  // Catch both thrown exceptions and { success: false } results; surface as
+  // spawn_error so the UI can render a retryable banner instead of failing
+  // silently. Previous behaviour left the user staring at an empty state
+  // when pi itself was broken in the target folder.
+  try {
+    const spawnResult = await spawnPiSession(msg.cwd, { strategy });
+    if (spawnResult.process && spawnResult.pid) {
+      headlessPidRegistry.register(spawnResult.pid, msg.cwd, spawnResult.process);
+    }
+    if (spawnResult.dashboardSpawned && spawnResult.success) {
+      pendingDashboardSpawns?.set(msg.cwd, (pendingDashboardSpawns?.get(msg.cwd) ?? 0) + 1);
+    }
+    sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: spawnResult.success, message: spawnResult.message });
+    if (!spawnResult.success) {
+      sendTo(ws, { type: "spawn_error", cwd: msg.cwd, strategy, message: spawnResult.message });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stderr = err instanceof Error && "stderr" in err ? String((err as { stderr: unknown }).stderr).slice(-2048) : undefined;
+    sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: false, message });
+    sendTo(ws, { type: "spawn_error", cwd: msg.cwd, strategy, message, stderr });
   }
-  if (spawnResult.dashboardSpawned && spawnResult.success) {
-    pendingDashboardSpawns?.set(msg.cwd, (pendingDashboardSpawns?.get(msg.cwd) ?? 0) + 1);
-  }
-  sendTo(ws, { type: "spawn_result", cwd: msg.cwd, success: spawnResult.success, message: spawnResult.message });
 }
 
 export function handleShutdown(

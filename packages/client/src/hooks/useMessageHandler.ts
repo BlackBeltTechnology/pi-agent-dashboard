@@ -243,6 +243,20 @@ export function useMessageHandler(
         }
         break;
 
+      case "spawn_error": {
+        // Enriches the spawn_result error with strategy + optional stderr tail.
+        // Carried as its own message so esbuild preserves this switch case in
+        // production builds (per AGENTS.md ServerToBrowserMessage invariant).
+        clearSpawningCwd(msg.cwd);
+        const detail = msg.stderr ? `${msg.message}\n\u2014 stderr \u2014\n${msg.stderr}` : msg.message;
+        setSpawnErrors((prev) => {
+          const next = new Map(prev);
+          next.set(msg.cwd, `[${msg.strategy}] ${detail}`);
+          return next;
+        });
+        break;
+      }
+
       case "sessions_list":
         break;
 

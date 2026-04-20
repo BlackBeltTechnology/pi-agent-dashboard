@@ -125,6 +125,21 @@ export interface SpawnResultBrowserMessage {
   message: string;
 }
 
+/**
+ * Emitted when a session spawn fails — either because `spawnPiSession` threw,
+ * returned `{ success: false }`, or the spawned child crashed immediately.
+ * Carries enough context for the UI to render a retryable error banner
+ * instead of leaving the user staring at a silent empty state.
+ */
+export interface SpawnErrorMessage {
+  type: "spawn_error";
+  cwd: string;
+  strategy: string;
+  message: string;
+  /** Up to ~2 KB tail of stderr captured from the failed child, if any. */
+  stderr?: string;
+}
+
 export interface SessionsReorderedMessage {
   type: "sessions_reordered";
   cwd: string;
@@ -255,6 +270,7 @@ export type ServerToBrowserMessage =
   | SessionsListBrowserMessage
   | ResumeResultBrowserMessage
   | SpawnResultBrowserMessage
+  | SpawnErrorMessage
   | SessionsReorderedMessage
   | PinnedDirsUpdatedMessage
   | TerminalAddedMessage
