@@ -24,6 +24,32 @@ import { isDashboardRunning } from "./health-check.js";
 import type { DashboardStatus } from "./health-check.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 
+/**
+ * Pure helper: build the options object passed to spawnDetached for the
+ * dashboard-server launch. Extracted for unit testing — keeps the `detach:
+ * false` invariant asserted in a pure test without booting Electron.
+ *
+ * detach: false on Windows keeps the child inside Electron's Job Object, so
+ * no new console is allocated (no flash) and the server dies when Electron
+ * exits.
+ */
+export function buildServerSpawnOptions(params: {
+  cmd: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  cwd: string;
+  logFd: number | undefined;
+}): Parameters<typeof spawnDetached>[0] {
+  return {
+    cmd: params.cmd,
+    args: params.args,
+    env: params.env,
+    cwd: params.cwd,
+    logFd: params.logFd,
+    detach: false,
+  };
+}
+
 let serverStartedByUs = false;
 
 /** Expected server version — read from bundled server package.json or Electron package.json. */
@@ -246,12 +272,15 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
   const env = { ...process.env };
   env.PATH = `${cliBinDir}${path.delimiter}${env.PATH || ""}`;
 
-  const r = await spawnDetached({
+  // Route through buildServerSpawnOptions so detach:false invariant is
+  // enforced here too (Electron's Windows Job Object hosts the CLI child).
+  const r = await spawnDetached(buildServerSpawnOptions({
     cmd: cliPath,
     args: ["start", "--port", String(port), "--pi-port", String(piPort)],
     env,
+    cwd: process.cwd(),
     logFd,
-  });
+  }));
   if (!r.ok) {
     throw new Error(`pi-dashboard CLI failed to spawn: ${r.error}`);
   }
@@ -365,13 +394,11 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   // Launch via spawnDetached primitive — uniform detached/windowsHide/
   // shell:false/stdio:ignore+fd defaults on every platform.
   // Electron manages lifecycle via stopServerIfNeeded().
-  const r = await spawnDetached({
-    cmd: spawnBin,
-    args: spawnArgs,
-    env,
-    cwd,
-    logFd,
-  });
+  //
+  // detach: false — keep the child inside Electron's Windows Job Object
+  // (no cmd.exe flash on spawn; server dies with Electron). Mirrors the
+  // pi-session spawn decision in process-manager.ts::spawnHeadlessDetached.
+  const r = await spawnDetached(buildServerSpawnOptions({ cmd: spawnBin, args: spawnArgs, env, cwd, logFd }));
   if (!r.ok) {
     throw new Error(`Server process failed to spawn: ${r.error}`);
   }
