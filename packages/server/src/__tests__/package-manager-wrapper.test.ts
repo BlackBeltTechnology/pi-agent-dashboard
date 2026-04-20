@@ -4,7 +4,7 @@ import { ToolRegistry, OverridesStore } from "@blackbelt-technology/pi-dashboard
 import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
 import os from "node:os";
 import path from "node:path";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 
 // Track mock functions
 const installAndPersist = vi.fn().mockResolvedValue(undefined);
@@ -46,7 +46,14 @@ function makeTestRegistry(): ToolRegistry {
   const overrides = new OverridesStore({
     filePath: path.join(tmpDir, "tool-overrides.json"),
   });
-  overrides.set("pi-coding-agent", "/stub/pi-coding-agent/dist/index.js");
+  // overrideStrategy checks file existence — create a real stub under tmpDir
+  // rather than a phantom /stub path so CI (no pi-coding-agent installed)
+  // doesn't fall through every strategy and throw ModuleResolutionError.
+  const stubDir = path.join(tmpDir, "pi-coding-agent", "dist");
+  mkdirSync(stubDir, { recursive: true });
+  const stubPath = path.join(stubDir, "index.js");
+  writeFileSync(stubPath, "// test stub\n");
+  overrides.set("pi-coding-agent", stubPath);
 
   // Inject importModule that always returns the fake pi module, bypassing
   // any real dynamic import. The override above ensures the strategy chain's
