@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 const DEFAULT_PID_PATH = path.join(os.homedir(), ".pi", "dashboard", "server.pid");
 
@@ -14,16 +15,11 @@ export interface ServerPidOptions {
 }
 
 /**
- * Check if a process with the given PID is alive.
+ * Re-export the platform's liveness primitive so existing importers of
+ * `server-pid.ts::isProcessAlive` keep working. See change:
+ * route-kill-paths-through-platform.
  */
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { isProcessAlive };
 
 /**
  * Write the current process PID to the PID file.

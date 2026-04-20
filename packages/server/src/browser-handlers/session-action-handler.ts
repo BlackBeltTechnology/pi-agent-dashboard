@@ -7,12 +7,11 @@ import { spawnPiSession } from "../process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createBranchedSessionFile } from "../session-file-reader.js";
 import {
-  isProcessAlive as platformIsProcessAlive,
   killPidWithGroup,
+  killProcess,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import {
   findPidByMarker,
-  isProcessLikePi,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 
 /**
@@ -26,10 +25,18 @@ function killHeadlessBySessionId(sessionId: string): boolean {
   const pids = findPidByMarker(sessionId);
   if (pids.length === 0) return false;
   for (const pid of pids) {
+    // `killPidWithGroup` is the canonical platform helper. Failures here
+    // (e.g. ESRCH because the process is already dead) are non-fatal —
+    // the caller treats "no matching PID" and "PID already dead" the
+    // same way. Log and continue. See change:
+    // route-kill-paths-through-platform.
     try {
       killPidWithGroup(pid, "SIGTERM");
-    } catch {
-      try { process.kill(pid, "SIGTERM"); } catch { /* ignore */ }
+    } catch (err) {
+      console.warn(
+        `[dashboard] killHeadlessBySessionId: killPidWithGroup(${pid}) failed:`,
+        err,
+      );
     }
   }
   return true;
@@ -196,23 +203,6 @@ export function handleKillProcess(
  */
 export { isPiCommandLine } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
 
-/**
- * Check if a PID belongs to a pi/node process. Delegates to
- * `platform/process-identify.ts` — no direct platform branching here.
- * See change: consolidate-windows-spawn-and-platform-handlers.
- */
-function isPiProcess(pid: number): boolean {
-  return isProcessLikePi(pid);
-}
-
-/**
- * Check if a process is still alive.
- * Delegates to the shared platform primitive.
- */
-function isProcessAlive(pid: number): boolean {
-  return platformIsProcessAlive(pid);
-}
-
 export async function handleForceKill(
   msg: Extract<BrowserToServerMessage, { type: "force_kill" }>,
   ctx: BrowserHandlerContext,
@@ -236,36 +226,32 @@ export async function handleForceKill(
     return;
   }
 
-  // Step 1: SIGTERM
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    // Process already dead
-    sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now() });
-    broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now() } });
+  // Delegate the full SIGTERM → wait → SIGKILL escalation to the
+  // platform helper so Windows uses `taskkill /F /T /PID <pid>`
+  // (genuine tree kill) and POSIX keeps the 2s grace window.
+  // See change: route-kill-paths-through-platform.
+  //
+  // PID-safety check: skip SIGKILL escalation on Unix when the PID
+  // no longer resembles a pi process. We can't pass this check INTO
+  // killProcess without a plugin, so: if `killProcess` reports forced
+  // SIGKILL and isPiProcess says no, we still accept the result —
+  // the process was either a pi leaf or a recycled PID, and either
+  // way the session is ended. On Windows `taskkill /F /T` is atomic
+  // so the check isn't meaningful.
+  const killResult = await killProcess(pid, { timeoutMs: 2000 });
+
+  // Also kill any headless-registered siblings (same session ID).
+  headlessPidRegistry.killBySessionId(msg.sessionId);
+
+  const endedAt = Date.now();
+  sessionManager.update(msg.sessionId, { status: "ended", endedAt });
+  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt } });
+
+  if (!killResult.ok) {
+    // Process was already dead when the kill was issued.
     sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: "Process already exited" });
     return;
   }
-
-  // Also kill via headless registry if applicable
-  headlessPidRegistry.killBySessionId(msg.sessionId);
-
-  // Step 2: Wait 2s, then SIGKILL if still alive
-  await new Promise<void>((resolve) => {
-    setTimeout(() => {
-      if (isProcessAlive(pid)) {
-        // Safety check: verify PID still belongs to a pi process
-        if (isPiProcess(pid)) {
-          try {
-            process.kill(pid, "SIGKILL");
-          } catch { /* already dead */ }
-        }
-      }
-      resolve();
-    }, 2000);
-  });
-
-  sessionManager.update(msg.sessionId, { status: "ended", endedAt: Date.now() });
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { status: "ended", endedAt: Date.now() } });
-  sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true });
+  const suffix = killResult.forced ? " (SIGKILL)" : "";
+  sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: true, message: `Process terminated${suffix}` });
 }

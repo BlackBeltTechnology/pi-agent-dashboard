@@ -9,6 +9,11 @@ import path from "node:path";
 import os from "node:os";
 import { execSync, spawn, type ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import {
+  isProcessAlive,
+  killProcess,
+  killPidWithGroup,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 const zrokResolver = new ToolResolver({ processExecPath: process.execPath });
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -94,29 +99,21 @@ export function removeZrokPid(): void {
 // ── Stale Process Cleanup ───────────────────────────────────────────
 
 /**
- * Check if a process is alive by sending signal 0.
- */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Clean up stale zrok processes from previous server runs.
- * Reads PID file, kills process if running, removes PID file.
+ * Reads PID file, kills process if running (via the platform helper so
+ * Windows uses `taskkill /F /T /PID`), removes PID file.
+ * See change: route-kill-paths-through-platform.
  */
-export function cleanupStaleZrok(): void {
+export async function cleanupStaleZrok(): Promise<void> {
   const pid = readZrokPid();
   if (pid === null) return;
 
   if (isProcessAlive(pid)) {
     try {
-      process.kill(pid, "SIGTERM");
-      console.log(`Killed stale zrok process (PID ${pid})`);
+      const result = await killProcess(pid, { timeoutMs: 2000 });
+      if (result.ok) {
+        console.log(`Killed stale zrok process (PID ${pid})`);
+      }
     } catch (err: any) {
       console.warn(`Failed to kill stale zrok process (PID ${pid}): ${err.message}`);
     }
@@ -336,8 +333,16 @@ function _createTunnelInner(
       if (!resolved) {
         resolved = true;
         console.warn("zrok tunnel creation timed out (30s)");
-        try { child.kill("SIGTERM"); } catch {}
-        setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2_000);
+        try {
+          if (child.pid != null) killPidWithGroup(child.pid, "SIGTERM");
+          else child.kill("SIGTERM");
+        } catch { /* already dead */ }
+        setTimeout(() => {
+          try {
+            if (child.pid != null) killPidWithGroup(child.pid, "SIGKILL");
+            else child.kill("SIGKILL");
+          } catch { /* already dead */ }
+        }, 2_000);
         if (token && !callerProvidedToken) releaseShare(token);
         removeZrokPid();
         resolve(null);
@@ -417,7 +422,13 @@ export async function deleteTunnel(port?: number): Promise<void> {
 
   if (child) {
     try {
-      child.kill("SIGTERM");
+      if (child.pid != null) {
+        // Route through the platform helper so Windows gets taskkill
+        // semantics (tree-kill). See change: route-kill-paths-through-platform.
+        await killProcess(child.pid, { timeoutMs: 2000 });
+      } else {
+        child.kill("SIGTERM");
+      }
     } catch (err: any) {
       console.warn(`zrok tunnel cleanup failed: ${err.message}`);
     }

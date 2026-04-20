@@ -15,6 +15,7 @@
 import { spawnSync as defaultSpawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { SpawnSyncReturns } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { killPidWithGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 /**
  * Resolve a Windows system tool name (wmic / powershell / tasklist /
@@ -122,7 +123,8 @@ export function captureChildPgids(
   trackedPgids: Set<number>,
   options?: ScanOptions,
 ): void {
-  if ((options as any)?._platform === "win32" || (!((options as any)?._platform) && process.platform === "win32")) return;
+  const platform = (options as any)?._platform ?? process.platform;
+  if (platform === "win32") return;
 
   const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
 
@@ -254,7 +256,9 @@ export function killProcessByPgid(pgid: number, options?: ScanOptions): boolean 
     return killWindowsProcess(pgid, options);
   }
   try {
-    process.kill(-pgid, "SIGTERM");
+    // Route through the platform helper so the pid → -pgid mapping stays
+    // in one place. See change: route-kill-paths-through-platform.
+    killPidWithGroup(pgid, "SIGTERM", { platform });
     return true;
   } catch {
     return false;

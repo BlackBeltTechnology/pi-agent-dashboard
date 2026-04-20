@@ -6,7 +6,7 @@
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { EventEmitter } from "node:events";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
-import { killPidWithGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { killPidWithGroup, isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import path from "node:path";
 import os from "node:os";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
@@ -81,15 +81,6 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
   function loadFromDisk(): PersistedEntry[] {
     const data = readJsonFile<PidFileData>(pidFilePath, { entries: [] });
     return data.entries ?? [];
-  }
-
-  function isProcessAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   return {

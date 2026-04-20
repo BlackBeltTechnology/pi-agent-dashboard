@@ -3,6 +3,7 @@
  * Spawns per-folder instances, tracks heartbeats, enforces idle timeout and max instances.
  */
 import { spawn, type ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { createServer as createNetServer, Socket as NetSocket } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
@@ -329,9 +330,23 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
     setStatus(inst, "stopped");
 
     if (inst.process && !inst.process.killed) {
-      try {
-        inst.process.kill("SIGTERM");
-      } catch {}
+      const pid = inst.process.pid;
+      if (pid != null) {
+        // Tree-kill the code-server subtree. On Windows this becomes
+        // `taskkill /F /T /PID` (async); on POSIX it's SIGTERM → 2s → SIGKILL
+        // of the process group. Fire-and-forget: `stop()` is synchronous
+        // by convention and callers don't await. See change:
+        // route-kill-paths-through-platform.
+        void killProcess(pid, { timeoutMs: 2000 }).catch(() => {
+          // Fallback to a direct pgroup SIGTERM if the platform helper
+          // couldn't complete (rare; mostly for already-dead processes).
+          try { killPidWithGroup(pid, "SIGTERM"); } catch { /* already dead */ }
+        });
+      } else {
+        // No PID yet (process hasn't started). Fall back to the raw
+        // ChildProcess.kill() which only signals the leaf.
+        try { inst.process.kill("SIGTERM"); } catch { /* already dead */ }
+      }
     }
 
     cleanup(id);
