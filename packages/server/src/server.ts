@@ -464,17 +464,38 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway });
 
-  // Serve static files / SPA fallback
-  // Search order: npm package → workspace sibling → legacy dist/client
+  // Serve static files / SPA fallback.
+  //
+  // Resolution strategies, in order:
+  //  1. Node module resolver — works in ANY install layout
+  //     (flat `node_modules/`, scoped, nested, pnpm, whatever).
+  //  2. Sibling-to-server in the installed @scope layout.
+  //  3. Monorepo workspace sibling.
+  //  4. Legacy dist/client.
+  //
+  // Same class of bug as commits 40a1319 (bridge auto-registration)
+  // and e11f5eb (server-launcher.ts resolve): sibling-path arithmetic
+  // that works in the dev repo silently returns wrong paths in the
+  // installed node_modules layout. require.resolve identifies packages
+  // by name, which is the only canonical identity across layouts.
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const clientSearchPaths = [
-    // Installed as npm dependency
-    path.join(__dirname, "../../node_modules/@blackbelt-technology/pi-dashboard-web/dist"),
+  const clientSearchPaths: string[] = [];
+  try {
+    const webPkgJson = createRequire(import.meta.url).resolve("@blackbelt-technology/pi-dashboard-web/package.json");
+    clientSearchPaths.push(path.join(path.dirname(webPkgJson), "dist"));
+  } catch {
+    // Web package not resolvable — fall through to path-based search.
+  }
+  clientSearchPaths.push(
+    // Installed as scoped sibling of server
+    path.join(__dirname, "..", "..", "pi-dashboard-web", "dist"),
+    // Installed in a parent node_modules (hoisted)
+    path.join(__dirname, "..", "..", "..", "@blackbelt-technology", "pi-dashboard-web", "dist"),
     // Monorepo workspace sibling
     path.join(__dirname, "../../client/dist"),
     // Legacy path
     path.join(__dirname, "../../dist/client"),
-  ];
+  );
   const clientDir = clientSearchPaths.find(p => existsSync(path.join(p, "index.html"))) ?? "";
   const hasProductionBuild = !!clientDir;
   if (!hasProductionBuild) {
