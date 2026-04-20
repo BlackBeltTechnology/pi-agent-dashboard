@@ -3,6 +3,9 @@
   "version": "0.3.0",
   "description": "Dashboard server for monitoring and interacting with pi agent sessions",
   "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "main": "src/cli.ts",
   "bin": {
     "pi-dashboard": "src/cli.ts"
