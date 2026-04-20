@@ -11,10 +11,91 @@ see [`docs/release-process.md`](docs/release-process.md).
 ## [Unreleased]
 
 ### Added
+- **Windows cross-platform parity** — fresh-install dashboard now
+  starts and runs correctly on Windows 10/11. Adds `netstat`/`taskkill`
+  equivalents for every Unix-only `lsof`/`kill` path: `cli.ts`,
+  `/api/restart`, `pi-dashboard stop`, terminal X button, tunnel
+  cleanup, and headless-session tree-kill all route through shared
+  `platform/process` helpers that select the correct per-OS strategy.
+- **`packages/shared/src/platform/` primitive module** — single source
+  for cross-OS behavior. `binary-lookup` (`where`/`which` + `.cmd`
+  extension + login-shell fallback), `process` (findPortHolders,
+  killProcess, killPidWithGroup, isProcessAlive), `process-scan`
+  (pgrep vs tasklist), `shell` (COMSPEC vs SHELL), `commands`
+  (openBrowser, isVirtualMachine), `paths` (OS-aware normalization +
+  multi-drive invariants), `exec`/`runner` (subprocess execution with
+  `windowsHide:true` baked in). Every helper takes optional
+  `platform: NodeJS.Platform` injection so tests exercise both branches
+  without mutating `process.platform`. Enforced by three lint-style
+  tests: `no-direct-child-process`, `no-direct-process-kill`,
+  `no-direct-platform-branch`.
+- **`ToolRegistry` binary + module resolution** — single-source resolver
+  for every external binary/module (pi, pi-coding-agent, openspec, npm,
+  node, tsx, git, zrok, pi-dashboard). Ordered strategy chain per tool
+  (override → bare-import → managed → npm-global → where), per-resolution
+  diagnostic trail, in-memory cache, override-aware. REST API at
+  `/api/tools*` with a new **Settings → Tools** section for inspecting
+  resolution trails, setting overrides, and exporting diagnostics.
+- **Node version preflight (`node-guard`)** — server refuses to start
+  on Node versions affected by nodejs/node#58515
+  (v22.0-v22.17 + v24.1-v24.2) with a clear upgrade message. Bumps
+  `engines.node` to `>=22.18.0`.
+- **Bridge extension polish** — server-readiness wait now blocks
+  indefinitely with child-exit detection (no arbitrary timeout); launch
+  progress renders via `pi-tui` Loader widget; spawn failures surface
+  as `spawn_error` browser messages with the log path.
+- **WSL-tmux probe cache** — per-server-lifetime cache eliminates the
+  per-spawn cost of detecting the WSL tmux wrapper.
 
 ### Changed
+- **Electron doctor/dependency-detector** migrated to `ToolRegistry`
+  (drops direct `where`/`which` shelling out). `loadPiPackageManager()`
+  now delegates module resolution to `ToolRegistry.resolveModule`.
+- **PathPicker** uses OS-aware separator (`withTrailingSep`) and
+  `parsePathInput` so Windows drive-letters (`B:`) are handled as
+  drive roots, not cwd-relative paths.
+- **`spawnDetached`** gained an explicit `detach?: boolean` option
+  (default `true`). pi-session spawns now pass `detach:false` so the
+  child is tied to the parent's libuv Job Object — no cmd.exe console
+  flash on Windows and the child terminates when the parent exits.
+- **`useWindowsRedirect` gate** tightened to require
+  `stdinMode === "ignore"`; libuv only honors `CREATE_NO_WINDOW` when
+  every stdio handle is ignored, and a piped stdin would otherwise
+  allocate a visible console.
 
 ### Fixed
+- **Bridge auto-registration path math** was off by one — fresh
+  installs silently failed to register the dashboard bridge in pi's
+  `~/.pi/agent/settings.json` because `baseDir` resolved to
+  `<repo>/packages/` instead of `<repo>/`. Fix uses three `..` instead
+  of two; adds success/failure log lines so future regressions surface
+  loudly.
+- **Extension server CLI resolution** in installed npm layouts —
+  `resolveServerCliPath()` used sibling-path arithmetic that produced
+  `@blackbelt-technology/server/src/cli.ts` (missing the
+  `-dashboard-server` suffix) in the installed tree. Now uses
+  `require.resolve('@blackbelt-technology/pi-dashboard-server/...')`
+  which works in both monorepo and installed layouts.
+- **Client directory resolution** in installed layouts — the server
+  returned "No client build found" on installed packages because
+  `clientSearchPaths[0]` used nested-`node_modules` arithmetic.
+  Prepended a `require.resolve` path that works regardless of hoist.
+- **Terminal X button on Windows** — now routes kill through
+  `taskkill /F /T` with fallback cleanup so the whole process tree
+  terminates.
+- **Zrok scavenge on Unix** — `scavengeOrphanZrokProcesses` now kills
+  the full process group (negative PID) so zrok's worker children
+  die with it; Windows path unchanged (taskkill `/T` already tree-kills).
+- **node-pty permissions in bundles** — hoist-aware permissions fix
+  lands on all packaged Electron bundles (DMG / AppImage / NSIS).
+
+### Deprecated
+- **Direct `node:child_process` imports and `process.kill` calls**
+  outside the `platform/` module are now architecturally forbidden
+  (enforced by lint-style tests). Migrate to
+  `@blackbelt-technology/pi-dashboard-shared/platform/exec` and
+  `.../platform/process` respectively, or mark legitimate opt-outs
+  with `// ban:child_process-ok` / `// platform-branch-ok`.
 
 ## [0.3.0] - 2026-04-20
 
