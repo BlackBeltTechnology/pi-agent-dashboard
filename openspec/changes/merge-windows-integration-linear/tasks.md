@@ -21,10 +21,10 @@ Goal: develop is less broken on fresh Windows install after this phase even if n
 - [ ] 0.3 `git cherry-pick 40a1319` — fix(server): bridge auto-registration path math was off by one
 - [ ] 0.4 `git cherry-pick e11f5eb` — fix(extension): resolve server CLI via require.resolve, not sibling path math
 - [ ] 0.5 `git cherry-pick 9397320` — fix(server): client-dir resolution works in installed layouts  _(short SHA `9397320` on v2 = `93973206bd5edeafdaf122703a3519363cb2ba8e`)_
-- [ ] 0.6 Validation: `npm install && npm test` green (all workspaces)
-- [ ] 0.7 Validation: `npm run build` green
-- [ ] 0.8 Validation: start dashboard via `npm run dev`, confirm bridge auto-registers on a fresh `~/.pi/agent/settings.json` (delete + restart if pre-seeded)
-- [ ] 0.9 `git push origin windows-integration-v3 pre-windows-v3-merge`
+- [x] 0.6 Validation: `npm install && npm test` green — 2161/2161 passed in 97.7s
+- [x] 0.7 Validation: `npm run build` green — client + server built, precompress ran (5.79 MB → 1.73 MB)
+- [ ] 0.8 Validation: start dashboard via `npm run dev`, confirm bridge auto-registers on a fresh `~/.pi/agent/settings.json` (delete + restart if pre-seeded) _SKIPPED in agent session (destructive to live pi session); manual gate for operator_
+- [ ] 0.9 `git push origin windows-integration-v3 pre-windows-v3-merge` _deferred per user direction (option 3: no push until phase 4 done)_
 
 ## Phase 1. platform/ primitives foundation (bucket #1) — 9 commits
 
@@ -32,18 +32,18 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 
 **Excludes** consolidation commits (`a73178d`, `2aa1d50`, `21d7dc4`, `ab017d8`, `01ac562`) per proposal §Excluded.
 
-- [ ] 1.1 `git cherry-pick 6716a4f` — fix: cross-platform server launch, restart, and stale-port cleanup on Windows _(foundation commit; introduces initial platform helpers)_
-- [ ] 1.2 `git cherry-pick f7cfe82` — refactor: moved platform primitives into shared/src/platform/ module
-- [ ] 1.3 `git cherry-pick 059dfe0` — refactor: centralize subprocess execution behind platform/exec + runner
-- [ ] 1.4 `git cherry-pick ca978d4` — refactor: centralize tool resolution behind ToolRegistry with diagnostic trail
-- [ ] 1.5 `git cherry-pick f04a173` — feat: add OS-aware path normalization via platform/paths
-- [ ] 1.6 `git cherry-pick 5ab7956` — refactor: consolidate Windows spawn and platform handlers into detached-spawn, spawn-mechanism, process-identify primitives
-- [ ] 1.7 `git cherry-pick 9c497b8` — feat(platform): add detach option to SpawnDetachedOptions
-- [ ] 1.8 `git cherry-pick c26ec59` — feat(platform): make waitForReady deadlineMs optional (undefined = wait forever)
-- [ ] 1.9 `git cherry-pick cce2e57` — fix(tool-registry): register process-inspection tools per-platform (skip ps/pgrep on Windows) _(from origin/windows-integration, not v2)_
-- [ ] 1.10 Validation: `npm run build` green
-- [ ] 1.11 Validation: `npm test` green across workspaces
-- [ ] 1.12 Validation: three lint-style tests green — `no-direct-child-process`, `no-direct-process-kill`, `no-direct-platform-branch`
+- [x] 1.1 `git cherry-pick 6716a4f` — fix: cross-platform server launch (conflict resolved: headless-pid-registry.ts killAll kept test-env-guard; dropped dead useGroup var)
+- [x] 1.2 `git cherry-pick f7cfe82` — moved platform primitives (conflicts resolved: AGENTS.md + docs/architecture.md docs merged; consolidate-platform-handlers/tasks.md accepted incoming)
+- [x] 1.3 `git cherry-pick 059dfe0` — centralize subprocess exec (conflicts resolved: 4 server files accepted theirs — directory-handler, package-manager-wrapper, pi-resource-scanner, openspec-poller now use platform/* modules)
+- [x] 1.4 `git cherry-pick ca978d4` — ToolRegistry (conflicts: server.ts merged pi-core + tool-routes imports; dependency-detector.ts accepted theirs; duplicate portable-windows-pm archive removed)
+- [x] 1.5 `git cherry-pick f04a173` — OS-aware path normalization (conflict: PathPicker.tsx kept develop's createDirectory + incoming withTrailingSep/inferPlatform)
+- [x] 1.6 `git cherry-pick 5ab7956` — consolidate Windows spawn (conflicts: AGENTS.md tool-registry rows accepted theirs; binary-lookup.ts whichSync via spawnSync accepted theirs; runner.ts buildSafeArgv accepted theirs)
+- [x] 1.7 `git cherry-pick 9c497b8` — detach option to SpawnDetachedOptions (clean)
+- [x] 1.8 `git cherry-pick c26ec59` — waitForReady deadlineMs optional (clean)
+- [x] 1.9 `git cherry-pick cce2e57` — tool-registry per-platform process-inspection (clean)
+- [x] 1.10 Validation: `npm run build` green
+- [ ] 1.11 Validation: `npm test` — **32/2515 failing** (expected per proposal Phase 5); deferred to Phase 5 re-derivation
+- [ ] 1.12 Validation: three lint-style tests — `no-direct-child-process` + `no-direct-platform-branch` failing (new files need allowlist update); Phase 5
 
 ## Phase 2. Windows fixes on top of #1 (bucket #2) — 6 commits
 
