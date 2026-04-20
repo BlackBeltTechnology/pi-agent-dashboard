@@ -26,9 +26,9 @@ import type { OpenSpecData, OpenSpecChange, OpenSpecArtifact } from "./types.js"
 
 const EMPTY_DATA: OpenSpecData = { initialized: false, changes: [] };
 
-function buildOpenSpecData(
+export function buildOpenSpecData(
   listResult: { changes?: Array<{ name: string; status: string; completedTasks: number; totalTasks: number }> } | null,
-  statusResults: Map<string, { artifacts?: Array<{ id: string; status: string }> } | null>,
+  statusResults: Map<string, { artifacts?: Array<{ id: string; status: string }>; isComplete?: boolean } | null>,
 ): OpenSpecData {
   if (!listResult || !Array.isArray(listResult.changes)) {
     return EMPTY_DATA;
@@ -41,13 +41,18 @@ function buildOpenSpecData(
       status: (a.status === "done" ? "done" : a.status === "ready" ? "ready" : "blocked") as OpenSpecArtifact["status"],
     }));
 
-    return {
+    const isComplete =
+      typeof statusResult?.isComplete === "boolean" ? statusResult.isComplete : undefined;
+
+    const change: OpenSpecChange = {
       name: c.name,
       status: (c.status === "complete" ? "complete" : c.status === "in-progress" ? "in-progress" : "no-tasks") as OpenSpecChange["status"],
       completedTasks: c.completedTasks ?? 0,
       totalTasks: c.totalTasks ?? 0,
       artifacts,
     };
+    if (isComplete !== undefined) change.isComplete = isComplete;
+    return change;
   });
 
   return { initialized: true, changes };

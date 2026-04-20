@@ -28,6 +28,18 @@ const JITI_PACKAGES = [
  * See change: fix-windows-server-parity.
  */
 export function buildJitiRegisterUrl(pkgJsonPath: string): string {
+  // Detect Windows-style input (drive letter + backslash) regardless of
+  // host OS, so unit tests can exercise the Windows path contract on macOS/Linux.
+  // Production behaviour is unchanged because the host-OS `path`/`pathToFileURL`
+  // match the input style automatically.
+  const isWindowsStyle = /^[A-Za-z]:[\\/]/.test(pkgJsonPath);
+  if (isWindowsStyle) {
+    // Manually build file:///C:/path/lib/jiti-register.mjs — pathToFileURL on
+    // POSIX hosts URL-encodes backslashes rather than treating them as
+    // separators. Do the join with path.win32 and format the URL ourselves.
+    const registerPath = path.win32.join(path.win32.dirname(pkgJsonPath), "lib", "jiti-register.mjs");
+    return `file:///${registerPath.replace(/\\/g, "/")}`;
+  }
   const registerPath = path.join(path.dirname(pkgJsonPath), "lib", "jiti-register.mjs");
   return pathToFileURL(registerPath).href;
 }

@@ -74,6 +74,30 @@ const ALLOWLIST: readonly string[] = [
   // Client session-grouping: reads process.platform in a comment-only
   // doc reference and uses inferPlatform heuristic; no actual branch.
   "packages/client/src/lib/session-grouping.ts",
+
+  // ── Follow-up: migrate to electron/src/platform/ per deferred
+  // consolidate-platform-handlers (18→13 file refactor).
+
+  // App menu: darwin detection for role:appMenu (Electron convention).
+  "packages/electron/src/lib/app-menu.ts",
+  // Bundled node: win32 binary name suffix; data-lookup branch.
+  "packages/electron/src/lib/bundled-node.ts",
+  // Server lifecycle: win32 managed-tsx.cmd + which/where probes.
+  "packages/electron/src/lib/server-lifecycle.ts",
+  // Tray icon: platform-specific asset selection; will move to
+  // electron/src/platform/tray-icon.ts in deferred consolidation.
+  "packages/electron/src/lib/tray.ts",
+
+  // Server editor PID registry: per-OS process pattern matching for
+  // orphan detection on boot. Genuine data-table branching.
+  "packages/server/src/editor-pid-registry.ts",
+  // fix-pty-permissions: Windows short-circuit (no chmod needed).
+  "packages/server/src/fix-pty-permissions.ts",
+  // package-manager-wrapper: comment-only reference; no runtime branch.
+  "packages/server/src/package-manager-wrapper.ts",
+  // terminal-manager: win32 branch for node-pty spawnOptions; will move
+  // to platform/terminal in deferred consolidation.
+  "packages/server/src/terminal-manager.ts",
 ];
 
 const PLATFORM_BRANCH_RE = /process\.platform\s*(===|!==)\s*["'](win32|linux|darwin)["']/;

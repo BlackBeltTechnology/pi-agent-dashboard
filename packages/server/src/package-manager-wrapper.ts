@@ -205,6 +205,24 @@ export class PackageManagerWrapper {
   }
 
   /**
+   * Run an arbitrary async operation under the wrapper's busy-lock.
+   * Used by adjacent subsystems (e.g. PiCoreUpdater) to coordinate with
+   * extension install/update operations. Throws PackageOperationBusyError
+   * if a package operation is already running.
+   */
+  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.busy) {
+      throw new PackageOperationBusyError();
+    }
+    this.busy = true;
+    try {
+      return await fn();
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /**
    * Start a package operation. Returns the operationId immediately.
    * Progress and completion are delivered via listeners.
    * Throws if another operation is already running.

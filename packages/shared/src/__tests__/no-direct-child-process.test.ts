@@ -18,8 +18,12 @@ import url from "node:url";
 /** Files allowed to import from node:child_process directly. */
 const ALLOWLIST: readonly string[] = [
   "packages/shared/src/platform/exec.ts",
-  // When runner.ts is added in Phase 2, include it here.
   "packages/shared/src/platform/runner.ts",
+  // Platform primitives that legitimately own the raw child_process
+  // APIs (Windows detached-spawn + cross-platform subprocess adapter).
+  // See change: consolidate-windows-spawn-and-platform-handlers.
+  "packages/shared/src/platform/detached-spawn.ts",
+  "packages/shared/src/platform/subprocess-adapter.ts",
 ];
 
 /**

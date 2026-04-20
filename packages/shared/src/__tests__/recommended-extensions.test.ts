@@ -35,18 +35,18 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		}
 	});
 
-	it("pi-anthropic-messages is marked required and uses SSH git URL", () => {
+	it("pi-anthropic-messages is marked required and uses HTTPS git URL", () => {
 		const entry = getRecommendedExtension("pi-anthropic-messages");
 		expect(entry).toBeDefined();
 		expect(entry?.status).toBe("required");
-		expect(entry?.source).toContain("git@github.com:BlackBeltTechnology/pi-anthropic-messages.git");
+		expect(entry?.source).toContain("https://github.com/BlackBeltTechnology/pi-anthropic-messages.git");
 		expect(entry?.autowired).toBe(true);
 	});
 
-	it("pi-flows uses SSH git URL and registers flow-engine tools", () => {
+	it("pi-flows uses HTTPS git URL and registers flow-engine tools", () => {
 		const entry = getRecommendedExtension("pi-flows");
 		expect(entry).toBeDefined();
-		expect(entry?.source).toBe("git@github.com:BlackBeltTechnology/pi-flows.git");
+		expect(entry?.source).toBe("https://github.com/BlackBeltTechnology/pi-flows.git");
 		expect(entry?.toolsRegistered).toContain("subagent");
 		expect(entry?.toolsRegistered).toContain("flow_write");
 	});
@@ -65,12 +65,12 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		);
 	});
 
-	it("git-sourced entries use the git@github.com:/.git SSH form", () => {
+	it("git-sourced entries use the https://github.com/.../.git HTTPS form", () => {
 		const gitEntries = RECOMMENDED_EXTENSIONS.filter((e) =>
-			e.source.startsWith("git@github.com:"),
+			e.source.startsWith("https://github.com/"),
 		);
 		for (const entry of gitEntries) {
-			expect(entry.source).toMatch(/^git@github\.com:[^/]+\/[^/]+\.git$/);
+			expect(entry.source).toMatch(/^https:\/\/github\.com\/[^/]+\/[^/]+\.git$/);
 		}
 		expect(gitEntries.map((e) => e.id).sort()).toEqual(
 			["pi-anthropic-messages", "pi-flows"].sort(),

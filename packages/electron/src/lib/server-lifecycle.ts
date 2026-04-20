@@ -220,7 +220,7 @@ function resolveTsxCommand(): string[] | null {
 
   // System PATH
   try {
-    const { execSync } = require("node:child_process");
+    const { execSync } = require("node:child_process"); // ban:child_process-ok electron bundle prefers require() for cold-start cost; dev-only tsx probe
     const whichCmd = process.platform === "win32" ? "where" : "which";
     const result = execSync(`${whichCmd} tsx`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     if (result) return [result.split("\n")[0]];

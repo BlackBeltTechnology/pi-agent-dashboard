@@ -104,7 +104,8 @@ describe("listDirectories", () => {
   });
 
   it("should return the server's platform", async () => {
-    const result = await listDirectories(REPO_ROOT);
+    const projectRoot = path.resolve(import.meta.dirname, "../../../..");
+    const result = await listDirectories(projectRoot);
     expect(result.platform).toBe(process.platform);
   });
 

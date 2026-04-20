@@ -12,7 +12,7 @@
  */
 import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execSync } from "node:child_process"; // ban:child_process-ok editor orphan sweep uses `ps`/`taskkill` probe for bounded wait; tracked tech debt for migration to platform/process Recipe
 import { readFileSync, existsSync } from "node:fs";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";

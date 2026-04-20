@@ -160,30 +160,32 @@ describe("PID file helpers", () => {
 });
 
 describe("cleanupStaleZrok", () => {
-  it("should do nothing when no PID file exists", () => {
+  it("should do nothing when no PID file exists", async () => {
     vi.mocked(fs.readFileSync).mockImplementation(() => {
       throw new Error("ENOENT");
     });
     const killSpy = vi.spyOn(process, "kill");
 
-    cleanupStaleZrok();
+    await cleanupStaleZrok();
 
     expect(killSpy).not.toHaveBeenCalled();
   });
 
-  it("should kill running stale process and remove PID file", () => {
+  it("should kill running stale process and remove PID file", async () => {
     vi.mocked(fs.readFileSync).mockReturnValue("99999\n");
     const killSpy = vi.spyOn(process, "kill").mockReturnValue(true);
     vi.mocked(fs.unlinkSync).mockReturnValue(undefined);
 
-    cleanupStaleZrok();
+    // cleanupStaleZrok became async when it moved to platform/process's
+    // killProcess (SIGTERM+grace+SIGKILL orchestration).
+    await cleanupStaleZrok();
 
     expect(killSpy).toHaveBeenCalledWith(99999, 0);
     expect(killSpy).toHaveBeenCalledWith(99999, "SIGTERM");
     expect(fs.unlinkSync).toHaveBeenCalled();
   });
 
-  it("should just remove PID file if process is not running", () => {
+  it("should just remove PID file if process is not running", async () => {
     vi.mocked(fs.readFileSync).mockReturnValue("99999\n");
     const killSpy = vi.spyOn(process, "kill").mockImplementation((_pid: number, signal?: string | number) => {
       if (signal === 0) throw new Error("ESRCH");
@@ -191,7 +193,7 @@ describe("cleanupStaleZrok", () => {
     });
     vi.mocked(fs.unlinkSync).mockReturnValue(undefined);
 
-    cleanupStaleZrok();
+    await cleanupStaleZrok();
 
     expect(killSpy).toHaveBeenCalledTimes(1);
     expect(fs.unlinkSync).toHaveBeenCalled();
@@ -254,8 +256,12 @@ describe("scavengeOrphanZrokProcesses", () => {
     const killed = scavengeOrphanZrokProcesses(8000);
 
     expect(killed).toEqual([12345]);
-    expect(killSpy).toHaveBeenCalledWith(12345, "SIGTERM");
+    // Negative PID targets the whole process group on Unix (killPidWithGroup's
+    // contract); positive PID on Windows. Match whichever platform we're on.
+    const expectedPid = process.platform === "win32" ? 12345 : -12345;
+    expect(killSpy).toHaveBeenCalledWith(expectedPid, "SIGTERM");
     expect(killSpy).not.toHaveBeenCalledWith(12346, expect.anything());
+    expect(killSpy).not.toHaveBeenCalledWith(-12346, expect.anything());
   });
 
   it("should return empty array on ps failure", () => {

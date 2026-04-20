@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PackageManagerWrapper, PackageOperationBusyError } from "../package-manager-wrapper.js";
+import { ToolRegistry, OverridesStore } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
+import os from "node:os";
+import path from "node:path";
+import { mkdtempSync } from "node:fs";
 
 // Track mock functions
 const installAndPersist = vi.fn().mockResolvedValue(undefined);
@@ -14,8 +19,9 @@ const checkForAvailableUpdates = vi.fn().mockResolvedValue([
 ]);
 const setProgressCallback = vi.fn();
 
-vi.mock("@mariozechner/pi-coding-agent", () => {
-  const MockPM = function() {
+// The PiModule returned by registry.resolveModule (bypasses vi.mock).
+const fakePiModule = {
+  DefaultPackageManager: function() {
     return {
       installAndPersist,
       removeAndPersist,
@@ -24,13 +30,35 @@ vi.mock("@mariozechner/pi-coding-agent", () => {
       checkForAvailableUpdates,
       setProgressCallback,
     };
-  };
-  return {
-    DefaultPackageManager: MockPM,
-    SettingsManager: { create: () => ({}) },
-    default: undefined,
-  };
-});
+  },
+  SettingsManager: { create: () => ({}) },
+};
+
+/**
+ * Build a ToolRegistry whose pi-coding-agent resolution is a no-op lookup
+ * (any path) and whose importModule() returns the in-memory fake module.
+ * This sidesteps the whole resolution chain so tests run without a
+ * pi-coding-agent install.
+ */
+function makeTestRegistry(): ToolRegistry {
+  // Per-test ephemeral overrides file so each test gets a fresh registry.
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pmw-test-"));
+  const overrides = new OverridesStore({
+    filePath: path.join(tmpDir, "tool-overrides.json"),
+  });
+  overrides.set("pi-coding-agent", "/stub/pi-coding-agent/dist/index.js");
+
+  // Inject importModule that always returns the fake pi module, bypassing
+  // any real dynamic import. The override above ensures the strategy chain's
+  // first step (overrideStrategy) returns the synthetic path, which
+  // importModule then maps to our fakePiModule.
+  const registry = new ToolRegistry({
+    overrides,
+    importModule: async () => fakePiModule,
+  });
+  registerDefaultTools(registry);
+  return registry;
+}
 
 describe("PackageManagerWrapper", () => {
   let wrapper: PackageManagerWrapper;
@@ -47,7 +75,7 @@ describe("PackageManagerWrapper", () => {
       { source: "npm:pi-doom", displayName: "pi-doom", type: "npm" },
     ]);
     setProgressCallback.mockReset();
-    wrapper = new PackageManagerWrapper();
+    wrapper = new PackageManagerWrapper(makeTestRegistry());
   });
 
   it("returns operationId on run", async () => {

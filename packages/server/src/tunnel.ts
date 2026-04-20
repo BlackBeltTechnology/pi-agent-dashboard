@@ -219,7 +219,10 @@ export function scavengeOrphanZrokProcesses(port: number): number[] {
     if (!Number.isFinite(pid) || pid <= 0) continue;
     if (pid === process.pid) continue; // never kill ourselves
     try {
-      process.kill(pid, "SIGTERM");
+      // Group-kill on Unix so zrok's child workers die with it; taskkill /T
+      // already handles the tree on Windows (killPidWithGroup routes the
+      // platform-correct path).
+      killPidWithGroup(pid, "SIGTERM");
       killed.push(pid);
       console.log(`Scavenged orphan zrok process (PID ${pid})`);
     } catch {

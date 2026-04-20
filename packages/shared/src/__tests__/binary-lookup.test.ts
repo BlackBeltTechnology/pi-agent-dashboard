@@ -5,12 +5,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "node:path";
 import os from "node:os";
 
-const { mockExecSync, mockExistsSync } = vi.hoisted(() => ({
+const { mockExecSync, mockSpawnSync, mockExistsSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
+  mockSpawnSync: vi.fn(),
   mockExistsSync: vi.fn(),
 }));
 
-vi.mock("node:child_process", () => ({ execSync: mockExecSync }));
+vi.mock("node:child_process", () => ({ execSync: mockExecSync, spawnSync: mockSpawnSync }));
 vi.mock("node:fs", () => ({ existsSync: mockExistsSync }));
 
 import { ToolResolver } from "../platform/binary-lookup.js";
@@ -28,6 +29,8 @@ describe("ToolResolver", () => {
     vi.clearAllMocks();
     mockExistsSync.mockReturnValue(false);
     mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    // Default: spawnSync (used by whereAllLines) reports not found.
+    mockSpawnSync.mockReturnValue({ status: 1, stdout: "", stderr: "" });
   });
 
   describe("which()", () => {
@@ -49,12 +52,16 @@ describe("ToolResolver", () => {
     });
 
     it("falls back to system PATH via which/where", () => {
-      // Resolver uses `where` on Windows, `which` on Unix.
-      const lookupCmd = process.platform === "win32" ? "where pi" : "which pi";
+      // Resolver uses `where` on Windows, `which` on Unix via spawnSync
+      // (not execSync — see whereAllLines in platform/tools.ts).
+      const lookupCmd = process.platform === "win32" ? "where" : "which";
       const expected = process.platform === "win32" ? "C:\\Windows\\pi.exe" : "/usr/bin/pi";
-      mockExecSync.mockImplementation((cmd: string) => {
-        if (typeof cmd === "string" && cmd.includes(lookupCmd)) return expected + "\n";
-        throw new Error("not found");
+      mockSpawnSync.mockImplementation((cmd: string, args: string[]) => {
+        // argv[0] is 'where'/'which', argv[1] is the target binary.
+        if (cmd === lookupCmd && args?.[0] === "pi") {
+          return { status: 0, stdout: expected + "\n", stderr: "" };
+        }
+        return { status: 1, stdout: "", stderr: "" };
       });
 
       const resolver = new ToolResolver();
