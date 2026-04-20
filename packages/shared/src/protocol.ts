@@ -63,12 +63,6 @@ export interface CommandsListMessage {
   commands: CommandInfo[];
 }
 
-export interface FlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
-}
-
 export interface ExtensionUiRequestMessage {
   type: "extension_ui_request";
   sessionId: string;
@@ -143,6 +137,19 @@ export interface RolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+}
+
+export interface UiModulesListMessage {
+  type: "ui_modules_list";
+  sessionId: string;
+  modules: any[];
+}
+
+export interface UiDataListMessage {
+  type: "ui_data_list";
+  sessionId: string;
+  event: string;
+  items: any[];
 }
 
 export interface ExtensionUiDismissMessage {
@@ -227,7 +234,9 @@ export type ExtensionToServerMessage =
   | FirstMessageUpdateMessage
   | RolesListMessage
   | SpawnNewSessionMessage
-  | ProcessListMessage;
+  | ProcessListMessage
+  | UiModulesListMessage
+  | UiDataListMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -370,6 +379,14 @@ export interface KillProcessMessage {
   pgid: number;
 }
 
+export interface UiManagementExtensionMessage {
+  type: "ui_management";
+  sessionId: string;
+  action: string;
+  event: string;
+  params?: Record<string, any>;
+}
+
 export interface ExtensionUiResponseMessage {
   type: "extension_ui_response";
   sessionId: string;
@@ -412,4 +429,5 @@ export type ServerToExtensionMessage =
   | RolePresetSaveExtensionMessage
   | RolePresetDeleteExtensionMessage
   | RequestRolesMessage
-  | KillProcessMessage;
+  | KillProcessMessage
+  | UiManagementExtensionMessage;

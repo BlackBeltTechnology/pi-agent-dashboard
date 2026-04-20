@@ -61,6 +61,13 @@ export interface DashboardSession {
     /** Timestamp when metrics were last received */
     updatedAt: number;
   };
+  /** True if the bridge is currently connected and active */
+  bridgeConnected?: boolean;
+
+  /** Caches for UI modules and data (transient, only in memory) */
+  uiModules?: any[];
+  uiCommands?: any[];
+  uiDataMap?: Record<string, any[]>;
 }
 
 /** An event forwarded from a pi session */
@@ -85,6 +92,64 @@ export interface CommandInfo {
   source: "extension" | "prompt" | "skill" | "builtin";
   location?: string;
   path?: string;
+}
+
+/** Info about a scheduled prompt job */
+export interface CronJob {
+  id: string;
+  name: string;
+  schedule: string;
+  prompt: string;
+  enabled: boolean;
+  type: "cron" | "once" | "interval";
+  intervalMs?: number;
+  createdAt: string;
+  runCount: number;
+  lastRun?: string;
+  lastStatus?: "success" | "error";
+  description?: string;
+  nextRun?: string;
+}
+
+/** ── Generalized Extension UI Schema ── */
+
+export interface UiAction {
+  label: string;
+  icon?: string;
+  emit: string;
+  params?: Record<string, any>;
+  variant?: "primary" | "secondary" | "danger" | "warning" | "success";
+  confirm?: string; // If set, show a confirmation dialog with this message
+  primaryParam?: string; // Name of the key to use as the main param (e.g. 'jobId')
+}
+
+export interface UiField {
+  key: string;
+  label: string;
+  type: "text" | "number" | "boolean" | "select" | "code" | "datetime" | "textarea";
+  options?: Array<{ label: string; value: any }>;
+  required?: boolean;
+  placeholder?: string;
+}
+
+export interface UiView {
+  id: string;
+  type: "table" | "grid" | "form";
+  title?: string;
+  dataEvent?: string; // Event to request data (expects data.items back)
+  updateEvent?: string; // Event that signals data has changed
+  fields?: UiField[];
+  actions?: UiAction[];
+  itemActions?: UiAction[]; // Actions available per item in table/grid
+}
+
+export interface ExtensionUiModule {
+  id: string;
+  title: string;
+  icon?: string;
+  command: string; // The slash command that triggers this UI
+  views: UiView[];
+  initialViewId: string;
 }
 
 /** Image content for message attachments (compatible with pi SDK ImageContent) */

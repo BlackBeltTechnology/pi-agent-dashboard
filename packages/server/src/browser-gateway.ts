@@ -381,6 +381,30 @@ export function createBrowserGateway(
             });
             break;
           }
+          case "cron_management": {
+            ctx.piGateway.sendToSession(msg.sessionId, {
+              type: "cron_management",
+              sessionId: msg.sessionId,
+              action: msg.action,
+              jobId: msg.jobId,
+              name: msg.name,
+              schedule: msg.schedule,
+              prompt: msg.prompt,
+              jobType: msg.jobType,
+              intervalMs: msg.intervalMs,
+            });
+            break;
+          }
+          case "ui_management": {
+            ctx.piGateway.sendToSession(msg.sessionId, {
+              type: "ui_management",
+              sessionId: msg.sessionId,
+              action: msg.action,
+              event: msg.event,
+              params: msg.params,
+            });
+            break;
+          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.

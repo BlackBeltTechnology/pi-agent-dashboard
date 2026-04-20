@@ -68,6 +68,23 @@ export function handleSubscribe(
   piGateway.sendToSession(msg.sessionId, { type: "request_commands", sessionId: msg.sessionId });
   piGateway.sendToSession(msg.sessionId, { type: "request_models", sessionId: msg.sessionId });
   piGateway.sendToSession(msg.sessionId, { type: "request_roles", sessionId: msg.sessionId });
+  piGateway.sendToSession(msg.sessionId, { type: "ui_management", sessionId: msg.sessionId, action: "list", event: "ui:list-modules" });
+
+  // Send cached UI metadata if available
+  const session = sessionManager.get(msg.sessionId);
+  if (session) {
+    if (session.uiModules) {
+      sendTo(ws, { type: "ui_modules_list", sessionId: msg.sessionId, modules: session.uiModules });
+    }
+    if (session.uiCommands) {
+      sendTo(ws, { type: "commands_list", sessionId: msg.sessionId, commands: session.uiCommands });
+    }
+    if (session.uiDataMap) {
+      for (const [event, items] of Object.entries(session.uiDataMap)) {
+        sendTo(ws, { type: "ui_data_list", sessionId: msg.sessionId, event, items });
+      }
+    }
+  }
 
   if (eventStore.hasEvents(msg.sessionId)) {
     const lastSeq = msg.lastSeq ?? 0;
