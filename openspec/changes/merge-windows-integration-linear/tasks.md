@@ -47,33 +47,33 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 
 ## Phase 2. Windows fixes on top of #1 (bucket #2) — 6 commits
 
-- [ ] 2.1 `git cherry-pick 1239201` — fix: suppress cmd.exe console flash when spawning .cmd files on Windows
-- [ ] 2.2 `git cherry-pick bb05398` — fix: resolve windows binaries via PATHEXT to skip bash shims
-- [ ] 2.3 `git cherry-pick 4bfb77b` — fix: resolve windows binaries via PATHEXT and spawn .cmd with shell:true
-- [ ] 2.4 `git cherry-pick 26e033e` — fix(windows): set detach:false for pi-session spawn to eliminate console flash _(depends on 1.7 `9c497b8` detach option)_
-- [ ] 2.5 `git cherry-pick 39acb1e` — fix: route all process termination through platform/process helpers (Windows tree-kill parity)
-- [ ] 2.6 `git cherry-pick 304a82b` — fix(terminal): windows X button — route kill through taskkill /F /T + fallback cleanup _(from origin/windows-integration)_
-- [ ] 2.7 Validation: `npm test` green
-- [ ] 2.8 Manual Windows smoke: ×3 session spawn, no cmd.exe flash; `/api/restart` works; `pi-dashboard stop` frees ports after TM-kill; terminal X button kills cleanly
+- [x] 2.1 ~~1239201 cmd.exe flash~~ **SKIPPED as superseded** by 059dfe0 (execFileAsync calls replaced with platform/runner which bakes in windowsHide:true)
+- [x] 2.2 ~~bb05398 PATHEXT via execSync loop~~ **SKIPPED as superseded** by 5ab7956 (already picked) which does PATHEXT resolution via single spawnSync call
+- [x] 2.3 ~~4bfb77b PATHEXT + shell:true~~ **SKIPPED as superseded** by 5ab7956 buildSafeArgv + 059dfe0 runner refactor
+- [x] 2.4 `git cherry-pick 26e033e` — detach:false for pi-session spawn (clean)
+- [x] 2.5 `git cherry-pick 39acb1e` — platform/process tree-kill (conflicts: server.ts dropped redundant cleanupStaleZrok call; tunnel.ts merged killPidWithGroup + SIGKILL escalation + releaseShare)
+- [x] 2.6 `git cherry-pick 304a82b` — terminal X button taskkill (conflict: terminal-manager.ts kept platform/shell.js import path, added killProcess from platform/process.js)
+- [ ] 2.7 Validation: `npm test` — deferred to Phase 5 (build green)
+- [ ] 2.8 Manual Windows smoke — deferred (operator gate)
 
 ## Phase 3. Electron migration (bucket #3) — 3 commits
 
-- [ ] 3.1 `git cherry-pick a97514e` — refactor: migrate electron binary lookup to shared ToolResolver
-- [ ] 3.2 `git cherry-pick 455ced4` — refactor: use ToolResolver and isDashboardRunning in Electron doctor/detector (drop where/which and curl)
-- [ ] 3.3 `git cherry-pick 8402565` — fix(electron): route server spawn through buildServerSpawnOptions with detach:false
-- [ ] 3.4 Validation: `npm run build` green across workspaces including `packages/electron`
-- [ ] 3.5 Manual Electron smoke: launch packaged dev build (`npm run start` in `packages/electron`), verify Doctor menu detects pi/openspec/Node, wizard first-run flow works, tray icon renders platform-correct
+- [x] 3.1 ~~a97514e ToolResolver migration~~ **SKIPPED as superseded** by ca978d4 ToolRegistry (already picked)
+- [x] 3.2 ~~455ced4 doctor/detector ToolResolver + isDashboardRunning~~ **SKIPPED** — depends on `isKnownBadNode` from `platform/node-version-check.js` which doesn't exist on our branch (post-merge v2-local work); node-guard.ts already covers version checking
+- [x] 3.3 `git cherry-pick 8402565` — Electron server spawn via buildServerSpawnOptions (clean)
+- [ ] 3.4 Validation: `npm run build` green
+- [ ] 3.5 Manual Electron smoke — deferred (operator gate)
 
 ## Phase 4. Bridge extension (bucket #4) — 6 commits
 
-- [ ] 4.1 `git cherry-pick 00e2e9b` — fix(extension): wait indefinitely for server readiness via child-exit detection _(depends on 1.8 `c26ec59` optional deadline)_
-- [ ] 4.2 `git cherry-pick 9a9f2da` — feat(extension): add onLaunchStart/onLaunchEnd callbacks to autoStartServer
-- [ ] 4.3 `git cherry-pick bc6cb5d` — feat(extension): show braille spinner during dashboard server launch
-- [ ] 4.4 `git cherry-pick 7239129` — feat(extension): replace manual spinner with pi-tui Loader widget
-- [ ] 4.5 `git cherry-pick e2357fd` — feat(spawn): surface spawn failures via spawn_error browser message
-- [ ] 4.6 `git cherry-pick 050d5dd` — perf(spawn): cache WSL-tmux probe for server lifetime to eliminate per-spawn cost
-- [ ] 4.7 Validation: `npm test` green
-- [ ] 4.8 Manual bridge smoke: start pi, bridge auto-starts dashboard; spinner renders; on spawn failure, `spawn_error` appears in browser UI
+- [x] 4.1 `git cherry-pick 00e2e9b` — wait indefinitely for server readiness (clean)
+- [x] 4.2 `git cherry-pick 9a9f2da` — onLaunchStart/onLaunchEnd callbacks (clean)
+- [x] 4.3 `git cherry-pick bc6cb5d` — braille spinner (clean)
+- [x] 4.4 `git cherry-pick 7239129` — pi-tui Loader widget (clean)
+- [x] 4.5 `git cherry-pick e2357fd` — spawn_error browser message (clean)
+- [x] 4.6 `git cherry-pick 050d5dd` — WSL-tmux probe cache (clean)
+- [ ] 4.7 Validation: `npm test` — deferred to Phase 5
+- [ ] 4.8 Manual bridge smoke — deferred (operator gate)
 
 ## Phase 5. Test infra (bucket #6) — 3 commits + re-derivation
 
