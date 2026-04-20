@@ -67,6 +67,38 @@ export interface SpawnDetachedOptions {
    */
   stdinMode?: "ignore" | "pipe";
   /**
+   * Whether to detach the child from the parent's libuv Job Object
+   * (Windows) / process group (POSIX). Default: `true`.
+   *
+   * When `true` (default):
+   *   - Windows: child is excluded from the parent's Job Object, so
+   *     killing the parent does NOT kill the child. Downside: libuv
+   *     allocates a new console for the child unless all stdio slots
+   *     are "ignore" (see libuv `src/win/process.c` — `CREATE_NO_WINDOW`
+   *     is only set when no stdio slot has `UV_INHERIT_FD`). With a
+   *     parent-held stdin pipe or file-fd stdout/stderr, brief console
+   *     flashes occur despite `windowsHide: true` (which only applies
+   *     `SW_HIDE` — hides AFTER allocation).
+   *   - POSIX: child is placed in its own process group.
+   *
+   * When `false`:
+   *   - Windows: child stays in parent's Job Object. `CREATE_NO_WINDOW`
+   *     is irrelevant (no new console allocation). No flash regardless
+   *     of stdio shape. Child dies with parent (Job Object closure).
+   *   - POSIX: child inherits parent's process group. Child dies with
+   *     parent on SIGTERM to the group.
+   *
+   * Use `false` when the child's lifecycle is deliberately tied to the
+   * parent (e.g., pi-session spawn where RPC stdin-EOF already ties
+   * them). Use default (`true`) for everything that must outlive its
+   * parent (server auto-start, CLI daemon, Electron server launch).
+   *
+   * See change: prep-for-develop-merge (restores the behavior of
+   * commit d331850 that was silently overridden by 5ab7956's universal
+   * detached:true invariant).
+   */
+  detach?: boolean;
+  /**
    * Override platform for testing. Does not affect spawn behaviour (Node's
    * `spawn` is platform-aware internally) but is surfaced here so future
    * platform-specific branches stay out of callers.
@@ -99,7 +131,7 @@ export async function spawnDetached(opts: SpawnDetachedOptions): Promise<SpawnDe
     child = safeSpawn(opts.cmd, opts.args, {
       cwd: opts.cwd,
       env: opts.env,
-      detached: true,
+      detached: opts.detach ?? true,
       stdio,
       shell: false,
       windowsHide: true,

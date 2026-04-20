@@ -72,6 +72,44 @@ describe("spawnDetached", () => {
     expect(r.ok).toBe(true);
     await new Promise((res) => r.process!.once("exit", res));
   });
+
+  // ── detach option ────────────────────────────────────────────────────────
+  //
+  // Behaviour of `detach` can't be directly observed at the Node level
+  // (libuv's UV_PROCESS_DETACHED flag + setpgid/JobObject are internal).
+  // These tests verify the OPTION is accepted and does not break spawn;
+  // lifecycle semantics are exercised in the integration smoke tests
+  // (phase 2.10 manual Windows check).
+
+  it("accepts detach: true (default behaviour, unchanged)", async () => {
+    const r = await spawnDetached({
+      cmd: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(0), 100)"],
+      detach: true,
+    });
+    expect(r.ok).toBe(true);
+    await new Promise((res) => r.process!.once("exit", res));
+  });
+
+  it("accepts detach: false without breaking spawn", async () => {
+    const r = await spawnDetached({
+      cmd: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(0), 100)"],
+      detach: false,
+    });
+    expect(r.ok).toBe(true);
+    await new Promise((res) => r.process!.once("exit", res));
+  });
+
+  it("accepts detach: undefined (implicit default)", async () => {
+    const r = await spawnDetached({
+      cmd: process.execPath,
+      args: ["-e", "setTimeout(() => process.exit(0), 100)"],
+      // detach is deliberately omitted
+    });
+    expect(r.ok).toBe(true);
+    await new Promise((res) => r.process!.once("exit", res));
+  });
 });
 
 describe("waitForNoCrash", () => {
