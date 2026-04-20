@@ -6,7 +6,7 @@
  * Coordinates with PackageManagerWrapper's busy-lock so extension
  * operations and core updates can't run concurrently.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "node:child_process"; // ban:child_process-ok npm-update streams stdout/stderr via pipe for progress events; refactor to platform/spawn Recipe is tracked tech debt
 import path from "node:path";
 import os from "node:os";
 import { existsSync } from "node:fs";
