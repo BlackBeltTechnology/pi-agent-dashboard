@@ -102,17 +102,17 @@ Per user direction: keep as separate commits on the same branch; do not bundle o
 
 Pick in one batch at the end; validate `openspec list` + `openspec validate` after each.
 
-- [ ] 7.1 `git cherry-pick 170434e` — docs: document cross-platform server launch, restart, and log hygiene
-- [ ] 7.2 `git cherry-pick cf84058` — docs: archive fix-windows-server-parity change and sync main specs
-- [ ] 7.3 `git cherry-pick d0adac2` — docs: add consolidate-platform-handlers openspec proposal (active proposal for the deferred 18→13 consolidation)
-- [ ] 7.4 `git cherry-pick 2257b08` — docs: refine fix-fork-entryid-timing proposal (see design.md open question #1; if content already archived on develop, fold refinements into archived artifact or skip)
-- [ ] 7.5 `git cherry-pick a4f9860` — docs: document platform-routed kill paths in AGENTS and architecture
-- [ ] 7.6 `git cherry-pick 0be288f` — docs: archive route-kill-paths-through-platform change and sync main specs
-- [ ] 7.7 `git cherry-pick de695e1` — docs(readme): bump required Node to 22.18.0 (nodejs/node#58515)
-- [ ] 7.8 `git cherry-pick 821cd63` — chore(openspec): sync and archive 4 completed changes (2026-04-20) _(cherry-pick may become partial/empty if archives already on develop; `--allow-empty` if needed)_
-- [ ] 7.9 Add THIS proposal's own artifacts to its superseded-by pointer: update `openspec/changes/adapt-windows-integration-pr9/.openspec.yaml` with `status: superseded` and `superseded-by: merge-windows-integration-linear` (or equivalent field per OpenSpec schema). Commit as `chore(openspec): mark adapt-windows-integration-pr9 superseded`
-- [ ] 7.10 Validation: `openspec list` shows no phantom active changes; `openspec validate` green
-- [ ] 7.11 Validation: `npm test` green (archive moves can affect spec-coherence tests if any)
+- [x] 7.1 `git cherry-pick 170434e` — cross-platform server launch docs (conflict: AGENTS.md + architecture.md — kept HEAD's richer content which already has this info)
+- [x] 7.2 `git cherry-pick cf84058` — archive fix-windows-server-parity (conflict: bridge-extension spec merged skill-command + server-launcher-log requirements)
+- [x] 7.3 `git cherry-pick d0adac2` — consolidate-platform-handlers proposal (conflict: tasks.md kept HEAD's 78-line version)
+- [x] 7.4 ~~2257b08 fix-fork-entryid-timing refinement~~ **SKIPPED** — per design.md open question #1: refinements describe user+assistant symmetry but the code changes for that symmetry aren't in our picked set; archive on develop describes the assistant-only fix that matches our code
+- [x] 7.5 `git cherry-pick a4f9860` — platform-routed kill paths docs (clean)
+- [x] 7.6 `git cherry-pick 0be288f` — archive route-kill-paths-through-platform (clean)
+- [x] 7.7 `git cherry-pick de695e1` — README Node 22.18.0 bump (clean)
+- [x] 7.8 ~~821cd63 sync 4 archives~~ **SKIPPED** — all 4 archives already on develop under different dates (cross-platform-qa-vms, dashboard-ux-fixes-batch, provider-auth, etc.)
+- [x] 7.9 adapt-windows-integration-pr9 .openspec.yaml already set to `status: superseded` when proposal was created (pre-Phase 0)
+- [x] 7.10 Validation: `openspec list` + `openspec validate` green on merge-windows-integration-linear, consolidate-platform-handlers, platform-path-normalization
+- [x] 7.11 Validation: `npm test` 2526/2526 green
 
 ## Phase 8. Pre-PR gates
 
