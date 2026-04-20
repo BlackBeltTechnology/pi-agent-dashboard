@@ -17,6 +17,7 @@ import {
   detectShell as platformDetectShell,
   getTerminalEnvHints as platformTerminalEnvHints,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/shell.js";
+import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 /** Detect the appropriate shell for the current platform. */
 export function detectShell(platform?: string): string {
@@ -213,18 +214,56 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   function kill(id: string): void {
     const entry = entries.get(id);
     if (!entry) throw new Error(`Terminal ${id} not found`);
-    // Interactive shells (e.g. bash on Linux) ignore SIGTERM.
-    // Use SIGHUP which shells honor, then escalate to SIGKILL.
-    entry.pty.kill("SIGHUP");
-    const escalation = setTimeout(() => {
-      if (entries.has(id)) {
-        try { entry.pty.kill("SIGKILL"); } catch {}
+
+    // Windows: node-pty's kill(signal) uses TerminateProcess on the shell
+    // handle, which (a) ignores the signal string, and (b) does not kill
+    // child processes of the shell (python.exe, node.exe, etc.). Worse, its
+    // onExit callback is not always fired after external kills, so the
+    // terminal entry would stay in the map forever — which is exactly why
+    // the X button "doesn't work" on Windows. Route through platform's
+    // killProcess() so taskkill /F /T /PID does a genuine tree kill.
+    //
+    // POSIX: keep the SIGHUP → SIGKILL idiom — interactive shells honor
+    // SIGHUP, giving them a chance to clean up tty state before we escalate.
+    if (process.platform === "win32") {
+      const pid = entry.pty.pid;
+      if (typeof pid === "number") {
+        void killProcess(pid, { timeoutMs: 2000 }).catch(() => { /* surfaced via onExit fallback below */ });
+      } else {
+        try { entry.pty.kill(); } catch { /* best-effort */ }
       }
-    }, 1000);
-    // Clear escalation timeout if the process exits promptly
-    const dispose = entry.pty.onExit(() => {
-      clearTimeout(escalation);
-      dispose.dispose();
+    } else {
+      entry.pty.kill("SIGHUP");
+      const escalation = setTimeout(() => {
+        if (entries.has(id)) {
+          try { entry.pty.kill("SIGKILL"); } catch {}
+        }
+      }, 1000);
+      const disposeEsc = entry.pty.onExit(() => {
+        clearTimeout(escalation);
+        disposeEsc.dispose();
+      });
+    }
+
+    // Fallback cleanup: if node-pty's onExit doesn't fire within 3s (common
+    // on Windows ConPTY after external termination), simulate it so the
+    // terminal entry is removed, clients are disconnected, and the server
+    // broadcasts terminal_removed. Without this, the X click never
+    // completes from the user's perspective.
+    const fallback = setTimeout(() => {
+      const stale = entries.get(id);
+      if (!stale) return; // onExit already ran
+      stale.session = { ...stale.session, status: "ended" };
+      for (const ws of stale.clients) {
+        try { ws.close(); } catch { /* ignore */ }
+      }
+      stale.clients.clear();
+      entries.delete(id);
+      options?.onExit?.(id);
+    }, 3000);
+    const disposeFb = entry.pty.onExit(() => {
+      clearTimeout(fallback);
+      disposeFb.dispose();
     });
   }
 

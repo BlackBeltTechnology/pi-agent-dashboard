@@ -25,6 +25,12 @@ vi.mock("node-pty", () => ({
   })),
 }));
 
+// Mock platform/process.ts killProcess so the Windows path is observable in tests.
+const mockKillProcess = vi.fn(() => Promise.resolve({ ok: true, forced: false }));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", () => ({
+  killProcess: (...args: unknown[]) => mockKillProcess(...args),
+}));
+
 describe("TerminalManager", () => {
   let manager: TerminalManager;
   let exitCallbacks: Array<(termId: string) => void>;
@@ -112,10 +118,44 @@ describe("TerminalManager", () => {
   });
 
   describe("kill", () => {
-    it("sends SIGHUP to PTY (bash on Linux ignores SIGTERM)", () => {
+    beforeEach(() => {
+      mockKillProcess.mockClear();
+    });
+
+    it("POSIX: sends SIGHUP to PTY (bash on Linux ignores SIGTERM)", () => {
+      if (process.platform === "win32") return; // skipped on Windows; covered below
       const session = manager.spawn("/tmp");
       manager.kill(session.id);
       expect(mockPtyKill).toHaveBeenCalledWith("SIGHUP");
+      expect(mockKillProcess).not.toHaveBeenCalled();
+    });
+
+    it("Windows: routes kill through platform killProcess (tree kill via taskkill /F /T)", () => {
+      if (process.platform !== "win32") return; // skipped off-Windows
+      const session = manager.spawn("C:\\tmp");
+      manager.kill(session.id);
+      // pty.kill MUST NOT be called on Windows — killProcess(pid) does the tree-kill.
+      expect(mockPtyKill).not.toHaveBeenCalled();
+      expect(mockKillProcess).toHaveBeenCalledWith(12345, expect.objectContaining({ timeoutMs: 2000 }));
+    });
+
+    it("fallback cleanup fires if onExit does not within 3 s (simulates Windows ConPTY)", async () => {
+      vi.useFakeTimers();
+      try {
+        const session = manager.spawn("/tmp");
+        let exitCalled = false;
+        manager = createTerminalManager({
+          onExit: () => { exitCalled = true; },
+        });
+        const session2 = manager.spawn("/tmp");
+        manager.kill(session2.id);
+        // Simulate node-pty NOT firing onExit (the actual Windows failure mode).
+        await vi.advanceTimersByTimeAsync(3001);
+        expect(exitCalled).toBe(true);
+        expect(manager.get(session2.id)).toBeUndefined(); // removed from map
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("throws for unknown ID", () => {
