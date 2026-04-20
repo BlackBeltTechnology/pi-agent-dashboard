@@ -10,7 +10,7 @@
 
 import { execSync } from "./exec.js";
 
-export type ExecFn = (cmd: string, opts: { encoding: "utf-8"; stdio?: any }) => string;
+type ExecFn = (cmd: string, opts: { encoding: "utf-8"; stdio?: any }) => string;
 
 export interface ProcessScanOpts {
   /** Override platform (defaults to process.platform). */

@@ -10,7 +10,7 @@
 
 import { exec as childExec, execSync } from "./exec.js";
 
-export type ExecFn = (cmd: string, opts: { encoding: "utf-8"; timeout?: number }) => string;
+type ExecFn = (cmd: string, opts: { encoding: "utf-8"; timeout?: number }) => string;
 export type AsyncExecFn = (cmd: string, cb: (err: Error | null) => void) => void;
 
 export interface CommandsOpts {

@@ -987,11 +987,11 @@ function initBridge(pi: ExtensionAPI) {
         };
         ctx.ui.setWidget(
           "pi-dashboard-launch",
-          (tui, theme) => {
+          (tui: unknown, theme: { fg: (role: string, s: string) => string }) => {
             const loader = new Loader(
-              tui,
-              (s) => theme.fg("accent", s),
-              (s) => theme.fg("muted", s),
+              tui as ConstructorParameters<typeof Loader>[0],
+              (s: string) => theme.fg("accent", s),
+              (s: string) => theme.fg("muted", s),
               buildMessage(),
             );
             activeLoader = loader;

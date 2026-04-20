@@ -19,7 +19,7 @@
  */
 import { execSync } from "./exec.js";
 
-export type ExecFn = (cmd: string, opts: { encoding: "utf-8"; timeout?: number; stdio?: any }) => string;
+type ExecFn = (cmd: string, opts: { encoding: "utf-8"; timeout?: number; stdio?: any }) => string;
 
 export interface ProcessIdentifyOpts {
   /** Override platform (defaults to process.platform). */

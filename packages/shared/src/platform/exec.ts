@@ -118,6 +118,8 @@ function withHide<T extends AnyOptions>(opts: T): T & { windowsHide: boolean } {
 // ── Synchronous wrappers ────────────────────────────────────────────────────
 
 /** Wrapped `execSync`. Always `windowsHide: true` unless overridden. */
+export function execSync(command: string, options: ExecSyncOptions & { encoding: BufferEncoding }): string;
+export function execSync(command: string, options?: ExecSyncOptions): Buffer | string;
 export function execSync(
   command: string,
   options?: ExecSyncOptions,
@@ -193,13 +195,13 @@ export function spawn(
 // ── Promise-returning variants ──────────────────────────────────────────────
 
 /** Promise-returning exec. */
-export const execAsync = promisify(exec) as (
+export const execAsync = promisify(exec) as unknown as (
   command: string,
   options?: ExecOptions,
 ) => Promise<{ stdout: string | Buffer; stderr: string | Buffer }>;
 
 /** Promise-returning execFile. */
-export const execFileAsync = promisify(execFile) as (
+export const execFileAsync = promisify(execFile) as unknown as (
   file: string,
   args?: readonly string[],
   options?: ExecFileOptions,

@@ -26,7 +26,7 @@ vi.mock("node-pty", () => ({
 }));
 
 // Mock platform/process.ts killProcess so the Windows path is observable in tests.
-const mockKillProcess = vi.fn(() => Promise.resolve({ ok: true, forced: false }));
+const mockKillProcess = vi.fn((..._args: unknown[]) => Promise.resolve({ ok: true, forced: false }));
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/process.js", () => ({
   killProcess: (...args: unknown[]) => mockKillProcess(...args),
 }));
