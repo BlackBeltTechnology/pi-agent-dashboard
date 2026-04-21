@@ -381,20 +381,6 @@ export function createBrowserGateway(
             });
             break;
           }
-          case "cron_management": {
-            ctx.piGateway.sendToSession(msg.sessionId, {
-              type: "cron_management",
-              sessionId: msg.sessionId,
-              action: msg.action,
-              jobId: msg.jobId,
-              name: msg.name,
-              schedule: msg.schedule,
-              prompt: msg.prompt,
-              jobType: msg.jobType,
-              intervalMs: msg.intervalMs,
-            });
-            break;
-          }
           case "ui_management": {
             ctx.piGateway.sendToSession(msg.sessionId, {
               type: "ui_management",

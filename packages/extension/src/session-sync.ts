@@ -7,15 +7,14 @@ import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from
 import { detectSessionSource } from "./source-detector.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { gatherGitInfo } from "./git-info.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /**
- * Send full state sync to the server (session_register, commands, flows, models).
+ * Send full state sync to the server (session_register, commands, UI modules, models).
  * Called on initial connect and reconnect.
  */
 export function sendStateSync(
   bc: BridgeContext,
-  getFlowsList: () => FlowInfo[],
+  refreshUiModules: () => void,
 ): void {
   const model = getCurrentModelString(bc);
   const thinkingLevel = (bc.pi as any).getThinkingLevel?.() ?? undefined;
@@ -51,9 +50,8 @@ export function sendStateSync(
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
 
-  // Send flows list
-  const flows = getFlowsList();
-  bc.connection.send({ type: "flows_list", sessionId: bc.sessionId, flows });
+  // Generalized UI sync
+  refreshUiModules();
 
   if (bc.cachedModelRegistry) {
     try {
@@ -87,7 +85,7 @@ export function replaySessionEntries(bc: BridgeContext): void {
 export function handleSessionChange(
   bc: BridgeContext,
   ctx: any,
-  getFlowsList: () => FlowInfo[],
+  refreshUiModules: () => void,
 ): void {
   bc.connection.send({ type: "session_unregister", sessionId: bc.sessionId });
 
@@ -140,8 +138,8 @@ export function handleSessionChange(
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
 
-  const flows = getFlowsList();
-  bc.connection.send({ type: "flows_list", sessionId: bc.sessionId, flows });
+  // Generalized UI sync
+  refreshUiModules();
 
   if (bc.cachedModelRegistry) {
     try {

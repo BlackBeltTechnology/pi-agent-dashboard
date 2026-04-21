@@ -218,7 +218,6 @@ export type ExtensionToServerMessage =
   | SessionHeartbeatMessage
   | EventForwardMessage
   | CommandsListMessage
-  | FlowsListMessage
   | ExtensionUiRequestMessage
   | FilesListMessage
   | GitInfoUpdateMessage

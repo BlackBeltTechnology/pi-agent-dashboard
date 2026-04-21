@@ -4,7 +4,7 @@
  */
 import { useCallback } from "react";
 import { createInitialState, reduceEvent, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
-import type { DashboardSession, CommandInfo, FlowInfo, FileEntry, OpenSpecData, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, CommandInfo, ExtensionUiModule, FileEntry, OpenSpecData, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
