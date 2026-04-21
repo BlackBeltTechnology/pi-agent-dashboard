@@ -27,6 +27,11 @@
     .progress-item .elapsed { color: #64748b; font-size: 0.8rem; min-width: 3rem; text-align: right; }
     .progress-item .output { color: #64748b; font-size: 0.75rem; margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
     .progress-wrap { flex: 1; }
+    /* Badges next to a progress row's name. Kept in sync with
+       packages/electron/src/lib/wizard-badge.ts (classifyProgressBadge). */
+    .progress-item .badge { display: inline-block; margin-left: 0.5rem; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.7rem; font-weight: 600; vertical-align: middle; }
+    .badge-bundled { background: #1e3a8a; color: #bfdbfe; }
+    .badge-system { background: #334155; color: #cbd5e1; }
     .form-group { margin: 1rem 0; }
     .form-group label { display: block; margin-bottom: 0.5rem; color: #94a3b8; font-size: 0.875rem; }
     .form-group select, .form-group input { width: 100%; padding: 0.75rem; border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; color: #e2e8f0; font-size: 1rem; }
@@ -228,8 +233,9 @@
         const alreadyInstalled = dep?.found && dep?.source === 'system';
         const icon = alreadyInstalled ? 'status-done' : 'status-pending';
         const iconChar = alreadyInstalled ? '✓' : '○';
+        const badge = alreadyInstalled ? '<span class="badge badge-system">Installed</span>' : '';
         const note = alreadyInstalled ? '<div class="output">Already installed (system)</div>' : '';
-        return `<div class="progress-item" id="prog-${name}"><span class="icon ${icon}">${iconChar}</span><div class="progress-wrap"><span class="name">${name}</span>${note}</div><span class="elapsed"></span></div>`;
+        return `<div class="progress-item" id="prog-${name}"><span class="icon ${icon}">${iconChar}</span><div class="progress-wrap"><span class="name">${name}${badge}</span>${note}</div><span class="elapsed"></span></div>`;
       }).join('');
       document.getElementById('install-error').style.display = 'none';
       document.getElementById('install-retry').style.display = 'none';
@@ -458,6 +464,26 @@
         return;
       }
 
+      // Keep in sync with packages/electron/src/lib/wizard-badge.ts.
+      function classifyProgressBadge(output) {
+        if (!output) return null;
+        if (output === 'Bundled' || output === 'Already installed (bundled)') return 'bundled';
+        if (output === 'Already installed (system)' || output === 'Already installed') return 'system';
+        return null;
+      }
+      function applyBadge(row, kind) {
+        const nameEl = row.querySelector('.name');
+        let badge = row.querySelector('.badge');
+        if (!kind) { if (badge) badge.remove(); return; }
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'badge';
+          nameEl.appendChild(badge);
+        }
+        if (kind === 'bundled') { badge.className = 'badge badge-bundled'; badge.textContent = 'Bundled ✓'; }
+        else { badge.className = 'badge badge-system'; badge.textContent = 'Installed'; }
+      }
+
       // Stream progress to the progress div.
       api.onInstallProgress((p) => {
         const id = 'rec-prog-' + p.step;
@@ -472,7 +498,12 @@
         const icon = row.querySelector('.icon');
         const out = row.querySelector('.output');
         if (p.status === 'running') { icon.textContent = '○'; icon.className = 'icon status-running'; if (p.output) out.textContent = p.output; }
-        else if (p.status === 'done') { icon.textContent = '✓'; icon.className = 'icon status-done'; out.textContent = ''; }
+        else if (p.status === 'done') {
+          icon.textContent = '✓'; icon.className = 'icon status-done';
+          const badgeKind = classifyProgressBadge(p.output);
+          applyBadge(row, badgeKind);
+          out.textContent = badgeKind ? '' : '';
+        }
         else if (p.status === 'error') { icon.textContent = '✗'; icon.className = 'icon status-error'; out.textContent = p.error || ''; }
       });
 

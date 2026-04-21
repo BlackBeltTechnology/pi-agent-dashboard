@@ -117,6 +117,41 @@ jobs:
       - name: Build client
         run: npm run build
 
+      - name: Bundle first-party recommended extensions
+        # Runs BEFORE bundle-server so resources/bundled-extensions/ is present
+        # when forge packagerConfig.extraResource is evaluated. Opt-in via env.
+        shell: bash
+        env:
+          BUNDLE_RECOMMENDED_EXTENSIONS: "1"
+        run: |
+          bash packages/electron/scripts/bundle-recommended-extensions.sh | tee bundle-extensions.log
+          {
+            echo "### Bundled recommended extensions (${{ matrix.platform }}/${{ matrix.arch }})";
+            echo '```';
+            cat bundle-extensions.log;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bundle offline npm cache (pi + openspec + tsx)
+        # Per-platform cacache that makes first-run install work fully offline.
+        # Runs BEFORE bundle-server so the resource is present when
+        # electron-forge evaluates extraResource. Opt-in via env.
+        shell: bash
+        env:
+          BUNDLE_OFFLINE_PACKAGES: "1"
+        run: |
+          bash packages/electron/scripts/bundle-offline-packages.sh \
+            --platform=${{ matrix.platform }}-${{ matrix.arch }} \
+            | tee bundle-offline.log
+          SIZE=$(du -h packages/electron/resources/offline-packages/npm-cache.tar.gz | cut -f1)
+          {
+            echo "### Offline npm cache (${{ matrix.platform }}/${{ matrix.arch }})";
+            echo "- tarball: $SIZE";
+            echo '```';
+            cat bundle-offline.log;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Bundle dashboard server
         shell: bash
         run: bash packages/electron/scripts/bundle-server.sh
@@ -138,6 +173,20 @@ jobs:
           Copy-Item -Recurse "temp-node-x64/node-$version-win-x64/node_modules" "$outDir/"
           Remove-Item -Recurse -Force temp-node-x64, node-x64.zip
           Write-Host "Bundled x64 Node.js for Windows ARM64 (runs via WoW64 emulation)"
+
+      - name: Smoke assertion — offline bundle resources present
+        # Gate before `forge make` so a missing bundle fails loudly rather
+        # than producing a silently broken release artifact.
+        shell: bash
+        run: |
+          DIR=packages/electron/resources/offline-packages
+          if [ ! -f "$DIR/manifest.json" ] || [ ! -f "$DIR/npm-cache.tar.gz" ]; then
+            echo "::error::Offline bundle missing at $DIR (manifest=${DIR}/manifest.json, tarball=${DIR}/npm-cache.tar.gz)"
+            ls -la "$DIR" 2>&1 || true
+            exit 1
+          fi
+          echo "✓ offline bundle present:"
+          ls -la "$DIR"
 
       - name: Patch AppImage maker script (Linux x64)
         if: matrix.platform == 'linux' && matrix.arch == 'x64'

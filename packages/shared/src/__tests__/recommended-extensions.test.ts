@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+	BUNDLED_EXTENSION_IDS,
 	RECOMMENDED_EXTENSIONS,
 	getRecommendedExtension,
 	getRecommendedByStatus,
@@ -119,5 +120,37 @@ describe("RecommendedExtension type", () => {
 			unlocks: ["something"],
 		};
 		expect(entry.id).toBe("x");
+	});
+});
+
+// ── BUNDLED_EXTENSION_IDS manifest (task 2 of bundle-first-party-extensions) ──
+
+describe("BUNDLED_EXTENSION_IDS manifest", () => {
+	it("contains exactly the v0.x initial bundled set", () => {
+		expect([...BUNDLED_EXTENSION_IDS].sort()).toEqual(
+			["pi-anthropic-messages", "pi-flows"].sort(),
+		);
+	});
+
+	it("every bundled id appears in RECOMMENDED_EXTENSIONS", () => {
+		const recommendedIds = new Set(RECOMMENDED_EXTENSIONS.map((e) => e.id));
+		for (const id of BUNDLED_EXTENSION_IDS) {
+			expect(recommendedIds.has(id)).toBe(true);
+		}
+	});
+
+	it("every bundled id has a git-based source (no npm:, no local paths)", () => {
+		for (const id of BUNDLED_EXTENSION_IDS) {
+			const entry = RECOMMENDED_EXTENSIONS.find((e) => e.id === id);
+			expect(entry, `RECOMMENDED_EXTENSIONS missing entry for ${id}`).toBeDefined();
+			const source = entry!.source;
+			const isGit =
+				source.endsWith(".git") ||
+				source.startsWith("git@") ||
+				source.startsWith("git:") ||
+				/^https?:\/\/.+\/.+/.test(source);
+			expect(isGit, `${id} source is not git-based: ${source}`).toBe(true);
+			expect(source.startsWith("npm:"), `${id} must not be an npm source`).toBe(false);
+		}
 	});
 });

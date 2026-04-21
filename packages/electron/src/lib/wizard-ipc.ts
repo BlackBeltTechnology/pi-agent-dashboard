@@ -4,7 +4,7 @@
  */
 import { ipcMain, type BrowserWindow } from "electron";
 import { detectPi, detectOpenSpec, detectDashboardPackage, detectSystemNode, detectBridgeExtension, detectPiDashboardCli } from "./dependency-detector.js";
-import { installStandalone, installDashboardGlobal, installRecommendedExtensions } from "./dependency-installer.js";
+import { installStandalone, installDashboardGlobal, installRecommendedExtensions, installBundledExtensions, type InstallProgress } from "./dependency-installer.js";
 import { readModeFile, writeModeFile, isApiKeyConfigured, writeApiKey, readRecommendedWizardState, writeRecommendedWizardState } from "./wizard-state.js";
 import { registerBundledBridgeExtension } from "./bridge-register.js";
 
@@ -97,10 +97,21 @@ export function registerWizardIpc(getWizardWindow: () => BrowserWindow | null): 
     "wizard:install-recommended",
     async (_event, ids: string[]) => {
       const win = getWizardWindow();
-      const installed = await installRecommendedExtensions(ids, (progress) => {
+      const forward = (progress: InstallProgress) => {
         win?.webContents.send("wizard:progress", progress);
-      });
-      return { installed };
+      };
+      // Activate bundled extensions first (no-op in dev builds / without
+      // the BUNDLE_RECOMMENDED_EXTENSIONS opt-in). Their ids are fed into
+      // installRecommendedExtensions as skipPackages so the dynamic
+      // installer reports them as "Already installed (bundled)".
+      const bundledIds = await installBundledExtensions(forward);
+      const skipSet = new Set(bundledIds);
+      const installed = await installRecommendedExtensions(
+        ids,
+        forward,
+        skipSet,
+      );
+      return { installed, bundled: bundledIds };
     },
   );
 

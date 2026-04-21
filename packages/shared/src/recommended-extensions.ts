@@ -167,6 +167,22 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 	},
 ];
 
+/**
+ * Ids of recommended extensions that ship inside the Electron installer
+ * as a pre-bundled source tree. See
+ * `packages/electron/scripts/bundle-recommended-extensions.sh` and
+ * `installBundledExtensions()` in `dependency-installer.ts`. Every id
+ * MUST also appear in `RECOMMENDED_EXTENSIONS` and MUST have a git-based
+ * `source` (enforced by a test).
+ *
+ * Kept deliberately short — only first-party, source-only, native-dep-free
+ * extensions belong here.
+ */
+export const BUNDLED_EXTENSION_IDS: readonly string[] = [
+	"pi-anthropic-messages",
+	"pi-flows",
+];
+
 /** Retrieve a recommended entry by id, or `undefined`. */
 export function getRecommendedExtension(id: string): RecommendedExtension | undefined {
 	return RECOMMENDED_EXTENSIONS.find((e) => e.id === id);
