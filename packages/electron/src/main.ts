@@ -84,22 +84,40 @@ function showSplash(): void {
   const html = `<html><head><style>
     body { margin:0; display:flex; align-items:center; justify-content:center;
            height:100vh; background:transparent; -webkit-app-region:drag; }
-    .card { background:#0d1117; border-radius:20px; padding:48px 56px;
-            box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center; }
-    .pi { font-size:80px; color:#4a90d9; margin-bottom:12px; font-weight:bold;
+    .card { background:#0d1117; border-radius:20px; padding:40px 48px;
+            box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
+            min-width: 240px; }
+    .pi { font-size:80px; color:#4a90d9; margin-bottom:8px; font-weight:bold;
           font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
-    .text { font-size:13px; color:#8b949e;
-            font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
-    .dot { animation:blink 1.4s infinite; }
-    .dot:nth-child(2) { animation-delay:0.2s; }
-    .dot:nth-child(3) { animation-delay:0.4s; }
-    @keyframes blink { 0%,20%{opacity:0} 50%{opacity:1} 100%{opacity:0} }
+    .label { font-size:14px; color:#c9d1d9; margin-bottom:16px;
+             font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
+    .spinner { margin: 12px auto; border: 2px solid #30363d;
+               border-top-color: #4a90d9; border-radius: 50%;
+               width: 18px; height: 18px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status { font-size:12px; color:#8b949e; height:16px;
+              font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+              transition: opacity 0.2s; }
   </style></head><body><div class="card">
     <div class="pi">π</div>
-    <div class="text">Starting<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+    <div class="label">pi-agent-dashboard</div>
+    <div class="spinner"></div>
+    <div class="status" id="status">Starting…</div>
   </div></body></html>`;
   splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   splashWindow.on("closed", () => { splashWindow = null; });
+}
+
+/** Update the splash screen status line. No-op if splash is not visible. */
+function updateSplashStatus(text: string): void {
+  log(`splash: ${text}`);
+  if (!splashWindow || splashWindow.isDestroyed()) return;
+  const safe = text.replace(/`/g, "\\`").replace(/\$/g, "\\$");
+  splashWindow.webContents
+    .executeJavaScript(
+      `(() => { const el = document.getElementById("status"); if (el) el.textContent = \`${safe}\`; })()`,
+    )
+    .catch(() => { /* splash may be closing */ });
 }
 
 /** Close the splash screen. */
@@ -317,6 +335,7 @@ async function main(): Promise<void> {
 
   // Pre-wizard: check if dashboard server is already running
   const config = loadMinimalConfig();
+  updateSplashStatus("Checking dashboard server\u2026");
   const preCheck = await isDashboardRunning(config.port);
   log(`Pre-wizard health check: running=${preCheck.running}`);
 
@@ -332,7 +351,9 @@ async function main(): Promise<void> {
   log(`isFirstRun=${firstRun}`);
   if (firstRun) {
     // Server not running — check what's installed to decide wizard flow
+    updateSplashStatus("Detecting pi agent\u2026");
     const pi = detectPi();
+    updateSplashStatus("Checking bridge extension\u2026");
     const bridge = detectBridgeExtension();
     log(`Smart detection: pi=${pi.found}, bridge=${bridge.found}`);
 
@@ -343,6 +364,7 @@ async function main(): Promise<void> {
       try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
     } else if (pi.found && !bridge.found) {
       // Pi found but no bridge — targeted wizard
+      updateSplashStatus("Opening setup wizard\u2026");
       closeSplash();
       log("Opening wizard at bridge-install step...");
       await openWizardWindow("bridge-install");
@@ -354,6 +376,7 @@ async function main(): Promise<void> {
       }
     } else {
       // Nothing found — full wizard
+      updateSplashStatus("Opening setup wizard\u2026");
       closeSplash();
       log("Opening wizard window...");
       await openWizardWindow();
@@ -381,6 +404,11 @@ async function main(): Promise<void> {
   let serverUrl: string | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      updateSplashStatus(
+        attempt === 0
+          ? "Launching dashboard server\u2026"
+          : `Retrying server launch (attempt ${attempt + 1})\u2026`,
+      );
       log(`ensureServer attempt ${attempt + 1}...`);
       serverUrl = await ensureServer();
       log(`Server found at ${serverUrl}`);
@@ -418,6 +446,7 @@ async function main(): Promise<void> {
     serverUrl = "http://localhost:8000";
   }
 
+  updateSplashStatus("Opening dashboard\u2026");
   const win = createMainWindow(serverUrl);
   closeSplash();
   showLoadingPage(win, serverUrl);
