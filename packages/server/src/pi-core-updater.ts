@@ -50,10 +50,16 @@ function defaultRunNpmUpdate(
 			return;
 		}
 
+		// On Windows, system npm is npm.cmd (batch wrapper) — spawn("npm")
+		// without the .cmd extension fails with ENOENT. shell:true routes
+		// the invocation through cmd.exe which resolves via PATHEXT.
+		// See change: route-kill-paths-through-platform (same class of bug).
 		const child = spawn("npm", args, {
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			env: process.env,
+			shell: process.platform === "win32",
+			windowsHide: true,
 		});
 
 		const timer = setTimeout(() => {
