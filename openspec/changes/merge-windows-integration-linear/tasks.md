@@ -16,11 +16,11 @@ SHAs below are short-form. Run `git show <sha>` on the source remote before pick
 
 Goal: develop is less broken on fresh Windows install after this phase even if no later phase lands.
 
-- [ ] 0.1 `git cherry-pick 8c2cde5` — chore(server): require Node >=22.18.0 via engines field
-- [ ] 0.2 `git cherry-pick 4c564fc` — feat(server): refuse to start on Node versions affected by nodejs/node#58515 (node-guard.ts + 17 tests)
-- [ ] 0.3 `git cherry-pick 40a1319` — fix(server): bridge auto-registration path math was off by one
-- [ ] 0.4 `git cherry-pick e11f5eb` — fix(extension): resolve server CLI via require.resolve, not sibling path math
-- [ ] 0.5 `git cherry-pick 9397320` — fix(server): client-dir resolution works in installed layouts  _(short SHA `9397320` on v2 = `93973206bd5edeafdaf122703a3519363cb2ba8e`)_
+- [x] 0.1 `git cherry-pick 8c2cde5` — chore(server): require Node >=22.18.0 via engines field (landed as `b98e43b`; verified during apply)
+- [x] 0.2 `git cherry-pick 4c564fc` — feat(server): refuse to start on Node versions affected by nodejs/node#58515 (node-guard.ts + 17 tests; file on branch, verified during apply)
+- [x] 0.3 `git cherry-pick 40a1319` — fix(server): bridge auto-registration path math was off by one (landed as `68abc98`; verified during apply)
+- [x] 0.4 `git cherry-pick e11f5eb` — fix(extension): resolve server CLI via require.resolve, not sibling path math (landed as `8ec6eda`; verified during apply)
+- [x] 0.5 `git cherry-pick 9397320` — fix(server): client-dir resolution works in installed layouts (landed as `c76eee5`; verified during apply)
 - [x] 0.6 Validation: `npm install && npm test` green — 2161/2161 passed in 97.7s
 - [x] 0.7 Validation: `npm run build` green — client + server built, precompress ran (5.79 MB → 1.73 MB)
 - [ ] 0.8 Validation: start dashboard via `npm run dev`, confirm bridge auto-registers on a fresh `~/.pi/agent/settings.json` (delete + restart if pre-seeded) _SKIPPED in agent session (destructive to live pi session); manual gate for operator_
@@ -42,8 +42,8 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 - [x] 1.8 `git cherry-pick c26ec59` — waitForReady deadlineMs optional (clean)
 - [x] 1.9 `git cherry-pick cce2e57` — tool-registry per-platform process-inspection (clean)
 - [x] 1.10 Validation: `npm run build` green
-- [ ] 1.11 Validation: `npm test` — **32/2515 failing** (expected per proposal Phase 5); deferred to Phase 5 re-derivation
-- [ ] 1.12 Validation: three lint-style tests — `no-direct-child-process` + `no-direct-platform-branch` failing (new files need allowlist update); Phase 5
+- [x] 1.11 Validation: `npm test` — **32/2515 failing** (expected per proposal Phase 5); resolved by Phase 5 (task 5.6: 2540/2540 green on re-verification)
+- [x] 1.12 Validation: three lint-style tests — resolved in Phase 8 (task 8.5); all three green
 
 ## Phase 2. Windows fixes on top of #1 (bucket #2) — 6 commits
 
@@ -53,7 +53,7 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 - [x] 2.4 `git cherry-pick 26e033e` — detach:false for pi-session spawn (clean)
 - [x] 2.5 `git cherry-pick 39acb1e` — platform/process tree-kill (conflicts: server.ts dropped redundant cleanupStaleZrok call; tunnel.ts merged killPidWithGroup + SIGKILL escalation + releaseShare)
 - [x] 2.6 `git cherry-pick 304a82b` — terminal X button taskkill (conflict: terminal-manager.ts kept platform/shell.js import path, added killProcess from platform/process.js)
-- [ ] 2.7 Validation: `npm test` — deferred to Phase 5 (build green)
+- [x] 2.7 Validation: `npm test` — resolved by Phase 5 (task 5.6: 2540/2540 green on re-verification during apply)
 - [ ] 2.8 Manual Windows smoke — deferred (operator gate)
 
 ## Phase 3. Electron migration (bucket #3) — 3 commits
@@ -61,7 +61,7 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 - [x] 3.1 ~~a97514e ToolResolver migration~~ **SKIPPED as superseded** by ca978d4 ToolRegistry (already picked)
 - [x] 3.2 ~~455ced4 doctor/detector ToolResolver + isDashboardRunning~~ **SKIPPED** — depends on `isKnownBadNode` from `platform/node-version-check.js` which doesn't exist on our branch (post-merge v2-local work); node-guard.ts already covers version checking
 - [x] 3.3 `git cherry-pick 8402565` — Electron server spawn via buildServerSpawnOptions (clean)
-- [ ] 3.4 Validation: `npm run build` green
+- [x] 3.4 Validation: `npm run build` green (re-verified during apply: client + server built, precompress 5.81 MB → 1.73 MB)
 - [ ] 3.5 Manual Electron smoke — deferred (operator gate)
 
 ## Phase 4. Bridge extension (bucket #4) — 6 commits
@@ -72,7 +72,7 @@ Goal: `packages/shared/src/platform/*` exists and is importable; `ToolRegistry` 
 - [x] 4.4 `git cherry-pick 7239129` — pi-tui Loader widget (clean)
 - [x] 4.5 `git cherry-pick e2357fd` — spawn_error browser message (clean)
 - [x] 4.6 `git cherry-pick 050d5dd` — WSL-tmux probe cache (clean)
-- [ ] 4.7 Validation: `npm test` — deferred to Phase 5
+- [x] 4.7 Validation: `npm test` — resolved by Phase 5 (task 5.6: 2540/2540 green on re-verification during apply)
 - [ ] 4.8 Manual bridge smoke — deferred (operator gate)
 
 ## Phase 5. Test infra (bucket #6) — 3 commits + re-derivation
@@ -120,9 +120,18 @@ Pick in one batch at the end; validate `openspec list` + `openspec validate` aft
 - [ ] 8.2 CI green on Electron make matrix (DMG / AppImage / NSIS / ZIP)
 - [ ] 8.3 Manual Windows smoke per Phase 2.8 + Phase 3.5 + Phase 4.8
 - [ ] 8.4 Manual macOS + Linux smoke: landing page, session spawn, terminal, editor, zrok QR
-- [ ] 8.5 Three lint-style tests green: `no-direct-child-process`, `no-direct-process-kill`, `no-direct-platform-branch`
-- [ ] 8.6 CHANGELOG `[Unreleased]` populated with user-visible changes (Windows parity, ToolRegistry, platform/ module, drift features)
-- [ ] 8.7 Diff review against `adapt-windows-integration-pr9` durable-requirements spec (specs/cross-platform-merge-baseline/) — confirm all four durable requirements preserved
+- [x] 8.5 Three lint-style tests green: `no-direct-child-process`, `no-direct-process-kill`, `no-direct-platform-branch`.
+      - Cherry-picked `b4f712a` (revises task 6.1 skip) to add `no-direct-process-kill.test.ts` + related kill-path test enhancements (picked as `a957e09`).
+      - Violations caught by the new test in that SAME run:
+        1. `pi-core-updater.ts:61` — `shell: process.platform === "win32"` lacked marker; added `// platform-branch-ok` justification (npm.cmd PATHEXT resolution).
+        2. `editor-pid-registry.ts:91,100` — refactored `defaultIsProcessAlive`/`defaultKill` to delegate to `platform/process.ts` (`isProcessAlive` + `killPidWithGroup`), preserving the injectable-defaults API.
+      - All three lint tests green on re-run.
+- [x] 8.6 CHANGELOG `[Unreleased]` populated with user-visible changes (landed as `9bfd97c` — "docs(changelog): populate [Unreleased] for Windows integration merge"; verified during apply)
+- [x] 8.7 Diff review against `adapt-windows-integration-pr9` durable-requirements spec — all four present:
+      1. `spawnDetached` `detach?: boolean` option — `packages/shared/src/platform/detached-spawn.ts:100` + default `true` at line 134 ✓
+      2. `useWindowsRedirect` gates on `stdinMode === "ignore"` — `detached-spawn.ts:125` `stdioIn: "ignore" | "pipe" = opts.stdinMode ?? "ignore"` ✓
+      3. Test suite refuses to run against real `$HOME` — `package.json` `test` + `test:watch` use `HOME=$(mktemp -d -t pi-test-XXXXXX)`; `packages/shared/src/test-support/setup-home.ts` enforces at runtime ✓
+      4. Destructive registry sweeps no-op when test-env-guard detects unsafe HOME — `isUnsafeTestHomeScan()` gated in `headless-pid-registry.ts` (3 sites) + `editor-pid-registry.ts` ✓
 
 ## Phase 9. PR and release
 

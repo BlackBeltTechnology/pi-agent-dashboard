@@ -58,7 +58,7 @@ function defaultRunNpmUpdate(
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			env: process.env,
-			shell: process.platform === "win32",
+			shell: process.platform === "win32", // platform-branch-ok: shell:true required on Windows so PATHEXT resolves npm.cmd (spawn('npm') without .cmd ENOENTs)
 			windowsHide: true,
 		});
 

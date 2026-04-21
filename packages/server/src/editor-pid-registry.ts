@@ -16,6 +16,10 @@ import { execSync } from "node:child_process"; // ban:child_process-ok editor or
 import { readFileSync, existsSync } from "node:fs";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
+import {
+	isProcessAlive as platformIsProcessAlive,
+	killPidWithGroup,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 const DEFAULT_PID_FILE = path.join(os.homedir(), ".pi", "dashboard", "editor-pids.json");
 
@@ -86,18 +90,15 @@ function defaultGetCmdline(pid: number): string | null {
   return null;
 }
 
+/** Route through platform/process.ts so lint enforcement and cross-platform
+ * semantics (libuv signal 0 check, POSIX group kill) stay in one place. */
 function defaultIsProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  return platformIsProcessAlive(pid);
 }
 
 function defaultKill(pid: number, signal: NodeJS.Signals): boolean {
   try {
-    process.kill(pid, signal);
+    killPidWithGroup(pid, signal);
     return true;
   } catch {
     return false;
