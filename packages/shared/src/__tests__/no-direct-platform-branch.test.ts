@@ -91,6 +91,11 @@ const ALLOWLIST: readonly string[] = [
   // Server editor PID registry: per-OS process pattern matching for
   // orphan detection on boot. Genuine data-table branching.
   "packages/server/src/editor-pid-registry.ts",
+  // Electron dependency installer: Windows npm is npm.cmd (batch wrapper);
+  // spawn('npm') without .cmd extension fails ENOENT on Windows. The branch
+  // routes around this by preferring bundled node+npm-cli.js on Windows.
+  // Follow-up: migrate to a platform/exec npm-resolver primitive.
+  "packages/electron/src/lib/dependency-installer.ts",
   // fix-pty-permissions: Windows short-circuit (no chmod needed).
   "packages/server/src/fix-pty-permissions.ts",
   // package-manager-wrapper: comment-only reference; no runtime branch.

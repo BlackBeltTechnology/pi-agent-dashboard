@@ -30,15 +30,28 @@ function ensureManagedDir(): void {
   }
 }
 
-/** Resolve the npm command to use (system or bundled). */
+/** Resolve the npm command to use (system or bundled).
+ *
+ * On Windows, system npm is `npm.cmd` (a batch wrapper). `child_process.spawn("npm", ...)`
+ * without the `.cmd` extension fails with ENOENT because Windows doesn't auto-append
+ * extensions during spawn. Prefer the bundled Node + npm-cli.js pair unconditionally
+ * on Windows — it's a direct `node.exe` invocation with no `.cmd` intermediary — and
+ * fall back to bundled even when system Node is present to avoid the spawn-npm-ENOENT
+ * failure observed on fresh Windows installs.
+ */
 function resolveNpm(): string {
+  // Bundled first on Windows (avoids .cmd spawn issue).
+  const nodePath = getBundledNodePath();
+  const npmPath = getBundledNpmPath();
+  if (process.platform === "win32" && nodePath && npmPath) {
+    return `"${nodePath}" "${npmPath}"`;
+  }
+  // System npm on Unix (posix has no extension issue).
   const systemNode = detectSystemNode();
   if (systemNode.found) {
     return "npm";
   }
-  // Use bundled Node + npm
-  const nodePath = getBundledNodePath();
-  const npmPath = getBundledNpmPath();
+  // Fallback: bundled even on non-Windows.
   if (nodePath && npmPath) {
     return `"${nodePath}" "${npmPath}"`;
   }
