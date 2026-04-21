@@ -19,6 +19,15 @@ echo "→ Building for $PLATFORM-$ARCH..."
 echo "→ Bundling dashboard server source..."
 bash "$ELECTRON_DIR/scripts/bundle-server.sh" --source-only
 
+# Bundle offline npm cache for first-run (opt-in via BUNDLE_OFFLINE_PACKAGES=1).
+# Runs BEFORE electron-forge package/make so the resource is picked up by extraResource.
+if [ "${BUNDLE_OFFLINE_PACKAGES:-0}" = "1" ]; then
+  echo "→ Bundling offline packages for $PLATFORM-$ARCH..."
+  bash "$ELECTRON_DIR/scripts/bundle-offline-packages.sh" --platform="$PLATFORM-$ARCH"
+else
+  echo "→ Skipping offline package bundle (BUNDLE_OFFLINE_PACKAGES!=1)"
+fi
+
 # Install deps inside Docker to get correct native modules for the target platform
 echo "→ Installing server dependencies..."
 cd "$ELECTRON_DIR/resources/server"

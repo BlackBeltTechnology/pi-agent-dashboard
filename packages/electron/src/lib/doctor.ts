@@ -12,6 +12,7 @@ import { detectPi, detectOpenSpec, detectSystemNode, detectDashboardPackage } fr
 import { getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { isApiKeyConfigured, readModeFile } from "./wizard-state.js";
 import { MANAGED_DIR } from "./managed-paths.js";
+import { resolveOfflinePackages } from "./offline-packages.js";
 
 export interface DoctorCheck {
   name: string;
@@ -172,6 +173,32 @@ export function runDoctor(): DoctorReport {
         : "Not found — required for the dashboard server",
     fixable: !hasBundledServer && !dashboard.found,
   });
+
+  // ── Offline packages bundle ─────────────────────────
+  // Per-platform cacache of pi + openspec + tsx. Present in release
+  // builds (via BUNDLE_OFFLINE_PACKAGES=1 in CI), absent in dev builds.
+  const resourcesPath = (process as any).resourcesPath as string | undefined;
+  const offlineResolution = resourcesPath
+    ? resolveOfflinePackages(resourcesPath)
+    : { present: false as const, reason: "no resourcesPath" };
+
+  if (offlineResolution.present) {
+    const m = offlineResolution.manifest;
+    const pkgList = m.packages.map(p => `${p.name.split("/").pop()}@${p.version}`).join(", ");
+    checks.push({
+      name: "Offline packages bundle",
+      status: "ok",
+      message: `Present (target=${m.targetPlatform}, ${m.packages.length} pinned)`,
+      detail: `${pkgList} — bundled ${m.bundledAt}, sha256 ${m.sha256.slice(0, 12)}…`,
+    });
+  } else {
+    checks.push({
+      name: "Offline packages bundle",
+      status: "warning",
+      message: "Not bundled (registry-install mode)",
+      detail: `First-run will require network access to registry.npmjs.org. Reason: ${offlineResolution.reason}`,
+    });
+  }
 
   // ── tsx / TypeScript loader ──────────────────────────────────
 

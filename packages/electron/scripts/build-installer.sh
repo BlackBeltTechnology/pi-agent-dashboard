@@ -182,7 +182,7 @@ else
   echo "→ Skipping web client build (--skip-client)"
 fi
 
-# ── Bundle dashboard server ─────────────────────────────────────
+# ── Bundle dashboard server ─────────────────────────────
 
 if [ ! -d "$ELECTRON_DIR/resources/server/node_modules" ]; then
   echo ""
@@ -190,6 +190,23 @@ if [ ! -d "$ELECTRON_DIR/resources/server/node_modules" ]; then
   bash "$ELECTRON_DIR/scripts/bundle-server.sh"
 else
   echo "✓ Bundled server already present"
+fi
+
+# ── Bundle offline npm cache (pi + openspec + tsx) ─────────────
+# Per-platform cacache that makes first-run install work fully offline.
+# Opt-in via BUNDLE_OFFLINE_PACKAGES=1 — defaults OFF for local dev speed;
+# CI sets it for release artifacts.
+
+if [ "${BUNDLE_OFFLINE_PACKAGES:-0}" = "1" ]; then
+  if [ ! -f "$ELECTRON_DIR/resources/offline-packages/manifest.json" ]; then
+    echo ""
+    echo "→ Bundling offline packages (pi + openspec + tsx)..."
+    bash "$ELECTRON_DIR/scripts/bundle-offline-packages.sh" --platform="$HOST_PLATFORM-$ARCH"
+  else
+    echo "✓ Offline package bundle already present"
+  fi
+else
+  echo "→ Skipping offline package bundle (set BUNDLE_OFFLINE_PACKAGES=1 to enable)"
 fi
 
 # ── Collect output directory ────────────────────────────────────

@@ -15,6 +15,11 @@ export default defineConfig({
       "packages/server",
       "packages/extension",
       "packages/client",
+      // NOTE: packages/electron is intentionally NOT included here — it has
+      // pre-existing orphaned tests that depend on ambient PATH/mocks never
+      // wired up. Offline-packages tests are runnable via
+      // `cd packages/electron && npm test`. Bringing electron into the
+      // main run is tracked as a separate cleanup.
     ],
   },
 });

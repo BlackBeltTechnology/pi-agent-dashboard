@@ -53,6 +53,16 @@ On first launch, the wizard opens automatically. It installs the agent runtime (
 
 The wizard uses bundled Node even when system Node is present. This sidesteps a Windows-specific bug where `spawn("npm", ...)` fails with `ENOENT` because Windows doesn't auto-append `.cmd` extensions.
 
+#### First-run offline (air-gapped / corporate proxy)
+
+Release Electron builds ship a **per-platform npm cacache** containing `pi-coding-agent`, `openspec`, and `tsx` plus all transitive dependencies — inside `resources/offline-packages/` in the app bundle. The wizard uses this cache automatically: it extracts the tarball to `%USERPROFILE%\.pi-dashboard\.offline-cache\`, runs ONE `npm install --offline`, then deletes the cache to reclaim ~140 MB.
+
+- **Air-gapped install**: unzip/run the Windows installer on a machine with no network; the wizard completes without contacting `registry.npmjs.org`.
+- **Proxy-blocked install**: same — no registry traffic means no proxy failures.
+- **Doctor check**: the Doctor window shows an "Offline packages bundle" row with the target platform and the pinned versions. If it says "Not bundled (registry-install mode)", you have a dev/feature build; get a release artifact.
+- **Pin versions** live in `packages/electron/offline-packages.json` (bumped per dashboard release).
+- If the bundle is missing or its SHA-256 doesn't match the manifest, the wizard aborts with a clear error — it does **not** silently fall back to the registry (deterministic offline contract). The tarball path manual install (Path 2 below) remains the power-user fallback.
+
 If you see `Error: spawn npm ENOENT` in the wizard:
 
 - You're running a build predating `29af651` — rebuild or upgrade to a newer release.

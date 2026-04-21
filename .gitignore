@@ -8,6 +8,8 @@ dist/
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/icons
+packages/electron/resources/offline-packages
+packages/electron/resources/bundled-extensions
 packages/electron/out
 packages/electron/.vite
 site/.astro/
