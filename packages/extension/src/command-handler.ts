@@ -16,6 +16,44 @@ import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
 const MAX_RESULTS = 20;
 
+function emitUiRefresh(
+  pi: ExtensionAPI,
+  sessionId: string,
+  eventSink?: (msg: ExtensionToServerMessage) => void,
+): void {
+  if (!eventSink || !pi.events) return;
+
+  const modulesProbe: any = { modules: [] };
+  try {
+    pi.events.emit("ui:list-modules", modulesProbe);
+  } catch {
+    return;
+  }
+
+  const modules = (modulesProbe.modules as any[]) ?? [];
+  eventSink({ type: "ui_modules_list", sessionId, modules });
+
+  for (const module of modules) {
+    for (const view of module.views ?? []) {
+      if (!view.dataEvent) continue;
+      const dataProbe: any = { event: view.dataEvent, action: "list" };
+      try {
+        pi.events.emit("ui:get-data", dataProbe);
+      } catch {
+        continue;
+      }
+      if (Array.isArray(dataProbe.items)) {
+        eventSink({
+          type: "ui_data_list",
+          sessionId,
+          event: view.dataEvent,
+          items: dataProbe.items,
+        });
+      }
+    }
+  }
+}
+
 function searchFiles(cwd: string, query: string): FileEntry[] {
   const results: FileEntry[] = [];
   const lowerQuery = query?.toLowerCase() ?? "";
@@ -295,12 +333,7 @@ export function createCommandHandler(
 
         case "request_commands": {
           const commands = filterHiddenCommands(pi.getCommands());
-          // Also send flows list alongside commands
-          if (options?.eventSink) {
-            const probe: any = {};
-            try { pi.events?.emit("flow:list-flows", probe); } catch { /* ignore */ }
-            options.eventSink({ type: "flows_list", sessionId, flows: probe.flows ?? [] });
-          }
+          emitUiRefresh(pi, sessionId, options?.eventSink);
           return {
             type: "commands_list",
             sessionId,
@@ -376,12 +409,7 @@ export function createCommandHandler(
           return undefined;
 
         case "request_flows_refresh": {
-          // Re-query pi-flows and send updated list
-          if (options?.eventSink) {
-            const probe: any = {};
-            try { pi.events?.emit("flow:list-flows", probe); } catch { /* ignore */ }
-            options.eventSink({ type: "flows_list", sessionId, flows: probe.flows ?? [] });
-          }
+          emitUiRefresh(pi, sessionId, options?.eventSink);
           return undefined;
         }
 

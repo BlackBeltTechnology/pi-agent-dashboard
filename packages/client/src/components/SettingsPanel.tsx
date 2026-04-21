@@ -333,7 +333,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               activeTab === tab.id
                 ? "text-[var(--text-primary)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"

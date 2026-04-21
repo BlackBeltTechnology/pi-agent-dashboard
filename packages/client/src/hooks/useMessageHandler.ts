@@ -4,7 +4,7 @@
  */
 import { useCallback } from "react";
 import { createInitialState, reduceEvent, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
-import type { DashboardSession, CommandInfo, FlowInfo, FileEntry, OpenSpecData, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, CommandInfo, ExtensionUiModule, FileEntry, OpenSpecData, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
@@ -15,7 +15,8 @@ export interface MessageHandlerSetters {
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
   setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
   setSessionCommands: React.Dispatch<React.SetStateAction<Map<string, CommandInfo[]>>>;
-  setSessionFlows: React.Dispatch<React.SetStateAction<Map<string, FlowInfo[]>>>;
+  setSessionUiModules: React.Dispatch<React.SetStateAction<Map<string, ExtensionUiModule[]>>>;
+  setSessionUiData: React.Dispatch<React.SetStateAction<Map<string, Map<string, any[]>>>>;
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
   setModelsMap: React.Dispatch<React.SetStateAction<Map<string, ModelInfo[]>>>;
@@ -28,6 +29,7 @@ export interface MessageHandlerSetters {
   setDiscoveredServers: React.Dispatch<React.SetStateAction<DiscoveredServerInfo[]>>;
   setSpawnErrors: React.Dispatch<React.SetStateAction<Map<string, string>>>;
   setResumeErrors: React.Dispatch<React.SetStateAction<Map<string, string>>>;
+  showToast: (text: string) => void;
 }
 
 export interface MessageHandlerDeps {
@@ -47,10 +49,10 @@ export function useMessageHandler(
   deps: MessageHandlerDeps,
 ): (msg: ServerToBrowserMessage) => void {
   const {
-    setSessions, setSessionStates, setSessionCommands, setSessionFlows,
+    setSessions, setSessionStates, setSessionCommands, setSessionUiModules, setSessionUiData,
     setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setTerminals, setEditorStatuses,
-    setDiscoveredServers, setSpawnErrors, setResumeErrors,
+    setDiscoveredServers, setSpawnErrors, setResumeErrors, showToast,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef } = deps;
 
@@ -72,6 +74,20 @@ export function useMessageHandler(
         if (spawningCwdsRef.current.has(msg.session.cwd)) {
           clearSpawningCwd(msg.session.cwd);
           navigate(`/session/${msg.session.id}`);
+        }
+        // Sync cached UI metadata
+        if (msg.session.uiModules) {
+          setSessionUiModules(p => new Map(p).set(msg.session.id, msg.session.uiModules!));
+        }
+        if (msg.session.uiCommands) {
+          setSessionCommands(p => new Map(p).set(msg.session.id, msg.session.uiCommands!));
+        }
+        if (msg.session.uiDataMap) {
+          const sessionData = new Map<string, any[]>();
+          for (const [evt, items] of Object.entries(msg.session.uiDataMap)) {
+            sessionData.set(evt, items);
+          }
+          setSessionUiData(p => new Map(p).set(msg.session.id, sessionData));
         }
         // Commands/models/roles metadata is now requested server-side on subscribe
         // (see subscription-handler.ts) so it arrives while the browser is subscribed.
@@ -109,6 +125,9 @@ export function useMessageHandler(
         break;
 
       case "event":
+        if (msg.event.eventType === "flow:notify") {
+          showToast((msg.event.data as any).message);
+        }
         setSessionStates((prev) => {
           const next = new Map(prev);
           const current = next.get(msg.sessionId) ?? createInitialState();
@@ -128,10 +147,22 @@ export function useMessageHandler(
         });
         break;
 
-      case "flows_list":
-        setSessionFlows((prev) => {
+      case "ui_modules_list":
+        console.log(`[browser] received ui_modules_list: sessionId=${msg.sessionId}, count=${msg.modules.length}`, msg.modules.map(m => m.command));
+        setSessionUiModules((prev) => {
           const next = new Map(prev);
-          next.set(msg.sessionId, msg.flows);
+          next.set(msg.sessionId, msg.modules);
+          return next;
+        });
+        break;
+
+      case "ui_data_list":
+        console.log(`[browser] received ui_data_list: sessionId=${msg.sessionId}, event=${msg.event}, count=${msg.items.length}`);
+        setSessionUiData((prev) => {
+          const next = new Map(prev);
+          const sessionData = next.get(msg.sessionId) ?? new Map<string, any[]>();
+          sessionData.set(msg.event, msg.items);
+          next.set(msg.sessionId, new Map(sessionData));
           return next;
         });
         break;
@@ -411,5 +442,5 @@ export function useMessageHandler(
         }
         break;
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setSessionFlows, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setTerminals, setEditorStatuses, setDiscoveredServers, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setTerminals, setEditorStatuses, setDiscoveredServers, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef]);
 }

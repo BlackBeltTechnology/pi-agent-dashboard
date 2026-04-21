@@ -53,13 +53,8 @@ export interface BrowserCommandsListMessage {
   commands: CommandInfo[];
 }
 
-export interface BrowserFlowsListMessage {
-  type: "flows_list";
-  sessionId: string;
-  flows: FlowInfo[];
-}
-
 export interface BrowserExtensionUiRequestMessage {
+
   type: "extension_ui_request";
   sessionId: string;
   requestId: string;
@@ -102,6 +97,19 @@ export interface BrowserRolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+}
+
+export interface BrowserUiModulesListMessage {
+  type: "ui_modules_list";
+  sessionId: string;
+  modules: any[];
+}
+
+export interface BrowserUiDataListMessage {
+  type: "ui_data_list";
+  sessionId: string;
+  event: string;
+  items: any[];
 }
 
 export interface SessionsListBrowserMessage {
@@ -261,7 +269,6 @@ export type ServerToBrowserMessage =
   | EventMessage
   | EventReplayMessage
   | BrowserCommandsListMessage
-  | BrowserFlowsListMessage
   | BrowserExtensionUiRequestMessage
   | BrowserUiDismissMessage
   | BrowserFilesListMessage
@@ -290,7 +297,9 @@ export type ServerToBrowserMessage =
   | BrowserPromptRequestMessage
   | BrowserPromptDismissMessage
   | BrowserPromptCancelMessage
-  | ModelsRefreshedMessage;
+  | ModelsRefreshedMessage
+  | BrowserUiModulesListMessage
+  | BrowserUiDataListMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
 
@@ -575,6 +584,26 @@ export interface RequestRolesBrowserMessage {
   sessionId: string;
 }
 
+export interface CronManagementBrowserMessage {
+  type: "cron_management";
+  sessionId: string;
+  action: "list" | "add" | "remove" | "toggle";
+  jobId?: string;
+  name?: string;
+  schedule?: string;
+  prompt?: string;
+  jobType?: "cron" | "once" | "interval";
+  intervalMs?: number;
+}
+
+export interface UiManagementBrowserMessage {
+  type: "ui_management";
+  sessionId: string;
+  action: string;
+  event: string;
+  params?: Record<string, any>;
+}
+
 export type BrowserToServerMessage =
   | SubscribeMessage
   | UnsubscribeMessage
@@ -615,4 +644,5 @@ export type BrowserToServerMessage =
   | RolePresetSaveBrowserMessage
   | RolePresetDeleteBrowserMessage
   | RequestRolesBrowserMessage
-  | KillProcessBrowserMessage;
+  | KillProcessBrowserMessage
+  | UiManagementBrowserMessage;

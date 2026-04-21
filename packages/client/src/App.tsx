@@ -44,9 +44,11 @@ import { useContentViews } from "./hooks/useContentViews.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
-import type { DashboardSession, CommandInfo, FlowInfo, FileEntry, OpenSpecData, ModelInfo, RoleInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, CommandInfo, FlowInfo, FileEntry, OpenSpecData, ModelInfo, RoleInfo, ImageContent, CronJob, ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/SearchableSelectDialog.js";
 import { FlowLaunchDialog } from "./components/FlowLaunchDialog.js";
+import { GenericExtensionDialog } from "./components/GenericExtensionDialog.js";
+import { Toast, useToast } from "./components/Toast.js";
 import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
 import { DialogPortal } from "./components/DialogPortal.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
@@ -135,7 +137,8 @@ export default function App() {
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
   const [sessionCommands, setSessionCommands] = useState<Map<string, CommandInfo[]>>(new Map());
-  const [sessionFlows, setSessionFlows] = useState<Map<string, FlowInfo[]>>(new Map());
+  const [sessionUiModules, setSessionUiModules] = useState<Map<string, ExtensionUiModule[]>>(new Map());
+  const [sessionUiData, setSessionUiData] = useState<Map<string, Map<string, any[]>>>(new Map());
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   const [openspecMap, setOpenspecMap] = useState<Map<string, OpenSpecData>>(new Map());
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
@@ -214,7 +217,8 @@ export default function App() {
     setSessions(new Map());
     setSessionStates(new Map());
     setSessionCommands(new Map());
-    setSessionFlows(new Map());
+    setSessionUiModules(new Map());
+    setSessionUiData(new Map());
     setOpenspecMap(new Map());
     setTerminals(new Map());
     subscribedRef.current.clear();
@@ -249,8 +253,10 @@ export default function App() {
     }
   }, []);
 
+  const { messages, showToast, dismissToast } = useToast();
+
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setSessionFlows, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors },
+    { setSessions, setSessionStates, setSessionCommands, setSessionUiModules, setSessionUiData, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, showToast },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef },
   );
 
@@ -350,7 +356,7 @@ export default function App() {
     : [];
 
   const selectedFlows = selectedId
-    ? sessionFlows.get(selectedId) ?? []
+    ? (sessionUiData.get(selectedId)?.get("flow:list-flows") ?? [])
     : [];
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
@@ -401,10 +407,46 @@ export default function App() {
   const [flowDeletePickerOpen, setFlowDeletePickerOpen] = useState(false);
   const [flowDeleteFlowName, setFlowDeleteFlowName] = useState<string | null>(null);
   const [flowLaunchTarget, setFlowLaunchTarget] = useState<FlowInfo | null>(null);
+  const [genericModuleOpen, setGenericModuleOpen] = useState<ExtensionUiModule | null>(null);
 
   // Wrap handleSend to intercept /flows commands
   const wrappedHandleSend = useCallback((text: string, images?: ImageContent[]) => {
     const trimmed = text.trim();
+    console.log(`[App] Intercepting: "${trimmed}", selectedId: ${selectedId}`);
+
+    // Dynamic Module Interception (Generalized UI)
+    if (selectedId) {
+      const modules = sessionUiModules.get(selectedId) || [];
+      console.log(`[App] Modules for session ${selectedId}:`, modules.map(m => m.command));
+      
+      const match = modules.find(m => m.command === trimmed);
+      
+      if (match) {
+        console.log(`[App] Matched dynamic module "${match.id}" for command "${trimmed}"`);
+        // Request fresh data when opening
+        if (match.initialViewId) {
+           const initialView = match.views.find(v => v.id === match.initialViewId);
+           if (initialView?.dataEvent) {
+              send({ 
+                type: "ui_management", 
+                sessionId: selectedId, 
+                action: "list", 
+                event: "ui:get-data",
+                params: { event: initialView.dataEvent }
+              });
+           }
+        }
+        setGenericModuleOpen(match);
+        return;
+      } else if (trimmed.startsWith("/") && modules.length === 0) {
+        console.warn(`[App] No modules found for session ${selectedId}, but slash command used. Triggering refresh. Modules exist for IDs:`, Array.from(sessionUiModules.keys()));
+        // Fallback: if we see a slash command but have 0 modules, try to refresh them once
+        send({ type: "ui_management", sessionId: selectedId, action: "list", event: "ui:list-modules" });
+        // DO NOT fall through to handleSend (LLM prompt) for slash commands when we're out of sync
+        return;
+      }
+    }
+
     if (trimmed === "/flows") {
       setFlowPickerOpen(true);
       return;
@@ -413,8 +455,9 @@ export default function App() {
       setFlowNewOpen(true);
       return;
     }
+
     handleSend(text, images);
-  }, [handleSend]);
+  }, [handleSend, selectedId, sessionUiModules]);
 
   const openspecActions = useOpenSpecActions({ send, openspecMap, setPreviewState, clearAllContentViews });
   const {
@@ -538,8 +581,15 @@ export default function App() {
       onRenameTerminal={handleRenameTerminal}
       onCollapseSidebar={sidebar.toggleCollapse}
       commandsMap={sessionCommands}
-      flowsMap={sessionFlows}
+      flowsMap={(() => {
+         const m = new Map<string, FlowInfo[]>();
+         for (const [sid, dataMap] of sessionUiData.entries()) {
+            m.set(sid, dataMap.get("flow:list-flows") || []);
+         }
+         return m;
+      })()}
       onKillProcess={handleKillProcess}
+
       onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       editorStatuses={editorStatuses}
@@ -977,6 +1027,39 @@ export default function App() {
               onCancel={() => setFlowEditFlowName(null)}
             />
           )}
+          {genericModuleOpen && (
+             <GenericExtensionDialog
+               module={genericModuleOpen}
+               data={(() => {
+                 const sessionDataMap = sessionUiData.get(selectedId || "");
+                 if (!sessionDataMap) return {};
+                 return Object.fromEntries(sessionDataMap.entries());
+               })()}
+               onAction={(action, params) => {
+                 if (selectedId) {
+                    send({ 
+                      type: "ui_management", 
+                      sessionId: selectedId, 
+                      action: action.label, 
+                      event: action.emit, 
+                      params 
+                    });
+                 }
+               }}
+               onRefresh={(view) => {
+                 if (selectedId && view.dataEvent) {
+                    send({ 
+                      type: "ui_management", 
+                      sessionId: selectedId, 
+                      action: "list", 
+                      event: "ui:get-data",
+                      params: { event: view.dataEvent }
+                    });
+                 }
+               }}
+               onCancel={() => setGenericModuleOpen(null)}
+             />
+          )}
           {flowDeletePickerOpen && (
             <SearchableSelectDialog
               title="Delete Flow"
@@ -1330,6 +1413,7 @@ export default function App() {
           />
         </DialogPortal>
       )}
+      <Toast messages={messages} onDismiss={dismissToast} />
     </div>
   );
 }

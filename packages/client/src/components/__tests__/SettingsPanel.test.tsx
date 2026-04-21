@@ -111,6 +111,21 @@ describe("SettingsPanel", () => {
     expect(screen.getByText("Server")).toBeTruthy();
   });
 
+  it("should show pointer cursor on settings tabs", async () => {
+    global.fetch = mockFetchConfig();
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => screen.getByText("Settings"));
+
+    expect(screen.getByRole("button", { name: "General" }).className).toContain("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Servers" }).className).toContain("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Packages" }).className).toContain("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Providers" }).className).toContain("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Security" }).className).toContain("cursor-pointer");
+    expect(screen.getByRole("button", { name: "Advanced" }).className).toContain("cursor-pointer");
+  });
+
   it("should show loading state initially", () => {
     global.fetch = vi.fn().mockReturnValue(new Promise(() => {})); // never resolves
     render(<SettingsPanel />);

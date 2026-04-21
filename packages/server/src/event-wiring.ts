@@ -422,6 +422,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "commands_list") {
+      sessionManager.update(sessionId, { uiCommands: msg.commands });
       browserGateway.sendToSubscribers(sessionId, {
         type: "commands_list",
         sessionId,
@@ -429,29 +430,28 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    if (msg.type === "flows_list") {
+    if (msg.type === "ui_modules_list") {
+      sessionManager.update(sessionId, { uiModules: msg.modules });
       browserGateway.sendToSubscribers(sessionId, {
-        type: "flows_list",
+        type: "ui_modules_list",
         sessionId,
-        flows: msg.flows,
+        modules: msg.modules,
       });
+    }
 
-      // Tell other connected sessions in the same cwd to rediscover flows
-      // (debounced to avoid infinite loop: A→refresh B→B sends flows→refresh A→...)
-      if (!recentFlowsRefresh.has(sessionId)) {
-        recentFlowsRefresh.add(sessionId);
-        setTimeout(() => recentFlowsRefresh.delete(sessionId), 5_000);
-        const session = sessionManager.get(sessionId);
-        if (session) {
-          for (const sid of piGateway.getConnectedSessionIds()) {
-            if (sid === sessionId || recentFlowsRefresh.has(sid)) continue;
-            const other = sessionManager.get(sid);
-            if (other && other.cwd === session.cwd) {
-              piGateway.sendToSession(sid, { type: "request_flows_refresh", sessionId: sid });
-            }
-          }
-        }
+    if (msg.type === "ui_data_list") {
+      const session = sessionManager.get(sessionId);
+      if (session) {
+        const uiDataMap = { ...(session.uiDataMap ?? {}) };
+        uiDataMap[msg.event] = msg.items;
+        sessionManager.update(sessionId, { uiDataMap });
       }
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "ui_data_list",
+        sessionId,
+        event: msg.event,
+        items: msg.items,
+      });
     }
 
     if (msg.type === "git_info_update") {

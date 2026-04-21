@@ -163,11 +163,35 @@ function initBridge(pi: ExtensionAPI) {
     return (probe.flows as FlowInfo[] | undefined) ?? [];
   }
 
-  /** Send flows_list message to the dashboard server */
-  function sendFlowsList() {
-    const flows = getFlowsList();
-    console.error(`[dashboard] sendFlowsList: ${flows.length} flows, sessionId=${sessionId.slice(0,8)}`);
-    connection.send({ type: "flows_list", sessionId, flows });
+  /** Send ui_modules_list message and proactively refresh data for all modules */
+  function refreshUiModules() {
+    if (!pi.events) return;
+    const probe: any = { modules: [] };
+    try {
+      pi.events.emit("ui:list-modules", probe);
+    } catch { /* ignore */ }
+    const modules = (probe.modules as any[]) ?? [];
+    
+    // 1. Send schemas to dashboard
+    connection.send({ type: "ui_modules_list", sessionId, modules });
+
+    // 2. Proactively refresh data for any module that has a dataEvent
+    for (const module of modules) {
+      for (const view of module.views) {
+        if (view.dataEvent) {
+           const dataProbe: any = { event: view.dataEvent, action: "list" };
+           pi.events.emit("ui:get-data", dataProbe);
+           if (dataProbe.items && Array.isArray(dataProbe.items)) {
+             connection.send({
+               type: "ui_data_list",
+               sessionId,
+               event: view.dataEvent,
+               items: dataProbe.items
+             });
+           }
+        }
+      }
+    }
   }
 
 
@@ -250,6 +274,29 @@ function initBridge(pi: ExtensionAPI) {
           // Dashboard already confirmed upfront — delete directly
           pi.events.emit("flow:delete-request", { flowName: msg.flowName });
           pi.events.emit("flow:notify", { message: `Flow "${msg.flowName}" deleted.`, level: "info" });
+        }
+        return;
+      }
+      // Route generic UI management from dashboard
+      if (msg.type === "ui_management" && pi.events) {
+        if (msg.event === "ui:list-modules") {
+          refreshUiModules();
+          return;
+        }
+        if (msg.event) {
+          const probe: any = { ...msg.params, action: msg.action };
+
+          pi.events.emit(msg.event, probe);
+
+          // If it was a list request and we got items back, send them to dashboard
+          if (msg.action === "list" && probe.items && Array.isArray(probe.items)) {
+            connection.send({
+              type: "ui_data_list",
+              sessionId,
+              event: msg.params?.event || msg.event,
+              items: probe.items
+            });
+          }
         }
         return;
       }
@@ -524,7 +571,7 @@ function initBridge(pi: ExtensionAPI) {
   }
 
   // Local wrappers that sync bc around extracted module calls
-  function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); }
+  function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, refreshUiModules); applyBc(bc); }
   function replaySessionEntries() { _replaySessionEntries(syncBc()); }
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
@@ -569,7 +616,11 @@ function initBridge(pi: ExtensionAPI) {
   // - `session_shutdown`: dedicated handler → disconnect/cleanup
 
   // Unified EventBus rename map for the emit intercept (flow + subagent events)
-  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
+  const EVENT_BUS_MAP: Record<string, string> = { 
+    ...FLOW_EVENT_MAP, 
+    ...SUBAGENT_EVENT_MAP,
+    "cron:change": "cron_change"
+  };
 
   for (const eventType of enrichedEventTypes) {
     pi.on(eventType as any, safe(async (event: any, ctx: any) => {
@@ -916,8 +967,16 @@ function initBridge(pi: ExtensionAPI) {
       commands,
     });
 
-    // Send initial flows list
-    sendFlowsList();
+    // Send initial UI modules and data
+    refreshUiModules();
+
+    // Refresh lists on change events
+    pi.events.on("cron:change", () => {
+       if (isActive() && sessionReady) refreshUiModules();
+    });
+    pi.events.on("flow:rediscover", () => {
+       if (isActive() && sessionReady) refreshUiModules();
+    });
 
     // Send available models
     cachedModelRegistry = (ctx as any).modelRegistry;

@@ -381,6 +381,16 @@ export function createBrowserGateway(
             });
             break;
           }
+          case "ui_management": {
+            ctx.piGateway.sendToSession(msg.sessionId, {
+              type: "ui_management",
+              sessionId: msg.sessionId,
+              action: msg.action,
+              event: msg.event,
+              params: msg.params,
+            });
+            break;
+          }
           case "architect_prompt_response": {
             // Legacy: now handled by prompt_response via PromptBus.
             // Keep case to avoid "unhandled message" warnings from old clients.
