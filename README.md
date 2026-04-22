@@ -18,6 +18,7 @@ A web-based dashboard for monitoring and interacting with [pi](https://github.co
 - **Bidirectional interaction** — Send prompts and commands from the browser
 - **Workspace management** — Organize sessions by project folder with pinned directories and drag-to-reorder
 - **Command autocomplete** — `/` prefix triggers command dropdown with filtering
+- **Schema-driven extension UI** — Extensions can expose modal management UIs and lightweight status-bar controls from shared schema, without dashboard-specific React work
 - **Session statistics** — Token counts, costs, model info, thinking level, context usage bar
 - **Elapsed time tracking** — Live ticking counters on running operations, final duration on completed tool calls and reasoning blocks
 - **Mobile-friendly** — Responsive layout with swipe drawer, touch targets, and mobile action menus
@@ -70,10 +71,11 @@ The system has three components:
 |-----------|----------|------|
 | **Bridge Extension** | `packages/extension/` | Runs in every pi session. Forwards events, relays commands, auto-starts server, hosts PromptBus. |
 | **Dashboard Server** | `packages/server/` | Aggregates events in-memory, persists metadata to JSON, serves the web client, manages terminals. |
-| **Web Client** | `packages/client/` | React + Tailwind UI with real-time WebSocket updates. |
+| **Web Client** | `packages/client/` | React + Tailwind UI with real-time WebSocket updates and generic extension-driven modal/status-bar rendering. |
 | **Shared** | `packages/shared/` | TypeScript types, protocols, and utilities shared across all packages. |
 
 See [docs/architecture.md](docs/architecture.md) for detailed data flows, reconnection logic, and persistence model.
+See [docs/extension-ui-system.md](docs/extension-ui-system.md) for the generalized extension schema reference.
 
 ## Getting Started
 

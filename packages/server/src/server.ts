@@ -52,6 +52,9 @@ import { PackageManagerWrapper } from "./package-manager-wrapper.js";
 import { createEditorManager, type EditorManager } from "./editor-manager.js";
 import { createEditorPidRegistry } from "./editor-pid-registry.js";
 import { registerEditorRoutes } from "./routes/editor-routes.js";
+import { RaggerClient } from "./ragger/ragger-client.js";
+import { RaggerPoller } from "./ragger/ragger-poller.js";
+import { registerRaggerRoutes } from "./routes/ragger-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerEditorProxy, handleEditorUpgrade } from "./editor-proxy.js";
 import { detectCodeServerBinary } from "./editor-detection.js";
@@ -77,6 +80,12 @@ export interface ServerConfig {
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
   corsAllowedOrigins?: string[];
+  /** Ragger (code-search) integration */
+  ragger?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    pollIntervalMs?: number;
+  };
 }
 
 export interface DashboardServer {
@@ -445,6 +454,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerEditorRoutes(fastify, editorManager, { networkGuard });
   registerEditorProxy(fastify, editorManager);
 
+  // Ragger integration
+  const raggerBaseUrl = config.ragger?.baseUrl ?? "http://127.0.0.1:8170";
+  const raggerEnabled = config.ragger?.enabled !== false;
+  const raggerClient = new RaggerClient(raggerBaseUrl);
+  const raggerPoller = new RaggerPoller(raggerClient, browserGateway, {
+    enabled: raggerEnabled,
+    baseUrl: raggerBaseUrl,
+    pollIntervalMs: config.ragger?.pollIntervalMs ?? 30_000,
+  });
+  registerRaggerRoutes(fastify, { raggerClient, raggerPoller, networkGuard });
+  if (raggerEnabled) {
+    raggerPoller.start();
+  }
+
   registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway });
@@ -648,6 +671,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         stopAdvertising();
       } catch { /* ignore mDNS cleanup errors */ }
       removePid();
+      raggerPoller.stop();
       idleTimer.cancel();
       directoryService.stopPolling();
       browserGateway.shutdownHeadlessProcesses();

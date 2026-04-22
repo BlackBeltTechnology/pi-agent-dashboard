@@ -112,6 +112,16 @@ export interface BrowserUiDataListMessage {
   items: any[];
 }
 
+/** Broadcast from server when ragger status changes (from poller) */
+export interface RaggerStatusUpdateMessage {
+  type: "ragger_status_update";
+  connected: boolean;
+  workspaceCount: number;
+  embeddingModel: string;
+  model: string;
+  workspaces: any[];
+}
+
 export interface SessionsListBrowserMessage {
   type: "sessions_list";
   sessionId: string;
@@ -283,7 +293,8 @@ export type ServerToBrowserMessage =
   | BrowserPromptCancelMessage
   | ModelsRefreshedMessage
   | BrowserUiModulesListMessage
-  | BrowserUiDataListMessage;
+  | BrowserUiDataListMessage
+  | RaggerStatusUpdateMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
 
