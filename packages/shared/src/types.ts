@@ -130,15 +130,24 @@ export interface UiField {
   options?: Array<{ label: string; value: any }>;
   required?: boolean;
   placeholder?: string;
+  description?: string;
+}
+
+export interface UiSection {
+  title: string;
+  description?: string;
+  fields: string[]; // Keys of fields in this section
 }
 
 export interface UiView {
   id: string;
   type: "table" | "grid" | "form";
   title?: string;
+  category?: string; // Optional grouping for sidebars
   dataEvent?: string; // Event to request data (expects data.items back)
   updateEvent?: string; // Event that signals data has changed
   fields?: UiField[];
+  sections?: UiSection[];
   actions?: UiAction[];
   itemActions?: UiAction[]; // Actions available per item in table/grid
 }

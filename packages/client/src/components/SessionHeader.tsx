@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@mdi/react";
-import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, CommandInfo, FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb, mdiApps } from "@mdi/js";
+import type { DashboardSession, OpenSpecChange, CommandInfo, FlowInfo, ImageContent, ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { SessionState } from "../lib/event-reducer.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
@@ -26,6 +26,7 @@ interface Props {
   hasFileChanges?: boolean;
   onOpenDiffView?: () => void;
   onRefresh?: () => void;
+  uiModules?: ExtensionUiModule[];
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     editors?: DetectedEditor[];
@@ -199,15 +200,22 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, flows, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, flows, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, uiModules }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [flowPickerOpen, setFlowPickerOpen] = useState(false);
   const [flowLaunchTarget, setFlowLaunchTarget] = useState<FlowInfo | null>(null);
   const [openspecPickerOpen, setOpenspecPickerOpen] = useState(false);
+  const [extensionsPickerOpen, setExtensionsPickerOpen] = useState(false);
   const flowCmds = flows ?? [];
   const flowOptions: SelectOption[] = flowCmds.map(f => ({ value: f.name, label: f.name, description: f.description }));
+
+  const extensionOptions: SelectOption[] = (uiModules || []).map(m => ({
+    value: m.command,
+    label: m.title,
+    icon: m.icon
+  }));
 
   const attached = session?.attachedProposal;
   const openspecOptions: SelectOption[] = (openspecChanges || []).map(c => {
@@ -345,6 +353,15 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />Flow
         </button>
       )}
+      {uiModules && uiModules.length > 0 && onSendPrompt && (
+        <button
+          onClick={() => setExtensionsPickerOpen(true)}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 mr-1"
+          title="Extensions"
+        >
+          <Icon path={mdiApps} size={0.4} className="inline mr-0.5" />Extensions
+        </button>
+      )}
       {hasFileChanges && onOpenDiffView && (
         <button
           onClick={onOpenDiffView}
@@ -389,6 +406,19 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
             setFlowPickerOpen(false);
           }}
           onCancel={() => setFlowPickerOpen(false)}
+        />
+      )}
+      {extensionsPickerOpen && onSendPrompt && (
+        <SearchableSelectDialog
+          title="Extensions"
+          options={extensionOptions}
+          placeholder="Search extensions..."
+          emptyMessage="No extensions available"
+          onSelect={(value) => {
+            onSendPrompt(value);
+            setExtensionsPickerOpen(false);
+          }}
+          onCancel={() => setExtensionsPickerOpen(false)}
         />
       )}
       {flowLaunchTarget && onSendPrompt && (

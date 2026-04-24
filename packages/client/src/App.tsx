@@ -691,6 +691,7 @@ export default function App() {
           subscribedRef.current.add(selectedId);
           send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
         }}
+        uiModules={selectedId ? sessionUiModules.get(selectedId) : undefined}
       />
       {/* Mobile info strip */}
       {isMobile && selectedSession && (

@@ -31,15 +31,19 @@ export function GenericExtensionDialog({
     if (activeView) {
       onRefresh(activeView);
       if (activeView.type === "form") {
-         // Reset form with default values or empty
-         const initialData: Record<string, any> = {};
+         // Populate form with existing data if available, or defaults
+         const existing = data[activeView.id]?.[0] || data[activeView.dataEvent || ""]?.[0] || {};
+         const initialData: Record<string, any> = { ...existing };
          activeView.fields?.forEach(f => {
-            if (f.type === "select" && f.options?.[0]) initialData[f.key] = f.options[0].value;
+            if (initialData[f.key] === undefined) {
+              if (f.type === "select" && f.options?.[0]) initialData[f.key] = f.options[0].value;
+              else if (f.type === "boolean") initialData[f.key] = false;
+            }
          });
          setFormData(initialData);
       }
     }
-  }, [activeViewId]);
+  }, [activeViewId, data]);
 
   const handleAction = (action: UiAction, item?: any) => {
     if (action.emit === "ui:navigate") {
@@ -139,59 +143,104 @@ export function GenericExtensionDialog({
     );
   };
 
-  const renderForm = (view: UiView) => {
+  const renderField = (f: UiField) => {
     return (
-      <form className="space-y-4" onSubmit={(e) => {
+      <div key={f.key} className="space-y-1">
+        <label className="text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-wider block">
+          {f.label} {f.required && <span className="text-red-500">*</span>}
+        </label>
+        {f.description && (
+          <p className="text-[10px] text-[var(--text-tertiary)] leading-tight mb-1.5">
+            {f.description}
+          </p>
+        )}
+        {f.type === "textarea" ? (
+          <textarea
+            value={formData[f.key] || ""}
+            onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
+            placeholder={f.placeholder}
+            className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
+            rows={3}
+            required={f.required}
+          />
+        ) : f.type === "select" ? (
+          <select
+            value={formData[f.key] || ""}
+            onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
+            className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
+          >
+            {f.options?.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        ) : f.type === "boolean" ? (
+          <div className="flex items-center gap-2 py-1">
+             <button
+               type="button"
+               onClick={() => setFormData({ ...formData, [f.key]: !formData[f.key] })}
+               className={`relative w-8 h-4 rounded-full transition-colors ${formData[f.key] ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
+             >
+               <span className={`absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${formData[f.key] ? "translate-x-4" : "translate-x-0"}`} />
+             </button>
+             <span className="text-xs text-[var(--text-secondary)]">{formData[f.key] ? "Enabled" : "Disabled"}</span>
+          </div>
+        ) : (
+          <input
+            type={f.type === "number" ? "number" : "text"}
+            value={formData[f.key] || ""}
+            onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
+            placeholder={f.placeholder}
+            className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
+            required={f.required}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderForm = (view: UiView) => {
+    const fieldsByKey = new Map(view.fields?.map(f => [f.key, f]));
+    const usedFieldKeys = new Set<string>();
+
+    return (
+      <form className="space-y-6" onSubmit={(e) => {
         e.preventDefault();
         const primaryAction = view.actions?.find(a => a.variant === 'primary') || view.actions?.[0];
         if (primaryAction) handleAction(primaryAction, formData);
       }}>
-        <div className="grid grid-cols-1 gap-4">
-          {view.fields?.map(f => (
-            <div key={f.key} className="space-y-1">
-              <label className="text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-wider">
-                {f.label} {f.required && <span className="text-red-500">*</span>}
-              </label>
-              {f.type === "textarea" ? (
-                <textarea
-                  value={formData[f.key] || ""}
-                  onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
-                  placeholder={f.placeholder}
-                  className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
-                  rows={3}
-                  required={f.required}
-                />
-              ) : f.type === "select" ? (
-                <select
-                  value={formData[f.key] || ""}
-                  onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
-                  className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
-                >
-                  {f.options?.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
-              ) : (
-                <input
-                  type={f.type === "number" ? "number" : "text"}
-                  value={formData[f.key] || ""}
-                  onChange={(e) => setFormData({ ...formData, [f.key]: e.target.value })}
-                  placeholder={f.placeholder}
-                  className="w-full px-3 py-1.5 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:border-blue-500/50"
-                  required={f.required}
-                />
-              )}
+        <div className="space-y-6">
+          {/* Render Sections */}
+          {view.sections?.map((section, sIdx) => (
+            <div key={sIdx} className="space-y-3">
+              <div className="border-b border-[var(--border-subtle)] pb-1 mb-2">
+                 <h4 className="text-xs font-bold text-[var(--text-primary)]">{section.title}</h4>
+                 {section.description && <p className="text-[10px] text-[var(--text-muted)]">{section.description}</p>}
+              </div>
+              <div className="grid grid-cols-1 gap-4">
+                {section.fields.map(key => {
+                  const f = fieldsByKey.get(key);
+                  if (!f) return null;
+                  usedFieldKeys.add(key);
+                  return renderField(f);
+                })}
+              </div>
             </div>
           ))}
+
+          {/* Render Un-sectioned Fields */}
+          <div className="grid grid-cols-1 gap-4">
+            {view.fields?.filter(f => !usedFieldKeys.has(f.key)).map(f => renderField(f))}
+          </div>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-subtle)] mt-4">
            {view.actions?.map((action, idx) => (
              <button
                 key={idx}
                 type={action.variant === 'primary' ? 'submit' : 'button'}
                 onClick={() => action.variant !== 'primary' && handleAction(action, formData)}
-                className={`text-xs px-4 py-1.5 rounded-lg flex items-center gap-1.5 ${
-                  action.variant === 'primary' ? 'bg-blue-600 text-white hover:bg-blue-500' :
+                className={`text-xs px-4 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-colors ${
+                  action.variant === 'primary' ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/20' :
                   action.variant === 'danger' ? 'bg-red-600 text-white hover:bg-red-500' :
-                  'border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+                  'border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]/50'
                 }`}
              >
                {renderIcon(action.icon, 0.6)}
@@ -203,11 +252,23 @@ export function GenericExtensionDialog({
     );
   };
 
+  const viewsByCategory = useMemo(() => {
+    const groups: Record<string, UiView[]> = {};
+    module.views.forEach(v => {
+      const cat = v.category || "General";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(v);
+    });
+    return groups;
+  }, [module.views]);
+
+  const showSidebar = module.views.length > 1;
+
   return (
     <DialogPortal>
       <div className="fixed inset-0 z-[60] flex items-center justify-center">
         <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onCancel} />
-        <div className="relative bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-subtle)] shadow-2xl w-[90vw] max-w-2xl flex flex-col max-h-[85vh]">
+        <div className={`relative bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-subtle)] shadow-2xl w-[90vw] ${showSidebar ? 'max-w-4xl' : 'max-w-2xl'} flex flex-col max-h-[85vh]`}>
           {/* Header */}
           <div className="px-4 py-3 border-b border-[var(--border-subtle)] flex items-center justify-between">
             <h3 className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-2">
@@ -232,28 +293,47 @@ export function GenericExtensionDialog({
             </div>
           </div>
 
-          {/* View Content */}
-          <div className="flex-1 overflow-y-auto p-4">
-             {activeView?.type === "table" ? renderTable(activeView) : 
-              activeView?.type === "form" ? renderForm(activeView) : 
-              <div className="py-8 text-center text-red-400">Unknown view type: {activeView?.type}</div>}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Sidebar */}
+            {showSidebar && (
+              <div className="w-56 border-r border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30 overflow-y-auto p-2">
+                {Object.entries(viewsByCategory).map(([cat, views]) => (
+                  <div key={cat} className="mb-4">
+                    {cat !== "General" && (
+                      <div className="px-3 py-1 text-[10px] uppercase font-bold text-[var(--text-muted)] tracking-widest">
+                        {cat}
+                      </div>
+                    )}
+                    <div className="space-y-0.5 mt-1">
+                      {views.map(v => (
+                        <button
+                          key={v.id}
+                          onClick={() => setActiveViewId(v.id)}
+                          className={`w-full text-left px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                            activeViewId === v.id 
+                              ? "bg-blue-500/10 text-blue-500 font-medium" 
+                              : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                          }`}
+                        >
+                          {v.title || v.id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* View Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {activeView?.type === "table" ? renderTable(activeView) : 
+                activeView?.type === "form" ? renderForm(activeView) : 
+                <div className="py-8 text-center text-red-400">Unknown view type: {activeView?.type}</div>}
+            </div>
           </div>
 
-          {/* Footer / Navigation */}
-          <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex justify-between items-center">
-            <div className="flex gap-1">
-               {module.views.length > 1 && module.views.map(v => (
-                 <button
-                   key={v.id}
-                   onClick={() => setActiveViewId(v.id)}
-                   className={`px-3 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                     activeViewId === v.id ? "bg-blue-500/10 text-blue-500" : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                   }`}
-                 >
-                   {v.title || v.id}
-                 </button>
-               ))}
-            </div>
+          {/* Footer */}
+          <div className="px-4 py-3 border-t border-[var(--border-subtle)] flex justify-end items-center">
             <button
               onClick={onCancel}
               className="text-xs px-3 py-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
