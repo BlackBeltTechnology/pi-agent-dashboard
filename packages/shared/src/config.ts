@@ -101,6 +101,13 @@ export interface DashboardConfig {
   editor: EditorConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
+  /**
+   * Timeout for ask_user prompts in seconds.
+   * Default: 300 (5 minutes).
+   * Set to -1 (or any value <= 0) for no timeout (waits indefinitely).
+   * If the key is absent from config.json the default of 300 s applies.
+   */
+  askUserPromptTimeoutSeconds: number;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
@@ -129,6 +136,9 @@ export interface CorsConfig {
 
 const VALID_SPAWN_STRATEGIES: SpawnStrategy[] = ["tmux", "headless"];
 
+/** Default ask_user prompt timeout: 300 seconds (5 minutes). */
+export const DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS = 300;
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   port: 8000,
@@ -148,6 +158,7 @@ const DEFAULTS: DashboardConfig = {
   cors: { allowedOrigins: [] },
   electronMode: false,
   knownServers: [],
+  askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
 };
 
 /**
@@ -344,6 +355,9 @@ export function loadConfig(): DashboardConfig {
       electronMode: parsed.electronMode === true,
       knownServers: parseKnownServers(parsed.knownServers),
       plugins: parsePluginsConfig(parsed.plugins),
+      askUserPromptTimeoutSeconds: typeof parsed.askUserPromptTimeoutSeconds === "number"
+        ? parsed.askUserPromptTimeoutSeconds
+        : defaults.askUserPromptTimeoutSeconds,
     };
 
     // Compute resolvedTrustedNetworks: merge trustedNetworks + auth.bypassHosts

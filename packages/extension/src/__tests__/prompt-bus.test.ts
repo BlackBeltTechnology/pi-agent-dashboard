@@ -340,6 +340,50 @@ describe("PromptBus", () => {
       vi.advanceTimersByTime(5000);
       expect(adapter.onCancel).not.toHaveBeenCalled();
     });
+
+    it("should never timeout when timeoutMs is -1 (infinite)", async () => {
+      const infiniteBus = new PromptBus({
+        timeoutMs: -1,
+        onDashboardRequest,
+        onDashboardDismiss,
+        onDashboardCancel,
+      });
+      const adapter = createMockAdapter("a");
+      infiniteBus.registerAdapter(adapter);
+
+      const promise = infiniteBus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+
+      // Advance way past the default 5-minute timeout
+      vi.advanceTimersByTime(10 * 60 * 1000);
+
+      // Still pending — no cancellation fired
+      expect(adapter.onCancel).not.toHaveBeenCalled();
+      expect(infiniteBus.pendingCount).toBe(1);
+
+      // Can still be answered normally
+      const id = (adapter.onRequest.mock.calls[0][0] as PromptRequest).id;
+      infiniteBus.respond({ id, answer: "late", source: "a" });
+      const result = await promise;
+      expect(result.answer).toBe("late");
+      expect(result.cancelled).toBeUndefined();
+    });
+
+    it("should never timeout when timeoutMs is 0 (also treated as infinite)", async () => {
+      const infiniteBus = new PromptBus({
+        timeoutMs: 0,
+        onDashboardRequest,
+        onDashboardDismiss,
+        onDashboardCancel,
+      });
+      const adapter = createMockAdapter("a");
+      infiniteBus.registerAdapter(adapter);
+
+      infiniteBus.request({ pipeline: "command", type: "select", question: "Q", options: [] });
+
+      vi.advanceTimersByTime(10 * 60 * 1000);
+      expect(adapter.onCancel).not.toHaveBeenCalled();
+      expect(infiniteBus.pendingCount).toBe(1);
+    });
   });
 
   describe("concurrent prompts", () => {

@@ -818,7 +818,13 @@ function initBridge(pi: ExtensionAPI) {
     // ── PromptBus setup ──
     // Create bus with dashboard connection wiring.
     // Replaces the old ui-proxy race pattern.
+    // Convert seconds → milliseconds for PromptBus.
+    // Values <= 0 (e.g. -1) are passed through as-is to signal infinite wait.
+    const askUserTimeoutMs = config.askUserPromptTimeoutSeconds > 0
+      ? config.askUserPromptTimeoutSeconds * 1000
+      : -1;
     promptBus = new PromptBus({
+      timeoutMs: askUserTimeoutMs,
       onDashboardRequest: (prompt, component, placement) => {
         connection.send({
           type: "prompt_request" as any,

@@ -112,9 +112,10 @@ export class PromptBus {
 
     return new Promise<PromptResponse>((resolve) => {
       const timeoutMs = this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const timer = setTimeout(() => {
-        this.cancel(id);
-      }, timeoutMs);
+      // timeoutMs <= 0 means infinite — never fire a cancellation timer.
+      const timer = timeoutMs > 0
+        ? setTimeout(() => { this.cancel(id); }, timeoutMs)
+        : (null as unknown as ReturnType<typeof setTimeout>);
 
       // Distribute to all adapters and collect claims
       const claims: PendingPrompt["claims"] = [];
