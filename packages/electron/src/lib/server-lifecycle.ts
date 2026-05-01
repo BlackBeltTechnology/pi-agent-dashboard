@@ -297,9 +297,15 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
   try { logContent = readFileSync(logPath, "utf-8"); } catch { /* ignore */ }
   const lastLines = logContent.split("\n").slice(-20).join("\n");
 
+  // Decorate the error with the resolved candidate path AND a
+  // `readlink -f` hint so a slipped-through self-recursion case is
+  // recognizable from the error dialog alone (vs. a real CLI bug).
+  // See change: fix-electron-appimage-cli-self-detection (D5).
   throw new Error(
     `pi-dashboard CLI failed to start server within 15 seconds (${ready.error}).\n` +
     `Command: ${cliPath} start --port ${port} --pi-port ${piPort}\n` +
+    `Resolved CLI path: ${cliPath}\n` +
+    `Verify with: readlink -f $(which pi-dashboard) \u2014 it should NOT point at the Electron binary or under $APPDIR\n` +
     (lastLines ? `\nServer log:\n${lastLines}` : "\nNo server log available.")
   );
 }

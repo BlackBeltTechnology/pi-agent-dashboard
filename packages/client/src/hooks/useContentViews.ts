@@ -39,6 +39,17 @@ export interface ReadmePreview {
 export interface UseContentViewsOptions {
   /** Called before opening a new top-level content view, so the caller can clear other views. */
   onBeforeOpen?: () => void;
+  /**
+   * When set, `handleOpenPiResources` / `handleViewPiResourceFile` /
+   * `handleViewReadme` will call `navigate("/")` if `settingsMatch` or
+   * `tunnelSetupMatch` is currently true. Closes the URL-route view
+   * (Settings / Tunnel) BEFORE the overlay state is set so the overlay
+   * isn't masked by the JSX gate.
+   * See change: fix-desktop-back-navigation.
+   */
+  navigate?: (to: string) => void;
+  settingsMatch?: boolean;
+  tunnelSetupMatch?: boolean;
 }
 
 export function useContentViews(options?: UseContentViewsOptions) {
@@ -54,12 +65,18 @@ export function useContentViews(options?: UseContentViewsOptions) {
 
   const handleOpenPiResources = useCallback((cwd: string) => {
     options?.onBeforeOpen?.();
+    if ((options?.settingsMatch || options?.tunnelSetupMatch) && options?.navigate) {
+      options.navigate("/");
+    }
     setPiResourcesState({ cwd });
     setPiResourceFilePreview(null);
     setReadmePreview(null);
-  }, [options?.onBeforeOpen]);
+  }, [options?.onBeforeOpen, options?.settingsMatch, options?.tunnelSetupMatch, options?.navigate]);
 
   const handleViewPiResourceFile = useCallback(async (filePath: string, title: string) => {
+    if ((options?.settingsMatch || options?.tunnelSetupMatch) && options?.navigate) {
+      options.navigate("/");
+    }
     setPiResourceFilePreview({ filePath, title, isLoading: true });
     try {
       const res = await fetch(`${getApiBase()}/api/pi-resource-file?path=${encodeURIComponent(filePath)}`);
@@ -76,10 +93,13 @@ export function useContentViews(options?: UseContentViewsOptions) {
     } catch (err: any) {
       setPiResourceFilePreview({ filePath, title, isLoading: false, error: err.message });
     }
-  }, []);
+  }, [options?.settingsMatch, options?.tunnelSetupMatch, options?.navigate]);
 
   const handleViewReadme = useCallback(async (cwd: string) => {
     options?.onBeforeOpen?.();
+    if ((options?.settingsMatch || options?.tunnelSetupMatch) && options?.navigate) {
+      options.navigate("/");
+    }
     setPiResourcesState(null);
     setPiResourceFilePreview(null);
     setReadmePreview({ cwd, isLoading: true });
@@ -94,7 +114,7 @@ export function useContentViews(options?: UseContentViewsOptions) {
     } catch (err: any) {
       setReadmePreview({ cwd, isLoading: false, error: err.message });
     }
-  }, []);
+  }, [options?.onBeforeOpen, options?.settingsMatch, options?.tunnelSetupMatch, options?.navigate]);
 
   return {
     piResourcesState, setPiResourcesState,

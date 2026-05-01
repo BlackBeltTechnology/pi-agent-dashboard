@@ -33,6 +33,13 @@ export function sendStateSync(
     if (entries) eventCount = entries.length;
   } catch { /* ignore */ }
 
+  // Tag the very first sendStateSync after process boot as "spawn";
+  // every subsequent invocation (driven by WebSocket reconnect after a
+  // dashboard restart) is a "reattach". Server applies the configured
+  // `reattachPlacement` policy on "reattach".
+  // See change: reattach-move-to-front.
+  const registerReason: "spawn" | "reattach" = bc.hasRegisteredOnce ? "reattach" : "spawn";
+
   bc.connection.send({
     type: "session_register",
     sessionId: bc.sessionId,
@@ -46,7 +53,10 @@ export function sendStateSync(
     firstMessage,
     eventCount,
     pid: process.pid,
+    registerReason,
   });
+
+  bc.hasRegisteredOnce = true;
 
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });
@@ -111,6 +121,9 @@ export function handleSessionChange(
     if (entries) eventCount = entries.length;
   } catch { /* ignore */ }
 
+  // handleSessionChange always mints a fresh sessionId (new/fork/resume),
+  // so registerReason is unconditionally "spawn" — even after the bridge
+  // has previously reattached. See change: reattach-move-to-front.
   bc.connection.send({
     type: "session_register",
     sessionId: bc.sessionId,
@@ -124,6 +137,7 @@ export function handleSessionChange(
     firstMessage,
     eventCount,
     pid: process.pid,
+    registerReason: "spawn",
   });
 
   replaySessionEntries(bc);

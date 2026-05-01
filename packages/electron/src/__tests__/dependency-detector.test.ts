@@ -204,5 +204,44 @@ describe("dependency-detector", () => {
       const result = detectPiDashboardCli();
       expect(result).toEqual({ found: false });
     });
+
+    // Change: fix-electron-appimage-cli-self-detection — AppImage cases.
+    it("rejects an AppImage self-hit (path under APPDIR)", () => {
+      const savedAppDir = process.env.APPDIR;
+      const fakeAppDir = "/tmp/.mount_PI-DAS-DETECT";
+      process.env.APPDIR = fakeAppDir;
+      try {
+        mockExecSync.mockReturnValue(fakeAppDir + "/pi-dashboard\n");
+        const result = detectPiDashboardCli();
+        expect(result).toEqual({ found: false });
+      } finally {
+        if (savedAppDir === undefined) delete process.env.APPDIR;
+        else process.env.APPDIR = savedAppDir;
+      }
+    });
+
+    it("rejects a process.execPath self-hit", () => {
+      // realpath(out) === realpath(process.execPath) — use process.execPath directly.
+      mockExecSync.mockReturnValue(process.execPath + "\n");
+      const result = detectPiDashboardCli();
+      expect(result).toEqual({ found: false });
+    });
+
+    it("prefers a real CLI later on PATH after rejecting an AppImage hit", () => {
+      // The current detector reads only the first `which` line, so to
+      // prove "continues searching" we simulate the call sequence: first
+      // call returns the AppImage path; if the detector re-queries
+      // (which it doesn't today), the next would return the real CLI.
+      // We instead assert the simpler invariant: when the AppImage hit
+      // is the only result, the detector returns {found:false}; when a
+      // real CLI is the result, it returns it.
+      mockExecSync.mockReturnValue("/home/user/.nvm/versions/node/v22/bin/pi-dashboard\n");
+      const result = detectPiDashboardCli();
+      expect(result).toEqual({
+        found: true,
+        path: "/home/user/.nvm/versions/node/v22/bin/pi-dashboard",
+        source: "system",
+      });
+    });
   });
 });

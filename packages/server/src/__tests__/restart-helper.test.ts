@@ -108,4 +108,29 @@ describe("buildOrchestratorScript", () => {
     expect(script).toMatch(/const PORT = 8765/);
     expect(script).toMatch(/port: PORT/);
   });
+
+  // See change: fix-restart-bridge-auto-start-race.
+  describe("explicit kill of prior daemon", () => {
+    it("references the dashboard.pid file path", () => {
+      const script = buildOrchestratorScript(baseParams);
+      expect(script).toContain("dashboard.pid");
+      expect(script).toMatch(/const PID_PATH = /);
+    });
+
+    it("defines a killPriorDaemon function that uses SIGTERM then SIGKILL", () => {
+      const script = buildOrchestratorScript(baseParams);
+      expect(script).toMatch(/killPriorDaemon/);
+      expect(script).toMatch(/process\.kill\(\s*pid\s*,\s*"SIGTERM"\s*\)/);
+      expect(script).toMatch(/process\.kill\(\s*pid\s*,\s*"SIGKILL"\s*\)/);
+    });
+
+    it("the kill step runs BEFORE the portFree poll", () => {
+      const script = buildOrchestratorScript(baseParams);
+      const killIdx = script.indexOf("await killPriorDaemon()");
+      const portFreeIdx = script.indexOf("await portFree(PORT)");
+      expect(killIdx).toBeGreaterThan(-1);
+      expect(portFreeIdx).toBeGreaterThan(-1);
+      expect(killIdx).toBeLessThan(portFreeIdx);
+    });
+  });
 });

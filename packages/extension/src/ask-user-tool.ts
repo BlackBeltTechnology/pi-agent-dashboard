@@ -10,58 +10,89 @@ import { Type } from "typebox";
 import { polyfillMultiselect } from "./multiselect-polyfill.js";
 
 // ──────────────────────────────────────────────────────────────────────────
-// Single-question schema arms (reused inside the batch arm's questions array)
+// Schema definition
+//
+// IMPORTANT: We use a single flat `Type.Object` at the root (rather than a
+// `Type.Union` of per-method object arms) so the generated JSON Schema has
+// `"type": "object"` at the root.
+//
+// Rationale: OpenAI's function-calling validator (and especially the strict
+// mode used by GPT-4.1+/GPT-5.x/Codex/Responses API) REQUIRES the parameters
+// schema to be an object at the root. A `Type.Union` produces `anyOf` at the
+// root with no `type` field, which Anthropic accepts but OpenAI rejects with:
+//   "Invalid schema for function 'ask_user': schema must be a JSON Schema
+//    of 'type: \"object\"', got 'type: \"None\"'."
+//
+// Per-method validation (which fields are required for which `method`) is
+// enforced at runtime by `prepareArguments` (rescue/normalization) and the
+// `execute` switch below — the JSON Schema only needs to describe the union
+// of allowed fields.
 // ──────────────────────────────────────────────────────────────────────────
 
-const ConfirmSchema = Type.Object({
-  method: Type.Literal("confirm", { description: "Yes/no question" }),
-  title: Type.String({ description: "The question to confirm" }),
-  message: Type.Optional(Type.String({ description: "Additional context or detailed question body" })),
-});
+const MethodEnum = Type.Union(
+  [
+    Type.Literal("confirm"),
+    Type.Literal("select"),
+    Type.Literal("multiselect"),
+    Type.Literal("input"),
+    Type.Literal("batch"),
+  ],
+  {
+    description:
+      "Question kind. 'confirm' = yes/no, 'select' = pick one of options[], 'multiselect' = pick many of options[], 'input' = free text, 'batch' = ask several questions in one call (provide questions[]).",
+  },
+);
 
-const SelectSchema = Type.Object({
-  method: Type.Literal("select", { description: "Pick one option from a list" }),
-  title: Type.String({ description: "Short title for the question" }),
-  options: Type.Array(Type.String(), {
-    minItems: 2,
-    description: "Options the user chooses between (at least 2; use 'confirm' for yes/no)",
-  }),
-  message: Type.Optional(Type.String({ description: "Additional context" })),
-});
-
-const MultiselectSchema = Type.Object({
-  method: Type.Literal("multiselect", { description: "Pick multiple options from a list" }),
-  title: Type.String({ description: "Short title for the question" }),
-  options: Type.Array(Type.String(), {
-    minItems: 1,
-    description: "Options the user can multi-select",
-  }),
-  message: Type.Optional(Type.String({ description: "Additional context" })),
-});
-
-const InputSchema = Type.Object({
-  method: Type.Literal("input", { description: "Free-text input" }),
-  title: Type.String({ description: "Short title for the question" }),
-  placeholder: Type.Optional(Type.String({ description: "Placeholder text for the input field" })),
-  message: Type.Optional(Type.String({ description: "Additional context" })),
-});
-
-// Sub-question union deliberately omits the batch arm (no nesting).
-const SubQuestionSchema = Type.Union([ConfirmSchema, SelectSchema, MultiselectSchema, InputSchema], {
-  description: "A single question inside a batch. Must not itself be a batch.",
-});
-
-const BatchSchema = Type.Object({
-  method: Type.Literal("batch", {
-    description: "Ask multiple related questions in one call; answers are returned as an ordered array.",
-  }),
-  title: Type.String({ description: "Header shown above the sequence of dialogs" }),
-  questions: Type.Array(SubQuestionSchema, {
-    minItems: 1,
-    description: "One or more sub-questions (confirm/select/multiselect/input). Cannot nest batch.",
-  }),
-  message: Type.Optional(Type.String({ description: "Additional context for the whole batch" })),
-});
+// Sub-question schema for batch.method — flat object (root: type=object) so
+// the emitted JSON Schema stays OpenAI-compatible at every level.
+//
+// IMPORTANT: this object MUST NOT carry a root-level `oneOf` / `anyOf` /
+// `allOf` / `enum` / `not`. OpenAI strict mode (GPT-4.1+, GPT-5.x, Codex,
+// Responses API) explicitly rejects those at *any* schema's top level
+// with: "schema must have type 'object' and not have 'oneOf' / 'anyOf' /
+// 'allOf' / 'enum' / 'not' at the top level." An earlier draft of
+// fix-multiselect-auto-cancel-on-dashboard tried to add a body-level
+// `oneOf` discriminator to restore Anthropic's per-arm strictness, but
+// real-world OpenAI gpt-5 rejected it; the fallback path documented in
+// tasks.md §9.7 was taken — Layer 2 dropped, Layer 1 ships alone.
+//
+// Per-method requirements (select/multiselect need `options`, batch
+// needs `questions[]`, etc.) are enforced exclusively by
+// `prepareArguments` rescue + the `execute` switch's runtime guards.
+// Sub-questions cannot themselves be a batch (no nesting); enforced at
+// runtime in `execute`.
+//
+// See change: fix-multiselect-auto-cancel-on-dashboard.
+const SubQuestionSchema = Type.Object(
+  {
+    method: Type.Union(
+      [
+        Type.Literal("confirm"),
+        Type.Literal("select"),
+        Type.Literal("multiselect"),
+        Type.Literal("input"),
+      ],
+      { description: "Sub-question kind. Cannot be 'batch' (no nesting)." },
+    ),
+    title: Type.String({ description: "Short title / question text for this sub-question" }),
+    options: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          "Required for 'select' (>=2) and 'multiselect' (>=1). Plain string[] — not [{label,value}].",
+      }),
+    ),
+    placeholder: Type.Optional(
+      Type.String({ description: "Placeholder for 'input' method" }),
+    ),
+    message: Type.Optional(
+      Type.String({ description: "Additional context for this sub-question" }),
+    ),
+  },
+  {
+    description:
+      "A single question inside a batch. Must not itself be a batch.",
+  },
+);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Argument rescue helpers
@@ -132,9 +163,67 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
       "Do not nest batches. Send `options` as a plain string[] — not [{label, value}].",
       "This applies to all workflows including OpenSpec, planning, and any situation where you need user input before proceeding.",
     ],
-    parameters: Type.Union(
-      [ConfirmSchema, SelectSchema, MultiselectSchema, InputSchema, BatchSchema],
-      { description: "Parameters for ask_user, discriminated by method." },
+    // Flat object schema (root: type=object) for OpenAI strict-mode
+    // compatibility.
+    //
+    // IMPORTANT: this object MUST NOT carry a root-level `oneOf` / `anyOf`
+    // / `allOf` / `enum` / `not`. OpenAI strict mode (GPT-4.1+, GPT-5.x,
+    // Codex, Responses API) explicitly rejects those at the top level with:
+    // "schema must have type 'object' and not have 'oneOf' / 'anyOf' /
+    // 'allOf' / 'enum' / 'not' at the top level."
+    //
+    // An earlier iteration of fix-multiselect-auto-cancel-on-dashboard
+    // ("Layer 2: defense in depth") tried adding a body-level `oneOf`
+    // discriminator over `method` so Anthropic would regain per-arm
+    // `required` + `minItems` enforcement. That worked for Anthropic
+    // models but real-world OpenAI gpt-5 rejected the schema (verified by
+    // the user 2026-04-30). The fallback documented in tasks.md §9.7 was
+    // taken: Layer 2 was dropped; Layer 1 (multiselect dashboard routing)
+    // ships alone, which is what actually fixes the user-reported bug.
+    //
+    // Per-method shape requirements (select/multiselect need `options`,
+    // batch needs `questions[]`, etc.) are enforced exclusively at runtime
+    // by `prepareArguments` (rescue/normalization) and the `execute` switch.
+    //
+    // The `no-root-oneof-in-ask-user-schema` guard test at
+    // packages/extension/src/__tests__/ask-user-schema-discriminator.test.ts
+    // pins this constraint so a future refactor cannot reintroduce it.
+    //
+    // See change: fix-multiselect-auto-cancel-on-dashboard.
+    parameters: Type.Object(
+      {
+        method: MethodEnum,
+        title: Type.Optional(
+          Type.String({
+            description:
+              "Short title / question text. Required for all methods except when 'questions' carry it (batch may omit and inherit from first sub-question).",
+          }),
+        ),
+        message: Type.Optional(
+          Type.String({ description: "Additional context shown alongside the question(s)." }),
+        ),
+        options: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Required for method 'select' (>=2 items) and 'multiselect' (>=1 item). Plain string[] — not [{label,value}]. Ignored for other methods.",
+          }),
+        ),
+        placeholder: Type.Optional(
+          Type.String({
+            description: "Placeholder for method 'input'. Ignored for other methods.",
+          }),
+        ),
+        questions: Type.Optional(
+          Type.Array(SubQuestionSchema, {
+            description:
+              "Required for method 'batch' (>=1 sub-question). Each sub-question is its own confirm/select/multiselect/input — cannot nest 'batch'.",
+          }),
+        ),
+      },
+      {
+        description:
+          "Parameters for ask_user. The required fields depend on `method`: confirm→title; select→title+options(>=2); multiselect→title+options(>=1); input→title (placeholder optional); batch→questions[] (title auto-derived from first question if omitted). Validation is enforced at runtime by prepareArguments + execute (no schema-level discriminator — OpenAI strict mode forbids root-level oneOf).",
+      },
     ),
     prepareArguments(args: unknown) {
       let obj = (args && typeof args === "object" ? { ...(args as Record<string, unknown>) } : {}) as Record<string, unknown>;
@@ -223,6 +312,21 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
       return obj as any;
     },
     async execute(_toolCallId: any, params: any, _signal: any, _onUpdate: any, ctx: any) {
+      // Capture the originating toolCallId so the resulting prompt_request
+      // metadata carries it; the client reducer pairs the interactiveUi
+      // row with its parent toolResult row using this id.
+      // See change: fix-interactive-ui-reorder.
+      const toolCallId: string | undefined =
+        typeof _toolCallId === "string" && _toolCallId.length > 0
+          ? _toolCallId
+          : undefined;
+      const withTcid = (
+        opts: Record<string, unknown> | undefined,
+      ): Record<string, unknown> | undefined => {
+        if (!toolCallId) return opts;
+        return { ...(opts ?? {}), toolCallId };
+      };
+
       // ── Batch branch ─────────────────────────────────────────────────
       if (params.method === "batch" && Array.isArray(params.questions)) {
         const results: Array<unknown> = [];
@@ -230,13 +334,17 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
 
         for (const sq of params.questions) {
           const subTitle = `${params.title} — ${sq.title ?? "Question"}`;
-          const subMsg = params.message ? { message: params.message } : undefined;
+          const subMsg = withTcid(params.message ? { message: params.message } : undefined);
 
           let answer: unknown;
           try {
             switch (sq.method) {
               case "confirm":
-                answer = await ctx.ui.confirm(subTitle, sq.message ?? params.message ?? "");
+                answer = await ctx.ui.confirm(
+                  subTitle,
+                  sq.message ?? params.message ?? "",
+                  withTcid(undefined),
+                );
                 break;
               case "select": {
                 const opts = Array.isArray(sq.options) ? sq.options : [];
@@ -312,7 +420,7 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
 
       // ── Single-question branches (unchanged behavior) ────────────────
       let result: unknown;
-      const msgOpts = params.message ? { message: params.message } : undefined;
+      const msgOpts = withTcid(params.message ? { message: params.message } : undefined);
       const title = params.title || params.message || "Question";
 
       const options: string[] = Array.isArray(params.options)
@@ -331,7 +439,7 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
 
       switch (params.method) {
         case "confirm":
-          result = await ctx.ui.confirm(title, params.message ?? "");
+          result = await ctx.ui.confirm(title, params.message ?? "", withTcid(undefined));
           break;
         case "select":
           result = await ctx.ui.select(title, options, msgOpts);

@@ -36,6 +36,10 @@ export interface RestartParams {
 export function buildOrchestratorScript(params: RestartParams): string {
   const execPath = params.execPath ?? process.execPath;
   const logPath = path.join(os.homedir(), ".pi", "dashboard", "restart.log");
+  // Same convention as `server-pid.ts`. Embedded as a JSON-stringified literal
+  // so quoting/path-separator handling is correct on Windows.
+  // See change: fix-restart-bridge-auto-start-race.
+  const pidPath = path.join(os.homedir(), ".pi", "dashboard", "dashboard.pid");
   // Loader is always URL-wrapped (required on Windows for non-C: drives).
   // Entry is URL-wrapped only on Windows + non-tsx loader. POSIX + jiti MUST
   // pass raw path because jiti's resolver treats file:// URL entries as
@@ -66,6 +70,7 @@ const PORT = ${params.port};
 const EXEC = ${JSON.stringify(execPath)};
 const ARGS = ${JSON.stringify(spawnArgs)};
 const LOG_PATH = ${JSON.stringify(logPath)};
+const PID_PATH = ${JSON.stringify(pidPath)};
 
 function log(msg) {
   try {
@@ -99,9 +104,43 @@ function healthOk() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// The next three process.kill calls run inside the orchestrator's
+// 'node -e' subprocess (NOT in-host server code), so they cannot use
+// the platform/process.ts helpers — those modules are not bundled into
+// the embedded script. The repo-lint opt-out marker at the end of each
+// line keeps no-direct-process-kill.test.ts quiet.
+// See change: fix-restart-bridge-auto-start-race.
+function isAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (_) { return false; } // ban:process-kill-ok
+}
+
+// 0. Read PID file and terminate the previous daemon explicitly. Removes the
+// "wait for self-exit" ambiguity that lets bridge auto-start race the
+// orchestrator. See change: fix-restart-bridge-auto-start-race.
+async function killPriorDaemon() {
+  let pid = 0;
+  try {
+    const raw = fs.readFileSync(PID_PATH, "utf-8").trim();
+    pid = parseInt(raw, 10);
+  } catch (_) { return; /* no PID file — nothing to do */ }
+  if (!Number.isFinite(pid) || pid <= 0) return;
+  if (!isAlive(pid)) return;
+  try { process.kill(pid, "SIGTERM"); } catch (_) { /* ignore */ } // ban:process-kill-ok
+  for (let i = 0; i < 30; i++) { // up to 3 s
+    await sleep(100);
+    if (!isAlive(pid)) return;
+  }
+  try { process.kill(pid, "SIGKILL"); } catch (_) { /* ignore */ } // ban:process-kill-ok
+  await sleep(200);
+}
+
 (async () => {
-  // 1. Wait for port to be free (up to 10s)
-  for (let i = 0; i < 20; i++) {
+  // 0. Explicit kill of previous daemon (SIGTERM → SIGKILL).
+  await killPriorDaemon();
+
+  // 1. Wait for port to be free (up to 5s — reduced from 10s because step 0
+  //    already guarantees the previous server is dead).
+  for (let i = 0; i < 10; i++) {
     if (await portFree(PORT)) break;
     await sleep(500);
   }

@@ -62,6 +62,8 @@ interface Config {
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
   spawnStrategy: string;
+  /** Reattach placement policy. See change: reattach-move-to-front. */
+  reattachPlacement?: "preserve" | "streaming-only" | "always";
   tunnel: { enabled: boolean };
   devBuildOnReload: boolean;
   defaultModel: string;
@@ -155,6 +157,9 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
     if (config.autoShutdown !== original.autoShutdown) partial.autoShutdown = config.autoShutdown;
     if (config.shutdownIdleSeconds !== original.shutdownIdleSeconds) partial.shutdownIdleSeconds = config.shutdownIdleSeconds;
     if (config.spawnStrategy !== original.spawnStrategy) partial.spawnStrategy = config.spawnStrategy;
+    if (config.reattachPlacement !== original.reattachPlacement) {
+      partial.reattachPlacement = config.reattachPlacement ?? "always";
+    }
     if (config.tunnel.enabled !== original.tunnel.enabled) partial.tunnel = { enabled: config.tunnel.enabled };
     if (config.devBuildOnReload !== original.devBuildOnReload) partial.devBuildOnReload = config.devBuildOnReload;
     if (config.defaultModel !== original.defaultModel) partial.defaultModel = config.defaultModel;
@@ -353,7 +358,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
               activeTab === tab.id
                 ? "text-[var(--text-primary)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
@@ -402,6 +407,21 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                   options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
                   onChange={(v) => update((c) => { c.spawnStrategy = v; })}
                 />
+                <div>
+                  <SelectField
+                    label="Reattach Placement"
+                    value={config.reattachPlacement ?? "always"}
+                    options={[
+                      { value: "always", label: "Always move to top (default)" },
+                      { value: "streaming-only", label: "Only when streaming" },
+                      { value: "preserve", label: "Preserve drag order" },
+                    ]}
+                    onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
+                  />
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.
+                  </p>
+                </div>
                 <div className="flex items-center justify-between">
                   <label className="text-sm text-[var(--text-secondary)]">Default Model</label>
                   <ModelSelector

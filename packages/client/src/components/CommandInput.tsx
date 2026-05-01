@@ -212,14 +212,25 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   // --- Handlers ---
 
-  const selectCommand = useCallback((cmd: CommandInfo) => {
+  // NOTE: `selectCommand` and `selectFile` are intentionally plain inner
+  // functions (no `useCallback`). They call `setText`, which in controlled
+  // mode wraps the parent's `onDraftChange` prop — a prop whose reference
+  // changes on every session switch in App.tsx. A `useCallback` here would
+  // freeze the first-render `setText` (and thus the first-render
+  // `onDraftChange`), causing Tab/Enter/click selection to silently invoke
+  // a stale handler after the user switches sessions. Keeping these as plain
+  // closures reads the current render's `setText` every time, which is
+  // correct and has no measurable render-perf cost (the dropdown items are
+  // not memoized children). See change: fix-autocomplete-stale-closure.
+
+  const selectCommand = (cmd: CommandInfo) => {
     const newText = `/${cmd.name} `;
     setText(newText);
     setDismissed(newText); // prevent dropdown from reopening for selected text
     inputRef.current?.focus();
-  }, []);
+  };
 
-  const selectFile = useCallback((file: FileEntry) => {
+  const selectFile = (file: FileEntry) => {
     const query = atQuery ?? "";
     const beforeAt = textBeforeCursor.slice(0, textBeforeCursor.length - query.length - 1); // remove @query
     const afterCursor = text.slice(cursorPos);
@@ -234,7 +245,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       inputRef.current?.focus();
     });
-  }, [atQuery, textBeforeCursor, text, cursorPos]);
+  };
 
   const handleSend = useCallback(() => {
     if (text.trim()) {
@@ -370,7 +381,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         handleSend();
       }
     },
-    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, selectCommand, selectFile, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList]
+    // Note: `selectCommand` / `selectFile` are intentionally omitted — they
+    // are plain closures (see comment at their definition) and recomputed
+    // every render anyway, so listing them would only cause unnecessary
+    // handler-identity churn without affecting correctness.
+    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList]
   );
 
   // Clipboard paste + preview-strip are delegated to the shared hook +

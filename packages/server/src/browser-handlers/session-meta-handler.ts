@@ -34,23 +34,39 @@ export function handleUnhideSession(
   ctx.broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
 }
 
+/**
+ * Shared attach-proposal apply logic. Used by both:
+ *   - the browser-initiated `handleAttachProposal` flow, and
+ *   - the spawn-with-attach pop-on-register flow in `pi-gateway.ts`
+ *     (see change: add-folder-task-checker-and-spawn-attach).
+ *
+ * Idempotent: calling twice with the same `changeName` is safe — the auto-rename
+ * is gated by `attachRenameTarget` which short-circuits when the witness equality
+ * already holds (see ./proposal-attach-naming.ts).
+ */
+export function applyAttachProposal(
+  sessionId: string,
+  changeName: string,
+  ctx: Pick<BrowserHandlerContext, "sessionManager" | "piGateway" | "broadcast">,
+): void {
+  const { sessionManager, piGateway, broadcast } = ctx;
+  const session = sessionManager.get(sessionId);
+  const updates: Record<string, unknown> = { attachedProposal: changeName };
+
+  const newName = attachRenameTarget(session, changeName);
+  if (newName !== undefined) {
+    updates.name = newName;
+    piGateway.sendToSession(sessionId, { type: "rename_session", sessionId, name: newName });
+  }
+  sessionManager.update(sessionId, updates);
+  broadcast({ type: "session_updated", sessionId, updates });
+}
+
 export function handleAttachProposal(
   msg: Extract<BrowserToServerMessage, { type: "attach_proposal" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  const { sessionManager, piGateway, broadcast } = ctx;
-  const session = sessionManager.get(msg.sessionId);
-  const updates: Record<string, unknown> = { attachedProposal: msg.changeName };
-
-  // Idempotent auto-rename (see change: fix-mobile-attach-proposal-display).
-  // See design.md decision matrix and ./proposal-attach-naming.ts.
-  const newName = attachRenameTarget(session, msg.changeName);
-  if (newName !== undefined) {
-    updates.name = newName;
-    piGateway.sendToSession(msg.sessionId, { type: "rename_session", sessionId: msg.sessionId, name: newName });
-  }
-  sessionManager.update(msg.sessionId, updates);
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+  applyAttachProposal(msg.sessionId, msg.changeName, ctx);
 }
 
 export function handleDetachProposal(

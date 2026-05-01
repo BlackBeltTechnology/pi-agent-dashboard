@@ -75,7 +75,7 @@ function createMockSessionManager(sessions: DashboardSession[] = []): SessionMan
     restore: vi.fn(),
     unregister: vi.fn(),
     update: vi.fn(),
-    get: (id) => map.get(id),
+    get: (id: string) => map.get(id),
     listActive: () => [],
     listAll: () => Array.from(map.values()),
   } as unknown as SessionManager;

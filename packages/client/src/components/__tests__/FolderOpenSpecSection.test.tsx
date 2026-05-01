@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
+
+// Stub the tasks API so the popover doesn't hit the network during these tests.
+vi.mock("../../lib/openspec-tasks-api.js", () => ({
+  fetchTasks: vi.fn(async () => ({ tasks: [], header: "" })),
+  toggleTask: vi.fn(),
+  LineMismatchError: class LineMismatchError extends Error {},
+}));
+
 import { FolderOpenSpecSection } from "../FolderOpenSpecSection.js";
 import type { OpenSpecData, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -180,5 +188,88 @@ describe("FolderOpenSpecSection", () => {
   it("does not render + Change button", () => {
     render(<FolderOpenSpecSection {...defaultProps} />);
     expect(screen.queryByTestId("folder-new-change-btn")).toBeNull();
+  });
+
+  // --- Clickable task counter (change: add-folder-task-checker-and-spawn-attach) ---
+
+  it("renders task counter as a button when totalTasks > 0", () => {
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    const btn = screen.getByTestId("folder-tasks-counter-feat-in-progress");
+    expect(btn.tagName).toBe("BUTTON");
+    expect(btn.textContent).toBe("2/5 tasks");
+  });
+
+  it("does not render a tasks-counter button when totalTasks === 0", () => {
+    const zeroTasksData: OpenSpecData = {
+      initialized: true,
+      changes: [{ ...mockData.changes[1]!, completedTasks: 0, totalTasks: 0 }],
+    };
+    render(<FolderOpenSpecSection {...defaultProps} data={zeroTasksData} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("folder-tasks-counter-feat-in-progress")).toBeNull();
+  });
+
+  it("clicking the task counter opens TasksPopover with cwd + change", async () => {
+    const { fetchTasks } = await import("../../lib/openspec-tasks-api.js");
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-feat-in-progress"));
+    // The popover mounts and immediately calls fetchTasks(cwd, change).
+    expect(fetchTasks).toHaveBeenCalledWith("/project/foo", "feat-in-progress", expect.anything());
+  });
+
+  it("clicking the task counter does not toggle the section collapse", () => {
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.getByTestId("folder-openspec-changes")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-feat-in-progress"));
+    // Section is still expanded.
+    expect(screen.getByTestId("folder-openspec-changes")).toBeTruthy();
+  });
+
+  it("clicking a second counter swaps the popover (only one open at a time)", async () => {
+    const { fetchTasks } = await import("../../lib/openspec-tasks-api.js");
+    (fetchTasks as ReturnType<typeof vi.fn>).mockClear();
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-feat-in-progress"));
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-feat-complete"));
+    // Two distinct mounts, last fetch is for the second change.
+    const calls = (fetchTasks as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[calls.length - 1]![1]).toBe("feat-complete");
+  });
+
+  // --- Spawn-with-attach button (change: add-folder-task-checker-and-spawn-attach) ---
+
+  it("renders spawn-attached button when onSpawnAttached prop is provided", () => {
+    render(<FolderOpenSpecSection {...defaultProps} onSpawnAttached={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.getByTestId("spawn-attached-btn-feat-in-progress")).toBeTruthy();
+    expect(screen.getByTestId("spawn-attached-btn-feat-complete")).toBeTruthy();
+  });
+
+  it("does not render spawn-attached button when callback is absent", () => {
+    render(<FolderOpenSpecSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("spawn-attached-btn-feat-in-progress")).toBeNull();
+  });
+
+  it("clicking spawn-attached invokes callback with (cwd, changeName)", () => {
+    const onSpawnAttached = vi.fn();
+    render(<FolderOpenSpecSection {...defaultProps} onSpawnAttached={onSpawnAttached} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("spawn-attached-btn-feat-in-progress"));
+    expect(onSpawnAttached).toHaveBeenCalledOnce();
+    expect(onSpawnAttached).toHaveBeenCalledWith("/project/foo", "feat-in-progress");
+  });
+
+  it("clicking spawn-attached does not toggle section collapse", () => {
+    render(<FolderOpenSpecSection {...defaultProps} onSpawnAttached={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.getByTestId("folder-openspec-changes")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("spawn-attached-btn-feat-in-progress"));
+    expect(screen.getByTestId("folder-openspec-changes")).toBeTruthy();
   });
 });

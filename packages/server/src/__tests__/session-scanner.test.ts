@@ -108,6 +108,37 @@ describe("session-scanner", () => {
     expect(meta.cachedAt).toBeGreaterThan(0);
   });
 
+  it("should seed lastActivityAt from events.jsonl mtime (cold-start, cached meta path)", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_seed-id.jsonl", { id: "seed-id", cwd: "/seed" });
+    writeSessionMeta(sf, {
+      cwd: "/seed",
+      status: "ended",
+      startedAt: 1000,
+      cachedAt: Date.now() + 10_000, // fresh cache so we hit the cached-meta arm
+    });
+
+    // Force a known mtime on the .jsonl
+    const knownMtime = new Date("2026-04-15T10:00:00.000Z");
+    fs.utimesSync(sf, knownMtime, knownMtime);
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].lastActivityAt).toBe(knownMtime.getTime());
+  });
+
+  it("should seed lastActivityAt from events.jsonl mtime (fallback parse path)", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_fallback-seed.jsonl", { id: "fallback-seed", cwd: "/seed2" });
+    // No .meta.json — forces the fallback-parse arm.
+    const knownMtime = new Date("2026-04-16T11:30:00.000Z");
+    fs.utimesSync(sf, knownMtime, knownMtime);
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].lastActivityAt).toBe(knownMtime.getTime());
+  });
+
   it("should ignore orphaned .meta.json without .jsonl", () => {
     const dir = createSessionDir("--test-cwd--");
     // Write .meta.json without a corresponding .jsonl

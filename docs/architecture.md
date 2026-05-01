@@ -39,10 +39,10 @@ A global pi extension that runs in every pi session. It:
 - **Attached-proposal artifact summary** in the content-window header (`SessionHeader.tsx`, both desktop branch and `MobileHeader`): when `session.attachedProposal` matches an entry in the polled `openspecChanges` list, the header renders the `ArtifactLettersButton` (P/D/T/S letters colored by per-artifact status, single button → opens the proposal artifact) plus a `(completedTasks/totalTasks)` counter. Surface is gated on the explicit user attach only — auto-detected `openspecChange` does not trigger it. Wired via the new `onReadArtifact` prop, threaded from `App.tsx` (`handleReadArtifact` from `useContentViews`). See change: add-attached-proposal-header-summary.
 - **Duplicate bridge prevention**: Uses `process`-level shared state (not `globalThis`) with a monotonic generation counter. When the extension is loaded multiple times (e.g., local + global npm package), only the latest instance's event handlers are active — stale listeners bail out immediately. All previous connections and timers are tracked and cleaned up on re-init.
 - **Subagent re-entry guard**: When pi-subagents launches an Agent tool, the subagent creates its own `AgentSession` which loads extensions (including the bridge) in the same process. Without protection, this would overwrite the parent bridge's global state, disconnect its WebSocket, and prevent `tool_execution_end`/`agent_end` from being forwarded — leaving the parent session stuck at "streaming" forever. The bridge stores a reference to its owning `pi` instance and skips initialization when called from a different instance (subagent).
-- Routes `ctx.ui` dialog methods (confirm, select, input, editor, notify) through `PromptBus` (`prompt-bus.ts`)
+- Routes `ctx.ui` dialog methods (confirm, select, input, editor, multiselect, notify) through `PromptBus` (`prompt-bus.ts`)
   - Adapters register to handle prompts: `DashboardDefaultAdapter` renders generic dialogs inline; extensions (e.g. pi-flows) can register custom adapters via `prompt:register-adapter` event
   - First-response-wins: multiple adapters (TUI, dashboard, custom) can claim a prompt; the first to respond resolves it, others are dismissed
-  - Bridge's TUI adapter is registered inline (captures original `ctx.ui` methods before patching) and presents prompts in the terminal with AbortController-based cancellation
+  - Bridge's TUI adapter is registered inline (captures original `ctx.ui` methods before patching) and presents `select`/`input`/`confirm`/`editor` prompts in the terminal with AbortController-based cancellation. Multiselect bypasses the TUI adapter entirely and uses the bus-routed `ctx.ui.multiselect` patch → `DashboardDefaultAdapter` → client `MultiselectRenderer` exclusively (pi 0.70 RPC's `ctx.ui.custom` is a no-op, so a TUI arm would auto-cancel the dashboard render in <1s). See changes: fix-multiselect-auto-cancel-on-dashboard, fix-multiselect-tui-arm-self-cancel.
   - Patched `ctx.ui` methods forward the `message` field (from opts) via `metadata` in the PromptBus request
   - Client-side `prompt-component-registry.ts` maps component type strings to render placement (inline, widget-bar, overlay)
   - Protocol messages: `prompt_request`, `prompt_dismiss`, `prompt_cancel`, `prompt_response`
@@ -77,7 +77,7 @@ A Node.js HTTP + WebSocket server that:
 ### 3. Web Client (`src/client/`)
 A React-based responsive web UI that:
 - Shows all active sessions organized by directory, with pinned directories always visible at the top
-- Renders chat messages with markdown, syntax highlighting, and streaming
+- Renders chat messages with markdown, syntax highlighting, streaming, and a small raw-HTML pass that strips React-only `ref` attributes before render
 - Persists scroll position per session — switching sessions restores exact scroll position if locked, or scrolls to bottom if following
 - Displays collapsed tool call steps with lazy-loaded content and elapsed time badges
 - Shows live ticking elapsed counters on running operations (thinking, tool calls) and final duration on completed ones
@@ -101,8 +101,22 @@ TypeScript type definitions shared across all components:
 4. Server broadcasts to all subscribed browsers via `event` message
 5. Browser's event reducer processes event, React renders update
 
+**Last-activity stamping** (change: session-card-last-activity-badge): inside step 3, before any other event-derived updates, the server checks `isActivityEvent(eventType)` against a curated allowlist (`prompt_send`, `message_*`, `turn_end`, `tool_execution_*`, `agent_*`, `bash_output`, `flow_*`, `architect_*`). On a match — and only when the session is NOT in replay — it stamps `session.lastActivityAt = Date.now()`. The in-memory write is unconditional; the `session_updated` broadcast is throttled to **at most one per 30 s per session** via `lastActivityBroadcastAt: Map<sessionId, ms>`. The map entry is dropped on `session_unregister` so a fast re-register cannot lose its first broadcast. Heartbeat / metrics / UI-state events (`process_metrics`, `git_info_update`, `model_select`, `ui_data_list`, `ext_ui_decorator`, …) are excluded so an idle pi process emitting periodic metrics does not keep the badge artificially fresh. At server boot, `session-scanner.ts` cold-start-seeds `lastActivityAt` from the `events.jsonl` file mtime so existing idle sessions retain a meaningful relative-time label across restarts. The client's `selectBadgeTimestamp(session)` (in `packages/client/src/lib/session-card-time.ts`) renders `endedAt ?? lastActivityAt ?? startedAt` for ended sessions and `lastActivityAt ?? startedAt` for active ones.
+
+**Unread state machine** (change: session-card-unread-stripes): every session carries a `unread: boolean` field that flips to `true` when an attention-worthy event fires while no browser has the session displayed, and clears to `false` when any browser opens the session. The visual is cyan scrolling stripes (`card-unread-pulse`, Tailwind `cyan-400`) on the session card, lower priority than the yellow streaming and purple ask_user pulses.
+
+- **Triggers** (evaluated by the pure helper `isUnreadTrigger(eventType, before, after, payload)` in `event-status-extraction.ts`):
+  1. Session status transitions from `streaming` to `idle` or `active` — a turn finished.
+  2. Session's `currentTool` becomes `"ask_user"` — input is requested.
+  3. An `agent_end` event arrives with a truthy `payload.error` — something broke.
+  Other events (assistant `message_end`, tool execution start/end, model/git/metrics noise) deliberately do NOT trigger unread — they would be too noisy on long turns.
+- **"Currently viewing" registry**: `viewed-session-tracker.ts` exposes `Map<sessionId, Set<WebSocket>>`. Browsers populate it via two new browser→server messages, `session_view` and `session_unview`, sent by the client hook `useViewDispatcher` (mounted in `App.tsx`). The hook watches the `/session/:id` route and the WebSocket connection status; on every transition INTO `connected` it re-sends `session_view` for the current id so server-side state re-syncs after reconnect. On WS `close`, the gateway calls `tracker.unviewAll(ws)` so disconnected browsers cannot hold sessions in the viewed state. Read state is GLOBAL across browsers (mirrors mail/Slack: opening on phone clears unread on laptop).
+- **State transitions** in `event-wiring.ts`: right after the `extractSessionUpdates` block, the wiring snapshots `{status, currentTool}` before/after the update and calls `isUnreadTrigger`. If true AND `viewedSessionTracker.isViewedByAnyone(sessionId) === false` AND `!replayingSessions.has(sessionId)`, the wiring stamps `session.unread = true` and broadcasts `session_updated`. The browser-gateway's `session_view` arm clears the bit (`unread: false`) and broadcasts. The clear-on-already-read path is a no-op (no spurious broadcast).
+- **Persistence**: the bit lives in `.meta.json` (`SessionMeta.unread`). `server.ts onChange` writes it on every session update; `session-scanner.ts::sessionFromMeta` restores it on cold start. The cold-start "force `status = ended`" override at `server.ts:273-279` is intentionally non-destructive on `unread` — a session that was unread when the server stopped is still unread when it starts back up, even before its bridge reattaches.
+- **Render precedence** (`SessionCard.tsx::getCardPulseClass`): `ask_user` (purple) > `streaming || resuming` (yellow) > `unread` (cyan) > none. Streaming with `unread: true` shows yellow stripes; when streaming ends with the session still unviewed, the trigger fires, the card flips to cyan. The `card-unread-pulse` CSS class reuses the `card-working-stripes-scroll` and `card-working-opacity-pulse` keyframes verbatim — only the stripe and tint colors change to cool cyan (`rgba(34, 211, 238, 0.18)` and `rgba(34, 211, 238, 0.07)`). Cyan was selected to occupy its own corner of the dashboard palette (distant from yellow, purple, green, red). Reduced-motion users see a static cyan-tinted background, matching the working-pulse arm.
+
 ### Interactive UI Flow (PromptBus — extension dialog → browser → response)
-1. Extension calls `ctx.ui.confirm()` / `select()` / `input()` / `editor()`
+1. Extension calls `ctx.ui.confirm()` / `select()` / `input()` / `editor()` / bridge-patched `multiselect()`
 2. Bridge PromptBus intercepts via patched `ctx.ui` methods, creates a `PromptRequest` with a unique `promptId` and `pipeline` tag (e.g. `"command"`, `"architect"`)
 3. Registered adapters claim the prompt:
    - `DashboardDefaultAdapter` (always registered) returns a `PromptClaim` with `component: { type: "generic-dialog", props }` and `placement: "inline"`
@@ -113,6 +127,8 @@ TypeScript type definitions shared across all components:
 6. Browser's `prompt-component-registry.ts` resolves the component type to a React renderer and placement
 7. User responds in browser → `prompt_response` sent to server → routed to bridge
 8. Bus resolves the original dialog promise and calls `onResponse()` on all adapters for cleanup
+
+**Multiselect note:** pi's upstream `ExtensionUIContext` has no native `multiselect` method, so the bridge attaches `ctx.ui.multiselect` during `session_start`. `ask_user` dispatches multiselect through `polyfillMultiselect`, which delegates to that patched PromptBus method when present and falls back to `ctx.ui.custom` + `MultiSelectList` for legacy / non-bridge contexts (the fallback is a no-op in pi 0.70 RPC mode — dashboard headless — because pi-coding-agent defines `custom` as `async () => undefined` there). The bridge intentionally registers NO TUI adapter arm for multiselect; routing is bus-only. Browser responses encode `{ values: string[] }` as `JSON.stringify(values)` in `prompt_response.answer`, preserving `[]` as a real empty selection distinct from cancellation.
 
 **First-response-wins (multi-adapter):**
 - Multiple adapters can claim the same prompt (e.g. TUI + dashboard)
@@ -153,8 +169,8 @@ pi-flows runs multi-agent workflows in-process. Subagent sessions use `SessionMa
 1. pi-flows `EventEmitObserver` emits `flow:*` events on `pi.events` (all 10 `FlowObserver` callbacks)
 2. Bridge extension listens to `flow:*` events and forwards as `event_forward` messages with `flow_*` event types
 3. Server stores events, extracts flow metadata to `DashboardSession` fields (`activeFlowName`, `flowAgentsDone`, `flowAgentsTotal`, `flowStatus`)
-4. Browser event reducer builds client-side `FlowState` (agents map, tool history, detail entries)
-5. React renders `FlowDashboard` (sticky card grid above ChatView), `FlowAgentDetail` (replaces chat), `FlowSummary` (post-completion)
+4. Browser event reducer builds client-side `FlowState` (agents map, tool history, detail entries) — reducer code lives in `packages/flows-plugin/src/flow-reducer.ts` (re-exported via `@blackbelt-technology/pi-dashboard-flows-plugin/reducer`); `event-reducer.ts` imports `isFlowEvent` + `reduceFlowEvent` from there.
+5. React renders `FlowDashboard` (sticky card grid above ChatView), `FlowAgentDetail` (replaces chat), `FlowSummary` (post-completion). Component code lives in `packages/flows-plugin/src/client/` and is imported by the shell via `@blackbelt-technology/pi-dashboard-flows-plugin/client`. Slot-consumer-based mounting is tracked as the follow-up change `migrate-flows-jsx-to-slots`; the current shell imports the components directly. See change: extract-flows-as-plugin.
 
 **Flow controls (browser → pi-flows):**
 - Abort: browser sends `flow_control { action: "abort" }` → server → bridge → `pi.events.emit("flow:abort")` → `flowManager.abort()`
@@ -416,7 +432,49 @@ lockstep bump of the offline-bundled pi version in
 
 The CLI also surfaces skew on stderr at startup: `cli.ts::logCompatibilityWarning` emits a three-line red block on below-minimum (including the exact `pi-dashboard upgrade-pi` remediation command) and a single advisory line on below-recommended. Silent when in range. This is in addition to the browser banner and the 503 gating, so terminal-only users (headless servers, CI) don't miss the signal. Note: `readCurrentPiVersion` uses `fs.realpathSync` on the registry-resolved bin path so the common npm-global symlink layout (`~/.nvm/.../bin/pi` → `../lib/node_modules/@mariozechner/pi-coding-agent/dist/cli.js`) resolves to the real `package.json` — without this, `compatibility.current` was silently `undefined` in every response.
 
-See changes: `unified-bootstrap-install`, `pi-zero-seventy-compat`, `warn-pi-version-skew-in-cli`.
+#### Post-install repair (centralized hook)
+
+On every `bootstrapState` transition from `"installing"` to `"ready"`,
+`server.ts`'s subscribe callback runs a one-shot repair phase via the
+exported helpers `makeBootstrapTransitionHandler` (gating) and
+`runPostInstallRepair` (the work):
+
+1. **Full `ToolRegistry.rescan()` (no arg)** — every cached `Resolution`
+   is dropped so the next `resolve(<tool>)` call re-runs the entire
+   strategy chain against the post-install filesystem. Restores the
+   literal contract from `unified-bootstrap-install` task 4.3 ("registry
+   rescan") that was previously narrowed to `rescan("pi")` and left
+   `openspec` / `tsx` cached as `not-found` forever.
+
+2. **Force-refresh OpenSpec for every known directory** — iterates
+   `directoryService.knownDirectories()` and for each cwd calls
+   `refreshOpenSpec(cwd)` (bypasses the mtime gate per the
+   `fix-openspec-mtime-gate-toctou` design's escape-hatch contract).
+   Compares the returned `OpenSpecData` against the prior cache; emits
+   `openspec_update` to all browsers when the prior was empty or the
+   payload differs. Per-cwd failures are isolated via try/catch so one
+   cwd cannot block the others. Concurrency is bounded by the existing
+   `OpenSpecPollConfig.maxConcurrentSpawns` semaphore inside
+   `directory-service.ts` (default 4).
+
+3. **Force-refresh pi-resources for every known directory** — same
+   iteration; silent on failure (matches
+   `directory-service.ts::schedulePiResourcesTick`).
+
+The hook fires once per transition, fire-and-forget so the subscribe
+callback returns synchronously. Because all three install entry points
+(`runDegradedModeBootstrap`, REST `triggerUpgradePi`, REST
+`triggerRetry`) flip the same state, the centralized hook covers every
+caller — the local `registry.rescan("pi")` block in `cli.ts` was
+removed as part of this change.
+
+Without this hook, the OpenSpec session-card buttons (`P/D/T/S`
+letters, attach combo, refresh) stayed hidden after a fresh first-run
+install until either the user manually reloaded or up to 30 s elapsed
+— and even then the mtime gate could decline to re-poll if no file
+actually changed since boot.
+
+See changes: `unified-bootstrap-install`, `pi-zero-seventy-compat`, `warn-pi-version-skew-in-cli`, `fix-openspec-buttons-after-bootstrap-install`.
 
 ### Force Kill Escalation
 The Stop button supports two-click escalation for stuck sessions:
@@ -484,6 +542,22 @@ flowchart TD
 
 **Why two paths?** pi-coding-agent's `ExtensionContext` (delivered to `session_start` handlers) has no `reload()` method — only `ExtensionCommandContext` (given to command handlers) does. The bridge works around this by registering `__dashboard_reload` as a command and capturing `ctx.reload` into `globalThis[RELOAD_KEY]` when a user first invokes it in pi's TUI. Headless sessions have no TUI, so the capture never happens. The server-side interception is a transparent kill-and-respawn that achieves the same user-visible outcome (fresh settings, fresh extensions, fresh skills/prompts/themes) without needing an in-process reload. Since `memorySessionManager.register` carries accumulated state when the same `sessionId` re-registers, the user sees a brief reconnect flicker but keeps their tokens, cost, context usage, and attached proposal. See change: headless-reload-via-respawn.
 
+### Server Restart (single-orchestrator path)
+
+The dashboard previously had three independent restart paths (CLI in-process `cmdStop`+`cmdStart`, `POST /api/restart` orchestrator, bridge auto-start), and they raced each other on every restart: when the listening server died, every connected pi bridge fired `server-auto-start.ts` to spawn a replacement, racing whatever else was trying to bring the server back up. Symptoms ranged from "`pi-dashboard restart` left the server offline" (cmdStart's `isServerRunning` check returned true after a bridge won the race, so it silently early-returned without starting anything itself) to "Electron's restart respawned the server outside the Job Object" (the orchestrator-spawned new server is `detached: true`, severing Electron's lifecycle supervision).
+
+The `fix-restart-bridge-auto-start-race` change collapses the three paths into a single orchestrator path:
+
+1. **CLI delegation** — `pi-dashboard restart` (`cmdRestart` in `cli.ts`) probes `isDashboardRunning(port)`. If up, POSTs `/api/restart` with `{dev}` and exits. If the dashboard is down or the HTTP call fails, falls back to local `cmdStop` + `cmdStart` (the offline-bootstrap case where there is no orchestrator to delegate to). This eliminates the in-process race, mirroring the existing `cmdUpgradePi` pattern.
+
+2. **`server_restarting` broadcast** — before `process.exit(0)`, both `/api/restart` and `/api/shutdown` broadcast `server_restarting { reason, quiesceMs }` to every connected bridge via `piGateway.broadcast`. `quiesceMs` is 5000 for restart and 60000 for shutdown (longer because deliberate shutdown should not auto-resurrect for a minute). The broadcast is non-blocking and runs before the existing 100–200 ms `setTimeout(process.exit, ...)` deferral so the WS frame has time to flush.
+
+3. **Bridge quiesce window** — on receipt of `server_restarting`, the bridge calls `connection.pauseAutoStart(quiesceMs)` (idempotent extend-only). `autoStartServer` consults `connection.shouldSuppressAutoStart()` and **skips only the `launchServer(...)` spawn step**; mDNS discovery + health-check probes still run, so the bridge picks up the orchestrator-spawned replacement as soon as it advertises. After the window expires, normal auto-start resumes (so a real server crash is still handled by the cold-start path).
+
+4. **Explicit prior-daemon kill in the orchestrator** — `restart-helper.ts::buildOrchestratorScript` now reads `~/.pi/dashboard/dashboard.pid`, sends `SIGTERM` to the recorded PID, polls `kill(pid, 0)` for up to 3 s, then `SIGKILL` if still alive. The subsequent `portFree` poll deadline drops from 10 s to 5 s since step 0 already guarantees the previous server is dead.
+
+Older bridges that don't understand `server_restarting` ignore the message and fall back to today's behaviour — the CLI fix in step 1 already eliminates the worst-case path even for them. There is no flag day; the protocol message is additive on the `ServerToExtensionMessage` discriminated union.
+
 ### Auto-Resume on Prompt
 When a user sends a prompt to an ended session, the server automatically resumes it:
 1. Server detects `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`
@@ -495,6 +569,24 @@ When a user sends a prompt to an ended session, the server automatically resumes
 7. No navigation needed — user is already viewing the same session
 8. On timeout (30s) or spawn failure, `resuming` flag is cleared and session returns to normal ended state
 9. If user sends another prompt while already resuming, the queued prompt is updated without spawning a second process
+
+### Sidebar session ordering: top-of-tier on status change
+The sidebar splits each folder's session cards into two tiers (alive on top, ended at the bottom). Cards within each tier sort independently:
+
+- **Alive tier** uses the persisted `sessionOrder` per cwd (drag-reorder, prepend on new spawn). On user-intent resume (Resume button, drag-to-resume, REST resume), the server calls `sessionOrderManager.moveToFront(cwd, sessionId)` so the just-resumed card surfaces at index 0 of the alive tier — even on repeated `end → resume → end → resume` cycles where the id might already be in the order list. **Bridge auto-reattach after a dashboard restart** is governed by the `reattachPlacement` config (`"always"` default / `"streaming-only"` / `"preserve"`): the bridge tags every `session_register` after its first call as `registerReason: "reattach"`, and `server.ts onChange` routes those into `reattach-placement.ts::applyReattachPolicy` to `moveToFront` according to policy. The `"preserve"` setting reproduces the legacy behavior of leaving order untouched. Registry intents (`pendingResumeIntents.consume()` returning `"front"` or `"keep"`) always override the reattach policy. See change: reattach-move-to-front.
+- **Ended tier** sorts by `(endedAt ?? startedAt)` descending, computed at render time inside `SessionList.renderGroup` (no persisted `endedSessionOrder` list — pure function of session timestamps). The most-recently-ended card surfaces at the top of the ended bucket regardless of cause (✕ shutdown, natural pi exit, force-kill). Legacy sessions without a recorded `endedAt` fall back to `startedAt` so pre-migration entries keep their previous ordering.
+
+Both halves share one mental model: "the session you just acted on appears at the top of its new tier." No protocol changes — the existing `sessions_reordered` broadcast carries the new order. See change `top-of-tier-on-status-change`.
+
+### Desktop back-arrow priority chain
+The desktop session-header back button used to call `window.history.back()`, which was a silent no-op on cold loads / hard refreshes / deep links. It also ignored the eight content-area overlay states (archive browser, specs browser, flow YAML preview, diff view, pi resource file preview, README preview, pi resources state, OpenSpec preview) owned by `App.tsx`.
+
+The fix introduces:
+- **`packages/client/src/lib/desktop-back.ts`** — pure helper `selectDesktopBackTarget(state) → { kind: "clear", target } | { kind: "navigate", to: "/" }` that mirrors the priority chain mobile's inline `onBack` switch already uses. Pinned by a 256-combination parity test against the mobile reference implementation so the two never drift.
+- **`packages/client/src/hooks/useDesktopBack.ts`** — thin React hook that reads the live overlay state, calls the helper, and dispatches to the right setter or `navigate("/")`.
+- **Sidebar overlay auto-close** — `useOpenSpecActions.handleReadArtifact`, `useContentViews.handleViewPiResourceFile`, and `useContentViews.handleViewReadme` accept `navigate`/`settingsMatch`/`tunnelSetupMatch` and call `navigate("/")` BEFORE setting overlay state when the user is on a URL-route view (Settings / Tunnel Setup) that takes over the content area. Without this, the JSX gate `!settingsMatch && !tunnelSetupMatch` would mask the just-opened overlay until the user clicked back twice.
+
+The priority chain (alive on click): `archiveBrowserCwd → specsBrowserCwd → flowYamlPreview → diffViewSessionId → piResourceFilePreview → readmePreview → piResourcesState → previewState → navigate("/")`. Mobile is unchanged — it keeps its own inline `onBack` switch covering the same chain. See change `fix-desktop-back-navigation`.
 
 ### Model & Thinking Level Flow
 1. Bridge sends current model and thinking level in `session_register` on connect
@@ -864,6 +956,22 @@ The dashboard is installable as a Progressive Web App on mobile devices:
 - **Service Worker** (`public/sw.js`) — minimal fetch pass-through for installability
 - **Tunnel/QR Button** — unified sidebar button: shows tunnel icon when zrok is not installed (click → setup guide), QR code icon when set up but disconnected (click → setup guide), green QR code icon when connected (click → QR dialog with disconnect and setup buttons)
 
+### External Link Routing (#13)
+
+The dashboard runs in three shells (regular browser tab, installed PWA with `"display": "standalone"`, Electron), and all three previously stranded the user when a link in chat content was clicked — the PWA and Electron shells have no URL bar / back button to recover with. Two layers of hardening route external URLs safely:
+
+1. **Client markdown renderer** (`packages/client/src/components/MarkdownContent.tsx`) overrides ReactMarkdown's `a` component. `isExternalHref(href)` classifies URLs using the `URL` constructor against `window.location.origin`; external URLs render as `<a target="_blank" rel="noopener noreferrer">`, while fragment-only and same-origin hrefs stay bare so in-document scrolling and internal navigation (e.g. the `/auth/login?return=...` redirect) keep working. Applies uniformly to chat bodies, thinking blocks, flow agent detail, package READMEs, and markdown previews — every consumer of `MarkdownContent`.
+
+2. **Electron shell** (`packages/electron/src/main.ts` `createMainWindow`) registers two `webContents` handlers BEFORE `loadURL(serverUrl)`:
+   - `setWindowOpenHandler((details) => { shell.openExternal(details.url); return { action: "deny" }; })` — every `target="_blank"` / `window.open` call is routed to the user's real system browser; no secondary Electron `BrowserWindow` is spawned.
+   - `on("will-navigate", (event, url) => { if (!isSameOriginUrl(url, serverUrl)) { event.preventDefault(); shell.openExternal(url); } })` — defense-in-depth for any bare `<a href>` that slipped past layer 1. Same-origin navigation (including the client-side auth-login redirect) passes through untouched.
+
+The same-origin decision lives in a pure, electron-free helper (`packages/electron/src/lib/link-handling.ts::isSameOriginUrl(href, serverOrigin)`) with 15 unit tests covering relative paths, fragments, different-origin URLs, `javascript:`/`mailto:` schemes, and malformed inputs (which safely fall through to "external").
+
+A repo-level lint (`packages/client/src/__tests__/no-bare-external-anchor.test.ts`) scans every client `.tsx` for literal `<a href="http(s)://...">` opening tags without `target="_blank"` and fails the build if any slip in. Per-line opt-out via `// ban:bare-anchor-ok`.
+
+See change: `harden-external-link-handling`.
+
 | `devBuildOnReload` | false | Rebuild Vite client + restart server on `/reload` |
 
 ## Shared Config
@@ -924,6 +1032,27 @@ This is a **race-independent fix**: it doesn't try to close the timing window, i
 - **Electron doctor** (`doctor.ts`) — "Node runtime compatibility" row shows `warning` with upgrade guidance.
 
 `packages/server/package.json` declares `"engines": { "node": ">=22.18.0 <23 || >=24.3.0" }` as an npm-level advisory.
+
+#### AppImage CLI self-recursion guard (Linux power-user mode)
+
+The Electron app's power-user launch path (`ensureServer()` → `detectPiDashboardCli()` → `launchViaCli()`) prefers an already-installed `pi-dashboard` CLI on PATH. On Linux **AppImage** builds, the AppImage runtime prepends its squashfs mount directory (e.g. `/tmp/.mount_PI-Das.../`) to `PATH` of the Electron child. That mount contains a binary literally named `pi-dashboard` because `forge.config.ts` declares `packagerConfig.executableName: "pi-dashboard"` for user-facing branding consistency. Without a guard, `which pi-dashboard` returns the AppImage's own launcher first; `launchViaCli()` then spawns the Electron app recursively as if it were the dashboard CLI, the recursive child silently ignores `start --port 8000`, never opens the dashboard port, and `waitForReady` polls until its 15-second deadline expires — user sees an indefinite loading screen.
+
+The fix lives at two layers:
+
+- **Layer 2 — shared registry strategy** (`packages/shared/src/tool-registry/strategies.ts`). After `whichSync(name)` returns a path, `whereStrategy` runs it through `isAppImageSelfHit(path)`; on hit, the strategy returns `{ ok: false, reason: "appimage-self-hit: <path>" }` so the registry's `Resolution.tried` records the rejection. **Every tool registered via `whereStrategy`** (currently `node`, `pi`, `openspec`, `npm`, `git`, `zrok`, `wt`, build-time `electron`/`node-pty`) inherits this guard transparently. Future tool registrations benefit by default.
+- **Layer 1 — Electron-only detector** (`packages/electron/src/lib/dependency-detector.ts`). `detectPiDashboardCli()` is intentionally NOT a registered tool (it's the dashboard package this code is part of), so it applies the same `isAppImageSelfHit` filter inline alongside the existing `_npx` cache-shim filter. Both rejections silently return `{ found: false }` so `ensureServer()` falls through to the standalone `launchServer()` path (tsx + `cli.ts`). `detectPi()` and `detectSystemNode()` apply the same guard symmetrically on the registry-resolved path — belt-and-braces beyond the Layer-2 filter.
+
+`isAppImageSelfHit(candidatePath, opts?)` lives in `packages/shared/src/platform/binary-lookup.ts` and treats a path as a self-hit when ANY of:
+
+- `realpath(candidatePath) === realpath(process.execPath)`, OR
+- `candidatePath` lives under the directory named by `process.env.APPDIR` (the AppImage squashfs mount), OR
+- `realpath(candidatePath) === realpath(process.env.APPIMAGE)`.
+
+All `realpath` calls are wrapped in try/catch so broken symlinks / ENOENT fall back to literal string compares; the helper never throws. Tests inject explicit `{ execPath?, appDir?, appImage? }` overrides via `opts`; production callers omit `opts` and the helper reads `process.execPath` / `process.env.APPDIR` / `process.env.APPIMAGE`.
+
+The `executableName: "pi-dashboard"` collision is **left in place** — renaming would break user-facing branding and existing `.desktop` files. The fix sits at the resolution layer where it belongs. If the guard ever fails to fire (future regression / edge case), the `launchViaCli` timeout error decoration includes a `readlink -f $(which pi-dashboard)` hint so the failure is recognizable from the error dialog alone.
+
+See change: `fix-electron-appimage-cli-self-detection`.
 
 ### Cross-OS Platform Primitives
 

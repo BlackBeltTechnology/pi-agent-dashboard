@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../collapse-retried-errors.js";
-import type { ChatMessage } from "../event-reducer.js";
+import { createInitialState, reduceEvent, type ChatMessage } from "../event-reducer.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 let _counter = 0;
 function nextId() {
@@ -163,5 +164,43 @@ describe("findActiveInteractiveToolResultIds", () => {
   it("does NOT hide a standalone running toolResult with no following UI", () => {
     const t = tool({ toolStatus: "running" });
     expect(findActiveInteractiveToolResultIds([t])).toEqual(new Set());
+  });
+});
+
+describe("retried-error pill survives [text, toolCall] reorder (fix-text-tool-render-order)", () => {
+  it("identifies the error tool as retried after the reducer's content-array reorder runs", () => {
+    // Drive the actual reducer with two assistant messages, each shaped
+    // [text, toolCall]: the first tool errors, the second succeeds. After
+    // the reorder pass at message_end the error tool is repositioned to
+    // sit AFTER its parent assistant text bubble — findRetriedErrorIds
+    // must still pair it with the successful retry.
+    const events: DashboardEvent[] = [
+      // Message A: ask_user fails with empty args
+      { eventType: "message_start", timestamp: 1000, data: { message: { role: "assistant", content: [] } } },
+      { eventType: "message_update", timestamp: 1001, data: { message: { role: "assistant", content: [{ type: "text", text: "Asking the user:" }] } } },
+      { eventType: "tool_execution_start", timestamp: 1002, data: { toolCallId: "tA", toolName: "ask_user", args: {} } },
+      { eventType: "tool_execution_end", timestamp: 1003, data: { toolCallId: "tA", toolName: "ask_user", result: "Validation: missing method", isError: true } },
+      { eventType: "message_end", timestamp: 1004, data: { message: { role: "assistant", content: [{ type: "text", text: "Asking the user:" }, { type: "toolCall", id: "tA", name: "ask_user" }] } } },
+      // Intervening assistant thinking + retry message
+      { eventType: "message_start", timestamp: 2000, data: { message: { role: "assistant", content: [] } } },
+      { eventType: "message_update", timestamp: 2001, data: { message: { role: "assistant", content: [{ type: "text", text: "Retrying with proper args:" }] } } },
+      { eventType: "tool_execution_start", timestamp: 2002, data: { toolCallId: "tB", toolName: "ask_user", args: { method: "input", title: "Name?" } } },
+      { eventType: "tool_execution_end", timestamp: 2003, data: { toolCallId: "tB", toolName: "ask_user", result: "ok", isError: false } },
+      { eventType: "message_end", timestamp: 2004, data: { message: { role: "assistant", content: [{ type: "text", text: "Retrying with proper args:" }, { type: "toolCall", id: "tB", name: "ask_user" }] } } },
+    ];
+
+    let state = createInitialState();
+    for (const ev of events) state = reduceEvent(state, ev);
+
+    // Confirm reorder placed assistant text before its tool card for both messages
+    const idxAsstA = state.messages.findIndex((m) => m.content === "Asking the user:");
+    const idxToolA = state.messages.findIndex((m) => m.toolCallId === "tA");
+    expect(idxToolA).toBe(idxAsstA + 1);
+
+    // Now confirm findRetriedErrorIds still pairs tA's error with tB's success
+    const errorTool = state.messages.find((m) => m.toolCallId === "tA")!;
+    expect(errorTool.toolStatus).toBe("error");
+    const retried = findRetriedErrorIds(state.messages);
+    expect(retried.has(errorTool.id)).toBe(true);
   });
 });

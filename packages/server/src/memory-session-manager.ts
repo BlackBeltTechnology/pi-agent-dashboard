@@ -16,6 +16,33 @@ export interface RegisterSessionParams {
   firstMessage?: string;
   startedAt?: number;
   pid?: number;
+  /**
+   * Why the bridge is registering this session. Forwarded from the
+   * `session_register` protocol message (see
+   * `SessionRegisterMessage.registerReason`). Used by `onChange` to
+   * decide whether to apply the configured `reattachPlacement` policy.
+   * See change: reattach-move-to-front.
+   */
+  registerReason?: "spawn" | "reattach";
+}
+
+export interface OnChangeContext {
+  /**
+   * Set when `onChange` is fired from `register(...)` and the inbound
+   * params carried a `registerReason`. Undefined for `update`/`unregister`
+   * paths and for legacy registers without the field.
+   * See change: reattach-move-to-front.
+   */
+  registerReason?: "spawn" | "reattach";
+  /**
+   * The session's status BEFORE `register(...)` overwrote it to `"active"`.
+   * Captured because `register()` unconditionally sets `status: "active"`,
+   * which would otherwise hide a `"streaming"` reattach from policies
+   * that gate on streaming. Undefined for first-ever registers and for
+   * `update`/`unregister` paths.
+   * See change: reattach-move-to-front.
+   */
+  priorStatus?: SessionStatus;
 }
 
 export interface SessionManager {
@@ -27,8 +54,8 @@ export interface SessionManager {
   get(sessionId: string): DashboardSession | undefined;
   listActive(): DashboardSession[];
   listAll(): DashboardSession[];
-  /** Called after any mutation (register, unregister, update). Receives the affected session ID. */
-  onChange?: (sessionId: string) => void;
+  /** Called after any mutation (register, unregister, update). Receives the affected session ID and optional context. */
+  onChange?: (sessionId: string, ctx?: OnChangeContext) => void;
   /** Called after a session is unregistered (status set to ended). */
   onUnregister?: (sessionId: string) => void;
 }
@@ -43,6 +70,7 @@ export function createMemorySessionManager(): SessionManager {
       // polled by the bridge extension shortly after reconnect, so they don't
       // need to be carried over.
       const existing = sessions.get(params.id);
+      const priorStatus = existing?.status;
 
       const session: DashboardSession = {
         // Carry over accumulated data from the existing session (e.g. restored after restart)
@@ -80,7 +108,10 @@ export function createMemorySessionManager(): SessionManager {
         pid: params.pid,
       };
       sessions.set(params.id, session);
-      mgr.onChange?.(params.id);
+      mgr.onChange?.(params.id, {
+        registerReason: params.registerReason,
+        priorStatus,
+      });
       return session;
     },
 

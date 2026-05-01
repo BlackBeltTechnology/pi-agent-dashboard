@@ -26,6 +26,7 @@ import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { PromptBus } from "./prompt-bus.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { activate as activateProviderRegister, onProviderChanged, reloadProviders } from "./provider-register.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { startMetricsMonitor, stopMetricsMonitor, collectMetrics } from "./process-metrics.js";
@@ -185,6 +186,7 @@ function initBridge(pi: ExtensionAPI) {
   let cachedCtx: any | undefined = prev.ctx;
   let lastModel: string | undefined;
   let lastThinkingLevel: string | undefined;
+  let hasRegisteredOnce = false; // see change: reattach-move-to-front
   let promptBus: PromptBus | undefined;
 
   // ── Per-message entry id tracking (for fix-per-message-fork) ──
@@ -285,6 +287,20 @@ function initBridge(pi: ExtensionAPI) {
       // See change: add-extension-ui-modal.
       if ((msg as any).type === "ui_management") {
         handleUiManagement(uiModulesBridgeCtx, msg as any);
+        return;
+      }
+      // Server announced a deliberate restart/shutdown. Pause the auto-start
+      // spawn step in `server-auto-start.ts` for `quiesceMs` so we don't
+      // race the orchestrator that's about to bring up the replacement.
+      // Discovery + reconnection still run via the normal backoff path.
+      // See change: fix-restart-bridge-auto-start-race.
+      if ((msg as any).type === "server_restarting") {
+        const reason = (msg as any).reason;
+        const quiesceMs = (msg as any).quiesceMs;
+        if (typeof quiesceMs === "number" && quiesceMs > 0) {
+          connection.pauseAutoStart(quiesceMs);
+          console.log(`[dashboard] server announced restart (reason=${reason} quiesceMs=${quiesceMs})`);
+        }
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
@@ -595,6 +611,7 @@ function initBridge(pi: ExtensionAPI) {
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
       lastGitBranch, lastGitPrNumber, lastSessionName,
+      hasRegisteredOnce,
     };
   }
   /** Sync BridgeContext mutations back to local variables */
@@ -611,6 +628,7 @@ function initBridge(pi: ExtensionAPI) {
     lastGitBranch = bc.lastGitBranch;
     lastGitPrNumber = bc.lastGitPrNumber;
     lastSessionName = bc.lastSessionName;
+    hasRegisteredOnce = bc.hasRegisteredOnce;
   }
 
   // Local wrappers that sync bc around extracted module calls
@@ -860,6 +878,16 @@ function initBridge(pi: ExtensionAPI) {
       input: ctx.ui.input?.bind(ctx.ui) as ((q: string, placeholder?: string, extra?: any) => Promise<string | undefined>) | undefined,
       confirm: ctx.ui.confirm?.bind(ctx.ui) as ((q: string, msg: string, extra?: any) => Promise<boolean>) | undefined,
       editor: ctx.ui.editor?.bind(ctx.ui) as ((q: string, prefill?: string, extra?: any) => Promise<string | undefined>) | undefined,
+      // NOTE: the `custom` field is intentionally NOT captured here. A
+      // previous change (fix-multiselect-auto-cancel-on-dashboard) added a
+      // TUI multiselect arm that awaited the original ctx.ui.custom binding,
+      // but pi 0.70's RPC mode defines that primitive as a no-op (returns
+      // undefined synchronously), causing the TUI adapter to auto-cancel the
+      // dashboard-rendered dialog within one event-loop tick. The arm has
+      // been removed; see change fix-multiselect-tui-arm-self-cancel for full
+      // rationale. A repo lint (no-tui-multiselect-arm-regression.test.ts)
+      // prevents reintroduction by banning the co-occurrence of two
+      // substrings (the captured original binding and the TUI arm match).
     };
 
     // Register TUI adapter — presents prompts in the terminal using original
@@ -888,6 +916,13 @@ function initBridge(pi: ExtensionAPI) {
               } else if (prompt.type === "editor" && originals.editor) {
                 answer = await originals.editor(prompt.question, prompt.defaultValue || "", { signal: ac.signal });
               } else {
+                // NOTE: there is intentionally no `else if` arm for the
+                // multiselect prompt type here. See change
+                // fix-multiselect-tui-arm-self-cancel — pi 0.70 RPC mode's
+                // ctx.ui.custom primitive is a no-op, so any TUI arm that
+                // awaits it auto-cancels the dashboard-rendered dialog. The
+                // bus-routed ctx.ui.multiselect patch below + the
+                // DashboardDefaultAdapter handle multiselect end-to-end.
                 return;
               }
 
@@ -938,21 +973,65 @@ function initBridge(pi: ExtensionAPI) {
     // now route through the bus, which distributes to all registered adapters.
     {
       const bus = promptBus;
+      // Build a `metadata` envelope for bus.request that includes both
+      // `message` (existing) and `toolCallId` (new — added by change
+      // `fix-interactive-ui-reorder` so the client reducer can pair the
+      // resulting interactiveUi row with its parent toolResult row).
+      // Free-floating callers (slash commands, architect prompts) omit
+      // `opts.toolCallId` and the metadata field stays undefined.
+      const buildMeta = (
+        opts: any,
+        explicitMessage?: string,
+      ): Record<string, unknown> | undefined => {
+        const message = explicitMessage ?? opts?.message;
+        const toolCallId = opts?.toolCallId;
+        if (!message && !toolCallId) return undefined;
+        const meta: Record<string, unknown> = {};
+        if (message) meta.message = message;
+        if (toolCallId) meta.toolCallId = toolCallId;
+        return meta;
+      };
+
       (ctx.ui as any).select = (title: string, options: string[], opts?: any) =>
-        bus.request({ pipeline: "command", type: "select", question: title, options, metadata: opts?.message ? { message: opts.message } : undefined })
+        bus.request({ pipeline: "command", type: "select", question: title, options, metadata: buildMeta(opts) })
           .then(r => r.cancelled ? undefined : r.answer);
 
       (ctx.ui as any).input = (title: string, placeholder?: string, opts?: any) =>
-        bus.request({ pipeline: "command", type: "input", question: title, defaultValue: placeholder, metadata: opts?.message ? { message: opts.message } : undefined })
+        bus.request({ pipeline: "command", type: "input", question: title, defaultValue: placeholder, metadata: buildMeta(opts) })
           .then(r => r.cancelled ? undefined : r.answer);
 
       (ctx.ui as any).confirm = (title: string, message?: string, opts?: any) =>
-        bus.request({ pipeline: "command", type: "confirm", question: title, metadata: (message || opts?.message) ? { message: message || opts?.message } : undefined })
+        bus.request({ pipeline: "command", type: "confirm", question: title, metadata: buildMeta(opts, message) })
           .then(r => !r.cancelled && r.answer === "true");
 
       (ctx.ui as any).editor = (title: string, prefill?: string, opts?: any) =>
-        bus.request({ pipeline: "command", type: "editor", question: title, defaultValue: prefill, metadata: opts?.message ? { message: opts.message } : undefined })
+        bus.request({ pipeline: "command", type: "editor", question: title, defaultValue: prefill, metadata: buildMeta(opts) })
           .then(r => r.cancelled ? undefined : r.answer);
+
+      // ── Multiselect ──────────────────────────────────────────────
+      // ctx.ui.multiselect is NOT a built-in pi method — we attach it here
+      // so that polyfillMultiselect (and any other consumer) routes through
+      // PromptBus. The dashboard adapter renders a real browser dialog via
+      // MultiselectRenderer; there is intentionally no TUI adapter arm for
+      // multiselect (pi 0.70 RPC mode's ctx.ui.custom is a no-op, so any TUI
+      // arm would auto-cancel the dashboard render in <1s). See changes
+      // fix-multiselect-auto-cancel-on-dashboard (initial bus routing) and
+      // fix-multiselect-tui-arm-self-cancel (TUI arm removal).
+      if (typeof (ctx.ui as any).multiselect === "function") {
+        // Defensive: future upstream pi may add a built-in multiselect.
+        // Override is intentional — the bus-routed version is what
+        // participates in PromptBus first-response-wins semantics.
+        // eslint-disable-next-line no-console
+        console.warn("[bridge] ctx.ui.multiselect already exists — overriding for PromptBus routing");
+      }
+      (ctx.ui as any).multiselect = (title: string, options: string[], opts?: any) =>
+        bus.request({
+          pipeline: "command",
+          type: "multiselect",
+          question: title,
+          options,
+          metadata: opts?.message ? { message: opts.message } : undefined,
+        }).then(decodeMultiselectAnswer);
 
       // Notify is fire-and-forget: call original + forward to dashboard
       (ctx.ui as any).notify = (message: string, level?: string) => {
@@ -1139,6 +1218,11 @@ function initBridge(pi: ExtensionAPI) {
       onLaunchEnd: () => {
         stopSpinner();
       },
+      // Honor the server's `server_restarting` quiesce window. While a
+      // deliberate restart/shutdown is in flight, skip the spawn step so we
+      // don't race the orchestrator. Discovery + reconnection still run.
+      // See change: fix-restart-bridge-auto-start-race.
+      shouldSuppressAutoStart: () => connection.shouldSuppressAutoStart(),
     }).then((result) => {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== config.piPort) {

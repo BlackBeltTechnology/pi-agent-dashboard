@@ -80,13 +80,24 @@ describe("registerAskUserTool", () => {
     it("passes message through opts for input", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "input", title: "Q", message: "Details here" }, undefined, undefined, ctx);
-      expect(ctx.ui.input).toHaveBeenCalledWith("Q", undefined, { message: "Details here" });
+      // toolCallId is also threaded through opts since change
+      // `fix-interactive-ui-reorder`. Asserts both fields without
+      // pinning property order.
+      expect(ctx.ui.input).toHaveBeenCalledWith(
+        "Q",
+        undefined,
+        expect.objectContaining({ message: "Details here", toolCallId: "id" }),
+      );
     });
 
     it("passes message through opts for select", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "select", title: "Pick", message: "Context", options: ["A", "B"] }, undefined, undefined, ctx);
-      expect(ctx.ui.select).toHaveBeenCalledWith("Pick", ["A", "B"], { message: "Context" });
+      expect(ctx.ui.select).toHaveBeenCalledWith(
+        "Pick",
+        ["A", "B"],
+        expect.objectContaining({ message: "Context", toolCallId: "id" }),
+      );
     });
 
     it("dispatches multiselect through the polyfill via ctx.ui.custom", async () => {
@@ -104,28 +115,48 @@ describe("registerAskUserTool", () => {
       expect(result.details.result).toEqual(["A"]);
     });
 
-    it("does not pass opts when message is undefined", async () => {
+    it("passes only toolCallId through opts when message is undefined", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "input", title: "Q" }, undefined, undefined, ctx);
-      expect(ctx.ui.input).toHaveBeenCalledWith("Q", undefined, undefined);
+      // Even with no `message`, the wrapper still attaches toolCallId so
+      // the resulting prompt_request can be paired by the client reducer.
+      expect(ctx.ui.input).toHaveBeenCalledWith(
+        "Q",
+        undefined,
+        expect.objectContaining({ toolCallId: "id" }),
+      );
     });
 
     it("falls back to message when title is missing", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "input", message: "Detailed question" }, undefined, undefined, ctx);
-      expect(ctx.ui.input).toHaveBeenCalledWith("Detailed question", undefined, { message: "Detailed question" });
+      expect(ctx.ui.input).toHaveBeenCalledWith(
+        "Detailed question",
+        undefined,
+        expect.objectContaining({ message: "Detailed question", toolCallId: "id" }),
+      );
     });
 
     it("falls back to 'Question' when both title and message are missing", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "confirm" }, undefined, undefined, ctx);
-      expect(ctx.ui.confirm).toHaveBeenCalledWith("Question", "");
+      // confirm now also threads toolCallId via 3rd arg.
+      expect(ctx.ui.confirm).toHaveBeenCalledWith(
+        "Question",
+        "",
+        expect.objectContaining({ toolCallId: "id" }),
+      );
     });
 
     it("parses options from JSON string", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       await tool.execute("id", { method: "select", title: "Pick", options: '["A", "B"]' }, undefined, undefined, ctx);
-      expect(ctx.ui.select).toHaveBeenCalledWith("Pick", ["A", "B"], undefined);
+      // No message, no other opts — only toolCallId.
+      expect(ctx.ui.select).toHaveBeenCalledWith(
+        "Pick",
+        ["A", "B"],
+        expect.objectContaining({ toolCallId: "id" }),
+      );
     });
 
     it("throws when select reaches execute with unparseable options string", async () => {

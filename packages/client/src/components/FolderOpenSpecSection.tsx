@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline } from "@mdi/js";
+import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline, mdiPlay } from "@mdi/js";
 import type { OpenSpecData, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { DialogPortal } from "./DialogPortal.js";
+import { TasksPopover } from "./TasksPopover.js";
 
 interface Props {
   data: OpenSpecData;
@@ -17,10 +19,19 @@ interface Props {
   onOpenSpecs?: () => void;
   /** Open the archive browser */
   onOpenArchive?: () => void;
+  /**
+   * Spawn a new pi session in this folder with the given change pre-attached.
+   * When omitted, the per-row spawn-attached button is hidden.
+   * See change: add-folder-task-checker-and-spawn-attach.
+   */
+  onSpawnAttached?: (cwd: string, changeName: string) => void;
 }
 
-export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, sessions, onNavigateToSession, onOpenSpecs, onOpenArchive }: Props) {
+export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, sessions, onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnAttached }: Props) {
   const [expanded, setExpanded] = useState(false);
+  // Which change's TasksPopover is currently open (one at a time).
+  // See change: add-folder-task-checker-and-spawn-attach.
+  const [tasksOpenForChange, setTasksOpenForChange] = useState<string | null>(null);
 
   if (!data.initialized) return null;
 
@@ -96,19 +107,48 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
                   </span>
                 )}
                 {c.totalTasks > 0 ? (
-                  <span className="text-[10px] text-[var(--text-tertiary)] whitespace-nowrap ml-auto">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTasksOpenForChange((current) => (current === c.name ? null : c.name));
+                    }}
+                    data-testid={`folder-tasks-counter-${c.name}`}
+                    title="Toggle tasks"
+                    className="text-[10px] text-[var(--text-tertiary)] hover:text-blue-400 whitespace-nowrap ml-auto cursor-pointer"
+                  >
                     {c.completedTasks}/{c.totalTasks} tasks
-                  </span>
+                  </button>
                 ) : (
                   <span className="ml-auto" />
                 )}
                 <ArtifactLettersButton artifacts={c.artifacts} changeName={c.name} onReadArtifact={onReadArtifact} />
+                {onSpawnAttached && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onSpawnAttached(cwd, c.name); }}
+                    data-testid={`spawn-attached-btn-${c.name}`}
+                    title="Spawn session attached to this change"
+                    className="text-[var(--text-muted)] hover:text-green-400"
+                  >
+                    <Icon path={mdiPlay} size={0.5} />
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
+      {tasksOpenForChange && (
+        <DialogPortal>
+          <TasksPopover
+            cwd={cwd}
+            change={tasksOpenForChange}
+            onClose={() => setTasksOpenForChange(null)}
+          />
+        </DialogPortal>
+      )}
     </div>
   );
 }

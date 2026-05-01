@@ -11,6 +11,16 @@ export interface SessionOrderManager {
   reorder(cwd: string, sessionIds: string[]): void;
   /** Remove a session from its cwd order. */
   remove(cwd: string, sessionId: string): void;
+  /**
+   * Move a session id to the front (index 0) of its cwd order. Idempotent:
+   * if the id is already at the front, the order is unchanged but a persist
+   * still fires (callers gate broadcasts on actual mutation).
+   * If the id is absent, it is inserted at the front.
+   * Used by the user-intent resume path to surface the just-resumed session
+   * at the top of the alive tier even on repeated end → resume cycles.
+   * See change: top-of-tier-on-status-change.
+   */
+  moveToFront(cwd: string, sessionId: string): void;
   /** Get order for a cwd, optionally filtering to only valid IDs. */
   getOrder(cwd: string, validIds?: Set<string>): string[];
   /** Get all cwd→order entries. */
@@ -56,6 +66,18 @@ export function createSessionOrderManager(preferencesStore: PreferencesStore): S
     remove(cwd: string, sessionId: string): void {
       if (!orderMap[cwd]) return;
       orderMap[cwd] = orderMap[cwd].filter((id) => id !== sessionId);
+      persist();
+    },
+
+    moveToFront(cwd: string, sessionId: string): void {
+      // remove + unshift = move-to-front. Works whether the id was
+      // absent, mid-list, or already at index 0.
+      // See change: top-of-tier-on-status-change.
+      if (!orderMap[cwd]) {
+        orderMap[cwd] = [];
+      }
+      orderMap[cwd] = orderMap[cwd].filter((id) => id !== sessionId);
+      orderMap[cwd].unshift(sessionId);
       persist();
     },
 

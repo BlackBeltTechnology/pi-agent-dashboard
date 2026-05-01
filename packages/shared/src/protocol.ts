@@ -22,6 +22,18 @@ export interface SessionRegisterMessage {
   eventCount?: number;
   /** OS process ID of the pi agent — used for force-kill escalation */
   pid?: number;
+  /**
+   * Why the bridge is registering this session. The bridge sets this to
+   * `"spawn"` for the very first `session_register` after process boot
+   * and for every register emitted by the new/fork/resume path
+   * (`handleSessionChange`), and `"reattach"` for any subsequent
+   * `sendStateSync` triggered by a WebSocket reconnect to the dashboard
+   * server (i.e. the dashboard restarted while the bridge stayed alive).
+   * When omitted (legacy bridges), the server treats the message as if
+   * `"spawn"` was specified.
+   * See change: reattach-move-to-front.
+   */
+  registerReason?: "spawn" | "reattach";
 }
 
 export interface SessionUnregisterMessage {
@@ -463,6 +475,22 @@ export interface PromptResponseServerMessage {
   source: string;
 }
 
+/**
+ * Server → extension: the dashboard server is about to exit as part of a
+ * deliberate restart or shutdown. Bridges that receive this MUST suppress
+ * the spawn step in `server-auto-start.ts` for `quiesceMs` ms; mDNS
+ * discovery + health-check probes still run, so reconnection to the
+ * orchestrator-spawned replacement is unaffected.
+ *
+ * See change: fix-restart-bridge-auto-start-race.
+ */
+export interface ServerRestartingExtensionMessage {
+  type: "server_restarting";
+  reason: "restart" | "shutdown";
+  /** Suppression window in ms. Default 5000 for restart, 60000 for shutdown. */
+  quiesceMs: number;
+}
+
 export type ServerToExtensionMessage =
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
@@ -489,4 +517,5 @@ export type ServerToExtensionMessage =
   | RolePresetDeleteExtensionMessage
   | RequestRolesMessage
   | UiManagementMessage
-  | KillProcessMessage;
+  | KillProcessMessage
+  | ServerRestartingExtensionMessage;

@@ -170,7 +170,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 /**
  * Ids of recommended extensions that ship inside the Electron installer
  * as a pre-bundled source tree. See
- * `packages/electron/scripts/bundle-recommended-extensions.sh` and
+ * `packages/electron/scripts/bundle-recommended-extensions.mjs` and
  * `installBundledExtensions()` in `dependency-installer.ts`. Every id
  * MUST also appear in `RECOMMENDED_EXTENSIONS` and MUST have a git-based
  * `source` (enforced by a test).
@@ -180,7 +180,13 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
  */
 export const BUNDLED_EXTENSION_IDS: readonly string[] = [
 	"pi-anthropic-messages",
-	"pi-flows",
+	// "pi-flows" is intentionally NOT bundled until the upstream repo declares
+	// an SPDX-conformant license (`LICENSE` file or `package.json#license`).
+	// The bundle-recommended-extensions.mjs license allowlist enforcement
+	// (MIT/Apache-2.0/BSD-2-Clause/BSD-3-Clause/ISC) correctly rejects it.
+	// Re-add this entry once https://github.com/BlackBeltTechnology/pi-flows
+	// has a license declared. See: openspec/changes/archive/
+	// 2026-04-21-bundle-first-party-extensions/design.md §"License blockers".
 ];
 
 /** Retrieve a recommended entry by id, or `undefined`. */

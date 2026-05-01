@@ -11,7 +11,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { ToolResolver } from "../platform/binary-lookup.js";
+import { ToolResolver, isAppImageSelfHit } from "../platform/binary-lookup.js";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
 import * as npm from "../platform/npm.js";
 import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
@@ -152,6 +152,17 @@ export function npmGlobalStrategy(
 /**
  * PATH search via `ToolResolver.which()`. This is the plain-old "is it
  * on PATH" strategy and should appear last in most chains.
+ *
+ * Filters AppImage self-hits via `isAppImageSelfHit` — when the host
+ * runs as a Linux AppImage with `executableName: "pi-dashboard"`, the
+ * AppImage runtime prepends its squashfs mount to PATH, so the first
+ * `which pi-dashboard` hit can be the Electron launcher itself.
+ * Trusting that result spawns the Electron app recursively as if it
+ * were the dashboard CLI, which never opens the dashboard port and
+ * causes the loading screen to hang. Every tool registered via
+ * `whereStrategy` inherits this guard transparently.
+ *
+ * See change: fix-electron-appimage-cli-self-detection (D2).
  */
 export function whereStrategy(binaryName: string, deps?: StrategyDeps): Strategy {
   const { which } = d(deps);
@@ -159,8 +170,11 @@ export function whereStrategy(binaryName: string, deps?: StrategyDeps): Strategy
     name: "where",
     run(): StrategyResult {
       const p = which(binaryName);
-      if (p) return { ok: true, path: p };
-      return { ok: false, reason: `not found on PATH` };
+      if (!p) return { ok: false, reason: `not found on PATH` };
+      if (isAppImageSelfHit(p)) {
+        return { ok: false, reason: `appimage-self-hit: ${p}` };
+      }
+      return { ok: true, path: p };
     },
   };
 }

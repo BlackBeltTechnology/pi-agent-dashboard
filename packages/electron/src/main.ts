@@ -9,7 +9,8 @@
  * 5. System tray (minimize on close, Show/Quit menu)
  */
 
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow, dialog, shell } from "electron";
+import { decideWillNavigate } from "./lib/link-handling.js";
 
 // Enable Wayland support on Linux (auto-detect X11 vs Wayland)
 if (process.platform === "linux" && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
@@ -235,6 +236,40 @@ function createMainWindow(serverUrl: string): BrowserWindow {
   });
 
   if (state.isMaximized) mainWindow.maximize();
+
+  // External-link hardening (issue #13, change: harden-external-link-handling).
+  // Register BEFORE loadURL so the handlers are live for any navigation the
+  // initial load triggers (e.g. an OAuth redirect that bounces through an
+  // external provider).
+  //
+  // Layer 1: target=_blank / window.open → open in system browser, do NOT
+  // spawn a secondary Electron BrowserWindow.
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    void shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+  // Layer 2: defense-in-depth for bare <a href> without target=_blank.
+  // Same-origin navigation (e.g. /auth/login?return=/) proceeds normally;
+  // external navigation is preempted and routed through the system browser
+  // so the dashboard's only window is never replaced by a foreign page.
+  //
+  // The decision is **current-origin-aware** via `decideWillNavigate`: while
+  // the user is mid-OAuth on a provider page (e.g. accounts.google.com), the
+  // provider's internal multi-step navigation is allowed to proceed. The
+  // trap guard fires only when leaving the dashboard. The eventual redirect
+  // back to the dashboard origin is itself same-origin and lands cleanly.
+  // See change: fix-oauth-blocked-by-external-link-guard.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const currentUrl = mainWindow?.webContents.getURL() ?? "";
+    const decision = decideWillNavigate(serverUrl, currentUrl, url);
+    if (decision === "open-external") {
+      event.preventDefault();
+      void shell.openExternal(url);
+    } else if (decision === "cancel") {
+      event.preventDefault();
+    }
+    // "allow" → do nothing, navigation proceeds.
+  });
 
   mainWindow.loadURL(serverUrl);
 

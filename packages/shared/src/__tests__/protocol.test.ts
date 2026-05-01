@@ -100,6 +100,17 @@ describe("Protocol message serialization round-trip", () => {
         requestId: "req-2",
         cancelled: true,
       },
+      // See change: fix-restart-bridge-auto-start-race
+      {
+        type: "server_restarting",
+        reason: "restart",
+        quiesceMs: 5000,
+      },
+      {
+        type: "server_restarting",
+        reason: "shutdown",
+        quiesceMs: 60000,
+      },
     ];
 
     for (const msg of messages) {

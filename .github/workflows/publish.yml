@@ -158,13 +158,64 @@ jobs:
 
       - run: npm run build
 
-      - name: Publish to npm (root + all non-private workspaces)
-        run: npm publish --workspaces --include-workspace-root --provenance --access public
+      - name: "Publish to npm (idempotent, ordered: sub-packages first, root last)"
+        # Replaces the old `npm publish --workspaces --include-workspace-root` call.
+        #
+        # Why per-package loop instead of bulk --workspaces:
+        #  1. Idempotency — already-published versions are skipped (so a re-run
+        #     after a partial-publish failure resumes cleanly instead of failing
+        #     on "cannot publish over previously published").
+        #  2. Ordering — the root metapackage @blackbelt-technology/pi-agent-dashboard
+        #     declares the sub-packages as dependencies; publishing it last
+        #     ensures the registry already serves matching sub-package versions
+        #     by the time the root tarball lands.
+        #  3. Brand-new package isolation — @blackbelt-technology/dashboard-plugin-runtime
+        #     has never been published; if Trusted Publisher / OIDC config is missing
+        #     for it, the failure is contained without rolling back the 4 stable
+        #     sub-package publishes that ran first.
+        #
+        # Failure mode: any single non-skip publish failure marks the whole step
+        # failed (FAIL=1) but lets the loop finish so the logs show every
+        # package's outcome.
+        run: |
+          set -uo pipefail
+          PACKAGES=(
+            "@blackbelt-technology/pi-dashboard-shared"
+            "@blackbelt-technology/pi-dashboard-extension"
+            "@blackbelt-technology/pi-dashboard-server"
+            "@blackbelt-technology/pi-dashboard-web"
+            "@blackbelt-technology/dashboard-plugin-runtime"
+            "@blackbelt-technology/pi-agent-dashboard"
+          )
+          VERSION="${{ needs.prepare.outputs.version }}"
+          FAIL=0
+          for pkg in "${PACKAGES[@]}"; do
+            if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
+              echo "::notice::$pkg@$VERSION already published — skip"
+              continue
+            fi
+            echo "::group::Publishing $pkg@$VERSION"
+            if [ "$pkg" = "@blackbelt-technology/pi-agent-dashboard" ]; then
+              npm publish --provenance --access public || FAIL=1
+            else
+              npm publish --workspace="$pkg" --provenance --access public || FAIL=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $FAIL
 
   # ── Electron builds (parallel) ────────────────────────────────
+  # MUST `needs: [prepare, publish]` — the bundled server's `npm install`
+  # in `bundle-server.sh` resolves `@blackbelt-technology/*` sub-packages
+  # from the public npm registry, which only have the just-bumped version
+  # available after `publish` finishes uploading. Gating on `publish`
+  # closes the ETARGET race that broke release run #34. See change:
+  # publish-fix-macos. Locked by
+  # `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
   electron:
-    needs: prepare
+    needs: [prepare, publish]
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-14
@@ -264,7 +315,7 @@ jobs:
         env:
           BUNDLE_RECOMMENDED_EXTENSIONS: "1"
         run: |
-          bash packages/electron/scripts/bundle-recommended-extensions.sh | tee bundle-extensions.log
+          node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs | tee bundle-extensions.log
           {
             echo "### Bundled recommended extensions (${{ matrix.platform }}/${{ matrix.arch }})";
             echo '```';
@@ -280,7 +331,7 @@ jobs:
         env:
           BUNDLE_OFFLINE_PACKAGES: "1"
         run: |
-          bash packages/electron/scripts/bundle-offline-packages.sh \
+          node packages/electron/scripts/bundle-offline-packages.mjs \
             --platform=${{ matrix.platform }}-${{ matrix.arch }} \
             | tee bundle-offline.log
           SIZE=$(du -h packages/electron/resources/offline-packages/npm-cache.tar.gz | cut -f1)

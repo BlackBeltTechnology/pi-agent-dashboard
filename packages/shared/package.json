@@ -1,8 +1,13 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-shared",
-  "version": "0.4.1",
+  "version": "0.4.4",
   "description": "Shared types and utilities for pi-dashboard",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/shared"
+  },
   "publishConfig": {
     "access": "public"
   },

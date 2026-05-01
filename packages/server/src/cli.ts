@@ -259,12 +259,11 @@ async function runDegradedModeBootstrap(server: DashboardServer): Promise<void> 
       return;
     }
 
-    // Rescan registry so pi is re-resolved after the fresh install.
-    // If `rescan` is not exposed, the resolver's strategy chain re-runs
-    // on the next `resolve()` call anyway; we just want fresh timing.
-    type Rescannable = { rescan?: (name: string) => void };
-    const maybeRescan = (registry as unknown as Rescannable).rescan;
-    if (typeof maybeRescan === "function") maybeRescan.call(registry, "pi");
+    // Post-install registry rescan + openspec/pi-resources force-refresh
+    // are now centralized in server.ts's bootstrapState.subscribe hook,
+    // which fires on every installing → ready transition (this caller +
+    // triggerUpgradePi + triggerRetry).
+    // See change: fix-openspec-buttons-after-bootstrap-install.
 
     // Attempt bridge registration. Failures are non-fatal per spec §10.3.
     let bridgeErr: string | undefined;
@@ -469,6 +468,75 @@ async function cmdStop(): Promise<void> {
 }
 
 /**
+ * `pi-dashboard restart` — restart the daemon.
+ *
+ * If a dashboard is currently running, POST to `/api/restart` so the proven
+ * `restart-helper.ts` orchestrator handles the stop/start atomically in a
+ * detached child. This avoids the bridge-auto-start race that occurs when
+ * `cmdStop()` kills the daemon in-process: every connected bridge sees its
+ * WS close and fires `server-auto-start.ts`, racing the subsequent
+ * `cmdStart()` to bind the port.
+ *
+ * If the dashboard is NOT running (or is unreachable), fall back to the
+ * existing `cmdStop()` + `cmdStart()` sequence.
+ *
+ * See change: fix-restart-bridge-auto-start-race.
+ */
+export async function cmdRestart(
+  config: ServerConfig,
+  injected?: {
+    isDashboardRunning?: typeof isDashboardRunning;
+    fetchImpl?: typeof fetch;
+    cmdStopImpl?: () => Promise<void>;
+    cmdStartImpl?: (cfg: ServerConfig) => Promise<void>;
+  },
+): Promise<void> {
+  const probe = injected?.isDashboardRunning ?? isDashboardRunning;
+  const fetchFn = injected?.fetchImpl ?? fetch;
+  const stopFn = injected?.cmdStopImpl ?? cmdStop;
+  const startFn = injected?.cmdStartImpl ?? cmdStart;
+  return cmdRestartImpl(config, probe, fetchFn, stopFn, startFn);
+}
+
+async function cmdRestartImpl(
+  config: ServerConfig,
+  probe: typeof isDashboardRunning,
+  fetchFn: typeof fetch,
+  stopFn: () => Promise<void>,
+  startFn: (cfg: ServerConfig) => Promise<void>,
+): Promise<void> {
+  const status = await probe(config.port);
+  if (status.running) {
+    console.log(
+      `[restart] dashboard running at http://localhost:${config.port}, delegating to /api/restart`,
+    );
+    try {
+      const res = await fetchFn(`http://localhost:${config.port}/api/restart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dev: !!config.dev }),
+      });
+      if (res.ok) {
+        console.log("[restart] orchestrator queued; CLI exits now.");
+        return;
+      }
+      const body = await res.text();
+      console.error(
+        `[restart] server rejected restart: HTTP ${res.status} ${body}; falling back to local stop/start`,
+      );
+    } catch (err) {
+      console.error(
+        `[restart] failed to reach server (${(err as Error).message ?? err}); falling back to local stop/start`,
+      );
+    }
+    // Fall through to local sequence on HTTP failure so the user is never
+    // left with a half-restarted server.
+  }
+  await stopFn();
+  await startFn(config);
+}
+
+/**
  * Show server status.
  */
 /**
@@ -590,8 +658,7 @@ async function main() {
       await cmdStop();
       break;
     case "restart":
-      await cmdStop();
-      await cmdStart(config);
+      await cmdRestart(config);
       break;
     case "status":
       await cmdStatus(config.port);

@@ -21,6 +21,16 @@ export interface BridgeContext {
   lastGitBranch: string | undefined;
   lastGitPrNumber: number | undefined;
   lastSessionName: string | undefined;
+  /**
+   * `false` until the very first `sendStateSync` after the bridge
+   * process boots; `true` for the rest of the process lifetime.
+   * Drives `registerReason` on `session_register` so the server can
+   * distinguish initial spawn vs. dashboard-restart reattach.
+   * `handleSessionChange` (new/fork/resume) ignores this flag and
+   * always tags `"spawn"` because it mints a fresh sessionId.
+   * See change: reattach-move-to-front.
+   */
+  hasRegisteredOnce: boolean;
 }
 
 // Commands that the dashboard handles natively with superior UX.

@@ -132,4 +132,59 @@ describe("SessionOrderManager", () => {
       expect(orders).toEqual({ "/a": ["s1"], "/b": ["s2", "s3"] });
     });
   });
+
+  describe("moveToFront", () => {
+    it("prepends id when absent (creates entry for new cwd)", () => {
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.moveToFront("/project", "s1");
+      expect(mgr.getOrder("/project")).toEqual(["s1"]);
+    });
+
+    it("prepends id when absent from existing order", () => {
+      stateStore = createMockPreferencesStore({ "/project": ["s0", "s1", "s2"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.moveToFront("/project", "s9");
+      expect(mgr.getOrder("/project")).toEqual(["s9", "s0", "s1", "s2"]);
+    });
+
+    it("moves id from non-front position to index 0", () => {
+      stateStore = createMockPreferencesStore({ "/project": ["s0", "s1", "s2"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.moveToFront("/project", "s2");
+      expect(mgr.getOrder("/project")).toEqual(["s2", "s0", "s1"]);
+    });
+
+    it("is idempotent: id already at front stays at index 0", () => {
+      stateStore = createMockPreferencesStore({ "/project": ["s0", "s1", "s2"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.moveToFront("/project", "s0");
+      expect(mgr.getOrder("/project")).toEqual(["s0", "s1", "s2"]);
+    });
+
+    it("persists after moveToFront", () => {
+      stateStore = createMockPreferencesStore({ "/project": ["s0", "s1"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.moveToFront("/project", "s1");
+      expect(stateStore.setSessionOrder).toHaveBeenCalled();
+    });
+
+    it("end → resume → end → resume cycle keeps id at index 0", () => {
+      stateStore = createMockPreferencesStore({ "/project": ["s0", "s1"] });
+      const mgr = createSessionOrderManager(stateStore);
+      // First resume cycle: id is in the order list (drag-to-resume case)
+      mgr.moveToFront("/project", "s1");
+      expect(mgr.getOrder("/project")).toEqual(["s1", "s0"]);
+      // End: alive→ended branch removes the id
+      mgr.remove("/project", "s1");
+      expect(mgr.getOrder("/project")).toEqual(["s0"]);
+      // Second resume: moveToFront re-prepends
+      mgr.moveToFront("/project", "s1");
+      expect(mgr.getOrder("/project")).toEqual(["s1", "s0"]);
+      // End again
+      mgr.remove("/project", "s1");
+      // Third resume
+      mgr.moveToFront("/project", "s1");
+      expect(mgr.getOrder("/project")).toEqual(["s1", "s0"]);
+    });
+  });
 });

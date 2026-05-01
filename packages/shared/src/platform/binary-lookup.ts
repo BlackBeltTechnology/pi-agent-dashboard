@@ -4,10 +4,105 @@
  * with a single configurable resolver.
  */
 import { execSync, spawnSync, buildSafeArgv } from "./exec.js";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
+
+// ── AppImage self-hit guard (Linux power-user mode safety) ────────────────
+
+/**
+ * Optional environment overrides for {@link isAppImageSelfHit}. Tests
+ * inject explicit values so the helper can exercise both branches
+ * without mutating `process.env` or `process.execPath`. Production
+ * callers omit `opts` and the helper reads from the live process.
+ *
+ * See change: fix-electron-appimage-cli-self-detection (D1).
+ */
+export interface AppImageSelfHitOpts {
+  /** Override `process.execPath`. Default: `process.execPath`. */
+  execPath?: string;
+  /** Override `process.env.APPDIR`. Default: `process.env.APPDIR`. */
+  appDir?: string | undefined;
+  /** Override `process.env.APPIMAGE`. Default: `process.env.APPIMAGE`. */
+  appImage?: string | undefined;
+}
+
+/** Defensive realpath — returns the input on any error (broken symlink / ENOENT). */
+function safeRealpath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * Returns `true` when `candidatePath` is the running process's own
+ * Electron launcher binary — the bug class that motivates this helper:
+ * AppImage's runtime prepends its squashfs mount (`/tmp/.mount_*`) to
+ * `PATH` of the Electron child, and `packagerConfig.executableName =
+ * "pi-dashboard"` makes the launcher a name-collision with the dashboard
+ * CLI. Trusting the first `which pi-dashboard` hit therefore spawns the
+ * Electron app recursively as if it were the CLI.
+ *
+ * A path is considered a self-hit when ANY of the following is true:
+ *   - `realpath(candidatePath) === realpath(execPath)`, OR
+ *   - `candidatePath` lives under the directory named by `appDir`, OR
+ *   - `realpath(candidatePath) === realpath(appImage)`.
+ *
+ * `realpath` calls are wrapped in try/catch so broken symlinks / ENOENT
+ * fall back to literal string comparisons. The helper never throws.
+ *
+ * Production callers (`whereStrategy`, `detectPiDashboardCli`,
+ * `detectPi`, `detectSystemNode`) omit `opts`. Tests pass explicit
+ * overrides via `opts`.
+ *
+ * See change: fix-electron-appimage-cli-self-detection (D1).
+ */
+export function isAppImageSelfHit(
+  candidatePath: string,
+  opts?: AppImageSelfHitOpts,
+): boolean {
+  if (!candidatePath) return false;
+
+  const execPath = opts && "execPath" in opts ? opts.execPath : process.execPath;
+  const appDir = opts && "appDir" in opts ? opts.appDir : process.env.APPDIR;
+  const appImage = opts && "appImage" in opts ? opts.appImage : process.env.APPIMAGE;
+
+  const realCandidate = safeRealpath(candidatePath);
+
+  // Rule 1: realpath equals process.execPath
+  if (execPath) {
+    const realExec = safeRealpath(execPath);
+    if (realCandidate === realExec) return true;
+    if (candidatePath === execPath) return true;
+  }
+
+  // Rule 2: candidate lives under APPDIR (the AppImage squashfs mount).
+  // We compare the candidate's realpath against APPDIR's realpath so a
+  // symlink under the mount is still recognized as a self-hit.
+  if (appDir) {
+    const realAppDir = safeRealpath(appDir);
+    const sep = path.sep;
+    // Append separator so /tmp/.mount_PI doesn't accidentally match
+    // /tmp/.mount_PIxx-elsewhere via prefix.
+    const prefix = realAppDir.endsWith(sep) ? realAppDir : realAppDir + sep;
+    if (realCandidate === realAppDir || realCandidate.startsWith(prefix)) return true;
+    // Literal fallback (broken symlinks / ENOENT keep a useful answer).
+    const litPrefix = appDir.endsWith(sep) ? appDir : appDir + sep;
+    if (candidatePath === appDir || candidatePath.startsWith(litPrefix)) return true;
+  }
+
+  // Rule 3: realpath equals APPIMAGE (the .AppImage file the user clicked).
+  if (appImage) {
+    const realAppImage = safeRealpath(appImage);
+    if (realCandidate === realAppImage) return true;
+    if (candidatePath === appImage) return true;
+  }
+
+  return false;
+}
 
 /**
  * Well-known globalThis symbol for the default `ToolRegistry`.

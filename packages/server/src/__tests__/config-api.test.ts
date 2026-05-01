@@ -168,5 +168,14 @@ describe("config-api", () => {
       const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
       expect(written.auth.bypassUrls).toEqual(["/webhooks/", "/metrics"]);
     });
+
+    it("should persist reattachPlacement (change: reattach-move-to-front)", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
+      const result = writeConfigPartial({ reattachPlacement: "preserve" });
+      expect(result.success).toBe(true);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.reattachPlacement).toBe("preserve");
+      expect(written.port).toBe(8000); // existing fields preserved
+    });
   });
 });

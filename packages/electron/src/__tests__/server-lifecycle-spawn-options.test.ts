@@ -68,3 +68,41 @@ describe("server-lifecycle.ts invariant", () => {
     expect(src).toMatch(/detach:\s*false/);
   });
 });
+
+describe("launchViaCli error decoration", () => {
+  // See change: fix-electron-appimage-cli-self-detection (Task 4 / D5).
+  it("includes a `readlink -f` diagnostic hint in the timeout error message", () => {
+    const src = readFileSync(path.resolve(__dirname, "../lib/server-lifecycle.ts"), "utf-8");
+    // The launchViaCli timeout branch must mention the readlink hint so
+    // a slipped-through self-recursion case is recognizable from the
+    // error dialog alone.
+    expect(src).toContain("readlink -f");
+  });
+
+  it("includes the resolved candidate path in the timeout error message", () => {
+    const src = readFileSync(path.resolve(__dirname, "../lib/server-lifecycle.ts"), "utf-8");
+    expect(src).toMatch(/Resolved CLI path:/);
+  });
+});
+
+describe("ensureServer fall-through invariant", () => {
+  // See change: fix-electron-appimage-cli-self-detection (Task 5).
+  // ensureServer's power-user branch MUST stay shaped as:
+  //   const cli = detectPiDashboardCli();
+  //   if (cli.found && cli.path) { await launchViaCli(...); return ...; }
+  //   // fall through
+  //   await launchServer(config.port, config.piPort);
+  // so an AppImage rejection in detectPiDashboardCli (returning
+  // { found: false }) reliably falls through to the standalone tsx +
+  // cli.ts path. Source-level test — a runtime test would have to boot
+  // a real HTTP server.
+  const src = readFileSync(path.resolve(__dirname, "../lib/server-lifecycle.ts"), "utf-8");
+
+  it("gates the CLI launch on cli.found && cli.path", () => {
+    expect(src).toMatch(/if\s*\(\s*cli\.found\s*&&\s*cli\.path\s*\)/);
+  });
+
+  it("calls launchServer after the gated CLI branch", () => {
+    expect(src).toContain("launchServer(config.port, config.piPort)");
+  });
+});

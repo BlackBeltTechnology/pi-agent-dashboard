@@ -525,3 +525,176 @@ describe("CommandInput — history recall", () => {
     expect(textarea).toBeTruthy();
   });
 });
+
+// -----------------------------------------------------------------------------
+// Regression suite for `fix-autocomplete-stale-closure`:
+//
+// In production `CommandInput` is CONTROLLED via `draft` + `onDraftChange`,
+// and `App.tsx` wraps `onDraftChange` in `useCallback(..., [selectedId])` —
+// so its reference CHANGES every time the user switches sessions.
+//
+// These tests verify that Tab / Enter / mouse-click in the dropdown always
+// invoke the CURRENT `onDraftChange` prop, not a stale reference captured at
+// mount time. Before the fix, the internal `selectCommand` / `selectFile`
+// callbacks were wrapped in `useCallback([])` / missing-`setText`-dep arrays,
+// permanently capturing the first-render `setText` → stale `onDraftChange`.
+// -----------------------------------------------------------------------------
+
+describe("CommandInput stale-closure regression (controlled mode, prop-ref change)", () => {
+  /**
+   * Render helper: renders `<CommandInput>` in controlled mode via a wrapper
+   * that owns the `draft` state (mirroring `App.tsx`) but delegates each
+   * change to a swappable `handler` prop. The inline `onDraftChange` arrow
+   * gets a new reference on every render — matching production, where
+   * `setDraftForSelected` is `useCallback(..., [selectedId])` and thus
+   * changes reference every session switch.
+   *
+   * `rerenderWith({ onDraftChange })` swaps the handler while preserving the
+   * wrapper's draft state (React preserves state across rerenders of the
+   * same component type). This is the crucial scenario: at mount time the
+   * component captured handler=v1; by the time the user presses Tab, the
+   * CURRENT handler is v2. A correct implementation MUST call v2.
+   */
+  function renderControlled(initial: {
+    onDraftChange: (t: string) => void;
+    fileResults?: React.ComponentProps<typeof CommandInput>["fileResults"];
+  }) {
+    function Wrapper({
+      handler,
+      fileResults,
+    }: {
+      handler: (t: string) => void;
+      fileResults?: React.ComponentProps<typeof CommandInput>["fileResults"];
+    }) {
+      const [draft, setDraft] = React.useState("");
+      return (
+        <CommandInput
+          commands={commands}
+          onSend={vi.fn()}
+          draft={draft}
+          onDraftChange={(t) => {
+            setDraft(t);
+            handler(t);
+          }}
+          fileResults={fileResults}
+          onListFiles={vi.fn()}
+        />
+      );
+    }
+    const result = render(
+      <Wrapper handler={initial.onDraftChange} fileResults={initial.fileResults} />
+    );
+    const textarea = result.container.querySelector("textarea")!;
+    const rerenderWith = (next: {
+      onDraftChange: (t: string) => void;
+      fileResults?: React.ComponentProps<typeof CommandInput>["fileResults"];
+    }) => {
+      result.rerender(
+        <Wrapper
+          handler={next.onDraftChange}
+          fileResults={next.fileResults ?? initial.fileResults}
+        />
+      );
+    };
+    return { ...result, textarea, rerenderWith };
+  }
+
+  it("Tab invokes the CURRENT onDraftChange after prop-reference change", () => {
+    const v1 = vi.fn();
+    const v2 = vi.fn();
+    const { textarea, rerenderWith } = renderControlled({ onDraftChange: v1 });
+    // Simulate a session switch: onDraftChange gets a new reference.
+    rerenderWith({ onDraftChange: v2 });
+    // User types `/dep` into the textarea.
+    fireEvent.change(textarea, { target: { value: "/dep" } });
+    // Press Tab to select the highlighted `/deploy`.
+    fireEvent.keyDown(textarea, { key: "Tab" });
+    // The CURRENT onDraftChange (v2) MUST have been called with `/deploy `.
+    expect(v2).toHaveBeenCalledWith("/deploy ");
+    // The STALE onDraftChange (v1) must NOT have received the selected command.
+    expect(v1).not.toHaveBeenCalledWith("/deploy ");
+  });
+
+  it("Enter invokes the CURRENT onDraftChange after prop-reference change", () => {
+    const v1 = vi.fn();
+    const v2 = vi.fn();
+    const { textarea, rerenderWith } = renderControlled({ onDraftChange: v1 });
+    rerenderWith({ onDraftChange: v2 });
+    fireEvent.change(textarea, { target: { value: "/dep" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(v2).toHaveBeenCalledWith("/deploy ");
+    expect(v1).not.toHaveBeenCalledWith("/deploy ");
+  });
+
+  it("Mouse click invokes the CURRENT onDraftChange after prop-reference change", () => {
+    const v1 = vi.fn();
+    const v2 = vi.fn();
+    const { container, textarea, rerenderWith } = renderControlled({ onDraftChange: v1 });
+    rerenderWith({ onDraftChange: v2 });
+    fireEvent.change(textarea, { target: { value: "/dep" } });
+    // Locate the `/deploy` dropdown button (font-mono text-blue-400 span starting with `/deploy`).
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const deployBtn = buttons.find((b) =>
+      b.querySelector(".font-mono")?.textContent?.startsWith("/deploy")
+    );
+    expect(deployBtn).toBeTruthy();
+    fireEvent.click(deployBtn!);
+    expect(v2).toHaveBeenCalledWith("/deploy ");
+    expect(v1).not.toHaveBeenCalledWith("/deploy ");
+  });
+
+  it("@ file Tab invokes the CURRENT onDraftChange after prop-reference change", () => {
+    // `CommandInput` debounces the file-list request by 150ms and only
+    // populates `fileItems` once `lastFileQueryRef` matches `fileResults.query`.
+    // We use fake timers to flush the debounce deterministically.
+    vi.useFakeTimers();
+    try {
+      const v1 = vi.fn();
+      const v2 = vi.fn();
+      // Seed file results so the @-dropdown is populated when the debounce fires.
+      const fileResults = {
+        query: "",
+        files: [
+          { path: "src/index.ts", isDirectory: false },
+          { path: "README.md", isDirectory: false },
+        ],
+      };
+      // Start without fileResults so the initial mount doesn't populate
+      // the dropdown. We'll supply them via `rerenderWith` AFTER the
+      // debounce fires — matching production: user types `@`, server
+      // responds with files, parent rerenders with new `fileResults`.
+      const { textarea, rerenderWith } = renderControlled({
+        onDraftChange: v1,
+      });
+      // Simulate session switch: onDraftChange gets a new reference.
+      rerenderWith({ onDraftChange: v2 });
+      // Type `@` — the debounce schedules a file listing with query "".
+      fireEvent.change(textarea, { target: { value: "@" } });
+      // Flush the 150ms debounce: sets `lastFileQueryRef.current = ""`.
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      // Now the "server" responds: rerender with fileResults matching the
+      // debounced query. This triggers a re-render, so the next
+      // `handleKeyDown` closes over `dropdownMode = "file"`.
+      rerenderWith({ onDraftChange: v2, fileResults });
+      // Press Tab — should insert the first file's path via `selectFile`.
+      fireEvent.keyDown(textarea, { key: "Tab" });
+      // v2 must have been called with a draft containing the file path.
+      const v2Call = v2.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("src/index.ts")
+      );
+      expect(
+        v2Call,
+        `expected v2 to be called with a draft containing src/index.ts, got: ${JSON.stringify(v2.mock.calls)}`
+      ).toBeTruthy();
+      // v1 (stale) must NOT have received the file-path draft.
+      const v1Call = v1.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("src/index.ts")
+      );
+      expect(v1Call).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

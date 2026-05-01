@@ -4,7 +4,7 @@
  * run to populate an npm cacache from the bundled tarball and run a
  * cache-offline `npm install`.
  *
- * The bundle is produced by `packages/electron/scripts/bundle-offline-packages.sh`
+ * The bundle is produced by `packages/electron/scripts/bundle-offline-packages.mjs`
  * and lands at `<resourcesPath>/offline-packages/{manifest.json,npm-cache.tar.gz}`.
  */
 import { createHash } from "node:crypto";

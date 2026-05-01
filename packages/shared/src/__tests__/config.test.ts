@@ -412,3 +412,62 @@ describe("ensureConfig", () => {
     expect(content.piPort).toBeUndefined();
   });
 });
+
+describe("loadConfig reattachPlacement", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-reattach-${Date.now()}-${Math.random()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("defaults to 'always' when missing", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    expect(loadConfig().reattachPlacement).toBe("always");
+  });
+
+  it("defaults to 'always' when config file does not exist", () => {
+    expect(loadConfig().reattachPlacement).toBe("always");
+  });
+
+  it("accepts 'preserve'", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ reattachPlacement: "preserve" }));
+    expect(loadConfig().reattachPlacement).toBe("preserve");
+  });
+
+  it("accepts 'streaming-only'", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ reattachPlacement: "streaming-only" }));
+    expect(loadConfig().reattachPlacement).toBe("streaming-only");
+  });
+
+  it("accepts 'always' explicitly", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ reattachPlacement: "always" }));
+    expect(loadConfig().reattachPlacement).toBe("always");
+  });
+
+  it("falls back to 'always' on invalid string", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ reattachPlacement: "wibble" }));
+    expect(loadConfig().reattachPlacement).toBe("always");
+  });
+
+  it("falls back to 'always' on non-string", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ reattachPlacement: 42 }));
+    expect(loadConfig().reattachPlacement).toBe("always");
+  });
+
+  it("ensureConfig does NOT write reattachPlacement to defaults", () => {
+    ensureConfig();
+    const content = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(content.reattachPlacement).toBeUndefined();
+  });
+});

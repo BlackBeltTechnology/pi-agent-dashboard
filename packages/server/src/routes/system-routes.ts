@@ -6,6 +6,7 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
 import type { MetaPersistence } from "../meta-persistence.js";
 import type { DirectoryService } from "../directory-service.js";
+import type { PiGateway } from "../pi-gateway.js";
 import type { ServerConfig } from "../server.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -31,9 +32,23 @@ export function registerSystemRoutes(
     networkGuard: NetworkGuard;
     version?: string;
     directoryService?: DirectoryService;
+    piGateway?: PiGateway;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway } = deps;
+
+  // Quiesce windows for the bridge `server_restarting` broadcast. See change
+  // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
+  // suppress only the spawn step in `server-auto-start.ts` for `quiesceMs`;
+  // discovery + reconnection still run.
+  const RESTART_QUIESCE_MS = 5000;
+  const SHUTDOWN_QUIESCE_MS = 60000;
+  const announceRestart = (reason: "restart" | "shutdown", quiesceMs: number) => {
+    if (!piGateway) return;
+    try {
+      piGateway.broadcast({ type: "server_restarting", reason, quiesceMs });
+    } catch { /* best-effort — never block exit on a flaky bridge socket */ }
+  };
   const serverStartTime = Date.now();
 
   // Editor detection endpoint
@@ -196,6 +211,10 @@ export function registerSystemRoutes(
     async () => {
       metaPersistence.flushAll();
       preferencesStore.flush();
+      // Tell every connected bridge that the server is going away deliberately
+      // BEFORE we start tearing down state, so bridges suppress auto-start.
+      // See change: fix-restart-bridge-auto-start-race.
+      announceRestart("shutdown", SHUTDOWN_QUIESCE_MS);
       // Tear down the zrok tunnel (and sweep orphans on our port) so restarts
       // don't leak reservations that leave stale URLs backed by nothing.
       try { await deleteTunnel(config.port); } catch { /* best-effort */ }
@@ -211,6 +230,11 @@ export function registerSystemRoutes(
     async (request) => {
       metaPersistence.flushAll();
       preferencesStore.flush();
+
+      // Announce restart to every bridge BEFORE spawning the replacement so
+      // bridges suppress their auto-start spawn step and don't race the
+      // orchestrator. See change: fix-restart-bridge-auto-start-race.
+      announceRestart("restart", RESTART_QUIESCE_MS);
 
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.

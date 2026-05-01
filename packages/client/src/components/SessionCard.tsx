@@ -5,6 +5,7 @@ import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, m
 import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
+import { selectBadgeTimestamp } from "../lib/session-card-time.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
@@ -354,8 +355,11 @@ export function SessionCard({
           <span className="text-sm truncate flex-1">
             {getSessionDisplayName(session)}
           </span>
-          <span className="text-[11px] text-[var(--text-muted)] flex-shrink-0">
-            {formatRelativeTime(now - session.startedAt)}
+          <span
+            className="text-[11px] text-[var(--text-muted)] flex-shrink-0"
+            title={`Started ${new Date(session.startedAt).toLocaleString()}`}
+          >
+            {formatRelativeTime(now - selectBadgeTimestamp(session))}
           </span>
         </div>
 
@@ -481,8 +485,11 @@ export function SessionCard({
             <Icon path={mdiPencilOutline} size={0.45} />
           </button>
         )}
-        <span className="text-[10px] text-[var(--text-muted)]">
-          {formatRelativeTime(now - session.startedAt)}
+        <span
+          className="text-[10px] text-[var(--text-muted)]"
+          title={`Started ${new Date(session.startedAt).toLocaleString()}`}
+        >
+          {formatRelativeTime(now - selectBadgeTimestamp(session))}
         </span>
         {/* Hide/unhide button */}
         {isHidden ? (

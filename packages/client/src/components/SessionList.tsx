@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
-import { mdiChevronRight, mdiChevronDown, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline, mdiFileDocumentOutline } from "@mdi/js";
+import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline, mdiFileDocumentOutline } from "@mdi/js";
 import { PiLogo } from "./PiLogo.js";
 import { FolderActionBar } from "./FolderActionBar.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
@@ -66,9 +66,16 @@ interface Props {
   onRename?: (sessionId: string, name: string) => void;
   onShutdown?: (sessionId: string) => void;
   onResume?: (sessionId: string, mode: "continue" | "fork") => void;
+  /**
+   * Drag-to-resume entry point. Distinct from `onResume` so the WS
+   * message can carry `placement: "keep"`, preserving the dropped slot
+   * through the resume round-trip.
+   * See change: differentiate-resume-intent-by-trigger.
+   */
+  onResumeKeepPosition?: (sessionId: string) => void;
   onHideSession?: (sessionId: string) => void;
   onUnhideSession?: (sessionId: string) => void;
-  onSpawnSession?: (cwd: string) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string) => void;
   spawningCwds?: Set<string>;
   spawnResult?: { success: boolean; message: string } | null;
   onSpawnResultSeen?: () => void;
@@ -132,7 +139,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
   const now = Date.now();
   const [, navigate] = useLocation();
   const { messages, showToast, dismissToast } = useToast();
@@ -320,7 +327,18 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             draggedSession.sessionFile &&
             overSession && overSession.status !== "ended"
           ) {
-            onResume?.(draggedSession.id, "continue");
+            // Drag-to-resume — the dropped slot was just persisted by
+            // the `onReorderSessions` call above; route through the
+            // keep-position callback so the server's ended→alive
+            // branch does NOT move the id to the front and clobber it.
+            // Fallback to onResume for callers that haven't wired the
+            // new callback yet (preserves legacy behavior).
+            // See change: differentiate-resume-intent-by-trigger.
+            if (onResumeKeepPosition) {
+              onResumeKeepPosition(draggedSession.id);
+            } else {
+              onResume?.(draggedSession.id, "continue");
+            }
           }
           break;
         }
@@ -334,7 +352,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
         onReorderPinnedDirs?.(newOrder);
       }
     }
-  }, [allGroups, pinnedGroups, onReorderSessions, onReorderPinnedDirs, onResume]);
+  }, [allGroups, pinnedGroups, onReorderSessions, onReorderPinnedDirs, onResume, onResumeKeepPosition]);
 
   /**
    * Decide whether a folder should be visible given the active filters.
@@ -438,6 +456,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onNavigateToSession={onSelect}
               onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
               onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
+              onSpawnAttached={onSpawnSession ? (cwd, changeName) => onSpawnSession(cwd, changeName) : undefined}
             />
           )}
 
@@ -484,7 +503,15 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             // See change: pin-and-search-sessions.
             const flatMergeMode = sessionSearch.length > 0 && workspaceFilter.length === 0;
             const activeSessions = matched.filter((s) => s.status !== "ended");
-            const endedSessions = matched.filter((s) => s.status === "ended");
+            // Ended-tier sort: most-recently-ended first, regardless of
+            // sessionOrder (which is alive-only post-prune). Falls back
+            // to startedAt for legacy entries without endedAt. See
+            // change: top-of-tier-on-status-change.
+            const endedSessions = matched
+              .filter((s) => s.status === "ended")
+              .sort(
+                (a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt),
+              );
             const showEnded =
               endedSessions.length > 0 &&
               (endedExpanded.has(group.cwd) || sessionSearch.length > 0);
@@ -627,7 +654,14 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 data-testid={`folder-ended-toggle-${group.cwd}`}
                 aria-label={expanded ? `Hide ${endedCount} ended sessions` : `Show ${endedCount} ended sessions`}
               >
-                <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.4} />
+                {/* Bottom toggle: arrow points UP when expanded (collapse-up
+                    direction — matches where the click takes the eye) and
+                    RIGHT when collapsed (consistent with sidebar folder
+                    chevrons). The top "Hide ended" button uses mdiChevronDown
+                    deliberately because it sits ABOVE the ended group and
+                    pointing down at it would still mean "this collapses what's
+                    below me" — inverse direction is intentional. */}
+                <Icon path={expanded ? mdiChevronUp : mdiChevronRight} size={0.4} />
                 <span>{expanded ? `Hide ended` : `${endedCount} ended`}</span>
               </button>
             );

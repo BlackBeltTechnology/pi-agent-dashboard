@@ -136,3 +136,45 @@ export function extractSessionUpdates(event: DashboardEvent): SessionUpdates | n
       return null;
   }
 }
+
+/**
+ * Activity-event allowlist for `session.lastActivityAt` stamping.
+ *
+ * Returns `true` for event types that represent user-or-agent action
+ * (the kind of thing a human would call "this session did something"),
+ * and `false` for plumbing/heartbeat/UI-state noise.
+ *
+ * The allowlist is deliberately narrow. Adding a new pi event type that
+ * a user would consider "activity" requires adding it here.
+ *
+ * See change: session-card-last-activity-badge (design.md § "Activity-event allowlist").
+ */
+const ACTIVITY_EVENT_TYPES: ReadonlySet<string> = new Set([
+  // User input
+  "prompt_send",
+  // Assistant message lifecycle
+  "message_start",
+  "message_end",
+  "turn_end",
+  // Tool execution
+  "tool_execution_start",
+  "tool_execution_end",
+  // Agent lifecycle
+  "agent_start",
+  "agent_end",
+  // Bash command output
+  "bash_output",
+  // Flow lifecycle / agent steps
+  "flow_started",
+  "flow_complete",
+  "flow_agent_started",
+  "flow_agent_complete",
+  // Architect (flow design) lifecycle
+  "architect_started",
+  "architect_complete",
+  "architect_cancelled",
+]);
+
+export function isActivityEvent(eventType: string): boolean {
+  return ACTIVITY_EVENT_TYPES.has(eventType);
+}

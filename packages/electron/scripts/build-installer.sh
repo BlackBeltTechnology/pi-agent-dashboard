@@ -201,7 +201,7 @@ if [ "${BUNDLE_OFFLINE_PACKAGES:-0}" = "1" ]; then
   if [ ! -f "$ELECTRON_DIR/resources/offline-packages/manifest.json" ]; then
     echo ""
     echo "→ Bundling offline packages (pi + openspec + tsx)..."
-    bash "$ELECTRON_DIR/scripts/bundle-offline-packages.sh" --platform="$HOST_PLATFORM-$ARCH"
+    node "$ELECTRON_DIR/scripts/bundle-offline-packages.mjs" --platform="$HOST_PLATFORM-$ARCH"
   else
     echo "✓ Offline package bundle already present"
   fi

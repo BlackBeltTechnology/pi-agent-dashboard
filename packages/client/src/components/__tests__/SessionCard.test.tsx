@@ -291,7 +291,7 @@ describe("SessionCard", () => {
 
     const session = makeSession({
       attachedProposal: "add-auth",
-      openspecPhase: "applying",
+      openspecPhase: "apply",
       openspecChange: "fix-bug",
     } as Partial<DashboardSession>);
     render(<SessionCard session={session} {...defaultProps} />);

@@ -15,6 +15,16 @@ export interface DashboardSession {
   thinkingLevel?: string;
   startedAt: number;
   endedAt?: number;
+  /**
+   * Epoch ms timestamp of the most recent activity event observed for this
+   * session. Server-managed: stamped in `event-wiring.ts` whenever an
+   * `event_forward` arrives whose `eventType` is on the activity-event
+   * allowlist (`isActivityEvent`). NOT persisted to `.meta.json`; cold-start
+   * seeded from `events.jsonl` mtime in `session-scanner.ts`. Drives the
+   * session-card relative-time badge via `selectBadgeTimestamp`.
+   * See change: session-card-last-activity-badge.
+   */
+  lastActivityAt?: number;
   tokensIn?: number;
   tokensOut?: number;
   cacheRead?: number;

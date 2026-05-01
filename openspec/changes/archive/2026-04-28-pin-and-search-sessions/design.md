@@ -51,6 +51,8 @@ The role formerly played by `Active only` (keeping ended sessions out of the way
 
 ### D3. Server prunes `sessionOrder` on alive→ended transition; client trusts it
 
+> **Follow-up (2026-04-29): preserve-session-order-on-reboot.** This change introduced a side-effect in the `onChange` ended→alive direction (insert + broadcast) that fires on every transition, including bridge auto-reattach during dashboard reboot. The reattach path is not user-driven and must not mutate the persisted order. The follow-up gates the ended→alive branch behind an explicit user-resume intent registry (`pendingResumeIntentRegistry`); only Resume clicks, REST resumes, and drag-to-resume tag the intent. Bridge reattach finds nothing tagged and returns early. See `openspec/changes/preserve-session-order-on-reboot/`.
+
 The pre-change behaviour kept ended session ids in `sessionOrder`, causing them to retain their drag-reordered slots. The fix is server-side: in `server.ts`, the `sessionManager.onChange` hook detects the alive→ended transition (via a `Set<sessionId>` tracking last-known-ended state to fire exactly once), removes the id from `sessionOrder`, and broadcasts `sessions_reordered`.
 
 The client trusts the server: the folder render reads `sessionOrder` verbatim and does not filter ended ids out itself. This means an ended id appearing in `sessionOrder` is a meaningful signal — it got there because the user explicitly drag-reordered an ended card into the alive zone (drag-to-resume, see D5).
@@ -70,6 +72,8 @@ Inside each folder, ended sessions render below alive sessions in a group that's
 - **Bottom toggle only:** Rejected — when the user is reading the alive sessions and wants to hide the expanded ended group below, walking the cursor down past every ended card is friction. Top toggle gives an immediate close.
 
 ### D5. Drag-to-resume an ended session
+
+> **Follow-up (2026-04-29):** the intent-tagging fix described under D3 explicitly preserves the drag-to-resume invariant from this section — the `if (!order.includes(sessionId))` guard inside the branch keeps the dropped slot when the user pre-placed the id via `reorder_sessions`. The new gate runs *before* this guard, so user-tagged drag-to-resume reaches the guard intact, while bridge reattach short-circuits earlier.
 
 Dragging an ended session card onto an alive card in the same folder triggers two effects in sequence: (1) `reorder_sessions` persists the new drag-reorder including the ended id at the drop position, (2) `resume_session` fires in `continue` mode for the dragged session. The dropped position survives the resume round-trip because the server-side prune (D3) only fires on the alive→ended direction — once the resumed session flips back to alive, it stays at the dropped slot.
 

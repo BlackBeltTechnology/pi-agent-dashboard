@@ -69,11 +69,11 @@ RUN mkdir -p $APP_RESOURCES
 
 # Download Linux x64 Node.js (don't copy host binary — might be wrong arch/OS)
 RUN mkdir -p /tmp/node-dl && \
-    curl -fsSL https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz -o /tmp/node-dl/node.tar.xz && \
+    curl -fsSL https://nodejs.org/dist/v22.18.0/node-v22.18.0-linux-x64.tar.xz -o /tmp/node-dl/node.tar.xz && \
     tar -xf /tmp/node-dl/node.tar.xz -C /tmp/node-dl && \
     mkdir -p $APP_RESOURCES/node/bin $APP_RESOURCES/node/lib && \
-    cp /tmp/node-dl/node-v22.12.0-linux-x64/bin/node $APP_RESOURCES/node/bin/ && \
-    cp -r /tmp/node-dl/node-v22.12.0-linux-x64/lib/node_modules $APP_RESOURCES/node/lib/ && \
+    cp /tmp/node-dl/node-v22.18.0-linux-x64/bin/node $APP_RESOURCES/node/bin/ && \
+    cp -r /tmp/node-dl/node-v22.18.0-linux-x64/lib/node_modules $APP_RESOURCES/node/lib/ && \
     ln -sf ../lib/node_modules/npm/bin/npm-cli.js $APP_RESOURCES/node/bin/npm && \
     rm -rf /tmp/node-dl
 

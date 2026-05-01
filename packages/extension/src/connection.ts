@@ -35,6 +35,16 @@ export class ConnectionManager {
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private watchdogTimeout: number;
 
+  /**
+   * Auto-start suppression deadline (epoch ms). When the server announces
+   * a deliberate restart/shutdown via `server_restarting`, the bridge sets
+   * this to `Date.now() + quiesceMs` so the spawn step in `autoStartServer`
+   * is skipped while the orchestrator does its work. Discovery + reconnect
+   * are NOT suppressed.
+   * See change: fix-restart-bridge-auto-start-race.
+   */
+  private suppressUntil = 0;
+
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
     this.WS = options.WebSocketImpl ?? (globalThis as any).WebSocket;
@@ -88,6 +98,25 @@ export class ConnectionManager {
 
   get isConnected(): boolean {
     return this.ws?.readyState === 1;
+  }
+
+  /**
+   * Pause auto-start spawn for `ms` milliseconds. Idempotent: only extends
+   * the suppression window, never shortens it. See change:
+   * fix-restart-bridge-auto-start-race.
+   */
+  pauseAutoStart(ms: number): void {
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    const next = Date.now() + ms;
+    if (next > this.suppressUntil) this.suppressUntil = next;
+  }
+
+  /**
+   * Returns true while the auto-start spawn step should be suppressed.
+   * See change: fix-restart-bridge-auto-start-race.
+   */
+  shouldSuppressAutoStart(): boolean {
+    return Date.now() < this.suppressUntil;
   }
 
   /**

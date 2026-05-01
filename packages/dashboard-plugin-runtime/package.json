@@ -1,8 +1,13 @@
 {
   "name": "@blackbelt-technology/dashboard-plugin-runtime",
-  "version": "0.4.0",
+  "version": "0.4.4",
   "description": "Plugin loader, slot registry, slot consumers, and context API for pi-dashboard",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/dashboard-plugin-runtime"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -31,7 +36,7 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.4.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.4.4"
   },
   "devDependencies": {
     "react": "^19.0.0",

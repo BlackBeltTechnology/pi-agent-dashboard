@@ -1,5 +1,9 @@
-## ADDED Requirements
+# flow-card-grid Specification
 
+## Purpose
+Client-side rendering of the in-session flow dashboard: sticky card grid showing per-agent status, controls, and responsive layout while a flow is active.
+
+## Requirements
 ### Requirement: Flow dashboard component with responsive card grid
 The React client SHALL render a `FlowDashboard` component at the top of the session content area when a flow is active. The component SHALL use `position: sticky; top: 0` to remain visible while the chat scrolls.
 

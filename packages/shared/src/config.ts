@@ -11,6 +11,39 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 
 export type SpawnStrategy = "tmux" | "headless";
 
+/**
+ * Policy applied when a bridge re-registers a session after a dashboard
+ * restart (i.e. the `session_register` carries `registerReason: "reattach"`).
+ *
+ * - `"always"` (default) — unconditionally move the session to the front
+ *   of `sessionOrder` for its cwd.
+ * - `"streaming-only"` — only move-to-front when the session's status is
+ *   currently `"streaming"`.
+ * - `"preserve"` — leave `sessionOrder` untouched (legacy behavior).
+ *
+ * See change: reattach-move-to-front.
+ */
+export type ReattachPlacement = "preserve" | "streaming-only" | "always";
+
+const VALID_REATTACH_PLACEMENTS: ReattachPlacement[] = [
+  "preserve",
+  "streaming-only",
+  "always",
+];
+
+export const DEFAULT_REATTACH_PLACEMENT: ReattachPlacement = "always";
+
+/**
+ * Validate a raw value against the {@link ReattachPlacement} union.
+ * Anything outside the union (including `undefined`, numbers, objects)
+ * falls back to {@link DEFAULT_REATTACH_PLACEMENT}.
+ */
+export function parseReattachPlacement(raw: unknown): ReattachPlacement {
+  return typeof raw === "string" && (VALID_REATTACH_PLACEMENTS as string[]).includes(raw)
+    ? (raw as ReattachPlacement)
+    : DEFAULT_REATTACH_PLACEMENT;
+}
+
 export interface AuthProviderConfig {
   clientId: string;
   clientSecret: string;
@@ -118,6 +151,12 @@ export interface DashboardConfig {
   lastServer?: string;
   /** Whether the server was launched by the Electron app */
   electronMode: boolean;
+  /**
+   * Policy applied when the bridge reattaches after a dashboard restart.
+   * See {@link ReattachPlacement}. Default `"always"`.
+   * See change: reattach-move-to-front.
+   */
+  reattachPlacement: ReattachPlacement;
   /** Persisted list of known remote servers */
   knownServers: KnownServer[];
   /**
@@ -159,6 +198,7 @@ const DEFAULTS: DashboardConfig = {
   electronMode: false,
   knownServers: [],
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
+  reattachPlacement: DEFAULT_REATTACH_PLACEMENT,
 };
 
 /**
@@ -354,6 +394,7 @@ export function loadConfig(): DashboardConfig {
       ...(typeof parsed.lastServer === "string" ? { lastServer: parsed.lastServer } : {}),
       electronMode: parsed.electronMode === true,
       knownServers: parseKnownServers(parsed.knownServers),
+      reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       plugins: parsePluginsConfig(parsed.plugins),
       askUserPromptTimeoutSeconds: typeof parsed.askUserPromptTimeoutSeconds === "number"
         ? parsed.askUserPromptTimeoutSeconds

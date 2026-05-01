@@ -127,8 +127,12 @@ describe("RecommendedExtension type", () => {
 
 describe("BUNDLED_EXTENSION_IDS manifest", () => {
 	it("contains exactly the v0.x initial bundled set", () => {
+		// pi-flows temporarily removed: upstream repo lacks SPDX license,
+		// blocking the bundle-recommended-extensions.mjs license check.
+		// Re-add when https://github.com/BlackBeltTechnology/pi-flows has
+		// a license declared.
 		expect([...BUNDLED_EXTENSION_IDS].sort()).toEqual(
-			["pi-anthropic-messages", "pi-flows"].sort(),
+			["pi-anthropic-messages"].sort(),
 		);
 	});
 

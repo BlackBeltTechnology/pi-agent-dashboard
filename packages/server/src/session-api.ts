@@ -11,6 +11,7 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
+import type { PendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
 import type { BootstrapStateStore } from "./bootstrap-state.js";
 import type { BootstrapQueue } from "./bootstrap-queue.js";
 import { attachRenameTarget, detachShouldClearName } from "./proposal-attach-naming.js";
@@ -28,6 +29,13 @@ export interface SessionApiDeps {
    */
   bootstrapState?: BootstrapStateStore;
   bootstrapQueue?: BootstrapQueue;
+  /**
+   * User-resume-intent registry. Tagged in the resume endpoint so the
+   * `sessionManager.onChange` ended→alive branch can distinguish a
+   * REST-initiated user resume from a bridge auto-reattach on reboot.
+   * See change: preserve-session-order-on-reboot.
+   */
+  pendingResumeIntents?: PendingResumeIntentRegistry;
 }
 
 type IdParams = { Params: { id: string } };
@@ -40,7 +48,7 @@ function getSessionOrFail(sessionManager: SessionManager, id: string): { session
 }
 
 export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDeps) {
-  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, bootstrapState, bootstrapQueue } = deps;
+  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, bootstrapState, bootstrapQueue, pendingResumeIntents } = deps;
 
   /**
    * Gate pi-dependent operations on bootstrap status. Returns:
@@ -277,6 +285,12 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       if (mode === "fork" && pendingForkRegistry) {
         pendingForkRegistry.recordFork(session.cwd, id);
       }
+      // Tag the user-resume intent BEFORE spawning. REST resume always
+      // uses "front" placement — the only "keep" path is drag-to-resume
+      // which goes through the WebSocket handler, not this REST endpoint.
+      // See changes: preserve-session-order-on-reboot,
+      //              differentiate-resume-intent-by-trigger.
+      pendingResumeIntents?.record(id, "front");
       const config = loadConfig();
       const spawnResult = await spawnPiSession(session.cwd, {
         sessionFile: session.sessionFile,

@@ -172,6 +172,14 @@ describe("MarkdownContent", () => {
     expect(container.querySelector("li")).not.toBeNull();
   });
 
+  it("strips raw HTML ref attributes before rendering", () => {
+    const { container } = renderMd('<section ref="bad"><publiccheckoutpanel ref="bad">Pay</publiccheckoutpanel></section>');
+
+    expect(container.textContent).toContain("Pay");
+    expect(container.querySelector("section")?.getAttribute("ref")).toBeNull();
+    expect(container.querySelector("publiccheckoutpanel")?.getAttribute("ref")).toBeNull();
+  });
+
   it("renders mermaid code block as MermaidBlock instead of syntax highlighter", () => {
     const content = "```mermaid\ngraph TD; A-->B\n```";
     const { container } = render(<ThemeProvider><MarkdownContent content={content} /></ThemeProvider>);
@@ -227,6 +235,71 @@ describe("MarkdownContent", () => {
 
     // Content should be identical — MarkdownContent should have been skipped by memo
     expect(container.innerHTML).toBe(initialHtml);
+  });
+
+  describe("anchor target handling", () => {
+    it("renders external absolute URL with target=_blank and rel=noopener noreferrer", () => {
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content="See [docs](https://example.com)" /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe("https://example.com");
+      expect(link!.getAttribute("target")).toBe("_blank");
+      expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
+    });
+
+    it("renders GFM autolink with target=_blank", () => {
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content="Visit https://example.com for more." /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe("https://example.com");
+      expect(link!.getAttribute("target")).toBe("_blank");
+      expect(link!.getAttribute("rel")).toBe("noopener noreferrer");
+    });
+
+    it("renders fragment-only link without target attribute", () => {
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content="[top](#top)" /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe("#top");
+      expect(link!.getAttribute("target")).toBeNull();
+    });
+
+    it("renders same-origin relative path without target attribute", () => {
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content="[settings](/settings)" /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe("/settings");
+      expect(link!.getAttribute("target")).toBeNull();
+    });
+
+    it("renders same-origin absolute URL without target attribute", () => {
+      // When the href matches window.location.origin, no target should be set
+      const sameOrigin = `${window.location.origin}/auth/login?return=/`;
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content={`[login](${sameOrigin})`} /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link).not.toBeNull();
+      expect(link!.getAttribute("href")).toBe(sameOrigin);
+      expect(link!.getAttribute("target")).toBeNull();
+    });
+
+    it("preserves external-link blue styling", () => {
+      const { container } = render(
+        <ThemeProvider><MarkdownContent content="[docs](https://example.com)" /></ThemeProvider>
+      );
+      const link = container.querySelector("a");
+      expect(link?.className).toContain("text-blue-400");
+      expect(link?.className).toContain("hover:underline");
+    });
   });
 
   // ASCII table fixer disabled pending refinement

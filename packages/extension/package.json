@@ -1,8 +1,13 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-extension",
-  "version": "0.4.1",
+  "version": "0.4.4",
   "description": "Pi bridge extension for pi-dashboard",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/extension"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -19,7 +24,7 @@
     ".pi/skills/pi-dashboard/"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.4.1",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.4.4",
     "ws": "^8.18.0"
   },
   "peerDependencies": {

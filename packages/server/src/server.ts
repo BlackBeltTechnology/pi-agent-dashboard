@@ -18,6 +18,9 @@ import { createPreferencesStore, type PreferencesStore } from "./preferences-sto
 import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
+import { createPendingAttachRegistry } from "./pending-attach-registry.js";
+import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
+import { applyReattachPolicy } from "./reattach-placement.js";
 
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -113,6 +116,128 @@ export interface DashboardServer {
   piPort(): number | null;
 }
 
+// ── Post-install repair (centralized hook) ─────────────────────────
+// On every `installing → ready` bootstrap-state transition the server
+// re-runs the full ToolRegistry rescan, force-refreshes OpenSpec data
+// for every known directory, and refreshes pi-resources. Without this
+// the OpenSpec session-card buttons stay hidden until the next gated
+// poll tick (or never, if the gate's mtime heuristic declines).
+// See change: fix-openspec-buttons-after-bootstrap-install.
+
+import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+
+export interface PostInstallRepairDeps {
+  registry: { rescan(name?: string): void };
+  directoryService: {
+    knownDirectories(): string[];
+    getOpenSpecData(cwd: string): OpenSpecData | undefined;
+    refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
+    refreshPiResources(cwd: string): Promise<unknown>;
+  };
+  browserGateway: { broadcastToAll(msg: ServerToBrowserMessage): void };
+}
+
+function isOpenSpecDataEmpty(d: OpenSpecData | undefined): boolean {
+  if (!d) return true;
+  return !d.initialized && (!d.changes || d.changes.length === 0);
+}
+
+/**
+ * Centralized post-install repair work fired on every `installing → ready`
+ * bootstrap-state transition. Idempotent. Failures per-cwd are isolated.
+ *
+ * Steps:
+ *   1) `registry.rescan()` (no arg — full registry invalidate). Restores
+ *      the literal contract from `unified-bootstrap-install` task 4.3.
+ *   2) For every `directoryService.knownDirectories()` cwd, force-refresh
+ *      OpenSpec (bypassing the mtime gate). If the prior cache was empty
+ *      or the refreshed payload differs, broadcast `openspec_update`.
+ *   3) For every cwd, force-refresh pi-resources (silent on failure).
+ *
+ * The DEBUG=pi-dashboard|openspec-poll envvar enables a single-line
+ * diagnostic log on completion, matching the existing daemon-log style.
+ */
+export async function runPostInstallRepair(deps: PostInstallRepairDeps): Promise<void> {
+  const debug =
+    typeof process !== "undefined" &&
+    typeof process.env?.DEBUG === "string" &&
+    /pi-dashboard|openspec-poll/.test(process.env.DEBUG);
+
+  // 1) full registry rescan
+  deps.registry.rescan();
+  if (debug) console.log("[bootstrap] post-install: rescanned tool registry");
+
+  const cwds = deps.directoryService.knownDirectories();
+
+  // 2) per-cwd OpenSpec force-refresh + selective broadcast
+  await Promise.all(
+    cwds.map(async (cwd) => {
+      try {
+        const prior = deps.directoryService.getOpenSpecData(cwd);
+        const fresh = await deps.directoryService.refreshOpenSpec(cwd);
+        const priorEmpty = isOpenSpecDataEmpty(prior);
+        const dataDiffers = JSON.stringify(prior) !== JSON.stringify(fresh);
+        if (priorEmpty || dataDiffers) {
+          deps.browserGateway.broadcastToAll({ type: "openspec_update", cwd, data: fresh });
+        }
+      } catch (err) {
+        console.error(
+          `[bootstrap] post-install openspec refresh failed for ${cwd}:`,
+          err,
+        );
+      }
+    }),
+  );
+
+  // 3) per-cwd pi-resources force-refresh (silent fail)
+  await Promise.all(
+    cwds.map(async (cwd) => {
+      try {
+        await deps.directoryService.refreshPiResources(cwd);
+      } catch {
+        // matches existing pattern in directory-service.ts::schedulePiResourcesTick
+      }
+    }),
+  );
+
+  if (debug) console.log("[bootstrap] post-install: openspec + pi-resources refresh complete");
+}
+
+export interface BootstrapTransitionHandlerDeps {
+  /** Invoked once per `installing → ready` transition, fire-and-forget. */
+  onTransitionToReady: () => Promise<void> | void;
+  /** Existing queue flush invoked on the same transition. */
+  flushQueue: () => Promise<void> | void;
+}
+
+/**
+ * Returns a stateful handler that drives `onTransitionToReady` and
+ * `flushQueue` once per `installing → ready` (or `failed → ready`)
+ * transition. The handler ignores the very first ready snapshot
+ * because the bootstrap state defaults to ready.
+ *
+ * Both callbacks run fire-and-forget so the subscribe callback returns
+ * synchronously — matches the existing `void bootstrapQueue.flushAll()`
+ * pattern in the inline subscribe call site.
+ */
+export function makeBootstrapTransitionHandler(
+  deps: BootstrapTransitionHandlerDeps,
+): (snapshot: { status: "ready" | "installing" | "failed" }) => void {
+  let last: "ready" | "installing" | "failed" = "ready";
+  return (snapshot) => {
+    if (last !== "ready" && snapshot.status === "ready") {
+      void Promise.resolve(deps.flushQueue()).catch((err) => {
+        console.error("[bootstrap] flushQueue failed:", err);
+      });
+      void Promise.resolve(deps.onTransitionToReady()).catch((err) => {
+        console.error("[bootstrap] post-install repair failed:", err);
+      });
+    }
+    last = snapshot.status;
+  };
+}
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -158,7 +283,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   // Save per-session .meta.json on any change
-  sessionManager.onChange = (sessionId: string) => {
+  sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
     metaPersistence.save(session.sessionFile, {
@@ -180,13 +305,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       contextTokens: session.contextTokens ?? undefined,
       contextWindow: session.contextWindow,
       firstMessage: session.firstMessage,
+      // Persist unread bit so it survives server restart.
+      // See change: session-card-unread-stripes.
+      unread: session.unread,
       cachedAt: Date.now(),
     });
     // When a session ends, drop its id from the persisted drag-reorder list
     // for that cwd. Drag-reorder is meaningful for live sessions only; ended
-    // ones must fall to the bottom in their natural startedAt order rather
-    // than retaining a position that interleaves them with active sessions.
-    // See change: pin-and-search-sessions.
+    // ones must fall to the bottom in their natural endedAt order (rendered
+    // top-of-bucket on most-recent-first) rather than retaining a position
+    // that interleaves them with active sessions.
+    // See change: pin-and-search-sessions, top-of-tier-on-status-change.
     // Status-transition tracking: prune+broadcast runs ONCE per
     // transition to ended. Subsequent `update()` calls on an already-
     // ended session (e.g. heartbeat tail, click-induced state sync,
@@ -210,24 +339,88 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         });
       }
     } else if (!isEnded && wasEnded) {
-      // Resume: ended→alive. The session is becoming visible in the
-      // alive tier. If a drag-to-resume put it back in `sessionOrder`
-      // already, leave it where the user dropped it; otherwise (e.g.
-      // a plain Resume click), prepend so the resumed session lands at
-      // the top of the alive tier rather than the tail. Either way,
-      // broadcast `sessions_reordered` so connected browsers refresh
-      // their local order map.
+      // Resume: ended→alive. Three real outcomes land here, distinguished
+      // by the value `pendingResumeIntents.consume(...)` returns:
+      //   "front"  — Resume button, REST resume, prompt-auto-resume.
+      //              User wants the card surfaced at the top of alive.
+      //   "keep"   — Drag-to-resume. The dropped slot was already
+      //              persisted via `reorder_sessions`; do NOT clobber it.
+      //   null     — Bridge auto-reattach (dashboard restarted, pi
+      //              process still alive, no user intent tagged).
+      //              Preserve the user's existing layout.
+      // We always clear the transition tracker so a future alive→ended
+      // for this session fires correctly.
+      // See changes: preserve-session-order-on-reboot,
+      //              top-of-tier-on-status-change,
+      //              differentiate-resume-intent-by-trigger.
       endedSessionIds.delete(sessionId);
-      const order = sessionOrderManager.getOrder(session.cwd) ?? [];
-      if (!order.includes(sessionId)) {
-        sessionOrderManager.insert(session.cwd, sessionId);
+      const intent = pendingResumeIntents.consume(sessionId);
+      if (intent === null) {
+        // No user-driven resume intent. If this register carried
+        // `registerReason: "reattach"`, apply the configured
+        // `reattachPlacement` policy. Otherwise (legacy bridge or
+        // genuine null reattach with `"preserve"` semantics) leave
+        // order alone.
+        // See change: reattach-move-to-front.
+        if (ctx?.registerReason === "reattach") {
+          applyReattachPolicy(
+            sessionId,
+            session.cwd,
+            config.reattachPlacement,
+            { sessionManager, sessionOrderManager, browserGateway },
+            ctx.priorStatus,
+          );
+        }
+        return;
       }
+      if (intent === "keep") {
+        // Drag-to-resume — dropped slot wins; the earlier reorder_sessions
+        // already broadcast. Do NOT mutate sessionOrder, do NOT broadcast.
+        // Registry intent overrides any `registerReason: "reattach"`.
+        return;
+      }
+      // intent === "front": move-to-front so the just-resumed card
+      // surfaces at the top of the alive tier, even on repeated end →
+      // resume cycles where the id might still be in the order.
+      // Registry intent overrides any `registerReason: "reattach"`.
+      sessionOrderManager.moveToFront(session.cwd, sessionId);
       const next = sessionOrderManager.getOrder(session.cwd) ?? [];
       browserGateway.broadcastToAll({
         type: "sessions_reordered",
         cwd: session.cwd,
         sessionIds: next,
       });
+    } else if (!isEnded && !wasEnded && ctx?.registerReason === "reattach") {
+      // Reattach of a session that was persisted as alive (the common
+      // case after `pi-dashboard restart` while pi processes stay
+      // alive). Neither alive→ended nor ended→alive transition fires;
+      // we apply the reattach policy directly here.
+      //
+      // Defensive: a registry intent for an alive session should not
+      // happen in practice (handleResumeSession only tags intents for
+      // ended sessions), but per spec scenario "Registry intent wins
+      // over reattach" we honor it if present and skip the policy.
+      // See change: reattach-move-to-front.
+      const intent = pendingResumeIntents.consume(sessionId);
+      if (intent === "front") {
+        sessionOrderManager.moveToFront(session.cwd, sessionId);
+        const next = sessionOrderManager.getOrder(session.cwd) ?? [];
+        browserGateway.broadcastToAll({
+          type: "sessions_reordered",
+          cwd: session.cwd,
+          sessionIds: next,
+        });
+      } else if (intent === "keep") {
+        // Honor dropped slot; do nothing.
+      } else {
+        applyReattachPolicy(
+          sessionId,
+          session.cwd,
+          config.reattachPlacement,
+          { sessionManager, sessionOrderManager, browserGateway },
+          ctx.priorStatus,
+        );
+      }
     }
   };
   // Track which session ids we've seen as ended at least once, so the
@@ -258,6 +451,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Track cwds with pending dashboard-spawned sessions (for writing .meta.json).
   // Uses a counter per cwd to handle multiple spawns and avoid reconnects consuming entries.
   const pendingDashboardSpawns = new Map<string, number>();
+
+  // Pending spawn-with-attach intents (cwd → FIFO queue of changeNames).
+  // Consumed in event-wiring.ts on session_register. See change:
+  // add-folder-task-checker-and-spawn-attach.
+  const pendingAttachRegistry = createPendingAttachRegistry();
+  // Pending user-initiated resume intents (sessionId → timestamp).
+  // Consumed by `sessionManager.onChange` in the ended→alive branch to
+  // gate the sessionOrder mutation behind explicit user intent so that
+  // bridge auto-reattach on dashboard reboot does not mutate the user's
+  // drag-order.
+  // See change: preserve-session-order-on-reboot.
+  const pendingResumeIntents = createPendingResumeIntentRegistry();
   // Track known session IDs so we can distinguish new sessions from reconnections.
   const knownSessionIds = new Set<string>();
   // Populate from persisted sessions
@@ -314,7 +519,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents);
 
   // Resolve package version once at startup
   const __require = createRequire(import.meta.url);
@@ -348,6 +553,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     directoryService,
     knownSessionIds,
     pendingDashboardSpawns,
+    pendingAttachRegistry,
+    viewedSessionTracker: browserGateway.viewedSessionTracker,
   });
 
   // Auto-shutdown idle timer
@@ -439,17 +646,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: unified-bootstrap-install.
   const bootstrapState = createBootstrapState();
   const bootstrapQueue = createBootstrapQueue();
-  let lastBootstrapStatus: "ready" | "installing" | "failed" = "ready";
+  // Centralized post-install repair: full ToolRegistry rescan +
+  // OpenSpec / pi-resources force-refresh on every `installing → ready`
+  // transition. See change: fix-openspec-buttons-after-bootstrap-install.
+  const handleBootstrapTransition = makeBootstrapTransitionHandler({
+    flushQueue: () => bootstrapQueue.flushAll(),
+    onTransitionToReady: () =>
+      runPostInstallRepair({
+        registry: getDefaultRegistry(),
+        directoryService,
+        browserGateway,
+      }),
+  });
   const unsubscribeBootstrap = bootstrapState.subscribe((snapshot) => {
     browserGateway.broadcastToAll({
       type: "bootstrap_status_update",
       state: snapshot,
     });
-    // Flush queued pi-dependent operations on ready transition.
-    if (lastBootstrapStatus !== "ready" && snapshot.status === "ready") {
-      void bootstrapQueue.flushAll();
-    }
-    lastBootstrapStatus = snapshot.status;
+    handleBootstrapTransition(snapshot);
   });
   const unsubscribeQueueComplete = bootstrapQueue.onTicketComplete((evt) => {
     browserGateway.broadcastToAll({
@@ -469,6 +683,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingDashboardSpawns,
     bootstrapState,
     bootstrapQueue,
+    pendingResumeIntents,
   });
 
   // Register route modules
@@ -489,7 +704,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });
     },
   });
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
 
   // ── Bootstrap REST routes ────────────────────────────────────────

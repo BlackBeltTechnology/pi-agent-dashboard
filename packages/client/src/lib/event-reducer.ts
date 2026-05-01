@@ -147,6 +147,224 @@ export function createInitialState(): SessionState {
 
 
 
+/**
+ * Hard turn boundaries in `messages[]`. Any row with one of these roles
+ * terminates the backwards walk that builds the reorder window. Roles
+ * not in this set (`assistant`, `toolResult`, `thinking`, `interactiveUi`,
+ * `bashOutput`) belong to the current assistant turn and are reorderable.
+ *
+ * If a future row role is added, it MUST be classified — add it here if
+ * it terminates a turn, otherwise leave it out and it will be reorderable.
+ *
+ * See change: fix-interactive-ui-reorder.
+ */
+const TURN_BOUNDARY_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
+  "user",
+  "turnSeparator",
+  "commandFeedback",
+  "rawEvent",
+]);
+
+/**
+ * Reorder the suffix of `messages` so that rows belonging to a single
+ * assistant message_end land in the same order as the model's content
+ * array. Without this, an assistant message of shape `[text, toolCall]`
+ * renders the running tool card BEFORE its own text bubble — because
+ * `tool_execution_start` pushes immediately while the assistant text
+ * only lands at `message_end`.
+ *
+ * The reorder operates on a **turn-boundary anchored window**: walk
+ * `messages[]` backwards from the tail collecting every row whose role
+ * is not in `TURN_BOUNDARY_ROLES`, stopping at the first hard-boundary
+ * row. The window is exactly "every row pushed during this assistant
+ * turn" — prior turns cannot leak in.
+ *
+ * Matching rules (per content-array order):
+ * - `text` block        → unclaimed `role:"assistant"` row in the window
+ * - `toolCall` block    → `role:"toolResult"` row whose `toolCallId` matches,
+ *                          PLUS any `role:"interactiveUi"` row whose `toolCallId`
+ *                          matches (paired together as `[toolResult, interactiveUi]`)
+ * - `thinking` block    → unclaimed `role:"thinking"` row in the window
+ *
+ * Window rows not matched by any content block ("unclaimed") are emitted
+ * AFTER all claimed rows in their original relative order. This is safe
+ * because the window is bounded by a hard turn boundary — prior-turn rows
+ * cannot leak in. Free-floating `interactiveUi` rows (no `toolCallId`),
+ * `bashOutput`, etc. follow this trailing path.
+ *
+ * Pure: returns a new array; the input is not mutated.
+ * Preserves React keyed reconciliation: row `id` fields are unchanged
+ * (`tool-${toolCallId}`, `ui-${requestId}`).
+ *
+ * See changes: fix-text-tool-render-order, fix-interactive-ui-reorder.
+ */
+function reorderToolCardsForAssistantMessage(
+  messages: ChatMessage[],
+  assistantContent: unknown[],
+): ChatMessage[] {
+  if (!Array.isArray(assistantContent)) return messages;
+  // Fast path: nothing to reorder if there are no tool calls in this message.
+  const hasToolCall = assistantContent.some(
+    (b: any) => b && typeof b === "object" && b.type === "toolCall",
+  );
+  if (!hasToolCall) return messages;
+
+  const relevant = assistantContent.filter(
+    (b: any) =>
+      b &&
+      typeof b === "object" &&
+      (b.type === "text" || b.type === "toolCall" || b.type === "thinking"),
+  ) as Array<{ type: string; id?: string }>;
+  if (relevant.length === 0) return messages;
+
+  // Build the turn-boundary anchored window: walk backwards from the tail
+  // including every row whose role is NOT a hard boundary; stop at the
+  // first hard boundary row. Hard boundaries are `user`, `turnSeparator`,
+  // `commandFeedback`, `rawEvent`. Roles included in the window are
+  // `assistant`, `toolResult`, `thinking`, `interactiveUi`, `bashOutput`.
+  //
+  // The window is exactly "every row pushed during the current assistant
+  // turn (and any preceding consecutive assistant turns without a user
+  // response in between)". Unclaimed rows from prior consecutive
+  // assistant turns are protected by the `original-index` guard below —
+  // they stay in place and never migrate past the just-ended message.
+  //
+  // See change: fix-interactive-ui-reorder.
+  let start = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (TURN_BOUNDARY_ROLES.has(messages[i].role)) {
+      start = i + 1;
+      break;
+    }
+  }
+  const suffix = messages.slice(start);
+  if (suffix.length === 0) return messages;
+
+  // Helper: scan the suffix from the tail backwards for the most-recent
+  // unclaimed row matching `pred`. We prefer the most-recent match
+  // because back-to-back assistant messages without a user response in
+  // between produce a window that includes both messages' rows; the
+  // current-message row is always the more recent one of any matching pair.
+  const claimedSuffixIdxs = new Set<number>();
+  const findLastUnclaimed = (
+    pred: (m: ChatMessage) => boolean,
+  ): number => {
+    for (let i = suffix.length - 1; i >= 0; i--) {
+      if (!claimedSuffixIdxs.has(i) && pred(suffix[i])) return i;
+    }
+    return -1;
+  };
+
+  // Pass 1: walk content blocks in order, claim suffix indices.
+  // For toolCall blocks, claim BOTH the toolResult and (if present) the
+  // matching interactiveUi row, emitting them as `[toolResult, ui]`.
+  const claimedInContentOrder: ChatMessage[] = [];
+  for (const block of relevant) {
+    if (block.type === "text") {
+      const si = findLastUnclaimed((m) => m.role === "assistant");
+      if (si >= 0) {
+        claimedSuffixIdxs.add(si);
+        claimedInContentOrder.push(suffix[si]);
+      }
+    } else if (block.type === "toolCall") {
+      const id = block.id;
+      const toolIdx = findLastUnclaimed(
+        (m) => m.role === "toolResult" && m.toolCallId === id,
+      );
+      if (toolIdx >= 0) {
+        claimedSuffixIdxs.add(toolIdx);
+        claimedInContentOrder.push(suffix[toolIdx]);
+        // Pair with an interactiveUi row carrying the same toolCallId.
+        const uiIdx = findLastUnclaimed(
+          (m) => m.role === "interactiveUi" && m.toolCallId === id,
+        );
+        if (uiIdx >= 0) {
+          claimedSuffixIdxs.add(uiIdx);
+          claimedInContentOrder.push(suffix[uiIdx]);
+        }
+      }
+    } else if (block.type === "thinking") {
+      const si = findLastUnclaimed((m) => m.role === "thinking");
+      if (si >= 0) {
+        claimedSuffixIdxs.add(si);
+        claimedInContentOrder.push(suffix[si]);
+      }
+    }
+    // else: block has no corresponding row in the window — skip silently.
+  }
+
+  // Pass 2: build the new suffix.
+  //
+  // Two kinds of unclaimed rows need different handling:
+  //   (A) "Reorderable" roles (`assistant`, `toolResult`, `thinking`) that
+  //       could in principle map to a content block. If they didn't get
+  //       claimed, they likely belong to a PRIOR message that bled into
+  //       the boundary-walked window (no `user` row between two assistant
+  //       turns). Keep them at their **original suffix index** so they
+  //       don't migrate past the just-ended message.
+  //   (B) "Trailing" roles (`interactiveUi`, `bashOutput`) that NEVER map
+  //       to a content block. The design says these trail AFTER claimed
+  //       rows in their original relative order. This puts a free-floating
+  //       `interactiveUi` (no `toolCallId`) after the just-rendered tool
+  //       card instead of stranding it ahead of the assistant text.
+  //
+  // Construction strategy: walk the original suffix; emit each row in
+  // place, replacing claimed rows with the next claimedInContentOrder
+  // entry, dropping trailing-role unclaimed rows here so we can append
+  // them after the loop. This keeps slot positions stable for unclaimed
+  // "reorderable" rows.
+  //
+  // See change: fix-interactive-ui-reorder.
+  const TRAILING_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
+    "interactiveUi",
+    "bashOutput",
+  ]);
+  const newSuffix: ChatMessage[] = [];
+  const trailingUnclaimed: ChatMessage[] = [];
+  let claimedCursor = 0;
+  for (let i = 0; i < suffix.length; i++) {
+    if (claimedSuffixIdxs.has(i)) {
+      // This index belongs to a claimed row — fill from the
+      // content-ordered queue (in order).
+      if (claimedCursor < claimedInContentOrder.length) {
+        newSuffix.push(claimedInContentOrder[claimedCursor++]);
+      }
+    } else if (TRAILING_ROLES.has(suffix[i].role)) {
+      // Trailing-role unclaimed: drop here, append later.
+      trailingUnclaimed.push(suffix[i]);
+    } else {
+      // Reorderable-role unclaimed: keep in place.
+      newSuffix.push(suffix[i]);
+    }
+  }
+  // Any leftover claimed rows (e.g. when toolCall + interactiveUi pair
+  // has no matching ui slot in the original suffix because the ui row
+  // came in after — shouldn't happen with current arrival order, but
+  // defensively): append before trailing.
+  while (claimedCursor < claimedInContentOrder.length) {
+    newSuffix.push(claimedInContentOrder[claimedCursor++]);
+  }
+  // Trailing-role unclaimed go AFTER all claimed rows (rule B).
+  for (const m of trailingUnclaimed) {
+    newSuffix.push(m);
+  }
+
+  // Optimisation: if the new suffix is identical to the old suffix
+  // (already in correct order) skip the array rebuild.
+  if (newSuffix.length === suffix.length) {
+    let changed = false;
+    for (let i = 0; i < suffix.length; i++) {
+      if (suffix[i] !== newSuffix[i]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return messages;
+  }
+
+  return [...messages.slice(0, start), ...(newSuffix as ChatMessage[])];
+}
+
 /** Extract text from content blocks: [{ type: "text", text: "..." }, ...] */
 function extractContentBlockText(blocks: unknown[]): string | null {
   const texts = blocks
@@ -210,12 +428,24 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
   return lines.slice(0, maxLines).join("\n");
 }
 
-/** Add a new interactive UI request to session state */
+/**
+ * Add a new interactive UI request to session state.
+ *
+ * `toolCallId` (optional): when this prompt was emitted from inside a tool
+ * execution (e.g. `ask_user`), the originating tool call's id flows through
+ * `prompt_request.metadata.toolCallId` and is stamped onto the pushed
+ * `role:"interactiveUi"` ChatMessage so the assistant `message_end` reorder
+ * helper can pair it with its parent `toolResult` row. Free-floating prompts
+ * (architect mode, slash commands) leave it undefined.
+ *
+ * See change: fix-interactive-ui-reorder.
+ */
 export function addInteractiveRequest(
   state: SessionState,
   requestId: string,
   method: string,
   params: Record<string, unknown>,
+  toolCallId?: string,
 ): SessionState {
   // Architect suppression logic REMOVED — the PromptBus now ensures each prompt
   // is sent to the dashboard exactly once, with the correct component.
@@ -240,6 +470,7 @@ export function addInteractiveRequest(
         role: "interactiveUi",
         content: method,
         timestamp: Date.now(),
+        toolCallId,
         args: { requestId, method, params, status: "pending" } as any,
       },
     ],
@@ -473,6 +704,14 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
               ];
             }
           }
+        }
+
+        // Reorder suffix so the assistant text bubble and its child tool
+        // cards land in the order dictated by the model's content array.
+        // Fast-path skipped inside the helper when no toolCall blocks.
+        // See change: fix-text-tool-render-order.
+        if (Array.isArray(msg?.content)) {
+          next.messages = reorderToolCardsForAssistantMessage(next.messages, msg.content);
         }
       }
       break;

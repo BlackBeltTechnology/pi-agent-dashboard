@@ -4,6 +4,7 @@
  */
 import { useCallback } from "react";
 import { createInitialState, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
+import { encodePromptAnswer } from "../lib/prompt-answer-encoder.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -55,10 +56,10 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleRespondToUi = useCallback((requestId: string, result?: unknown, cancelled?: boolean) => {
     if (selectedId) {
       send({ type: "extension_ui_response", sessionId: selectedId, requestId, result, cancelled });
-      // Also send via PromptBus protocol for new-style prompts
-      const answer = cancelled ? undefined : (typeof result === "object" && result !== null
-        ? ((result as any).value ?? (result as any).confirmed?.toString())
-        : String(result ?? ""));
+      // Also send via PromptBus protocol for new-style prompts.
+      // Encoding precedence (multiselect-aware): see prompt-answer-encoder.ts.
+      // Fix: change fix-multiselect-auto-cancel-on-dashboard.
+      const answer = encodePromptAnswer(result, cancelled);
       send({ type: "prompt_response", sessionId: selectedId, promptId: requestId, answer, cancelled, source: "dashboard-default" } as any);
       setSessionStates((prev) => {
         const next = new Map(prev);
@@ -139,10 +140,29 @@ export function useSessionActions(deps: SessionActionDeps) {
       if (existing) next.set(sessionId, { ...existing, resuming: true });
       return next;
     });
-    send({ type: "resume_session", sessionId, mode, ...(entryId ? { entryId } : {}) });
+    // Explicit "front" placement: matches today's default but makes the
+    // intent visible at the wire level. See change:
+    // differentiate-resume-intent-by-trigger.
+    send({ type: "resume_session", sessionId, mode, placement: "front", ...(entryId ? { entryId } : {}) });
   }, [send, setSessions]);
 
-  const handleSpawnSession = useCallback((cwd: string) => {
+  /**
+   * Drag-to-resume entry point. The drop position was just persisted via
+   * `reorder_sessions`, so the resume MUST NOT clobber it — send placement
+   * "keep" so the server's ended→alive branch leaves sessionOrder alone.
+   * See change: differentiate-resume-intent-by-trigger.
+   */
+  const handleResumeSessionKeepPosition = useCallback((sessionId: string) => {
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, resuming: true });
+      return next;
+    });
+    send({ type: "resume_session", sessionId, mode: "continue", placement: "keep" });
+  }, [send, setSessions]);
+
+  const handleSpawnSession = useCallback((cwd: string, attachProposal?: string) => {
     setSpawningCwds((prev) => {
       const next = new Set(prev);
       next.add(cwd);
@@ -153,7 +173,10 @@ export function useSessionActions(deps: SessionActionDeps) {
       clearSpawningCwd(cwd);
     }, 30_000);
     spawnTimeoutsRef.current.set(cwd, timer);
-    send({ type: "spawn_session", cwd });
+    // The optional `attachProposal` field is consumed server-side and applied
+    // when the bridge issues `session_register`. See change:
+    // add-folder-task-checker-and-spawn-attach.
+    send({ type: "spawn_session", cwd, ...(attachProposal ? { attachProposal } : {}) });
   }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef]);
 
   const handleHideSession = useCallback((sessionId: string) => {
@@ -216,7 +239,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   return {
     handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleSpawnSession,
+    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleListFiles,

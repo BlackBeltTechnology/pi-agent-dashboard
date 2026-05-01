@@ -14,6 +14,16 @@ export interface OpenSpecActionDeps {
     artifacts: OpenSpecArtifact[];
   } | null>>;
   clearAllContentViews?: () => void;
+  /**
+   * When set, `handleReadArtifact` will call `navigate("/")` if
+   * `settingsMatch` or `tunnelSetupMatch` is true. Closes the URL-route
+   * view (Settings / Tunnel) BEFORE the preview is set so the preview
+   * isn't masked by the JSX gate.
+   * See change: fix-desktop-back-navigation.
+   */
+  navigate?: (to: string) => void;
+  settingsMatch?: boolean;
+  tunnelSetupMatch?: boolean;
 }
 
 export function useOpenSpecActions(deps: OpenSpecActionDeps) {
@@ -32,8 +42,11 @@ export function useOpenSpecActions(deps: OpenSpecActionDeps) {
     const change = openspecData?.changes.find((c) => c.name === changeName);
     const artifacts = change?.artifacts ?? [];
     deps.clearAllContentViews?.();
+    if ((deps.settingsMatch || deps.tunnelSetupMatch) && deps.navigate) {
+      deps.navigate("/");
+    }
     setPreviewState({ cwd, changeName, artifactId, artifacts });
-  }, [openspecMap, setPreviewState, deps.clearAllContentViews]);
+  }, [openspecMap, setPreviewState, deps.clearAllContentViews, deps.settingsMatch, deps.tunnelSetupMatch, deps.navigate]);
 
   const handleAttachProposal = useCallback((sessionId: string, changeName: string) => {
     send({ type: "attach_proposal", sessionId, changeName });

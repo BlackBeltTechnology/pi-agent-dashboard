@@ -18,7 +18,7 @@ import {
   getDefaultRegistry,
   type Resolution,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { ToolResolver, isAppImageSelfHit } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { MANAGED_BIN, MANAGED_DIR } from "./managed-paths.js";
 
 // Local resolver for inline lookups (pi-dashboard existence check).
@@ -53,7 +53,16 @@ function fromResolution(res: Resolution): DetectionResult {
 function detect(toolName: string): DetectionResult {
   const registry = getDefaultRegistry();
   if (!registry.has(toolName)) return { found: false };
-  return fromResolution(registry.resolve(toolName));
+  const result = fromResolution(registry.resolve(toolName));
+  // Defense-in-depth: even though `whereStrategy` filters AppImage
+  // self-hits at the registry layer, re-check on the resolved path so
+  // future registry edits or override-pinned bogus paths cannot slip
+  // an AppImage launcher through. Symmetry with `detectPiDashboardCli`.
+  // See change: fix-electron-appimage-cli-self-detection (D3).
+  if (result.found && result.path && isAppImageSelfHit(result.path)) {
+    return { found: false, resolution: result.resolution };
+  }
+  return result;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -141,16 +150,27 @@ export function detectBridgeExtension(): DetectionResult {
 }
 
 /**
- * Detect the pi-dashboard CLI on PATH. Excludes npx cache shims.
+ * Detect the pi-dashboard CLI on PATH.
  *
- * pi-dashboard isn't a registered tool (it's the dashboard itself),
- * so we resolve it inline via the same `which` primitive the registry
- * uses — via `ToolResolver.which` through a minimal registry path.
+ * Filters two known-bogus shapes that can otherwise win the lookup race:
+ *   1. **`_npx` cache shims** (`~/.npm/_npx/<hash>/...`) — ephemeral
+ *      installs that disappear after their command finishes; spawning
+ *      them is unsafe because the shim may be unlinked mid-run.
+ *   2. **AppImage self-hits** (e.g. `/tmp/.mount_PI...` mount,
+ *      `process.execPath`, `process.env.APPIMAGE`) — the AppImage
+ *      runtime prepends its squashfs mount to PATH, and
+ *      `packagerConfig.executableName = "pi-dashboard"` makes the
+ *      Electron launcher itself collide with the dashboard CLI name.
+ *      Trusting the first hit spawns Electron recursively, never opens
+ *      the dashboard port, and `waitForReady` times out. See change:
+ *      fix-electron-appimage-cli-self-detection.
+ *
+ * pi-dashboard isn't a registered tool (it's the dashboard package
+ * itself), so we resolve it inline via the same `which` primitive the
+ * registry uses. Both filters silently return `{ found: false }` so
+ * callers fall through to the standalone tsx + cli.ts launch path.
  */
 export function detectPiDashboardCli(): DetectionResult {
-  // Resolve by registering an ephemeral binary tool. Simpler and more
-  // direct: call ToolResolver.which via a small helper.
-  // Keep consistent with historical classification (npx exclusion).
   const managed = path.join(MANAGED_BIN, process.platform === "win32" ? "pi-dashboard.cmd" : "pi-dashboard");
   if (existsSync(managed)) return { found: true, path: managed, source: "managed" };
 
@@ -159,6 +179,7 @@ export function detectPiDashboardCli(): DetectionResult {
     const out = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
     if (!out) return { found: false };
     if (out.includes(".npm/_npx") || out.includes(".npm\\_npx")) return { found: false };
+    if (isAppImageSelfHit(out)) return { found: false };
     return { found: true, path: out, source: "system" };
   } catch {
     return { found: false };

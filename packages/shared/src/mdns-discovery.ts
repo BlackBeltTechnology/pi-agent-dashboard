@@ -103,10 +103,41 @@ function getLocalAddresses(): Set<string> {
   return addresses;
 }
 
+/**
+ * Pick the best host string for a discovered service.
+ *
+ * Bonjour can advertise `service.host` as the OS computer-name (e.g. macOS
+ * "MacBook 242") which contains characters that are not valid in a DNS
+ * hostname — so the browser cannot resolve it. When that happens we fall back
+ * to `service.addresses` (preferring IPv4 over IPv6) so the saved entry is
+ * actually reachable.
+ *
+ * Rule: a host is DNS-safe iff it matches `[A-Za-z0-9.-]+` and does not
+ * begin or end with a hyphen (RFC 1123, relaxed for the `.local` suffix).
+ */
+export function pickBestHost(service: Pick<Service, "host" | "addresses">): string {
+  const host = service.host;
+  const isDnsSafe =
+    typeof host === "string" &&
+    host.length > 0 &&
+    /^[A-Za-z0-9.-]+$/.test(host) &&
+    !host.startsWith("-") &&
+    !host.endsWith("-");
+  if (isDnsSafe) return host;
+
+  const addresses = service.addresses ?? [];
+  const ipv4 = addresses.find((a) => /^\d+\.\d+\.\d+\.\d+$/.test(a));
+  if (ipv4) return ipv4;
+  if (addresses.length > 0) return addresses[0];
+
+  // Last-resort: keep the original host so we never return undefined.
+  return host ?? "unknown";
+}
+
 function serviceToServer(service: Service, isLocal: boolean): DiscoveredServer {
   const txt = service.txt as Record<string, string> | undefined;
   return {
-    host: service.host ?? "unknown",
+    host: pickBestHost(service),
     port: service.port,
     piPort: parseInt(txt?.piPort ?? "9999", 10),
     version: txt?.version ?? "unknown",

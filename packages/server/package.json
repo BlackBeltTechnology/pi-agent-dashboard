@@ -1,8 +1,13 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-server",
-  "version": "0.4.1",
+  "version": "0.4.4",
   "description": "Dashboard server for monitoring and interacting with pi agent sessions",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/server"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -26,8 +31,9 @@
     "postinstall": "node scripts/fix-pty-permissions.cjs"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-extension": "^0.4.1",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.4.1",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.4.4",
+    "@blackbelt-technology/pi-dashboard-extension": "^0.4.4",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.4.4",
     "@fastify/compress": "^8.3.1",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",

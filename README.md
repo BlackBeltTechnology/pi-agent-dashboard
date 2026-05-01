@@ -97,11 +97,11 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Alternatively, add the pack
 - **Workspace management** — organize sessions by project folder with pinned directories and drag-to-reorder
 - **Command autocomplete** — `/` prefix triggers a filtering dropdown
 - **Mobile-friendly** — responsive layout with swipe drawer, touch targets, and mobile action menus
-- **Markdown preview** — rendered markdown views with search, mermaid diagrams, and syntax highlighting
+- **Markdown preview** — rendered markdown views with search, mermaid diagrams, syntax highlighting, and safe handling for raw HTML `ref` attributes
 - **Searchable select dialogs** — keyboard-navigable picker with real-time filtering (OpenSpec changes, flow commands)
 
 **Integrations**
-- **PromptBus architecture** — unified prompt routing with adapters (TUI, dashboard, custom). Interactive dialogs (confirm/select/input/editor/multiselect) survive page refresh and server restart. First-response-wins semantics with cross-adapter dismissal.
+- **PromptBus architecture** — unified prompt routing with adapters (TUI, dashboard, custom). Interactive dialogs (confirm/select/input/editor/multiselect) survive page refresh and server restart. Multiselect uses the bus-routed browser path exclusively (the dashboard `MultiselectRenderer` dialog) since pi 0.70's RPC mode has no working terminal-overlay primitive. First-response-wins semantics with cross-adapter dismissal.
 - **Extension UI System (Phase 1)** — extensions can declare slash-command-triggered modal UIs as data, without authoring React or importing an SDK. Listen on `pi.events.on("ui:list-modules", probe)` and push descriptors into `probe.modules`; the dashboard renders `table` / `grid` / `form` views with row actions, optional confirm-dialog gates, and MDI icons. Modules survive reconnect via the server-side cache; in pure-pi mode descriptors stay dormant. See `openspec/specs/extension-ui-system/spec.md` for the protocol contract.
 - **pi-flows integration** — live flow execution dashboard with agent cards, detail views, flow graph, summary, abort/auto controls. Launch flows and design new ones with Flow Architect, all from the browser. Fork decisions and subagent dialogs forwarded via PromptBus.
 - **OpenSpec integration** — browse specs, view archive history, manage changes, create new changes from the sidebar
@@ -159,6 +159,7 @@ CLI flags → environment variables → config file → built-in defaults.
 | — | — | `autoShutdown` | `false` | Server shuts down when idle |
 | — | — | `shutdownIdleSeconds` | `300` | Seconds idle before auto-shutdown |
 | — | — | `spawnStrategy` | `"headless"` | Session spawn mode: `"headless"` or `"tmux"` |
+| — | — | `reattachPlacement` | `"always"` | After a dashboard restart, where re-registering bridges land in folder lists. `"always"` (top), `"streaming-only"` (only mid-completion), `"preserve"` (legacy: keep prior drag order) |
 | — | — | `devBuildOnReload` | `false` | Rebuild client + restart server on `/reload` |
 | — | — | `askUserPromptTimeoutSeconds` | `300` | `ask_user` prompt timeout in seconds. `≤ 0` (e.g. `-1`) = wait indefinitely |
 

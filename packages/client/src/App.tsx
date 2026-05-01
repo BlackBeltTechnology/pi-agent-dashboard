@@ -49,6 +49,7 @@ import { createInitialState, reduceEvent, resolveInteractiveRequest, type Sessio
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { useEditors } from "./lib/use-editors.js";
 import { useContentViews } from "./hooks/useContentViews.js";
+import { useDesktopBack } from "./hooks/useDesktopBack.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
@@ -232,7 +233,12 @@ export default function App() {
     handleOpenPiResources,
     handleViewPiResourceFile,
     handleViewReadme,
-  } = useContentViews({ onBeforeOpen: clearAppContentViews });
+  } = useContentViews({
+    onBeforeOpen: clearAppContentViews,
+    navigate,
+    settingsMatch: !!settingsMatch,
+    tunnelSetupMatch: !!tunnelSetupMatch,
+  });
 
   /** Clear every content view — App-level + useContentViews-owned. */
   const clearAllContentViews = useCallback(() => {
@@ -533,7 +539,7 @@ export default function App() {
   const {
     handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleSpawnSession,
+    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleListFiles,
@@ -602,7 +608,37 @@ export default function App() {
     }
   }, [handleSend, selectedId, clearDraftForSession, clearImagesForSession, sessions, BUILTIN_SLASH_COMMANDS]);
 
-  const openspecActions = useOpenSpecActions({ send, openspecMap, setPreviewState, clearAllContentViews });
+  const openspecActions = useOpenSpecActions({
+    send,
+    openspecMap,
+    setPreviewState,
+    clearAllContentViews,
+    navigate,
+    settingsMatch: !!settingsMatch,
+    tunnelSetupMatch: !!tunnelSetupMatch,
+  });
+
+  // Desktop back-arrow priority chain. See change: fix-desktop-back-navigation.
+  const goBackDesktop = useDesktopBack({
+    setArchiveBrowserCwd,
+    setSpecsBrowserCwd,
+    setFlowYamlPreview,
+    setDiffViewSessionId,
+    setPiResourceFilePreview,
+    setReadmePreview,
+    setPiResourcesState,
+    setPreviewState,
+    navigate,
+    archiveBrowserCwd,
+    specsBrowserCwd,
+    flowYamlPreview,
+    diffViewSessionId,
+    piResourceFilePreview,
+    readmePreview,
+    piResourcesState,
+    previewState,
+    selectedId,
+  });
   const {
     handleOpenSpecRefresh, handleBulkArchive, handleReadArtifact,
     handleAttachProposal, handleDetachProposal,
@@ -700,6 +736,7 @@ export default function App() {
       onRename={handleRenameSession}
       onShutdown={handleShutdownSession}
       onResume={handleResumeSession}
+      onResumeKeepPosition={handleResumeSessionKeepPosition}
       onHideSession={handleHideSession}
       onUnhideSession={handleUnhideSession}
       onSpawnSession={handleSpawnSession}
@@ -782,7 +819,8 @@ export default function App() {
         state={selectedState}
         onRename={handleRenameSession}
         showBack
-        onBack={isMobile ? () => navigate("/") : () => window.history.back()}
+        onBack={isMobile ? () => navigate("/") : goBackDesktop}
+        onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
         mobileActions={isMobile ? {
           editors: selectedCwd ? editorMap.get(selectedCwd) : undefined,
           openspecChanges: selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined,

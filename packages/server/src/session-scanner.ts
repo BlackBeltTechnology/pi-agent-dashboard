@@ -38,6 +38,19 @@ function extractTimestamp(filename: string): number {
   return isNaN(ts) ? Date.now() : ts;
 }
 
+/**
+ * Read the events.jsonl mtime as a cold-start seed for `lastActivityAt`.
+ * Returns `undefined` on stat failure — callers fall back to `startedAt` at
+ * render time. See change: session-card-last-activity-badge.
+ */
+function readJsonlMtime(sessionFile: string): number | undefined {
+  try {
+    return statSync(sessionFile).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Build a DashboardSession from cached `.meta.json` data */
 function sessionFromMeta(
   sessionId: string,
@@ -56,6 +69,9 @@ function sessionFromMeta(
     thinkingLevel: meta.thinkingLevel,
     startedAt: meta.startedAt ?? startedAt,
     endedAt: meta.endedAt,
+    // Seed last-activity from events.jsonl mtime so the session-card relative-time
+    // badge survives server restarts. See change: session-card-last-activity-badge.
+    lastActivityAt: readJsonlMtime(sessionFile),
     tokensIn: meta.tokensIn ?? 0,
     tokensOut: meta.tokensOut ?? 0,
     cacheRead: meta.cacheRead,

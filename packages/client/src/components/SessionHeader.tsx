@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Icon } from "@mdi/react";
-import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb, mdiViewGridOutline } from "@mdi/js";
+import { mdiPencilOutline, mdiArrowLeft, mdiPaperclip, mdiRefresh, mdiLinkOff, mdiPlay, mdiFileCompare, mdiHeadLightbulb, mdiViewGridOutline, mdiPlayCircleOutline, mdiSourceFork } from "@mdi/js";
 import type { DashboardSession, OpenSpecChange, CommandInfo, FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { SessionState } from "../lib/event-reducer.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
@@ -34,6 +34,11 @@ interface Props {
   onReadArtifact?: (changeName: string, artifactId: string) => void;
   /** Extension UI System (Phase 1): callback to open the modules picker. */
   onOpenExtensionModulePicker?: () => void;
+  /** Resume / Fork the displayed session. Renders a green Resume + blue Fork
+   *  pill pair in the desktop toolbar when session.status === "ended" AND
+   *  session.sessionFile is set. Mobile path uses mobileActions.onResume.
+   *  See change: resume-button-in-session-header. */
+  onResume?: (mode: "continue" | "fork") => void;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     editors?: DetectedEditor[];
@@ -269,7 +274,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, flows, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, flows, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -343,6 +348,11 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   const desktopAttachedChange = attached
     ? openspecChanges?.find((c) => c.name === attached)
     : undefined;
+
+  // Resume / Fork affordance gate: only render when the session is dead-but-resumable
+  // AND a parent callback was supplied. The render gate replaces the dimmed elapsed-
+  // duration span (a tombstone is meaningless) — see change: resume-button-in-session-header.
+  const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume);
 
   // Desktop: full header
   return (
@@ -462,7 +472,30 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <Icon path={mdiFileCompare} size={0.4} className="inline mr-0.5" />Changed Files
         </button>
       )}
-      <span className="text-[var(--text-muted)]">{formatDuration(duration)}</span>
+      {isEnded ? (
+        <>
+          <button
+            onClick={() => onResume!("continue")}
+            disabled={!!session.resuming}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed mr-1"
+            title="Resume session (continue same session)"
+            data-testid="header-resume-button"
+          >
+            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />Resume
+          </button>
+          <button
+            onClick={() => onResume!("fork")}
+            disabled={!!session.resuming}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Fork session (new session from this point)"
+            data-testid="header-fork-button"
+          >
+            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />Fork
+          </button>
+        </>
+      ) : (
+        <span className="text-[var(--text-muted)]">{formatDuration(duration)}</span>
+      )}
       {onRefresh && (
         <button
           onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}

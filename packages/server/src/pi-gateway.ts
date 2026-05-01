@@ -32,6 +32,14 @@ export interface PiGateway {
   onConnection?: () => void;
   onDisconnect?: (sessionId: string) => void;
   onSessionCreated?: (sessionId: string) => void;
+  /**
+   * Fired after a `session_register` message has been processed and the
+   * session is in the manager. Receives the registered sessionId and its
+   * cwd. Wired by the dashboard server to consume any pending
+   * spawn-with-attach intent. See change:
+   * add-folder-task-checker-and-spawn-attach.
+   */
+  onSessionRegistered?: (sessionId: string, cwd: string) => void;
 }
 
 export function createPiGateway(
@@ -57,6 +65,7 @@ export function createPiGateway(
   let onConnection: (() => void) | undefined;
   let onDisconnect: ((sessionId: string) => void) | undefined;
   let onSessionCreated: ((sessionId: string) => void) | undefined;
+  let onSessionRegistered: ((sessionId: string, cwd: string) => void) | undefined;
 
   function checkEmpty() {
     if (connections.size === 0) {
@@ -174,6 +183,10 @@ export function createPiGateway(
       onSessionCreated = handler;
     },
 
+    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
+      onSessionRegistered = handler;
+    },
+
     address() {
       const addr = wss?.address();
       if (addr && typeof addr === "object") return addr.port;
@@ -284,11 +297,16 @@ export function createPiGateway(
                 sessionDir: msg.sessionDir,
                 firstMessage: msg.firstMessage,
                 pid: msg.pid,
+                // Forward registerReason so server.ts onChange can apply
+                // the configured reattach placement policy.
+                // See change: reattach-move-to-front.
+                registerReason: msg.registerReason,
               });
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 
               resetHeartbeat(msg.sessionId);
               onConnection?.();
+              onSessionRegistered?.(msg.sessionId, msg.cwd);
             }
 
             if (msg.type === "session_heartbeat" && msg.sessionId) {

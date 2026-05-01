@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Theme definitions
-The client SHALL define 5 named color themes, each with dark and light CSS variable maps: Base, Dracula, Nord, GitHub, and Catppuccin. Each theme definition SHALL include values for all CSS custom properties used by the application (`--bg-*`, `--text-*`, `--border-*`, `--accent-*`, `--shadow-*`, `--link`, `--link-hover`). The Base theme values SHALL match the existing `:root` and `[data-theme="light"]` CSS values exactly.
+The client SHALL define 9 named color themes, each with dark and light CSS variable maps: Base, Dracula, Nord, GitHub, Catppuccin, Tokyo Night, Rosé Pine, Solarized, and Gruvbox. Each theme definition SHALL include values for all CSS custom properties used by the application (`--bg-*`, `--text-*`, `--border-*`, `--accent-*`, `--shadow-*`, `--link`, `--link-hover`). The Base theme values SHALL match the existing `:root` and `[data-theme="light"]` CSS values exactly. Themes adapted from palettes that publish only a dark variant (e.g. Dracula) SHALL hand-tune accent colors for the light variant so contrast against light backgrounds remains readable; themes whose source publishes both variants (e.g. Tokyo Night Night/Day, Rosé Pine Main/Dawn, Solarized, Gruvbox) SHALL use the official light variant.
 
 #### Scenario: All themes define all variables
 - **WHEN** a theme is loaded
@@ -67,6 +67,14 @@ Each theme SHALL map to an appropriate syntax highlighting style from `react-syn
 #### Scenario: Fallback for unmapped themes
 - **WHEN** a theme has no exact syntax highlighter match
 - **THEN** code blocks SHALL fall back to `oneDark` (dark) or `oneLight` (light)
+
+#### Scenario: Solarized and Gruvbox dual-mode syntax
+- **WHEN** Solarized or Gruvbox is active
+- **THEN** code blocks SHALL use the matching dual-mode prism style (`solarizedDarkAtom` / `solarizedlight` and `gruvboxDark` / `gruvboxLight` respectively) so the syntax palette tracks the chosen mode
+
+#### Scenario: Tokyo Night dark syntax
+- **WHEN** Tokyo Night is active in dark mode
+- **THEN** code blocks SHALL use the `nightOwl` prism style as the closest available match
 
 ### Requirement: Theme state persistence
 The selected theme name SHALL be stored in `localStorage` under `dashboard:theme-name`. The default theme SHALL be `"base"`. The theme name and mode preference SHALL be independent settings.

@@ -32,6 +32,14 @@ export interface AutoStartDeps {
    * Passes the final success state so the caller can clear spinners.
    */
   onLaunchEnd?: (success: boolean) => void;
+  /**
+   * Optional predicate. When it returns true, the auto-start spawn step
+   * (step 3 below) is skipped — mDNS discovery + health check still run,
+   * so the bridge will pick up the orchestrator-spawned replacement as
+   * soon as it advertises. Used by the bridge to honor `server_restarting`
+   * bursts. See change: fix-restart-bridge-auto-start-race.
+   */
+  shouldSuppressAutoStart?: () => boolean;
 }
 
 export interface AutoStartResult {
@@ -70,6 +78,14 @@ export async function autoStartServer(
 
   if (status.portConflict) {
     deps.notify(`Port ${config.port} is occupied by another service`, "warning");
+    return {};
+  }
+
+  // Suppress the spawn step while a deliberate restart/shutdown is in
+  // flight. Discovery + health check above already ran, so if the
+  // orchestrator has finished bringing up the replacement we already
+  // returned. See change: fix-restart-bridge-auto-start-race.
+  if (deps.shouldSuppressAutoStart?.()) {
     return {};
   }
 

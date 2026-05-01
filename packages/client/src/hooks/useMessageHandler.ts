@@ -321,6 +321,15 @@ export function useMessageHandler(
         setSessionStates((prev) => {
           const next = new Map(prev);
           const current = next.get(msg.sessionId) ?? createInitialState();
+          // Extract the originating toolCallId so the reducer can pair
+          // the interactiveUi row with its parent toolResult row during
+          // assistant message_end reorder. Free-floating prompts (no
+          // tool context) leave the field undefined.
+          // See change: fix-interactive-ui-reorder.
+          const toolCallId =
+            typeof msg.prompt?.metadata?.toolCallId === "string"
+              ? (msg.prompt.metadata.toolCallId as string)
+              : undefined;
           const updated = addInteractiveRequest(
             current,
             msg.promptId,
@@ -333,6 +342,7 @@ export function useMessageHandler(
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
             },
+            toolCallId,
           );
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
