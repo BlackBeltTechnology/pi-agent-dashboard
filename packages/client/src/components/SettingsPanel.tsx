@@ -64,6 +64,8 @@ interface Config {
   spawnStrategy: string;
   /** Reattach placement policy. See change: reattach-move-to-front. */
   reattachPlacement?: "preserve" | "streaming-only" | "always";
+  /** Timeout for ask_user prompts in seconds; -1 (or <=0) disables timeout. */
+  askUserPromptTimeoutSeconds?: number;
   tunnel: { enabled: boolean };
   devBuildOnReload: boolean;
   defaultModel: string;
@@ -159,6 +161,9 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
     if (config.spawnStrategy !== original.spawnStrategy) partial.spawnStrategy = config.spawnStrategy;
     if (config.reattachPlacement !== original.reattachPlacement) {
       partial.reattachPlacement = config.reattachPlacement ?? "always";
+    }
+    if (config.askUserPromptTimeoutSeconds !== original.askUserPromptTimeoutSeconds) {
+      partial.askUserPromptTimeoutSeconds = config.askUserPromptTimeoutSeconds ?? 300;
     }
     if (config.tunnel.enabled !== original.tunnel.enabled) partial.tunnel = { enabled: config.tunnel.enabled };
     if (config.devBuildOnReload !== original.devBuildOnReload) partial.devBuildOnReload = config.devBuildOnReload;
@@ -420,6 +425,16 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                     When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.
+                  </p>
+                </div>
+                <div>
+                  <NumberField
+                    label="ask_user Prompt Timeout (seconds)"
+                    value={config.askUserPromptTimeoutSeconds ?? 300}
+                    onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
+                  />
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use <code>-1</code> (or <code>0</code>) to wait forever. Default: 300 (5&nbsp;min).
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
