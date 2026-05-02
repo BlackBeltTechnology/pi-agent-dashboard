@@ -25,7 +25,7 @@ function makeNoopDeps() {
 function makeFakeGateway(): { gateway: PiGateway; broadcasts: ServerToExtensionMessage[] } {
   const broadcasts: ServerToExtensionMessage[] = [];
   const gateway: PiGateway = {
-    broadcast(msg) { broadcasts.push(msg); },
+    broadcast(msg: ServerToExtensionMessage) { broadcasts.push(msg); },
     sendToSession() { return false; },
     isSessionConnected() { return false; },
     connectionCount() { return 0; },
@@ -46,7 +46,7 @@ describe("POST /api/restart broadcasts server_restarting", () => {
     const fake = makeFakeGateway();
     broadcasts = fake.broadcasts;
     // process.exit is deferred via setTimeout(...,200); silence it for the test
-    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => undefined as never));
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: string | number | null) => undefined as never) as (code?: string | number | null | undefined) => never);
     registerSystemRoutes(fastify, { ...makeNoopDeps(), piGateway: fake.gateway });
   });
 
@@ -82,7 +82,7 @@ describe("POST /api/shutdown broadcasts server_restarting", () => {
     fastify = Fastify();
     const fake = makeFakeGateway();
     broadcasts = fake.broadcasts;
-    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => undefined as never));
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: string | number | null) => undefined as never) as (code?: string | number | null | undefined) => never);
     registerSystemRoutes(fastify, { ...makeNoopDeps(), piGateway: fake.gateway });
   });
 
@@ -111,7 +111,7 @@ describe("/api/restart works without piGateway (no-op broadcast)", () => {
 
   beforeEach(() => {
     fastify = Fastify();
-    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: number) => undefined as never));
+    exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: string | number | null) => undefined as never) as (code?: string | number | null | undefined) => never);
     registerSystemRoutes(fastify, makeNoopDeps()); // no piGateway
   });
 

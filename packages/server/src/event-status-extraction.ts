@@ -2,7 +2,7 @@
  * Extract session status/tool updates from forwarded events.
  * Returns partial DashboardSession updates, or null if the event is not relevant.
  */
-import type { DashboardEvent, DashboardSession, FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent, DashboardSession, FlowStatus, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // Use null (not undefined) for fields that must be cleared — undefined is
 // dropped during JSON serialisation so the browser would keep the stale value.
@@ -177,4 +177,59 @@ const ACTIVITY_EVENT_TYPES: ReadonlySet<string> = new Set([
 
 export function isActivityEvent(eventType: string): boolean {
   return ACTIVITY_EVENT_TYPES.has(eventType);
+}
+
+/**
+ * Snapshot of the session fields the unread classifier needs.
+ * Pulled out of `DashboardSession` to keep the helper testable without
+ * constructing a full session object.
+ */
+export interface UnreadTriggerSnapshot {
+  status?: SessionStatus;
+  currentTool?: string | null;
+}
+
+/**
+ * Pure classifier: should the given event flip a session to `unread: true`?
+ *
+ * Triggers (per change: session-card-unread-stripes):
+ *   1. status transition `streaming` -> `idle` or `streaming` -> `active`
+ *      (turn finished)
+ *   2. `currentTool` becomes `"ask_user"` (input requested)
+ *   3. `agent_end` event whose payload's `error` field is truthy
+ *
+ * Anything else (assistant message_end, tool_execution_*, model_select,
+ * git/process noise) returns false. This is intentionally narrower than
+ * `isActivityEvent` — unread is for moments that demand the user’s eyes,
+ * not every tick of work.
+ *
+ * The caller is responsible for the "not currently viewed" gate — this
+ * helper is concerned only with whether the event semantically qualifies.
+ */
+export function isUnreadTrigger(
+  eventType: string,
+  before: UnreadTriggerSnapshot,
+  after: UnreadTriggerSnapshot,
+  payload?: unknown,
+): boolean {
+  // Trigger 1: streaming -> idle | active (turn fully finished)
+  if (
+    before.status === "streaming" &&
+    (after.status === "idle" || after.status === "active")
+  ) {
+    return true;
+  }
+
+  // Trigger 2: currentTool flips to "ask_user"
+  if (after.currentTool === "ask_user" && before.currentTool !== "ask_user") {
+    return true;
+  }
+
+  // Trigger 3: agent_end with error
+  if (eventType === "agent_end") {
+    const data = (payload as { error?: unknown } | undefined) ?? undefined;
+    if (data && data.error) return true;
+  }
+
+  return false;
 }

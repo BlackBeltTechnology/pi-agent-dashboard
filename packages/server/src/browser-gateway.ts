@@ -17,6 +17,7 @@ import type { SessionOrderManager } from "./session-order-manager.js";
 import type { PreferencesStore } from "./preferences-store.js";
 import type { DirectoryService } from "./directory-service.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
+import { createViewedSessionTracker, type ViewedSessionTracker } from "./viewed-session-tracker.js";
 import type { TerminalManager } from "./terminal-manager.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
@@ -53,6 +54,12 @@ export interface BrowserGateway {
   headlessPidRegistry: HeadlessPidRegistry;
   /** Registry for pending auto-resume prompts */
   pendingResumeRegistry: PendingResumeRegistry;
+  /**
+   * Tracker for which browser is currently viewing which session. Used by
+   * the unread-trigger evaluation in event-wiring.ts.
+   * See change: session-card-unread-stripes.
+   */
+  viewedSessionTracker: ViewedSessionTracker;
   /** Send a message to a specific WebSocket client */
   sendToClient(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Callback invoked when a new browser client connects */
@@ -85,6 +92,10 @@ export function createBrowserGateway(
 
   // Track headless child processes with sessionId linkage
   const headlessPidRegistry = createHeadlessPidRegistry();
+
+  // Track which browser is viewing which session (for unread state machine).
+  // See change: session-card-unread-stripes.
+  const viewedSessionTracker = createViewedSessionTracker();
 
   // Track pending interactive UI requests per session for replay on reconnect
   const pendingUiRequests = new Map<string, Map<string, { requestId: string; method: string; params: Record<string, unknown> }>>();
@@ -454,6 +465,26 @@ export function createBrowserGateway(
           case "rename_terminal":
             handleRenameTerminal(msg, ctx);
             break;
+          case "session_view": {
+            // Browser declares it is currently displaying this session.
+            // Track the (sessionId, ws) pair AND clear `unread` if set.
+            // See change: session-card-unread-stripes.
+            viewedSessionTracker.view(msg.sessionId, ws);
+            const session = sessionManager.get(msg.sessionId);
+            if (session?.unread) {
+              sessionManager.update(msg.sessionId, { unread: false });
+              broadcast({
+                type: "session_updated",
+                sessionId: msg.sessionId,
+                updates: { unread: false },
+              });
+            }
+            break;
+          }
+          case "session_unview": {
+            viewedSessionTracker.unview(msg.sessionId, ws);
+            break;
+          }
           default:
             // Forward simple pi-gateway commands
             handlePiGatewayForward(msg, ctx);
@@ -473,6 +504,9 @@ export function createBrowserGateway(
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
+      // Drop this ws from every viewed-session entry so disconnected browsers
+      // don't hold sessions in the viewed state. See change: session-card-unread-stripes.
+      viewedSessionTracker.unviewAll(ws);
     });
   });
 
@@ -560,6 +594,8 @@ export function createBrowserGateway(
     headlessPidRegistry,
 
     pendingResumeRegistry,
+
+    viewedSessionTracker,
   };
 
   return gateway;

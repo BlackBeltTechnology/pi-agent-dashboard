@@ -179,11 +179,27 @@ describe("openspec binary definition", () => {
 });
 
 describe("registered tool set", () => {
-  it("registers pi, pi-coding-agent, openspec, npm, node, git, zrok, wt", () => {
+  it("registers pi, pi-coding-agent, openspec, npm, node, git, jj, zrok, wt", () => {
     const r = freshRegistry({});
-    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "node", "git", "zrok", "wt"]) {
+    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "node", "git", "jj", "zrok", "wt"]) {
       expect(r.has(name)).toBe(true);
     }
+  });
+
+  it("jj resolves via where when found", () => {
+    const r = freshRegistry({
+      which: (name) => (name === "jj" ? "/usr/local/bin/jj" : null),
+    });
+    const res = r.resolve("jj");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe("/usr/local/bin/jj");
+    expect(res.source).toBe("system");
+  });
+
+  it("jj unavailable returns ok:false without throwing", () => {
+    const r = freshRegistry({ which: () => null });
+    const res = r.resolve("jj");
+    expect(res.ok).toBe(false);
   });
 
   it("wt resolves via where when found", () => {

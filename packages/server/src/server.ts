@@ -52,6 +52,7 @@ import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { PiCoreChecker } from "./pi-core-checker.js";
 import { PiCoreUpdater } from "./pi-core-updater.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import { registerJjRoutes } from "./routes/jj-routes.js";
 import { registerBootstrapRoutes } from "./routes/bootstrap-routes.js";
 import { createBootstrapState, type BootstrapStateStore } from "./bootstrap-state.js";
 import { createBootstrapQueue } from "./bootstrap-queue.js";
@@ -90,6 +91,10 @@ export interface ServerConfig {
   editor: import("@blackbelt-technology/pi-dashboard-shared/config.js").EditorConfig;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
+  /** Reattach-placement policy applied when a bridge re-registers after
+   *  a dashboard restart. Defaults to `"always"`.
+   *  See change: reattach-move-to-front. */
+  reattachPlacement?: import("@blackbelt-technology/pi-dashboard-shared/config.js").ReattachPlacement;
   /** Merged trusted networks from config */
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
@@ -366,7 +371,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           applyReattachPolicy(
             sessionId,
             session.cwd,
-            config.reattachPlacement,
+            config.reattachPlacement ?? "always",
             { sessionManager, sessionOrderManager, browserGateway },
             ctx.priorStatus,
           );
@@ -416,7 +421,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         applyReattachPolicy(
           sessionId,
           session.cwd,
-          config.reattachPlacement,
+          config.reattachPlacement ?? "always",
           { sessionManager, sessionOrderManager, browserGateway },
           ctx.priorStatus,
         );
@@ -706,6 +711,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  registerJjRoutes(fastify, { browserGateway, pendingAttachRegistry, networkGuard });
 
   // ── Bootstrap REST routes ────────────────────────────────────────
   // The routes module is registered here; state + queue are declared

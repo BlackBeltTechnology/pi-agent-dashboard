@@ -130,6 +130,19 @@ export interface GitInfoUpdateMessage {
   gitPrUrl?: string;
 }
 
+/**
+ * Bridge → server: jj workspace state for the session's cwd.
+ * Sent only when the bridge's VCS probe finds `.jj/` AND `jj` resolves
+ * via the tool registry. Cleared (sent with `jjState: null`) when the
+ * session leaves a jj repo (e.g. cwd switch). See change: add-jj-workspace-plugin.
+ */
+export interface JjStateUpdateMessage {
+  type: "jj_state_update";
+  sessionId: string;
+  /** `null` clears the session's `jjState` field on the server. */
+  jjState: import("./types.js").JjState | null;
+}
+
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
 
 export interface ModelsListMessage {
@@ -283,6 +296,7 @@ export type ExtensionToServerMessage =
   | ExtensionUiRequestMessage
   | FilesListMessage
   | GitInfoUpdateMessage
+  | JjStateUpdateMessage
   | SessionNameUpdateMessage
   | ModelsListMessage
   | ModelUpdateMessage

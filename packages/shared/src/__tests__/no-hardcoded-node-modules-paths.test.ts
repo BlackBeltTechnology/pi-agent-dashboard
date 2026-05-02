@@ -72,7 +72,7 @@ const ALLOWLIST: readonly string[] = [
  * The scope is intentionally narrow: only the build-time sites that the
  * `register-build-time-tools` change migrated, plus the postinstall
  * scripts that mirror the registry's `bare-import` semantics. Bundle /
- * Docker entrypoint scripts (`bundle-server.sh`, `docker-make.sh`,
+ * Docker entrypoint scripts (`bundle-server.mjs`, `docker-make.sh`,
  * `test-electron-install-inner.sh`, etc.) are NOT in scope: those
  * operate on a known WORKDIR with deterministic node_modules layout
  * inside the build image and are not affected by host-side hoisting.

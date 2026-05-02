@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { THEMES, CSS_VAR_KEYS, getTheme } from "../themes.js";
 
 describe("themes", () => {
-  it("has 5 themes", () => {
-    expect(THEMES.length).toBe(5);
+  it("has 9 themes", () => {
+    expect(THEMES.length).toBe(9);
   });
 
   it("all themes define all CSS variable keys (dark)", () => {

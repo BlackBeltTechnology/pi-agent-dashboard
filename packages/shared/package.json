@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-shared",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Shared types and utilities for pi-dashboard",
   "type": "module",
   "repository": {

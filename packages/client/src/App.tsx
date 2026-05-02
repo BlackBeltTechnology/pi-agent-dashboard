@@ -10,9 +10,12 @@ import { useMobile } from "./hooks/useMobile.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ConfirmDialog } from "./components/ConfirmDialog.js";
-import { FlowDashboard } from "./components/FlowDashboard.js";
-import { FlowAgentDetail } from "./components/FlowAgentDetail.js";
-import { FlowArchitect, FlowArchitectDetail } from "./components/FlowArchitect.js";
+import {
+  FlowDashboard,
+  FlowAgentDetail,
+  FlowArchitect,
+  FlowArchitectDetail,
+} from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
 import { MarkdownPreviewView } from "./components/MarkdownPreviewView.js";
 import { PiResourcesView } from "./components/PiResourcesView.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
@@ -50,12 +53,14 @@ import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { useEditors } from "./lib/use-editors.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDesktopBack } from "./hooks/useDesktopBack.js";
+import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
+import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import type { DashboardSession, CommandInfo, FlowInfo, FileEntry, OpenSpecData, ModelInfo, RoleInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/SearchableSelectDialog.js";
-import { FlowLaunchDialog } from "./components/FlowLaunchDialog.js";
+import { FlowLaunchDialog } from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
@@ -149,6 +154,14 @@ export default function App() {
   const selectedId = match ? params?.id : undefined;
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
+
+  // Drives the server-side viewed-session tracker for unread state.
+  // See change: session-card-unread-stripes.
+  useViewDispatcher({
+    viewedSessionId: selectViewedSessionId(match, params ?? undefined),
+    connectionStatus: status,
+    send,
+  });
   const selectedTerminalId = termMatch ? termParams?.id : undefined;
   const folderTermCwd = folderTermMatch ? decodeFolderPath(folderTermParams?.encodedCwd ?? "") : null;
   const folderEditorCwd = folderEditorMatch ? decodeFolderPath(folderEditorParams?.encodedCwd ?? "") : null;

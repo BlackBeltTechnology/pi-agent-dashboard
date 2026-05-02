@@ -57,6 +57,8 @@ import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig }
 import { isDashboardRunning } from "./lib/health-check.js";
 import { detectPi, detectBridgeExtension } from "./lib/dependency-detector.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
+import { installStandalone } from "./lib/dependency-installer.js";
+import { decideStartupAction, runPowerUserManagedInstall } from "./lib/power-user-install.js";
 import { loadWindowState, saveWindowState } from "./lib/window-state.js";
 import { createTray, destroyTray } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
@@ -392,11 +394,34 @@ async function main(): Promise<void> {
     const bridge = detectBridgeExtension();
     log(`Smart detection: pi=${pi.found}, bridge=${bridge.found}`);
 
-    if (pi.found && bridge.found) {
-      // Both found — auto-skip wizard
+    const startupAction = decideStartupAction({
+      firstRun,
+      piFound: pi.found,
+      bridgeFound: bridge.found,
+    });
+    log(`startupAction=${startupAction.kind}${"step" in startupAction ? `:${startupAction.step}` : ""}`);
+
+    if (startupAction.kind === "auto-skip-wizard-with-install") {
+      // Both pi & bridge already on the system. Skip the wizard UI BUT
+      // still run installStandalone() so ~/.pi-dashboard/node_modules/
+      // has tsx + pi-coding-agent@0.70.0 + openspec for the bundled
+      // server's runtime. See change:
+      // fix-electron-windows-installer-and-server-bootstrap (Defect 1).
       log("Pi + bridge detected, auto-writing mode.json as power-user");
       writeModeFile("power-user");
       try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
+      const installResult = await runPowerUserManagedInstall({
+        installStandaloneFn: installStandalone,
+        onStatus: (s) => updateSplashStatus(s),
+      });
+      log(`runPowerUserManagedInstall: ran=${installResult.ran} reason=${installResult.reason}${installResult.error ? ` error=${installResult.error.message}` : ""}`);
+      if (installResult.reason === "failed") {
+        // Surface as a non-fatal warning — the next ensureServer attempt
+        // will fail with a clearer message if the loader is genuinely
+        // unavailable. See change: fix-electron-windows-installer-and-
+        // server-bootstrap (Defect 1, design.md §Open Question 1).
+        console.error("[pi-dashboard] managed install failed:", installResult.error?.message);
+      }
     } else if (pi.found && !bridge.found) {
       // Pi found but no bridge — targeted wizard
       updateSplashStatus("Opening setup wizard\u2026");

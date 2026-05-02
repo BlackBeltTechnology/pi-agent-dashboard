@@ -31,8 +31,9 @@ jobs:
     permissions:
       contents: write  # Used on workflow_dispatch (commit + tag + push).
     outputs:
-      version: ${{ steps.resolve.outputs.version }}
-      tag:     ${{ steps.resolve.outputs.tag }}
+      version:       ${{ steps.resolve.outputs.version }}
+      tag:           ${{ steps.resolve.outputs.tag }}
+      is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,9 +64,16 @@ jobs:
             fi
             tag="v$version"
           fi
-          echo "Resolved: version=$version tag=$tag"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          # Detect SemVer prerelease (anything with a `-` suffix on the
+          # X.Y.Z core, e.g. `0.4.5-rc.1`). Prereleases publish to npm
+          # under the `next` dist-tag and surface as GitHub `prerelease:
+          # true` Releases. Stable versions keep `latest` + regular
+          # Release. See change: eliminate-bash-on-windows-runners (D6).
+          is_prerelease=$([[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+- ]] && echo true || echo false)
+          echo "Resolved: version=$version tag=$tag is_prerelease=$is_prerelease"
+          echo "version=$version"             >> "$GITHUB_OUTPUT"
+          echo "tag=$tag"                     >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -188,17 +196,24 @@ jobs:
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.prepare.outputs.version }}"
+          PRERELEASE="${{ needs.prepare.outputs.is_prerelease }}"
+          # Prereleases publish to the `next` dist-tag so consumers running
+          # plain `npm install <pkg>` keep getting the last stable release.
+          # Stable releases use the default `latest` dist-tag (no override).
+          # See change: eliminate-bash-on-windows-runners (D6).
+          TAG_ARG=""
+          if [ "$PRERELEASE" = "true" ]; then TAG_ARG="--tag next"; fi
           FAIL=0
           for pkg in "${PACKAGES[@]}"; do
             if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
               echo "::notice::$pkg@$VERSION already published — skip"
               continue
             fi
-            echo "::group::Publishing $pkg@$VERSION"
+            echo "::group::Publishing $pkg@$VERSION (is_prerelease=$PRERELEASE)"
             if [ "$pkg" = "@blackbelt-technology/pi-agent-dashboard" ]; then
-              npm publish --provenance --access public || FAIL=1
+              npm publish --provenance --access public $TAG_ARG || FAIL=1
             else
-              npm publish --workspace="$pkg" --provenance --access public || FAIL=1
+              npm publish --workspace="$pkg" --provenance --access public $TAG_ARG || FAIL=1
             fi
             echo "::endgroup::"
           done
@@ -206,7 +221,7 @@ jobs:
 
   # ── Electron builds (parallel) ────────────────────────────────
   # MUST `needs: [prepare, publish]` — the bundled server's `npm install`
-  # in `bundle-server.sh` resolves `@blackbelt-technology/*` sub-packages
+  # in `bundle-server.mjs` resolves `@blackbelt-technology/*` sub-packages
   # from the public npm registry, which only have the just-bumped version
   # available after `publish` finishes uploading. Gating on `publish`
   # closes the ETARGET race that broke release run #34. See change:
@@ -222,6 +237,10 @@ jobs:
             platform: darwin
             arch: arm64
             node-arch: arm64
+          - os: macos-13
+            platform: darwin
+            arch: x64
+            node-arch: x64
           - os: ubuntu-latest
             platform: linux
             arch: x64
@@ -271,7 +290,8 @@ jobs:
           cd "$ELECTRON_DIR" && node install.js 2>&1 | tail -5
 
       - name: Set version from resolved tag
-        shell: bash
+        # No `shell: bash` — single npm invocation works under cmd, pwsh,
+        # and bash. Default Windows shell (cmd) handles it without MSYS.
         run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
 
       - name: Install Linux build dependencies
@@ -308,9 +328,13 @@ jobs:
       - name: Build client
         run: npm run build
 
-      - name: Bundle first-party recommended extensions
-        # Runs BEFORE bundle-server so resources/bundled-extensions/ is present
-        # when forge packagerConfig.extraResource is evaluated. Opt-in via env.
+      # ── Bundle first-party recommended extensions ───────────────────────────
+      # Runs BEFORE bundle-server so resources/bundled-extensions/ is present
+      # when forge packagerConfig.extraResource is evaluated. Opt-in via env.
+      # Split per-OS: bash for POSIX, pwsh for Windows. The .mjs script is
+      # OS-agnostic; only the tee+step-summary plumbing differs by shell.
+      - name: Bundle first-party recommended extensions (POSIX)
+        if: matrix.platform != 'win32'
         shell: bash
         env:
           BUNDLE_RECOMMENDED_EXTENSIONS: "1"
@@ -323,10 +347,24 @@ jobs:
             echo '```';
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Bundle offline npm cache (pi + openspec + tsx)
-        # Per-platform cacache that makes first-run install work fully offline.
-        # Runs BEFORE bundle-server so the resource is present when
-        # electron-forge evaluates extraResource. Opt-in via env.
+      - name: Bundle first-party recommended extensions (Windows)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        env:
+          BUNDLE_RECOMMENDED_EXTENSIONS: "1"
+        run: |
+          node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs | Tee-Object -FilePath bundle-extensions.log
+          "### Bundled recommended extensions (${{ matrix.platform }}/${{ matrix.arch }})" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Get-Content bundle-extensions.log | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
+      # ── Bundle offline npm cache ────────────────────────────────────────────
+      # Per-platform cacache that makes first-run install work fully offline.
+      # Runs BEFORE bundle-server so the resource is present when
+      # electron-forge evaluates extraResource. Opt-in via env.
+      - name: Bundle offline npm cache (POSIX)
+        if: matrix.platform != 'win32'
         shell: bash
         env:
           BUNDLE_OFFLINE_PACKAGES: "1"
@@ -343,9 +381,26 @@ jobs:
             echo '```';
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Bundle offline npm cache (Windows)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        env:
+          BUNDLE_OFFLINE_PACKAGES: "1"
+        run: |
+          node packages/electron/scripts/bundle-offline-packages.mjs --platform=${{ matrix.platform }}-${{ matrix.arch }} | Tee-Object -FilePath bundle-offline.log
+          $size = (Get-Item packages/electron/resources/offline-packages/npm-cache.tar.gz).Length
+          $sizeH = if ($size -gt 1MB) { "{0:N1}M" -f ($size / 1MB) } else { "{0:N0}K" -f ($size / 1KB) }
+          "### Offline npm cache (${{ matrix.platform }}/${{ matrix.arch }})" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          "- tarball: $sizeH" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Get-Content bundle-offline.log | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
       - name: Bundle dashboard server
-        shell: bash
-        run: bash packages/electron/scripts/bundle-server.sh
+        # Node-native (.mjs) — no shell, no MSYS path translation, runs
+        # identically on Linux/macOS/Windows. See change:
+        # eliminate-bash-on-windows-runners.
+        run: node packages/electron/scripts/bundle-server.mjs
 
       - name: Use x64 Node.js for Windows arm64 bundled server
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
@@ -367,17 +422,11 @@ jobs:
 
       - name: Smoke assertion — offline bundle resources present
         # Gate before `forge make` so a missing bundle fails loudly rather
-        # than producing a silently broken release artifact.
-        shell: bash
+        # than producing a silently broken release artifact. Node-native
+        # check so it runs identically on every OS without bash. See
+        # change: eliminate-bash-on-windows-runners.
         run: |
-          DIR=packages/electron/resources/offline-packages
-          if [ ! -f "$DIR/manifest.json" ] || [ ! -f "$DIR/npm-cache.tar.gz" ]; then
-            echo "::error::Offline bundle missing at $DIR (manifest=${DIR}/manifest.json, tarball=${DIR}/npm-cache.tar.gz)"
-            ls -la "$DIR" 2>&1 || true
-            exit 1
-          fi
-          echo "✓ offline bundle present:"
-          ls -la "$DIR"
+          node -e "const fs=require('node:fs');const path=require('node:path');const dir=path.join('packages','electron','resources','offline-packages');const m=path.join(dir,'manifest.json');const t=path.join(dir,'npm-cache.tar.gz');if(!fs.existsSync(m)||!fs.existsSync(t)){console.error('::error::Offline bundle missing at '+dir+' (manifest='+m+', tarball='+t+')');try{console.error(fs.readdirSync(dir).join('\n'))}catch{}process.exit(1)}console.log('✓ offline bundle present:');for(const f of fs.readdirSync(dir)){const s=fs.statSync(path.join(dir,f));console.log('  '+f+' ('+s.size+' bytes)')}"
 
       - name: Patch AppImage maker script (Linux x64)
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
@@ -393,12 +442,12 @@ jobs:
 
       - name: Package Electron (Windows arm64 — no NSIS cross-compile)
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
-        shell: bash
+        shell: pwsh
         run: |
-          cd packages/electron
-          ../../node_modules/.bin/electron-forge package --arch=arm64 --platform=win32
-          echo "Packaged output:"
-          ls -la out/ || true
+          Set-Location packages\electron
+          ..\..\node_modules\.bin\electron-forge.cmd package --arch=arm64 --platform=win32
+          Write-Host "Packaged output:"
+          Get-ChildItem out\ -ErrorAction SilentlyContinue | Format-Table
 
       - name: Build Windows ZIP and portable exe
         if: matrix.platform == 'win32'
@@ -487,3 +536,11 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: ${{ steps.notes.outputs.fallback == 'true' }}
           draft: true
+          # Prereleases (anything with a SemVer prerelease segment, e.g.
+          # `0.4.5-rc.1`) surface as GitHub `prerelease: true` Releases
+          # so they don't appear as the latest release on the repo page
+          # and tooling that filters by prerelease state classifies them
+          # correctly. The literal-string comparison is required because
+          # Actions stringifies job outputs. See change:
+          # eliminate-bash-on-windows-runners (D6).
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}

@@ -199,6 +199,54 @@ describe("SessionCard", () => {
     expect(card.className).not.toContain("card-input-pulse");
   });
 
+  // Unread / gray stripes — see change: session-card-unread-stripes.
+  it("should apply card-unread-pulse when unread and idle", () => {
+    const session = makeSession({ status: "idle", unread: true });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain("card-unread-pulse");
+    expect(card.className).not.toContain("card-working-pulse");
+    expect(card.className).not.toContain("card-input-pulse");
+  });
+
+  it("should NOT apply card-unread-pulse when unread is false", () => {
+    const session = makeSession({ status: "idle", unread: false });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).not.toContain("card-unread-pulse");
+  });
+
+  it("should NOT apply card-unread-pulse when unread is undefined", () => {
+    const session = makeSession({ status: "idle" });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).not.toContain("card-unread-pulse");
+  });
+
+  it("streaming wins over unread (yellow takes precedence over gray)", () => {
+    const session = makeSession({ status: "streaming", unread: true });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain("card-working-pulse");
+    expect(card.className).not.toContain("card-unread-pulse");
+  });
+
+  it("ask_user wins over unread (purple takes precedence over gray)", () => {
+    const session = makeSession({ status: "streaming", currentTool: "ask_user", unread: true });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain("card-input-pulse");
+    expect(card.className).not.toContain("card-unread-pulse");
+    expect(card.className).not.toContain("card-working-pulse");
+  });
+
+  it("ended-and-unread session still shows gray stripes", () => {
+    const session = makeSession({ status: "ended", unread: true });
+    const { container } = render(<SessionCard session={session} {...defaultProps} />);
+    const card = container.firstChild as HTMLElement;
+    expect(card.className).toContain("card-unread-pulse");
+  });
+
   it("should show 'Waiting for input' when currentTool is ask_user", () => {
     const session = makeSession({ status: "streaming", currentTool: "ask_user" });
     render(<SessionCard session={session} {...defaultProps} />);

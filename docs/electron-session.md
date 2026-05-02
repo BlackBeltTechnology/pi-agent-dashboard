@@ -98,7 +98,7 @@ Comprehensive record of the full implementation session: what we built, what we 
 **Problem**: `@blackbelt-technology/pi-dashboard` not published to npm → wizard can't install it.
 
 **Solution**: Bundle the server as extraResource instead of installing from npm.
-- `bundle-server.sh` copies `packages/server/` + `packages/shared/` + built web client
+- `bundle-server.mjs` copies `packages/server/` + `packages/shared/` + built web client
 - Wizard only installs: pi, openspec, tsx (no dashboard package)
 - Server lifecycle finds CLI at `resources/server/packages/server/src/cli.ts`
 
@@ -144,14 +144,14 @@ spawn(nodePath, ["--import", tsxLoader, cliPath, "--port", port, "--pi-port", pi
 
 ### Phase 9: Native Module Platform Mismatch
 
-**Problem**: `bundle-server.sh` runs `npm install` on macOS → builds `pty.node` for `darwin-arm64`. The `.deb` package ships with macOS binaries. On Linux VM: `Failed to load native module: pty.node, prebuilds/linux-x64: not found`.
+**Problem**: `bundle-server.mjs` runs `npm install` on macOS → builds `pty.node` for `darwin-arm64`. The `.deb` package ships with macOS binaries. On Linux VM: `Failed to load native module: pty.node, prebuilds/linux-x64: not found`.
 
 **What we tried**:
 1. `npm rebuild` inside Docker after copying bundle → **built from source but only if build tools (python3, make, g++) present**
 2. Needed to copy the built `pty.node` to `prebuilds/linux-x64/` and remove macOS/Windows prebuilds
 
 **Final solution**: Two-phase bundling:
-1. `bundle-server.sh --source-only` — copies source + client, NO npm install (no macOS binaries)
+1. `bundle-server.mjs --source-only` — copies source + client, NO npm install (no macOS binaries)
 2. `docker-make.sh` runs `npm install` inside Linux container → correct native modules
 3. Copies `build/Release/pty.node` → `prebuilds/linux-x64/pty.node`
 4. Removes `prebuilds/darwin-*` and `prebuilds/win32-*`
@@ -286,7 +286,7 @@ packages/electron/
 │   └── server/              — Bundled server + deps + client (build artifact, gitignored)
 └── scripts/
     ├── build-installer.sh   — Main build: native + Docker (--linux, --windows, --all, --skip-client)
-    ├── bundle-server.sh     — Bundle server source + deps (--source-only for cross-platform)
+    ├── bundle-server.mjs    — Bundle server source + deps (--source-only for cross-platform)
     ├── docker-make.sh       — Docker entrypoint: source-only bundle → npm install → native rebuild → forge make
     ├── download-node.sh     — Download + strip Node.js binary for bundling
     ├── test-server-launch.sh     — Quick Docker server launch test
@@ -475,9 +475,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 ### Phase 15: Client Build Path in Bundled Server
 
-**Problem**: Server logged "No client build found — running in API-only mode". The `bundle-server.sh` copied the client to `dist/client/` but the server resolves `path.join(__dirname, '../../dist/client')` from `packages/server/src/`, which goes up to `packages/` — expecting client at `packages/dist/client/`.
+**Problem**: Server logged "No client build found — running in API-only mode". The `bundle-server.mjs` copied the client to `dist/client/` but the server resolves `path.join(__dirname, '../../dist/client')` from `packages/server/src/`, which goes up to `packages/` — expecting client at `packages/dist/client/`.
 
-**Fix**: Changed `bundle-server.sh` to copy client to `packages/dist/client/`.
+**Fix**: Changed `bundle-server.mjs` to copy client to `packages/dist/client/`.
 
 ### Phase 16: Node.js on PATH for Spawned Scripts
 
@@ -542,7 +542,7 @@ The desktop-launch test catches bugs that only appear on real Linux desktops whe
 **Root cause**: The bridge extension (`packages/extension/`) was NOT bundled in the DEB/DMG package. Without it, pi had no way to discover and connect to the dashboard's WebSocket gateway. The extension was only discoverable in development mode (via the monorepo root `package.json` `"pi"` field).
 
 **Fix** (3 parts):
-1. **`bundle-server.sh`** — Added `packages/extension/` to the server bundle and included it in the workspace list so its dependencies (`ws`, shared types) resolve via `node_modules/`.
+1. **`bundle-server.mjs`** — Added `packages/extension/` to the server bundle and included it in the workspace list so its dependencies (`ws`, shared types) resolve via `node_modules/`.
 2. **`extension-register.ts`** — New server module that detects the bundled extension path and adds it to `~/.pi/agent/settings.json` (pi's global package list). No-op in dev mode (no bundled extension). Cleans stale dashboard paths on location change.
 3. **`server.ts`** — Calls `ensureBridgeExtensionRegistered()` at startup, before session discovery.
 

@@ -17,7 +17,7 @@ echo "→ Building for $PLATFORM-$ARCH..."
 
 # Bundle server source (no npm install — that happens here for correct native binaries)
 echo "→ Bundling dashboard server source..."
-bash "$ELECTRON_DIR/scripts/bundle-server.sh" --source-only
+node "$ELECTRON_DIR/scripts/bundle-server.mjs" --source-only
 
 # Bundle offline npm cache for first-run (opt-in via BUNDLE_OFFLINE_PACKAGES=1).
 # Runs BEFORE electron-forge package/make so the resource is picked up by extraResource.

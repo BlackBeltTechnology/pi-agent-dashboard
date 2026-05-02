@@ -33,6 +33,17 @@ export interface PlatformBundle {
   label: string;
   primary?: ReleaseAsset;
   items: Array<{ kind: string; asset: ReleaseAsset }>;
+  /**
+   * Per-arch primary picks for platforms that publish multiple arches
+   * (currently macOS: Apple Silicon arm64 + Intel x64). Populated only
+   * when the platform's items contain BOTH arches; otherwise undefined,
+   * which signals the renderer to fall back to single-button behavior.
+   * Field is additive — older renderers can ignore it safely.
+   */
+  primaryByArch?: {
+    arm64?: { kind: string; asset: ReleaseAsset };
+    x64?: { kind: string; asset: ReleaseAsset };
+  };
 }
 
 export interface LatestRelease {
@@ -131,6 +142,18 @@ function normalize(data: RawRelease): LatestRelease {
       return pa - pb;
     });
     p.primary = p.items[0]?.asset;
+  }
+
+  // Populate primaryByArch for macOS when both arches are present.
+  // Classifier kinds for macOS DMGs: "DMG (Apple Silicon)" / "DMG (Intel)"
+  // / "DMG (universal)". We surface arm64+x64 as separate buttons; if only
+  // a universal DMG ships, leave primaryByArch undefined so the renderer
+  // falls back to the single-button path (the universal asset is primary).
+  const mac = buckets.macos;
+  const armEntry = mac.items.find((it) => /apple silicon|arm64/i.test(it.kind));
+  const x64Entry = mac.items.find((it) => /intel|x64/i.test(it.kind));
+  if (armEntry && x64Entry) {
+    mac.primaryByArch = { arm64: armEntry, x64: x64Entry };
   }
 
   return {

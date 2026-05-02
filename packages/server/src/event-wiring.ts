@@ -9,7 +9,8 @@ import type { BrowserGateway } from "./browser-gateway.js";
 import type { SessionOrderManager } from "./session-order-manager.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
 import type { DirectoryService } from "./directory-service.js";
-import { extractSessionUpdates, isActivityEvent } from "./event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
+import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
 import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -34,6 +35,13 @@ export interface EventWiringDeps {
    * auto-rename. See change: add-folder-task-checker-and-spawn-attach.
    */
   pendingAttachRegistry?: import("./pending-attach-registry.js").PendingAttachRegistry;
+  /**
+   * Optional viewed-session tracker. When provided, the wiring evaluates
+   * `isUnreadTrigger(...)` on each forwarded event and stamps
+   * `session.unread = true` for sessions no browser is currently viewing.
+   * See change: session-card-unread-stripes.
+   */
+  viewedSessionTracker?: ViewedSessionTracker;
 }
 
 /**
@@ -52,6 +60,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     knownSessionIds,
     pendingDashboardSpawns,
     pendingAttachRegistry,
+    viewedSessionTracker,
   } = deps;
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -141,6 +150,15 @@ export function wireEvents(deps: EventWiringDeps): void {
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
       }
 
+      // Snapshot pre-update fields used by `isUnreadTrigger`. Captured here
+      // so the trigger sees the before/after edges of `status` and
+      // `currentTool` cleanly. See change: session-card-unread-stripes.
+      const sessionBefore = sessionManager.get(sessionId);
+      const beforeSnapshot = {
+        status: sessionBefore?.status,
+        currentTool: sessionBefore?.currentTool,
+      };
+
       const updates = extractSessionUpdates(msg.event);
       if (updates) {
         if (updates.flowAgentsDone === -1) {
@@ -152,6 +170,33 @@ export function wireEvents(deps: EventWiringDeps): void {
         // to avoid rapid status flickers on the session card
         if (!replayingSessions.has(sessionId)) {
           browserGateway.broadcastSessionUpdated(sessionId, updates);
+        }
+      }
+
+      // Unread-trigger evaluation. Only fires for live (non-replay) events
+      // and only stamps when no browser is currently viewing the session.
+      // The viewedSessionTracker dep is optional for backward compatibility
+      // (and to keep tests that don't need it lean).
+      // See change: session-card-unread-stripes.
+      if (!replayingSessions.has(sessionId) && viewedSessionTracker) {
+        const sessionAfter = sessionManager.get(sessionId);
+        const afterSnapshot = {
+          status: sessionAfter?.status,
+          currentTool: sessionAfter?.currentTool,
+        };
+        if (
+          isUnreadTrigger(
+            msg.event.eventType,
+            beforeSnapshot,
+            afterSnapshot,
+            msg.event.data,
+          ) &&
+          !viewedSessionTracker.isViewedByAnyone(sessionId)
+        ) {
+          if (sessionAfter && !sessionAfter.unread) {
+            sessionManager.update(sessionId, { unread: true });
+            browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
+          }
         }
       }
 
@@ -535,6 +580,15 @@ export function wireEvents(deps: EventWiringDeps): void {
       };
       sessionManager.update(sessionId, gitUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, gitUpdates);
+    }
+
+    if (msg.type === "jj_state_update") {
+      // jjState is intentionally allowed to be `undefined` (no jj) when
+      // the bridge sends `null`; the session-manager update applies the
+      // value verbatim. See change: add-jj-workspace-plugin.
+      const jjUpdates = { jjState: msg.jjState ?? undefined };
+      sessionManager.update(sessionId, jjUpdates);
+      browserGateway.broadcastSessionUpdated(sessionId, jjUpdates);
     }
 
     if (msg.type === "files_list") {

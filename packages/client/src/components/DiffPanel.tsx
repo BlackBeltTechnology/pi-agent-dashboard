@@ -8,25 +8,13 @@ import { getApiBase } from "../lib/api-context.js";
 import { Icon } from "@mdi/react";
 import { mdiCompare, mdiFileOutline, mdiViewSplitVertical, mdiViewSequential } from "@mdi/js";
 import { DiffView, DiffModeEnum } from "@git-diff-view/react";
-import { generateDiffFile } from "@git-diff-view/file";
 import { highlighter } from "@git-diff-view/lowlight";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import "@git-diff-view/react/styles/diff-view.css";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import { useThemeContext } from "./ThemeProvider.js";
+import { RichDiff, getLang } from "./RichDiff.js";
 import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import type { FileSelection } from "./DiffFileTree.js";
-
-const EXT_LANG_MAP: Record<string, string> = {
-  ".ts": "typescript", ".tsx": "tsx", ".js": "javascript", ".jsx": "jsx",
-  ".json": "json", ".sh": "bash", ".bash": "bash", ".zsh": "bash",
-  ".py": "python", ".rb": "ruby", ".rs": "rust", ".go": "go",
-  ".java": "java", ".kt": "kotlin", ".swift": "swift",
-  ".css": "css", ".scss": "scss", ".html": "html", ".xml": "xml",
-  ".yaml": "yaml", ".yml": "yaml", ".toml": "toml", ".md": "markdown",
-  ".c": "c", ".cpp": "cpp", ".h": "c", ".hpp": "cpp",
-  ".sql": "sql", ".graphql": "graphql", ".vue": "markup",
-  ".dockerfile": "docker", ".lua": "lua", ".r": "r",
-};
 
 /** Map extension to Prism language for SyntaxHighlighter */
 const EXT_PRISM_MAP: Record<string, string> = {
@@ -40,11 +28,6 @@ const EXT_PRISM_MAP: Record<string, string> = {
   ".sql": "sql", ".graphql": "graphql",
   ".dockerfile": "docker", ".lua": "lua", ".r": "r",
 };
-
-function getLang(filePath: string): string {
-  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
-  return EXT_LANG_MAP[ext] ?? "plaintext";
-}
 
 function getPrismLang(filePath: string): string {
   const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
@@ -60,6 +43,8 @@ interface DiffPanelProps {
 type ViewMode = "diff" | "file";
 
 export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
+  const { resolved: theme, themeName } = useThemeContext();
+  const syntaxStyle = useMemo(() => getSyntaxTheme(theme, themeName), [theme, themeName]);
   const [diffMode, setDiffMode] = useState<DiffModeEnum>(DiffModeEnum.Split);
   const [viewMode, setViewMode] = useState<ViewMode>("diff");
   const [fileContent, setFileContent] = useState<string | null>(null);
@@ -103,13 +88,13 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   const diffData = useMemo(() => {
     if (viewMode === "file") return null; // file mode uses SyntaxHighlighter directly
 
-    // Diff view
+    // Diff view — Path A: change-derived diffs (oldText/newText)
     if (change) {
-      const df = buildChangeDiffFile(file.path, change);
-      return df ? { diffFile: df } : null;
+      const texts = buildChangeDiffTexts(file.path, change);
+      return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
-    // File-level: use git aggregate diff if available
+    // Path B: git aggregate diff (raw hunks)
     if (file.gitDiff) {
       const lang = getLang(file.path);
       const hunks = extractHunks(file.gitDiff);
@@ -124,11 +109,11 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
       }
     }
 
-    // Fallback: show the most recent change
+    // Fallback: show the most recent change (Path A)
     const lastChange = file.changes[file.changes.length - 1];
     if (lastChange) {
-      const df = buildChangeDiffFile(file.path, lastChange);
-      return df ? { diffFile: df } : null;
+      const texts = buildChangeDiffTexts(file.path, lastChange);
+      return texts ? { richDiff: { ...texts, filePath: file.path } } : null;
     }
 
     return null;
@@ -190,7 +175,7 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
         {viewMode === "file" && fileContent != null && !fileLoading && (
           <SyntaxHighlighter
             language={getPrismLang(file.path)}
-            style={oneDark}
+            style={syntaxStyle}
             showLineNumbers
             customStyle={{ margin: 0, borderRadius: 0, fontSize: "13px", background: "transparent" }}
             lineNumberStyle={{ minWidth: "3em", paddingRight: "1em", color: "var(--text-muted, #555)" }}
@@ -198,12 +183,19 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
             {fileContent}
           </SyntaxHighlighter>
         )}
-        {viewMode === "diff" && diffData && (
+        {viewMode === "diff" && diffData && diffData.richDiff && (
+          <RichDiff
+            oldText={diffData.richDiff.oldText}
+            newText={diffData.richDiff.newText}
+            filePath={diffData.richDiff.filePath}
+            mode={diffMode === DiffModeEnum.Split ? "split" : "unified"}
+          />
+        )}
+        {viewMode === "diff" && diffData && diffData.data && (
           <DiffView
-            {...(diffData.diffFile ? { diffFile: diffData.diffFile } : {})}
-            {...(diffData.data ? { data: diffData.data } : {})}
+            data={diffData.data}
             diffViewMode={diffMode}
-            diffViewTheme="dark"
+            diffViewTheme={theme === "light" ? "light" : "dark"}
             diffViewHighlight
             diffViewWrap
             registerHighlighter={highlighter}
@@ -219,10 +211,11 @@ export function DiffPanel({ file, selection, sessionId }: DiffPanelProps) {
   );
 }
 
-/** Build a DiffFile from a single change event (Edit or Write) */
-function buildChangeDiffFile(filePath: string, change: FileChangeEvent): ReturnType<typeof generateDiffFile> | null {
-  const lang = getLang(filePath);
-
+/** Extract { oldText, newText } from a single change event (Edit or Write) for RichDiff. */
+function buildChangeDiffTexts(
+  filePath: string,
+  change: FileChangeEvent,
+): { oldText: string; newText: string } | null {
   if (change.type === "edit" && change.edits?.length) {
     // Concatenate all edit operations with separators
     const oldParts: string[] = [];
@@ -231,22 +224,14 @@ function buildChangeDiffFile(filePath: string, change: FileChangeEvent): ReturnT
       oldParts.push(edit.oldText);
       newParts.push(edit.newText);
     }
-    const oldContent = oldParts.join("\n\n// ─── next edit ───\n\n");
-    const newContent = newParts.join("\n\n// ─── next edit ───\n\n");
-
-    const df = generateDiffFile(filePath, oldContent, filePath, newContent, lang, lang);
-    df.init();
-    df.buildSplitDiffLines();
-    df.buildUnifiedDiffLines();
-    return df;
+    return {
+      oldText: oldParts.join("\n\n// ─── next edit ───\n\n"),
+      newText: newParts.join("\n\n// ─── next edit ───\n\n"),
+    };
   }
 
   if (change.type === "write" && change.content) {
-    const df = generateDiffFile(filePath, "", filePath, change.content, lang, lang);
-    df.init();
-    df.buildSplitDiffLines();
-    df.buildUnifiedDiffLines();
-    return df;
+    return { oldText: "", newText: change.content };
   }
 
   return null;

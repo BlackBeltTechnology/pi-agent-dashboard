@@ -47,6 +47,10 @@ Download a pre-built installer from [GitHub Releases](https://github.com/BlackBe
 
 On first launch a setup wizard walks you through mode selection (standalone vs. power-user), API key / OAuth sign-in, and [recommended extensions](#recommended-extensions). The standalone mode bundles Node.js and auto-installs pi + dashboard + openspec into `~/.pi-dashboard/` — **no terminal, npm, or Node.js required**.
 
+**Picking the right macOS DMG:** run `uname -m` in Terminal — `arm64` means Apple Silicon (M1/M2/M3/M4), `x86_64` means Intel. Or open   Apple menu → About This Mac and read the chip name. Download the matching DMG; if you grab the wrong one macOS will refuse to launch the app with a "cannot be opened" error.
+
+> **Note:** Starting with the v0.5.x release line, the Apple Silicon DMG ships as `PI-Dashboard-darwin-arm64-<ver>.dmg` (previously `PI-Dashboard-<ver>.dmg`). Any older direct download links pointing at the unsuffixed filename will 404; please link to the [Releases page](https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases) instead.
+
 ### B — pi package (recommended for CLI users)
 
 ```bash
@@ -111,8 +115,9 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Alternatively, add the pack
 
 **Dev tools**
 - **Integrated terminal** — full browser-based terminal emulator (xterm.js + node-pty) with ANSI colors, scrollback, and keep-alive
-- **Diff viewer** — side-by-side and unified diff views with file tree navigation
+- **Diff viewer** — side-by-side and unified diff views with file tree navigation. In Jujutsu workspaces the diff is regime-aware: shows the cumulative changes since the workspace's branch point, not just the working-copy delta.
 - **Editor integration** — open files in VS Code, Cursor, etc. directly from tool call cards
+- **Jujutsu workspaces (optional)** — when `jj` is on PATH and the session is inside a `.jj/` repo, the dashboard surfaces a workspace badge, a `+ Workspace` action that creates `jj workspace add` + spawns a fresh agent in it, and a `Fold back` action that drives the [`jj-workspace-fold-back`](.pi/skills/jj-workspace-fold-back/SKILL.md) skill (jj-native rebase + push, never `git commit`/`git merge`). Activates silently — zero UI when `jj` is not installed. See [docs/architecture.md](docs/architecture.md#jujutsu-workspaces) for the data flow.
 
 **Networking & distribution**
 - **Network discovery** — mDNS-based auto-discovery of other dashboard servers on the local network
@@ -617,6 +622,16 @@ npm run electron:build -- --windows          # Windows .exe (NSIS) only
 npm run electron:build -- --linux --windows  # Both, skip native
 ```
 
+### Building both macOS DMGs locally (`--mac-both`)
+
+On an Apple Silicon mac, produce both the arm64 and Intel x64 DMGs in one invocation:
+
+```bash
+npm run electron:build -- --mac-both
+```
+
+Requires Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`) so node-pty's x64 prebuilt binary can be unpacked during the cross-arch run. The script wipes per-arch caches between the two builds (`resources/.last-arch` sentinel) so back-to-back runs don't accidentally ship arm64 binaries inside an x64 DMG. Intel macs cannot cross-build arm64 locally (Rosetta is one-way) — use CI for arm64 validation.
+
 Docker builds use a Node 22 Debian container with NSIS installed for Windows cross-compilation. Output goes to `packages/electron/out/make/`.
 
 ### Electron dev mode
@@ -668,7 +683,8 @@ This runs CI, publishes to npm with `--provenance` for supply-chain transparency
 
 | Runner | Platform | Outputs |
 |--------|----------|---------|
-| `macos-14` | macOS arm64 | `.dmg` |
+| `macos-14` | macOS arm64 | `.dmg` (Apple Silicon) |
+| `macos-13` | macOS x64 | `.dmg` (Intel) |
 | `ubuntu-latest` | Linux x64 | `.deb` + `.AppImage` |
 | `ubuntu-24.04-arm` | Linux arm64 | `.deb` |
 | `windows-latest` | Windows x64 | `.exe` (NSIS) + `.zip` + portable |

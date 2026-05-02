@@ -91,6 +91,50 @@ export function didWeStartServer(): boolean {
   return serverStartedByUs;
 }
 
+/**
+ * Server-startup deadline used by both `launchViaCli` and `launchServer`.
+ * Bumped from 15s to 60s in change
+ * `fix-electron-windows-installer-and-server-bootstrap`. The longer
+ * deadline gives `installStandalone()` + offline-cacache extraction +
+ * server cold-start headroom on first launch.
+ */
+export const SERVER_READY_DEADLINE_MS = 60_000;
+
+/**
+ * Construct a cause-aware server-startup failure message. Distinguishes
+ * "child process exited prematurely" from "deadline elapsed without
+ * probe returning true". The pre-fix message conflated both cases under
+ * "Server failed to start within 15 seconds (child exited with code N)",
+ * which was misleading because the child-exit case never reaches the
+ * deadline. Pure helper, exported for tests. See change:
+ * fix-electron-windows-installer-and-server-bootstrap (Defect 4 / D4).
+ */
+export function buildServerStartupError(args: {
+  cliPath?: string;
+  spawnBin?: string;
+  spawnArgs?: string[];
+  cwd: string;
+  logTail: string;
+  readyError: string;
+  port?: number;
+  piPort?: number;
+}): Error {
+  const isChildExit = args.readyError.toLowerCase().includes("exit");
+  const cmdLine = args.cliPath
+    ? `Command: ${args.cliPath} start --port ${args.port ?? "?"} --pi-port ${args.piPort ?? "?"}`
+    : `Command: ${args.spawnBin ?? "?"} ${(args.spawnArgs ?? []).join(" ")}`;
+  const header = isChildExit
+    ? `Server child process exited prematurely (${args.readyError}).\n` +
+      `This usually means a missing dependency or wrong TypeScript loader.\n`
+    : `Server did not respond within 60 seconds (${args.readyError}).\n` +
+      `The server is likely still starting; try the Retry button.\n`;
+  const body =
+    `${cmdLine}\n` +
+    `CWD: ${args.cwd}\n` +
+    (args.logTail ? `\nServer log:\n${args.logTail}` : "\nNo server log available.");
+  return new Error(header + body);
+}
+
 // ── Inlined config reading (replaces @blackbelt-technology/pi-dashboard-shared/config) ──
 
 interface KnownServerEntry {
@@ -288,7 +332,7 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
 
   const ready = await waitForReady({
     probe: async () => (await isDashboardRunning(port)).running,
-    deadlineMs: 15_000,
+    deadlineMs: SERVER_READY_DEADLINE_MS,
     child: r.process,
   });
   if (ready.ok) return;
@@ -297,16 +341,21 @@ async function launchViaCli(cliPath: string, port: number, piPort: number): Prom
   try { logContent = readFileSync(logPath, "utf-8"); } catch { /* ignore */ }
   const lastLines = logContent.split("\n").slice(-20).join("\n");
 
-  // Decorate the error with the resolved candidate path AND a
-  // `readlink -f` hint so a slipped-through self-recursion case is
-  // recognizable from the error dialog alone (vs. a real CLI bug).
-  // See change: fix-electron-appimage-cli-self-detection (D5).
+  // Decorate with the AppImage-self-recursion hint on the CLI path — it's
+  // useful diagnostic alongside the cause-aware base error. See change:
+  // fix-electron-appimage-cli-self-detection (D5).
+  const baseError = buildServerStartupError({
+    cliPath,
+    cwd: process.cwd(),
+    logTail: lastLines,
+    readyError: ready.error ?? "unknown",
+    port,
+    piPort,
+  });
   throw new Error(
-    `pi-dashboard CLI failed to start server within 15 seconds (${ready.error}).\n` +
-    `Command: ${cliPath} start --port ${port} --pi-port ${piPort}\n` +
-    `Resolved CLI path: ${cliPath}\n` +
-    `Verify with: readlink -f $(which pi-dashboard) \u2014 it should NOT point at the Electron binary or under $APPDIR\n` +
-    (lastLines ? `\nServer log:\n${lastLines}` : "\nNo server log available.")
+    baseError.message +
+      `\nResolved CLI path: ${cliPath}\n` +
+      `Verify with: readlink -f $(which pi-dashboard) \u2014 it should NOT point at the Electron binary or under $APPDIR`,
   );
 }
 
@@ -420,7 +469,7 @@ async function launchServer(port: number, piPort: number): Promise<void> {
 
   const ready = await waitForReady({
     probe: async () => (await isDashboardRunning(port)).running,
-    deadlineMs: 15_000,
+    deadlineMs: SERVER_READY_DEADLINE_MS,
     child: r.process,
   });
   if (ready.ok) return;
@@ -429,12 +478,13 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   try { logContent = readFileSync(logPath, "utf-8"); } catch { /* ignore */ }
   const lastLines = logContent.split("\n").slice(-20).join("\n");
 
-  throw new Error(
-    `Server failed to start within 15 seconds (${ready.error}).\n` +
-    `Command: ${spawnBin} ${spawnArgs.join(" ")}\n` +
-    `CWD: ${cwd}\n` +
-    (lastLines ? `\nServer log:\n${lastLines}` : "\nNo server log available.")
-  );
+  throw buildServerStartupError({
+    spawnBin,
+    spawnArgs,
+    cwd,
+    logTail: lastLines,
+    readyError: ready.error ?? "unknown",
+  });
 }
 
 /** Stop the server if we started it. */

@@ -30,7 +30,7 @@ const config: ForgeConfig = {
       "./resources/trayTemplate@2x.png",
       "./resources/icon.png",
       "./resources/icon.ico",
-      // Bundled server (created by scripts/bundle-server.sh)
+      // Bundled server (created by scripts/bundle-server.mjs)
       ...(fs.existsSync(path.resolve(__dirname, "resources/server")) ? ["./resources/server"] : []),
       // Bundled first-party recommended extensions (created by scripts/bundle-recommended-extensions.mjs
       // when BUNDLE_RECOMMENDED_EXTENSIONS=1; absent on feature-branch / local builds)
@@ -92,8 +92,23 @@ const config: ForgeConfig = {
       config: {
         oneClick: true,
         perMachine: false,
-        // Inject publish:never into electron-builder config via getAppBuilderConfig
-        getAppBuilderConfig: async () => ({ publish: null }),
+        // Pin every install-layer name explicitly. electron-builder's NSIS
+        // install-dir fallback chain reads npm `name` (slash-stripped) when
+        // nothing else overrides it, which produced the
+        // `@blackbelt-technologypi-dashboard-electron` install dir we hit
+        // on Windows. The override below makes the install layout
+        // version-independent of electron-builder defaults. See change:
+        // fix-electron-windows-installer-and-server-bootstrap (D2).
+        getAppBuilderConfig: async () => ({
+          publish: null,
+          productName: "pi-dashboard",
+          appId: "com.blackbelt-technology.pi-dashboard",
+          nsis: {
+            artifactName: "pi-dashboard-Setup-${version}.exe",
+            shortcutName: "pi-dashboard",
+            uninstallDisplayName: "pi-dashboard",
+          },
+        }),
       },
     },
   ],

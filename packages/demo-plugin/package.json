@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/demo-plugin",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "Demo plugin — runtime fixture only. SHALL NOT ship in production builds.",
   "type": "module",

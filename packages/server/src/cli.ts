@@ -145,6 +145,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
     editor: fileConfig.editor,
     openspec: fileConfig.openspec,
+    reattachPlacement: fileConfig.reattachPlacement,
     resolvedTrustedNetworks: fileConfig.resolvedTrustedNetworks,
     corsAllowedOrigins: fileConfig.cors.allowedOrigins,
   };

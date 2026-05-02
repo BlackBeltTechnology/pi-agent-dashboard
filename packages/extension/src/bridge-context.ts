@@ -20,6 +20,13 @@ export interface BridgeContext {
   lastFirstMessage: string | undefined;
   lastGitBranch: string | undefined;
   lastGitPrNumber: number | undefined;
+  /**
+   * Last serialized `JjState` snapshot sent to the server, or `null`
+   * when the previous probe explicitly cleared it. Compared on every
+   * probe tick so we only send `jj_state_update` when the value actually
+   * changes. See change: add-jj-workspace-plugin.
+   */
+  lastJjStateJson: string | undefined;
   lastSessionName: string | undefined;
   /**
    * `false` until the very first `sendStateSync` after the bridge

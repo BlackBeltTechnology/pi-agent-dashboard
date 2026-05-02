@@ -170,13 +170,37 @@ export function detectBridgeExtension(): DetectionResult {
  * registry uses. Both filters silently return `{ found: false }` so
  * callers fall through to the standalone tsx + cli.ts launch path.
  */
+/**
+ * Pure helper extracted for testability: pick the spawnable candidate from
+ * `where`/`which` output. On Windows, `where` returns multiple lines when an
+ * extensionless POSIX shim sits next to a `.cmd` shim; `lines[0]` is the
+ * extensionless one; `spawn(path, args, { shell: false })` cannot invoke an
+ * extensionless shim and produces `ENOENT`. Filtering for executable
+ * extensions ensures we always pick a spawnable candidate.
+ *
+ * POSIX (`which`) returns at most one line; the Windows-only branch is the
+ * only behavioural change. Falls back to `lines[0]` when no candidate has a
+ * recognised executable extension. See change:
+ * fix-electron-windows-installer-and-server-bootstrap (Defect 3).
+ */
+export function pickSpawnableShim(
+  rawWhereOutput: string,
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  const lines = rawWhereOutput.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length === 0) return null;
+  if (platform !== "win32") return lines[0]!;
+  return lines.find((l) => /\.(cmd|exe|bat|ps1)$/i.test(l)) ?? lines[0]!;
+}
+
 export function detectPiDashboardCli(): DetectionResult {
   const managed = path.join(MANAGED_BIN, process.platform === "win32" ? "pi-dashboard.cmd" : "pi-dashboard");
   if (existsSync(managed)) return { found: true, path: managed, source: "managed" };
 
   try {
     const cmd = process.platform === "win32" ? `where pi-dashboard` : `which pi-dashboard`;
-    const out = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
+    const raw = execSync(cmd, { encoding: "utf-8" });
+    const out = pickSpawnableShim(raw);
     if (!out) return { found: false };
     if (out.includes(".npm/_npx") || out.includes(".npm\\_npx")) return { found: false };
     if (isAppImageSelfHit(out)) return { found: false };

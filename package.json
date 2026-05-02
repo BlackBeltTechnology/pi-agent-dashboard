@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-agent-dashboard",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Web dashboard for monitoring and interacting with pi agent sessions",
   "repository": {
     "type": "git",
@@ -66,9 +66,9 @@
     "screenshots": "npm --prefix site run screenshots"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-extension": "^0.4.4",
-    "@blackbelt-technology/pi-dashboard-server": "^0.4.4",
-    "@blackbelt-technology/pi-dashboard-web": "^0.4.4"
+    "@blackbelt-technology/pi-dashboard-extension": "^0.4.5",
+    "@blackbelt-technology/pi-dashboard-server": "^0.4.5",
+    "@blackbelt-technology/pi-dashboard-web": "^0.4.5"
   },
   "devDependencies": {
     "jsdom": "^29.0.2",

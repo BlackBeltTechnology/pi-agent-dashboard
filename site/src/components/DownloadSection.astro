@@ -96,7 +96,39 @@ const icons: Record<"macos" | "linux" | "windows", string> = {
                   <div class="font-semibold text-lg">{p.label}</div>
                 </div>
 
-                {p.primary ? (
+                {p.primaryByArch ? (
+                  // macOS: Apple Silicon + Intel both promoted to top-level buttons
+                  <div class="flex flex-col gap-2">
+                    {p.primaryByArch.arm64 && (
+                      <a
+                        href={p.primaryByArch.arm64.asset.url}
+                        class="group inline-flex items-center justify-between rounded-lg bg-gradient-to-r from-pi-accent to-pi-accent2 px-4 py-2.5 text-sm font-semibold text-pi-bg shadow-pi-glow hover:brightness-110 transition-all"
+                      >
+                        <span class="truncate">Apple Silicon · DMG</span>
+                        <span
+                          class="ml-2 font-mono text-xs opacity-70 group-hover:opacity-100"
+                          aria-hidden="true"
+                        >
+                          {formatBytes(p.primaryByArch.arm64.asset.size)}
+                        </span>
+                      </a>
+                    )}
+                    {p.primaryByArch.x64 && (
+                      <a
+                        href={p.primaryByArch.x64.asset.url}
+                        class="group inline-flex items-center justify-between rounded-lg border border-pi-accent/40 bg-pi-accent/10 px-4 py-2.5 text-sm font-semibold text-pi-fg hover:bg-pi-accent/20 transition-all"
+                      >
+                        <span class="truncate">Intel · DMG</span>
+                        <span
+                          class="ml-2 font-mono text-xs opacity-70 group-hover:opacity-100"
+                          aria-hidden="true"
+                        >
+                          {formatBytes(p.primaryByArch.x64.asset.size)}
+                        </span>
+                      </a>
+                    )}
+                  </div>
+                ) : p.primary ? (
                   <a
                     href={p.primary.url}
                     class="group inline-flex items-center justify-between rounded-lg bg-gradient-to-r from-pi-accent to-pi-accent2 px-4 py-2.5 text-sm font-semibold text-pi-bg shadow-pi-glow hover:brightness-110 transition-all"
@@ -117,14 +149,24 @@ const icons: Record<"macos" | "linux" | "windows", string> = {
                   </div>
                 )}
 
-                {p.items.length > 1 && (
+                {p.items.length > (p.primaryByArch ? 2 : 1) && (
                   <details class="group">
                     <summary class="cursor-pointer text-xs font-mono text-pi-muted hover:text-pi-fg transition-colors list-none flex items-center gap-1">
                       <span class="transition-transform group-open:rotate-90">›</span>
-                      Other downloads ({p.items.length - 1})
+                      Other downloads ({p.items.length - (p.primaryByArch ? 2 : 1)})
                     </summary>
                     <ul class="mt-2 space-y-1.5 text-xs">
-                      {p.items.slice(1).map((it) => (
+                      {p.items
+                        .filter((it) => {
+                          // Hide items already promoted to top-level buttons
+                          if (!p.primaryByArch) return it.asset !== p.primary;
+                          const promoted = [
+                            p.primaryByArch.arm64?.asset,
+                            p.primaryByArch.x64?.asset,
+                          ].filter(Boolean);
+                          return !promoted.includes(it.asset);
+                        })
+                        .map((it) => (
                         <li>
                           <a
                             href={it.asset.url}
@@ -138,7 +180,7 @@ const icons: Record<"macos" | "linux" | "windows", string> = {
                             </span>
                           </a>
                         </li>
-                      ))}
+                        ))}
                     </ul>
                   </details>
                 )}

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import React from "react";
 import { ToolCallStep } from "../ToolCallStep.js";
@@ -6,6 +6,23 @@ import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultContext: ToolContext = { editors: [] };
+
+// Mock useMobile so ToolCallStep (via EditToolRenderer → RichDiff) always runs in
+// desktop mode for the lazy-mount tests below. Hoisted before any imports of the
+// module under test.
+let mockIsMobileForToolCallStep = false;
+vi.mock("../../hooks/useMobile.js", () => ({
+  useMobile: () => mockIsMobileForToolCallStep,
+  MobileProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+// Mock RichDiff with a stable testid so the lazy-mount tests can query it.
+vi.mock("../RichDiff.js", () => ({
+  RichDiff: () => <div data-testid="rich-diff" />,
+}));
+
+// Mock @git-diff-view CSS import that RichDiff pulls in.
+vi.mock("@git-diff-view/react/styles/diff-view.css", () => ({}));
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -232,5 +249,51 @@ describe("ToolCallStep inline stop button", () => {
     // Click force-stop
     fireEvent.click(container.querySelector('[data-testid="tool-force-stop-button"]')!);
     expect(onForceKill).toHaveBeenCalledOnce();
+  });
+});
+
+describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () => {
+  afterEach(() => {
+    mockIsMobileForToolCallStep = false;
+  });
+
+  // 6.1: Edit tool card collapsed by default → no <RichDiff> in DOM
+  it("6.1 Edit card collapsed by default: no <RichDiff> in DOM", () => {
+    mockIsMobileForToolCallStep = false; // desktop
+    const { container } = render(
+      <ThemeProvider>
+        <ToolCallStep
+          toolName="edit"
+          toolCallId="tc-edit-collapsed"
+          args={{ path: "src/foo.ts", oldText: "const a = 1;", newText: "const a = 2;" }}
+          status="complete"
+          context={defaultContext}
+        />
+      </ThemeProvider>,
+    );
+    // Edit cards default to collapsed — RichDiff must not be mounted
+    expect(container.querySelector('[data-testid="rich-diff"]')).toBeNull();
+  });
+
+  // 6.2: After clicking the chevron, <RichDiff> appears in DOM
+  it("6.2 Clicking expand chevron mounts <RichDiff>", () => {
+    mockIsMobileForToolCallStep = false; // desktop
+    const { container } = render(
+      <ThemeProvider>
+        <ToolCallStep
+          toolName="edit"
+          toolCallId="tc-edit-expand"
+          args={{ path: "src/foo.ts", oldText: "const a = 1;", newText: "const a = 2;" }}
+          status="complete"
+          context={defaultContext}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(container.querySelector('[data-testid="rich-diff"]')).toBeNull();
+
+    // Click the summary button to expand
+    fireEvent.click(container.querySelector("button")!);
+    expect(container.querySelector('[data-testid="rich-diff"]')).not.toBeNull();
   });
 });

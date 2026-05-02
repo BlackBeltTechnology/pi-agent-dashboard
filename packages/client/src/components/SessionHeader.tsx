@@ -8,7 +8,7 @@ import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
+import { FlowLaunchDialog } from "@blackbelt-technology/pi-dashboard-flows-plugin/client";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";

@@ -26,18 +26,28 @@ const syntaxStyles: Record<string, SyntaxStyle> = {
   gruvboxLight: gruvboxLight as SyntaxStyle,
 };
 
+const INNER_CODE_KEY = 'code[class*="language-"]';
+
 /**
  * Returns a clone of a prism style with `background` / `backgroundColor`
- * removed from every selector whose key contains `.token`. Wrapper selectors
- * (`pre[class*="language-"]`, `code[class*="language-"]`) are left intact so
- * the panel background remains overridable to `var(--bg-code)`.
+ * removed from:
+ *   - every selector whose key contains `.token` (per-token pills), AND
+ *   - the inner-code wrapper selector `code[class*="language-"]` (the
+ *     prism palette's stock panel color, which paints over the
+ *     `customStyle.background = 'var(--bg-code)'` override on the outer
+ *     PreTag and is the user-visible bug in simple highlighted code
+ *     blocks).
+ *
+ * The outer `pre[class*="language-"]` background is left intact as a
+ * safety-net default for callers that do not pass a `customStyle`
+ * override.
  *
  * See change: strip-token-backgrounds-in-code-blocks.
  */
 export function stripTokenBackgrounds(style: SyntaxStyle): SyntaxStyle {
   const out: SyntaxStyle = {};
   for (const [selector, props] of Object.entries(style)) {
-    if (selector.includes(".token")) {
+    if (selector.includes(".token") || selector === INNER_CODE_KEY) {
       const cloned = { ...(props as Record<string, unknown>) };
       delete cloned.background;
       delete cloned.backgroundColor;

@@ -116,6 +116,36 @@ export function toFileUrl(pathOrUrl: string): string {
  *
  * Keeps a `platform` parameter for testability so unit tests on a POSIX
  * host can exercise the Windows branch without mutating `process.platform`.
+ *
+ * !! JITI VERSION CONTRACT !!
+ * The Windows-non-tsx arm assumes the jiti loader is from
+ * `@mariozechner/pi-coding-agent@0.70.x` (jiti 2.x with the `file:///`
+ * triple-slash URL handling fix). jiti 2.x correctly handles `file:///`
+ * URL entries on Windows — it was the version we carved this contract
+ * around in change `fix-windows-entry-script-url`.
+ *
+ * Newer jiti versions (e.g. jiti 2.6.5 in `pi-coding-agent@0.71.x`)
+ * MISBEHAVE on `file:///` entries: they normalize triple-slash to
+ * single-slash and prepend cwd as if the entry were a relative
+ * specifier, producing `<cwd>/file:/...` ENOENT errors.
+ *
+ * The Electron Windows codepath defends against this version drift by
+ * resolving jiti from the managed dir's `pi-coding-agent@0.70.0` (the
+ * version pinned in `packages/electron/offline-packages.json` and
+ * extracted into `~/.pi-dashboard/` by `installStandalone()` on first
+ * launch — see Defect 1 of change
+ * `fix-electron-windows-installer-and-server-bootstrap`). Since the
+ * managed-dir tree is pinned, the contract holds regardless of what
+ * jiti is on the user's PATH.
+ *
+ * If a future change bumps the offline-cacache `pi-coding-agent` pin to
+ * a version with a different jiti, RE-VERIFY this contract on Windows
+ * manually (run a packaged Electron app on Win10 + Win11) and either:
+ *   1. Update the contract (fix the file:// URL handling expectation), OR
+ *   2. Add a per-jiti-version branch here, OR
+ *   3. Switch the bundled loader to tsx (which has its own contract).
+ *
+ * Locked by `node-spawn-jiti-contract.test.ts`.
  */
 export function shouldUrlWrapEntry(
   loader: string | null | undefined,

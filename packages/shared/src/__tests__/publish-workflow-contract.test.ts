@@ -121,3 +121,95 @@ describe("publish.yml — electron job dependency-graph contract", () => {
     expect(m[1]).toBe("false");
   });
 });
+
+// ── Prerelease safety contract ───────────────────────────────────────────────────────
+// Prerelease versions (e.g. `0.4.5-rc.1`) MUST publish to npm under the
+// `next` dist-tag and surface as GitHub `prerelease: true` Releases. The
+// single source of truth is the `prepare` job's computed `is_prerelease`
+// output. See change: eliminate-bash-on-windows-runners (D6).
+
+describe("publish.yml — prerelease safety contract", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const prepareBlock = extractJobBlock(yaml, "prepare");
+  const publishBlock = extractJobBlock(yaml, "publish");
+  const ghReleaseBlock = extractJobBlock(yaml, "github-release");
+
+  it("prepare job's outputs block declares `is_prerelease`", () => {
+    // Match the `outputs:` block under `prepare`. Accept any whitespace
+    // alignment after the colon, but the key must be present and wired
+    // to a step output.
+    const m = prepareBlock.match(/^\s{4}outputs:\s*\n((?:\s{6}\S.*\n)+)/m);
+    if (!m) {
+      throw new Error(
+        "prepare job has no `outputs:` block. Required to expose\n" +
+          "`is_prerelease` to downstream jobs. See change:\n" +
+          "eliminate-bash-on-windows-runners (D6).\n" +
+          "prepare block:\n" +
+          prepareBlock,
+      );
+    }
+    const block = m[1];
+    if (!/is_prerelease:\s*\$\{\{\s*steps\.[A-Za-z_]+\.outputs\.is_prerelease\s*\}\}/.test(block)) {
+      throw new Error(
+        "prepare job's outputs block must declare `is_prerelease` wired to a\n" +
+          "step output (e.g. `is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}`).\n" +
+          "Without this, downstream `publish` and `github-release` jobs cannot\n" +
+          "distinguish prereleases from stable versions. See change:\n" +
+          "eliminate-bash-on-windows-runners (D6).\n" +
+          "outputs block was:\n" +
+          block,
+      );
+    }
+    expect(block).toMatch(/is_prerelease:/);
+  });
+
+  it("publish job uses `--tag next` conditionally on is_prerelease", () => {
+    // Two requirements:
+    //   1. The literal string `--tag next` appears in the publish loop body.
+    //   2. There's a guard checking `is_prerelease == "true"` (or the bash
+    //      equivalent `[ "$PRERELEASE" = "true" ]`).
+    if (!/--tag next/.test(publishBlock)) {
+      throw new Error(
+        "publish job is missing the `--tag next` literal. Prereleases must\n" +
+          "publish under the `next` dist-tag so consumers running plain\n" +
+          "`npm install <pkg>` keep getting the last stable release. See\n" +
+          "change: eliminate-bash-on-windows-runners (D6).",
+      );
+    }
+    const hasGuard =
+      /is_prerelease\s*==\s*['"]true['"]/.test(publishBlock) ||
+      /\[\s*"\$PRERELEASE"\s*=\s*"true"\s*\]/.test(publishBlock) ||
+      /PRERELEASE.*=.*"true"/.test(publishBlock);
+    if (!hasGuard) {
+      throw new Error(
+        "publish job uses `--tag next` but lacks the prerelease guard. The\n" +
+          "`--tag next` argument MUST be conditional on the `is_prerelease`\n" +
+          "output (e.g. `if [ \"$PRERELEASE\" = \"true\" ]; then ...`).\n" +
+          "Otherwise stable releases would also publish to `next`. See\n" +
+          "change: eliminate-bash-on-windows-runners (D6).",
+      );
+    }
+    expect(publishBlock).toContain("--tag next");
+  });
+
+  it("github-release job sets prerelease from is_prerelease", () => {
+    // softprops/action-gh-release accepts `prerelease: <bool>` in its
+    // `with:` block. The value MUST be derived from the prepare job's
+    // `is_prerelease` output (literal-string comparison required because
+    // GitHub Actions stringifies job outputs).
+    if (
+      !/prerelease:\s*\$\{\{\s*needs\.prepare\.outputs\.is_prerelease\s*==\s*['"]true['"]\s*\}\}/
+        .test(ghReleaseBlock)
+    ) {
+      throw new Error(
+        "github-release job's `softprops/action-gh-release` step must set\n" +
+          "`prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}`\n" +
+          "in its `with:` block. Otherwise rc tags surface as stable Releases.\n" +
+          "See change: eliminate-bash-on-windows-runners (D6).\n" +
+          "github-release block was:\n" +
+          ghReleaseBlock,
+      );
+    }
+    expect(ghReleaseBlock).toMatch(/prerelease:.*is_prerelease.*true/);
+  });
+});

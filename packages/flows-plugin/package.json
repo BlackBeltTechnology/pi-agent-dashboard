@@ -1,0 +1,59 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-flows-plugin",
+  "version": "0.4.5",
+  "private": true,
+  "description": "Flow rendering plugin for pi-dashboard — pi-flows event reaction (FlowDashboard, FlowAgentCard, FlowArchitect, etc.)",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/flows-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./reducer": {
+      "types": "./src/reducer.ts",
+      "default": "./src/reducer.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "flows",
+    "displayName": "Flows",
+    "priority": 100,
+    "client": "./src/client/index.tsx",
+    "claims": [
+      {
+        "slot": "session-card-badge",
+        "component": "FlowActivityBadge",
+        "predicate": "hasActiveFlow"
+      },
+      {
+        "slot": "session-card-action-bar",
+        "component": "SessionFlowActions"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-shared": "^0.4.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

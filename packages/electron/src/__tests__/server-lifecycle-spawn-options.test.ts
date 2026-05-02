@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildServerSpawnOptions } from "../lib/server-lifecycle.js";
+import {
+  buildServerSpawnOptions,
+  buildServerStartupError,
+  SERVER_READY_DEADLINE_MS,
+} from "../lib/server-lifecycle.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,5 +108,99 @@ describe("ensureServer fall-through invariant", () => {
 
   it("calls launchServer after the gated CLI branch", () => {
     expect(src).toContain("launchServer(config.port, config.piPort)");
+  });
+});
+
+// ── Defect 4 / D4 ──────────────────────────────────────────────────────────
+// Server-startup deadline + cause-aware error wording. See change:
+// fix-electron-windows-installer-and-server-bootstrap.
+
+describe("SERVER_READY_DEADLINE_MS", () => {
+  it("is 60000 (60 seconds), not 15000", () => {
+    expect(SERVER_READY_DEADLINE_MS).toBe(60_000);
+  });
+
+  it("is referenced by every waitForReady call in server-lifecycle.ts", () => {
+    const src = readFileSync(
+      path.resolve(__dirname, "../lib/server-lifecycle.ts"),
+      "utf-8",
+    );
+    // Every waitForReady call MUST pass deadlineMs: SERVER_READY_DEADLINE_MS
+    // (or the literal 60_000). Forbid raw 15_000 (the old value).
+    expect(src).not.toContain("deadlineMs: 15_000");
+    // At least two callsites use the constant (launchViaCli, launchServer).
+    const matches = src.match(/deadlineMs:\s*SERVER_READY_DEADLINE_MS/g);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("buildServerStartupError", () => {
+  it("emits child-exit wording when readyError mentions an exit", () => {
+    const err = buildServerStartupError({
+      spawnBin: "node",
+      spawnArgs: ["--import", "jiti", "cli.ts"],
+      cwd: "/tmp/server",
+      logTail: "some log",
+      readyError: "child exited with code 1",
+    });
+    expect(err.message).toMatch(/^Server child process exited prematurely/);
+    expect(err.message).toContain("missing dependency or wrong TypeScript loader");
+    expect(err.message).toContain("child exited with code 1");
+    expect(err.message).toContain("CWD: /tmp/server");
+    expect(err.message).toContain("some log");
+  });
+
+  it("emits deadline wording when readyError mentions deadline", () => {
+    const err = buildServerStartupError({
+      spawnBin: "node",
+      spawnArgs: ["--import", "jiti", "cli.ts"],
+      cwd: "/tmp/server",
+      logTail: "",
+      readyError: "deadline 60000ms reached",
+    });
+    expect(err.message).toMatch(/^Server did not respond within 60 seconds/);
+    expect(err.message).toContain("server is likely still starting");
+    expect(err.message).toContain("Retry button");
+    expect(err.message).toContain("No server log available");
+  });
+
+  it("renders cliPath form when cliPath is provided", () => {
+    const err = buildServerStartupError({
+      cliPath: "/usr/local/bin/pi-dashboard",
+      cwd: "/tmp",
+      logTail: "",
+      readyError: "child exited with code 127",
+      port: 8000,
+      piPort: 9999,
+    });
+    expect(err.message).toContain(
+      "Command: /usr/local/bin/pi-dashboard start --port 8000 --pi-port 9999",
+    );
+  });
+
+  it("renders spawnBin form when cliPath is omitted", () => {
+    const err = buildServerStartupError({
+      spawnBin: "/path/to/node",
+      spawnArgs: ["--import", "jiti.mjs", "cli.ts", "--port", "8000"],
+      cwd: "/tmp",
+      logTail: "",
+      readyError: "deadline reached",
+    });
+    expect(err.message).toContain(
+      "Command: /path/to/node --import jiti.mjs cli.ts --port 8000",
+    );
+  });
+
+  it("includes server log tail when provided", () => {
+    const tail = "line 1\nline 2\nline 3";
+    const err = buildServerStartupError({
+      spawnBin: "node",
+      spawnArgs: ["cli.ts"],
+      cwd: "/tmp",
+      logTail: tail,
+      readyError: "child exited with code 1",
+    });
+    expect(err.message).toContain("Server log:\nline 1\nline 2\nline 3");
   });
 });

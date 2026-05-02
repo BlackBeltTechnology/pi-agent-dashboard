@@ -8,7 +8,7 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { EventStore } from "../memory-event-store.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
-import { extractFileChanges, enrichWithGitDiff } from "../session-diff.js";
+import { extractFileChanges, enrichWithVcsDiff } from "../session-diff.js";
 
 export function registerSessionRoutes(
   fastify: FastifyInstance,
@@ -52,8 +52,17 @@ export function registerSessionRoutes(
       }
       const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
       const files = extractFileChanges(events, session.cwd);
-      const { enrichedFiles, isGitRepo: isGit } = enrichWithGitDiff(session.cwd, files);
-      return { success: true, data: { files: enrichedFiles, isGitRepo: isGit } } satisfies ApiResponse;
+      const result = enrichWithVcsDiff(session.cwd, files, session.jjState);
+      return {
+        success: true,
+        data: {
+          files: result.enrichedFiles,
+          isGitRepo: result.isGitRepo,
+          vcsKind: result.vcsKind,
+          diffBase: result.diffBase,
+          baseLabel: result.baseLabel,
+        },
+      } satisfies ApiResponse;
     },
   );
 

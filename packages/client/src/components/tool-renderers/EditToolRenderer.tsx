@@ -2,6 +2,8 @@ import React from "react";
 import { createTwoFilesPatch } from "diff";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
+import { useMobile } from "../../hooks/useMobile.js";
+import { RichDiff } from "../RichDiff.js";
 
 function DiffView({ oldText, newText, filePath }: { oldText: string; newText: string; filePath: string }) {
   const patch = createTwoFilesPatch(filePath, filePath, oldText, newText, "before", "after", { context: 3 });
@@ -31,6 +33,7 @@ function DiffView({ oldText, newText, filePath }: { oldText: string; newText: st
 }
 
 export function EditToolRenderer({ args, status, result, context }: ToolRendererProps) {
+  const isMobile = useMobile();
   const filePath = args?.path as string | undefined;
   const oldText = args?.oldText as string | undefined;
   const newText = args?.newText as string | undefined;
@@ -40,7 +43,9 @@ export function EditToolRenderer({ args, status, result, context }: ToolRenderer
     if (oldText != null && newText != null) {
       return (
         <div className="rounded bg-[var(--bg-code)] overflow-hidden">
-          <DiffView oldText={oldText} newText={newText} filePath={filePath ?? "file"} />
+          {isMobile
+            ? <DiffView oldText={oldText} newText={newText} filePath={filePath ?? "file"} />
+            : <RichDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} maxHeight="20rem" />}
         </div>
       );
     }
@@ -49,7 +54,9 @@ export function EditToolRenderer({ args, status, result, context }: ToolRenderer
         <div className="rounded bg-[var(--bg-code)] overflow-hidden">
           {edits.map((edit, i) => (
             <div key={i} className={i > 0 ? "border-t border-[var(--border-secondary)]" : ""}>
-              <DiffView oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} />
+              {isMobile
+                ? <DiffView oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} />
+                : <RichDiff oldText={edit.oldText} newText={edit.newText} filePath={filePath ?? "file"} maxHeight="20rem" />}
             </div>
           ))}
         </div>

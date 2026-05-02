@@ -202,15 +202,27 @@ export function useMessageHandler(
 
       case "event_replay": {
         const firstSeq = msg.events.length > 0 ? msg.events[0].seq : null;
+        // Reset on every full replay sweep: firstSeq===1 (cold start) OR
+        // firstSeq <= maxSeq for this session (server is re-replaying events
+        // the client has already accounted for, e.g. paginated reconnect
+        // re-replay where the first batch may not start at seq=1).
+        // See change: fix-replay-duplicates-tool-and-flushed-rows.
+        const maxSeq = maxSeqMapRef.current.get(msg.sessionId) ?? 0;
+        const shouldReset = firstSeq != null && (firstSeq === 1 || firstSeq <= maxSeq);
         setSessionStates((prev) => {
           const next = new Map(prev);
-          let current = (firstSeq === 1) ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
+          let current = shouldReset ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
           for (const { event } of msg.events) {
             current = reduceEvent(current, event);
           }
           next.set(msg.sessionId, current);
           return next;
         });
+        // If we reset, also reset maxSeq tracking so a subsequent batch isn't
+        // misclassified. We rebuild it below from this batch's events.
+        if (shouldReset) {
+          maxSeqMapRef.current.set(msg.sessionId, 0);
+        }
         // Track highest seq from replay batch
         if (msg.events.length > 0) {
           const lastEvt = msg.events[msg.events.length - 1];

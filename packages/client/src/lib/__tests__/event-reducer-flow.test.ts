@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createInitialState, reduceEvent, addInteractiveRequest } from "../event-reducer.js";
-import { reduceArchitectEvent } from "../architect-reducer.js";
+import { reduceArchitectEvent } from "@blackbelt-technology/pi-dashboard-flows-plugin/reducer";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeEvent(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {

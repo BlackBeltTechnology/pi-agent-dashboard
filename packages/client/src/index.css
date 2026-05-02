@@ -189,6 +189,31 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .card-working-pulse { animation: none; }
+  .card-unread-pulse { animation: none; }
+}
+
+/* Card unread pulse — cyan scrolling stripes for sessions with unviewed activity.
+   Same geometry & animation timing as card-working-pulse; only the colors
+   change to a cool, distinctive cyan (Tailwind cyan-400) so the visual reads
+   as "alive, with something fresh for you" rather than "work happening now."
+   Cyan owns its own corner of the dashboard palette — distant from yellow
+   (streaming), purple (ask_user), green (alive dot), red (errors).
+   See change: session-card-unread-stripes. */
+.card-unread-pulse {
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 10px,
+      rgba(34, 211, 238, 0.18) 10px 20px
+    ),
+    linear-gradient(rgba(34, 211, 238, 0.07), rgba(34, 211, 238, 0.07));
+  background-size: 28.2843px 28.2843px, auto;
+  background-repeat: repeat, no-repeat;
+  /* Reuse the working-pulse keyframes verbatim — the visual difference comes
+     entirely from color; geometry and motion are identical. */
+  animation:
+    card-working-stripes-scroll 2s linear infinite,
+    card-working-opacity-pulse 3s ease-in-out infinite;
 }
 
 /* Card input pulse — purple tint for sessions waiting for user input (ask_user) */

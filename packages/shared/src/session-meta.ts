@@ -18,6 +18,12 @@ export interface SessionMeta {
   // Cached identity & state (from .jsonl header / bridge)
   cwd?: string;
   status?: string;
+  /**
+   * Per-session unread bit; mirrors `DashboardSession.unread`. Persists across
+   * server restarts so an unread session stays unread until viewed.
+   * See change: session-card-unread-stripes.
+   */
+  unread?: boolean;
   startedAt?: number;
   endedAt?: number;
   firstMessage?: string;

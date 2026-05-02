@@ -505,6 +505,12 @@ Inline stop buttons also appear on running tool cards in `ToolCallStep`, providi
 ### Repeated Tool Call Collapsing
 Consecutive tool calls with the same name and identical args (e.g. health check polling loops) are collapsed into a single expandable group showing a count badge (e.g. "×24"). Implemented via `groupConsecutiveToolCalls()` in the chat rendering pipeline. Groups require 3+ calls; running tools are never grouped.
 
+### Edit Tool Diff Rendering (desktop vs mobile)
+`ToolCallStep` gates renderer mounting with `{expanded && <Renderer />}` — Edit cards default to collapsed, so no diff tokenization runs until the user expands. On expand, `EditToolRenderer` branches on `useMobile()` (the project-wide `width < 768px OR height < 600px` predicate):
+- **Desktop** (`!isMobile`): renders `<RichDiff oldText newText filePath maxHeight="20rem" />` — syntax-highlighted via `@git-diff-view/react` + lowlight, matching `FileDiffView` quality; height capped for chat scroll UX.
+- **Mobile**: renders the homegrown CSS-colored unified patch (`createTwoFilesPatch` from `diff`, no syntax highlighting) — cheap and narrow-viewport-friendly.
+The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / change-derived diffs), centralising the `EXT_LANG_MAP`, `generateDiffFile` call, and `<DiffView>` prop set. See change: rich-diff-in-chat.
+
 **Fork decisions and subagent ask_user:**
 - Work through PromptBus — `TuiFlowIOAdapter` calls `ctx.ui.select/confirm/input` which the bridge routes through the bus to registered adapters (dashboard, TUI, or custom)
 
@@ -607,8 +613,28 @@ The priority chain (alive on click): `archiveBrowserCwd → specsBrowserCwd → 
 7. Client's event reducer stores `contextUsage` from `stats_update` events; `App.tsx` falls back to `session.contextTokens/contextWindow` for sessions without live reducer state
 8. When real data is unavailable (e.g., old sessions without persisted context data), `state-replay.ts` and `session-stats-reader.ts` use `inferContextWindow()` to estimate context window from the model name
 
-### Git Polling
-1. Bridge polls git info every 30s (`git-info.ts`): branch, remote URL, PR number
+### VCS Polling (Git + Jujutsu)
+1. Bridge polls VCS info every 30s (`vcs-info.ts`, was `git-info.ts`): branch, remote URL, PR number, plus jj workspace state when `.jj/` is present.
+2. Git half (`gatherGitInfo`): unchanged — emits `git_info_update` only when branch/PR change.
+3. Jj half (`gatherJjInfo`): emits `jj_state_update` only when the serialized `JjState` changes. **Fast path**: a single `fs.existsSync("<cwd>/.jj")` check runs before any subprocess. Sessions outside a jj repo pay zero subprocess cost. The probe also short-circuits when the tool registry can't resolve `jj` (cached at module level after first miss).
+4. Server forwards both update types via `session_updated` to subscribed browsers.
+
+#### Jujutsu workspaces
+
+The jj-plugin (`packages/jj-plugin/`) renders UI slots gated by predicates that read `Session.jjState`. When the bridge probe never populates `jjState` — because `jj` isn't installed or `.jj/` doesn't exist — every predicate returns `false` and the plugin contributes nothing to the UI. Activation is silent.
+
+Server-side jj routes (`packages/server/src/routes/jj-routes.ts`):
+- `POST /api/jj/workspace/add` — reuses the existing `pendingAttachRegistry` + `spawnPiSession` lever (same code path as openspec attach-and-spawn). The new session boots inside the workspace cwd and the bridge probe populates its `jjState.workspaceName` on the next tick.
+- `POST /api/jj/workspace/forget` — two-step contract: first request returns 409 `UNFOLDED_WORK` listing the unfolded commits; only an explicit `force:true` re-issue actually deletes (and `rm -rf`'s the directory).
+- `POST /api/jj/init-colocated` — refuses 409 `DIRTY_INDEX` only on staged changes; allows working-tree dirt (jj snapshots unstaged edits as the new `@` non-destructively).
+- `GET /api/jj/workspace/list?cwd=` — enumerates workspaces.
+
+The `/api/session-diff` route is **regime-aware**: when `jjState.isJjRepo` is true, it routes through `enrichWithJjDiff` which uses `fork_point(@, trunk())` as the diff base for non-default workspaces (cumulative diff across every agent commit) and `@-` for the default workspace. Older clients that don't read `vcsKind`/`baseLabel`/`diffBase` continue to work unchanged.
+
+Fold-back is **a skill, not a server route**. The dashboard's `JjFoldBackDialog` builds a skill-invocation prompt; the agent's bash tool then drives `.pi/skills/jj-workspace-fold-back/SKILL.md`, which never invokes mutating git commands and uses `jj op restore` to roll back on conflicts.
+
+### Git Polling (legacy entry, see VCS Polling above)
+1. Bridge polls git info every 30s (`vcs-info.ts`): branch, remote URL, PR number
 2. Changes are sent to the server only when values differ from last poll
 3. Server broadcasts updates to subscribed browsers
 
@@ -1258,7 +1284,7 @@ This is separate from the main JSON dashboard WebSocket (`/ws`).
 **Native binary permissions.** `node-pty`'s prebuilt `spawn-helper` (and `pty.node`) must be executable for `pty.spawn` to succeed on macOS/Linux. Three layers of defense ensure this:
 
 1. **Postinstall** — `packages/server/scripts/fix-pty-permissions.cjs` (wired at workspace-root `postinstall`) uses `require.resolve("node-pty/package.json")` to locate the dependency wherever npm placed it and sets mode `0o755` on every `prebuilds/*/spawn-helper` and `prebuilds/*/pty.node`.
-2. **Electron bundle** — `packages/electron/scripts/bundle-server.sh` runs `find … -name spawn-helper -exec chmod +x` after `npm install` and removes macOS quarantine flags (`xattr -d com.apple.quarantine`) from native binaries.
+2. **Electron bundle** — `packages/electron/scripts/bundle-server.mjs` runs `fs.chmodSync` on every `spawn-helper` after `npm install` and removes macOS quarantine flags (`xattr -d com.apple.quarantine`) from native binaries.
 
 ### Package management (install / remove / update / move)
 
@@ -1578,6 +1604,134 @@ Every OS-dependent function takes an optional trailing `platform: NodeJS.Platfor
 `Array.prototype.map` passes `(element, index, array)`. When a function takes `platform` as an optional second argument, the index (a number) gets passed as `platform`, silently failing the `=== "win32"` check and taking the POSIX branch. Always wrap: `.map((p) => normalizePath(p))` instead of `.map(normalizePath)`.
 
 See change: `platform-path-normalization`.
+
+## Cross-OS Build Orchestration
+
+### Principle
+
+Cross-OS build logic SHALL live in `.mjs` scripts invoked by `node`. POSIX-only steps MAY use `shell: bash` provided they are gated by an `if:` filter that excludes Windows. Windows-only steps MAY use `shell: pwsh`. **No GitHub Actions step combines `shell: bash` with a runtime configuration that can run on a Windows runner.**
+
+### Why
+
+Git for Windows' MSYS2 layer translates Win32 paths (`D:\a\...`) to POSIX form (`/d/a/...`) for any bash variable produced by `pwd`, `dirname`, etc. That translated string is invisible to native binaries when embedded in arguments — most notably `node.exe`, which receives the POSIX-form path as a literal `require()` target and rejects it with `MODULE_NOT_FOUND`. The translation only exists on Windows runners; the same script tested on a Linux dev machine cannot reproduce the failure. Result: a class of latent path-in-string bugs that surface only at release time and only on Windows.
+
+MSYS exists for legitimate reasons (porting GCC, Autotools, git itself — software that is already POSIX-shaped and cannot be rewritten). None of those reasons apply to a Node project. Node has cross-OS primitives (`node:path`, `node:fs`, `node:child_process`) that work natively on every host, with zero translation layer and zero per-OS surprise.
+
+### The four-cell failure-mode matrix
+
+```
+                          HOST OS
+                       ┌─────────────┬─────────────────┐
+                       │  POSIX      │  Windows        │
+        ───────────────┼─────────────┼─────────────────┤
+        argv-position  │  works      │  works          │
+        path           │             │  (MSYS converts)│
+        ───────────────┼─────────────┼─────────────────┤
+        EMBEDDED       │  works      │  ❌ broken      │
+        in JS source   │             │  MSYS can't     │
+        passed via     │             │  see inside     │
+        node -e "..."  │             │  string         │
+        ───────────────┼─────────────┼─────────────────┤
+        --import URL   │  works      │  ❌ broken      │
+        as raw path    │             │  Node parses B: │
+        (no file://)   │             │  as URL scheme  │
+        ───────────────┼─────────────┼─────────────────┤
+        inside .mjs    │  works      │  works          │
+        path.resolve   │             │                 │
+        ───────────────┴─────────────┴─────────────────┘
+```
+
+The two broken cells map to existing repo invariants:
+
+- **Embedded path in `node -e "..."`**: avoided by porting build scripts to `.mjs` (see `packages/electron/scripts/bundle-{server,offline-packages,recommended-extensions}.mjs`).
+- **Raw path in `--import` / `--loader`**: locked by `packages/shared/src/__tests__/no-raw-node-import.test.ts`. All real call sites go through `toFileUrl` from `platform/node-spawn.ts` or `buildJitiRegisterUrl` from `resolve-jiti.ts`.
+
+### Shell allowlist
+
+| Shell | When to use | Notes |
+|---|---|---|
+| (default — no `shell:` declared) | A single command that runs identically on every OS (`node X.mjs`, `npm install`, `npm version`) | Cmd on Windows, sh on POSIX. Both invoke the binary natively. |
+| `node` | Any cross-OS logic. Always preferred over a shell. | `node X.mjs` for orchestration, `node -e "..."` for one-line existence checks. |
+| `bash` | POSIX-only logic (`apt-get`, `xattr -d`). MUST be gated by `if: matrix.platform != 'win32'`. | Locked by the lint test. |
+| `pwsh` | Windows-only logic (`Compress-Archive`, `Invoke-WebRequest`, `Tee-Object`). Gated by `if: matrix.platform == 'win32'`. | Available on every CI runner image. |
+| `cmd` | Avoid. Use `pwsh` instead unless calling a `.cmd` shim. | |
+
+### Lock
+
+`packages/shared/src/__tests__/no-bash-on-windows.test.ts` parses every workflow YAML, computes per-step Windows reachability from each step's `if:` filter (small grammar: `matrix.platform == 'X'`, `matrix.platform != 'X'`, `&&`, `||`, `!(...)`, parens), and fails when any `shell: bash` step is reachable on a Windows runner. Failure messages cite this change name + the offending file:line + step name. Unrecognised `if:` expressions fail closed.
+
+See change: `eliminate-bash-on-windows-runners`.
+
+## Electron Server Lifecycle
+
+### Power-user-mode managed install (Defect 1 fix)
+
+The Electron app's first-launch flow has three branches:
+
+```
+  firstRun?
+     yes
+      |
+      v
+  pi.found && bridge.found?
+   /                    \
+  yes                    no
+   |                      |
+   v                      v
+  auto-skip-wizard-      pi.found?
+  with-install            /     \
+  (D3, see below)        yes     no
+   |                      |       |
+   v                      v       v
+  Write mode.json    Wizard   Wizard
+  Run install        bridge-  full
+                     install
+```
+
+The `auto-skip-wizard-with-install` branch was the source of Defect 1 in change `fix-electron-windows-installer-and-server-bootstrap`. Pre-fix, this branch wrote `mode.json` as power-user but **skipped `installStandalone()`**, leaving `~/.pi-dashboard/node_modules/` empty. The bundled server's runtime then fell back to the user's system pi for the TS loader, which on machines with `pi-coding-agent@0.71.x` ships jiti 2.6.5 — a version that misnormalizes triple-slash file:// URLs on Windows and crashes the server child with `MODULE_NOT_FOUND`.
+
+The fix:
+
+```typescript
+// packages/electron/src/lib/power-user-install.ts (pure helpers)
+export function decideStartupAction(state: StartupState): StartupAction {
+  if (!state.firstRun) return { kind: "skip-everything", reason: "not-first-run" };
+  if (state.piFound && state.bridgeFound) {
+    return { kind: "auto-skip-wizard-with-install", reason: "power-user" };
+    //         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    //         skip the WIZARD UI — still RUN install
+  }
+  if (state.piFound) return { kind: "wizard", step: "bridge-install" };
+  return { kind: "wizard", step: "full" };
+}
+```
+
+The install is idempotent: `runPowerUserManagedInstall()` short-circuits when every required package's `package.json` is present and parses (`isManagedDirPopulated()`). On subsequent launches the install is a no-op.
+
+The install runs async with status forwarded to the splash window's `updateSplashStatus("Setting up dependencies…")`. After the install resolves, the server-launch step takes over and the splash transitions to `"Launching dashboard server…"`.
+
+### Server-startup deadline + cause-aware error wording (Defect 4 fix)
+
+Both `launchViaCli` and `launchServer` in `server-lifecycle.ts` use `SERVER_READY_DEADLINE_MS = 60_000` (was inline `15_000` pre-fix). The longer deadline gives the install + cold-start headroom on first launch.
+
+When `waitForReady` returns unsuccessful, the error message is built by the pure helper `buildServerStartupError(...)` which renders one of two cause-aware messages:
+
+| Condition | Header text | Hint |
+|---|---|---|
+| `readyError` contains "exit" | `Server child process exited prematurely (...)` | `This usually means a missing dependency or wrong TypeScript loader.` |
+| Otherwise (deadline elapsed) | `Server did not respond within 60 seconds (...)` | `The server is likely still starting; try the Retry button.` |
+
+Pre-fix, both cases shared the misleading wording "Server failed to start within 15 seconds (child exited with code 1)" — implying a timeout when the child died in <1s.
+
+### The runtime jiti version contract (Defect 2 defense)
+
+`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. The Windows-non-tsx arm wraps with `file://` to sidestep Node's drive-letter URL-scheme parsing (`B:`, `A:` are otherwise treated as URL schemes). This rule **assumes** the jiti loader is from `pi-coding-agent@0.70.x` (jiti 2.x), which correctly handles `file:///` URL entries on Windows. Newer jiti versions (2.6.5 in pi 0.71.x) misnormalize triple-slash URLs.
+
+The contract holds because Defect 1's fix populates `~/.pi-dashboard/` with `pi-coding-agent` at the offline-cacache-pinned version. The runtime `resolveJitiFromPi()` chain is `managed → system`; once managed is populated with the pinned version, system pi (which may be a newer 0.71.x) is never reached.
+
+The contract is documented in the function's header comment (`!! JITI VERSION CONTRACT !!` block) and regression-pinned by `packages/shared/src/__tests__/node-spawn-jiti-contract.test.ts`, which asserts `offline-packages.json` keeps `pi-coding-agent` in the `0.70.x` range. Bumping the pin past 0.70.x fires the test and forces a re-validation.
+
+See change: `fix-electron-windows-installer-and-server-bootstrap`.
 
 ## Chat Input State (drafts & history recall)
 

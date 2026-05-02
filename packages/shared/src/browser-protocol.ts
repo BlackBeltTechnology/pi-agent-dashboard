@@ -726,6 +726,29 @@ export interface RequestRolesBrowserMessage {
  * which re-emits as `pi.events.emit(event, { ...params, action, _reply })`.
  * See change: add-extension-ui-modal.
  */
+/**
+ * Browser → server: declares which session a browser is currently displaying
+ * (typically when the URL is `/session/:id`). The server uses this to gate
+ * unread-trigger evaluation and to clear the unread bit when an unread session
+ * is opened. Browsers SHALL re-send `session_view` for the currently-displayed
+ * session on every WebSocket reconnect so server-side state stays coherent.
+ * See change: session-card-unread-stripes.
+ */
+export interface SessionViewBrowserMessage {
+  type: "session_view";
+  sessionId: string;
+}
+
+/**
+ * Browser → server: declares the browser is no longer displaying the session
+ * (e.g. user navigated away from `/session/:id`).
+ * See change: session-card-unread-stripes.
+ */
+export interface SessionUnviewBrowserMessage {
+  type: "session_unview";
+  sessionId: string;
+}
+
 export interface UiManagementBrowserMessage {
   type: "ui_management";
   sessionId: string;
@@ -775,4 +798,6 @@ export type BrowserToServerMessage =
   | RolePresetDeleteBrowserMessage
   | RequestRolesBrowserMessage
   | UiManagementBrowserMessage
+  | SessionViewBrowserMessage
+  | SessionUnviewBrowserMessage
   | KillProcessBrowserMessage;

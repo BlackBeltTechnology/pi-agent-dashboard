@@ -179,13 +179,20 @@ Next steps (human):
 1. Watch CI:  https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions
    The Release workflow will:
      • publish @blackbelt-technology/pi-dashboard to npm
-     • build Electron installers (macOS DMG, Linux DEB+AppImage,
-       Windows NSIS+ZIP+portable)
+     • build Electron installers (macOS DMG × 2 — Apple Silicon +
+       Intel, Linux DEB+AppImage, Windows NSIS+ZIP+portable per arch)
      • create a DRAFT GitHub Release with artifacts attached
 2. Open the draft release:
    https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases
 3. Verify the body (auto-extracted from CHANGELOG.md [<version>] section)
-   and all 6 platform artifacts are attached.
+   and all 7 platform artifacts are attached:
+     • PI-Dashboard-darwin-arm64-<ver>.dmg  (Apple Silicon)
+     • PI-Dashboard-darwin-x64-<ver>.dmg    (Intel)
+     • pi-dashboard_<ver>_amd64.deb         (Linux x64)
+     • pi-dashboard_<ver>_arm64.deb         (Linux arm64)
+     • PI-Dashboard-<ver>.AppImage          (Linux x64)
+     • PI-Dashboard-<ver> Setup.exe + .zip + portable.exe (Windows x64)
+     • .zip + portable.exe (Windows arm64)
 4. Click "Publish release" — this fires `release: published` which
    triggers the Deploy Site workflow to redeploy GitHub Pages with the
    new download version.

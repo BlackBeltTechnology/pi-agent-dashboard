@@ -23,10 +23,12 @@ This change DEPENDS ON `dashboard-plugin-architecture` and `add-dashboard-shell-
   - `content-view` (route `architect-detail`) → `FlowArchitectDetail`
   - `content-view` (route `flow-yaml`) → `FlowYamlPreview`
   - `content-inline-footer` → `FlowSummary` (predicate: flowState exists)
-- **NEW**: Reducer slice — flow state is currently merged into the per-session reducer. The plugin's reducer slice continues to live at the same conceptual layer; `event-reducer.ts` delegates flow event types to `flowsPlugin.flowReducer` exported from the plugin package.
-- **REMOVE** from `App.tsx`: ~250 LOC of flow-specific conditional rendering and sticky header mounting (replaced by `<ContentViewSlot/>` and `<ContentHeaderStickySlot/>`).
-- **REMOVE** from `SessionCard.tsx`: direct imports of `FlowActivityBadge`, `SessionFlowActions`.
-- **REMOVE** from `event-reducer.ts`: hard-coded knowledge of flow event types; replaced by a delegate registry where each plugin can register its event handlers.
+- **MOVE** the flow reducer files (`flow-reducer.ts`, `architect-reducer.ts`) into `packages/flows-plugin/src/client/`. `event-reducer.ts` continues to import them — but from the plugin's workspace package (`@blackbelt-technology/pi-dashboard-flows-plugin`) instead of the local `./flow-reducer.js` path. **No new plugin-context API is required**; this is a code-organization move, not a runtime-extension-point change. The reducer's outward contract (`(state, event) → newState`) is unchanged.
+- **UPDATE** import paths in `App.tsx` and `SessionCard.tsx`: every `import` of a moved file changes from the local path to the workspace package (`@blackbelt-technology/pi-dashboard-flows-plugin/client`). JSX usage and shell-owned state remain unchanged.
+- **DEFER (out of scope)**:
+  - Plugin-owned reducer slices (`pluginContext.registerReducerSlice` API) — not specified by `dashboard-plugin-architecture`; tracked as `add-plugin-reducer-slice-api` if a real second consumer surfaces.
+  - JSX migration to slot consumers (replacing `<FlowDashboard>` / `<FlowArchitect>` / `<FlowAgentDetail>` / `<FlowSummary>` with `<ContentHeaderStickySlot>` / `<ContentInlineFooterSlot>` calls) — the frozen v0.x slot prop contract only threads `{session}` to claims; the flow components need richer props. This is its own change (`migrate-flows-jsx-to-slots`) once either the slot prop contract is extended or the flow components are refactored to self-derive from session state + plugin context.
+  - Removing the `~250 LOC of flow-specific conditional rendering` from `App.tsx` was an aspirational goal of an earlier draft; the realistic deliverable here is the file-move + import-path update. The shell still mounts flow components directly until the JSX migration ships.
 
 ## Capabilities
 
@@ -36,8 +38,9 @@ None. This change is a refactor that uses `dashboard-shell-slots` and `dashboard
 
 ### Modified Capabilities
 
-- `event-reducer`: SHALL accept reducer slices from plugins via `pluginContext.registerReducerSlice(eventTypes, reducer)`. The plugin loader invokes plugin client entries to collect slices before the reducer runs.
-- Existing flow capabilities in `openspec/specs/`: `flow-card-grid`, `flow-card-status`, `flow-card-launcher`, `flow-summary-view`, `flow-agent-detail`, `flow-architect-view`, etc. — their main spec files in `openspec/specs/` move under `packages/flows-plugin/specs/` and become plugin-internal documentation.
+None. The reducer's contract is unchanged — `event-reducer.ts` continues to dispatch `flow_*` events through `reduceFlowEvent`; the only change is the import path (now resolves via the `flows-plugin` workspace package). Spec deltas are not required for code-organization moves.
+
+Existing flow capabilities in `openspec/specs/` (`flow-card-grid`, `flow-card-status`, `flow-card-launcher`, `flow-summary-view`, `flow-agent-detail`, `flow-architect-view`, etc.) stay where they are; their requirements are unchanged. (A future change may relocate them under `packages/flows-plugin/specs/` for housekeeping, but that's not blocking.)
 
 ## Impact
 
@@ -51,8 +54,9 @@ None. This change is a refactor that uses `dashboard-shell-slots` and `dashboard
 
 ## Migration Risks
 
-- **Reducer integration**: the existing `event-reducer.ts` has tightly-coupled flow logic. The cleanest migration is to introduce a `registerReducerSlice` mechanism in the loader and have plugin client entries register their slice on import. Validation: a session that runs a flow should reach the same final reducer state pre- and post-extraction.
-- **Architect lifecycle**: pi-flows' architect lifecycle (`flow:architect-*` events) goes through `architect-reducer.ts`. That moves to `flows-plugin` but the bridge still emits the events; verify the protocol is unchanged.
+- **Reducer file move**: `event-reducer.ts` imports `isFlowEvent` and `reduceFlowEvent` from `./flow-reducer.js`. The move changes that import path to `@blackbelt-technology/pi-dashboard-flows-plugin`. Validation: a session that runs a flow reaches byte-identical reducer state pre- and post-extraction (snapshot test).
+- **Architect lifecycle**: `architect-reducer.ts` similarly moves; the bridge still emits the same events; the protocol is unchanged.
+- **Workspace dependency cycle**: `packages/client` will depend on `packages/flows-plugin`, and `flows-plugin` may want to import shared types from `packages/shared`. Verify there's no cyclic dep (flows-plugin must not import from `@blackbelt-technology/pi-dashboard-web`).
 - **Sticky header stacking**: `FlowDashboard` and `FlowArchitect` can both render simultaneously when both states exist. The `content-header-sticky` slot must support multiple concurrent contributions and stack them correctly. Validation: confirm the stacking rule matches today's `App.tsx` behavior (architect on top, flow dashboard below).
 - **Mobile shell**: `MobileShell` currently has flow-specific behavior. Verify the slot consumers work in both desktop and mobile layouts.
 

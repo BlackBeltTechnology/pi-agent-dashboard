@@ -5,8 +5,10 @@ Flow rendering is the dashboard's reaction to `flow_*` events emitted by the ext
 **Scope**: client UI + reducer slice only. There is no server entry (flow events are forwarded by the existing `event-wiring.ts` server module without any flow-specific logic) and no bridge entry (pi-flows is its own pi extension, owned upstream).
 
 **Dependencies**:
-- `dashboard-plugin-architecture` — slot taxonomy frozen, plugin manifest schema defined.
-- `add-dashboard-shell-slots-runtime` — `<ContentViewSlot/>`, `<ContentHeaderStickySlot/>`, `<ContentInlineFooterSlot/>`, `<SessionCardBadgeSlot/>`, `<SessionCardActionBarSlot/>` components exist; `pluginContext.registerReducerSlice` API is in place.
+- `dashboard-plugin-architecture` (archived 2026-04-26) — slot taxonomy frozen, plugin manifest schema defined.
+- `packages/dashboard-plugin-runtime/` — `<ContentViewSlot/>`, `<ContentHeaderStickySlot/>`, `<ContentInlineFooterSlot/>`, `<SessionCardBadgeSlot/>`, `<SessionCardActionBarSlot/>` components already exist and are mounted in `App.tsx` as additive co-tenants (see comment at `App.tsx:978` — `Plugin slot: content-header-sticky (additive, coexists with FlowDashboard until extract-flows-as-plugin)`).
+
+**Important non-dependency**: this change does NOT depend on a `pluginContext.registerReducerSlice` API. An earlier draft proposed one; investigation showed the archived plugin-architecture specs never introduced it, and inventing it now would expand the scope of this change significantly. Instead, flow reducers are imported into `event-reducer.ts` at compile time from the `flows-plugin` workspace package — see Decision 2 below.
 
 **Stakeholders**: dashboard maintainers (App.tsx + SessionCard.tsx surface area), flow plugin author (will own `packages/flows-plugin/` going forward), test suite owners (~30 test files paths shift).
 
@@ -37,20 +39,28 @@ Both reducer slices continue to write to the same `SessionState` object (not an 
 
 **Alternative considered**: plugin-local Zustand store accessed via `usePluginState`. Rejected because slot consumers already receive `SessionState` as a prop (`SlotProps<"content-header-sticky">` includes `session: Session`); pulling out a parallel store doubles the wiring without benefit at this stage.
 
-### Decision 2: Reducer slice registration via `pluginContext.registerReducerSlice(eventTypes, reducer)`
+### Decision 2: Compile-time import from the workspace package, not a runtime extension API
 
-The plugin's client entry point (`flows-plugin/client/index.tsx`) calls:
+`packages/client/src/lib/event-reducer.ts` currently does:
 ```ts
-pluginContext.registerReducerSlice(
-  ["flow_started", "flow_agent_started", "flow_agent_complete", "flow_tool_call", "flow_tool_result", "flow_assistant_text", "flow_thinking_text", "flow_loop_iteration", "flow_complete", "flow:architect-start", "flow:architect-update", "flow:architect-complete"],
-  flowReducerSlice,
-);
+import { isFlowEvent, reduceFlowEvent } from "./flow-reducer.js";
+import { reduceArchitectEvent, isArchitectEvent } from "./architect-reducer.js";
 ```
-- `event-reducer.ts` switch statement keeps every non-flow event type (no behavioral change for OpenSpec, tool calls, message streaming, etc.) and ends with a fall-through that walks the registry of plugin slices, invoking the first whose `eventTypes` list includes the current event type.
-- Slice signature: `(state: SessionState, event: DashboardEvent) → SessionState`. Pure, same contract as the core reducer.
-- Registration order is deterministic (manifest discovery order); first match wins. Two plugins registering for the same event type is a manifest validation error (caught at load time, not runtime).
 
-**Alternative considered**: have plugins return *patches* (Immer-style) instead of full `SessionState`. Rejected because the core reducer is plain functional today; introducing a patch layer would be a separate refactor.
+After this change, the import paths point at the plugin's workspace package:
+```ts
+import { isFlowEvent, reduceFlowEvent, isArchitectEvent, reduceArchitectEvent }
+  from "@blackbelt-technology/pi-dashboard-flows-plugin/reducer";
+```
+
+The `flows-plugin/package.json` declares an `exports` map exposing `./reducer` (pointing at the moved `flow-reducer.ts` + `architect-reducer.ts` re-export barrel). `packages/client/package.json` adds `@blackbelt-technology/pi-dashboard-flows-plugin` as a workspace dependency. No new runtime API. No plugin-context changes. The reducer's outward contract is unchanged.
+
+**Why not a runtime registration API?**
+- The archived `dashboard-plugin-architecture` plugin-context surface (`useSessionState`, `useAllSessions`, `usePluginConfig`, `send`, `pluginRouter`, `pluginLogger`) does **not** include `registerReducerSlice`. Inventing it here would add: a registry, deterministic ordering rules, manifest validation (no two plugins claim the same event type), a load-time-vs-runtime registration question, lifecycle (when does the plugin's client entry execute relative to the first event?), and a host of edge cases. None of that pays off until a *second* plugin wants to add new event types — which today is purely speculative.
+- For the dashboard's bundled-by-default plugin model, compile-time import is sufficient and significantly simpler to reason about. The reducer code physically lives in the plugin package, can be tested in isolation, and is owned by the plugin author. Disabling the plugin via config doesn't unload the reducer (events still mutate `flowState` if they arrive), but no UI consumes that state, so the user sees no flow output. Acceptable for v1.
+- A future change can introduce a runtime slice API once a real second consumer surfaces (e.g. an external `node_modules/*` plugin that emits its own event types). Spec'd as `add-plugin-reducer-slice-api` if/when needed.
+
+**Alternative considered**: keep the reducer files in `packages/client/src/lib/` and move only the UI components. Rejected because (a) the plugin should *own* its reducer for code-locality reasons (changes to flow event handling shouldn't require touching `packages/client/`), (b) future tests live with the code under test (the existing `flow-reducer.test.ts` moves alongside its subject), (c) it leaves a half-extracted plugin which is worse than either fully-in or fully-out.
 
 ### Decision 3: Sticky header stacking via slot multiplicity
 
@@ -77,11 +87,11 @@ Routes encode the parameters needed by each view. Navigation goes through `plugi
 
 `FlowSummary` is a post-completion banner rendered below the chat (currently inside `App.tsx`). The plugin claims `content-inline-footer` with `predicate: (s) => s.flowState?.status === "complete" || s.flowState?.status === "error"`. Multiple inline-footer contributions stack; flow summary uses default priority (50).
 
-### Decision 6: `FlowActivityBadge` and `SessionFlowActions` use plugin context for navigation
+### Decision 6: Navigation continues via shell-owned callbacks for now
 
-Both components navigate (e.g. badge click → opens flow dashboard view; actions menu → launches a new flow via `FlowLaunchDialog`). Today they call shell-owned callbacks passed via props. After extraction:
-- Badge click → `pluginRouter.push("flow-dashboard")` (a `content-view` route the plugin will additionally claim, replacing the sticky-only mounting? — see Open Question 1).
-- Actions menu → opens `FlowLaunchDialog` as a plugin-local modal (not a slot, not navigated to).
+Both `FlowActivityBadge` and `SessionFlowActions` call shell-owned callbacks today (passed via props from `App.tsx`). The dashboard-plugin-runtime exposes `pluginRouter` on the plugin context, but the bundled-by-default flow plugin can keep using the existing prop-callback pattern via the slot consumer's `SlotProps` — slot consumers already thread `session`, `onOpenFlowDashboard`, etc. as props. Switching to `pluginRouter.push(...)` is a follow-up refactor (separable PR, doesn't block this extraction).
+
+**Alternative considered**: rewrite all navigation to `pluginRouter` in this change. Rejected because the prop-callback path works today; introducing router-based navigation is orthogonal to the file move. Tracked as open question 1.
 
 ### Decision 7: Move test files alongside their subjects
 
@@ -97,20 +107,19 @@ All flow-related tests in `packages/client/src/__tests__/` and `packages/client/
 
 ## Migration Plan
 
-1. Land `dashboard-plugin-architecture` (design only).
-2. Land `add-dashboard-shell-slots-runtime` (plugin loader + slot consumers + `registerReducerSlice` API).
-3. Scaffold `packages/flows-plugin/` with manifest, package.json (`"private": true` initially), and empty client/ subdir.
-4. `git mv` the 12 flow components + 2 reducers + their tests into `packages/flows-plugin/`.
-5. Wire the manifest's slot claims (one PR section per slot kind for reviewer manageability).
-6. Register the reducer slice in the plugin's client entry.
-7. Remove flow imports + JSX from `App.tsx`, `SessionCard.tsx`, `event-reducer.ts`. Run the full test suite.
-8. Validate: a session with no flows-plugin loaded shows zero flow UI and emits no errors when `flow_*` events arrive (events flow through the reducer fall-through unchanged).
-9. Update `AGENTS.md` Key Files table and `docs/architecture.md` Flow Dashboard Data Flow section.
+1. Scaffold `packages/flows-plugin/` with manifest, `package.json` (`"private": true` initially), `tsconfig.json`, `src/client/` subdir, and an `exports` map exposing `./reducer` and `./manifest`.
+2. `git mv` the 12 flow components + 2 reducers + their tests from `packages/client/src/components/` and `packages/client/src/lib/` into `packages/flows-plugin/src/client/`.
+3. Update import paths inside the moved files (intra-plugin → relative; shared types → `@blackbelt-technology/pi-dashboard-shared`).
+4. Add `@blackbelt-technology/pi-dashboard-flows-plugin` as a workspace dep in `packages/client/package.json`.
+5. Update `event-reducer.ts` to import flow/architect reducers from the plugin package (one-line import path change).
+6. Wire the manifest's slot claims and have the runtime mount them. Remove the corresponding hand-written JSX from `App.tsx` and direct imports from `SessionCard.tsx` once the slot consumers cover the rendering 1:1.
+7. Run the full test suite. Verify reducer state is byte-identical pre/post (snapshot test).
+8. Update `AGENTS.md` Key Files table and `docs/architecture.md` Flow Dashboard Data Flow section.
 
 **Rollback**: revert the four PRs in reverse order. `git mv` history preservation makes the revert clean.
 
 ## Open Questions
 
-1. Should `FlowDashboard` *also* claim a `content-view` route (so the badge can navigate to a full-page version on mobile) in addition to its `content-header-sticky` claim? Today's UI uses the sticky-only mounting; punted to implementation-time once the slot consumers are real.
+1. Should the prop-callback navigation pattern (Decision 6) be replaced with `pluginRouter.push(...)` in a follow-up? Track as a separate cleanup PR after this extraction lands.
 2. Does `FlowLaunchDialog` need to be a slot contribution (e.g. `anchored-popover`) or stay a plugin-local modal opened by `SessionFlowActions`? Leaning toward plugin-local modal — no other plugin needs to mount it.
-3. The "register reducer slice" API needs to accept either a synchronous registration (called during plugin client entry) or a hook (called inside `usePluginContext`). Which one is the runtime change going to expose? Confirm during `add-dashboard-shell-slots-runtime` review before writing the plugin's client entry.
+3. Should the existing `openspec/specs/flow-*` capability spec files relocate to `packages/flows-plugin/specs/`? Cosmetic / housekeeping; not blocking.
