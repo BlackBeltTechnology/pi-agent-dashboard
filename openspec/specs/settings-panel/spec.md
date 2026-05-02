@@ -15,7 +15,7 @@ The sidebar header SHALL include a gear icon button positioned at the end of the
 The settings panel SHALL render as a full-page view in the main content area when the route is `/settings`. It SHALL display a fixed header (back button, title, Restart and Save buttons), a tab bar, and a scrollable content area for the active tab. The header and tab bar SHALL remain visible at all times regardless of scroll position.
 
 The panel SHALL provide 4 tabs:
-- **General**: Server (`port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`), Sessions (`spawnStrategy`), Tunnel (`tunnel.enabled`), Developer (`devBuildOnReload`)
+- **General**: Server (`port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`), Sessions (`spawnStrategy`, `reattachPlacement`, `askUserPromptTimeoutSeconds`, `defaultModel`), Tunnel (`tunnel.enabled`), Developer (`devBuildOnReload`)
 - **Providers**: Provider Authentication (ProviderAuthSection) and LLM Providers (custom OpenAI-compatible endpoints)
 - **Security**: OAuth dashboard access (`auth.providers` per-provider config, `auth.allowedUsers`, `auth.bypassUrls`), and **Trusted Networks** (the combined trusted-host/network bypass control that writes to `auth.bypassHosts`)
 - **Advanced**: Memory Limits (`memoryLimits.maxEventsPerSession`, `memoryLimits.maxStringFieldSize`, `memoryLimits.maxWsBufferBytes`)
@@ -215,6 +215,39 @@ When LLM providers are saved via the Settings panel, the server SHALL broadcast 
 - **WHEN** the user saves provider changes and opens the Default Model selector
 - **THEN** models from all configured providers are listed
 - **AND** no server restart is required
+
+### Requirement: ask_user prompt timeout field in Sessions section
+The Settings panel's General → Sessions section SHALL include a numeric input bound to `config.askUserPromptTimeoutSeconds`. The field SHALL accept negative integers so users can enter `-1` to disable the timeout. The control SHALL display a hint text immediately below it explaining: (a) the value is in seconds, (b) `-1` (or `0`) means “wait forever”, and (c) the default is 300 (5 minutes).
+
+When the user changes this field, the Settings panel SHALL include `askUserPromptTimeoutSeconds` in the partial sent to `PUT /api/config`. If the user clears the field (the resulting input value is undefined / NaN), the partial SHALL fall back to the default `300` rather than silently writing `0`.
+
+The server's `writeConfigPartial` SHALL persist the value verbatim through its existing top-level scalar merge (`{ ...existing, ...partial }`); no auth-section-style special handling is required. A subsequent `GET /api/config` SHALL return the persisted value with no redaction.
+
+Changing this field SHALL NOT mark the save as restart-requiring — the bridge re-reads `config.askUserPromptTimeoutSeconds` on every `session_start`, so the new timeout takes effect on the next pi session reload (`/reload`) without a server restart.
+
+#### Scenario: Field is rendered with current value
+- **WHEN** the user opens `/settings` with `askUserPromptTimeoutSeconds: 600` on disk
+- **THEN** the General → Sessions section SHALL show a numeric input populated with `600`
+- **AND** the hint text below SHALL mention the `-1` / `0` infinite-wait semantics and the 300 s default
+
+#### Scenario: User saves a custom positive value
+- **WHEN** the user changes the field from `300` to `120` and clicks Save
+- **THEN** the panel SHALL `PUT /api/config` with `{ "askUserPromptTimeoutSeconds": 120 }` in the partial
+- **AND** the persisted `~/.pi/dashboard/config.json` SHALL contain `askUserPromptTimeoutSeconds: 120`
+
+#### Scenario: User saves -1 for infinite wait
+- **WHEN** the user enters `-1` and clicks Save
+- **THEN** the panel SHALL `PUT /api/config` with `{ "askUserPromptTimeoutSeconds": -1 }`
+- **AND** the persisted config SHALL contain `askUserPromptTimeoutSeconds: -1` (the negative value MUST NOT be coerced or rejected by the client-side diff)
+
+#### Scenario: Empty-field fallback
+- **WHEN** the user clears the input (browser yields NaN/undefined) and clicks Save
+- **THEN** the partial SHALL contain `askUserPromptTimeoutSeconds: 300` (the default), not `0`
+
+#### Scenario: Save does not require restart
+- **WHEN** only `askUserPromptTimeoutSeconds` changes and the user clicks Save
+- **THEN** the `PUT /api/config` response SHALL have `restartRequired: false`
+- **AND** the panel SHALL NOT show the “Restart needed” banner
 
 ### Requirement: Config write persists auth.bypassHosts and auth.bypassUrls
 The `PUT /api/config` endpoint SHALL persist `auth.bypassHosts` and `auth.bypassUrls` from the incoming partial to `~/.pi/dashboard/config.json`. The auth-section merge in `writeConfigPartial` SHALL propagate these fields using the same conditional-copy pattern already used for `allowedUsers`: when `partial.auth.bypassHosts !== undefined`, the persisted `auth.bypassHosts` SHALL equal the incoming value (including the empty array, which SHALL clear all entries); when `partial.auth.bypassHosts` is absent, the existing persisted value SHALL be preserved. The same behaviour SHALL apply to `auth.bypassUrls`.

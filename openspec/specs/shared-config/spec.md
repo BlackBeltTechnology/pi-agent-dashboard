@@ -128,3 +128,40 @@ Invalid values (anything outside the union) SHALL fall back to the default `"alw
 #### Scenario: ensureConfig excludes reattachPlacement
 - **WHEN** `ensureConfig()` creates a new config file
 - **THEN** it SHALL NOT include `reattachPlacement` in the written defaults
+
+### Requirement: ask_user prompt timeout config field
+The shared config module SHALL include a configurable timeout that governs how long the bridge's PromptBus waits for a response to an interactive `ask_user` (or any other PromptBus-routed) prompt before auto-cancelling:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `askUserPromptTimeoutSeconds` | number | 300 | Seconds to wait for an answer before auto-cancelling. Any value `<= 0` (canonically `-1`) SHALL disable the timeout entirely so prompts wait indefinitely. |
+
+The shared config module SHALL also export a `DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS` constant equal to `300` so consumers (CLI, electron, tests) reference the same value rather than re-hard-coding it.
+
+Non-numeric values (string, boolean, null, arrays, objects) SHALL fall back to the default `300`.
+
+`ensureConfig()` SHALL NOT include `askUserPromptTimeoutSeconds` in the written defaults — the loader's default-coalescing handles missing values, keeping the on-disk file minimal.
+
+#### Scenario: Config with default timeout
+- **WHEN** `~/.pi/dashboard/config.json` does not include `askUserPromptTimeoutSeconds`
+- **THEN** `loadConfig()` SHALL return `askUserPromptTimeoutSeconds: 300`
+
+#### Scenario: Config with custom positive timeout
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "askUserPromptTimeoutSeconds": 60 }`
+- **THEN** `loadConfig()` SHALL return `askUserPromptTimeoutSeconds: 60`
+
+#### Scenario: Config with infinite timeout via -1
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "askUserPromptTimeoutSeconds": -1 }`
+- **THEN** `loadConfig()` SHALL return `askUserPromptTimeoutSeconds: -1` (not coerced to the default — the negative value is preserved as the disable-timeout signal)
+
+#### Scenario: Config with infinite timeout via 0
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "askUserPromptTimeoutSeconds": 0 }`
+- **THEN** `loadConfig()` SHALL return `askUserPromptTimeoutSeconds: 0`
+
+#### Scenario: Non-numeric value falls back to default
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "askUserPromptTimeoutSeconds": "forever" }` (or `null`, or an object/array)
+- **THEN** `loadConfig()` SHALL return `askUserPromptTimeoutSeconds: 300`
+
+#### Scenario: ensureConfig excludes askUserPromptTimeoutSeconds
+- **WHEN** `ensureConfig()` creates a new config file
+- **THEN** it SHALL NOT include `askUserPromptTimeoutSeconds` in the written defaults
