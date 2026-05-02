@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-jj-plugin",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "Jujutsu (jj) workspace plugin for pi-dashboard — adds session-card badge, action bar, sidebar workspace list, and the jj-workspace + jj-workspace-fold-back skills.",
   "type": "module",
