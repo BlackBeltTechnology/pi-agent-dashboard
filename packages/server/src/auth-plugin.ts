@@ -262,6 +262,19 @@ export async function registerAuthPlugin(
     // Skip configured bypass hosts (trusted source IPs)
     if (isBypassedHost(request.ip, authState.bypassHosts)) return;
 
+    // Validate Authorization: Bearer token (for agent/skill auth).
+    // Check this BEFORE cookie/JWT validation so skills can call push APIs
+    // regardless of browser cookie state.
+    // See change: add-server-push-notifications.
+    const authHeader = request.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const bearerToken = authHeader.slice(7);
+      if (authState.secret && bearerToken === authState.secret) {
+        (request as any).isAuthenticated = true;
+        return;
+      }
+    }
+
     // Validate JWT cookie
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
     if (cookieToken) {

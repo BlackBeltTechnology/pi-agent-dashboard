@@ -32,23 +32,32 @@ export interface ViewedSessionTracker {
    * the viewed state forever.
    */
   unviewAll(ws: WebSocket): void;
-  /** Returns true if at least one connected browser views the session. */
-  isViewedByAnyone(sessionId: string): boolean;
+  /**
+   * Returns true if at least one connected browser viewed the session
+   * within `opts.staleMs` milliseconds. When `staleMs` is undefined,
+   * returns true if any browser currently views the session (any age).
+   * A 60s stale-view TTL prevents background tabs and sleeping laptops
+   * from suppressing push indefinitely.
+   *
+   * See change: add-server-push-notifications.
+   */
+  isViewedByAnyone(sessionId: string, opts?: { staleMs?: number }): boolean;
   /** Test/diagnostic accessor — number of viewers for a session. */
   viewerCount(sessionId: string): number;
 }
 
 export function createViewedSessionTracker(): ViewedSessionTracker {
-  const viewers = new Map<string, Set<WebSocket>>();
+  // sessionId → Map<WebSocket, lastViewedTimestamp>
+  const viewers = new Map<string, Map<WebSocket, number>>();
 
   return {
     view(sessionId: string, ws: WebSocket): void {
       let set = viewers.get(sessionId);
       if (!set) {
-        set = new Set<WebSocket>();
+        set = new Map<WebSocket, number>();
         viewers.set(sessionId, set);
       }
-      set.add(ws);
+      set.set(ws, Date.now());
     },
 
     unview(sessionId: string, ws: WebSocket): void {
@@ -66,9 +75,19 @@ export function createViewedSessionTracker(): ViewedSessionTracker {
       }
     },
 
-    isViewedByAnyone(sessionId: string): boolean {
+    isViewedByAnyone(sessionId: string, opts?: { staleMs?: number }): boolean {
       const set = viewers.get(sessionId);
-      return !!set && set.size > 0;
+      if (!set || set.size === 0) return false;
+
+      // No staleMs → any view, regardless of age (backward-compatible)
+      if (opts?.staleMs === undefined) return true;
+
+      // staleMs provided → only count views within the window
+      const now = Date.now();
+      for (const ts of set.values()) {
+        if (now - ts <= opts.staleMs) return true;
+      }
+      return false;
     },
 
     viewerCount(sessionId: string): number {

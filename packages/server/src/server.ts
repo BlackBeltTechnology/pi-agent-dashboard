@@ -39,7 +39,11 @@ import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import { createNetworkGuard, isLoopback, isBypassedHost } from "./localhost-guard.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { loadConfig, CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { loadConfig, CONFIG_FILE, type PushConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createPushTokenRegistry, type PushTokenRegistry } from "./push/push-token-registry.js";
+import { createPushDispatcher, type PushDispatcher } from "./push/push-dispatcher.js";
+import { createWebPushTransport } from "./push/push-transports/web-push.js";
+import { loadOrGenerateVapidKeys } from "./push/push-vapid.js";
 import { registerSessionApi } from "./session-api.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
@@ -49,6 +53,7 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
+import { registerPushRoutes, registerPushMisconfiguredMiddleware } from "./routes/push-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerRecommendedRoutes, invalidateRecommendedCache } from "./routes/recommended-routes.js";
@@ -102,6 +107,8 @@ export interface ServerConfig {
   editor: import("@blackbelt-technology/pi-dashboard-shared/config.js").EditorConfig;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
+  /** Push notification config. Omitted → push disabled. */
+  push?: PushConfig;
   /** Reattach-placement policy applied when a bridge re-registers after
    *  a dashboard restart. Defaults to `"always"`.
    *  See change: reattach-move-to-front. */
@@ -110,6 +117,8 @@ export interface ServerConfig {
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
   corsAllowedOrigins?: string[];
+  /** Push notification config. Omitted → push disabled. */
+  push?: PushConfig;
 }
 
 export interface DashboardServer {
@@ -167,14 +176,11 @@ export interface PostInstallRepairDeps {
  *      or the refreshed payload differs, broadcast `openspec_update`.
  *   3) For every cwd, force-refresh pi-resources (silent on failure).
  *
- * The DEBUG=pi-dashboard|openspec-poll envvar enables a single-line
  * diagnostic log on completion, matching the existing daemon-log style.
  */
 export async function runPostInstallRepair(deps: PostInstallRepairDeps): Promise<void> {
   const debug =
     typeof process !== "undefined" &&
-    typeof process.env?.DEBUG === "string" &&
-    /pi-dashboard|openspec-poll/.test(process.env.DEBUG);
 
   // 1) full registry rescan
   deps.registry.rescan();
@@ -559,6 +565,39 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations);
 
+  // ── Push dispatcher (conditional on config.push.enabled && !config.push.errors) ──
+  let pushDispatcher: PushDispatcher | undefined;
+  let pushTokenRegistry: PushTokenRegistry | undefined;
+  let pushVapidKeys: import("./push/push-vapid.js").VapidKeys | undefined;
+  if (config.push && config.push.enabled && (!config.push.errors || config.push.errors.length === 0)) {
+    try {
+      pushVapidKeys = loadOrGenerateVapidKeys(
+        path.join(os.homedir(), ".pi", "dashboard", "push-vapid.json"),
+      );
+      pushTokenRegistry = createPushTokenRegistry({
+        path: path.join(os.homedir(), ".pi", "dashboard", "push-tokens.json"),
+      });
+      const transports = new Map<string, import("./push/push-transports/types.js").PushTransport>();
+      if (config.push.webPush) {
+        transports.set(
+          "web-push",
+          createWebPushTransport({
+            vapidKeys: pushVapidKeys,
+            contactEmail: config.push.webPush.contactEmail,
+          }),
+        );
+      }
+      pushDispatcher = createPushDispatcher({
+        transports,
+        registry: pushTokenRegistry,
+        coalesceWindowMs: config.push.coalesceWindowMs,
+      });
+      console.log("[dashboard] Push notifications enabled");
+    } catch (err) {
+      console.error("[dashboard] Push disabled — failed to initialise:", err);
+    }
+  }
+
   // Resolve package version once at startup
   const __require = createRequire(import.meta.url);
   let pkgVersion = "unknown";
@@ -594,6 +633,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingAttachRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
+    pushDispatcher,
   });
 
   // Auto-shutdown idle timer
@@ -772,6 +812,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, bootstrapState });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
+
+  // ── Push routes (conditional) ────────────────────────────────────
+  if (config.push?.enabled) {
+    if (pushDispatcher && pushTokenRegistry && pushVapidKeys) {
+      registerPushRoutes(fastify, { tokenRegistry: pushTokenRegistry, dispatcher: pushDispatcher, vapidKeys: pushVapidKeys });
+    } else {
+      registerPushMisconfiguredMiddleware(fastify, config.push.errors ?? ["push enabled but no webPush transport configured"]);
+    }
+  }
+
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   registerJjRoutes(fastify, { browserGateway, pendingAttachRegistry, networkGuard });
 

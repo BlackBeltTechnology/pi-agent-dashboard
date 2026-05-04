@@ -1412,6 +1412,89 @@ Terminal xterm.js instances stay mounted in the DOM (CSS hidden/shown) for insta
 
 Terminals are displayed in a tabbed `TerminalsView` per folder, accessed via the folder action bar's `Terminals(N)` button. Terminal cards no longer appear in the sidebar — the sidebar shows only pi session cards. The tab bar supports switching, closing, renaming, and creating new terminals.
 
+## Push Notifications
+
+Push notifications fan out `ask_user` (agent needs input) and `agent_end`-error (agent crashed) to registered devices via the W3C Web Push protocol (Chrome/Edge/Firefox/Safari 16+). Routine `streaming→idle` completion is deliberately excluded to avoid spam.
+
+### Trigger Predicates
+
+Two separate predicates in `event-status-extraction.ts`, evaluated independently in `event-wiring.ts`:
+
+| Predicate | Matches | Purpose |
+|-----------|---------|---------|
+| `isUnreadTrigger` | `streaming→idle`, `ask_user`, `agent_end`-error | Ephemeral unread stripes in client |
+| `isPushTrigger` | `ask_user` (transition-based), `agent_end`-error only | Persistent OS notifications |
+
+`isPushTrigger` is **transition-based** for `ask_user`: fires only when `currentTool` changes TO `"ask_user"` from a non-`"ask_user"` value. Repeated questions while already `"ask_user"` do NOT re-trigger.
+
+### Gating
+
+- **Replay suppression**: push never fires on replay events.
+- **Stale-view TTL**: `viewedSessionTracker.isViewedByAnyone(sessionId, {staleMs: 60_000})`. Background tabs and sleeping laptops suppress push for ≤60s after last view, then push resumes.
+- **Config opt-in**: `push.enabled === false` by default. No dispatcher, no routes, no VAPID keys. Zero cost for non-users.
+
+### Coalescing
+
+Per-(sessionId, deviceToken) coalescing. Default 30s window, configurable 5–300s. `fanout()` applies coalescing; `sendNow()` bypasses it (used by REST endpoints).
+
+### Fire-and-Forget Dispatch
+
+`fanout()` is `void`-returning, wrapped in `try/catch`, with internal `.catch(log)` on each async send. Lint test (`push-dispatcher-fire-and-forget.test.ts`) fails the build if `await pushDispatcher.fanout(...)` is ever found in `event-wiring.ts`.
+
+Per-send 10s timeout enforced via `AbortController` + `setTimeout`. Transport interface accepts `AbortSignal` as best-effort cancellation.
+
+### Token Registry
+
+Tokens persisted to `~/.pi/dashboard/push-tokens.json` with `0600` permissions (atomic write via `json-store.ts`). Token shape:
+
+```ts
+{ id, deviceToken: { endpoint, keys: { p256dh, auth } }, transport, userId?, registeredAt, lastUsedAt }
+```
+
+Uniqueness by `deviceToken.endpoint`. Idempotent re-registration updates `lastUsedAt`. Dead tokens (410/404 from push service) auto-pruned by dispatcher.
+
+### Web Push Transport
+
+Extensible `PushTransport` interface (`kind: string`). v1 ships with `web-push` transport using the `web-push` npm library with VAPID authentication.
+
+VAPID keypair generated once on first `push.enabled: true`, persisted to `~/.pi/dashboard/push-vapid.json` (`0600`). Keys reused across restarts — existing browser subscriptions remain valid.
+
+### Config Schema
+
+```ts
+push?: {
+  enabled: boolean;              // default false
+  coalesceWindowMs: number;      // default 30_000, clamped [5_000, 300_000]
+  webPush?: { contactEmail: string };  // required by VAPID spec
+  errors?: string[];             // runtime: surfaced in /api/health
+}
+```
+
+When `enabled: true` and no `webPush.contactEmail`, `errors` populates `["missing contactEmail"]`. Server mounts `/api/push/*` with `503` middleware instead of real routes. `/api/health` includes `push: {errors}`.
+
+### REST API
+
+6 endpoints, auth-gated, per-endpoint rate limits:
+
+| Method | Path | Rate | Purpose |
+|--------|------|------|---------|
+| POST | `/api/push/register` | 10/min | Register device token |
+| DELETE | `/api/push/register/:id` | 10/min | Unregister device |
+| GET | `/api/push/tokens` | 30/min | List safe metadata (no keys) |
+| POST | `/api/push/test` | 5/min | Test push via sendNow |
+| POST | `/api/push/send` | 2/min | On-demand push (agents/skills) |
+| GET | `/api/push/vapid-public-key` | 30/min | VAPID public key for subscribe |
+
+`/api/push/send` validates `url` (single `/`, no `//`, same-origin), caps `title`≤200 + `body`≤500, and audit-logs every call.
+
+### Skill Auth
+
+`Authorization: Bearer <auth.secret>` validated in `auth-plugin.ts` before cookie/JWT check. Works on loopback and remote. The `push-notify-user` skill reads `auth.secret` from `~/.pi/dashboard/config.json`.
+
+### Service Worker
+
+`public/sw.js` handles `push` (parse JSON, showNotification with fallbacks) and `notificationclick` (exact pathname match for existing-tab focus or new-window open).
+
 ## Embedded Editor (code-server)
 
 The dashboard supports embedding VS Code in the browser via code-server.

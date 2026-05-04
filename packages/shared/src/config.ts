@@ -157,6 +157,31 @@ export const DEFAULT_MODEL_PROXY: ModelProxyConfig = {
 };
 
 /**
+ * Push notification configuration.
+ * See change: add-server-push-notifications.
+ */
+export interface PushWebPushConfig {
+  /** Email address used as VAPID `mailto:` subject. Required by spec. */
+  contactEmail: string;
+}
+
+export interface PushConfig {
+  /** Master toggle. Default false — user must opt in. */
+  enabled: boolean;
+  /** Coalescing window in ms. Clamped [5_000, 300_000]. Default 30_000. */
+  coalesceWindowMs: number;
+  /** Web Push transport settings (VAPID). */
+  webPush?: PushWebPushConfig;
+  /** Runtime errors surfaced in /api/health. Not persisted. */
+  errors?: string[];
+}
+
+export const DEFAULT_PUSH_CONFIG: PushConfig = {
+  enabled: false,
+  coalesceWindowMs: 30_000,
+};
+
+/**
  * Plugin-specific config namespace.
  * Lives at ~/.pi/dashboard/config.json#plugins.<id>.*
  */
@@ -217,6 +242,12 @@ export interface DashboardConfig {
   plugins: PluginsConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
+  /**
+   * Push notification configuration.
+   * Default: {enabled: false, coalesceWindowMs: 30_000}.
+   * See change: add-server-push-notifications.
+   */
+  push: PushConfig;
 }
 
 export interface CorsConfig {
@@ -259,6 +290,7 @@ const DEFAULTS: DashboardConfig = {
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
   reattachPlacement: DEFAULT_REATTACH_PLACEMENT,
   spawnRegisterTimeoutMs: 30000,
+  push: { ...DEFAULT_PUSH_CONFIG },
 };
 
 /**
@@ -361,6 +393,37 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
   };
+}
+
+/**
+ * Parse and validate the push notification config block.
+ *
+ * Normalizes: no block → `{enabled: false}`. When `enabled: true`
+ * and `webPush.contactEmail` is missing, populates `errors` array.
+ * Coalesce window clamped [5_000, 300_000], default 30_000.
+ *
+ * See change: add-server-push-notifications.
+ */
+export function parsePushConfig(raw: any): PushConfig {
+  if (!raw || typeof raw !== "object") return { ...DEFAULT_PUSH_CONFIG };
+  const enabled = raw.enabled === true;
+  const coalesceWindowMs = clampNumber(raw.coalesceWindowMs, DEFAULT_PUSH_CONFIG.coalesceWindowMs, 5_000, 300_000);
+
+  const webPushRaw = raw.webPush;
+  const webPush: PushWebPushConfig | undefined =
+    webPushRaw && typeof webPushRaw === "object" && typeof webPushRaw.contactEmail === "string"
+      ? { contactEmail: webPushRaw.contactEmail }
+      : undefined;
+
+  const result: PushConfig = { enabled, coalesceWindowMs };
+  if (webPush) result.webPush = webPush;
+
+  // When enabled but no contactEmail, surface error
+  if (enabled && !webPush) {
+    result.errors = ["missing contactEmail"];
+  }
+
+  return result;
 }
 
 function parsePluginsConfig(raw: unknown): PluginsConfig {
@@ -526,6 +589,7 @@ export function loadConfig(): DashboardConfig {
         : defaults.askUserPromptTimeoutSeconds,
       spawnRegisterTimeoutMs: clampSpawnRegisterTimeoutMs(parsed.spawnRegisterTimeoutMs),
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      push: parsePushConfig(parsed.push),
     };
 
     // Compute resolvedTrustedNetworks: merge trustedNetworks + auth.bypassHosts

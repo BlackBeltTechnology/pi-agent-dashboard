@@ -503,6 +503,16 @@ This section lists only the **architectural backbone** — the files agents touc
 | `scripts/verify-lockfile-versions.mjs` | Sanity gate: asserts every cross-ref in `package-lock.json` is `^<root.version>`; runs after `npm install --package-lock-only` in `prepare` |
 | `packages/shared/src/__tests__/publish-workflow-contract.test.ts` | Repo-lint: pin electron job's `needs:` array and `fail-fast: false` |
 | `packages/shared/src/__tests__/no-bash-on-windows.test.ts` | Repo-lint: forbid `shell: bash` on steps reachable on Windows runners |
+| `packages/server/src/push/push-types.ts` | Push token/payload types (PushToken, PushPayload, PushTokenMeta) |
+| `packages/server/src/push/push-token-registry.ts` | Push token persistence ($HOME/.pi/dashboard/push-tokens.json, 0600) |
+| `packages/server/src/push/push-dispatcher.ts` | Push fanout engine: coalescing, dead-token pruning, sendNow vs fanout |
+| `packages/server/src/push/push-transports/web-push.ts` | Web Push transport adapter (VAPID, web-push npm) |
+| `packages/server/src/push/push-vapid.ts` | VAPID keypair generation/persistence ($HOME/.pi/dashboard/push-vapid.json, 0600) |
+| `packages/server/src/push/build-push-payload.ts` | Pure helper: session+event → PushPayload |
+| `packages/server/src/routes/push-routes.ts` | 6 push REST endpoints (register/delete/tokens/test/send/vapid-key) |
+| `packages/client/src/hooks/usePushSubscription.ts` | Web Push subscription hook (subscribe/unsubscribe/reconcile/sendTest) |
+| `packages/client/src/components/PushNotificationsSection.tsx` | Settings section: status, subscribe, device list, iOS hint |
+| `.pi/skills/push-notify-user/SKILL.md` | Agent skill for on-demand push via POST /api/push/send |
 
 ## Build & Restart Workflow
 

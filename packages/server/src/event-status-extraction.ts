@@ -233,3 +233,43 @@ export function isUnreadTrigger(
 
   return false;
 }
+
+/**
+ * Pure classifier: should this event trigger a push notification?
+ *
+ * Narrower than `isUnreadTrigger` — matches only events that genuinely
+ * require user attention and warrant a persistent OS notification:
+ *   1. `currentTool` transitions TO `"ask_user"` from non-`"ask_user"`
+ *      (agent needs input). Repeated ask_user while already ask_user does
+ *      NOT fire — it's transition-based.
+ *   2. `agent_end` event whose payload's `error` field is truthy
+ *      (agent crashed).
+ *
+ * Deliberately excluded:
+ *   - `streaming→idle` (routine turn completion — would spam users)
+ *   - `streaming→active`
+ *
+ * The caller is responsible for the "not currently viewed with stale TTL"
+ * gate and replay suppression.
+ *
+ * See change: add-server-push-notifications.
+ */
+export function isPushTrigger(
+  eventType: string,
+  before: UnreadTriggerSnapshot,
+  after: UnreadTriggerSnapshot,
+  payload?: unknown,
+): boolean {
+  // Trigger 1: currentTool transitions TO "ask_user"
+  if (after.currentTool === "ask_user" && before.currentTool !== "ask_user") {
+    return true;
+  }
+
+  // Trigger 2: agent_end with error
+  if (eventType === "agent_end") {
+    const data = (payload as { error?: unknown } | undefined) ?? undefined;
+    if (data && data.error) return true;
+  }
+
+  return false;
+}

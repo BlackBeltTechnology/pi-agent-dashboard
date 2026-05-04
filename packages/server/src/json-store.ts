@@ -22,11 +22,18 @@ export function readJsonFile<T>(filePath: string, fallback: T): T {
 /**
  * Atomically write a JSON file (write to .tmp, then rename).
  * Creates parent directories if needed.
+ *
+ * Optional `opts.mode` sets the file permission (e.g. `0o600` for sensitive
+ * files like VAPID keys or push tokens). Applied on the tmp file before
+ * rename so the final file never sits world-readable.
  */
-export function writeJsonFile<T>(filePath: string, data: T): void {
+export function writeJsonFile<T>(filePath: string, data: T, opts?: { mode?: number }): void {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
   const tmpPath = filePath + ".tmp";
   fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n");
+  if (opts?.mode !== undefined) {
+    fs.chmodSync(tmpPath, opts.mode);
+  }
   fs.renameSync(tmpPath, filePath);
 }

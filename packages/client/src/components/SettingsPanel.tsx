@@ -13,6 +13,7 @@ import { PackageBrowser } from "./PackageBrowser.js";
 import { ToolsSection, SpawnFailuresSection } from "./ToolsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
@@ -500,6 +501,11 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
               <DiagnosticsSection />
               <ToolsSection />
               <SpawnFailuresSection />
+
+              <Section title="Push Notifications">
+                <PushNotificationsSection />
+              </Section>
+
               {/* Plugin slot: settings-section (general tab) */}
               <SettingsSectionSlot tab="general" />
             </>

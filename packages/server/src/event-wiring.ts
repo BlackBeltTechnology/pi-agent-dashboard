@@ -9,9 +9,10 @@ import type { BrowserGateway } from "./browser-gateway.js";
 import type { SessionOrderManager } from "./session-order-manager.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
 import type { DirectoryService } from "./directory-service.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, isPushTrigger } from "./event-status-extraction.js";
 import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
 import { setCatalogueForSession } from "./provider-catalogue-cache.js";
+import type { PushDispatcher } from "./push/push-dispatcher.js";
 import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -51,6 +52,13 @@ export interface EventWiringDeps {
    * correlation. See change: spawn-correlation-token.
    */
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations;
+  /**
+   * Optional push dispatcher. When provided, the wiring evaluates
+   * `isPushTrigger(...)` and fans out push notifications to registered
+   * devices. Gated on replay + 60s stale-view TTL.
+   * See change: add-server-push-notifications.
+   */
+  pushDispatcher?: PushDispatcher;
 }
 
 /**
@@ -71,6 +79,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingAttachRegistry,
     viewedSessionTracker,
     pendingClientCorrelations,
+    pushDispatcher,
   } = deps;
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -207,6 +216,31 @@ export function wireEvents(deps: EventWiringDeps): void {
             sessionManager.update(sessionId, { unread: true });
             browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
           }
+        }
+      }
+
+      // Push-trigger evaluation. Narrower predicate than unread — only
+      // ask_user transitions and agent_end errors. Gated on replay + 60s
+      // stale-view TTL so background tabs don't suppress push indefinitely.
+      // The pushDispatcher dep is optional — absent on misconfigured or
+      // disabled push.
+      // See change: add-server-push-notifications.
+      if (!replayingSessions.has(sessionId) && pushDispatcher && viewedSessionTracker) {
+        const sessionAfter = sessionManager.get(sessionId);
+        const afterSnapshot = {
+          status: sessionAfter?.status,
+          currentTool: sessionAfter?.currentTool,
+        };
+        if (
+          isPushTrigger(
+            msg.event.eventType,
+            beforeSnapshot,
+            afterSnapshot,
+            msg.event.data,
+          ) &&
+          !viewedSessionTracker.isViewedByAnyone(sessionId, { staleMs: 60_000 })
+        ) {
+          pushDispatcher.fanout(sessionId, sessionAfter ?? undefined, msg.event);
         }
       }
 

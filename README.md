@@ -183,6 +183,9 @@ CLI flags → environment variables → config file → built-in defaults.
 | `--pi-port` | `PI_DASHBOARD_PI_PORT` | `piPort` | `9999` | Pi extension WebSocket port |
 | `--dev` | — | — | `false` | Development mode (proxy to Vite) |
 | `--no-tunnel` | — | `tunnel.enabled` | `true` | Disable zrok tunnel |
+| — | — | `push.enabled` | `false` | Enable push notifications (`ask_user`, crashes) |
+| — | — | `push.coalesceWindowMs` | `30000` | Push coalescing window in ms (5 000–300 000) |
+| — | — | `push.webPush.contactEmail` | — | VAPID `mailto:` subject (required when push.enabled) |
 | — | — | `autoStart` | `true` | Bridge auto-starts server if not running |
 | — | — | `autoShutdown` | `false` | Server shuts down when idle |
 | — | — | `shutdownIdleSeconds` | `300` | Seconds idle before auto-shutdown |
