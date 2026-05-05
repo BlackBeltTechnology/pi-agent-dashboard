@@ -3,6 +3,10 @@
  * Exposes IPC APIs to the renderer via contextBridge.
  */
 import { contextBridge, ipcRenderer } from "electron";
+// Register the doctor bridge namespace on the same preload bundle.
+// Side-effect import — `doctor-preload.ts` calls contextBridge.exposeInMainWorld.
+// See change: doctor-rich-output.
+import "./preload/doctor-preload.js";
 
 export interface WizardApi {
   /** Detect installed tools */
@@ -43,6 +47,8 @@ export interface WizardApi {
   installRecommendedExtensions: (ids: string[]) => Promise<{ installed: number }>;
   /** Persist the list of skipped recommended ids */
   persistRecommendedSkipped: (skippedIds: string[]) => Promise<void>;
+  /** Open the Doctor diagnostic window. See change: doctor-rich-output (task 3.7). */
+  openDoctor: () => void;
 
   // ── V2 API (behind LAUNCH_SOURCE_V2 flag) ───────────────────────────────
   // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
@@ -77,6 +83,7 @@ const api: WizardApi = {
   getRecommendedExtensions: () => ipcRenderer.invoke("wizard:get-recommended"),
   installRecommendedExtensions: (ids) => ipcRenderer.invoke("wizard:install-recommended", ids),
   persistRecommendedSkipped: (skippedIds) => ipcRenderer.invoke("wizard:persist-recommended-skipped", skippedIds),
+  openDoctor: () => ipcRenderer.send("wizard:open-doctor"),
 
   // V2 API
   getInstallableList: () => ipcRenderer.invoke("wizard:v2:get-installable"),

@@ -197,10 +197,19 @@
         </div>
       </div>
     </div>
+    <div style="text-align:center; margin-top: 1.5rem; color: #64748b; font-size: 0.85rem;">
+      Trouble? <a href="#" id="wizard-run-doctor" style="color:#60a5fa; text-decoration:none">Run Doctor</a> for diagnostic info.
+    </div>
   </div>
 
   <script>
     const api = window.wizardApi;
+    // Wire the Run Doctor link to the preload IPC. See change: doctor-rich-output (task 3.7).
+    document.getElementById("wizard-run-doctor").addEventListener("click", (e) => {
+      e.preventDefault();
+      try { window.wizardApi.openDoctor && window.wizardApi.openDoctor(); }
+      catch (err) { console.error("openDoctor failed", err); }
+    });
     let selectedMode = null;
     let deps = null;
 

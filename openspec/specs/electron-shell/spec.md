@@ -1,24 +1,39 @@
 ## ADDED Requirements
 
 ### Requirement: Electron main process lifecycle
-The Electron main process SHALL discover or launch a dashboard server, then open a BrowserWindow pointing at the server URL. The server SHALL always run as a separate detached process, never in-process.
+
+The Electron main process SHALL discover or launch a dashboard server, then open a BrowserWindow pointing at the server URL. The server SHALL always run as a separate detached process, never in-process. On `ensureServer()` failure the main process SHALL classify the error and route to either the configuration-error dialog or the interactive loading page — it SHALL NOT retry `ensureServer()` a second time, because a second 15 s budget produces no useful signal that the loading page (which polls indefinitely) does not already provide.
 
 #### Scenario: Launch with no server running
+
 - **WHEN** the Electron app starts and no dashboard server is discovered (mDNS via `@blackbelt-technology/pi-dashboard-shared/mdns-discovery` + health check fallback via `@blackbelt-technology/pi-dashboard-shared/server-identity`)
 - **THEN** it SHALL launch the server as a detached process using the `tsx` binary and open a BrowserWindow pointing at `http://localhost:<port>` once the server is ready
 
 #### Scenario: Launch with server already running
+
 - **WHEN** the Electron app starts and a localhost dashboard server is discovered
 - **THEN** it SHALL skip server launch and open a BrowserWindow pointing at the discovered server URL
 
 #### Scenario: Window close behavior
+
 - **WHEN** the user closes the Electron window
 - **THEN** the app SHALL minimize to the system tray (server keeps running)
 
-#### Scenario: Server launch failure with retry
-- **WHEN** the server fails to start
-- **THEN** the app SHALL show an error dialog with the failure reason and offer "Run Setup", "Retry", or "Quit" options
-- **AND** if all retry attempts fail, it SHALL show a loading page that keeps polling and displays connection instructions
+#### Scenario: Configuration-error failure shows error dialog
+
+- **GIVEN** `ensureServer()` throws an error that does NOT begin with "Server did not respond within" or "Server child process exited prematurely" (e.g. "No TypeScript loader found", "Dashboard server CLI not found", "Port N is in use by another service")
+- **WHEN** the main process catches the error
+- **THEN** it SHALL close the splash and show an error dialog with the failure reason and offer "Run Setup", "Retry", or "Quit" options
+- **AND** it SHALL NOT issue a second `ensureServer()` attempt before showing the dialog
+
+#### Scenario: Deadline / child-exit failure falls through to loading page
+
+- **GIVEN** `ensureServer()` throws an error whose message begins with "Server did not respond within" OR "Server child process exited prematurely"
+- **WHEN** the main process catches the error
+- **THEN** it SHALL close the splash, open the BrowserWindow at `http://localhost:<port>`, and call `showLoadingPage(win, serverUrl)`
+- **AND** it SHALL NOT show the error dialog
+- **AND** it SHALL NOT issue a second `ensureServer()` attempt
+- **AND** the loading page SHALL keep polling `/api/health` every 1.5 s, surfacing Start server / Open Doctor / server-log controls after ~15 s as already specified
 
 ### Requirement: Loading page with connection retry
 The app SHALL show a branded loading page while waiting for the server to become available. The loading page SHALL provide user-initiated controls to launch the server, open Doctor, and view recent server log output once an initial timeout has elapsed.
@@ -130,16 +145,22 @@ The Electron app SHALL set up a native macOS application menu with standard menu
 - **THEN** a minimal Help menu SHALL be set with "Doctor..." and "About" items
 
 ### Requirement: Doctor diagnostic function
-The app SHALL provide a Doctor function accessible from the app menu that checks all required components.
+The app SHALL provide a Doctor function accessible from the app menu that checks all required components and renders the result in a dedicated styled BrowserWindow (not a native message-box dialog).
 
 #### Scenario: Doctor checks all components
 - **WHEN** the user opens "Doctor..." from the menu
-- **THEN** it SHALL check: Electron version, system Node.js, bundled Node.js, bundled npm, pi CLI, openspec CLI, dashboard server code, TypeScript loader (tsx), dashboard server status, setup wizard state, API key configuration, and managed install directory
-- **AND** each check SHALL report status (ok/warning/error), version, and path
+- **THEN** it SHALL check: Electron version, system Node.js, bundled Node.js, bundled npm, pi CLI, openspec CLI, dashboard server code, offline packages bundle, TypeScript loader (tsx), dashboard server status, server log presence, server launch test, setup wizard state, API key configuration, and managed install directory
+- **AND** each check SHALL report status (ok/warning/error), version, path, the section it belongs to, and a remediation suggestion when the status is not ok
+
+#### Scenario: Doctor opens a styled window
+- **WHEN** the user opens "Doctor..." from the menu
+- **THEN** the app SHALL open a dedicated BrowserWindow rendering the report grouped by section, with a per-row status pill, message, optional path, and optional suggestion
+- **AND** the window SHALL provide toolbar actions: Re-run, Copy as Markdown, Copy as Plain text, Open server log, Open doctor log, Run setup wizard
+- **AND** opening Doctor while the window is already open SHALL focus the existing window instead of creating a second one
 
 #### Scenario: Doctor offers setup for errors
 - **WHEN** the Doctor report contains fixable errors
-- **THEN** the dialog SHALL offer a "Run Setup" button that triggers the setup wizard
+- **THEN** the window SHALL surface a "Run setup wizard" toolbar action that triggers the setup wizard
 
 ### Requirement: VM GPU detection
 The app SHALL auto-detect virtual machine environments and disable GPU acceleration to prevent white screen rendering issues.
@@ -253,23 +274,28 @@ The classifier used by the Electron shell to decide whether a URL is same-origin
 - **WHEN** `isSameOriginUrl("http:///", "http://localhost:8000")` is called (or any unparseable input)
 - **THEN** it SHALL return `false` so the caller treats it as external and routes through `shell.openExternal`
 
-### Requirement: Server-startup deadline is 60 seconds with cause-aware error wording
-The `waitForReady` callsites in `server-lifecycle.ts` SHALL use a deadline of `60_000` milliseconds (60 seconds), not `15_000`. The error message constructed when `waitForReady` returns unsuccessful SHALL distinguish two cases — child process exiting prematurely vs. deadline elapsed without the probe returning true — and use different wording for each. The current behaviour conflates both cases under "Server failed to start within 15 seconds (child exited with code N)", which is misleading because in the child-exit case the deadline is never actually reached.
+### Requirement: Server-startup deadline is 15 seconds with cause-aware error wording
 
-#### Scenario: Deadline is 60 seconds at every callsite
+The `waitForReady` callsites in `server-lifecycle.ts` SHALL use a deadline of `15_000` milliseconds (15 seconds), not `60_000`. The error message constructed when `waitForReady` returns unsuccessful SHALL distinguish two cases — child process exiting prematurely vs. deadline elapsed without the probe returning true — and use different wording for each. The deadline budget SHALL NOT exceed 15 s because beyond that point the failure is almost always terminal (port conflict, missing loader, bad Node) and the loading page (`resources/loading.html`) is a strictly better surface — it polls every 1.5 s and exposes Start server / Open Doctor / log-tail controls — than a frozen splash.
+
+#### Scenario: Deadline is 15 seconds at every callsite
+
 - **WHEN** `server-lifecycle.ts` is parsed
-- **THEN** every `waitForReady` call SHALL pass `deadlineMs: 60_000`
+- **THEN** every `waitForReady` call SHALL pass `deadlineMs: SERVER_READY_DEADLINE_MS`
+- **AND** `SERVER_READY_DEADLINE_MS` SHALL be `15_000`
 
 #### Scenario: Child-exit error wording
+
 - **WHEN** the spawned server child process exits before the probe returns true
 - **THEN** the thrown error SHALL begin with "Server child process exited prematurely (...)"
 - **AND** SHALL include a hint identifying the typical cause ("usually means a missing dependency or wrong TypeScript loader")
 - **AND** SHALL include the spawn command, CWD, and the last 20 lines of `server.log`
 
 #### Scenario: Deadline-exceeded error wording
+
 - **WHEN** the deadline elapses without either the probe returning true or the child exiting
-- **THEN** the thrown error SHALL begin with "Server did not respond within 60 seconds (...)"
-- **AND** SHALL include the hint "The server is likely still starting; try the Retry button"
+- **THEN** the thrown error SHALL begin with "Server did not respond within 15 seconds (...)"
+- **AND** SHALL include the hint "The server is likely still starting; the loading page will keep polling — try the Doctor button if it doesn't connect"
 - **AND** SHALL include the spawn command, CWD, and the last 20 lines of `server.log`
 
 ### Requirement: Power-user mode runs `installStandalone()` even when the wizard UI is skipped

@@ -172,6 +172,10 @@ function registerPiDashboardIpc(): void {
 
   ipcMain.removeAllListeners("dashboard:open-doctor");
   ipcMain.on("dashboard:open-doctor", () => { void showDoctorDialog(); });
+
+  // Wizard → Doctor link. See change: doctor-rich-output (task 3.7).
+  ipcMain.removeAllListeners("wizard:open-doctor");
+  ipcMain.on("wizard:open-doctor", () => { void showDoctorDialog(); });
 }
 
 /**

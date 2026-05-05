@@ -11,6 +11,7 @@ import { KnownServersSection } from "./KnownServersSection.js";
 import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
 import { PackageBrowser } from "./PackageBrowser.js";
 import { ToolsSection, SpawnFailuresSection } from "./ToolsSection.js";
+import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
@@ -487,6 +488,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                 <ToggleField label="Dev Build on Reload" value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
               </Section>
 
+              <DiagnosticsSection />
               <ToolsSection />
               <SpawnFailuresSection />
               {/* Plugin slot: settings-section (general tab) */}

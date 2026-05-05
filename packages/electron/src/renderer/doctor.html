@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PI Dashboard Doctor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; padding: 1.5rem 2rem; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: #f8fafc; }
+    .summary { color: #94a3b8; font-size: 0.95rem; margin-bottom: 1rem; }
+    .summary .ok { color: #22c55e; }
+    .summary .warn { color: #f59e0b; }
+    .summary .err { color: #ef4444; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 0.75rem 0 1rem; border-bottom: 1px solid #1e293b; margin-bottom: 1rem; }
+    .btn { padding: 0.5rem 0.9rem; border: 1px solid #334155; border-radius: 0.4rem; background: #1e293b; color: #e2e8f0; cursor: pointer; font-size: 0.85rem; }
+    .btn:hover:not(:disabled) { background: #334155; }
+    .btn:disabled { opacity: 0.5; cursor: progress; }
+    .btn-primary { background: #2563eb; border-color: #2563eb; }
+    .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+    .toast { padding: 0.5rem 0.9rem; border-radius: 0.4rem; background: #1e293b; color: #cbd5e1; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .toast.warn { background: #422006; color: #fcd34d; }
+    .toast.err { background: #450a0a; color: #fca5a5; }
+    .section { margin-bottom: 1.5rem; }
+    .section h2 { font-size: 1rem; color: #94a3b8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; vertical-align: top; border-bottom: 1px solid #1e293b; }
+    th { color: #64748b; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; background: #0f172a; }
+    .pill { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 0.5rem; font-size: 0.75rem; font-weight: 600; }
+    .pill-ok { background: #052e16; color: #4ade80; }
+    .pill-warn { background: #422006; color: #fcd34d; }
+    .pill-err { background: #450a0a; color: #fca5a5; }
+    .check-name { font-weight: 600; color: #f1f5f9; }
+    .check-message { color: #cbd5e1; }
+    .check-detail { color: #64748b; font-size: 0.78rem; margin-top: 0.25rem; white-space: pre-wrap; max-height: 6rem; overflow: auto; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .suggestion { color: #fcd34d; font-size: 0.82rem; margin-top: 0.35rem; padding: 0.4rem 0.6rem; background: #1c1917; border-left: 3px solid #f59e0b; border-radius: 0 0.3rem 0.3rem 0; }
+    .suggestion code { background: #292524; padding: 0.05rem 0.3rem; border-radius: 0.25rem; font-size: 0.78rem; }
+    .suggestion strong { color: #fde68a; }
+    .running-label { color: #f59e0b; margin-left: 0.5rem; font-size: 0.85rem; }
+    .empty { color: #64748b; font-style: italic; padding: 2rem; text-align: center; }
+    .header-row { display: flex; align-items: baseline; justify-content: space-between; }
+    .gen-at { font-size: 0.8rem; color: #475569; }
+  </style>
+</head>
+<body>
+  <div class="header-row">
+    <h1>PI Dashboard Doctor</h1>
+    <div class="gen-at" id="gen-at"></div>
+  </div>
+  <div class="summary" id="summary">Loading…</div>
+
+  <div class="toolbar">
+    <button class="btn btn-primary" id="btn-rerun">Re-run</button>
+    <span class="running-label" id="running-label" style="display:none">Running…</span>
+    <button class="btn" id="btn-copy-md">Copy as Markdown</button>
+    <button class="btn" id="btn-copy-plain">Copy as Plain</button>
+    <button class="btn" id="btn-open-log">Open server log</button>
+    <button class="btn" id="btn-open-doctor-log">Open doctor log</button>
+    <button class="btn" id="btn-run-setup">Run setup wizard</button>
+    <button class="btn" id="btn-managed">Open ~/.pi-dashboard</button>
+  </div>
+
+  <div id="toast" style="display:none"></div>
+  <div id="content"><div class="empty">Loading…</div></div>
+
+<script>
+  // Type-only contract is shared via DoctorBridge in src/lib/doctor-bridge-contract.ts.
+  // The renderer cannot import TS at runtime, so the channel set is duplicated here.
+  // The lint test (packages/electron/src/__tests__/doctor-window.test.ts) asserts
+  // every channel name in DoctorBridge ↔ ipcMain.handle ↔ this preload stays in sync.
+
+  const SECTION_ORDER = ["runtime", "pi-tooling", "server", "setup", "diagnostics"];
+  const SECTION_LABEL = {
+    runtime: "Runtime",
+    "pi-tooling": "PI Tooling",
+    server: "Server",
+    setup: "Setup",
+    diagnostics: "Diagnostics",
+  };
+
+  // ── helpers ───────────────────────────────────────────────────────────
+  function escapeHtml(s) {
+    if (s === undefined || s === null) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderSuggestion(s) {
+    if (!s) return "";
+    // Render the small Markdown subset: **bold**, single-backtick code, [text](url)
+    let out = escapeHtml(s);
+    // links
+    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t, u) => `<a href="${u}" target="_blank" rel="noopener">${t}</a>`);
+    // bold
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    // code (single backtick)
+    out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+    return `<div class="suggestion">${out}</div>`;
+  }
+
+  function pillFor(status) {
+    const cls = status === "ok" ? "pill-ok" : status === "warning" ? "pill-warn" : "pill-err";
+    const label = status === "ok" ? "OK" : status === "warning" ? "WARN" : "ERR";
+    return `<span class="pill ${cls}">${label}</span>`;
+  }
+
+  function buildHtml(report) {
+    const { ok, warnings, errors } = report.summary;
+    document.getElementById("summary").innerHTML =
+      `<span class="ok">${ok} ok</span> · <span class="warn">${warnings} warning(s)</span> · <span class="err">${errors} error(s)</span>`;
+    if (report.generatedAt) {
+      document.getElementById("gen-at").textContent = new Date(report.generatedAt).toLocaleString();
+    }
+
+    const content = document.getElementById("content");
+    const sections = SECTION_ORDER.map((sec) => {
+      const rows = report.checks.filter((c) => c.section === sec);
+      if (rows.length === 0) return "";
+      const body = rows
+        .map((c) => {
+          const detail = c.detail ? `<div class="check-detail">${escapeHtml(c.detail)}</div>` : "";
+          const sugg = c.status !== "ok" ? renderSuggestion(c.suggestion) : "";
+          return `
+            <tr>
+              <td>${pillFor(c.status)}</td>
+              <td>
+                <div class="check-name">${escapeHtml(c.name)}</div>
+                <div class="check-message">${escapeHtml(c.message)}</div>
+                ${detail}
+                ${sugg}
+              </td>
+            </tr>`;
+        })
+        .join("");
+      return `
+        <div class="section">
+          <h2>${SECTION_LABEL[sec]}</h2>
+          <table>
+            <thead><tr><th style="width:5rem">Status</th><th>Check</th></tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>`;
+    });
+    content.innerHTML = sections.filter(Boolean).join("") || `<div class="empty">No checks reported.</div>`;
+  }
+
+  function showFallback(err) {
+    document.getElementById("summary").textContent = "0 ok · 0 warning(s) · 1 error(s)";
+    const msg = (err && err.message) || String(err) || "Unknown error";
+    document.getElementById("content").innerHTML = `
+      <div class="section">
+        <h2>Diagnostics</h2>
+        <table>
+          <tbody>
+            <tr>
+              <td>${pillFor("error")}</td>
+              <td>
+                <div class="check-name">Doctor failed to produce a report</div>
+                <div class="check-message">${escapeHtml(msg)}</div>
+                ${renderSuggestion("Open `~/.pi-dashboard/doctor.log` for context, then file an issue.")}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function showToast(text, kind) {
+    const el = document.getElementById("toast");
+    el.style.display = "block";
+    el.className = "toast" + (kind === "warn" ? " warn" : kind === "err" ? " err" : "");
+    el.textContent = text;
+    setTimeout(() => { el.style.display = "none"; }, 5000);
+  }
+
+  // ── state ─────────────────────────────────────────────────────────────
+  let lastReport = null;
+  let isRunning = false;
+
+  function setRunning(v) {
+    isRunning = v;
+    document.getElementById("btn-rerun").disabled = v;
+    document.getElementById("running-label").style.display = v ? "inline" : "none";
+  }
+
+  async function runDoctor() {
+    if (isRunning) return;
+    setRunning(true);
+    try {
+      const report = await window.electron.doctor.run();
+      if (!report || !Array.isArray(report.checks) || !report.summary) {
+        throw new Error("Doctor returned an invalid report shape");
+      }
+      lastReport = report;
+      buildHtml(report);
+    } catch (err) {
+      lastReport = null;
+      showFallback(err);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  function plainTextOf(report) {
+    if (!report) return "";
+    const lines = ["PI Dashboard Doctor", "═".repeat(50), ""];
+    for (const c of report.checks) {
+      const icon = c.status === "ok" ? "✓" : c.status === "warning" ? "⚠" : "✗";
+      lines.push(`  ${icon} ${c.name}`);
+      lines.push(`    ${c.message}`);
+      if (c.detail) lines.push(`    ${c.detail}`);
+      if (c.suggestion && c.status !== "ok") lines.push(`    → ${c.suggestion}`);
+    }
+    lines.push("", "─".repeat(50));
+    lines.push(`  ${report.summary.ok} passed, ${report.summary.warnings} warnings, ${report.summary.errors} errors`);
+    return lines.join("\n");
+  }
+
+  function markdownOf(report) {
+    if (!report) return "";
+    // Renderer-side markdown synthesis (the renderer can't call into shared TS).
+    // Mirrors formatDoctorReportMarkdown shape.
+    const fence = (s) => s ? "<code>" + String(s).replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>") + "</code>" : "";
+    const lines = [`# PI Dashboard Doctor`, ""];
+    const { ok, warnings, errors } = report.summary;
+    lines.push(`**Summary:** ${ok} ok · ${warnings} warning(s) · ${errors} error(s)`, "");
+    for (const sec of SECTION_ORDER) {
+      const rows = report.checks.filter((c) => c.section === sec);
+      if (!rows.length) continue;
+      lines.push(`## ${SECTION_LABEL[sec]}`, "");
+      lines.push(`| Status | Check | Message | Detail |`, `| --- | --- | --- | --- |`);
+      for (const c of rows) {
+        const icon = c.status === "ok" ? "✅" : c.status === "warning" ? "⚠️" : "❌";
+        const m = c.message.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+        lines.push(`| ${icon} | ${c.name} | ${m} | ${fence(c.detail)} |`);
+      }
+      lines.push("");
+    }
+    const nonOk = report.checks.filter((c) => c.status !== "ok" && c.suggestion);
+    if (nonOk.length) {
+      lines.push(`## Remediation`, "");
+      for (const c of nonOk) lines.push(`- **${c.name}** — ${c.suggestion}`);
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
+
+  // ── wiring ────────────────────────────────────────────────────────────
+  document.getElementById("btn-rerun").addEventListener("click", () => runDoctor());
+
+  document.getElementById("btn-copy-md").addEventListener("click", async () => {
+    if (!lastReport) return showToast("No report to copy yet.", "warn");
+    const text = markdownOf(lastReport);
+    try { await window.electron.doctor.copy(text); showToast("Copied as Markdown."); }
+    catch (e) { showToast("Copy failed: " + (e && e.message ? e.message : String(e)), "err"); }
+  });
+  document.getElementById("btn-copy-plain").addEventListener("click", async () => {
+    if (!lastReport) return showToast("No report to copy yet.", "warn");
+    const text = plainTextOf(lastReport);
+    try { await window.electron.doctor.copy(text); showToast("Copied as plain text."); }
+    catch (e) { showToast("Copy failed: " + (e && e.message ? e.message : String(e)), "err"); }
+  });
+  document.getElementById("btn-open-log").addEventListener("click", async () => {
+    try { await window.electron.doctor.openLog(); }
+    catch (e) { showToast("Could not open server.log: " + (e && e.message ? e.message : String(e)), "err"); }
+  });
+  document.getElementById("btn-open-doctor-log").addEventListener("click", async () => {
+    try {
+      const r = await window.electron.doctor.openDoctorLog();
+      if (r && r.exists === false) {
+        showToast("No doctor log yet — the doctor has not encountered internal failures.");
+      }
+    } catch (e) {
+      showToast("Could not open doctor.log: " + (e && e.message ? e.message : String(e)), "err");
+    }
+  });
+  document.getElementById("btn-run-setup").addEventListener("click", async () => {
+    try { await window.electron.doctor.runSetup(); }
+    catch (e) { showToast("Could not open setup: " + (e && e.message ? e.message : String(e)), "err"); }
+  });
+  document.getElementById("btn-managed").addEventListener("click", async () => {
+    try { await window.electron.doctor.openManagedDir(); }
+    catch (e) { showToast("Could not open managed dir: " + (e && e.message ? e.message : String(e)), "err"); }
+  });
+
+  // Initial run.
+  runDoctor();
+</script>
+</body>
+</html>

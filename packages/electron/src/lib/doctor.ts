@@ -1,12 +1,13 @@
 /**
  * Doctor: diagnose the PI Dashboard installation.
- * Checks all required binaries, services, and configuration.
- * Reports what's found, what's missing, and can fix missing pieces.
+ * Delegates portable checks to `@blackbelt-technology/pi-dashboard-shared/doctor-core.js`
+ * and keeps Electron-only checks (Electron version, bundled Node, bundled npm,
+ * server-code path, offline-packages bundle, server-launch test) inline.
+ *
+ * See change: doctor-rich-output (tasks 2.1 – 2.10).
  */
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { app } from "electron";
 import { detectPi, detectOpenSpec, detectSystemNode, detectDashboardPackage } from "./dependency-detector.js";
 import { getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
@@ -14,28 +15,23 @@ import { isApiKeyConfigured } from "./wizard-state.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 import { resolveOfflinePackages } from "./offline-packages.js";
 import { installManagedNode } from "@blackbelt-technology/pi-dashboard-shared/bootstrap-install.js";
+import {
+  type DoctorCheck,
+  type DoctorReport,
+  type DoctorStatus,
+  runSharedChecks,
+  safeExec,
+  safeCheck,
+  assumedMandatory,
+  stampSectionsAndSuggestions,
+  formatDoctorReportPlain,
+  formatDoctorReportMarkdown as sharedFormatDoctorReportMarkdown,
+} from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 
-export interface DoctorCheck {
-  name: string;
-  status: "ok" | "warning" | "error";
-  message: string;
-  detail?: string;
-  fixable?: boolean;
-}
+export type { DoctorCheck, DoctorReport, DoctorStatus } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
 
-export interface DoctorReport {
-  checks: DoctorCheck[];
-  summary: { ok: number; warnings: number; errors: number };
-}
-
-/** Get version from a command, or null. */
-function getVersion(cmd: string): string | null {
-  try {
-    return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: 5000 }).trim();
-  } catch {
-    return null;
-  }
-}
+/** Re-export the shared markdown formatter so app-menu/doctor-window can consume it. */
+export const formatDoctorReportMarkdown = sharedFormatDoctorReportMarkdown;
 
 /** Get version from a package.json path. */
 function getPkgVersion(pkgJsonPath: string): string | null {
@@ -53,8 +49,6 @@ function getPkgVersion(pkgJsonPath: string): string | null {
  * `~/.pi-dashboard/node/`. Always invokes `installManagedNode` so a
  * missing or version-mismatched copy is restored; idempotent when the
  * marker matches.
- *
- * Exported for the unit test in `__tests__/doctor-managed-node.test.ts`.
  */
 export async function checkManagedNodeRuntime(opts?: {
   install?: typeof installManagedNode;
@@ -65,7 +59,7 @@ export async function checkManagedNodeRuntime(opts?: {
   const bundledNodeBinary = opts?.bundledNodeBinary ?? getBundledNodePath();
   const managedDir = opts?.managedDir ?? MANAGED_DIR;
   const bundledDir = bundledNodeBinary
-    ? (process.platform === "win32" // platform-branch-ok: Node distribution layout differs Windows vs Unix
+    ? (process.platform === "win32" // platform-branch-ok
         ? path.dirname(bundledNodeBinary)
         : path.dirname(path.dirname(bundledNodeBinary)))
     : null;
@@ -78,7 +72,7 @@ export async function checkManagedNodeRuntime(opts?: {
     installError = err instanceof Error ? err.message : String(err);
   }
 
-  const managedNodeBinary = process.platform === "win32" // platform-branch-ok: Node distribution layout differs Windows vs Unix
+  const managedNodeBinary = process.platform === "win32"
     ? path.join(managedDir, "node", "node.exe")
     : path.join(managedDir, "node", "bin", "node");
   const markerPath = path.join(managedDir, "node", ".version");
@@ -90,6 +84,7 @@ export async function checkManagedNodeRuntime(opts?: {
   if (installError) {
     return {
       name: "Managed Node runtime",
+      section: "runtime",
       status: "warning",
       message: `Failed to install: ${installError}`,
       detail: `Target: ${path.join(managedDir, "node")}`,
@@ -99,6 +94,7 @@ export async function checkManagedNodeRuntime(opts?: {
   if (!present && !bundledDir) {
     return {
       name: "Managed Node runtime",
+      section: "runtime",
       status: "warning",
       message: "Not installed (no bundled source — standalone CLI install)",
       detail: `System Node will be used. Target: ${path.join(managedDir, "node")}`,
@@ -107,6 +103,7 @@ export async function checkManagedNodeRuntime(opts?: {
   if (!present) {
     return {
       name: "Managed Node runtime",
+      section: "runtime",
       status: "error",
       message: "Install attempted but binary not found",
       detail: `Target: ${managedNodeBinary}`,
@@ -115,139 +112,198 @@ export async function checkManagedNodeRuntime(opts?: {
   }
   return {
     name: "Managed Node runtime",
+    section: "runtime",
     status: "ok",
     message: `${markerVersion || "installed"} at ${path.join(managedDir, "node")}`,
   };
 }
 
-/** Run all doctor checks. Async because the managed-Node-runtime
- * check awaits the idempotent `installManagedNode` repair step. */
+/** Probe the dashboard server's /api/health endpoint via curl through safeExec. */
+function probeServer(): Promise<{
+  running: boolean;
+  version?: string;
+  mode?: string;
+  starter?: string | null;
+  installable?: { total: number; installed: number; failed: string[] } | null;
+}> {
+  const r = safeExec("curl -sf http://localhost:8000/api/health 2>/dev/null", { timeoutMs: 3000 });
+  if (!r.ok || !r.stdout.trim()) return Promise.resolve({ running: false });
+  try {
+    const health = JSON.parse(r.stdout);
+    return Promise.resolve({
+      running: true,
+      version: typeof health.version === "string" ? health.version : undefined,
+      mode: typeof health.mode === "string" ? health.mode : undefined,
+      starter: typeof health.starter === "string" ? health.starter : null,
+      installable:
+        health.installable && typeof health.installable === "object"
+          ? {
+              total: health.installable.total ?? 0,
+              installed: health.installable.installed ?? 0,
+              failed: Array.isArray(health.installable.failed) ? health.installable.failed : [],
+            }
+          : null,
+    });
+  } catch {
+    return Promise.resolve({ running: true });
+  }
+}
+
+/** Run all doctor checks. Wraps the body in try/catch so the renderer
+ * never receives a rejection from `doctor:run`. */
 export async function runDoctor(): Promise<DoctorReport> {
+  try {
+    return await runDoctorInner();
+  } catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    const fallback: DoctorCheck = {
+      name: "Doctor failed to produce a report",
+      section: "diagnostics",
+      status: "error",
+      message: "Unexpected internal failure",
+      detail: `${e.message}\n${(e.stack || "").split("\n").slice(0, 4).join("\n")}`,
+      suggestion:
+        "Open `~/.pi-dashboard/doctor.log` for full context, then file an issue with the captured error attached.",
+    };
+    return {
+      checks: [fallback],
+      summary: { ok: 0, warnings: 0, errors: 1 },
+      generatedAt: Date.now(),
+    };
+  }
+}
+
+async function runDoctorInner(): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
 
   // ── Electron app ─────────────────────────────────────────────
+  const appVersionResult = assumedMandatory("app.getVersion()", () => app.getVersion(), {
+    managedDir: MANAGED_DIR,
+  });
+  const appVersion = appVersionResult.ok ? appVersionResult.value : "unknown";
+  if (!appVersionResult.ok) checks.push(appVersionResult.row);
 
   const electronVersion = process.versions.electron || "unknown";
   const chromeVersion = process.versions.chrome || "unknown";
   checks.push({
     name: "Electron",
+    section: "runtime",
     status: "ok",
     message: `${electronVersion} (Chromium ${chromeVersion})`,
-    detail: `App version: ${app.getVersion()}, Platform: ${process.platform} ${process.arch}`,
+    detail: `App version: ${appVersion}, Platform: ${process.platform} ${process.arch}`,
   });
 
-  // ── Node.js ──────────────────────────────────────────────────
-
-  // System Node
-  const systemNode = detectSystemNode();
-  const systemNodeVersion = systemNode.found
-    ? getVersion(`"${systemNode.path}" --version`)
-    : null;
-
-  checks.push({
-    name: "System Node.js",
-    status: systemNode.found ? "ok" : "warning",
-    message: systemNode.found
-      ? `${systemNodeVersion} at ${systemNode.path}`
-      : "Not found on PATH (bundled Node will be used)",
-  });
-
-  // Bundled Node
+  // ── Bundled Node ─────────────────────────────────────────────
   const bundledNode = getBundledNodePath();
-  const bundledNodeVersion = bundledNode ? getVersion(`"${bundledNode}" --version`) : null;
+  checks.push(
+    await safeCheck("Bundled Node.js", "runtime", () => {
+      const sysFound = detectSystemNode().found;
+      if (!bundledNode) {
+        return {
+          name: "Bundled Node.js",
+          section: "runtime",
+          status: sysFound ? "warning" : "error",
+          message: "Not found in app resources",
+          detail: `Searched ${(process as { resourcesPath?: string }).resourcesPath ?? "(no resourcesPath)"}`,
+          fixable: !sysFound,
+        };
+      }
+      const ver = safeExec(`"${bundledNode}" --version`, { timeoutMs: 15000 });
+      if (!ver.ok) {
+        const messages: Record<string, string> = {
+          "not-found": "Bundled Node binary missing from app resources",
+          "permission-denied": "Bundled Node binary not executable",
+          timeout: "Bundled Node hung during version probe (15s deadline exceeded)",
+          "non-zero-exit": "Bundled Node executed but reported failure",
+          unknown: "Bundled Node failed for an unknown reason",
+        };
+        return {
+          name: "Bundled Node.js",
+          section: "runtime",
+          status: "error",
+          message: messages[ver.kind] ?? "Bundled Node failed",
+          detail: `${ver.detail}${ver.stderrTail ? `\nstderr: ${ver.stderrTail}` : ""}`,
+          kind: ver.kind,
+        };
+      }
+      return {
+        name: "Bundled Node.js",
+        section: "runtime",
+        status: "ok",
+        message: `${ver.stdout.trim()} at ${bundledNode}`,
+      };
+    }),
+  );
 
-  checks.push({
-    name: "Bundled Node.js",
-    status: bundledNode ? "ok" : (systemNode.found ? "warning" : "error"),
-    message: bundledNode
-      ? `${bundledNodeVersion} at ${bundledNode}`
-      : "Not found in app resources",
-    fixable: !bundledNode && !systemNode.found,
-  });
-
-  // Bundled npm
+  // ── Bundled npm ──────────────────────────────────────────────
   const bundledNpm = getBundledNpmPath();
-  const bundledNpmVersion = bundledNpm
-    ? getPkgVersion(path.join(path.dirname(bundledNpm), "..", "package.json"))
+  checks.push(
+    await safeCheck("Bundled npm", "runtime", () => {
+      if (!bundledNpm) {
+        const sysFound = detectSystemNode().found;
+        return {
+          name: "Bundled npm",
+          section: "runtime",
+          status: sysFound ? "warning" : "error",
+          message: "Not found in app resources",
+          detail: `Searched ${(process as { resourcesPath?: string }).resourcesPath ?? "(no resourcesPath)"}`,
+        };
+      }
+      const npmPkg = path.join(path.dirname(bundledNpm), "..", "package.json");
+      const ver = getPkgVersion(npmPkg);
+      return {
+        name: "Bundled npm",
+        section: "runtime",
+        status: "ok",
+        message: `${ver || "installed"} at ${bundledNpm}`,
+      };
+    }),
+  );
+
+  // ── Managed Node runtime ─────────────────────────────────────
+  checks.push(await checkManagedNodeRuntime());
+
+  // ── Shared (portable) checks ─────────────────────────────────
+  const shared = await runSharedChecks({
+    managedDir: MANAGED_DIR,
+    detectSystemNode: () => {
+      const r = detectSystemNode();
+      return { found: r.found, path: r.path };
+    },
+    detectPi: () => {
+      const r = detectPi();
+      return { found: r.found, path: r.path, source: r.source };
+    },
+    detectOpenSpec: () => {
+      const r = detectOpenSpec();
+      return { found: r.found, path: r.path, source: r.source };
+    },
+    probeServer,
+    isApiKeyConfigured,
+  });
+  // Splice them in BEFORE the Electron-only "Dashboard server code" / offline / launch-test rows
+  // for stable UI ordering. We push them inline now and rely on stampSectionsAndSuggestions for grouping.
+  for (const c of shared) checks.push(c);
+
+  // ── Dashboard server code (Electron-only path) ──────────────
+  const resourcesPath = (process as { resourcesPath?: string }).resourcesPath;
+  const bundledServerCli = resourcesPath
+    ? path.join(resourcesPath, "server", "packages", "server", "src", "cli.ts")
     : null;
-  checks.push({
-    name: "Bundled npm",
-    status: bundledNpm ? "ok" : (systemNode.found ? "warning" : "error"),
-    message: bundledNpm
-      ? `${bundledNpmVersion || "installed"} at ${bundledNpm}`
-      : "Not found in app resources",
-  });
-
-  // ── Managed Node runtime (~/.pi-dashboard/node/) ─────────────
-  // Self-healing repair: invoke installManagedNode unconditionally.
-  // Idempotent — no-op when the marker matches the bundled version,
-  // re-copies on missing or mismatched marker. Fixes the user-visible
-  // bug class "where npm returns nothing on Windows".
-  // See change: embed-managed-node-runtime (task 7.1).
-  const managedNodeRow = await checkManagedNodeRuntime();
-  checks.push(managedNodeRow);
-
-  // ── pi CLI ───────────────────────────────────────────────────
-
-  const pi = detectPi();
-  let piVersion: string | null = null;
-  if (pi.found && pi.path) {
-    // Try CLI --version first, fall back to package.json
-    piVersion = getVersion(`"${pi.path}" --version 2>/dev/null`);
-  }
-  const managedPiPkg = path.join(MANAGED_DIR, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
-  const managedPiVersion = getPkgVersion(managedPiPkg);
-  const piDisplayVersion = piVersion || managedPiVersion;
-
-  checks.push({
-    name: "pi CLI",
-    status: pi.found ? "ok" : "error",
-    message: pi.found
-      ? `v${piDisplayVersion || "?"} (${pi.source}) at ${pi.path}`
-      : "Not found — required to run agent sessions",
-    fixable: !pi.found,
-  });
-
-  // ── openspec CLI ─────────────────────────────────────────────
-
-  const openspec = detectOpenSpec();
-  let openspecVersion: string | null = null;
-  if (openspec.found && openspec.path) {
-    openspecVersion = getVersion(`"${openspec.path}" --version 2>/dev/null`);
-  }
-  const managedOsPkg = path.join(MANAGED_DIR, "node_modules", "@fission-ai", "openspec", "package.json");
-  const managedOsVersion = getPkgVersion(managedOsPkg);
-  const osDisplayVersion = openspecVersion || managedOsVersion;
-
-  checks.push({
-    name: "openspec CLI",
-    status: openspec.found ? "ok" : "warning",
-    message: openspec.found
-      ? `v${osDisplayVersion || "?"} (${openspec.source}) at ${openspec.path}`
-      : "Not found — optional, needed for OpenSpec workflows",
-    fixable: !openspec.found,
-  });
-
-  // ── Dashboard package ────────────────────────────────────────
-
-  // Check for bundled server (in Electron resources) OR installed package
-  const bundledServerCli = (process as any).resourcesPath
-    ? path.join((process as any).resourcesPath, "server", "packages", "server", "src", "cli.ts")
-    : null;
-  const hasBundledServer = bundledServerCli && existsSync(bundledServerCli);
+  const hasBundledServer = !!(bundledServerCli && existsSync(bundledServerCli));
 
   const dashboard = detectDashboardPackage();
   let dashVersion: string | null = null;
   if (dashboard.found && dashboard.path) {
     dashVersion = getPkgVersion(dashboard.path);
   }
-  if (hasBundledServer && !dashVersion) {
-    const bundledPkg = path.join((process as any).resourcesPath, "server", "packages", "server", "package.json");
+  if (hasBundledServer && !dashVersion && resourcesPath) {
+    const bundledPkg = path.join(resourcesPath, "server", "packages", "server", "package.json");
     dashVersion = getPkgVersion(bundledPkg);
   }
-
   checks.push({
     name: "Dashboard server code",
+    section: "server",
     status: hasBundledServer || dashboard.found ? "ok" : "error",
     message: hasBundledServer
       ? `v${dashVersion || "?"} (bundled) at ${bundledServerCli}`
@@ -257,260 +313,134 @@ export async function runDoctor(): Promise<DoctorReport> {
     fixable: !hasBundledServer && !dashboard.found,
   });
 
-  // ── Offline packages bundle ─────────────────────────
-  // Per-platform cacache of pi + openspec + tsx. Present in release
-  // builds (via BUNDLE_OFFLINE_PACKAGES=1 in CI), absent in dev builds.
-  const resourcesPath = (process as any).resourcesPath as string | undefined;
-  const offlineResolution = resourcesPath
-    ? resolveOfflinePackages(resourcesPath)
-    : { present: false as const, reason: "no resourcesPath" };
-
-  if (offlineResolution.present) {
-    const m = offlineResolution.manifest;
-    const pkgList = m.packages.map(p => `${p.name.split("/").pop()}@${p.version}`).join(", ");
-    checks.push({
-      name: "Offline packages bundle",
-      status: "ok",
-      message: `Present (target=${m.targetPlatform}, ${m.packages.length} pinned)`,
-      detail: `${pkgList} — bundled ${m.bundledAt}, sha256 ${m.sha256.slice(0, 12)}…`,
-    });
+  // ── Offline packages bundle ──────────────────────────────────
+  const offlineRow = assumedMandatory(
+    "resolveOfflinePackages",
+    () => (resourcesPath ? resolveOfflinePackages(resourcesPath) : { present: false as const, reason: "no resourcesPath" }),
+    { managedDir: MANAGED_DIR },
+  );
+  if (!offlineRow.ok) {
+    checks.push(offlineRow.row);
   } else {
-    checks.push({
-      name: "Offline packages bundle",
-      status: "warning",
-      message: "Not bundled (registry-install mode)",
-      detail: `First-run will require network access to registry.npmjs.org. Reason: ${offlineResolution.reason}`,
-    });
-  }
-
-  // ── tsx / TypeScript loader ──────────────────────────────────
-
-  const managedTsx = path.join(MANAGED_DIR, "node_modules", "tsx", "package.json");
-  const tsxVersion = getPkgVersion(managedTsx);
-  let systemTsx: string | null = null;
-  let systemTsxVersion: string | null = null;
-  try {
-    systemTsx = execSync(process.platform === "win32" ? "where tsx" : "which tsx", {
-      encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"],
-    }).trim().split("\n")[0];
-    if (systemTsx) {
-      systemTsxVersion = getVersion(`"${systemTsx}" --version 2>/dev/null`);
-    }
-  } catch { /* not found */ }
-
-  const tsxFound = !!tsxVersion || !!systemTsx;
-  const tsxDisplayVersion = tsxVersion || systemTsxVersion;
-  checks.push({
-    name: "TypeScript loader (tsx)",
-    status: tsxFound ? "ok" : "error",
-    message: tsxFound
-      ? tsxVersion
-        ? `v${tsxVersion} (managed) at ${path.dirname(managedTsx)}`
-        : `v${systemTsxVersion || "?"} (system) at ${systemTsx}`
-      : "Not found — required to run the dashboard server",
-    fixable: !tsxFound,
-  });
-
-  // ── Dashboard server ─────────────────────────────────────────
-
-  let serverRunning = false;
-  let serverMode: string | null = null;
-  let serverVersion: string | null = null;
-  try {
-    const res = execSync("curl -sf http://localhost:8000/api/health 2>/dev/null", {
-      encoding: "utf-8", timeout: 3000,
-    });
-    if (res) {
-      serverRunning = true;
-      try {
-        const health = JSON.parse(res);
-        serverMode = health.mode || null;
-        serverVersion = health.version || null;
-      } catch { /* not JSON */ }
-    }
-  } catch { /* not running */ }
-
-  checks.push({
-    name: "Dashboard server",
-    status: serverRunning ? "ok" : "warning",
-    message: serverRunning
-      ? `Running${serverVersion ? " v" + serverVersion : ""}${serverMode ? " (" + serverMode + " mode)" : ""} at http://localhost:8000`
-      : "Not running — will be started automatically when needed",
-  });
-
-  // ── Launch source + starter + installable (Phase C) ─────────
-  // See change: simplify-electron-bootstrap-derived-state (task 6.8).
-
-  // Parse health JSON we already fetched above.
-  let serverStarter: string | null = null;
-  let serverInstallable: { total: number; installed: number; failed: string[] } | null = null;
-  if (serverRunning) {
-    try {
-      const healthRes = execSync("curl -sf http://localhost:8000/api/health 2>/dev/null", {
-        encoding: "utf-8", timeout: 3000,
+    const offlineResolution = offlineRow.value;
+    if (offlineResolution.present) {
+      const m = offlineResolution.manifest;
+      const pkgList = m.packages.map((p) => `${p.name.split("/").pop()}@${p.version}`).join(", ");
+      checks.push({
+        name: "Offline packages bundle",
+        section: "server",
+        status: "ok",
+        message: `Present (target=${m.targetPlatform}, ${m.packages.length} pinned)`,
+        detail: `${pkgList} — bundled ${m.bundledAt}, sha256 ${m.sha256.slice(0, 12)}…`,
       });
-      const healthData = JSON.parse(healthRes);
-      serverStarter = typeof healthData.starter === "string" ? healthData.starter : null;
-      if (healthData.installable && typeof healthData.installable === "object") {
-        serverInstallable = {
-          total: healthData.installable.total ?? 0,
-          installed: healthData.installable.installed ?? 0,
-          failed: Array.isArray(healthData.installable.failed) ? healthData.installable.failed : [],
-        };
-      }
-    } catch { /* health not parseable */ }
-  }
-
-  checks.push({
-    name: "Server starter",
-    status: serverStarter ? "ok" : (serverRunning ? "warning" : "warning"),
-    message: serverStarter
-      ? serverStarter
-      : (serverRunning ? "Unknown (old server?)" : "Server not running"),
-  });
-
-  if (serverInstallable) {
-    const failCount = serverInstallable.failed.length;
-    checks.push({
-      name: "Installable list",
-      status: failCount > 0 ? "error" : "ok",
-      message: `${serverInstallable.installed}/${serverInstallable.total} installed` +
-        (failCount > 0 ? `, ${failCount} failed: ${serverInstallable.failed.join(", ")}` : ""),
-      fixable: failCount > 0,
-    });
-  }
-
-  // ── API key ──────────────────────────────────────────────────
-
-  const hasApiKey = isApiKeyConfigured();
-  checks.push({
-    name: "API key",
-    status: hasApiKey ? "ok" : "warning",
-    message: hasApiKey
-      ? "Configured in pi settings"
-      : "Not configured — pi sessions will need a key to use LLM providers",
-  });
-
-  // ── Server log ─────────────────────────────────────────────
-
-  const logPath = path.join(MANAGED_DIR, "server.log");
-  let lastLogLines = "";
-  if (existsSync(logPath)) {
-    try {
-      const content = readFileSync(logPath, "utf-8");
-      lastLogLines = content.split("\n").slice(-10).join("\n").trim();
-    } catch { /* ignore */ }
-  }
-
-  if (!serverRunning && lastLogLines) {
-    checks.push({
-      name: "Server log (~/.pi-dashboard/server.log)",
-      status: "warning",
-      message: "Last entries:",
-      detail: lastLogLines,
-    });
-  }
-
-  // If server not running, try a test launch to capture the error
-  if (!serverRunning) {
-    const testCli = hasBundledServer ? bundledServerCli : null;
-    // Use tsx binary (not --import register.js — that doesn't shim __dirname)
-    const ext = process.platform === "win32" ? ".cmd" : "";
-    const managedTsxBin = path.join(MANAGED_DIR, "node_modules", ".bin", "tsx" + ext);
-    const testTsxBin = existsSync(managedTsxBin) ? managedTsxBin : systemTsx;
-
-    if (testCli && testTsxBin) {
-      let testError = "";
-      try {
-        // Build PATH with bundled node + managed bins (same as server-lifecycle.ts)
-        const testEnv = { ...process.env };
-        const extraPaths = [bundledNode ? path.dirname(bundledNode) : null, path.dirname(testTsxBin)].filter(Boolean);
-        testEnv.PATH = `${extraPaths.join(path.delimiter)}${path.delimiter}${testEnv.PATH || ""}`;
-        // Use tsx binary to load the server CLI — same as server-lifecycle.ts
-        // JSON.stringify handles backslash + quote escaping (critical on Windows where paths contain \u, \U etc. that JS would parse as unicode escapes)
-        const importSpec = JSON.stringify(testCli);
-        const testCmd = `"${testTsxBin}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)" 2>&1`;
-        execSync(testCmd, { encoding: "utf-8", timeout: 10000, env: testEnv });
-      } catch (err: any) {
-        testError = (err.stderr || err.stdout || err.message || "").toString().trim();
-        // Take last 10 lines
-        testError = testError.split("\n").slice(-10).join("\n");
-      }
-      if (testError) {
-        checks.push({
-          name: "Server launch test",
-          status: "error",
-          message: "Server fails to start:",
-          detail: testError,
-        });
-      }
     } else {
       checks.push({
-        name: "Server launch test",
-        status: "error",
-        message: "Cannot test launch — missing components:",
-        detail: [
-          testCli ? null : "No server CLI",
-          testTsxBin ? null : "No tsx binary",
-        ].filter(Boolean).join(", "),
+        name: "Offline packages bundle",
+        section: "server",
+        status: "warning",
+        message: "Not bundled (registry-install mode)",
+        detail: `First-run will require network access to registry.npmjs.org. Reason: ${offlineResolution.reason}`,
       });
     }
   }
 
-  // ── Managed install directory ────────────────────────────────
-
-  const managedExists = existsSync(MANAGED_DIR);
-  const managedPkgJson = existsSync(path.join(MANAGED_DIR, "package.json"));
-  const managedModules = existsSync(path.join(MANAGED_DIR, "node_modules"));
-
-  checks.push({
-    name: "Managed install (~/.pi-dashboard)",
-    status: managedExists && managedModules ? "ok" : managedExists ? "warning" : "warning",
-    message: managedExists
-      ? managedModules
-        ? `Exists with node_modules at ${MANAGED_DIR}`
-        : `Exists but no node_modules — may need reinstall`
-      : "Not created yet — will be set up on first run",
-  });
-
-  // ── Summary ──────────────────────────────────────────────────
-
-  const summary = {
-    ok: checks.filter(c => c.status === "ok").length,
-    warnings: checks.filter(c => c.status === "warning").length,
-    errors: checks.filter(c => c.status === "error").length,
-  };
-
-  return { checks, summary };
-}
-
-/** Format the doctor report as a readable string. */
-export function formatDoctorReport(report: DoctorReport): string {
-  const lines: string[] = [];
-  lines.push("PI Dashboard Doctor");
-  lines.push("═".repeat(50));
-  lines.push("");
-
-  for (const check of report.checks) {
-    const icon = check.status === "ok" ? "✓" : check.status === "warning" ? "⚠" : "✗";
-    const fixHint = check.fixable ? " [fixable]" : "";
-    lines.push(`  ${icon} ${check.name}${fixHint}`);
-    lines.push(`    ${check.message}`);
-    if (check.detail) lines.push(`    ${check.detail}`);
-  }
-
-  lines.push("");
-  lines.push("─".repeat(50));
-  lines.push(`  ${report.summary.ok} passed, ${report.summary.warnings} warnings, ${report.summary.errors} errors`);
-
-  if (report.summary.errors > 0) {
-    const fixable = report.checks.filter(c => c.status === "error" && c.fixable);
-    if (fixable.length > 0) {
-      lines.push("");
-      lines.push(`  ${fixable.length} error(s) can be fixed automatically.`);
-      lines.push("  Run setup wizard to install missing components.");
+  // ── Server starter / installable list (from health JSON) ────
+  const probe = await probeServer();
+  if (probe.running) {
+    checks.push({
+      name: "Server starter",
+      section: "server",
+      status: probe.starter ? "ok" : "warning",
+      message: probe.starter ?? "Unknown (old server?)",
+    });
+    if (probe.installable) {
+      const failCount = probe.installable.failed.length;
+      checks.push({
+        name: "Installable list",
+        section: "server",
+        status: failCount > 0 ? "error" : "ok",
+        message:
+          `${probe.installable.installed}/${probe.installable.total} installed` +
+          (failCount > 0 ? `, ${failCount} failed: ${probe.installable.failed.join(", ")}` : ""),
+        fixable: failCount > 0,
+      });
     }
   }
 
-  return lines.join("\n");
+  // ── Server launch sanity test (only when server is not running) ──
+  if (!probe.running) {
+    await runServerLaunchTest(checks, { hasBundledServer, bundledServerCli, bundledNode });
+  }
+
+  // ── Stamp section + suggestion ───────────────────────────────
+  stampSectionsAndSuggestions(checks);
+
+  // ── Summary ─────────────────────────────────────────────────
+  const summary = {
+    ok: checks.filter((c) => c.status === "ok").length,
+    warnings: checks.filter((c) => c.status === "warning").length,
+    errors: checks.filter((c) => c.status === "error").length,
+  };
+  return { checks, summary, generatedAt: Date.now() };
+}
+
+async function runServerLaunchTest(
+  checks: DoctorCheck[],
+  ctx: { hasBundledServer: boolean; bundledServerCli: string | null; bundledNode: string | null },
+): Promise<void> {
+  const { hasBundledServer, bundledServerCli, bundledNode } = ctx;
+  const ext = process.platform === "win32" ? ".cmd" : "";
+  const managedTsxBin = path.join(MANAGED_DIR, "node_modules", ".bin", "tsx" + ext);
+  let testTsxBin: string | null = existsSync(managedTsxBin) ? managedTsxBin : null;
+  if (!testTsxBin) {
+    const lookup = safeExec(process.platform === "win32" ? "where tsx" : "which tsx", { timeoutMs: 5000 });
+    if (lookup.ok) testTsxBin = lookup.stdout.trim().split("\n")[0] || null;
+  }
+  const testCli = hasBundledServer ? bundledServerCli : null;
+
+  if (!testCli || !testTsxBin) {
+    checks.push({
+      name: "Server launch test",
+      section: "server",
+      status: "error",
+      message: "Cannot test launch — missing components",
+      detail: [testCli ? null : "No server CLI", testTsxBin ? null : "No tsx binary"].filter(Boolean).join(", "),
+    });
+    return;
+  }
+
+  const extraPaths = [bundledNode ? path.dirname(bundledNode) : null, path.dirname(testTsxBin)].filter(Boolean) as string[];
+  const env = { ...process.env, PATH: `${extraPaths.join(path.delimiter)}${path.delimiter}${process.env.PATH ?? ""}` };
+  const importSpec = JSON.stringify(testCli);
+  const cmd = `"${testTsxBin}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
+  const r = safeExec(cmd, { timeoutMs: 15000, env });
+  if (r.ok) {
+    checks.push({
+      name: "Server launch test",
+      section: "server",
+      status: "ok",
+      message: "Server launches cleanly",
+    });
+    return;
+  }
+  const messages: Record<string, string> = {
+    "not-found": "Server launch test: tsx or server CLI binary missing",
+    "permission-denied": "Server launch test: binary not executable",
+    timeout: "Server hung during launch test (15s deadline exceeded)",
+    "non-zero-exit": "Server fails to start",
+    unknown: "Server launch test failed for an unknown reason",
+  };
+  checks.push({
+    name: "Server launch test",
+    section: "server",
+    status: "error",
+    message: messages[r.kind] ?? "Server launch test failed",
+    detail: `${r.detail}${r.stderrTail ? `\nstderr: ${r.stderrTail}` : ""}`,
+    kind: r.kind,
+  });
+}
+
+/** Plain-text formatter (legacy, byte-identical to pre-refactor output). */
+export function formatDoctorReport(report: DoctorReport): string {
+  return formatDoctorReportPlain(report);
 }

@@ -3,8 +3,8 @@
  * - macOS: App menu (About, Doctor), Edit, View, Window
  * - Windows/Linux: top-level About, Doctor, View (reload, devtools, zoom)
  */
-import { app, Menu, clipboard, dialog, BrowserWindow, type MenuItemConstructorOptions } from "electron";
-import { runDoctor, formatDoctorReport } from "./doctor.js";
+import { app, Menu, dialog, BrowserWindow, type MenuItemConstructorOptions } from "electron";
+import { openDoctorWindow } from "./doctor-window.js";
 
 function showAboutDialog(): void {
   dialog.showMessageBox({
@@ -15,27 +15,14 @@ function showAboutDialog(): void {
   });
 }
 
+/**
+ * Open the dedicated Doctor BrowserWindow.
+ *
+ * Replaces the legacy native dialog. Idempotent: a second click focuses
+ * the existing window. See change: doctor-rich-output (task 3.6).
+ */
 export async function showDoctorDialog(): Promise<void> {
-  const report = await runDoctor();
-  const text = formatDoctorReport(report);
-
-  const buttons = ["Copy to Clipboard"];
-  if (report.summary.errors > 0) buttons.push("Run Setup");
-  buttons.push("OK");
-
-  dialog.showMessageBox({
-    type: report.summary.errors > 0 ? "warning" : "info",
-    title: "PI Dashboard Doctor",
-    message: `${report.summary.ok} passed, ${report.summary.warnings} warnings, ${report.summary.errors} errors`,
-    detail: text,
-    buttons,
-  }).then(({ response }) => {
-    if (buttons[response] === "Copy to Clipboard") {
-      clipboard.writeText(text);
-    } else if (buttons[response] === "Run Setup") {
-      app.emit("run-setup-wizard" as any);
-    }
-  });
+  openDoctorWindow();
 }
 
 export function setupAppMenu(): void {

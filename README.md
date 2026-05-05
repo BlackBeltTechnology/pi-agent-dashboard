@@ -271,6 +271,8 @@ The bridge extension **automatically starts the dashboard server** when pi launc
 
 In the Electron app, if the initial launch attempts fail (or the server is stopped externally), the **loading page exposes a Start server button**, an **Open Doctor link**, and a collapsible **Server log** panel showing the last 20 lines of `~/.pi/dashboard/server.log`. The system tray menu also includes a **Start server / Restart server** item that reflects current server state. All entry points share a single idempotent launch routine in the Electron main process.
 
+**Doctor diagnostics.** Help → Doctor (or the loading-page link) opens a styled `BrowserWindow` (`doctor.html`) that runs the same checks the Electron app already performed — grouped into sections (Runtime, Pi, Server, Bundles, Diagnostics) with status pills, paths, and per-row suggestion callouts; toolbar offers Re-run, Copy as Markdown / Plain, Open server log, Open doctor log, Run setup wizard. The web client exposes the portable subset at **Settings → Diagnostics**, which fetches `/api/doctor` and renders the same sections (Electron-only rows omitted). Both surfaces share `packages/shared/src/doctor-core.ts`, so a check defined once shows up everywhere.
+
 ### Daemon mode
 
 ```bash

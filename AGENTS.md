@@ -450,6 +450,14 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/server/src/bootstrap-install-from-list.ts` | Per-package reconcile loop reading `~/.pi/dashboard/installable.json`; no-op when file absent |
 | `packages/server/src/extension-register.ts` | Auto-registers bundled bridge extension in pi global settings on startup |
 | `packages/electron/src/lib/doctor.ts` | Doctor diagnostic: checks all binaries, versions, server status, offers setup |
+| `packages/shared/src/doctor-core.ts` | Shared doctor primitives: types, SECTION_OF, SUGGESTIONS, safeExec/safeCheck/assumedMandatory, runSharedChecks, formatDoctorReportMarkdown |
+| `packages/electron/src/lib/doctor-bridge-contract.ts` | Typed `DoctorBridge` interface + frozen `DOCTOR_IPC_CHANNELS` (channel-name-drift lint) |
+| `packages/electron/src/lib/doctor-window.ts` | `openDoctorWindow()` factory + IPC handlers (`doctor:run` etc.); concurrent-run serialization; closed→null leak fix |
+| `packages/electron/src/preload/doctor-preload.ts` | Preload bridge exposing `window.electron.doctor` to `doctor.html` |
+| `packages/electron/src/renderer/doctor.html` | Hand-rolled Doctor renderer — sections, status pills, suggestion callouts, toolbar |
+| `packages/server/src/routes/doctor-routes.ts` | `GET /api/doctor` route — auth-gated; runs `runSharedChecks`; 200 + fallback row on internal failure |
+| `packages/client/src/lib/doctor-api.ts` | Client fetch helper for `/api/doctor` with `DoctorFetchError` typed envelope |
+| `packages/client/src/components/DiagnosticsSection.tsx` | Settings → Diagnostics — fetch, sections, suggestions, copy-to-clipboard with textarea fallback |
 | `packages/electron/src/lib/app-menu.ts` | App menu with About dialog and Doctor on all platforms |
 | `packages/electron/src/lib/tray.ts` | System tray with platform-specific icons |
 | `packages/electron/src/lib/dependency-installer.ts` | Async npm install of pi/openspec/tsx into `~/.pi-dashboard/` (Windows-hardened) |
