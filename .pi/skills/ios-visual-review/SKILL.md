@@ -87,16 +87,18 @@ Always resolve relative to project root.
 
 ## Subagent
 
-Use `visual-qa` (user-level, model: `openai-codex/gpt-5.5`). It analyzes screenshots for:
-- **Layout**: overlaps, overflow, misalignment, broken grid/flex
-- **Typography**: wrong fonts/sizes/colors, clipped text
-- **Colors & styles**: inconsistency, missing shadows/borders/rounding
-- **Responsiveness**: elements missing/visible when they shouldn't be
-- **Visual artifacts**: blur, pixelation, glitches
-- **Element states**: hover/active/disabled appearance
-- **Dark/light theme**: inconsistency between themes
+Use `visual-qa` (user-level, model: `openai-codex/gpt-5.5`). It provides a **general visual quality assessment**:
+- **Bugs**: layout breakage, typography, colors, responsiveness, artifacts, safe-area issues
+- **Improvements**: visual hierarchy, density, alignment, contrast, interactivity, overall polish
+- **What's good**: highlights successful visual decisions
 
-Pass the screenshot path and ask for review. The subagent returns findings with severity tags (🔴 Critical / 🟠 High / 🟡 Medium / ⚪ Low).
+Pass the screenshot path and ask for a broad review:
+
+> "Review this iOS screenshot. Give me a visual quality assessment — any layout or styling issues? What looks good? What could be improved?"
+
+For focused checks, narrow the scope:
+
+> "Focus on the chat input area — is send button visible, is there any clipping?"
 
 ## Example Session
 
