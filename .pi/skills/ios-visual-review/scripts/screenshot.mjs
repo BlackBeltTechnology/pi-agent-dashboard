@@ -263,11 +263,28 @@ async function runSession(udid) {
       : null;
     await performAction(browser, ACTION, sessionId);
 
-    // Draw app boundary — red dashed outline around #root + "APP" label.
-    // QA can see what's app UI vs browser/system chrome.
+    // Draw app boundary — thick red border overlay around the app viewport.
+    // Uses a fixed-position div so it's always visible regardless of #root overflow.
     try {
-      await browser.execute("var r=document.querySelector('#root');if(r){r.setAttribute('style',(r.getAttribute('style')||'')+';outline:3px dashed red;outline-offset:-2px');var l=document.createElement('div');l.id='_pi-bound';l.textContent='APP';l.setAttribute('style','position:fixed;top:0;left:0;z-index:99999;background:red;color:#fff;font:bold 11px sans-serif;padding:2px 6px;pointer-events:none');document.body.appendChild(l)}");
-      await browser.pause(300);
+      await browser.execute(`
+        var root = document.querySelector('#root');
+        if (!root) return;
+        var r = root.getBoundingClientRect();
+        var d = document.createElement('div');
+        d.id = '_pi-bound';
+        d.setAttribute('style',
+          'position:fixed;top:'+r.top+'px;left:'+r.left+'px;'+
+          'width:'+r.width+'px;height:'+r.height+'px;'+
+          'border:4px dashed red;z-index:99999;pointer-events:none;box-sizing:border-box');
+        document.body.appendChild(d);
+        var l = document.createElement('div');
+        l.textContent = 'APP';
+        l.setAttribute('style',
+          'position:fixed;top:'+(r.top+2)+'px;left:'+(r.left+2)+'px;z-index:100000;'+
+          'background:red;color:#fff;font:bold 12px sans-serif;padding:2px 6px;pointer-events:none');
+        document.body.appendChild(l);
+      `);
+      await browser.pause(500);
     } catch (e) {
       warn(`Could not draw app boundary: ${e.message}`);
     }
