@@ -427,7 +427,9 @@ export async function runDoctor(): Promise<DoctorReport> {
         const extraPaths = [bundledNode ? path.dirname(bundledNode) : null, path.dirname(testTsxBin)].filter(Boolean);
         testEnv.PATH = `${extraPaths.join(path.delimiter)}${path.delimiter}${testEnv.PATH || ""}`;
         // Use tsx binary to load the server CLI — same as server-lifecycle.ts
-        const testCmd = `"${testTsxBin}" -e "import '${testCli.replace(/'/g, "\\'")}'; setTimeout(() => process.exit(0), 100)" 2>&1`;
+        // JSON.stringify handles backslash + quote escaping (critical on Windows where paths contain \u, \U etc. that JS would parse as unicode escapes)
+        const importSpec = JSON.stringify(testCli);
+        const testCmd = `"${testTsxBin}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)" 2>&1`;
         execSync(testCmd, { encoding: "utf-8", timeout: 10000, env: testEnv });
       } catch (err: any) {
         testError = (err.stderr || err.stdout || err.message || "").toString().trim();
