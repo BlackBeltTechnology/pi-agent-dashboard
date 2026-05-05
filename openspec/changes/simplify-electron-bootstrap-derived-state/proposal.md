@@ -164,6 +164,33 @@ Users currently using the NSIS installer should switch to the `.zip` bundle: ext
 - `.github/workflows/publish.yml`: remove NSIS artifact upload step; update release-notes to document zip as primary Windows install method.
 - `docs/electron-build-methods.md`: update Windows row to remove NSIS column.
 
+## Build-Script Hardening (incidental)
+
+While validating the post-NSIS Windows ZIP build pipeline locally on macOS, several pre-existing build-script defects surfaced. They are not caused by this change, but block the cross-platform smoke test (Phase C task 11.2). Fixing them is in scope because the Windows ZIP path is now the only Windows artifact and must build reliably for every release.
+
+### What was broken
+
+1. **Forge `Finalizing package` failed with `EACCES`** on macOS → Docker cross-builds. Files copied from the host bind-mount carried `com.apple.quarantine` extended attributes (`@` flag in `ls -la`), and Docker Desktop's filesystem virtualisation (gRPC FUSE / VirtioFS) translated those xattrs into broken Linux read perms inside the container. Symptom: random files (`vitest.config.ts`, `tsconfig.tsbuildinfo`, `package.json`) failed to open during forge's asar pack step.
+2. **Rollup native binary mismatch.** The host's `node_modules` carries `@rollup/rollup-darwin-arm64` (or `-win32-x64`) but Docker is Linux x64 and needs `@rollup/rollup-linux-x64-gnu`. Forge's Vite plugin failed at startup. (Tracked upstream: [npm/cli#4828](https://github.com/npm/cli/issues/4828).)
+3. **Stale interrupted-build artifacts.** Aborted runs left files in `out/` with `--w-------` mode, blocking the next forge run with `EACCES`.
+4. **Test/lint configs and TS build cache shipped in the runtime bundle.** `vitest.config.ts`, `eslint.config.js`, `tsconfig.tsbuildinfo`, etc. were copied into `resources/server/` even though they're never executed at runtime. They added bundle weight and were the primary EACCES victims.
+
+### Files added
+
+- `packages/electron/scripts/build-windows-zip.sh` — dedicated Windows-ZIP build pipeline (web client → server bundle → npm install → Node.js download → forge package → zip → portable.exe). Auto-detects host: native execution on Windows, Docker cross-compile on macOS/Linux.
+
+### Files modified
+
+- `packages/electron/scripts/bundle-server.mjs`: strips test/lint configs (`vitest.config.*`, `vite.config.*`, `eslint.config.*`, `.eslintrc.*`) and TypeScript build cache (`*.tsbuildinfo`) recursively from the bundle. Test files don't belong in production runtime regardless of EACCES.
+- `packages/electron/scripts/docker-make.sh`:
+  - Pre-emptive `chmod -R u+rwX,go+rX /build/packages /build/node_modules` at container entry to neutralise any residual perm issues.
+  - Defensive cleanup of stale `out/PI-Dashboard-*` dirs from interrupted runs.
+  - Targeted `npm install --no-save` of Linux-platform optional deps (`@rollup/rollup-linux-x64-gnu`, `@swc/core-linux-x64-gnu`) without deleting the host's existing macOS/Windows variants. Avoids the previous bug where wiping platform packages inside the bind-mounted container also broke the host.
+
+### Why these changes are in scope here
+
+The NSIS removal made the Windows ZIP path the sole Windows distribution. Phase C task 11.2 (cross-platform smoke) requires a working ZIP build from a non-Windows host. Without these fixes, the smoke test cannot pass. They are minimal, targeted, and do not introduce new behaviour — only restore the build pipeline to a workable state on the supported host matrix.
+
 ## Impact
 
 - **Files added**: `packages/electron/src/lib/launch-source.ts`, `packages/electron/src/lib/bundle-extract.ts`, `packages/shared/src/installable-list.ts`, `packages/server/src/bootstrap-install-from-list.ts`, plus per-file unit tests.

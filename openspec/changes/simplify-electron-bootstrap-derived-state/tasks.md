@@ -130,6 +130,24 @@ Defects discovered during Windows-target QA of Phase C. Each is a real regressio
 - [x] 13.14 `qa/tests/07-electron-bootstrap-v2.ps1` + `qa/scripts/run-test.sh` Windows VM upload step + `qa/tests/run-all.ps1` test list. Drives the production `PI-Dashboard-win32-x64.zip` end-to-end inside a Packer-built Windows VM: extract → launch `pi-dashboard.exe` → wait for `/api/health` → assert `starter==Electron` → verify `~\.pi-dashboard\.version` + `@mariozechner/pi-coding-agent` + `cliPath` survival. Skips cleanly when the ZIP artifact is absent (default location `packages/electron/out/make/zip/x64/`, override via `QA_ELECTRON_ZIP`). Catches Windows-specific path semantics (drive letters, junction points, `\` vs `/`) that the Linux Docker test cannot see.
 - [ ] 13.9 QA: Windows 11 24H2 ZIP cold launch. Expected: `~/.pi-dashboard/.version` written, `<managedDir>/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts` exists, `<managedDir>/node_modules/@mariozechner/pi-coding-agent/` populated from offline cacache, server reaches `bootstrap.status=ready`, main window opens. The `'wmic' is not recognized` stderr line on Win 11 24H2 is cosmetic (process-scanner already falls back to tasklist/PowerShell) and is tracked separately from this change.
 
+## 14. Build-script hardening — host-side macOS → Docker cross-compile
+
+Defects discovered while running the Windows ZIP build on a macOS arm64 host (Phase C task 11.2 prerequisite). Each is a real reproducible failure on the supported macOS → Docker cross-compile path. Section 13 covers the runtime side; Section 14 covers the host-side build pipeline.
+
+- [x] 14.1 Add `packages/electron/scripts/build-windows-zip.sh` — dedicated Windows-ZIP pipeline. Auto-detects host: native execution on Windows (steps 1–7 inline), Docker cross-compile on macOS/Linux (web client on host, steps 2–7 in container). Flags: `--arch x64|arm64`, `--skip-client`, `--no-portable`, `--skip-docker`. Replaces ad-hoc invocation patterns scattered across `build-installer.sh` flag combinations.
+- [x] 14.2 Modify `packages/electron/scripts/bundle-server.mjs`: strip dev-only files BEFORE the `--source-only` short-circuit so Docker cross-builds also benefit. Three categories stripped:
+  - Test/lint configs: `vitest.config.{ts,js}`, `vite.config.{ts,js}`, `eslint.config.{js,mjs}`, `.eslintrc.{cjs,json}` per workspace package.
+  - TypeScript build cache: `tsconfig.tsbuildinfo` per package + recursive `walkPaths` for any `*.tsbuildinfo` deeper in the tree.
+  - Source `__tests__/` dirs (existing behavior, moved earlier in the pipeline).
+- [x] 14.3 Modify `packages/electron/scripts/docker-make.sh` container entry hardening:
+  - `chmod -R u+rwX,go+rX /build/packages /build/node_modules` neutralizes any residual perm breakage (xattr-induced or otherwise).
+  - Pre-clean stale `out/PI-Dashboard-*` dirs from previously interrupted runs (forge can leave files in `--w-------` mode that block re-packaging).
+  - Targeted `npm install --no-save @rollup/rollup-linux-$ARCH-gnu @swc/core-linux-$ARCH-gnu` to add Linux-platform optional deps. Critical: does NOT remove the host's macOS/Windows variants (the previous wipe-and-reinstall approach broke the host's Vite build via the bind mount). See [npm/cli#4828](https://github.com/npm/cli/issues/4828).
+- [x] 14.4 Modify `packages/electron/scripts/build-windows-zip.sh` host-side pre-Docker step: on macOS hosts, run `xattr -cr packages/ node_modules/` BEFORE invoking Docker. Strips `com.apple.quarantine` and other extended attributes that Docker Desktop's gRPC FUSE / VirtioFS layer mistranslates into broken Linux read perms. Root-cause fix for the EACCES game-of-whack-a-mole (`vitest.config.ts` → `tsconfig.tsbuildinfo` → `package.json` → …). Must run on host because `process.platform` is `linux` inside Docker, making the in-container `xattr` step a no-op.
+- [x] 14.5 Modify `packages/electron/scripts/build-windows-zip.sh` defensive cleanup at script entry: `chmod -R u+rwX out/` then `rm -rf out/PI-Dashboard-win32-*`. Idempotent; runs before every build to repair state from prior interrupted runs.
+- [x] 14.6 Update `docs/electron-build-methods.md` with the new `build-windows-zip.sh` script: full pipeline table (steps 1–7 with native vs. Docker columns), usage examples, flag descriptions.
+- [ ] 14.7 Verify end-to-end: `./packages/electron/scripts/build-windows-zip.sh` on a clean macOS arm64 checkout produces a valid `PI-Dashboard-win32-x64.zip` and `PI-Dashboard-portable.exe` without manual intervention.
+
 ## 11. Validation
 
 - [x] 11.1 `openspec validate simplify-electron-bootstrap-derived-state --strict` passes. Spec deltas live under correct capability dirs: `first-run-wizard/` for the REMOVED delta (matches existing `openspec/specs/first-run-wizard/`), and `dashboard-starter-identity/` / `electron-launch-source/` / `electron-bundle-extract/` / `installable-list/` for ADDED capabilities.
