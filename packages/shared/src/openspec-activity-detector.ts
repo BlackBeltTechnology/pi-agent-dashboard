@@ -40,6 +40,22 @@ const CLI_ARCHIVE_RE = /openspec\s+archive\s+["']?([^\s"']+)["']?/;
 /** Regex to match openspec new change "name" (positional arg) */
 const CLI_NEW_CHANGE_RE = /openspec\s+new\s+change\s+["']?([^\s"']+)["']?/;
 
+/**
+ * OpenSpec change-slug shape: lowercase kebab-case, must start with a letter,
+ * max 64 characters. Mirrors the validation enforced by `openspec new change`.
+ *
+ * Single source of truth for any code that needs to gate a captured token
+ * before treating it as an OpenSpec change name (detector + auto-attach
+ * defense-in-depth in event-wiring.ts).
+ *
+ * See change: fix-uuid-rename-bug.
+ */
+const OPENSPEC_CHANGE_SLUG_RE = /^[a-z][a-z0-9-]{0,63}$/;
+
+export function isValidOpenSpecChangeSlug(name: string): boolean {
+  return OPENSPEC_CHANGE_SLUG_RE.test(name);
+}
+
 export function detectOpenSpecActivity(
   toolName: string,
   args: Record<string, unknown> | undefined,
@@ -63,7 +79,7 @@ export function detectOpenSpecActivity(
 
     // Check for openspec change file read → change name detection (passive)
     const changeMatch = path.match(CHANGE_PATH_RE);
-    if (changeMatch) {
+    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1])) {
       return { changeName: changeMatch[1], isActive: false };
     }
 
@@ -75,7 +91,7 @@ export function detectOpenSpecActivity(
     if (!path) return null;
 
     const changeMatch = path.match(CHANGE_PATH_RE);
-    if (changeMatch) {
+    if (changeMatch && isValidOpenSpecChangeSlug(changeMatch[1])) {
       return { changeName: changeMatch[1], isActive: true };
     }
 
@@ -94,11 +110,13 @@ export function detectOpenSpecActivity(
       if (!match) return null;
 
       const name = match[1];
-      // Reject flag-shaped tokens (e.g. `--help`, `-h`). The CLI regex capture
-      // groups use `[^\s"']+` which would otherwise treat `--help` as a change
-      // name and trigger downstream auto-attach + auto-rename.
-      // See change: fix-openspec-flag-rename-bug.
-      if (name.startsWith("-")) return null;
+      // Reject any token that is not a valid OpenSpec change slug. Subsumes the
+      // earlier `-`-prefix guard (a leading `-` fails the `[a-z]` first-char
+      // class) and additionally rejects UUIDs, mixed-case, underscored, or
+      // overlong tokens that the CLI regexes' `[^\s"']+` capture group would
+      // otherwise pass through into auto-attach + auto-rename.
+      // See changes: fix-openspec-flag-rename-bug, fix-uuid-rename-bug.
+      if (!isValidOpenSpecChangeSlug(name)) return null;
 
       return { changeName: name, isActive: true };
     }

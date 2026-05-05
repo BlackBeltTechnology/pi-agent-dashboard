@@ -266,4 +266,72 @@ describe("detectOpenSpecActivity", () => {
       expect(result).toEqual({ changeName: "add-auth", isActive: true });
     });
   });
+
+  describe("non-slug-shaped change names (fix-uuid-rename-bug)", () => {
+    const UUID = "019df0aa-1234-5678-9abc-def012345678";
+
+    it("returns null for UUID-shaped path on Read", () => {
+      const result = detectOpenSpecActivity("read", {
+        path: `openspec/changes/${UUID}/proposal.md`,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for UUID-shaped path on Write", () => {
+      const result = detectOpenSpecActivity("write", {
+        path: `openspec/changes/${UUID}/proposal.md`,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for UUID-shaped CLI argument", () => {
+      const result = detectOpenSpecActivity("bash", {
+        command: `openspec archive ${UUID}`,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for uppercase change name on Read", () => {
+      const result = detectOpenSpecActivity("read", {
+        path: "openspec/changes/AddAuth/proposal.md",
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for underscore-containing CLI argument", () => {
+      const result = detectOpenSpecActivity("bash", {
+        command: "openspec archive add_auth",
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for digit-prefixed CLI argument", () => {
+      const result = detectOpenSpecActivity("bash", {
+        command: "openspec archive 1bad",
+      });
+      expect(result).toBeNull();
+    });
+
+    it("returns null for token exceeding 64-character cap", () => {
+      const longName = "a".repeat(65);
+      const result = detectOpenSpecActivity("write", {
+        path: `openspec/changes/${longName}/spec.md`,
+      });
+      expect(result).toBeNull();
+    });
+
+    it("still extracts valid digit-containing kebab slug", () => {
+      const result = detectOpenSpecActivity("bash", {
+        command: "openspec archive valid-name-123",
+      });
+      expect(result).toEqual({ changeName: "valid-name-123", isActive: true });
+    });
+
+    it("still extracts valid slug from Write path", () => {
+      const result = detectOpenSpecActivity("write", {
+        path: "openspec/changes/fix-mobile-attach/proposal.md",
+      });
+      expect(result).toEqual({ changeName: "fix-mobile-attach", isActive: true });
+    });
+  });
 });

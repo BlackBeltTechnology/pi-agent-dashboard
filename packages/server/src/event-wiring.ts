@@ -16,7 +16,7 @@ import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { detectOpenSpecActivity } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
+import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-attach-naming.js";
 
@@ -218,10 +218,19 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Server-side OpenSpec activity detection from forwarded events
       // Skip during replay — replayed events from a forked session would set stale phase/change
       if (msg.event.eventType === "tool_execution_start" && !replayingSessions.has(sessionId)) {
-        const detected = detectOpenSpecActivity(
+        const detectedRaw = detectOpenSpecActivity(
           msg.event.data.toolName as string,
           msg.event.data.args as Record<string, unknown> | undefined,
         );
+        // Defense-in-depth (see change: fix-uuid-rename-bug). Even if a future
+        // detector regression returns a junk-shaped `changeName` (UUID, mixed
+        // case, etc.), refuse to stamp openspecChange / attachedProposal /
+        // name. Manual attach paths (browser handler, REST) bypass this and
+        // accept any name from a server-curated list.
+        const detected =
+          detectedRaw && (!detectedRaw.changeName || isValidOpenSpecChangeSlug(detectedRaw.changeName))
+            ? detectedRaw
+            : null;
         if (detected) {
           const session = sessionManager.get(sessionId);
           const activityUpdates: Partial<DashboardSession> = {};
