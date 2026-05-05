@@ -136,6 +136,25 @@ Only `<resourcesPath>/server/` has the layout the runtime expects (synthetic `pa
 
 The companion file `<resourcesPath>/installable-defaults.json` (when bundled) sits at the **top level** of `resourcesPath`, not under `server/`, and is read independently of the extraction step.
 
+### Runtime baseline install (jiti chicken-and-egg)
+
+The bundled `resources/server/` deliberately does **not** ship `@mariozechner/pi-coding-agent` (and therefore does not ship jiti either). The justification lives in `packages/electron/scripts/bundle-server.mjs`: pi/tsx/openspec come from the offline cacache (`offline-packages.json` + `offline-packages/`) which `installStandalone()` extracts into `~/.pi-dashboard/` on first run. Bundling pi inside `resources/server/` would duplicate it (~10 MB) and risk version drift against the cacache pin.
+
+But the spawned server is TypeScript source. Booting it requires `node --import <jiti-register> <cliPath>`. So jiti must exist *before* the spawn, which means it must be installed *before* `spawnFromSource()` runs. `bootstrap-install-from-list.ts` (Phase B) cannot satisfy this requirement — it executes inside the already-spawned server, after jiti is needed.
+
+Resolution: `resolveExtracted()` calls `installStandalone()` (from `packages/electron/src/lib/dependency-installer.ts`) immediately after `extractBundle()` succeeds. This populates `~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent/...` (with its bundled jiti) so the subsequent `spawnFromSource()` can resolve the loader. The call is gated by `didExtract === true` so it runs once per Electron version bump, not on every launch. `installStandalone()` is itself idempotent (skips packages already present).
+
+Responsibility split:
+
+| Layer | Installs | When |
+|---|---|---|
+| `installStandalone()` (Electron main, pre-spawn) | runtime baseline: pi-coding-agent, tsx, openspec | inside `resolveExtracted` after `extractBundle` |
+| `bootstrap-install-from-list.ts` (server, post-spawn) | additional packages from `~/.pi/dashboard/installable.json` | server bootstrap, before `app.listen` |
+
+The two layers do not overlap: the baseline is the minimum needed to *boot* the server; the installable list is the user-configured set of dashboard extensions. Both are necessary; the order (baseline → boot → reconcile) is fixed.
+
+Jiti resolution at spawn time uses `resolveJitiFromAnchor(source.cliPath)` rather than `resolveJitiImport()`. The latter anchors on `process.argv[1]`, which inside packaged Electron is empty or a flag (not a script path with a node_modules tree). The former accepts an explicit anchor file; `cliPath` always sits inside a real `node_modules` tree (managed for `extracted`, repo for `devMonorepo`, pi's tree for `piExtension`/`npmGlobal`).
+
 ### Workspace symlink materialization (Docker build only)
 
 Npm workspaces inside `resources/server/` create symlinks under `node_modules/@blackbelt-technology/*` pointing back to `/build/packages/<name>/`. These symlinks must be replaced with real copies before the bundle ships, because:

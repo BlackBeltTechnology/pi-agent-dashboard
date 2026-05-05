@@ -23,8 +23,11 @@ import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
+  readlinkSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -220,6 +223,52 @@ if (existsSync(NM)) {
       n.endsWith(".d.ts"),
     dirMatch: (n) => n === "__tests__" || n === "test",
   });
+}
+
+// ── materialize workspace symlinks under @blackbelt-technology/* ─────────
+// npm workspaces creates symlinks like
+//   node_modules/@blackbelt-technology/pi-dashboard-server -> ../../packages/server
+// which are valid inside the bundle. BUT Node's `fs.cpSync(..., { recursive:
+// true, dereference: false })` — used by Electron's `extractBundle` on first
+// launch — has a quirk: it rewrites RELATIVE symlinks as ABSOLUTE paths
+// pointing to the build host's source location. After extraction on a user's
+// machine, those absolute paths resolve to nothing, breaking cliPath and
+// everything pi-coding-agent depends on.
+//
+// docker-make.sh already does this replacement for Docker (Linux/Windows)
+// builds. Replicate here so native-macOS builds (which run bundle-server.mjs
+// directly via build-installer.sh, no docker-make.sh) also ship a
+// symlink-free bundle. The smoke test
+// `packages/electron/src/lib/__tests__/launch-source.smoke.test.ts` Tier A
+// pins this invariant.
+const BB_DIR = path.join(SERVER_BUNDLE, "node_modules", "@blackbelt-technology");
+if (existsSync(BB_DIR)) {
+  let materialized = 0;
+  for (const name of readdirSync(BB_DIR)) {
+    const linkPath = path.join(BB_DIR, name);
+    let st;
+    try { st = lstatSync(linkPath); } catch { continue; }
+    if (!st.isSymbolicLink()) continue;
+    let target;
+    try { target = readlinkSync(linkPath); } catch { continue; }
+    const absTarget = path.isAbsolute(target)
+      ? target
+      : path.resolve(path.dirname(linkPath), target);
+    if (!existsSync(absTarget)) {
+      console.log(`  ⚠ Symlink target missing, leaving as-is: ${name} → ${target}`);
+      continue;
+    }
+    // Replace symlink with copy via tmp + rename for atomicity.
+    const tmpPath = linkPath + ".materializing";
+    rmSync(tmpPath, { recursive: true, force: true });
+    cpSync(absTarget, tmpPath, { recursive: true, dereference: true });
+    rmSync(linkPath, { force: true });
+    renameSync(tmpPath, linkPath);
+    materialized += 1;
+  }
+  if (materialized > 0) {
+    console.log(`  Materialized ${materialized} workspace symlink(s) under @blackbelt-technology/`);
+  }
 }
 
 // ── fix spawn-helper +x on POSIX (npm hoisting may skip postinstall) ─────

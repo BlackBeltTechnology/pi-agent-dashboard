@@ -18,7 +18,8 @@
 import path from "node:path";
 import os from "node:os";
 import { spawnDetached } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
-import { resolveJitiImport } from "@blackbelt-technology/pi-dashboard-shared/resolve-jiti.js";
+import { resolveJitiImport, resolveJitiFromAnchor } from "@blackbelt-technology/pi-dashboard-shared/resolve-jiti.js";
+import { installStandalone } from "./dependency-installer.js";
 import { toFileUrl, shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
@@ -374,6 +375,126 @@ async function buildExtractedSource(
           probes.renameSync(tmp, installableTarget);
         }
       }
+
+      // Detach the bundle's build-time package.json + package-lock.json BEFORE
+      // running installStandalone. `bundle-server.mjs` writes a synthetic
+      // workspace package (workspaces: ["packages/server", "packages/shared",
+      // "packages/extension"]) and the matching package-lock so the Docker
+      // build-time `npm install` (in resources/server/) sets up workspace
+      // symlinks for native module resolution. At runtime both files are
+      // actively harmful: `npm install --prefix <managedDir>` (called by
+      // installStandalone) reconciles node_modules against the lockfile and
+      // wipes the pre-extracted `@blackbelt-technology/*` entries we just
+      // copied in (since their lockfile records say "workspace link" but the
+      // stripped package.json no longer declares workspaces) — destroying
+      // cliPath and breaking the spawn.
+      //
+      // Resolution: nuke both files. ensureManagedDir() will recreate a
+      // minimal package.json on its first call; npm install with explicit
+      // packages (no lockfile) only ADDS the requested deps and does not
+      // prune unrelated node_modules entries.
+      //
+      // Smoke test `launch-source.smoke.test.ts` Tier B caught this.
+      // See change: simplify-electron-bootstrap-derived-state (Phase C bring-up).
+      try {
+        const fsMod = await import("node:fs");
+        const pkgPath = path.join(managedDir, "package.json");
+        const lockPath = path.join(managedDir, "package-lock.json");
+        // package.json: keep file, but strip workspaces if present (defensive
+        // in case ensureManagedDir's existsSync check no-ops the rewrite).
+        if (fsMod.existsSync(pkgPath)) {
+          try {
+            const pkg = JSON.parse(fsMod.readFileSync(pkgPath, "utf-8"));
+            if (pkg.workspaces !== undefined) {
+              delete pkg.workspaces;
+              fsMod.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+            }
+          } catch { /* malformed JSON — ensureManagedDir will overwrite */ }
+        }
+        // package-lock.json: nuke. The bundle's lockfile is build-time only.
+        if (fsMod.existsSync(lockPath)) {
+          fsMod.rmSync(lockPath, { force: true });
+        }
+      } catch (stripErr: any) {
+        // Non-fatal: if the operations fail, installStandalone may still
+        // succeed (it creates managedDir/package.json when missing).
+        console.error(
+          "[launch-source] could not normalize managedDir before install:",
+          stripErr?.message ?? String(stripErr),
+        );
+      }
+
+      // Install runtime baseline (pi-coding-agent + tsx + openspec) into
+      // managedDir from the bundled offline cacache. Without this, the
+      // spawned server cannot resolve jiti to load TypeScript source files
+      // — `bundle-server.mjs` deliberately omits pi from the bundle (see its
+      // comment block) and relies on this offline-cache install instead.
+      // The legacy path (LAUNCH_SOURCE_V2=false) does the equivalent via
+      // `runPowerUserManagedInstall`. Idempotent: gated by `didExtract`,
+      // and `installStandalone` itself short-circuits already-installed
+      // packages.
+      // See change: simplify-electron-bootstrap-derived-state (Phase C
+      // bring-up — spec gap: server-side `bootstrap-install-from-list`
+      // cannot install jiti because the server needs jiti to start).
+      // Swap-aside pattern: protect bundle's node_modules from npm's
+      // reconciliation. The synthetic package.json bundle-server.mjs
+      // writes declares no dependencies, so `npm install --prefix
+      // <managedDir> @mariozechner/pi-coding-agent ...` treats every
+      // existing entry under node_modules/ as "extraneous" and prunes it.
+      // That destroys not just @blackbelt-technology/* (cliPath) but
+      // every server runtime dep (fastify, ws, lru-cache, etc.).
+      //
+      // Move the bundle's node_modules aside, let npm install build a
+      // fresh tree containing only pi/tsx/openspec + their deps, then
+      // overlay the bundle snapshot back on top — bundle wins on conflicts
+      // (it's the version the server was built and tested against;
+      // pi-coding-agent's namespace is mostly @mariozechner/* which the
+      // bundle never had, so the merge is mostly additive).
+      //
+      // Smoke test `launch-source.smoke.test.ts` Tier B/C caught both
+      // pruning regressions.
+      const fsMod = await import("node:fs");
+      const managedNm = path.join(managedDir, "node_modules");
+      const stashedNm = path.join(managedDir, ".bundle-node-modules");
+      let stashed = false;
+      try {
+        if (fsMod.existsSync(managedNm)) {
+          // rmSync first in case a previous interrupted run left a stash.
+          fsMod.rmSync(stashedNm, { recursive: true, force: true });
+          fsMod.renameSync(managedNm, stashedNm);
+          stashed = true;
+        }
+      } catch (stashErr: any) {
+        console.error(
+          "[launch-source] could not stash bundle node_modules:",
+          stashErr?.message ?? String(stashErr),
+        );
+      }
+
+      try {
+        await installStandalone();
+      } catch (installErr: any) {
+        console.error(
+          "[launch-source] runtime baseline install failed:",
+          installErr?.message ?? String(installErr),
+        );
+      }
+
+      // Merge the stashed bundle tree back on top. cpSync with default
+      // force:true overwrites files where bundle and npm both wrote;
+      // bundle versions win (deliberate — the server was tested against
+      // them). Directories are merged additively.
+      if (stashed) {
+        try {
+          fsMod.cpSync(stashedNm, managedNm, { recursive: true });
+          fsMod.rmSync(stashedNm, { recursive: true, force: true });
+        } catch (mergeErr: any) {
+          console.error(
+            "[launch-source] could not merge bundle node_modules back:",
+            mergeErr?.message ?? String(mergeErr),
+          );
+        }
+      }
     } catch (err: any) {
       // Print code + path so the failing entry is identifiable. Earlier the
       // log truncated to "ENOTDIR: not a directory, opendir" with no path,
@@ -470,7 +591,15 @@ export async function spawnFromSource(
   config: { port: number; piPort: number },
   logFd?: number,
 ): Promise<SpawnResult> {
-  const loader = resolveJitiImport();
+  // Anchor jiti resolution on the cliPath we are about to spawn. Inside
+  // packaged Electron `process.argv[1]` is empty/a flag, so the
+  // process-argv-anchored `resolveJitiImport()` always throws. cliPath sits
+  // inside a real node_modules tree (managedDir for extracted, repo for
+  // devMonorepo, pi's tree for piExtension/npmGlobal) so createRequire
+  // walks up correctly to find @mariozechner/jiti or @oh-my-pi/jiti.
+  // See change: simplify-electron-bootstrap-derived-state (Phase C bring-up).
+  const loader =
+    resolveJitiFromAnchor(source.cliPath) ?? resolveJitiImport();
   const wrapEntry = shouldUrlWrapEntry(loader);
   const entry = wrapEntry ? toFileUrl(source.cliPath) : source.cliPath;
 

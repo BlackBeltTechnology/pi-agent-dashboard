@@ -6,6 +6,15 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import path from "node:path";
+
+// Stub dependency-installer BEFORE importing launch-source so the runtime
+// baseline install (`installStandalone()`) doesn't run real npm/fs work
+// during tests. The production code calls it after extractBundle in the
+// `extracted` source path; tests only need to verify the wiring.
+vi.mock("../dependency-installer.js", () => ({
+  installStandalone: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   selectLaunchSource,
   parsePreferOverride,
@@ -14,6 +23,7 @@ import {
   type LaunchSourceProbes,
 } from "../launch-source.js";
 import * as bundleExtract from "../bundle-extract.js";
+import * as depInstaller from "../dependency-installer.js";
 
 // ── Probe factory ─────────────────────────────────────────────────────────────
 
@@ -225,6 +235,40 @@ describe("parsePreferOverride", () => {
     expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "npmGlobal" })).toBe("npmGlobal");
     expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "extracted" })).toBe("extracted");
   });
+});
+
+// ── 12. extracted source triggers runtime baseline install ─────────────────
+//
+// Phase C bring-up gap: the bundled `resources/server/` does NOT include
+// pi-coding-agent / jiti (by design — see bundle-server.mjs). The spawned
+// server cannot resolve jiti to load TS source unless `installStandalone()`
+// has populated `~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent`
+// from the offline cacache before the spawn. Pin the call site here so a
+// future refactor cannot silently drop the install step.
+it("12. extracted: installStandalone is called after extractBundle when didExtract=true", async () => {
+  const extractSpy = vi
+    .spyOn(bundleExtract, "extractBundle")
+    .mockImplementation(() => {});
+  const installMock = vi.mocked(depInstaller.installStandalone);
+  installMock.mockClear();
+  const probes = makeProbes({
+    // existsSync(managedDir) === false → needsExtraction returns true
+    existsSync: vi.fn().mockReturnValue(false),
+  });
+
+  const result = await selectLaunchSource(
+    baseOpts({ resourcesPath: "/fake/resources", probes }),
+  );
+
+  expect(result.kind).toBe("extracted");
+  expect(extractSpy).toHaveBeenCalledOnce();
+  expect(installMock).toHaveBeenCalledOnce();
+  // Order matters: extractBundle must run BEFORE installStandalone (npm needs
+  // managedDir to exist to write into).
+  const extractOrder = extractSpy.mock.invocationCallOrder[0];
+  const installOrder = installMock.mock.invocationCallOrder[0];
+  expect(extractOrder).toBeLessThan(installOrder!);
+  extractSpy.mockRestore();
 });
 
 // ── 11. extracted source path is <resourcesPath>/server ──────────────────────
