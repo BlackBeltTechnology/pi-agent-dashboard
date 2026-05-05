@@ -604,7 +604,7 @@ export async function selectLaunchSource(opts: LaunchSourceOpts): Promise<Launch
   }
 
   // Should never reach here — extracted always returns a result.
-  return buildExtractedSource(opts);
+  return buildExtractedSource(opts, probes);
 }
 
 async function trySource(

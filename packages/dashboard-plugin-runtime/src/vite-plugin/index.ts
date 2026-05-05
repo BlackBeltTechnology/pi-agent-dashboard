@@ -62,7 +62,9 @@ function generateRegistryContent(entries: PluginEntry[]): string {
 
   // Named imports per claim component
   for (const entry of entries) {
-    const importPath = entry.clientEntryPath!;
+    // Strip .ts/.tsx extension so tsc (without allowImportingTsExtensions) accepts the generated file.
+    // Vite resolves the path either way via configured extensions.
+    const importPath = entry.clientEntryPath!.replace(/\.(tsx?|jsx?)$/, "");
     const componentNames = [
       ...new Set(
         entry.manifest.claims
