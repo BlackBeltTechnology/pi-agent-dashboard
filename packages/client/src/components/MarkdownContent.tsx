@@ -360,7 +360,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content }: 
             if (isInline) {
               return (
                 <code
-                  className="bg-[var(--bg-surface)] px-1.5 py-0.5 rounded text-sm font-mono"
+                  className="bg-[var(--bg-surface)] px-1.5 py-0.5 rounded text-sm font-mono break-all"
                   {...props}
                 >
                   {children}

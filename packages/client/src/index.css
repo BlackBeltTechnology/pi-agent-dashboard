@@ -85,6 +85,8 @@ body {
 
 /* ── Markdown content styling ────────────────────────────────── */
 
+.markdown-content { overflow-wrap: break-word; word-break: break-word; }
+
 .markdown-content h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0; }
 .markdown-content h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0; }
 .markdown-content h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0; }
