@@ -135,6 +135,9 @@ The Packer macOS template uses `vmware-vmx` builder (starts from existing VM) ra
 3. **WebSocket** — Connections to pi gateway (9999) and browser WS gateway succeed
 4. **Terminal** — PTY spawning works (ConPTY on Windows, pty on Unix)
 5. **Git operations** — Branch listing works from server API
+6. **Electron ZIP V2 bootstrap (Windows only)** — `qa/tests/07-electron-bootstrap-v2.ps1`. Extracts the production `PI-Dashboard-win32-x64.zip`, launches `pi-dashboard.exe`, waits for `/api/health`, asserts `starter==Electron` and that `~\.pi-dashboard\` is populated with the version marker, `pi-coding-agent` from the offline cacache, and an intact `cliPath` (catches the cpSync-symlink and npm-pruning regression class). Skips when the ZIP artifact is absent.
+
+   **Uploading the ZIP to the test VM**: `qa/scripts/run-test.sh` looks for `packages/electron/out/make/zip/x64/PI-Dashboard-win32-x64.zip` by default and `scp`s it to `C:\qa-artifacts\` before running the test suite. Override with `QA_ELECTRON_ZIP=/path/to/zip make test-windows`.
 
 ## Directory Structure
 

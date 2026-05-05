@@ -6,7 +6,8 @@ $tests = @(
     "02-server-start.ps1",
     "03-websocket.ps1",
     "04-terminal.ps1",
-    "05-git-ops.ps1"
+    "05-git-ops.ps1",
+    "07-electron-bootstrap-v2.ps1"  # skips when ZIP artifact absent
 )
 
 $passed = 0

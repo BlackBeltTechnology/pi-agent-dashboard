@@ -43,6 +43,22 @@ echo ""
 echo "=== Uploading tests ==="
 scp -i "$SSH_KEY" -o StrictHostKeyChecking=no -r "$QA_DIR/tests" "${SSH_USER}@${VM_IP}:/tmp/qa-tests"
 
+# Optional: upload Electron ZIP artifact for the V2 bootstrap test
+# (qa/tests/07-electron-bootstrap-v2.ps1). The test skips when absent.
+# Override location via QA_ELECTRON_ZIP env; default looks in the
+# project's standard build output dir.
+ELECTRON_ZIP="${QA_ELECTRON_ZIP:-$QA_DIR/../packages/electron/out/make/zip/x64/PI-Dashboard-win32-x64.zip}"
+if [[ "$PLATFORM" == windows* ]] && [ -f "$ELECTRON_ZIP" ]; then
+  echo "=== Uploading Electron ZIP artifact ==="
+  echo "  source: $ELECTRON_ZIP"
+  $SSH_CMD "mkdir -p C:/qa-artifacts || true" 2>/dev/null || true
+  $SSH_CMD 'powershell -Command "New-Item -ItemType Directory -Force -Path C:\qa-artifacts | Out-Null"'
+  scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$ELECTRON_ZIP" \
+    "${SSH_USER}@${VM_IP}:C:/qa-artifacts/PI-Dashboard-win32-x64.zip"
+elif [[ "$PLATFORM" == windows* ]]; then
+  echo "=== No Electron ZIP found at $ELECTRON_ZIP — V2 bootstrap test will skip ==="
+fi
+
 echo ""
 echo "=== Running tests ==="
 if [[ "$PLATFORM" == windows* ]]; then
