@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose } from "@mdi/js";
+import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiStop, mdiAlert, mdiConsole, mdiClose, mdiSend } from "@mdi/js";
 import type { CommandInfo, ImageContent, FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
+import { useMobile } from "../hooks/useMobile.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -128,6 +129,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   }, [isControlled, onDraftChange]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [stopState, setStopState] = useState<StopState>("idle");
+  const isMobile = useMobile();
 
   // --- History recall (bash-style) ---
   const historyList = history ?? [];
@@ -264,7 +266,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       setText("");
       // Reset textarea height
       if (inputRef.current) {
-        inputRef.current.style.height = "38px";
+        inputRef.current.style.height = "40px";
       }
     }
   }, [text, pendingImages, onSend, clearImages]);
@@ -334,7 +336,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             requestAnimationFrame(() => {
               ta.setSelectionRange(restored.length, restored.length);
               // Re-run the auto-resize logic to match restored content.
-              ta.style.height = "38px";
+              ta.style.height = "40px";
               ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
             });
           }
@@ -354,7 +356,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             setText(nextText);
             requestAnimationFrame(() => {
               ta.setSelectionRange(nextText.length, nextText.length);
-              ta.style.height = "38px";
+              ta.style.height = "40px";
               ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
             });
             return;
@@ -367,7 +369,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               setText(restored);
               requestAnimationFrame(() => {
                 ta.setSelectionRange(restored.length, restored.length);
-                ta.style.height = "38px";
+                ta.style.height = "40px";
                 ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
               });
             } else {
@@ -377,7 +379,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               setText(nextText);
               requestAnimationFrame(() => {
                 ta.setSelectionRange(nextText.length, nextText.length);
-                ta.style.height = "38px";
+                ta.style.height = "40px";
                 ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
               });
             }
@@ -386,7 +388,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         }
       }
 
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !isMobile) {
         e.preventDefault();
         handleSend();
       }
@@ -395,7 +397,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     // are plain closures (see comment at their definition) and recomputed
     // every render anyway, so listing them would only cause unnecessary
     // handler-identity churn without affecting correctness.
-    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList]
+    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, isMobile]
   );
 
   // Clipboard paste + preview-strip are delegated to the shared hook +
@@ -471,22 +473,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           placeholder="Message, /command, !shell, or @file..."
           disabled={disabled || pendingPrompt}
           rows={1}
-          className="flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder-gray-500 border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none disabled:opacity-50 resize-none"
-          style={{ minHeight: "38px", maxHeight: "120px" }}
+          className="flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-1.5 text-base text-[var(--text-primary)] placeholder-gray-500 border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none disabled:opacity-50 resize-none"
+          style={{ minHeight: "40px", maxHeight: "120px" }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
-            target.style.height = "38px";
+            target.style.height = "40px";
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
         <button
           onClick={handleSend}
           disabled={disabled || pendingPrompt || !text.trim()}
-          className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
+          className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-tertiary)] active:scale-95 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed self-center transition-all"
           title="Send"
           data-testid="send-button"
         >
-          <Icon path={mdiPlay} size={0.7} />
+          <Icon path={mdiSend} size={0.65} />
         </button>
         {(isWorking || pendingPrompt) && (onAbort || onCancelPending) && stopState === "idle" && (
           <button
@@ -498,31 +500,31 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
                 if (onForceKill) setStopState("aborting");
               }
             }}
-            className="p-2 bg-red-600 rounded-lg hover:bg-red-500 self-end"
+            className="p-2 text-[var(--text-secondary)] hover:text-red-400 hover:bg-[var(--bg-hover)] active:bg-[var(--bg-tertiary)] active:scale-95 rounded-lg self-center transition-all"
             title="Stop"
             data-testid="stop-button"
           >
-            <Icon path={mdiStop} size={0.7} />
+            <Icon path={mdiStop} size={0.65} />
           </button>
         )}
         {isWorking && stopState === "aborting" && onForceKill && (
           <button
             onClick={() => { onForceKill(); setStopState("killing"); }}
-            className="p-2 bg-orange-600 rounded-lg hover:bg-orange-500 self-end animate-pulse"
+            className="p-2 text-[var(--text-secondary)] hover:text-orange-400 hover:bg-[var(--bg-hover)] active:bg-[var(--bg-tertiary)] active:scale-95 rounded-lg self-center animate-pulse transition-all"
             title="Force Stop — kill the process"
             data-testid="force-stop-button"
           >
-            <Icon path={mdiAlert} size={0.7} />
+            <Icon path={mdiAlert} size={0.65} />
           </button>
         )}
         {isWorking && stopState === "killing" && (
           <button
             disabled
-            className="p-2 bg-orange-800 rounded-lg opacity-60 cursor-not-allowed self-end"
+            className="p-2 text-[var(--text-tertiary)] rounded-lg opacity-40 cursor-not-allowed self-center"
             title="Killing process..."
             data-testid="killing-button"
           >
-            <Icon path={mdiStop} size={0.7} />
+            <Icon path={mdiStop} size={0.65} />
           </button>
         )}
       </div>
