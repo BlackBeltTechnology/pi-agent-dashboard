@@ -1396,12 +1396,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // Always sweep leftover zrok processes on startup (skip in fixture mode)
-      if (!isFixture) {
-        const hasZrok = detectZrokBinary();
-        if (hasZrok) {
-          cleanupStaleZrok();
-          scavengeOrphanZrokProcesses(config.port);
-        }
+      const hasZrok = !isFixture && detectZrokBinary();
+      if (hasZrok) {
+        cleanupStaleZrok();
+        scavengeOrphanZrokProcesses(config.port);
       }
 
       if (config.tunnel) {
