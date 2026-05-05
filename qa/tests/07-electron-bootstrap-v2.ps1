@@ -159,6 +159,20 @@ if (Test-Path $ManagedDir) {
         Write-Host "FAIL: managedDir cliPath missing — bundle merge step did not restore"
         $ExitCode = 1
     }
+
+    # See change: expand-electron-qa-coverage.
+    # Catches v0.4.6 spawnDetached stdio[1]='ignore' regression: a
+    # successful spawn produced a 0-byte ~/.pi/dashboard/server.log.
+    $ServerLog = Join-Path $env:USERPROFILE ".pi\dashboard\server.log"
+    if (-not (Test-Path $ServerLog)) {
+        Write-Host "FAIL: $ServerLog missing after successful spawn"
+        $ExitCode = 1
+    } elseif ((Get-Item $ServerLog).Length -eq 0) {
+        Write-Host "FAIL: $ServerLog is 0 bytes after successful spawn (spawnDetached stdio regression?)"
+        $ExitCode = 1
+    } else {
+        Write-Host "  ✓ server.log non-empty ($((Get-Item $ServerLog).Length) bytes)"
+    }
 } else {
     Write-Host "FAIL: managedDir was never created at $ManagedDir"
     $ExitCode = 1

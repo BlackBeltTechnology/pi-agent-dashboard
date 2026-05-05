@@ -14,6 +14,7 @@ TESTS=(
   "03-websocket.sh"
   "04-terminal.sh"
   "05-git-ops.sh"
+  "08-electron-real-launch.sh"  # skips when AppImage absent. See change: expand-electron-qa-coverage.
 )
 
 PASSED=0
@@ -37,7 +38,14 @@ for test in "${TESTS[@]}"; do
   echo "Running: $test"
   echo "────────────────────────────────────────────────"
 
-  if bash "$TEST_PATH"; then
+  # 08 prints "SKIP: ..." + exit 0 when AppImage absent; render as SKIP
+  # in the summary rather than PASS so missing artifacts are visible.
+  TEST_OUT=$(bash "$TEST_PATH" 2>&1)
+  TEST_RC=$?
+  echo "$TEST_OUT"
+  if [ "$TEST_RC" -eq 0 ] && echo "$TEST_OUT" | head -1 | grep -q '^SKIP:'; then
+    RESULTS+=("SKIP  $test")
+  elif [ "$TEST_RC" -eq 0 ]; then
     PASSED=$((PASSED + 1))
     RESULTS+=("PASS  $test")
   else

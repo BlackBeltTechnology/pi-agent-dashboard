@@ -13,7 +13,12 @@ sudo apt-get install -y \
   git \
   openssh-server \
   python3 \
-  ca-certificates
+  ca-certificates \
+  xvfb \
+  libnss3 \
+  libgtk-3-0 \
+  libgbm1 \
+  libasound2
 
 echo "=== Enabling SSH ==="
 sudo systemctl enable ssh

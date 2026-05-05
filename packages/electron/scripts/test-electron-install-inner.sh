@@ -231,6 +231,105 @@ if kill -0 "$SERVER_PID" 2>/dev/null; then
   wait "$SERVER_PID" 2>/dev/null || true
 fi
 
+# ── Stage 9: Degraded re-extract recovery ───────────────────────────
+#
+# Catches the v0.4.6 regression where the version marker matches but
+# ~/.pi-dashboard/node_modules/@mariozechner is missing (AV quarantine,
+# partial uninstall, npm prune). Bash counterpart of the vitest Tier-B
+# smoke in launch-source.smoke.test.ts. See change:
+# expand-electron-qa-coverage and fix-electron-extracted-jiti-and-stdio-capture.
+
+echo ""; hr; echo "  Stage 9 — Degraded re-extract recovery"; hr
+
+# Wipe the @mariozechner subtree to simulate corruption.
+rm -rf "$MANAGED_DIR/node_modules/@mariozechner"
+[ ! -d "$MANAGED_DIR/node_modules/@mariozechner/jiti" ] \
+  && pass "precondition: @mariozechner wiped" \
+  || fail "precondition" "failed to wipe @mariozechner subtree"
+
+# Stash @blackbelt-technology so re-install does not prune it.
+STASH_DIR="$MANAGED_DIR/.bundle-node-modules-stage9"
+rm -rf "$STASH_DIR"
+if [ -d "$MANAGED_DIR/node_modules" ]; then
+  mv "$MANAGED_DIR/node_modules" "$STASH_DIR"
+fi
+
+cd "$MANAGED_DIR"
+NPM_OUT9=$("$NODE_BIN" "$NPM_BIN" install \
+  --prefix "$MANAGED_DIR" \
+  --cache "$MANAGED_DIR/.offline-cache" \
+  --prefer-offline \
+  --no-audit \
+  --no-fund \
+  "@mariozechner/pi-coding-agent@$PI_VERSION" \
+  "tsx@$TSX_VERSION" \
+  "@fission-ai/openspec@$OPENSPEC_VERSION" 2>&1 | tail -10) && S9_RC=0 || S9_RC=$?
+
+if [ "$S9_RC" = "0" ]; then
+  pass "recovery npm install completed"
+else
+  fail "recovery npm install" "exit=$S9_RC"
+  echo "    last 10 lines: $NPM_OUT9"
+fi
+
+cp -an "$STASH_DIR/." "$MANAGED_DIR/node_modules/" 2>/dev/null || true
+rm -rf "$STASH_DIR"
+
+[ -d "$MANAGED_DIR/node_modules/@mariozechner/jiti" ] \
+  && pass "jiti restored after recovery" \
+  || fail "jiti restore" "recovery did not bring @mariozechner/jiti back"
+[ -f "$MANAGED_DIR/$CLI_REL" ] \
+  && pass "cliPath survived recovery" \
+  || fail "cliPath" "wiped during recovery merge"
+
+# Re-spawn server and re-assert /api/health.
+PORT2=8112
+PI_PORT2=9997
+DASHBOARD_STARTER=Electron "$NODE_BIN" \
+  --import "file://$JITI_REGISTER" \
+  "$MANAGED_DIR/$CLI_REL" \
+  --port "$PORT2" \
+  --pi-port "$PI_PORT2" \
+  > /tmp/server-stage9.log 2>&1 &
+SERVER_PID2=$!
+
+DEADLINE9=$((SECONDS + 90))
+SERVER_UP9=false
+while [ $SECONDS -lt $DEADLINE9 ]; do
+  sleep 1
+  if ! kill -0 "$SERVER_PID2" 2>/dev/null; then
+    echo "  ⚠ Recovery server process exited"; break
+  fi
+  if curl -sf "http://localhost:$PORT2/api/health" >/dev/null 2>&1; then
+    SERVER_UP9=true; break
+  fi
+done
+
+if [ "$SERVER_UP9" = "true" ]; then
+  pass "recovery /api/health responded"
+else
+  fail "recovery health" "did not respond within 90s"
+  echo ""; echo "  Stage 9 server log (last 60 lines):"; tail -60 /tmp/server-stage9.log 2>/dev/null || echo "  (no log)"
+fi
+
+# Stage-9 stdio assertion: server log must be non-empty after a
+# successful spawn. Catches the spawnDetached stdio[1]='ignore'
+# regression symptom (empty log file). Real spawnDetached coverage
+# is the unit test in detached-spawn.test.ts.
+if [ "$SERVER_UP9" = "true" ]; then
+  if [ -s /tmp/server-stage9.log ]; then
+    pass "recovery server log non-empty"
+  else
+    fail "recovery server log" "0 bytes after successful spawn (stdio regression?)"
+  fi
+fi
+
+if kill -0 "$SERVER_PID2" 2>/dev/null; then
+  kill "$SERVER_PID2" 2>/dev/null || true
+  wait "$SERVER_PID2" 2>/dev/null || true
+fi
+
+
 # ── Results ───────────────────────────────────────────────────────────────────
 
 echo ""; hr; echo "  Results"; hr; echo ""
