@@ -797,7 +797,18 @@ Package operations use pi's `DefaultPackageManager` API on the server, serialize
 
 Why a separate system? Pi's `DefaultPackageManager` only manages packages listed in `settings.json packages[]` (extensions/skills/prompts/themes). The pi CLI binary itself and the dashboard server package are installed directly via `npm -g` (or into `~/.pi-dashboard/` in the Electron case) and are invisible to pi's manager. `PiCoreChecker` + `PiCoreUpdater` (`pi-core-checker.ts` + `pi-core-updater.ts`) fill that gap.
 
-Progress for core updates is delivered via typed `pi_core_update_progress` / `pi_core_update_complete` browser-protocol messages (not the `package_progress` channel) and fanned out to `PiCoreVersionsSection` and `PiUpdateBadge` via a `pi-core-event` DOM event. After any successful core update the server sends `/reload` to connected pi sessions just like extension updates.
+Core update progress delivered via typed `pi_core_update_progress` / `pi_core_update_complete` browser-protocol messages (not `package_progress` channel). Fanned out to `UnifiedPackagesSection` + `PiUpdateBadge` via `pi-core-event` DOM event. Successful core update triggers `/reload` to connected pi sessions, same as extension updates.
+
+### Settings → Packages tab
+
+- Settings tab renders single `<UnifiedPackagesSection>`.
+- Three sub-groups in priority order: Core → Recommended → Other.
+- **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via `/api/pi-core/update`. No Uninstall.
+- **Recommended Extensions**: rows where `isRecommended` true on `/api/packages/installed` response (server-side cross-reference against `RECOMMENDED_EXTENSIONS` manifest).
+- **Other Packages**: every remaining installed row.
+- Each package classified into exactly one group. Core wins over Recommended wins over Other (dedupe).
+- All three groups render with shared `<PackageRow>` — same visual language, same affordances modulo sub-group rules.
+- See change: consolidate-packages-settings-ui.
 
 **Header badge**: `PiUpdateBadge` polls `/api/pi-core/versions` on mount + every 30 min. When `updatesAvailable > 0` it renders a small pill-shaped button next to the `ServerSelector` that navigates to `/settings?tab=packages`.
 

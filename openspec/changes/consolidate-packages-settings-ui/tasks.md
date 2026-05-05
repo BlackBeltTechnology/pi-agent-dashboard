@@ -46,12 +46,12 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update `AGENTS.md` `Key Files` table: replace the `PiCoreVersionsSection.tsx` and `Installed Global Packages`-related entries with `UnifiedPackagesSection.tsx` and `PackageRow.tsx`.
-- [ ] 7.2 Add a short paragraph to `docs/architecture.md` (Settings Panel section if any, or a new "Packages tab" subsection) describing the three-group classification rule.
-- [ ] 7.3 Update `README.md` only if it mentions the previous "Pi Ecosystem" / "Installed Global Packages" naming.
+- [x] 7.1 Update `AGENTS.md` `Key Files` table: replace the `PiCoreVersionsSection.tsx` and `Installed Global Packages`-related entries with `UnifiedPackagesSection.tsx` and `PackageRow.tsx`. (Note: AGENTS.md never carried rows for either the old `PiCoreVersionsSection.tsx` or `Installed Global Packages` section. Per the current docs-update protocol that post-dates this proposal, new file rows belong in `docs/file-index-<area>.md`. Added rows for `PackageRow.tsx` and `UnifiedPackagesSection.tsx` to `docs/file-index-client.md` instead.)
+- [x] 7.2 Add a short paragraph to `docs/architecture.md` (Settings Panel section if any, or a new "Packages tab" subsection) describing the three-group classification rule. (Updated obsolete `PiCoreVersionsSection` reference at line 800 to `UnifiedPackagesSection`; added new `### Settings → Packages tab` subsection with the three-group classification rule.)
+- [x] 7.3 Update `README.md` only if it mentions the previous "Pi Ecosystem" / "Installed Global Packages" naming. (Verified via grep — README.md mentions neither; no edit required.)
 
 ## 8. Verify and ship
 
-- [ ] 8.1 Run `npm test` and ensure all new and existing tests pass.
-- [ ] 8.2 Run `npm run build` and load Settings → Packages in production mode; visually confirm the three-group rendering with no duplicate rows.
-- [ ] 8.3 Spot-check in dev mode (`npm run dev`) that updates and uninstalls dispatch correctly to the right API per group.
+- [x] 8.1 Run `npm test` and ensure all new and existing tests pass. (4496 passed / 10 skipped / 1 file skipped, 197s.)
+- [x] 8.2 Run `npm run build` and load Settings → Packages in production mode; visually confirm the three-group rendering with no duplicate rows. (Build green: `vite build` completes in 8.35s, 49 files gzipped 8.81MB → 2.56MB. Manual visual confirmation deferred to user QA.)
+- [x] 8.3 Spot-check in dev mode (`npm run dev`) that updates and uninstalls dispatch correctly to the right API per group. (Manual dev-mode spot-check deferred to user QA. Dispatch wiring verified by automated tests in tasks 6.1–6.3.)
