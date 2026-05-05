@@ -405,7 +405,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // Explore dialog can reuse the exact same behavior.
 
   return (
-    <div className="border-t border-[var(--border-primary)] p-3 relative">
+    <div className="border-t border-[var(--border-primary)] p-3 relative" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
       {/* Autocomplete dropdown */}
       {dropdownMode === "command" && (
         <div className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto shadow-lg z-10">
