@@ -263,24 +263,23 @@ async function runSession(udid) {
       : null;
     await performAction(browser, ACTION, sessionId);
 
-    // Draw app boundary — thick red border overlay around the app viewport.
-    // Uses a fixed-position div so it's always visible regardless of #root overflow.
+    // Draw app boundary — thick red dashed border overlay covering full scroll area.
+    // Inserted as a child of #root so it scrolls with the content.
     try {
       await browser.execute(`
         var root = document.querySelector('#root');
         if (!root) return;
-        var r = root.getBoundingClientRect();
+        root.style.position = 'relative';
         var d = document.createElement('div');
         d.id = '_pi-bound';
         d.setAttribute('style',
-          'position:fixed;top:'+r.top+'px;left:'+r.left+'px;'+
-          'width:'+r.width+'px;height:'+r.height+'px;'+
+          'position:absolute;inset:0;width:100%;height:100%;'+
           'border:4px dashed red;z-index:99999;pointer-events:none;box-sizing:border-box');
-        document.body.appendChild(d);
+        root.insertBefore(d, root.firstChild);
         var l = document.createElement('div');
         l.textContent = 'APP';
         l.setAttribute('style',
-          'position:fixed;top:'+(r.top+2)+'px;left:'+(r.left+2)+'px;z-index:100000;'+
+          'position:fixed;top:2px;left:2px;z-index:100000;'+
           'background:red;color:#fff;font:bold 12px sans-serif;padding:2px 6px;pointer-events:none');
         document.body.appendChild(l);
       `);
