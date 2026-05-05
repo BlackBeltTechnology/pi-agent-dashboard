@@ -204,6 +204,12 @@ if [ "$PLATFORM" = "win32" ]; then
     echo "→ Skipping portable exe (ZIP_ONLY=1)"
   else
     echo "→ Building portable exe..."
+    # Disable code-signing: no cert configured, but electron-builder otherwise
+    # auto-discovers system certs and runs osslsigncode on the 169 MB SFX.
+    # See: signtoolOptions:null in the inline config below + these env vars.
+    export CSC_IDENTITY_AUTO_DISCOVERY=false
+    export WIN_CSC_LINK=
+    export CSC_LINK=
     npx electron-builder --win portable --$ARCH \
       --prepackaged "$PACKAGED_DIR" \
       --config <(cat <<EOF
@@ -215,7 +221,8 @@ if [ "$PLATFORM" = "win32" ]; then
   "portable": { "artifactName": "PI-Dashboard-portable.exe" },
   "win": {
     "icon": "resources/icon.ico",
-    "target": ["portable"]
+    "target": ["portable"],
+    "signtoolOptions": null
   }
 }
 EOF

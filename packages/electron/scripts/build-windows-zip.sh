@@ -183,6 +183,10 @@ if [ "$HOST_PLATFORM" = "win32" ]; then
     echo ""
     echo "▶ Step 7/7 — Building portable .exe (7-Zip SFX)..."
     cd "$ELECTRON_DIR"
+    # Disable code-signing entirely: no cert is configured, but electron-builder
+    # auto-discovers system certs by default and runs osslsigncode (slow PE rewrite
+    # of the 169 MB SFX). CSC_IDENTITY_AUTO_DISCOVERY=false short-circuits that.
+    CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= CSC_LINK= \
     npx electron-builder --win portable --"$ARCH" \
       --prepackaged "out/PI-Dashboard-win32-$ARCH" \
       --config.appId=com.blackbelt-technology.pi-dashboard \
