@@ -69,10 +69,16 @@
     "site:preview": "npm --prefix site run preview",
     "screenshots": "npm --prefix site run screenshots"
   },
+  "engines": {
+    "node": ">=22.12.0 <25"
+  },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-extension": "^0.4.6",
     "@blackbelt-technology/pi-dashboard-server": "^0.4.6",
     "@blackbelt-technology/pi-dashboard-web": "^0.4.6"
+  },
+  "optionalDependencies": {
+    "appdmg": "^0.6.6"
   },
   "devDependencies": {
     "jsdom": "^29.0.2",
