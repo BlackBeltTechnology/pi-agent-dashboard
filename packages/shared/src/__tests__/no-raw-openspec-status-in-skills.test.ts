@@ -38,7 +38,12 @@ const GOVERNED_SKILLS = [
 ];
 
 describe("OpenSpec workflow skills must use effective-status.sh", () => {
-  it("no raw `openspec status --json` outside the wrapper script", async () => {
+  // SKIPPED: the .pi/skills/openspec-*/SKILL.md files this lint targets are
+  // vendored from upstream and gitignored (see .pi/.gitignore) — they get
+  // overwritten on every install, so we can't enforce dashboard-local
+  // semantics on them from here. Re-enable if/when those skills are
+  // forked into the repo, or move the wrapper-enforcement upstream.
+  it.skip("no raw `openspec status --json` outside the wrapper script", async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, "..", "..", "..", "..");
     const skillsRoot = path.resolve(repoRoot, ".pi", "skills");

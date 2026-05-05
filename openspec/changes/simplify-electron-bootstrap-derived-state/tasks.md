@@ -146,7 +146,7 @@ Defects discovered while running the Windows ZIP build on a macOS arm64 host (Ph
 - [x] 14.4 Modify `packages/electron/scripts/build-windows-zip.sh` host-side pre-Docker step: on macOS hosts, run `xattr -cr packages/ node_modules/` BEFORE invoking Docker. Strips `com.apple.quarantine` and other extended attributes that Docker Desktop's gRPC FUSE / VirtioFS layer mistranslates into broken Linux read perms. Root-cause fix for the EACCES game-of-whack-a-mole (`vitest.config.ts` → `tsconfig.tsbuildinfo` → `package.json` → …). Must run on host because `process.platform` is `linux` inside Docker, making the in-container `xattr` step a no-op.
 - [x] 14.5 Modify `packages/electron/scripts/build-windows-zip.sh` defensive cleanup at script entry: `chmod -R u+rwX out/` then `rm -rf out/PI-Dashboard-win32-*`. Idempotent; runs before every build to repair state from prior interrupted runs.
 - [x] 14.6 Update `docs/electron-build-methods.md` with the new `build-windows-zip.sh` script: full pipeline table (steps 1–7 with native vs. Docker columns), usage examples, flag descriptions.
-- [ ] 14.7 Verify end-to-end: `./packages/electron/scripts/build-windows-zip.sh` on a clean macOS arm64 checkout produces a valid `PI-Dashboard-win32-x64.zip` and `PI-Dashboard-portable.exe` without manual intervention.
+- [x] 14.7 Verify end-to-end: `./packages/electron/scripts/build-windows-zip.sh` on a clean macOS arm64 checkout produces a valid `PI-Dashboard-win32-x64.zip` and `PI-Dashboard-portable.exe` without manual intervention.
 
 ## 11. Validation
 
