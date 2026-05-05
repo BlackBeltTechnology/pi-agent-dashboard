@@ -130,6 +130,62 @@
       </div>
     </div>
 
+    <!-- V2 Step: Status (idle / extracting / bootstrapping) -->
+    <!-- Reachable only when LAUNCH_SOURCE_V2 is on. See change: simplify-electron-bootstrap-derived-state. -->
+    <div id="step-v2-status" class="step">
+      <h1 id="v2-status-title">Setting up PI Dashboard</h1>
+      <h2 id="v2-status-subtitle">Checking installation...</h2>
+      <!-- Extracting: spinner + percent -->
+      <div id="v2-extracting" style="display:none; margin: 1.5rem 0;">
+        <div style="display:flex; align-items:center; gap: 1rem;">
+          <div style="border: 2px solid #334155; border-top-color: #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite; flex-shrink:0;"></div>
+          <span id="v2-extract-label" style="color:#94a3b8;">Extracting bundled runtime...</span>
+        </div>
+        <div style="margin-top: 0.75rem; background:#1e293b; border-radius:0.5rem; height:6px; overflow:hidden;">
+          <div id="v2-extract-bar" style="height:100%; background:#3b82f6; width:0%; transition:width 0.3s;"></div>
+        </div>
+        <div id="v2-extract-pct" style="color:#64748b; font-size:0.8rem; margin-top:0.25rem;">0%</div>
+      </div>
+      <!-- Bootstrapping: per-package rows from server installable state -->
+      <div id="v2-bootstrapping" style="display:none; margin: 1rem 0;">
+        <div id="v2-package-rows"></div>
+      </div>
+      <!-- Idle: cached/reuse state -->
+      <div id="v2-idle" style="display:none; margin: 1.5rem 0;">
+        <div style="display:flex; align-items:center; gap: 0.75rem; color: #22c55e;">
+          <span style="font-size:1.25rem;">✓</span>
+          <span>Reusing existing installation</span>
+        </div>
+      </div>
+      <div id="v2-status-error" class="error-msg" style="display:none;"></div>
+    </div>
+
+    <!-- V2 Step: Package Selection -->
+    <!-- Shows toggleable optional packages from installable.json. -->
+    <div id="step-v2-packages" class="step">
+      <h1>Optional Packages</h1>
+      <h2>Select which optional packages to install. Required packages are always included.</h2>
+      <div id="v2-package-list" style="margin: 1rem 0; max-height: 40vh; overflow-y:auto;"></div>
+      <div id="v2-packages-error" class="error-msg" style="display:none;"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="v2SkipPackages()">Skip</button>
+        <button class="btn btn-primary" onclick="v2SavePackages()">Save &amp; Continue</button>
+      </div>
+    </div>
+
+    <!-- V2 Step: Error + Retry -->
+    <!-- Shown when a required package fails to install. -->
+    <div id="step-v2-error" class="step">
+      <h1>Setup Failed</h1>
+      <h2>A required package could not be installed.</h2>
+      <div id="v2-error-detail" style="background:#1e293b; border-radius:0.5rem; padding:1rem; margin:1rem 0; color:#f87171; font-size:0.875rem; font-family:monospace; white-space:pre-wrap; max-height:200px; overflow-y:auto;"></div>
+      <div id="v2-failed-packages" style="margin: 0.5rem 0;"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="window.close()">Quit</button>
+        <button class="btn btn-primary" id="v2-retry-btn" onclick="v2RetryBootstrap()">Retry</button>
+      </div>
+    </div>
+
     <!-- Step 5: Done -->
     <div id="step-done" class="step">
       <div class="success">
@@ -541,6 +597,267 @@
     function finish() {
       window.close();
     }
+
+    // ── V2 functions (behind LAUNCH_SOURCE_V2 flag) ──────────────────────
+    // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
+
+    let v2ServerUrl = 'http://localhost:8000';
+    let v2PollTimer = null;
+    let v2InstallableList = null;
+
+    /**
+     * Enter the V2 status screen.
+     * state: 'idle' | 'extracting' | 'bootstrapping'
+     * serverUrl: URL to poll for bootstrap status
+     */
+    function v2ShowStatus(state, serverUrl) {
+      v2ServerUrl = serverUrl || 'http://localhost:8000';
+      const titleEl = document.getElementById('v2-status-title');
+      const subtitleEl = document.getElementById('v2-status-subtitle');
+      document.getElementById('v2-extracting').style.display = 'none';
+      document.getElementById('v2-bootstrapping').style.display = 'none';
+      document.getElementById('v2-idle').style.display = 'none';
+      document.getElementById('v2-status-error').style.display = 'none';
+
+      if (state === 'idle') {
+        titleEl.textContent = 'PI Dashboard Ready';
+        subtitleEl.textContent = 'Reusing existing installation';
+        document.getElementById('v2-idle').style.display = 'block';
+      } else if (state === 'extracting') {
+        titleEl.textContent = 'Setting up PI Dashboard';
+        subtitleEl.textContent = 'Extracting bundled runtime...';
+        document.getElementById('v2-extracting').style.display = 'block';
+        v2PollExtractionProgress();
+      } else if (state === 'bootstrapping') {
+        titleEl.textContent = 'Installing Dependencies';
+        subtitleEl.textContent = 'Setting up required packages...';
+        document.getElementById('v2-bootstrapping').style.display = 'block';
+        v2PollBootstrapStatus();
+      }
+
+      goToStep('step-v2-status');
+    }
+
+    /** Update extraction bar (0–100). */
+    function v2UpdateExtractPct(pct) {
+      document.getElementById('v2-extract-bar').style.width = pct + '%';
+      document.getElementById('v2-extract-pct').textContent = pct + '%';
+    }
+
+    /** Render a package row in the bootstrapping section. */
+    function v2RenderPackageRow(name, status, output) {
+      const rowsEl = document.getElementById('v2-package-rows');
+      let row = document.getElementById('v2-row-' + name);
+      if (!row) {
+        row = document.createElement('div');
+        row.id = 'v2-row-' + name;
+        row.className = 'progress-item';
+        row.innerHTML =
+          '<span class="icon"></span>' +
+          '<div class="progress-wrap"><div class="name">' + name + '</div><div class="output"></div></div>';
+        rowsEl.appendChild(row);
+      }
+      const icon = row.querySelector('.icon');
+      const out = row.querySelector('.output');
+      if (status === 'running') {
+        icon.textContent = '○'; icon.className = 'icon status-running';
+        if (output) out.textContent = output;
+      } else if (status === 'done' || status === 'satisfied') {
+        icon.textContent = '✓'; icon.className = 'icon status-done'; out.textContent = '';
+      } else if (status === 'error') {
+        icon.textContent = '✗'; icon.className = 'icon status-error';
+        if (output) out.textContent = output;
+      }
+    }
+
+    /** Poll server for bootstrap / installable status. */
+    async function v2PollBootstrapStatus() {
+      if (v2PollTimer) clearInterval(v2PollTimer);
+      v2PollTimer = setInterval(async () => {
+        try {
+          const result = await api.getServerBootstrap(v2ServerUrl);
+          if (!result) return; // server not reachable yet
+
+          if (result.installable) {
+            const { total, installed, failed } = result.installable;
+            // Update progress rows if we have progress context
+            if (result.progress) {
+              v2RenderPackageRow(result.progress.step, 'running', result.progress.output);
+            }
+            // If done or error, stop polling
+            if (installed + failed.length >= total && total > 0) {
+              clearInterval(v2PollTimer);
+              v2PollTimer = null;
+              if (failed.length > 0) {
+                v2ShowError('Required package installation failed.', failed);
+              } else {
+                goToStep('step-done');
+              }
+            }
+          } else if (result.status === 'ready') {
+            clearInterval(v2PollTimer);
+            v2PollTimer = null;
+            goToStep('step-done');
+          } else if (result.status === 'failed') {
+            clearInterval(v2PollTimer);
+            v2PollTimer = null;
+            v2ShowError('Server bootstrap failed.', []);
+          }
+        } catch { /* ignore transient errors */ }
+      }, 1500);
+    }
+
+    /** Poll for extraction progress (Phase C — stubbed in Phase B). */
+    async function v2PollExtractionProgress() {
+      // Phase C will wire real extraction progress here.
+      // Phase B: simulate completion after a brief moment so the UI is testable.
+      let pct = 0;
+      const timer = setInterval(() => {
+        pct = Math.min(pct + 5, 100);
+        v2UpdateExtractPct(pct);
+        if (pct >= 100) {
+          clearInterval(timer);
+          // Transition to bootstrapping once extraction completes.
+          v2ShowStatus('bootstrapping', v2ServerUrl);
+        }
+      }, 100);
+    }
+
+    /** Show error screen with failed package list and retry button. */
+    function v2ShowError(message, failedPackages) {
+      document.getElementById('v2-error-detail').textContent = message;
+      const failedEl = document.getElementById('v2-failed-packages');
+      if (failedPackages && failedPackages.length > 0) {
+        failedEl.innerHTML = '<p style="color:#94a3b8; font-size:0.875rem; margin-bottom:0.5rem;">Failed packages:</p>' +
+          failedPackages.map(p => '<div class="progress-item"><span class="icon status-error">✗</span><div class="progress-wrap"><div class="name">' + p + '</div></div></div>').join('');
+      } else {
+        failedEl.innerHTML = '';
+      }
+      goToStep('step-v2-error');
+    }
+
+    /** Retry bootstrap on server. */
+    async function v2RetryBootstrap() {
+      const btn = document.getElementById('v2-retry-btn');
+      btn.disabled = true;
+      btn.textContent = 'Retrying...';
+      try {
+        const ok = await api.retryBootstrap(v2ServerUrl);
+        if (ok) {
+          v2ShowStatus('bootstrapping', v2ServerUrl);
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Retry';
+          document.getElementById('v2-error-detail').textContent += '\n\nRetry request failed. Server may not be running.';
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+      }
+    }
+
+    // ── V2 Package Selection ─────────────────────────────────────────
+
+    /** Open the package selection sub-screen. */
+    async function v2ShowPackageSelection() {
+      const listEl = document.getElementById('v2-package-list');
+      const errEl = document.getElementById('v2-packages-error');
+      errEl.style.display = 'none';
+      listEl.innerHTML = '<p style="color:#64748b;">Loading...</p>';
+
+      try {
+        v2InstallableList = await api.getInstallableList();
+        if (!v2InstallableList || v2InstallableList.packages.length === 0) {
+          errEl.textContent = 'No installable.json found. Package selection is only available when launched from the Electron app.';
+          errEl.style.display = 'block';
+          listEl.innerHTML = '';
+          return;
+        }
+
+        listEl.innerHTML = '';
+        for (const pkg of v2InstallableList.packages) {
+          if (pkg.deprecated) continue;
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 0; border-bottom:1px solid #1e293b;';
+
+          const isRequired = pkg.required;
+          const isDefaultOff = pkg.defaultOff;
+          const isChecked = isRequired || !isDefaultOff;
+
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.id = 'v2-pkg-' + pkg.name;
+          cb.checked = isChecked;
+          cb.disabled = isRequired;
+          cb.style.marginTop = '2px';
+
+          const label = document.createElement('label');
+          label.htmlFor = 'v2-pkg-' + pkg.name;
+          label.style.cssText = 'flex:1; cursor:' + (isRequired ? 'default' : 'pointer') + ';';
+          label.innerHTML =
+            '<div style="font-weight:600; color:#e2e8f0;">' + pkg.name +
+            (isRequired ? ' <span style="font-size:0.7rem; color:#f59e0b; vertical-align:middle;">REQUIRED</span>' : '') +
+            '</div>' +
+            '<div style="font-size:0.8rem; color:#64748b;">' + pkg.kind + ' &bull; ' + pkg.version + '</div>';
+
+          row.appendChild(cb);
+          row.appendChild(label);
+          listEl.appendChild(row);
+        }
+      } catch (err) {
+        errEl.textContent = 'Failed to load package list: ' + (err.message || String(err));
+        errEl.style.display = 'block';
+        listEl.innerHTML = '';
+      }
+
+      goToStep('step-v2-packages');
+    }
+
+    /** Save user's package selection back to installable.json. */
+    async function v2SavePackages() {
+      if (!v2InstallableList) return;
+      const errEl = document.getElementById('v2-packages-error');
+      errEl.style.display = 'none';
+
+      // Update defaultOff based on checkboxes.
+      const updated = v2InstallableList.packages.map(pkg => {
+        if (pkg.required || pkg.deprecated) return pkg;
+        const cb = document.getElementById('v2-pkg-' + pkg.name);
+        const checked = cb ? cb.checked : !pkg.defaultOff;
+        return { ...pkg, defaultOff: !checked };
+      });
+
+      try {
+        await api.saveInstallableList({ ...v2InstallableList, packages: updated });
+        v2ShowStatus('bootstrapping', v2ServerUrl);
+      } catch (err) {
+        errEl.textContent = 'Failed to save: ' + (err.message || String(err));
+        errEl.style.display = 'block';
+      }
+    }
+
+    /** Skip package selection (use defaults). */
+    function v2SkipPackages() {
+      v2ShowStatus('bootstrapping', v2ServerUrl);
+    }
+
+    // Initialise V2 screen if start=v2-* query param is set.
+    (function initV2FromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      const startStep = params.get('start');
+      const serverUrl = params.get('serverUrl');
+      if (serverUrl) v2ServerUrl = serverUrl;
+
+      if (startStep === 'v2-idle') {
+        v2ShowStatus('idle', v2ServerUrl);
+      } else if (startStep === 'v2-extracting') {
+        v2ShowStatus('extracting', v2ServerUrl);
+      } else if (startStep === 'v2-bootstrapping') {
+        v2ShowStatus('bootstrapping', v2ServerUrl);
+      } else if (startStep === 'v2-packages') {
+        v2ShowPackageSelection();
+      }
+    })();
 
     // Check API key status when reaching step 3
     const observer = new MutationObserver(() => {

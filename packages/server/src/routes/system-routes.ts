@@ -22,6 +22,7 @@ import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-
 import { readSpawnFailures } from "../spawn-failure-log.js";
 import { getPluginStatusStore } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { BootstrapStateStore } from "../bootstrap-state.js";
 
 export function registerSystemRoutes(
   fastify: FastifyInstance,
@@ -34,9 +35,10 @@ export function registerSystemRoutes(
     version?: string;
     directoryService?: DirectoryService;
     piGateway?: PiGateway;
+    bootstrapState?: BootstrapStateStore;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, bootstrapState } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -190,6 +192,8 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
+      starter: bootstrapState?.get().starter ?? "Standalone",
+      installable: bootstrapState?.get().installable,
       version: version ?? "unknown",
       uptime: Math.floor((Date.now() - serverStartTime) / 1000),
       mode: config.dev ? "dev" : "production",
@@ -221,6 +225,26 @@ export function registerSystemRoutes(
       try { await deleteTunnel(config.port); } catch { /* best-effort */ }
       setTimeout(() => process.exit(0), 100);
       return { ok: true };
+    },
+  );
+
+  // Re-extract endpoint — Electron-only; 403 for Bridge/Standalone, 202 for Electron.
+  // See change: simplify-electron-bootstrap-derived-state (task 6.4).
+  fastify.post(
+    "/api/electron/reextract",
+    { preHandler: networkGuard },
+    async (_request, reply) => {
+      const starter = bootstrapState?.get().starter ?? "Standalone";
+      if (starter !== "Electron") {
+        reply.status(403);
+        return {
+          error: "reextract_not_allowed",
+          message: `Re-extract is only available when the server was started by Electron (current starter: ${starter})`,
+          starter,
+        };
+      }
+      reply.status(202);
+      return { ok: true, message: "Re-extraction scheduled. Electron will restart the server." };
     },
   );
 

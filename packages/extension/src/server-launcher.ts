@@ -46,6 +46,23 @@ export function resolveServerCliPath(): string {
 }
 
 /**
+ * Build the environment object passed to the spawned server process.
+ * Always stamps DASHBOARD_STARTER=Bridge so the server knows it was
+ * launched by the pi bridge extension.
+ */
+export function buildSpawnEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  // Spread process.env (may contain undefined values); filter them out.
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(baseEnv)) {
+    if (v !== undefined) out[k] = v;
+  }
+  out["DASHBOARD_STARTER"] = "Bridge";
+  return out;
+}
+
+/**
  * Build the spawn arguments from config.
  */
 export function buildSpawnArgs(config: DashboardConfig): string[] {
@@ -94,7 +111,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     const r = await spawnDetached({
       cmd: process.execPath,
       args: ["--import", loader, entry, ...args], // ban:raw-node-import-ok: entry gated by shouldUrlWrapEntry
-      env: { ...process.env },
+      env: { ...process.env, DASHBOARD_STARTER: "Bridge" },
       logFd,
     });
 

@@ -570,7 +570,8 @@ jobs:
           $zipDir = "packages/electron/out/make/zip/$arch"
           New-Item -ItemType Directory -Force -Path $zipDir
           Compress-Archive -Path $packaged -DestinationPath "$zipDir/PI-Dashboard-win32-$arch.zip"
-          # Portable exe via electron-builder
+          # Portable exe (7-Zip SFX via electron-builder — no NSIS required)
+          # See change: simplify-electron-bootstrap-derived-state.
           cd packages/electron
           npx electron-builder --win portable --$arch `
             --prepackaged "out/PI-Dashboard-win32-$arch" `

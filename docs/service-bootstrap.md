@@ -4,6 +4,8 @@
 
 PI Dashboard has two independent startup chains leading to same server process. Each chain MUST resolve tool paths (pi, openspec, node, tsx, bridge extension) to launch server + spawn pi sessions. Doc describes both chains, tool resolution problem, target architecture.
 
+**Phase C update** (`simplify-electron-bootstrap-derived-state`): Chain 1 now uses `selectLaunchSource()` instead of `mode.json` branching. `installable.json` is the single source of truth for required-vs-optional packages. See `docs/electron-bootstrap-flow.md` for the V2 state machine.
+
 ## Startup Chains
 
 ```
@@ -24,13 +26,17 @@ PI Dashboard has two independent startup chains leading to same server process. 
 │    │    ├─ pi found, no bridge → wizard at bridge-install step           │
 │    │    └─ nothing found → full wizard                                   │
 │    │                                                                     │
-│    ├─ wizard or auto-skip writes:                                        │
-│    │    ├─ ~/.pi-dashboard/mode.json (standalone | power-user)           │
-│    │    └─ ~/.pi/agent/settings.json (bridge extension path)             │
+│    ├─ selectLaunchSource() (Phase C V2 default):                        │
+│    │    attach → devMonorepo → piExtension → npmGlobal → extracted      │
+│    │    extracted path: needsExtraction() + extractBundle() +            │
+│    │    seed ~/.pi/dashboard/installable.json from bundled defaults     │
 │    │                                                                     │
-│    ├─ ensureServer() (mode-aware)                                        │
-│    │    ├─ Power-user: pi-dashboard CLI on PATH → managed → bundled      │
-│    │    └─ Standalone: bundled → managed → CLI on PATH                   │
+│    ├─ spawnFromSource() stamps DASHBOARD_STARTER=Electron               │
+│    │    setSpawnedPid(pid) for lifecycle ownership                       │
+│    │                                                                     │
+│    ├─ server reads ~/.pi/dashboard/installable.json                     │
+│    │    required packages: install or abort; optional: log and continue │
+│    │    file absent: no-op (Bridge/Standalone parity preserved)         │
 │    │                                                                     │
 │    └─ BrowserWindow → http://localhost:8000                              │
 │                                                                          │

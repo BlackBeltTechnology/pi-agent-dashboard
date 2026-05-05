@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveServerCliPath, buildSpawnArgs } from "../server-launcher.js";
+import { resolveServerCliPath, buildSpawnArgs, buildSpawnEnv } from "../server-launcher.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -56,6 +56,29 @@ describe("server-launcher", () => {
       } as any);
 
       expect(args).toEqual(["--port", "3000", "--pi-port", "4000"]);
+    });
+  });
+
+  describe("buildSpawnEnv", () => {
+    it("always includes DASHBOARD_STARTER=Bridge", () => {
+      const env = buildSpawnEnv({});
+      expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
+    });
+
+    it("overrides any existing DASHBOARD_STARTER in baseEnv", () => {
+      const env = buildSpawnEnv({ DASHBOARD_STARTER: "Standalone" });
+      expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
+    });
+
+    it("preserves other env vars from baseEnv", () => {
+      const env = buildSpawnEnv({ MY_VAR: "hello" });
+      expect(env["MY_VAR"]).toBe("hello");
+      expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
+    });
+
+    it("filters out undefined values from baseEnv", () => {
+      const env = buildSpawnEnv({ DEFINED: "yes", UNDEF: undefined });
+      expect(Object.keys(env)).not.toContain("UNDEF");
     });
   });
 });

@@ -11,7 +11,7 @@ let dismissed = false;
  * Show a notification for available updates.
  * Only shows once per check cycle (dismissed resets on next interval).
  */
-export function notifyUpdatesAvailable(packages: OutdatedPackage[]): void {
+export function notifyUpdatesAvailable(packages: OutdatedPackage[], starter?: string | null): void {
   if (dismissed) return;
 
   const names = packages.map(p => p.name.split("/").pop()).join(", ");
@@ -36,7 +36,7 @@ export function notifyUpdatesAvailable(packages: OutdatedPackage[]): void {
     if (result.response === 0) {
       for (const pkg of packages) {
         try {
-          updatePackage(pkg.name);
+          updatePackage(pkg.name, starter ?? null);
         } catch (err: any) {
           dialog.showErrorBox("Update Failed", `Failed to update ${pkg.name}: ${err.message}`);
         }

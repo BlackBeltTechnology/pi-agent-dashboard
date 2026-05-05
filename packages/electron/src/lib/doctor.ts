@@ -10,7 +10,7 @@ import os from "node:os";
 import { app } from "electron";
 import { detectPi, detectOpenSpec, detectSystemNode, detectDashboardPackage } from "./dependency-detector.js";
 import { getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
-import { isApiKeyConfigured, readModeFile } from "./wizard-state.js";
+import { isApiKeyConfigured } from "./wizard-state.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 import { resolveOfflinePackages } from "./offline-packages.js";
 import { installManagedNode } from "@blackbelt-technology/pi-dashboard-shared/bootstrap-install.js";
@@ -338,16 +338,47 @@ export async function runDoctor(): Promise<DoctorReport> {
       : "Not running — will be started automatically when needed",
   });
 
-  // ── Setup wizard state ───────────────────────────────────────
+  // ── Launch source + starter + installable (Phase C) ─────────
+  // See change: simplify-electron-bootstrap-derived-state (task 6.8).
 
-  const modeConfig = readModeFile();
+  // Parse health JSON we already fetched above.
+  let serverStarter: string | null = null;
+  let serverInstallable: { total: number; installed: number; failed: string[] } | null = null;
+  if (serverRunning) {
+    try {
+      const healthRes = execSync("curl -sf http://localhost:8000/api/health 2>/dev/null", {
+        encoding: "utf-8", timeout: 3000,
+      });
+      const healthData = JSON.parse(healthRes);
+      serverStarter = typeof healthData.starter === "string" ? healthData.starter : null;
+      if (healthData.installable && typeof healthData.installable === "object") {
+        serverInstallable = {
+          total: healthData.installable.total ?? 0,
+          installed: healthData.installable.installed ?? 0,
+          failed: Array.isArray(healthData.installable.failed) ? healthData.installable.failed : [],
+        };
+      }
+    } catch { /* health not parseable */ }
+  }
+
   checks.push({
-    name: "Setup wizard",
-    status: modeConfig ? "ok" : "warning",
-    message: modeConfig
-      ? `Completed (${modeConfig.mode} mode, ${modeConfig.completedAt})`
-      : "Not completed — wizard will run on next launch",
+    name: "Server starter",
+    status: serverStarter ? "ok" : (serverRunning ? "warning" : "warning"),
+    message: serverStarter
+      ? serverStarter
+      : (serverRunning ? "Unknown (old server?)" : "Server not running"),
   });
+
+  if (serverInstallable) {
+    const failCount = serverInstallable.failed.length;
+    checks.push({
+      name: "Installable list",
+      status: failCount > 0 ? "error" : "ok",
+      message: `${serverInstallable.installed}/${serverInstallable.total} installed` +
+        (failCount > 0 ? `, ${failCount} failed: ${serverInstallable.failed.join(", ")}` : ""),
+      fixable: failCount > 0,
+    });
+  }
 
   // ── API key ──────────────────────────────────────────────────
 

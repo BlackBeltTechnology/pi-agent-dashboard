@@ -53,7 +53,7 @@ log("Importing lib modules...");
 import { isFirstRun, writeModeFile } from "./lib/wizard-state.js";
 import { openWizardWindow, getWizardWindow } from "./lib/wizard-window.js";
 import { registerWizardIpc } from "./lib/wizard-ipc.js";
-import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig } from "./lib/server-lifecycle.js";
+import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid } from "./lib/server-lifecycle.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import { detectPi, detectBridgeExtension } from "./lib/dependency-detector.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
@@ -65,6 +65,9 @@ import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { setupAppMenu } from "./lib/app-menu.js";
+import { isLaunchSourceV2Enabled } from "@blackbelt-technology/pi-dashboard-shared/launch-source-flag.js";
+import { selectLaunchSource, spawnFromSource, parsePreferOverride, PinnedSourceUnavailableError } from "./lib/launch-source.js";
+import fs from "node:fs";
 log("All imports loaded");
 
 let mainWindow: BrowserWindow | null = null;
@@ -376,21 +379,94 @@ async function main(): Promise<void> {
   const preCheck = await isDashboardRunning(config.port);
   log(`Pre-wizard health check: running=${preCheck.running}`);
 
+  // ── LaunchSource V2 path (Phase C default; disable with LAUNCH_SOURCE_V2=false) ────
+  // See change: simplify-electron-bootstrap-derived-state.
+  if (isLaunchSourceV2Enabled(process.env)) {
+    try {
+      const source = await selectLaunchSource({
+        isPackaged: app.isPackaged,
+        cwd: process.cwd(),
+        preferOverride: parsePreferOverride(process.env),
+        bundledMinVersion: app.getVersion(),
+        resourcesPath: (process as any).resourcesPath ?? "",
+        port: config.port,
+      });
+      log(`[launch-source-v2] resolved kind=${source.kind}`);
+
+      let spawnedPid: number | undefined;
+      if (source.kind !== "attach") {
+        let logFd: number | undefined;
+        try {
+          const logDir = path.join(os.homedir(), ".pi", "dashboard");
+          fs.mkdirSync(logDir, { recursive: true });
+          logFd = fs.openSync(path.join(logDir, "server.log"), "a");
+        } catch { /* ignore — server still works without log fd */ }
+
+        const spawnResult = await spawnFromSource(
+          source as Exclude<typeof source, { kind: "attach" }>,
+          { port: config.port, piPort: config.piPort },
+          logFd,
+        );
+        if (logFd !== undefined) try { fs.closeSync(logFd); } catch { /* ignore */ }
+        spawnedPid = spawnResult.pid;
+        log(`[launch-source-v2] spawned server pid=${spawnedPid}`);
+        // Record spawned PID for lifecycle ownership check on quit.
+        setSpawnedPid(spawnedPid);
+      }
+
+      // Show setup screen when extracted source triggered an extraction
+      // (bundle wipe + re-extract + bootstrap about to run).
+      const needsSetupScreen =
+        source.kind === "extracted" && (source as { didExtract?: boolean }).didExtract === true;
+
+      const serverUrl = source.kind === "attach" ? source.url : `http://localhost:${config.port}`;
+
+      if (needsSetupScreen) {
+        updateSplashStatus("Preparing dashboard…");
+        closeSplash();
+        log("[launch-source-v2] opening setup screen for extraction/bootstrap");
+        await openWizardWindow();
+        log("[launch-source-v2] setup screen closed");
+      }
+
+      updateSplashStatus("Opening dashboard…");
+      const win = createMainWindow(serverUrl);
+      if (!needsSetupScreen) closeSplash();
+      showLoadingPage(win, serverUrl);
+      createTray(() => mainWindow, quit);
+      startUpdaters();
+      isStartingUp = false;
+      return;
+    } catch (err: any) {
+      if (err instanceof PinnedSourceUnavailableError) {
+        closeSplash();
+        await dialog.showMessageBox({
+          type: "error",
+          title: "PI Dashboard — Launch Source Unavailable",
+          message: err.message,
+          detail: "Remove the DASHBOARD_PREFER_SOURCE override or fix the pinned source.",
+        });
+        app.quit();
+        return;
+      }
+      throw err;
+    }
+  }
+
+  // ── Legacy path (LAUNCH_SOURCE_V2=false only) ─────────────────────────────────
+
   if (preCheck.running && isFirstRun()) {
-    // Server is running — auto-write mode.json and skip wizard
     log("Server running, auto-writing mode.json as power-user");
     writeModeFile("power-user");
     try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
   }
 
-  // First-run wizard (with smart detection)
   const firstRun = isFirstRun();
   log(`isFirstRun=${firstRun}`);
   if (firstRun) {
-    // Server not running — check what's installed to decide wizard flow
-    updateSplashStatus("Detecting pi agent\u2026");
+    updateSplashStatus("Detecting pi agent…");
     const pi = detectPi();
-    updateSplashStatus("Checking bridge extension\u2026");
+    updateSplashStatus("Checking bridge extension…");
     const bridge = detectBridgeExtension();
     log(`Smart detection: pi=${pi.found}, bridge=${bridge.found}`);
 
@@ -402,11 +478,6 @@ async function main(): Promise<void> {
     log(`startupAction=${startupAction.kind}${"step" in startupAction ? `:${startupAction.step}` : ""}`);
 
     if (startupAction.kind === "auto-skip-wizard-with-install") {
-      // Both pi & bridge already on the system. Skip the wizard UI BUT
-      // still run installStandalone() so ~/.pi-dashboard/node_modules/
-      // has tsx + pi-coding-agent@0.70.0 + openspec for the bundled
-      // server's runtime. See change:
-      // fix-electron-windows-installer-and-server-bootstrap (Defect 1).
       log("Pi + bridge detected, auto-writing mode.json as power-user");
       writeModeFile("power-user");
       try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
@@ -416,15 +487,10 @@ async function main(): Promise<void> {
       });
       log(`runPowerUserManagedInstall: ran=${installResult.ran} reason=${installResult.reason}${installResult.error ? ` error=${installResult.error.message}` : ""}`);
       if (installResult.reason === "failed") {
-        // Surface as a non-fatal warning — the next ensureServer attempt
-        // will fail with a clearer message if the loader is genuinely
-        // unavailable. See change: fix-electron-windows-installer-and-
-        // server-bootstrap (Defect 1, design.md §Open Question 1).
         console.error("[pi-dashboard] managed install failed:", installResult.error?.message);
       }
     } else if (pi.found && !bridge.found) {
-      // Pi found but no bridge — targeted wizard
-      updateSplashStatus("Opening setup wizard\u2026");
+      updateSplashStatus("Opening setup wizard…");
       closeSplash();
       log("Opening wizard at bridge-install step...");
       await openWizardWindow("bridge-install");
@@ -435,8 +501,7 @@ async function main(): Promise<void> {
         return;
       }
     } else {
-      // Nothing found — full wizard
-      updateSplashStatus("Opening setup wizard\u2026");
+      updateSplashStatus("Opening setup wizard…");
       closeSplash();
       log("Opening wizard window...");
       await openWizardWindow();

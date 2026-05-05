@@ -27,7 +27,6 @@
     "@electron-forge/maker-deb": "^7.6.0",
     "@electron-forge/maker-dmg": "^7.6.0",
     "@electron-forge/plugin-vite": "^7.6.0",
-    "@felixrieseberg/electron-forge-maker-nsis": "^7.2.0",
     "@pengx17/electron-forge-maker-appimage": "^1.2.1",
     "electron": "32.3.3",
     "electron-builder": "^26.8.1",

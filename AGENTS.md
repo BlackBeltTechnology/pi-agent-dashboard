@@ -132,6 +132,7 @@ Why this exists: AGENTS.md ballooned to 107 KB (~27k tokens) by accreting per-ch
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for full details.
+- See [docs/electron-bootstrap-flow.md](docs/electron-bootstrap-flow.md) for the Electron app→server bootstrap state machine and end states.
 
 - **Bridge Extension** (`src/extension/`) — Runs in every pi session, forwards events via WebSocket
 - **Dashboard Server** (`src/server/`) — Aggregates events, in-memory + JSON persistence, dual WebSocket servers
@@ -442,7 +443,11 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/client/src/__tests__/no-bare-external-anchor.test.ts` | Repo-lint: forbid bare `<a href="http(s)://">` without `target="_blank"` |
 | `packages/electron/src/lib/pick-node.ts` | Pure `pickNodeForServer` — prefer system Node when version-safe, else bundled |
 | `packages/electron/src/lib/ensure-windows-path.ts` | `ensureWindowsSystemPath` — prepend System32/npm/Git dirs on Windows; no-op on POSIX |
-| `packages/electron/src/lib/server-lifecycle.ts` | Health check → tsx binary spawn; system-Node-when-safe; 60s startup deadline |
+| `packages/electron/src/lib/server-lifecycle.ts` | Health check → server spawn; `setSpawnedPid` + `decideShutdownOnQuit` for V2 ownership rule |
+| `packages/electron/src/lib/launch-source.ts` | `selectLaunchSource()` resolver: attach→devMonorepo→piExtension→npmGlobal→extracted; `spawnFromSource` |
+| `packages/electron/src/lib/bundle-extract.ts` | `needsExtraction`, `migrateConfigs`, `extractBundle` with survive-extract whitelist for `~/.pi-dashboard/` |
+| `packages/shared/src/installable-list.ts` | `InstallablePackage`/`InstallableList` types; `readInstallableList`, `writeInstallableList`, `mergeInstallableList` |
+| `packages/server/src/bootstrap-install-from-list.ts` | Per-package reconcile loop reading `~/.pi/dashboard/installable.json`; no-op when file absent |
 | `packages/server/src/extension-register.ts` | Auto-registers bundled bridge extension in pi global settings on startup |
 | `packages/electron/src/lib/doctor.ts` | Doctor diagnostic: checks all binaries, versions, server status, offers setup |
 | `packages/electron/src/lib/app-menu.ts` | App menu with About dialog and Doctor on all platforms |

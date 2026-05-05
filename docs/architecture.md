@@ -1715,7 +1715,25 @@ See change: `eliminate-bash-on-windows-runners`.
 
 ### Power-user-mode managed install (Defect 1 fix)
 
-The Electron app's first-launch flow has three branches:
+### LaunchSource V2 Resolution (Phase C default)
+
+`selectLaunchSource()` in `packages/electron/src/lib/launch-source.ts` replaces the legacy `mode.json` + `isFirstRun` branching. Resolver walks five probe-based sources in priority order:
+
+1. `attach` — health probe returns 200 within 3s on the configured port.
+2. `devMonorepo` — `!app.isPackaged AND existsSync(cwd/packages/server/src/cli.ts)`.
+3. `piExtension` — `~/.pi/agent/settings.json` has a bridge extension with resolvable server package >= `bundledMinVersion`.
+4. `npmGlobal` — `which pi-dashboard` returns a real-path not under `process.resourcesPath`, version >= `bundledMinVersion`.
+5. `extracted` — always succeeds (fallback). May trigger bundle extraction from `process.resourcesPath` when version marker mismatches.
+
+All probes are injectable (tests inject fakes). Override via `DASHBOARD_PREFER_SOURCE=<kind>` env var.
+
+The spawned server receives `DASHBOARD_STARTER=Electron`. Lifecycle ownership rule: Electron calls `/api/shutdown` on quit ONLY when `health.starter === "Electron" AND health.pid === storedSpawnedPid`.
+
+The `LAUNCH_SOURCE_V2=false` escape hatch reverts to the legacy `mode.json` path (documented below). The flag and its legacy path will be removed in a follow-up change.
+
+### Legacy first-launch flow (LAUNCH_SOURCE_V2=false)
+
+The Electron app's first-launch flow has three branches (escape-hatch only):
 
 ```
   firstRun?

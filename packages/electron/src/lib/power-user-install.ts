@@ -1,6 +1,11 @@
 /**
  * Power-user-mode managed install helper.
  *
+ * TODO(simplify-electron-bootstrap-derived-state Phase C): This file is still
+ * imported by the LAUNCH_SOURCE_V2=false legacy path (main.ts).
+ * Delete after the legacy path is removed in a follow-up change.
+ *
+ *
  * The Electron app's wizard auto-skips its UI when `pi.found && bridge.found`.
  * Pre-fix, that auto-skip ALSO skipped `installStandalone()`, leaving
  * `~/.pi-dashboard/node_modules/` empty. The bundled server then fell back

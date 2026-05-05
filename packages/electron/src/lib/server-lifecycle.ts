@@ -53,6 +53,30 @@ export function buildServerSpawnOptions(params: {
 
 let serverStartedByUs = false;
 
+/** PID of the server we spawned in the V2 launch path. Used for ownership check on quit. */
+let storedSpawnedPid: number | null = null;
+
+/**
+ * Record the PID of the server we spawned (V2 launch path).
+ * Called from main.ts after spawnFromSource succeeds.
+ */
+export function setSpawnedPid(pid: number): void {
+  storedSpawnedPid = pid;
+}
+
+/**
+ * Pure helper: should Electron stop the server on quit?
+ * Rule: only stop when starter is "Electron" AND pid matches what we spawned.
+ */
+export function decideShutdownOnQuit(params: {
+  starter: string | undefined;
+  healthPid: number | undefined;
+  storedPid: number | null;
+}): boolean {
+  if (params.storedPid === null) return false;
+  return params.starter === "Electron" && params.healthPid === params.storedPid;
+}
+
 /** Expected server version — read from bundled server package.json or Electron package.json. */
 function getExpectedVersion(): string | null {
   try {
@@ -487,11 +511,37 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   });
 }
 
-/** Stop the server if we started it. */
+/** Stop the server if we started it and own it. */
 export async function stopServerIfNeeded(): Promise<void> {
-  if (!serverStartedByUs) return;
   const config = loadMinimalConfig();
+  const port = config.port;
+
+  // V2 path: use health-based ownership check.
+  if (storedSpawnedPid !== null) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/health`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json() as Record<string, unknown>;
+        const shouldStop = decideShutdownOnQuit({
+          starter: typeof data.starter === "string" ? data.starter : undefined,
+          healthPid: typeof data.pid === "number" ? data.pid : undefined,
+          storedPid: storedSpawnedPid,
+        });
+        if (shouldStop) {
+          try {
+            await fetch(`http://localhost:${port}/api/shutdown`, { method: "POST" });
+          } catch { /* already stopped */ }
+        }
+      }
+    } catch { /* server not reachable — already stopped */ }
+    return;
+  }
+
+  // Legacy path: use serverStartedByUs flag.
+  if (!serverStartedByUs) return;
   try {
-    await fetch(`http://localhost:${config.port}/api/shutdown`, { method: "POST" });
+    await fetch(`http://localhost:${port}/api/shutdown`, { method: "POST" });
   } catch { /* already stopped */ }
 }

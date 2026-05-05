@@ -53,6 +53,8 @@ import {
 import type { DashboardServer } from "./server.js";
 import { updateBootstrapCompatibility } from "./pi-version-skew.js";
 import type { BootstrapStateStore } from "./bootstrap-state.js";
+import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { bootstrapInstallFromList } from "./bootstrap-install-from-list.js";
 
 /**
  * Emit a stderr warning at CLI startup when the resolved pi version is
@@ -166,6 +168,12 @@ async function runForeground(config: ServerConfig): Promise<void> {
   assertNodeVersionSupported();
   const server = await createServer(config);
 
+  // Stamp the bootstrap state with who started this server process.
+  // parseDashboardStarter defaults to "Standalone" when DASHBOARD_STARTER is unset.
+  const starter = parseDashboardStarter(process.env);
+  server.bootstrapState.set({ starter });
+  console.log(`[bootstrap] starter=${starter}`);
+
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) {
@@ -180,6 +188,19 @@ async function runForeground(config: ServerConfig): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Reconcile installable.json before binding the port.
+  // Required-package failures throw and prevent server start.
+  // Optional failures are logged and continue.
+  // File-absent is a no-op (Bridge/Standalone starters don't seed installable.json).
+  // See change: simplify-electron-bootstrap-derived-state.
+  try {
+    await bootstrapInstallFromList(server.bootstrapState);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[bootstrap] installable reconcile failed (required package): ${message}`);
+    process.exit(1);
+  }
 
   await server.start();
 

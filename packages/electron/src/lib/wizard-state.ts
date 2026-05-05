@@ -1,5 +1,10 @@
 /**
  * Wizard state persistence: mode.json and API key detection.
+ *
+ * TODO(simplify-electron-bootstrap-derived-state Phase C): This file is still
+ * imported by the LAUNCH_SOURCE_V2=false legacy path (main.ts, wizard-ipc.ts,
+ * server-lifecycle.ts, doctor.ts). Delete after the legacy path is removed
+ * in a follow-up change once Phase C ships without regressions.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";

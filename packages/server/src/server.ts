@@ -707,7 +707,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (data) browserGateway.broadcastToAll({ type: "openspec_update", cwd, data });
     },
   });
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, bootstrapState });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   registerJjRoutes(fastify, { browserGateway, pendingAttachRegistry, networkGuard });
 

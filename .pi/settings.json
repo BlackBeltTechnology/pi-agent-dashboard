@@ -5,7 +5,6 @@
       "extensions": [
         "+packages/extension/src/bridge.ts"
       ]
-    },
-    "npm:pi-agent-browser"
+    }
   ]
 }

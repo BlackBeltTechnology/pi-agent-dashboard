@@ -43,6 +43,25 @@ export interface WizardApi {
   installRecommendedExtensions: (ids: string[]) => Promise<{ installed: number }>;
   /** Persist the list of skipped recommended ids */
   persistRecommendedSkipped: (skippedIds: string[]) => Promise<void>;
+
+  // ── V2 API (behind LAUNCH_SOURCE_V2 flag) ───────────────────────────────
+  // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
+
+  /** Read installable.json; null when file is absent. */
+  getInstallableList: () => Promise<import("@blackbelt-technology/pi-dashboard-shared/installable-list.js").InstallableList | null>;
+  /** Save updated installable.json (used by package-selection sub-screen). */
+  saveInstallableList: (list: import("@blackbelt-technology/pi-dashboard-shared/installable-list.js").InstallableList) => Promise<void>;
+  /**
+   * Fetch server bootstrap status (installable reconcile progress).
+   * Returns null when server is not reachable.
+   */
+  getServerBootstrap: (serverUrl: string) => Promise<{
+    status: string;
+    installable?: { total: number; installed: number; failed: string[] };
+    progress?: { step: string; output?: string };
+  } | null>;
+  /** Trigger a bootstrap retry on the running server. */
+  retryBootstrap: (serverUrl: string) => Promise<boolean>;
 }
 
 const api: WizardApi = {
@@ -58,6 +77,12 @@ const api: WizardApi = {
   getRecommendedExtensions: () => ipcRenderer.invoke("wizard:get-recommended"),
   installRecommendedExtensions: (ids) => ipcRenderer.invoke("wizard:install-recommended", ids),
   persistRecommendedSkipped: (skippedIds) => ipcRenderer.invoke("wizard:persist-recommended-skipped", skippedIds),
+
+  // V2 API
+  getInstallableList: () => ipcRenderer.invoke("wizard:v2:get-installable"),
+  saveInstallableList: (list) => ipcRenderer.invoke("wizard:v2:save-installable", list),
+  getServerBootstrap: (serverUrl) => ipcRenderer.invoke("wizard:v2:get-server-bootstrap", serverUrl),
+  retryBootstrap: (serverUrl) => ipcRenderer.invoke("wizard:v2:retry-bootstrap", serverUrl),
 };
 
 contextBridge.exposeInMainWorld("wizardApi", api);

@@ -5,8 +5,16 @@
 import { ipcMain, type BrowserWindow } from "electron";
 import { detectPi, detectOpenSpec, detectDashboardPackage, detectSystemNode, detectBridgeExtension, detectPiDashboardCli } from "./dependency-detector.js";
 import { installStandalone, installDashboardGlobal, installRecommendedExtensions, installBundledExtensions, type InstallProgress } from "./dependency-installer.js";
-import { readModeFile, writeModeFile, isApiKeyConfigured, writeApiKey, readRecommendedWizardState, writeRecommendedWizardState } from "./wizard-state.js";
+import { isApiKeyConfigured, writeApiKey, readRecommendedWizardState, writeRecommendedWizardState } from "./wizard-state.js";
+// TODO(simplify-electron-bootstrap-derived-state Phase C): writeModeFile/readModeFile removed from
+// V2 path. Legacy path (LAUNCH_SOURCE_V2=false) still writes mode.json via wizard:complete below.
+// Remove when the legacy path is deleted in a follow-up change.
 import { registerBundledBridgeExtension } from "./bridge-register.js";
+import {
+  readInstallableList,
+  writeInstallableList,
+  type InstallableList,
+} from "@blackbelt-technology/pi-dashboard-shared/installable-list.js";
 
 /**
  * Register all wizard IPC handlers. Call once from main.ts.
@@ -55,7 +63,10 @@ export function registerWizardIpc(getWizardWindow: () => BrowserWindow | null): 
   });
 
   ipcMain.handle("wizard:complete", async (_event, mode: "standalone" | "power-user") => {
-    writeModeFile(mode);
+    // TODO(Phase C): mode.json write is legacy-path only (LAUNCH_SOURCE_V2=false).
+    // The V2 path does not open the wizard for mode selection; remove when legacy path drops.
+    const { writeModeFile: legacyWrite } = await import("./wizard-state.js");
+    legacyWrite(mode);
     // Power-user: ensure the bundled bridge extension is registered in pi's settings
     if (mode === "power-user") {
       try {
@@ -127,6 +138,73 @@ export function registerWizardIpc(getWizardWindow: () => BrowserWindow | null): 
       writeRecommendedWizardState({
         skippedRecommended: Array.isArray(skippedIds) ? skippedIds : [],
       });
+    },
+  );
+
+  // ── V2 handlers (behind LAUNCH_SOURCE_V2 flag) ─────────────────────────
+  // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
+
+  /**
+   * Read installable.json and return the package list.
+   * Returns null when the file is absent (legacy/Bridge/Standalone parity).
+   */
+  ipcMain.handle("wizard:v2:get-installable", async (): Promise<InstallableList | null> => {
+    return readInstallableList();
+  });
+
+  /**
+   * Save an updated installable.json (for optional package toggles).
+   * Required packages cannot be deselected — the renderer enforces this;
+   * the main process accepts and persists the list as-is.
+   */
+  ipcMain.handle(
+    "wizard:v2:save-installable",
+    async (_event, list: InstallableList): Promise<void> => {
+      await writeInstallableList(list);
+    },
+  );
+
+  /**
+   * Fetch the current bootstrap status from the running server.
+   * Returns null when the server is not reachable.
+   */
+  ipcMain.handle(
+    "wizard:v2:get-server-bootstrap",
+    async (
+      _event,
+      serverUrl: string,
+    ): Promise<{ status: string; installable?: { total: number; installed: number; failed: string[] }; progress?: { step: string; output?: string } } | null> => {
+      try {
+        const res = await fetch(`${serverUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+        if (!res.ok) return null;
+        const data = await res.json() as any;
+        return {
+          status: data.bootstrapStatus ?? (data.ok ? "ready" : "unknown"),
+          installable: data.installable,
+          progress: data.progress,
+        };
+      } catch {
+        return null;
+      }
+    },
+  );
+
+  /**
+   * Trigger a bootstrap retry on the running server.
+   * Returns true on success, false on failure.
+   */
+  ipcMain.handle(
+    "wizard:v2:retry-bootstrap",
+    async (_event, serverUrl: string): Promise<boolean> => {
+      try {
+        const res = await fetch(`${serverUrl}/api/bootstrap/retry`, {
+          method: "POST",
+          signal: AbortSignal.timeout(5000),
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
     },
   );
 }

@@ -1,3 +1,5 @@
+import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+
 /**
  * In-memory bootstrap state store for the dashboard server.
  *
@@ -51,6 +53,22 @@ export interface BootstrapState {
   compatibility?: BootstrapCompatibility;
   /** Set when `registerBridgeExtension` fails after a successful install. */
   bridgeRegistrationError?: string;
+  /**
+   * Who started this server process. Defaults to "Standalone" (direct CLI).
+   * Set at boot time from `parseDashboardStarter(process.env)`.
+   */
+  starter?: DashboardStarter;
+  /**
+   * Installable list reconciliation progress.
+   * Set by bootstrapInstallFromList during Phase B reconcile.
+   * See change: simplify-electron-bootstrap-derived-state.
+   */
+  installable?: {
+    total: number;
+    installed: number;
+    /** Package names that failed to install. */
+    failed: string[];
+  };
 }
 
 export type BootstrapListener = (state: BootstrapState) => void;

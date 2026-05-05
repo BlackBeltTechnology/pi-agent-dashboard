@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin",
-  "version": "0.1.0",
+  "version": "0.4.6",
   "description": "pi-flows-aware bridge: forwards @pi/anthropic-messages into every spawned flow agent. Defers activation until both peers are present; status surfaced to dashboard UI.",
   "license": "MIT",
   "publishConfig": {

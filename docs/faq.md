@@ -409,6 +409,9 @@ Cross-refs:
 
 ## How do I build the Electron app?
 
+See full comparison of all three build methods: `docs/electron-build-methods.md`.
+
+
 Single command for current platform.
 
 Command: `npm run electron:build` (= `bash packages/electron/scripts/build-installer.sh`).
