@@ -12,9 +12,12 @@
 #   ./build-installer.sh --help
 #
 # What it produces:
-#   macOS   → .dmg                in out/make/
-#   Linux   → .deb + .AppImage    in out/make/
-#   Windows → .exe (NSIS)         in out/make/
+#   macOS   → .dmg                          in out/make/
+#   Linux   → .deb + .AppImage              in out/make/
+#   Windows → .zip + portable .exe          in out/make/zip/<arch>/
+#                                           + out/make/portable/<arch>/
+#             (NSIS removed — see openspec/changes/
+#              simplify-electron-bootstrap-derived-state.)
 #
 set -euo pipefail
 
@@ -75,8 +78,8 @@ while [[ $# -gt 0 ]]; do
       echo "  (none)            Build for current platform only"
       echo "  --all             Build for all platforms (native + Docker)"
       echo "  --linux           Build Linux .deb + .AppImage via Docker"
-      echo "  --windows         Build Windows .exe (NSIS) + .zip + portable via Docker
-  --windows-zip     Build Windows .zip only via Docker (no NSIS, no portable)"
+      echo "  --windows         Build Windows .zip + portable .exe via Docker"
+      echo "  --windows-zip     Build Windows .zip only via Docker (no portable)"
       echo "  --mac-both        Build BOTH macOS DMGs (arm64 + x64) on an"
       echo "                    Apple Silicon host. Requires Rosetta 2."
       echo ""
@@ -154,7 +157,10 @@ echo ""
 echo "Build targets:"
 [ "$BUILD_NATIVE" = true ]  && echo "  • $HOST_LABEL (native)  → DMG / DEB+AppImage / EXE"
 [ "$BUILD_LINUX" = true ]   && echo "  • Linux (Docker)        → .deb + .AppImage"
-[ "$BUILD_WINDOWS" = true ] && echo "  • Windows (Docker)      → .exe (NSIS)"
+[ "$BUILD_WINDOWS" = true ] && [ "$BUILD_WINDOWS_ZIP_ONLY" = false ] \
+  && echo "  • Windows (Docker)      → .zip + portable .exe"
+[ "$BUILD_WINDOWS" = true ] && [ "$BUILD_WINDOWS_ZIP_ONLY" = true ] \
+  && echo "  • Windows (Docker)      → .zip only"
 echo ""
 
 # ── Check Docker if needed ──────────────────────────────────────
@@ -356,7 +362,8 @@ docker_build() {
 
   cd "$PROJECT_DIR"
 
-  # Build Docker image for x86_64 (required for NSIS/makensis and x64 native modules)
+  # Build Docker image for x86_64 (required for x64 native modules:
+  # node-pty prebuilds + the bundled Node.js host arch must match).
   docker build \
     --no-cache \
     --platform linux/amd64 \

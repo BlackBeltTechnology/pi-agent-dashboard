@@ -169,7 +169,9 @@ if [ "$PLATFORM" = "win32" ]; then
   cp "/tmp/node-$VERSION-win-$ARCH/npm.cmd" "$NODE_DIR/"
   cp "/tmp/node-$VERSION-win-$ARCH/npx.cmd" "$NODE_DIR/"
 
-  # Package with Forge (package only — skip makers, NSIS can't run on Linux)
+  # Package with Forge (package only — forge has no Windows maker we use
+  # since NSIS was removed; we produce ZIP via `zip` below and an optional
+  # 7-Zip SFX portable .exe via electron-builder).
   cd /build/packages/electron
   ../../node_modules/.bin/electron-forge package --platform win32 --arch "$ARCH"
 
@@ -195,11 +197,16 @@ if [ "$PLATFORM" = "win32" ]; then
   zip -r -q "../out/make/zip/$ARCH/$ZIP_NAME" "PI-Dashboard-win32-$ARCH/"
   cd /build/packages/electron
 
-  # 2. Portable exe (7-Zip SFX via electron-builder — no NSIS required)
-  echo "→ Building portable exe..."
-  npx electron-builder --win portable --$ARCH \
-    --prepackaged "$PACKAGED_DIR" \
-    --config <(cat <<EOF
+  # 2. Portable exe (7-Zip SFX via electron-builder). Skipped when
+  # ZIP_ONLY=1 — build-installer.sh --windows-zip and build-windows-zip.sh
+  # --no-portable both set this. ZIP is always produced above.
+  if [ "${ZIP_ONLY:-0}" = "1" ]; then
+    echo "→ Skipping portable exe (ZIP_ONLY=1)"
+  else
+    echo "→ Building portable exe..."
+    npx electron-builder --win portable --$ARCH \
+      --prepackaged "$PACKAGED_DIR" \
+      --config <(cat <<EOF
 {
   "appId": "com.blackbelt-technology.pi-dashboard",
   "productName": "PI Dashboard",
@@ -213,6 +220,7 @@ if [ "$PLATFORM" = "win32" ]; then
 }
 EOF
 ) || echo "  ⚠ Portable build failed (non-fatal)"
+  fi
 
   echo ""
   echo "✓ Build complete for win32-$ARCH"
