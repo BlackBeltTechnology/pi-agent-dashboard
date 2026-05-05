@@ -86,3 +86,42 @@ const api: WizardApi = {
 };
 
 contextBridge.exposeInMainWorld("wizardApi", api);
+
+// ── piDashboard API ───────────────────────────────────────────────────────────────────
+// User-initiated server-launch controls used by the loading page (and any
+// future in-app retry control). See change: electron-server-launch-controls.
+// Same preload is attached to both the loading page and the wizard window;
+// each renderer uses only the namespace it needs.
+
+export interface PiDashboardLaunchOutcome {
+  kind: "already-running" | "started" | "failed";
+  url?: string;
+  reason?: string;
+  logTail?: string;
+}
+
+export interface PiDashboardLaunchStatus {
+  phase: "starting" | "shutting-down-existing" | "spawning" | "waiting-health" | "ready" | "failed";
+  message?: string;
+  url?: string;
+}
+
+export interface PiDashboardApi {
+  requestLaunch: (force?: boolean) => Promise<PiDashboardLaunchOutcome>;
+  openDoctor: () => void;
+  readServerLog: (lines?: number) => Promise<string>;
+  onStatus: (cb: (status: PiDashboardLaunchStatus) => void) => () => void;
+}
+
+const piDashboard: PiDashboardApi = {
+  requestLaunch: (force) => ipcRenderer.invoke("dashboard:request-launch", { force: !!force }),
+  openDoctor: () => ipcRenderer.send("dashboard:open-doctor"),
+  readServerLog: (lines) => ipcRenderer.invoke("dashboard:read-server-log", { lines: lines ?? 20 }),
+  onStatus: (cb) => {
+    const listener = (_e: unknown, payload: PiDashboardLaunchStatus) => cb(payload);
+    ipcRenderer.on("dashboard:launch-status", listener);
+    return () => { ipcRenderer.removeListener("dashboard:launch-status", listener); };
+  },
+};
+
+contextBridge.exposeInMainWorld("piDashboard", piDashboard);

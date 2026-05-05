@@ -511,6 +511,132 @@ async function launchServer(port: number, piPort: number): Promise<void> {
   });
 }
 
+// ── User-initiated launch routine ──────────────────────────────────────────────
+//
+// `requestServerLaunch` is the single entry point shared by the loading-page
+// "Start server" button, tray menu items, and any future in-app launch
+// controls. It is idempotent under concurrent invocation: a single shared
+// promise is reused while a launch is in flight.
+// See change: electron-server-launch-controls (D1).
+
+export type LaunchOutcome =
+  | { kind: "already-running"; url: string }
+  | { kind: "started"; url: string }
+  | { kind: "failed"; reason: string; logTail: string };
+
+export type LaunchStatus =
+  | { phase: "starting" }
+  | { phase: "shutting-down-existing" }
+  | { phase: "spawning" }
+  | { phase: "waiting-health" }
+  | { phase: "ready"; url: string }
+  | { phase: "failed"; message: string };
+
+type LaunchStatusListener = (status: LaunchStatus) => void;
+const launchStatusListeners = new Set<LaunchStatusListener>();
+
+/** Subscribe to launch-status events. Returns an unsubscribe function. */
+export function onLaunchStatus(cb: LaunchStatusListener): () => void {
+  launchStatusListeners.add(cb);
+  return () => { launchStatusListeners.delete(cb); };
+}
+
+function emitLaunchStatus(status: LaunchStatus): void {
+  for (const cb of launchStatusListeners) {
+    try { cb(status); } catch { /* listener errors are not our problem */ }
+  }
+}
+
+let inflightLaunch: Promise<LaunchOutcome> | null = null;
+
+/**
+ * Probe whether the dashboard server is currently reachable.
+ * Thin wrapper around `isDashboardRunning` that reads the configured port.
+ */
+export async function isManagedServerRunning(): Promise<boolean> {
+  const config = loadMinimalConfig();
+  const status = await isDashboardRunning(config.port);
+  return status.running;
+}
+
+/**
+ * Read the trailing `lines` lines (default 20) of `~/.pi/dashboard/server.log`.
+ * Returns an empty string if the log is missing or unreadable. Reads at most
+ * 8 KiB from the end of the file to bound memory.
+ */
+export async function readServerLogTail(lines: number = 20): Promise<string> {
+  const logPath = path.join(MANAGED_DIR, "server.log");
+  try {
+    if (!existsSync(logPath)) return "";
+    const fs = await import("node:fs/promises");
+    const stat = await fs.stat(logPath);
+    const TAIL_BYTES = 8192;
+    const start = Math.max(0, stat.size - TAIL_BYTES);
+    const fd = await fs.open(logPath, "r");
+    try {
+      const buf = Buffer.alloc(stat.size - start);
+      await fd.read(buf, 0, buf.length, start);
+      const text = buf.toString("utf8");
+      const allLines = text.split("\n");
+      return allLines.slice(-lines).join("\n");
+    } finally {
+      await fd.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * User-initiated server launch. Idempotent under concurrent calls.
+ * Never throws — failures are returned as `{ kind: "failed", reason, logTail }`.
+ */
+export async function requestServerLaunch(opts: { force?: boolean } = {}): Promise<LaunchOutcome> {
+  if (inflightLaunch) return inflightLaunch;
+  inflightLaunch = (async (): Promise<LaunchOutcome> => {
+    try {
+      emitLaunchStatus({ phase: "starting" });
+      const config = loadMinimalConfig();
+      const url = `http://localhost:${config.port}`;
+      const status = await isDashboardRunning(config.port);
+
+      if (status.running && !opts.force) {
+        emitLaunchStatus({ phase: "ready", url });
+        return { kind: "already-running", url };
+      }
+
+      if (status.running && opts.force) {
+        emitLaunchStatus({ phase: "shutting-down-existing" });
+        try {
+          await fetch(`${url}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(3000) });
+        } catch { /* fall through; spawn will report port conflict if anything */ }
+        // Wait up to 5s for the port to close.
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          const probe = await isDashboardRunning(config.port);
+          if (!probe.running) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
+      }
+
+      emitLaunchStatus({ phase: "spawning" });
+      const startedUrl = await ensureServer();
+      emitLaunchStatus({ phase: "waiting-health" });
+      // ensureServer already waits for health internally — emit ready.
+      emitLaunchStatus({ phase: "ready", url: startedUrl });
+      return { kind: "started", url: startedUrl };
+    } catch (err: any) {
+      const reason = String(err?.message ?? err);
+      const logTail = await readServerLogTail(20);
+      emitLaunchStatus({ phase: "failed", message: reason });
+      return { kind: "failed", reason, logTail };
+    } finally {
+      inflightLaunch = null;
+    }
+  })();
+  return inflightLaunch;
+}
+
 /** Stop the server if we started it and own it. */
 export async function stopServerIfNeeded(): Promise<void> {
   const config = loadMinimalConfig();

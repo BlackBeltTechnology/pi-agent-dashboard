@@ -45,14 +45,14 @@ export async function requestServerLaunch(opts?: { force?: boolean }): Promise<L
 Behaviour:
 - Probes `isDashboardRunning(port)` first.
 - If running and `!force` → returns `already-running`.
-- If running and `force` → calls existing `/api/restart` (server has the cross-platform restart helper); on failure falls through to spawn.
+- If running and `force` → POSTs `/api/shutdown` (existing endpoint), waits for the port to close (poll `isDashboardRunning` with 5 s timeout), then spawns fresh.
 - If not running → reuses `ensureServer()` body.
 - Holds an in-module `Promise` so concurrent callers (button + tray + IPC) **share one launch attempt** instead of spawning twice.
 - Returns structured outcome (no thrown errors) so the renderer can update UI deterministically.
 
 **Alternatives considered:**
 - *Re-call `ensureServer()` directly from each entry point.* Rejected — `ensureServer()` is currently coupled to the startup path's retry loop and dialog. Adding a parallel idempotent wrapper avoids regressing startup behaviour.
-- *Use the existing `/api/restart` for everything.* Rejected — only works when the server is already up. The button's primary use case is "server is down".
+- *Use the existing `/api/restart` for everything.* Rejected on two grounds: (a) only works when the server is already up — the button's primary use case is "server is down"; (b) introduces an extra HTTP round-trip from main process to localhost when a plain shutdown-then-spawn is sufficient and uses the same code path as the cold-start case.
 
 ### D2 — Loading page becomes a real HTML resource with preload bridge
 

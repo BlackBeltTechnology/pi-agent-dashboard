@@ -9,8 +9,11 @@
  * 5. System tray (minimize on close, Show/Quit menu)
  */
 
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { fileURLToPath } from "node:url";
 import { decideWillNavigate } from "./lib/link-handling.js";
+
+const __filename = fileURLToPath(import.meta.url);
 
 // Enable Wayland support on Linux (auto-detect X11 vs Wayland)
 if (process.platform === "linux" && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
@@ -53,7 +56,8 @@ log("Importing lib modules...");
 import { isFirstRun, writeModeFile } from "./lib/wizard-state.js";
 import { openWizardWindow, getWizardWindow } from "./lib/wizard-window.js";
 import { registerWizardIpc } from "./lib/wizard-ipc.js";
-import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid } from "./lib/server-lifecycle.js";
+import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid, requestServerLaunch, isManagedServerRunning, readServerLogTail, onLaunchStatus } from "./lib/server-lifecycle.js";
+import { showDoctorDialog } from "./lib/app-menu.js";
 import { isDashboardRunning } from "./lib/health-check.js";
 import { detectPi, detectBridgeExtension } from "./lib/dependency-detector.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
@@ -134,13 +138,97 @@ function closeSplash(): void {
   splashWindow = null;
 }
 
+/**
+ * Resolve the path to the preload script attached to the main window.
+ * Mirrors `lib/wizard-window.ts::getPreloadPath`. Same preload bundle
+ * exposes both `wizardApi` and `piDashboard`; renderers use only what
+ * they need.
+ */
+function getMainPreloadPath(): string {
+  const dir = path.dirname(__filename);
+  const sameDir = path.join(dir, "preload.js");
+  if (fs.existsSync(sameDir)) return sameDir;
+  const forgeDev = path.join(process.cwd(), ".vite", "build", "preload.js");
+  if (fs.existsSync(forgeDev)) return forgeDev;
+  return sameDir;
+}
+
+/**
+ * Register IPC handlers used by the loading-page preload (`piDashboard`).
+ * Idempotent — calling twice (e.g. across reload cycles) replaces handlers.
+ * See change: electron-server-launch-controls.
+ */
+function registerPiDashboardIpc(): void {
+  ipcMain.removeHandler("dashboard:request-launch");
+  ipcMain.handle("dashboard:request-launch", async (_event, payload: { force?: boolean } = {}) => {
+    return requestServerLaunch({ force: !!payload?.force });
+  });
+
+  ipcMain.removeHandler("dashboard:read-server-log");
+  ipcMain.handle("dashboard:read-server-log", async (_event, payload: { lines?: number } = {}) => {
+    return readServerLogTail(payload?.lines ?? 20);
+  });
+
+  ipcMain.removeAllListeners("dashboard:open-doctor");
+  ipcMain.on("dashboard:open-doctor", () => { void showDoctorDialog(); });
+}
+
+/**
+ * Forward `LaunchStatus` events to the main window's renderer (loading page).
+ * Returns an unsubscribe function. The forward is best-effort — if the
+ * window is destroyed, the call silently no-ops.
+ */
+function wireLaunchStatusForwarder(): () => void {
+  return onLaunchStatus((status) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try { mainWindow.webContents.send("dashboard:launch-status", status); }
+    catch { /* renderer may have navigated away */ }
+  });
+}
+
+/**
+ * Resolve the path to the loading-page HTML resource.
+ * Packaged: under `process.resourcesPath/loading.html`.
+ * Dev: relative to `src/lib/` — `../../resources/loading.html` from main.ts compiled output.
+ */
+function resolveLoadingPagePath(): string {
+  const dir = path.dirname(__filename);
+  const dev = path.resolve(dir, "..", "..", "resources", "loading.html");
+  if (fs.existsSync(dev)) return dev;
+  if ((process as any).resourcesPath) {
+    const packaged = path.join((process as any).resourcesPath, "loading.html");
+    if (fs.existsSync(packaged)) return packaged;
+  }
+  return dev;
+}
+
 /** Show a loading page that retries connecting to the server. */
 function showLoadingPage(win: BrowserWindow, serverUrl: string): void {
   const config = loadMinimalConfig();
-  const knownServersHtml = config.knownServers.length > 0
+  const knownServersBase64 = Buffer.from(JSON.stringify(config.knownServers)).toString("base64");
+  const loadingHtml = resolveLoadingPagePath();
+  const query: Record<string, string> = { serverUrl };
+  if (config.knownServers.length > 0) query.knownServers = knownServersBase64;
+  win.loadFile(loadingHtml, { query }).catch((err: any) => {
+    log(`loadFile(loading.html) failed: ${err?.message || err} — falling back to inline data: URL`);
+    win.loadURL(buildLegacyLoadingDataUrl(serverUrl, config.knownServers));
+  });
+}
+
+/**
+ * Legacy fallback: builds the inline data: URL we used before the resource
+ * file existed. Only reached if `resources/loading.html` is missing from
+ * the package (should never happen in a properly-built bundle). Kept so
+ * the app still shows *something* useful instead of a blank window.
+ */
+function buildLegacyLoadingDataUrl(
+  serverUrl: string,
+  knownServers: ReturnType<typeof loadMinimalConfig>["knownServers"],
+): string {
+  const knownServersHtml = knownServers.length > 0
     ? `<div class="known-servers" id="known-servers" style="display:none; margin-top:20px; text-align:left;">
         <h3 style="color:#c9d1d9; font-size:14px; margin:0 0 8px;">Known Servers</h3>
-        ${config.knownServers.map((s) =>
+        ${knownServers.map((s) =>
           `<button onclick="window.switchServer('${s.host}', ${s.port})" class="server-btn">
             <span class="server-label">${s.label || s.host}</span>
             <span class="server-addr">${s.host}:${s.port}</span>
@@ -148,7 +236,6 @@ function showLoadingPage(win: BrowserWindow, serverUrl: string): void {
         ).join("")}
       </div>`
     : "";
-
   const html = `
     <html>
     <head><style>
@@ -193,33 +280,7 @@ function showLoadingPage(win: BrowserWindow, serverUrl: string): void {
     </script>
     </body>
     </html>`;
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-  let attempts = 0;
-  const MAX_ATTEMPTS_BEFORE_ERROR = 10; // ~15 seconds
-
-  const tryConnect = async () => {
-    try {
-      const res = await fetch(`${serverUrl}/api/health`, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) {
-        win.loadURL(serverUrl);
-        return;
-      }
-    } catch { /* not ready yet */ }
-
-    attempts++;
-    if (attempts === MAX_ATTEMPTS_BEFORE_ERROR) {
-      // Show error message with known servers fallback, keep retrying
-      win.webContents.executeJavaScript(`
-        document.getElementById('status').style.display = 'none';
-        document.getElementById('error').style.display = 'block';
-        var ks = document.getElementById('known-servers');
-        if (ks) ks.style.display = 'block';
-      `).catch(() => {});
-    }
-    setTimeout(tryConnect, 1500);
-  };
-  setTimeout(tryConnect, 1000);
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 let isQuitting = false;
 let cleanupUpdateChecker: (() => void) | null = null;
@@ -237,6 +298,11 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      // Preload exposes `window.piDashboard` for the loading page (Start
+      // server, Open Doctor, Server log). Once the dashboard URL loads,
+      // the namespace is unused but harmless. See change:
+      // electron-server-launch-controls.
+      preload: getMainPreloadPath(),
     },
   });
 
@@ -368,6 +434,11 @@ async function main(): Promise<void> {
   // Register wizard IPC handlers
   registerWizardIpc(getWizardWindow);
 
+  // Register loading-page IPC (Start server / Open Doctor / Server log).
+  // See change: electron-server-launch-controls.
+  registerPiDashboardIpc();
+  wireLaunchStatusForwarder();
+
   // Allow triggering setup wizard from menu (Doctor → Run Setup)
   app.on("run-setup-wizard" as any, async () => {
     await openWizardWindow();
@@ -433,7 +504,10 @@ async function main(): Promise<void> {
       const win = createMainWindow(serverUrl);
       if (!needsSetupScreen) closeSplash();
       showLoadingPage(win, serverUrl);
-      createTray(() => mainWindow, quit);
+      createTray(() => mainWindow, quit, {
+        getServerStatus: isManagedServerRunning,
+        onLaunch: (force) => { void requestServerLaunch({ force }); },
+      });
       startUpdaters();
       isStartingUp = false;
       return;
@@ -519,7 +593,10 @@ async function main(): Promise<void> {
     const devUrl = "http://localhost:8000";
     const win = createMainWindow(devUrl);
     showLoadingPage(win, devUrl);
-    createTray(() => mainWindow, quit);
+    createTray(() => mainWindow, quit, {
+      getServerStatus: isManagedServerRunning,
+      onLaunch: (force) => { void requestServerLaunch({ force }); },
+    });
     startUpdaters();
     isStartingUp = false;
     return;
@@ -575,7 +652,10 @@ async function main(): Promise<void> {
   const win = createMainWindow(serverUrl);
   closeSplash();
   showLoadingPage(win, serverUrl);
-  createTray(() => mainWindow, quit);
+  createTray(() => mainWindow, quit, {
+    getServerStatus: isManagedServerRunning,
+    onLaunch: (force) => { void requestServerLaunch({ force }); },
+  });
   startUpdaters();
   isStartingUp = false;
 }

@@ -52,6 +52,8 @@ const config: ForgeConfig = {
       "./resources/trayTemplate@2x.png",
       "./resources/icon.png",
       "./resources/icon.ico",
+      // Loading-page HTML resource. See change: electron-server-launch-controls.
+      "./resources/loading.html",
       // Bundled server (created by scripts/bundle-server.mjs)
       ...(fs.existsSync(path.resolve(__dirname, "resources/server")) ? ["./resources/server"] : []),
       // Bundled first-party recommended extensions (created by scripts/bundle-recommended-extensions.mjs

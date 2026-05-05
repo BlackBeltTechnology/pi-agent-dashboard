@@ -86,6 +86,16 @@ else
   fail "node-pty prebuild" "not found at $PTY_PREBUILD"
 fi
 
+# Check loading-page HTML resource (change: electron-server-launch-controls).
+# Loading page must be a real HTML file so the preload can attach the
+# `piDashboard` IPC bridge (Start server / Open Doctor / Server log).
+LOADING_HTML="/usr/lib/pi-dashboard/resources/loading.html"
+if [ -f "$LOADING_HTML" ]; then
+  pass "Loading page resource bundled"
+else
+  fail "Loading page resource" "not found at $LOADING_HTML"
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Test 2: Simulate wizard setup (headless)"

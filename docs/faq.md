@@ -182,6 +182,27 @@ Cross-refs:
 - README.md:470
 - docs/architecture.md:13
 
+## How do I retry the dashboard server launch from the Electron app?
+
+Initial `ensureServer()` attempts run during Electron startup. Failure shows loading page with "Cannot connect to dashboard server".
+
+Loading page exposes:
+- **"Start server" button** → calls `requestServerLaunch()` via `dashboard:request-launch` IPC.
+- **"Open Doctor" link** → `dashboard:open-doctor` IPC.
+- Collapsible **"Server log" panel** → last 20 lines of `~/.pi/dashboard/server.log` via `dashboard:read-server-log`.
+
+System tray menu shows **"Start server"** when no server running, **"Restart server"** when running. Polls every 3s.
+
+All entry points share idempotent `requestServerLaunch()` in `packages/electron/src/lib/server-lifecycle.ts`. Concurrent calls share one inflight spawn attempt.
+
+`force: true` POSTs `/api/shutdown`, waits up to 5s for port to close, spawns fresh.
+
+Failures returned as `{ kind: "failed", reason, logTail }` value, never thrown.
+
+Cross-refs:
+- README.md:268
+- packages/electron/src/lib/server-lifecycle.ts
+
 ## How do I configure the dashboard?
 
 Edit `~/.pi/dashboard/config.json` or click gear icon in sidebar header.

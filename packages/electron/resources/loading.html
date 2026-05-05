@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>PI Dashboard — Connecting…</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+         display: flex; align-items: center; justify-content: center;
+         height: 100vh; margin: 0; background: #0d1117; color: #c9d1d9; }
+  .container { text-align: center; max-width: 520px; padding: 0 24px; }
+  .pi { font-size: 72px; color: #4a90d9; margin-bottom: 16px; }
+  .status { font-size: 14px; color: #8b949e; min-height: 20px; }
+  .error { display: none; margin-top: 24px; text-align: left; }
+  .error h3 { color: #f85149; margin: 0 0 12px; font-size: 16px; }
+  .error p { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: #8b949e; }
+  .error code { background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; align-items: center; margin: 16px 0 12px; flex-wrap: wrap; }
+  .primary-btn { background: #238636; border: 1px solid #2ea043; border-radius: 6px;
+    color: #fff; padding: 8px 16px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  .primary-btn:hover:not(:disabled) { background: #2ea043; }
+  .primary-btn:disabled { background: #30363d; border-color: #30363d; color: #8b949e; cursor: not-allowed; }
+  .link-btn { background: transparent; border: none; color: #4a90d9; padding: 8px 4px;
+    font-size: 13px; cursor: pointer; text-decoration: underline; }
+  .link-btn:hover { color: #6cb6ff; }
+  .server-btn { display: flex; justify-content: space-between; align-items: center; width: 100%;
+    padding: 8px 12px; margin-bottom: 6px; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; color: #c9d1d9; cursor: pointer; font-size: 13px; text-align: left; }
+  .server-btn:hover { border-color: #4a90d9; background: #1c2128; }
+  .server-label { font-weight: 500; }
+  .server-addr { color: #8b949e; font-size: 12px; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: #8b949e; font-size: 12px; user-select: none; }
+  summary:hover { color: #c9d1d9; }
+  pre.log { background: #010409; border: 1px solid #30363d; border-radius: 6px;
+    padding: 8px 10px; margin-top: 8px; font-size: 11px; line-height: 1.4;
+    max-height: 200px; overflow: auto; color: #8b949e; white-space: pre-wrap; word-break: break-all; }
+  .dot { animation: blink 1.4s infinite; }
+  .dot:nth-child(2) { animation-delay: 0.2s; }
+  .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 20% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="pi">π</div>
+    <div class="status" id="status">Connecting to dashboard<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
+    <div class="error" id="error">
+      <h3>Cannot connect to dashboard server</h3>
+      <p>The server at <code id="server-url">http://localhost:8000</code> is not responding.</p>
+      <div class="actions">
+        <button class="primary-btn" id="start-btn">Start server</button>
+        <button class="link-btn" id="doctor-btn">Open Doctor</button>
+      </div>
+      <p style="color:#c9d1d9;">Or install and start the dashboard manually:</p>
+      <p><code>npm install -g @blackbelt-technology/pi-dashboard</code></p>
+      <p><code>pi-dashboard start</code></p>
+      <details id="log-panel" style="display:none;">
+        <summary>Server log (last 20 lines)</summary>
+        <pre class="log" id="log-content"></pre>
+      </details>
+      <div id="known-servers" style="display:none; margin-top: 20px;"></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const serverUrl = params.get("serverUrl") || "http://localhost:8000";
+      document.getElementById("server-url").textContent = serverUrl;
+
+      const statusEl = document.getElementById("status");
+      const errorEl = document.getElementById("error");
+      const startBtn = document.getElementById("start-btn");
+      const doctorBtn = document.getElementById("doctor-btn");
+      const logPanel = document.getElementById("log-panel");
+      const logContent = document.getElementById("log-content");
+
+      // Render known-servers list (passed via query as base64 JSON to avoid quoting issues).
+      try {
+        const ksRaw = params.get("knownServers");
+        if (ksRaw) {
+          const ks = JSON.parse(atob(ksRaw));
+          if (Array.isArray(ks) && ks.length > 0) {
+            const wrap = document.getElementById("known-servers");
+            wrap.style.display = "block";
+            const head = document.createElement("h3");
+            head.style.cssText = "color:#c9d1d9; font-size:14px; margin:0 0 8px;";
+            head.textContent = "Known Servers";
+            wrap.appendChild(head);
+            for (const s of ks) {
+              const btn = document.createElement("button");
+              btn.className = "server-btn";
+              btn.innerHTML =
+                '<span class="server-label"></span><span class="server-addr"></span>';
+              btn.querySelector(".server-label").textContent = s.label || s.host;
+              btn.querySelector(".server-addr").textContent = s.host + ":" + s.port;
+              btn.addEventListener("click", () => {
+                location.href = "http://" + s.host + ":" + s.port;
+              });
+              wrap.appendChild(btn);
+            }
+          }
+        }
+      } catch (_) { /* ignore malformed input */ }
+
+      const api = window.piDashboard;
+      const MAX_ATTEMPTS_BEFORE_ERROR = 10; // ~15 seconds
+      let attempts = 0;
+      let errorShown = false;
+
+      function showError() {
+        if (errorShown) return;
+        errorShown = true;
+        statusEl.style.display = "none";
+        errorEl.style.display = "block";
+        // Populate log panel.
+        if (api && api.readServerLog) {
+          api.readServerLog(20).then((tail) => {
+            if (tail && tail.trim().length > 0) {
+              logContent.textContent = tail;
+              logPanel.style.display = "block";
+            }
+          }).catch(() => { /* ignore */ });
+        }
+      }
+
+      async function tryConnect() {
+        try {
+          const res = await fetch(serverUrl + "/api/health", { signal: AbortSignal.timeout(2000) });
+          if (res.ok) { location.href = serverUrl; return; }
+        } catch (_) { /* not ready */ }
+        attempts++;
+        if (attempts === MAX_ATTEMPTS_BEFORE_ERROR) showError();
+        setTimeout(tryConnect, 1500);
+      }
+      setTimeout(tryConnect, 1000);
+
+      function setBusy(busy, msg) {
+        startBtn.disabled = busy;
+        startBtn.textContent = busy ? (msg || "Launching\u2026") : "Start server";
+      }
+
+      if (api && api.requestLaunch) {
+        startBtn.addEventListener("click", async () => {
+          setBusy(true);
+          try {
+            const outcome = await api.requestLaunch(false);
+            if (outcome.kind === "started" || outcome.kind === "already-running") {
+              statusEl.style.display = "block";
+              statusEl.textContent = "Server started \u2014 reloading\u2026";
+              setTimeout(() => { location.href = outcome.url; }, 300);
+              return;
+            }
+            // failed
+            setBusy(false);
+            statusEl.style.display = "block";
+            statusEl.textContent = "Launch failed: " + outcome.reason;
+            if (outcome.logTail) {
+              logContent.textContent = outcome.logTail;
+              logPanel.style.display = "block";
+              logPanel.open = true;
+            }
+          } catch (err) {
+            setBusy(false);
+            statusEl.style.display = "block";
+            statusEl.textContent = "Launch error: " + (err && err.message ? err.message : err);
+          }
+        });
+      } else {
+        // Preload not attached \u2014 hide the action so we don't lie to the user.
+        startBtn.style.display = "none";
+      }
+
+      if (api && api.openDoctor) {
+        doctorBtn.addEventListener("click", () => api.openDoctor());
+      } else {
+        doctorBtn.style.display = "none";
+      }
+
+      if (api && api.onStatus) {
+        api.onStatus((status) => {
+          if (!status) return;
+          if (status.phase === "spawning") setBusy(true, "Spawning server\u2026");
+          else if (status.phase === "waiting-health") setBusy(true, "Waiting for health\u2026");
+          else if (status.phase === "shutting-down-existing") setBusy(true, "Stopping existing\u2026");
+          else if (status.phase === "ready") setBusy(false);
+          else if (status.phase === "failed") setBusy(false);
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

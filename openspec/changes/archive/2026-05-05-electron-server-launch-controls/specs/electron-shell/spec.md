@@ -97,9 +97,10 @@ The Electron main process SHALL expose an exported `requestServerLaunch()` routi
 
 #### Scenario: Force restart when server already running
 - **WHEN** `requestServerLaunch({ force: true })` is called and a server is running
-- **THEN** it SHALL POST to `/api/restart` on the existing server
-- **AND** wait for the new server to become healthy before returning `{ kind: "started", url }`
-- **AND** fall through to a fresh spawn if the restart attempt itself fails
+- **THEN** it SHALL POST `/api/shutdown` to stop the running server
+- **AND** wait (up to 5 seconds) for `isDashboardRunning(port)` to return `false`
+- **AND** then invoke the standard spawn path and return `{ kind: "started", url }`
+- **AND** if the shutdown POST fails, fall through to the spawn path anyway (which will fail with a clear `EADDRINUSE` error captured in the `failed` outcome)
 
 #### Scenario: Concurrent calls share one launch attempt
 - **WHEN** two callers invoke `requestServerLaunch()` while a launch is already in flight

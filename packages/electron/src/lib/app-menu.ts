@@ -15,7 +15,7 @@ function showAboutDialog(): void {
   });
 }
 
-async function showDoctorDialog(): Promise<void> {
+export async function showDoctorDialog(): Promise<void> {
   const report = await runDoctor();
   const text = formatDoctorReport(report);
 
