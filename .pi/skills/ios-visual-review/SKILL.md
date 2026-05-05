@@ -22,7 +22,7 @@ Take a screenshot of the pi-dashboard in the **iOS Simulator** (real Safari, rea
 
 ```bash
 # 1. Take a screenshot with a described action
-node .pi/skills/ios-visual-review/scripts/screenshot.mjs --action focus-input
+node .pi/skills/ios-visual-review/scripts/screenshot.mjs --action focus-input --session <session-id>
 
 # 2. Capture the path printed to stdout
 # 3. Send to visual-qa subagent for review
@@ -57,6 +57,7 @@ Default: `idle`.
 | Flag | Description |
 |------|-------------|
 | `--action <name>` | Action to perform (default: `idle`) |
+| `--session <id>` | Session ID to navigate to before action (for `focus-input`) |
 | `--url <url>` | Override dashboard URL (env: `PI_DASHBOARD_URL`) |
 
 ## Env Vars
@@ -79,11 +80,10 @@ Default: `idle`.
 ## Script Location
 
 ```
-.pi/skills/ios-visual-review/scripts/screenshot.mjs   ← Node.js (Appium + WDIO)
-.pi/skills/ios-visual-review/scripts/screenshot.sh     ← Legacy (xcrun simctl io, no actions)
+.pi/skills/ios-visual-review/scripts/screenshot.mjs   ← Appium + WDIO (actions)
 ```
 
-Always resolve relative to project root. Use `screenshot.mjs` for interactive review; `screenshot.sh` for quick idle screenshots without Appium overhead.
+Always resolve relative to project root.
 
 ## Subagent
 

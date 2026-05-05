@@ -16,17 +16,21 @@
  *   APPIUM_HOME          Appium home dir (default: qa/ios-visual/.tmp/appium-home)
  */
 
-import { remote } from "webdriverio";
 import { execSync, spawn } from "node:child_process";
 import { mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { createServer } from "node:net";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = join(__dirname, "..");
-const REPO_ROOT = join(SKILL_DIR, "..", "..");
+const REPO_ROOT = join(SKILL_DIR, "..", "..", "..");
 const QA_DIR = join(REPO_ROOT, "qa", "ios-visual");
+
+// Resolve webdriverio from qa/ios-visual/node_modules
+const qaRequire = createRequire(join(QA_DIR, "package.json"));
+const { remote } = qaRequire("webdriverio");
 const APPIUM_HOME = process.env.APPIUM_HOME || join(QA_DIR, ".tmp", "appium-home");
 const SCREENSHOT_DIR = join(process.env.TMPDIR || "/tmp", "pi-screenshots");
 
@@ -254,7 +258,10 @@ async function runSession(udid) {
     } catch {}
 
     // Perform action
-    await performAction(browser, ACTION);
+    const sessionId = process.argv.includes("--session")
+      ? process.argv[process.argv.indexOf("--session") + 1]
+      : null;
+    await performAction(browser, ACTION, sessionId);
 
     // Take screenshots
     mkdirSync(SCREENSHOT_DIR, { recursive: true });
@@ -279,11 +286,19 @@ async function runSession(udid) {
   }
 }
 
-async function performAction(browser, action) {
+async function performAction(browser, action, extra) {
   log(`Action: ${action}`);
 
   switch (action) {
     case "focus-input": {
+      // Navigate to session detail if session ID provided
+      if (extra) {
+        const sessionUrl = `${DASHBOARD_URL}/session/${extra}`;
+        log(`Navigating to ${sessionUrl}`);
+        await browser.url(sessionUrl);
+        await browser.pause(2000);
+      }
+
       // Focus the chat textarea via native tap
       const center = await browser.execute(() => {
         const ta = document.querySelector('textarea[placeholder*="Message"]');
