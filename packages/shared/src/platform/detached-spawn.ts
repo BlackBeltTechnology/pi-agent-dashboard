@@ -47,10 +47,18 @@ export interface SpawnDetachedOptions {
   /** Environment for the child. Defaults to `process.env` via Node. */
   env?: NodeJS.ProcessEnv;
   /**
-   * Optional file descriptor for stderr. When omitted, stderr is "ignore".
+   * Optional file descriptor for combined stdout + stderr. When omitted,
+   * BOTH stdout and stderr are "ignore".
+   *
    * Caller is responsible for `fs.openSync(logPath, "a")` and closing the
    * parent's copy after spawn (the child retains its dup via stdio
    * inheritance). File fds survive parent death; pipes do not.
+   *
+   * Routing both streams to a single fd matches what the standalone CLI
+   * (`packages/server/src/cli.ts`) does directly with raw `spawn()`. Prior
+   * to change `fix-electron-extracted-jiti-and-stdio-capture`, only stderr
+   * was captured and clean-startup `console.log` output was silently
+   * dropped (resulting in 0-byte server.log files).
    */
   logFd?: number;
   /**
@@ -123,7 +131,10 @@ export interface SpawnDetachedResult {
  */
 export async function spawnDetached(opts: SpawnDetachedOptions): Promise<SpawnDetachedResult> {
   const stdioIn: "ignore" | "pipe" = opts.stdinMode ?? "ignore";
-  const stdio: ("ignore" | "pipe" | number)[] = [stdioIn, "ignore", opts.logFd ?? "ignore"];
+  // logFd applies to BOTH stdout and stderr. See JSDoc on logFd above and
+  // change: fix-electron-extracted-jiti-and-stdio-capture.
+  const outFd: "ignore" | number = opts.logFd ?? "ignore";
+  const stdio: ("ignore" | "pipe" | number)[] = [stdioIn, outFd, outFd];
 
   let child: ChildProcess;
   let spawnError: string | null = null;

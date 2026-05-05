@@ -61,6 +61,30 @@ describe("spawnDetached", () => {
     rmSync(path.dirname(logPath), { recursive: true, force: true });
   });
 
+  // See change: fix-electron-extracted-jiti-and-stdio-capture.
+  it("redirects BOTH stdout and stderr to logFd when provided", async () => {
+    const logPath = tmpLog();
+    const fd = openSync(logPath, "a");
+    try {
+      const r = await spawnDetached({
+        cmd: process.execPath,
+        args: [
+          "-e",
+          "console.log('STDOUT-LINE'); process.stderr.write('STDERR-LINE'); setTimeout(() => process.exit(0), 100)",
+        ],
+        logFd: fd,
+      });
+      expect(r.ok).toBe(true);
+      await new Promise((res) => r.process!.once("exit", res));
+    } finally {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    const content = readFileSync(logPath, "utf-8");
+    expect(content).toContain("STDOUT-LINE");
+    expect(content).toContain("STDERR-LINE");
+    rmSync(path.dirname(logPath), { recursive: true, force: true });
+  });
+
   it("does not keep parent event loop alive (unref)", async () => {
     // Can only check behaviour indirectly: the returned pid/process exist
     // and the child is running detached. Lifecycle survival is covered by

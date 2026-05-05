@@ -1045,6 +1045,12 @@ Cross-refs:
 
 ---
 
+## Why does my server.log stay 0 bytes after a clean Electron launch?
+
+Pre-fix bug. `spawnDetached` only routed stderr to `logFd`; stdout (where server's startup banner went) discarded. `server.log` file existed but stayed empty. Fixed in change `fix-electron-extracted-jiti-and-stdio-capture`. Pre-fix workaround: read Electron-side log at `$env:TEMP\pi-dashboard-electron.log` (Windows) or `$TMPDIR/pi-dashboard-electron.log` (macOS/Linux).
+
+---
+
 ## Why does bundling a server in Electron differ from npm package installation?
 
 npm package unavailable at release time. Instead: bundle server source + deps as app resource. Wizard installs only external tools (pi, openspec, tsx). Server runs from `resources/server/` inside app package.

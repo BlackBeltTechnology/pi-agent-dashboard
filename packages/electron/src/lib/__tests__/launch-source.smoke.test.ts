@@ -292,6 +292,55 @@ describe.skipIf(!HAS_BUNDLE || !HAS_OFFLINE_CACHE || !HAS_BUNDLED_NODE)(
         }
       },
     );
+
+    it(
+      "recovers when managed dir is degraded (jiti missing) — re-extract on second call",
+      { timeout: 240_000 },
+      async () => {
+        // First call: extract + install yields a healthy managed dir.
+        const ctx = await runExtractedPath();
+        try {
+          // Sanity: jiti reachable after first call.
+          expect(resolveJitiFromAnchor(ctx.cliPath)).toBeTruthy();
+
+          // Simulate AV / partial corruption: nuke the @mariozechner subtree
+          // (which contains jiti). Marker stays put — exactly the failure
+          // mode that produced the FATAL on user's Windows install.
+          const mzDir = path.join(
+            ctx.managedDir,
+            "node_modules",
+            "@mariozechner",
+          );
+          expect(fs.existsSync(mzDir), "precondition: @mariozechner present").toBe(true);
+          fs.rmSync(mzDir, { recursive: true, force: true });
+          // Health check should now report unhealthy.
+          expect(resolveJitiFromAnchor(ctx.cliPath)).toBeNull();
+
+          // Second call: same version marker, but health probe must force
+          // re-extract + install. After the call jiti must resolve again.
+          // Re-import selectLaunchSource because vi.resetModules() inside
+          // runExtractedPath cleared the registry.
+          const { selectLaunchSource } = await import("../launch-source.js");
+          const result2 = await selectLaunchSource({
+            isPackaged: true,
+            cwd: tempHome!,
+            preferOverride: "extracted",
+            bundledMinVersion: "0.0.0-smoke",
+            resourcesPath: RESOURCES_DIR,
+            port: 0,
+          });
+          expect(result2.kind).toBe("extracted");
+          const cliPath2 = (result2 as { cliPath: string }).cliPath;
+          expect(fs.existsSync(cliPath2)).toBe(true);
+          expect(
+            resolveJitiFromAnchor(cliPath2),
+            "jiti must be reachable after auto-recover re-extract",
+          ).toBeTruthy();
+        } finally {
+          ctx.cleanup();
+        }
+      },
+    );
   },
 );
 

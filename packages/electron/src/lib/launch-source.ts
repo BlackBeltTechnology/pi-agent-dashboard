@@ -315,6 +315,39 @@ async function probeNpmGlobal(
   return { kind: "npmGlobal", cliPath, cwd: path.dirname(whichResult) };
 }
 
+/**
+ * Pure helper: returns true iff the extracted managed dir is usable to spawn
+ * the dashboard server. "Usable" means cliPath exists on disk AND jiti is
+ * resolvable via createRequire walking up from cliPath.
+ *
+ * The version marker alone is insufficient because it can be stale relative
+ * to the actual node_modules tree (partial extraction, AV quarantine, manual
+ * wipe, npm reconciliation prune). When this returns false the caller MUST
+ * force re-extract + installStandalone.
+ *
+ * Defensive: any thrown error from the injected probes is treated as
+ * unhealthy. Pure when both deps are injected.
+ *
+ * See change: fix-electron-extracted-jiti-and-stdio-capture.
+ */
+export function extractedSourceIsHealthy(
+  cliPath: string,
+  deps?: {
+    existsSync?: (p: string) => boolean;
+    resolveJitiFromAnchor?: (anchor: string) => string | null;
+  },
+): boolean {
+  const exists = deps?.existsSync ?? fsExistsSync;
+  const resolveJiti = deps?.resolveJitiFromAnchor ?? resolveJitiFromAnchor;
+  try {
+    if (!exists(cliPath)) return false;
+    const url = resolveJiti(cliPath);
+    return typeof url === "string" && url.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function buildExtractedSource(
   opts: LaunchSourceOpts,
   probes: LaunchSourceProbes,
@@ -342,7 +375,24 @@ async function buildExtractedSource(
     statSync: () => ({ isDirectory: () => false }),
   };
 
-  const didExtract = needsExtraction(managedDir, currentVersion, extractFs);
+  const markerSaysExtract = needsExtraction(managedDir, currentVersion, extractFs);
+  // Health-check the extracted tree even when the marker matches: marker can
+  // be stale relative to actual node_modules contents (partial extraction,
+  // AV quarantine, manual wipe, npm prune). When unhealthy we force the
+  // extract+install block to run.
+  // See change: fix-electron-extracted-jiti-and-stdio-capture.
+  const healthy = markerSaysExtract
+    ? false  // about to extract anyway
+    : extractedSourceIsHealthy(cliPath, {
+        existsSync: probes.existsSync,
+        resolveJitiFromAnchor,
+      });
+  if (!markerSaysExtract && !healthy) {
+    console.warn(
+      "[launch-source] extracted source unhealthy (jiti missing); forcing re-extract",
+    );
+  }
+  const didExtract = markerSaysExtract || !healthy;
   if (didExtract) {
     const configDir = opts.dashboardConfigDir ?? path.join(os.homedir(), ".pi", "dashboard");
     const migrateDir = path.join(

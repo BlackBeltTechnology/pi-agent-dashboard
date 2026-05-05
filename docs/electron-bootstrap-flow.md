@@ -24,7 +24,9 @@ flowchart TD
     Extracted --> NeedsExtract{needsExtraction?}
     NeedsExtract -->|yes| MigrateExtract[migrateConfigs +<br/>extractBundle +<br/>seed installable.json]
     MigrateExtract --> Spawn
-    NeedsExtract -->|no| Spawn
+    NeedsExtract -->|no| HealthCheck{extractedSourceIsHealthy<br/>cliPath exists +<br/>jiti reachable?}
+    HealthCheck -->|yes| Spawn
+    HealthCheck -->|no| MigrateExtract
     Spawn --> SetupScreen{kind=extracted<br/>AND didExtract?}
     SetupScreen -->|yes| WizardWindow[open wizard window<br/>shows bootstrap progress]
     WizardWindow --> OpenMain
@@ -126,3 +128,4 @@ flowchart TD
 | Bridge never seeds installable.json | no write path in extension or server bootstrap |
 | Electron stops server only when starter=Electron AND pid matches | `decideShutdownOnQuit` pure helper |
 | Legacy path gated by LAUNCH_SOURCE_V2=false | `isLaunchSourceV2Enabled` defaults to true in Phase C |
+| Extracted source health-checks jiti reachability before spawn; re-extract on miss | `extractedSourceIsHealthy` in launch-source.ts |
