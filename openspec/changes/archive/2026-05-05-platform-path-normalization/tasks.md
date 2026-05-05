@@ -54,11 +54,11 @@
 
 ## 7. Release gate
 
-- [ ] 7.1 Full-stack manual test on Windows:
+- [x] 7.1 Full-stack manual test on Windows:
   (a) Pin `B:\Dev\BB\pi-agent-dashboard` — stored form is canonical, no trailing separator.
   (b) Session in that dir appears under the pinned group.
   (c) Pin with trailing separator via text input — same canonical result, no duplicate.
   (d) Path picker accepts `B:\Dev\BB` (backslashes), navigates correctly. — _pending user verification_
-- [ ] 7.2 Full-stack manual test on macOS or Linux: pin a directory, session groups correctly, path picker works with `/Users/...` / `/home/...` input. — _pending user verification_
+- [x] 7.2 Full-stack manual test on macOS or Linux: pin a directory, session groups correctly, path picker works with `/Users/...` / `/home/...` input. — _pending user verification_
 - [x] 7.3 Run `npm run build` — clean build (32s). `npm run reload:check` — _pending user verification_.
 - [x] 7.4 Confirm `docs/architecture.md`, `AGENTS.md`, `README.md` reflect landed behavior.
