@@ -5,7 +5,8 @@ description: >
   to the visual-qa subagent for review. Uses Appium + XCUITest (same
   infrastructure as qa/ios-visual tests). Boots simulator, opens dashboard
   URL in Safari via WDIO, performs a described action (focus input, idle,
-  navigate), captures web + native screenshots.
+  navigate), captures a native screenshot (keyboard, status bar, home
+  indicator visible).
   Use when: visual QA of dashboard changes on iOS, verifying layout fixes
   on iPhone viewport, reviewing mobile UI after CSS changes.
 license: MIT
@@ -38,8 +39,9 @@ node .pi/skills/ios-visual-review/scripts/screenshot.mjs --action focus-input --
    - Navigates to `$PI_DASHBOARD_URL`, waits for SPA root
    - Dismisses native Safari popups (coachmark)
    - Performs the requested action
-   - Saves web-context + native-context screenshots
-   - Prints the web screenshot path to stdout
+   - **Draws app boundary**: red dashed outline around `#root` + dims browser chrome outside — so QA can clearly distinguish app UI from Safari/system chrome
+   - Saves a native-context screenshot (keyboard, status bar, home indicator)
+   - Prints the screenshot path to stdout
 3. **Capture the path** from stdout
 4. **Send to `visual-qa` subagent** — pass the screenshot path and ask: "Review this screenshot for visual bugs. Focus on [specific area]."
 
@@ -106,9 +108,8 @@ For focused checks, narrow the scope:
 User: "проверь поле ввода когда в нем курсор"
 
 Agent:
-  1. node .pi/skills/ios-visual-review/scripts/screenshot.mjs --action focus-input
-     → /tmp/pi-screenshots/ios-web-focus-input-2026-05-05T12-00-00.png
-  2. subagent visual-qa: "Review this screenshot. Focus on the chat input field
-     and the send button — both should be visible and not clipped by the keyboard
-     or safe area."
+  1. node .pi/skills/ios-visual-review/scripts/screenshot.mjs --action focus-input --session <id>
+     → /tmp/pi-screenshots/ios-focus-input-2026-05-05T12-00-00.png
+  2. subagent visual-qa: "Review this iOS screenshot. Give me a visual quality
+     assessment — any issues? What looks good? What could be improved?"
 ```
