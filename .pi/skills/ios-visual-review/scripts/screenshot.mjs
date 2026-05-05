@@ -263,43 +263,14 @@ async function runSession(udid) {
       : null;
     await performAction(browser, ACTION, sessionId);
 
-    // Draw app boundary outline so QA can distinguish app UI from browser chrome.
-    // The dashboard app lives in #root; we outline it with a dashed red border,
-    // plus a semi-transparent red overlay outside the app area to make the
-    // boundary impossible to miss.
-    await browser.execute(() => {
-      const root = document.querySelector("#root") as HTMLElement | null;
-      if (!root) return;
-
-      // Red dashed border on the app container
-      root.style.outline = "3px dashed rgba(255, 60, 60, 0.9)";
-      root.style.outlineOffset = "-2px";
-
-      // Label in top-left corner
-      const label = document.createElement("div");
-      label.id = "_pi-app-boundary-label";
-      label.textContent = "APP";
-      label.style.cssText = `
-        position: fixed; top: 0; left: 0; z-index: 99999;
-        background: rgba(255, 60, 60, 0.85); color: white;
-        font: bold 11px -apple-system, sans-serif;
-        padding: 2px 6px; pointer-events: none;
-      `;
-      document.body.appendChild(label);
-
-      // Dim everything outside #root to make the boundary pop
-      const body = document.body;
-      body.style.boxShadow = "inset 0 0 0 9999px rgba(0, 0, 0, 0.25)";
-
-      // But un-dim the root area by punching a hole via an inverse-outline approach:
-      // since box-shadow covers everything, we add a white-tinted overlay inside root
-      // to visually separate it from the dimmed browser chrome.
-      root.style.position = "relative";
-      root.style.zIndex = "1";
-      root.style.background = "var(--bg-primary, #1a1a2e)";
-    });
-
-    await browser.pause(300); // let styles settle
+    // Draw app boundary — red dashed outline around #root + "APP" label.
+    // QA can see what's app UI vs browser/system chrome.
+    try {
+      await browser.execute("var r=document.querySelector('#root');if(r){r.setAttribute('style',(r.getAttribute('style')||'')+';outline:3px dashed red;outline-offset:-2px');var l=document.createElement('div');l.id='_pi-bound';l.textContent='APP';l.setAttribute('style','position:fixed;top:0;left:0;z-index:99999;background:red;color:#fff;font:bold 11px sans-serif;padding:2px 6px;pointer-events:none');document.body.appendChild(l)}");
+      await browser.pause(300);
+    } catch (e) {
+      warn(`Could not draw app boundary: ${e.message}`);
+    }
 
     // Take screenshot in native context (shows keyboard, status bar, home indicator).
     // Falls back to web context if NATIVE_APP is unavailable.
@@ -370,8 +341,8 @@ async function performAction(browser, action, extra) {
 }
 
 async function isKeyboardVisible(browser) {
+  const curCtx = await browser.getContext();
   try {
-    const curCtx = await browser.getContext();
     if (curCtx !== "NATIVE_APP") await browser.switchContext("NATIVE_APP");
     const keyboards = await browser.$$('-ios class chain:**/XCUIElementTypeKeyboard');
     if (keyboards.length > 0) return true;
@@ -379,6 +350,8 @@ async function isKeyboardVisible(browser) {
     return predKbs.length > 0;
   } catch {
     return false;
+  } finally {
+    try { if (curCtx !== "NATIVE_APP") await browser.switchContext(curCtx); } catch {}
   }
 }
 
