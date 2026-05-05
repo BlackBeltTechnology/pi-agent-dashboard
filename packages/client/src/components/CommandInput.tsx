@@ -131,6 +131,26 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const [stopState, setStopState] = useState<StopState>("idle");
   const isMobile = useMobile();
 
+  // Track whether iOS software keyboard is covering the safe area.
+  // When keyboard is up, the home indicator area is already behind the keyboard,
+  // so we skip the extra safe-area-inset-bottom padding.
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const onResize = () => {
+      const vh = window.visualViewport!.height;
+      const wh = window.innerHeight;
+      setKeyboardUp(vh < wh - 50);
+    };
+    window.visualViewport.addEventListener("resize", onResize);
+    window.visualViewport.addEventListener("scroll", onResize);
+    onResize();
+    return () => {
+      window.visualViewport?.removeEventListener("resize", onResize);
+      window.visualViewport?.removeEventListener("scroll", onResize);
+    };
+  }, []);
+
   // --- History recall (bash-style) ---
   const historyList = history ?? [];
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
@@ -405,7 +425,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // Explore dialog can reuse the exact same behavior.
 
   return (
-    <div className="border-t border-[var(--border-primary)] p-3 relative" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+    <div className="border-t border-[var(--border-primary)] p-3 relative" style={{ paddingBottom: keyboardUp ? '0.75rem' : 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
       {/* Autocomplete dropdown */}
       {dropdownMode === "command" && (
         <div className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto shadow-lg z-10">
