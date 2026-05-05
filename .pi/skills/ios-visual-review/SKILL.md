@@ -1,3 +1,17 @@
+---
+name: ios-visual-review
+description: >
+  Take a screenshot of the pi-dashboard in the iOS Simulator and send it
+  to the visual-qa subagent for review. Boots simulator, opens dashboard
+  URL in Safari, captures screenshot via xcrun simctl io.
+  Use when: visual QA of dashboard changes on iOS, verifying layout fixes
+  on iPhone viewport, reviewing mobile UI after CSS changes.
+license: MIT
+metadata:
+  author: pi-dashboard
+  version: "1.0"
+---
+
 # iOS Visual Review
 
 Take a screenshot of the pi-dashboard running in the iOS Simulator and send it to the `visual-qa` subagent for review.

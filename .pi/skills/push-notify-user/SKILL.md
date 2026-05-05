@@ -1,3 +1,15 @@
+---
+name: push-notify-user
+description: >
+  Send a push notification to the user's devices via the dashboard's
+  POST /api/push/send endpoint. Use when the agent needs to notify the
+  user about completed work, errors, or status updates.
+license: MIT
+metadata:
+  author: pi-dashboard
+  version: "1.0"
+---
+
 # push-notify-user
 
 Send a push notification to the user's devices via the dashboard's `/api/push/send` endpoint.
