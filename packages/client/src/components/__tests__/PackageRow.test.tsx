@@ -126,6 +126,27 @@ describe("PackageRow", () => {
 		expect(screen.getByText("View README")).toBeTruthy();
 	});
 
+	it("renders busy state with disabled Update button and inline progress text", () => {
+		render(
+			<PackageRow
+				displayName="pi (core agent)"
+				source="@mariozechner/pi-coding-agent"
+				sourceType="global"
+				currentVersion="0.70.5"
+				latestVersion="0.70.6"
+				updateAvailable
+				canUpdate
+				busy
+				progress="npm http GET https://registry.npmjs.org/..."
+				onUpdate={() => {}}
+				testId="pi-core-row"
+			/>,
+		);
+		const updateBtn = screen.getByTestId("pi-core-row-update") as HTMLButtonElement;
+		expect(updateBtn.disabled).toBe(true);
+		expect(screen.getByText("npm http GET https://registry.npmjs.org/...")).toBeTruthy();
+	});
+
 	it("renders error message when error prop set", () => {
 		render(
 			<PackageRow
