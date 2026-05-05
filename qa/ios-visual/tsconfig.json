@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node", "@wdio/globals/types", "@wdio/mocha-framework", "mocha"]
+  },
+  "include": ["specs/**/*.ts", "wdio.conf.ts", "fixtures/**/*.ts", "scripts/**/*.ts"]
+}

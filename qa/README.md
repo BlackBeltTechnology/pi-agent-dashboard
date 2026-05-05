@@ -141,6 +141,24 @@ The Packer macOS template uses `vmware-vmx` builder (starts from existing VM) ra
 
 7. **Electron real-launch smoke (Linux)** — `qa/tests/08-electron-real-launch.sh`. Launches AppImage under `xvfb-run --no-sandbox`. Asserts `/api/health` 200 within 90s, `starter==Electron`, `~/.pi/dashboard/server.log` non-empty, no `FATAL` substring in Electron parent stdout. Catches v0.4.6 regression class: jiti-FATAL on degraded managed dir + `spawnDetached` `stdio[1]='ignore'` producing 0-byte logs. Skips when AppImage artifact absent under `packages/electron/out/make/` (run `npm run make` to build). Requires `xvfb` on QA VM (provisioned via `qa/packer/scripts/provision-linux.sh`).
 
+## iOS Visual Tests (Appium + WebdriverIO)
+
+iOS Simulator Safari visual regression tests for the dashboard PWA. Mac-only, opt-in.
+
+See **[qa/ios-visual/README.md](ios-visual/README.md)** for prerequisites, setup, and run instructions.
+
+Quick start after setup:
+```bash
+npm run ios-visual:driver:install    # Install Appium XCUITest driver
+npm run ios-visual:sim:create        # Create test simulator
+npm run ios-visual:fixture           # Full run: fixture dashboard + visual tests
+npm run ios-visual:baseline:fixture  # Generate baselines
+```
+
+The fixture dashboard mode starts an isolated dashboard instance on test ports (9800/9998) with
+deterministic state, disables side effects (mDNS, bootstrap, plugins, auth, push, tunnel), and
+replays production-shaped bridge events for stable visual baselines.
+
 ## Directory Structure
 
 ```

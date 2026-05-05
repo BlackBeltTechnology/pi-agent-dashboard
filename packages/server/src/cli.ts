@@ -153,6 +153,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     resolvedTrustedNetworks: fileConfig.resolvedTrustedNetworks,
     corsAllowedOrigins: fileConfig.cors.allowedOrigins,
     push: fileConfig.push,
+    fixtureMode: flags.fixtureMode ?? (process.env.PI_DASHBOARD_FIXTURE_MODE === "1"),
   };
 }
 
@@ -210,12 +211,12 @@ async function runForeground(config: ServerConfig): Promise<void> {
   // Kick off the degraded-mode first-run bootstrap if pi is unresolvable.
   // Runs async — server is already listening, so UI + non-pi endpoints
   // remain fully operational during the ~30s install window.
-  // TODO(single-dashboard-per-home): when home-lock wiring lands, wrap
-  // this inside the acquired lock to serialize concurrent first-run
-  // installs from multiple dashboard invocations on the same HOME.
-  runDegradedModeBootstrap(server).catch((err) => {
-    console.error("[bootstrap] unexpected failure in bootstrap orchestrator:", err);
-  });
+  // Skip in fixture mode — no side effects.
+  if (!config.fixtureMode) {
+    runDegradedModeBootstrap(server).catch((err) => {
+      console.error("[bootstrap] unexpected failure in bootstrap orchestrator:", err);
+    });
+  }
 }
 
 /**

@@ -117,6 +117,9 @@ export interface ServerConfig {
   resolvedTrustedNetworks?: string[];
   /** CORS allowed origins from config */
   corsAllowedOrigins?: string[];
+  /** Fixture mode — disables side effects for deterministic visual testing.
+   *  Gated by PI_DASHBOARD_FIXTURE_MODE=1. Not exposed in production. */
+  fixtureMode?: boolean;
   /** Push notification config. Omitted → push disabled. */
   push?: PushConfig;
 }
@@ -257,6 +260,11 @@ export function makeBootstrapTransitionHandler(
 }
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
+  // Fixture mode: skip side effects that would pollute visual baselines.
+  // All gating is done here in createServer so no fixture code leaks into
+  // individual modules.
+  const isFixture = config.fixtureMode === true;
+
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
   //
@@ -265,10 +273,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // <repo>/packages/extension. Three levels up, not two.
   const __serverDir = path.dirname(fileURLToPath(import.meta.url));
   const extPath = findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
-  if (extPath) {
+  if (!isFixture && extPath) {
     registerBridgeExtension(extPath);
     console.log(`[dashboard] Bridge extension registered: ${extPath}`);
-  } else {
+  } else if (!isFixture) {
     console.warn(`[dashboard] Bridge extension NOT found (searched from ${__serverDir}). ` +
       `Sessions will spawn but never connect to the gateway. ` +
       `Manually add the extension path to ~/.pi/agent/settings.json packages[] as a workaround.`);
@@ -1360,40 +1368,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       }
 
-      // Advertise via mDNS
-      try {
-        advertiseDashboard(config.port, config.piPort);
-        console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
-      } catch (err) {
-        console.warn(`mDNS advertisement failed (will continue without):`, err);
+      // Advertise via mDNS (skip in fixture mode)
+      if (!isFixture) {
+        try {
+          advertiseDashboard(config.port, config.piPort);
+          console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
+        } catch (err) {
+          console.warn(`mDNS advertisement failed (will continue without):`, err);
+        }
+
+        // Start continuous mDNS browser for peer discovery
+        try {
+          mdnsBrowser = createBrowser();
+          mdnsBrowser.on("server-up", (server: DiscoveredServer) => {
+            // Don't include ourselves
+            if (server.isLocal && server.port === config.port) return;
+            peerServers.set(`${server.host}:${server.port}`, server);
+            browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
+          });
+          mdnsBrowser.on("server-down", (server: DiscoveredServer) => {
+            peerServers.delete(`${server.host}:${server.port}`);
+            browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
+          });
+        } catch (err) {
+          console.warn(`mDNS browser failed (peer discovery disabled):`, err);
+        }
       }
 
-      // Start continuous mDNS browser for peer discovery
-      try {
-        mdnsBrowser = createBrowser();
-        mdnsBrowser.on("server-up", (server: DiscoveredServer) => {
-          // Don't include ourselves
-          if (server.isLocal && server.port === config.port) return;
-          peerServers.set(`${server.host}:${server.port}`, server);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
-        });
-        mdnsBrowser.on("server-down", (server: DiscoveredServer) => {
-          peerServers.delete(`${server.host}:${server.port}`);
-          browserGateway.broadcast({ type: "servers_updated", servers: Array.from(peerServers.values()) });
-        });
-      } catch (err) {
-        console.warn(`mDNS browser failed (peer discovery disabled):`, err);
-      }
-
-      // Always sweep leftover zrok processes on startup, even when tunnel is
-      // disabled (--no-tunnel). Orphans from a previous run hold reservations
-      // on the zrok edge and keep old URLs "alive but broken" until their
-      // agents are killed. Scavenge runs unconditionally when the binary is
-      // present; the tunnel-creation branch below is gated separately.
-      const hasZrok = detectZrokBinary();
-      if (hasZrok) {
-        cleanupStaleZrok();
-        scavengeOrphanZrokProcesses(config.port);
+      // Always sweep leftover zrok processes on startup (skip in fixture mode)
+      if (!isFixture) {
+        const hasZrok = detectZrokBinary();
+        if (hasZrok) {
+          cleanupStaleZrok();
+          scavengeOrphanZrokProcesses(config.port);
+        }
       }
 
       if (config.tunnel) {
@@ -1406,29 +1414,34 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       // Discover sessions and start OpenSpec polling (async, non-blocking)
-      discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService });
+      // Skip in fixture mode — sessions are pre-seeded or replayed by test-pi bridge.
+      if (!isFixture) {
+        discoverAndBroadcastSessions({ sessionManager, browserGateway, directoryService });
+      }
 
-      // Auto-register plugin bridge entries
-      const discoveredPlugins = discoverPlugins();
-      const pluginsWithBridges = discoveredPlugins
-        .filter(p => p.bridgeEntryPath)
-        .map(p => ({ pluginId: p.manifest.id, bridgePath: p.bridgeEntryPath! }));
-      if (pluginsWithBridges.length) {
-        const results = registerAllPluginBridges(pluginsWithBridges);
-        for (const [id, result] of Object.entries(results)) {
-          if (result.type === 'conflict') {
-            const store = getPluginStatusStore();
-            const existing = store.getStatus(id);
-            store.setStatus({
-              id,
-              enabled: existing?.enabled ?? true,
-              loaded: existing?.loaded ?? false,
-              error: `Bridge path conflict: existing=${result.existingPath}, new=${result.newPath}`,
-              claims: existing?.claims ?? 0,
-            });
+      // Auto-register plugin bridge entries (skip in fixture mode)
+      if (!isFixture) {
+        const discoveredPlugins = discoverPlugins();
+        const pluginsWithBridges = discoveredPlugins
+          .filter(p => p.bridgeEntryPath)
+          .map(p => ({ pluginId: p.manifest.id, bridgePath: p.bridgeEntryPath! }));
+        if (pluginsWithBridges.length) {
+          const results = registerAllPluginBridges(pluginsWithBridges);
+          for (const [id, result] of Object.entries(results)) {
+            if (result.type === 'conflict') {
+              const store = getPluginStatusStore();
+              const existing = store.getStatus(id);
+              store.setStatus({
+                id,
+                enabled: existing?.enabled ?? true,
+                loaded: existing?.loaded ?? false,
+                error: `Bridge path conflict: existing=${result.existingPath}, new=${result.newPath}`,
+                claims: existing?.claims ?? 0,
+              });
+            }
           }
         }
-      }
+      } // end if (!isFixture)
 
       idleTimer.start();
     },

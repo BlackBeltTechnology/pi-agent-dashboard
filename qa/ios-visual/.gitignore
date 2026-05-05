@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.tmp/
+appium.log
+visual/.tmp/
+visual/diff/
+*.tsbuildinfo

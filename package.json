@@ -68,7 +68,16 @@
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "site:preview": "npm --prefix site run preview",
-    "screenshots": "npm --prefix site run screenshots"
+    "screenshots": "npm --prefix site run screenshots",
+    "ios-visual:test": "npm --prefix qa/ios-visual run test",
+    "ios-visual:baseline": "npm --prefix qa/ios-visual run baseline",
+    "ios-visual:fixture": "npm --prefix qa/ios-visual run test:fixture",
+    "ios-visual:baseline:fixture": "npm --prefix qa/ios-visual run baseline:fixture",
+    "ios-visual:doctor": "npm --prefix qa/ios-visual run doctor",
+    "ios-visual:driver:install": "npm --prefix qa/ios-visual run driver:install",
+    "ios-visual:sim:create": "npm --prefix qa/ios-visual run sim:create",
+    "ios-visual:sim:udid": "npm --prefix qa/ios-visual run sim:udid",
+    "ios-visual:sim:reset": "npm --prefix qa/ios-visual run sim:reset"
   },
   "engines": {
     "node": ">=22.12.0 <25"
