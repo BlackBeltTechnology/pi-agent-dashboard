@@ -1,12 +1,10 @@
-import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
-import ContentEditable from "react-contenteditable";
+import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiStop, mdiAlert, mdiConsole, mdiClose, mdiSend } from "@mdi/js";
 import type { CommandInfo, ImageContent, FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { getPlainTextCursor, setPlainTextCursor, plainToSafeHtml, safeHtmlToPlain } from "./contenteditable-utils.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -36,7 +34,7 @@ interface Props {
   onCancelPending?: () => void;
   /** Current session id — used to reset history-navigation state on switch. */
   sessionId?: string;
-  /** Controlled draft text. When provided, the input is controlled by the parent. */
+  /** Controlled draft text. When provided, the textarea is controlled by the parent. */
   draft?: string;
   /** Parent callback for every text change (controlled mode). */
   onDraftChange?: (text: string) => void;
@@ -121,6 +119,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     return [...builtins, ...externalCommands];
   }, [externalCommands]);
   // Controlled when `draft` prop is provided, otherwise fall back to local state
+  // (preserves backward-compat for callers/tests that don't pass `draft`).
   const isControlled = draft !== undefined;
   const [localText, setLocalText] = useState("");
   const text = isControlled ? (draft as string) : localText;
@@ -133,6 +132,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const isMobile = useMobile();
 
   // Track whether iOS software keyboard is covering the safe area.
+  // When keyboard is up, the home indicator area is already behind the keyboard,
+  // so we skip the extra safe-area-inset-bottom padding.
   const [keyboardUp, setKeyboardUp] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined" || !window.visualViewport) return;
@@ -154,6 +155,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const historyList = history ?? [];
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const savedDraftRef = useRef<string>("");
+  // Ref to the *current* historyIndex for use inside handlers that shouldn't
+  // trigger the state-reset effect when they themselves clear it.
   const historyIndexRef = useRef<number | null>(null);
   historyIndexRef.current = historyIndex;
 
@@ -167,49 +170,16 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     setHistoryIndex(null);
     savedDraftRef.current = "";
   }, [sessionId]);
-
-  // --- Image paste ---
+  // Controlled when caller passes `images` (App lifts state per-session);
+  // uncontrolled otherwise (legacy / tests).
   const { pendingImages, imageError, handlePaste, removeImage, clearImages } = useImagePaste(
     images !== undefined ? { images, onImagesChange } : undefined,
   );
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const prevDropdownKeyRef = useRef<string>("");
-
-  // DOM ref to the contenteditable element (via react-contenteditable's innerRef)
-  const editableRef = useRef<HTMLElement>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null); // text value when Escape was pressed
+  const prevDropdownKeyRef = useRef<string>(""); // tracks mode+filter to reset selectedIndex
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFileQueryRef = useRef<string | null>(null);
-
-  // --- IME composition guard ---
-  const isComposingRef = useRef(false);
-
-  // --- Imperatively set contentEditable="plaintext-only" ---
-  // react-contenteditable unconditionally sets contentEditable={true} in render.
-  // Only override when enabled; when disabled, respect the library's contentEditable=false.
-  useLayoutEffect(() => {
-    const el = editableRef.current;
-    if (!el) return;
-    if (!isDisabled && el.getAttribute("contenteditable") !== "plaintext-only") {
-      el.setAttribute("contenteditable", "plaintext-only");
-    } else if (isDisabled && el.getAttribute("contenteditable") !== "false") {
-      el.setAttribute("contenteditable", "false");
-    }
-  });
-
-  // --- Auto-resize ---
-  const resizeInput = useCallback(() => {
-    const el = editableRef.current;
-    if (!el) return;
-    el.style.height = "40px";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
-  }, []);
-
-  useLayoutEffect(() => {
-    const el = editableRef.current;
-    if (el) {
-      resizeInput();
-    }
-  }, [text, pendingImages, resizeInput]);
 
   // --- Command autocomplete ---
   const isCommand = text.startsWith("/") && !text.includes("\n");
@@ -223,10 +193,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       )
     : [];
 
-  // --- @ file autocomplete (cursor-aware) ---
-  // Get cursor position in plaintext via text-node walker.
-  // editableRef may be null during initial render (innerRef not yet set).
-  const cursorPos = editableRef.current ? (getPlainTextCursor(editableRef.current) ?? text.length) : text.length;
+  // --- @ file autocomplete ---
+  const cursorPos = inputRef.current?.selectionStart ?? text.length;
   const textBeforeCursor = text.slice(0, cursorPos);
   const atQuery = extractAtQuery(textBeforeCursor);
   const isAtMode = atQuery !== null;
@@ -252,6 +220,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     ? fileResults.files
     : [];
 
+  // Derive dropdown mode directly (no useEffect needed)
+  // If user pressed Escape at the current text value, stay dismissed
   const isDismissed = dismissed === text;
   const dropdownMode: DropdownMode =
     isDismissed ? null
@@ -274,32 +244,38 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
   // --- Handlers ---
 
+  // NOTE: `selectCommand` and `selectFile` are intentionally plain inner
+  // functions (no `useCallback`). They call `setText`, which in controlled
+  // mode wraps the parent's `onDraftChange` prop — a prop whose reference
+  // changes on every session switch in App.tsx. A `useCallback` here would
+  // freeze the first-render `setText` (and thus the first-render
+  // `onDraftChange`), causing Tab/Enter/click selection to silently invoke
+  // a stale handler after the user switches sessions. Keeping these as plain
+  // closures reads the current render's `setText` every time, which is
+  // correct and has no measurable render-perf cost (the dropdown items are
+  // not memoized children). See change: fix-autocomplete-stale-closure.
+
   const selectCommand = (cmd: CommandInfo) => {
     const newText = `/${cmd.name} `;
     setText(newText);
-    setDismissed(newText);
-    editableRef.current?.focus();
+    setDismissed(newText); // prevent dropdown from reopening for selected text
+    inputRef.current?.focus();
   };
 
   const selectFile = (file: FileEntry) => {
-    const el = editableRef.current;
-    if (!el) return;
-    const curPos = getPlainTextCursor(el) ?? text.length;
     const query = atQuery ?? "";
-    const beforeAt = text.slice(0, curPos - query.length - 1); // remove @query
-    const afterCursor = text.slice(curPos);
+    const beforeAt = textBeforeCursor.slice(0, textBeforeCursor.length - query.length - 1); // remove @query
+    const afterCursor = text.slice(cursorPos);
     const filePath = file.path;
     const suffix = file.isDirectory ? "" : " ";
     const newText = `${beforeAt}@${filePath}${suffix}${afterCursor}`;
     setText(newText);
-    setDismissed(newText);
+    setDismissed(newText); // prevent dropdown from reopening for selected text
     // Set cursor after the inserted path
     const newCursorPos = beforeAt.length + 1 + filePath.length + suffix.length;
     requestAnimationFrame(() => {
-      if (el) {
-        el.focus();
-        setPlainTextCursor(el, newCursorPos);
-      }
+      inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      inputRef.current?.focus();
     });
   };
 
@@ -308,43 +284,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       onSend(text.trim(), pendingImages.length > 0 ? pendingImages : undefined);
       clearImages();
       setText("");
-      // Reset height
-      if (editableRef.current) {
-        editableRef.current.style.height = "40px";
+      // Reset textarea height
+      if (inputRef.current) {
+        inputRef.current.style.height = "40px";
       }
     }
-  }, [text, pendingImages, onSend, clearImages, setText]);
-
-  // --- ContentEditable onChange → plaintext ---
-  const handleChange = useCallback(
-    (evt: { target: { value: string } }) => {
-      if (historyIndexRef.current !== null) {
-        setHistoryIndex(null);
-      }
-      const plain = safeHtmlToPlain(evt.target.value);
-      setText(plain);
-    },
-    [setText],
-  );
-
-  // --- onBeforeInput: intercept Enter/Shift+Enter ---
-  const handleBeforeInput = useCallback(
-    (e: React.FormEvent<HTMLDivElement> & { inputType?: string }) => {
-      resizeInput();
-
-      if (e.inputType === "insertParagraph") {
-        // Enter pressed — send on desktop, let through on mobile.
-        // Never send during IME composition.
-        if (!isMobile && !isComposingRef.current) {
-          e.preventDefault();
-          handleSend();
-        }
-        return;
-      }
-      // insertLineBreak (Shift+Enter) — let browser handle it naturally
-    },
-    [isMobile, handleSend, resizeInput],
-  );
+  }, [text, pendingImages, onSend, clearImages]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -354,6 +299,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           setSelectedIndex((i) => {
             const next = Math.min(i + 1, dropdownLength - 1);
             requestAnimationFrame(() => {
+              // scrollIntoView is not implemented in jsdom — optional-call.
               (document.querySelector(`[data-dropdown-index="${next}"]`) as HTMLElement | null)?.scrollIntoView?.({ block: "nearest" });
             });
             return next;
@@ -375,10 +321,10 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           e.preventDefault();
           if (dropdownMode === "command") {
             const cmd = filteredCommands[selectedIndex];
-            if (cmd && !isComposingRef.current) selectCommand(cmd);
+            if (cmd) selectCommand(cmd);
           } else if (dropdownMode === "file") {
             const file = fileItems[selectedIndex];
-            if (file && !isComposingRef.current) selectFile(file);
+            if (file) selectFile(file);
           }
           return;
         }
@@ -397,30 +343,29 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       }
 
       // --- History recall (ArrowUp / ArrowDown / Escape in history mode) ---
+      // Only activates when no dropdown is open and no prompt is pending.
       if (!pendingPrompt && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Escape")) {
-        const el = editableRef.current;
+        const ta = inputRef.current;
         // Escape while in history mode: restore the in-progress draft and exit.
         if (e.key === "Escape" && historyIndex !== null) {
           e.preventDefault();
           const restored = savedDraftRef.current;
           setText(restored);
           setHistoryIndex(null);
-          requestAnimationFrame(() => {
-            if (el) {
-              el.focus();
-              setPlainTextCursor(el, restored.length);
-              resizeInput();
-            }
-          });
+          if (ta) {
+            requestAnimationFrame(() => {
+              ta.setSelectionRange(restored.length, restored.length);
+              // Re-run the auto-resize logic to match restored content.
+              ta.style.height = "40px";
+              ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+            });
+          }
           return;
         }
-        if (el && historyList.length > 0 && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-          const selPos = getPlainTextCursor(el) ?? text.length;
-          // For first-line detection, treat cursor at position 0 as first line
-          const isOnFirstLine = isCaretOnFirstLine(selPos, selPos, text);
-          const isOnLastLine = isCaretOnLastLine(selPos, selPos, text);
-
-          if (e.key === "ArrowUp" && isOnFirstLine) {
+        if (ta && historyList.length > 0 && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+          const selStart = ta.selectionStart ?? text.length;
+          const selEnd = ta.selectionEnd ?? selStart;
+          if (e.key === "ArrowUp" && isCaretOnFirstLine(selStart, selEnd, text)) {
             e.preventDefault();
             const nextIdx = historyIndex === null ? 0 : Math.min(historyIndex + 1, historyList.length - 1);
             if (historyIndex === null) {
@@ -430,26 +375,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             setHistoryIndex(nextIdx);
             setText(nextText);
             requestAnimationFrame(() => {
-              if (el) {
-                el.focus();
-                setPlainTextCursor(el, nextText.length);
-                resizeInput();
-              }
+              ta.setSelectionRange(nextText.length, nextText.length);
+              ta.style.height = "40px";
+              ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
             });
             return;
           }
-          if (e.key === "ArrowDown" && historyIndex !== null && isOnLastLine) {
+          if (e.key === "ArrowDown" && historyIndex !== null && isCaretOnLastLine(selStart, selEnd, text)) {
             e.preventDefault();
             if (historyIndex === 0) {
               const restored = savedDraftRef.current;
               setHistoryIndex(null);
               setText(restored);
               requestAnimationFrame(() => {
-                if (el) {
-                  el.focus();
-                  setPlainTextCursor(el, restored.length);
-                  resizeInput();
-                }
+                ta.setSelectionRange(restored.length, restored.length);
+                ta.style.height = "40px";
+                ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
               });
             } else {
               const nextIdx = historyIndex - 1;
@@ -457,11 +398,9 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               setHistoryIndex(nextIdx);
               setText(nextText);
               requestAnimationFrame(() => {
-                if (el) {
-                  el.focus();
-                  setPlainTextCursor(el, nextText.length);
-                  resizeInput();
-                }
+                ta.setSelectionRange(nextText.length, nextText.length);
+                ta.style.height = "40px";
+                ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
               });
             }
             return;
@@ -469,19 +408,21 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         }
       }
 
-      // Enter on desktop — send (fallback for browsers without beforeinput)
-      if (e.key === "Enter" && !e.shiftKey && !isMobile && !isComposingRef.current) {
+      if (e.key === "Enter" && !e.shiftKey && !isMobile) {
         e.preventDefault();
         handleSend();
       }
     },
-    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, isMobile, resizeInput],
+    // Note: `selectCommand` / `selectFile` are intentionally omitted — they
+    // are plain closures (see comment at their definition) and recomputed
+    // every render anyway, so listing them would only cause unnecessary
+    // handler-identity churn without affecting correctness.
+    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, isMobile]
   );
 
-  // --- Keyboard-safe HTML for contenteditable ---
-  const safeHtml = plainToSafeHtml(text);
-  const isDisabled = disabled || pendingPrompt;
-  const placeholder = "Message, /command, !shell, or @file...";
+  // Clipboard paste + preview-strip are delegated to the shared hook +
+  // component (useImagePaste / ImagePreviewStrip) so the OpenSpec
+  // Explore dialog can reuse the exact same behavior.
 
   return (
     <div className="border-t border-[var(--border-primary)] p-3 relative" style={{ paddingBottom: keyboardUp ? '0.75rem' : 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
@@ -492,7 +433,6 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             <button
               key={cmd.name}
               data-dropdown-index={i}
-              onMouseDown={(e) => e.preventDefault()}
               onClick={() => selectCommand(cmd)}
               className={`w-full px-3 py-2 min-h-[44px] md:min-h-0 text-left text-sm flex items-center gap-2 ${
                 i === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
@@ -516,7 +456,6 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               <button
                 key={file.path}
                 data-dropdown-index={i}
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => selectFile(file)}
                 className={`w-full px-3 py-2 min-h-[44px] md:min-h-0 text-left text-sm flex items-center gap-2 ${
                   i === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
@@ -533,51 +472,38 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         </div>
       )}
 
-      {/* Pasted-image error banner + thumbnail strip. */}
+      {/* Pasted-image error banner + thumbnail strip (shared component). */}
       <ImagePreviewStrip images={pendingImages} error={imageError} onRemove={removeImage} />
 
-      <style>{`
-        [data-placeholder]:empty:before {
-          content: attr(data-placeholder);
-          color: #6b7280;
-          pointer-events: none;
-        }
-      `}</style>
-
       <div className="flex gap-2">
-        <ContentEditable
-          key={`ce-${dropdownMode ?? 'none'}`}
-          innerRef={editableRef}
-          html={safeHtml}
-          disabled={isDisabled}
-          onChange={handleChange}
+        <textarea
+          ref={inputRef}
+          value={text}
+          onChange={(e) => {
+            // Any user-driven text change while navigating history exits history mode
+            // (the user is now editing the recalled entry). We don't restore the saved
+            // draft here — the edited text becomes the live draft.
+            if (historyIndexRef.current !== null) {
+              setHistoryIndex(null);
+            }
+            setText(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          onBeforeInput={handleBeforeInput}
-          onCompositionStart={() => { isComposingRef.current = true; }}
-          onCompositionEnd={() => { isComposingRef.current = false; }}
-          onDrop={(e) => {
-            // Prevent rich-text drag-and-drop from inserting HTML.
-            // Image pastes are already handled by useImagePaste.
-            e.preventDefault();
-          }}
-          autoCorrect="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          enterKeyHint="send"
-          role="textbox"
-          aria-multiline="true"
-          aria-placeholder={placeholder}
-          aria-disabled={isDisabled}
-          data-placeholder={text.length === 0 ? placeholder : ""}
-          data-testid="command-input"
-          className="flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-1.5 text-base text-[var(--text-primary)] border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto whitespace-pre-wrap break-words"
+          placeholder="Message, /command, !shell, or @file..."
+          disabled={disabled || pendingPrompt}
+          rows={1}
+          className="flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-1.5 text-base text-[var(--text-primary)] placeholder-gray-500 border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none disabled:opacity-50 resize-none"
           style={{ minHeight: "40px", maxHeight: "120px" }}
-          tagName="div"
+          onInput={(e) => {
+            const target = e.target as HTMLTextAreaElement;
+            target.style.height = "40px";
+            target.style.height = Math.min(target.scrollHeight, 120) + "px";
+          }}
         />
         <button
           onClick={handleSend}
-          disabled={isDisabled || !text.trim()}
+          disabled={disabled || pendingPrompt || !text.trim()}
           className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-tertiary)] active:scale-95 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed self-center transition-all"
           title="Send"
           data-testid="send-button"
@@ -622,6 +548,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           </button>
         )}
       </div>
+      {/* ImageLightbox is rendered inside ImagePreviewStrip now. */}
     </div>
   );
 }

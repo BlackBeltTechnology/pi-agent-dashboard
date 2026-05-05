@@ -42,7 +42,6 @@
     "katex": "^0.16.45",
     "mermaid": "^11.13.0",
     "qrcode": "^1.5.4",
-    "react-contenteditable": "^3.3.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
