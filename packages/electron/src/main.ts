@@ -92,11 +92,12 @@ function showSplash(): void {
     webPreferences: { nodeIntegration: false, contextIsolation: true },
   });
   const html = `<html><head><style>
+    html, body { overflow: hidden; }
     body { margin:0; display:flex; align-items:center; justify-content:center;
            height:100vh; background:transparent; -webkit-app-region:drag; }
-    .card { background:#0d1117; border-radius:20px; padding:40px 48px;
+    .card { background:#0d1117; border-radius:20px; padding:32px 36px;
             box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
-            min-width: 240px; }
+            min-width: 200px; max-width: 240px; box-sizing: border-box; }
     .pi { font-size:80px; color:#4a90d9; margin-bottom:8px; font-weight:bold;
           font-family:-apple-system,BlinkMacSystemFont,sans-serif; }
     .label { font-size:14px; color:#c9d1d9; margin-bottom:16px;
