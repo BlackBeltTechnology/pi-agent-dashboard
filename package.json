@@ -54,6 +54,7 @@
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "test:bootstrap": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run packages/shared/src/__tests__/bootstrap",
     "test:bootstrap:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) vitest packages/shared/src/__tests__/bootstrap",
+    "test:worktree-api:docker": "docker build -f qa/worktree-api/Dockerfile -t pi-dashboard-worktree-api . && docker run --rm pi-dashboard-worktree-api",
     "lint": "tsc --noEmit",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",

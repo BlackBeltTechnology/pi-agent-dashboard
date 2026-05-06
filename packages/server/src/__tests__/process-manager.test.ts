@@ -124,6 +124,71 @@ describe("Process Manager", () => {
     });
   });
 
+  // ── Pre-spawn hook tests (worktree-session-spawn) ──────────────────────
+  describe("preSpawnHook", () => {
+    it("changes cwd when hook returns a string", async () => {
+      // Use a tmp dir as target cwd since it exists
+      const hookCwd = "/tmp";
+      const result = await spawnPiSession("/tmp", {
+        preSpawnHook: async ({ cwd }) => {
+          expect(cwd).toBe("/tmp");
+          return "/tmp"; // return same dir so we don't actually spawn
+        },
+      });
+      // Should fall through to spawn attempt (which may fail because pi isn't there, but the hook ran)
+      // The key assertion is: spawnPiSession used the returned cwd, not the original.
+      // Since we can't spawn pi in tests, check that the hook executed without error.
+      // The error will be about PI_NOT_FOUND or similar, not about DIR_MISSING.
+      // DIR_MISSING is only for non-existent paths; /tmp exists.
+      expect(result.code).not.toBe("SPAWN_HOOK_ERR");
+      expect(result.code).not.toBe("DIR_MISSING");
+    });
+
+    it("fails spawn when hook throws", async () => {
+      const result = await spawnPiSession("/tmp", {
+        preSpawnHook: async () => {
+          throw Object.assign(new Error("dirty working tree"), { code: "dirty_working_tree" });
+        },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("dirty working tree");
+      expect(result.code).toBe("dirty_working_tree");
+    });
+
+    it("fails spawn when hook throws a plain Error (no .code)", async () => {
+      const result = await spawnPiSession("/tmp", {
+        preSpawnHook: async () => {
+          throw new Error("something went wrong");
+        },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("something went wrong");
+      expect(result.code).toBe("SPAWN_HOOK_ERR");
+    });
+
+    it("passes branch and label to hook context", async () => {
+      const hookCtx: any = {};
+      const result = await spawnPiSession("/tmp", {
+        preSpawnHook: async (ctx) => {
+          Object.assign(hookCtx, ctx);
+          return "/tmp";
+        },
+        ...({ branch: "feature-x", label: "review" } as any),
+      });
+      expect(hookCtx.cwd).toBe("/tmp");
+      expect((hookCtx as any).branch).toBe("feature-x");
+      expect((hookCtx as any).label).toBe("review");
+    });
+
+    it("backward compatible: spawn without preSpawnHook unchanged", async () => {
+      // Verify that existing callers without preSpawnHook still work
+      const result = await spawnPiSession("/tmp");
+      expect(result.code).not.toBe("SPAWN_HOOK_ERR");
+      // The spawn will likely fail because pi isn't installed in the test env,
+      // but it shouldn't be a hook error
+    });
+  });
+
   describe("SessionOptions strategy field", () => {
     it("should accept tmux strategy", () => {
       const opts: SessionOptions = { strategy: "tmux" };

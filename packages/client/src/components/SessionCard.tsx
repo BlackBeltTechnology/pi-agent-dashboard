@@ -1,7 +1,7 @@
 import React, { useState, useEffect, type ReactNode } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiConsoleLine } from "@mdi/js";
+import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiConsoleLine, mdiRobotOutline, mdiCodeTags, mdiApplicationOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiFileTree } from "@mdi/js";
 import {
   statusColors as statusColorsExt,
   sourceBadgeColors as sourceBadgeColorsExt,
@@ -98,6 +98,22 @@ export function TokenStats({ session }: { session: DashboardSession }) {
   );
 }
 
+export function WorktreeIndicator({ session }: { session: DashboardSession }) {
+  if (!session.worktree) return null;
+
+  return (
+    <div
+      className="text-[11px] mt-0.5 ml-4 flex items-center gap-1.5 text-[var(--text-tertiary)]"
+      title={`Worktree: ${session.worktree.path}`}
+    >
+      <Icon path={mdiFileTree} size={0.5} />
+      <span className="px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400 text-[10px] font-mono truncate max-w-[160px]">
+        {session.worktree.branch}
+      </span>
+    </div>
+  );
+}
+
 export function GitInfo({ session }: { session: DashboardSession }) {
   if (!session.gitBranch) return null;
 
@@ -152,6 +168,7 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
     }
     // Use cache if available
     if (branchCache.has(cwd)) return;
+    if (!cwd) return;
 
     let cancelled = false;
     fetch(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`)
@@ -637,6 +654,8 @@ export function SessionCard({
       ) : null}
 
       {/* Subcard stack — see change: redesign-session-card-subcards */}
+      {/* Worktree indicator */}
+      <WorktreeIndicator session={session} />
 
       {/* OPENSPEC subcard */}
       {openspecChanges && onSendPrompt && onAttachProposal && onDetachProposal && (

@@ -107,11 +107,13 @@ export function resolveSessionGroupPath(
   pinnedKeys: Set<string>,
   platform: NodeJS.Platform,
 ): string {
-  const cwdKey = pathKey(session.cwd, platform);
-  if (pinnedKeys.has(cwdKey)) return session.cwd;
+  // Worktree sessions group under their parent repo (groupCwd)
+  const cwd = session.groupCwd ?? session.cwd;
+  const cwdKey = pathKey(cwd, platform);
+  if (pinnedKeys.has(cwdKey)) return cwd;
   const wsRoot = session.jjState?.workspaceRoot;
   if (wsRoot && wsRoot.length > 0) return wsRoot;
-  return session.cwd;
+  return cwd;
 }
 
 /**

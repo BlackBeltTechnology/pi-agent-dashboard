@@ -78,6 +78,19 @@ export interface DashboardSession {
    * See change: add-jj-workspace-plugin.
    */
   jjState?: JjState;
+  /**
+   * Git worktree metadata. Populated by the server when the session's `cwd`
+   * is inside a git worktree (`.git` is a file, not a directory). Contains
+   * the branch name and absolute path to the worktree root.
+   * See change: worktree-session-spawn.
+   */
+  worktree?: { branch: string; path: string };
+  /**
+   * Grouping cwd for UI folder grouping. When set (e.g. for worktree sessions),
+   * the client groups this session under `groupCwd` instead of `cwd`.
+   * See change: worktree-session-spawn.
+   */
+  groupCwd?: string;
   openspecPhase?: OpenSpecPhase | null;
   openspecChange?: string | null;
   attachedProposal?: string | null;

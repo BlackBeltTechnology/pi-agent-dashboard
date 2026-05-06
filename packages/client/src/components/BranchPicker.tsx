@@ -8,9 +8,11 @@ interface Props {
   onCancel: () => void;
   onNotGitRepo?: () => void;
   rows?: number;
+  /** Currently selected branch name (highlighted in the list) */
+  selected?: string | null;
 }
 
-export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 }: Props) {
+export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10, selected }: Props) {
   const [filter, setFilter] = useState("");
   const [branches, setBranches] = useState<GitBranchEntry[]>([]);
   const [current, setCurrent] = useState("");
@@ -65,7 +67,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
   }
 
   const selectableIndices = displayItems
-    .map((item, i) => (item.type === "branch" && !item.branch.isCurrent ? i : -1))
+    .map((item, i) => (item.type === "branch" ? i : -1))
     .filter((i) => i >= 0);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -87,7 +89,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
       e.preventDefault();
       if (highlightIndex >= 0 && highlightIndex < displayItems.length) {
         const item = displayItems[highlightIndex];
-        if (item.type === "branch" && !item.branch.isCurrent) {
+        if (item.type === "branch") {
           onSelect(item.branch.name);
         }
       }
@@ -119,7 +121,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Filter branches…"
-        className="w-full bg-[var(--bg-tertiary)] rounded px-3 py-2 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
+        className="w-full bg-[var(--bg-tertiary)] rounded px-3 py-2 text-base border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
         autoFocus
       />
       <div
@@ -154,19 +156,21 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
               data-branch-item
               role="option"
               aria-selected={isHighlighted}
-              className={`px-3 py-1 text-sm flex items-center gap-2 ${
-                isCurrentBranch
-                  ? "text-[var(--text-muted)] cursor-default"
+              className={`px-3 py-1 text-sm flex items-center gap-2 cursor-pointer transition-all active:scale-[0.98] ${
+                selected === branch.name
+                  ? "bg-blue-600/20 ring-1 ring-blue-500/40"
                   : isHighlighted
-                    ? "bg-blue-600/30 cursor-pointer"
-                    : "hover:bg-[var(--bg-secondary)] cursor-pointer"
+                    ? "bg-blue-600/30"
+                    : "hover:bg-[var(--bg-secondary)]"
               }`}
-              onClick={() => !isCurrentBranch && onSelect(branch.name)}
+              onClick={() => onSelect(branch.name)}
             >
-              <span className="w-3 text-center text-green-400">
+              <span className={`w-3 text-center flex-shrink-0 ${isCurrentBranch ? "text-green-400" : ""}`}>
                 {isCurrentBranch ? "●" : ""}
               </span>
-              <span className="flex-1 truncate font-mono text-xs">{branch.name}</span>
+              <span className={`flex-1 truncate font-mono text-xs ${isCurrentBranch ? "text-green-400" : ""}`}>
+                {branch.name}
+              </span>
               {branch.isRemote && (
                 <span className="text-[10px] text-[var(--text-muted)]">remote</span>
               )}

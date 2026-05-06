@@ -5,6 +5,7 @@ import type { GitBranchesResult, GitStashPopResult } from "@blackbelt-technology
 import { getApiBase } from "./api-context.js";
 
 export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
+  if (!cwd) throw new Error("cwd is required");
   const res = await fetch(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "failed to list branches");

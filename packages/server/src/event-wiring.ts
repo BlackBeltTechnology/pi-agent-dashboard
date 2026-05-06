@@ -21,6 +21,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-attach-naming.js";
+import { detectWorktree, resolveMainRepoRoot } from "./worktree-manager.js";
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
@@ -572,6 +573,17 @@ export function wireEvents(deps: EventWiringDeps): void {
             sessionManager.update(sessionId, { attachedProposal: parent.attachedProposal });
           }
         }
+      }
+
+      // ── Worktree detection ──────────────────────────────────────────
+      // Detect if the session is inside a git worktree and populate metadata.
+      // Also set groupCwd so the UI groups this session under the parent repo.
+      // See change: worktree-session-spawn.
+      const worktree = detectWorktree(msg.cwd);
+      if (worktree) {
+        const groupCwd = resolveMainRepoRoot(msg.cwd);
+        sessionManager.update(sessionId, { worktree, groupCwd });
+        browserGateway.broadcastSessionUpdated(sessionId, { worktree, groupCwd });
       }
 
       const validIds = new Set(sessionManager.listAll().filter((s) => s.cwd === msg.cwd).map((s) => s.id));

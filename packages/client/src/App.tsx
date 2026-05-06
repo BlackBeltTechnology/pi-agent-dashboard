@@ -63,6 +63,7 @@ import { FlowLaunchDialog } from "@blackbelt-technology/pi-dashboard-flows-plugi
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
+import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
 import { DialogPortal } from "./components/DialogPortal.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
@@ -221,6 +222,7 @@ export default function App() {
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [worktreeSpawnCwd, setWorktreeSpawnCwd] = useState<string | null>(null);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
   const pendingTerminalCwdRef = useRef<string | null>(null);
@@ -786,6 +788,7 @@ export default function App() {
       onHideSession={handleHideSession}
       onUnhideSession={handleUnhideSession}
       onSpawnSession={handleSpawnSession}
+      onSpawnWorktree={(cwd) => setWorktreeSpawnCwd(cwd)}
       spawningCwds={spawningCwds}
       spawnResult={spawnResult}
       onSpawnResultSeen={() => setSpawnResult(null)}
@@ -1582,6 +1585,20 @@ export default function App() {
             />
           </DialogPortal>
         )}
+        {worktreeSpawnCwd && (
+          <WorktreeSpawnDialog
+            cwd={worktreeSpawnCwd}
+            onClose={() => setWorktreeSpawnCwd(null)}
+            onSpawning={(cwd) => {
+              setSpawningCwds(prev => new Set(prev).add(cwd));
+              setTimeout(() => setSpawningCwds(prev => {
+                const next = new Set(prev);
+                next.delete(cwd);
+                return next;
+              }), 60_000);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -1695,6 +1712,20 @@ export default function App() {
             onCancel={() => setPinDialogOpen(false)}
           />
         </DialogPortal>
+      )}
+      {worktreeSpawnCwd && (
+        <WorktreeSpawnDialog
+          cwd={worktreeSpawnCwd}
+          onClose={() => setWorktreeSpawnCwd(null)}
+          onSpawning={(cwd) => {
+            setSpawningCwds(prev => new Set(prev).add(cwd));
+            setTimeout(() => setSpawningCwds(prev => {
+              const next = new Set(prev);
+              next.delete(cwd);
+              return next;
+            }), 60_000);
+          }}
+        />
       )}
     </div>
   );

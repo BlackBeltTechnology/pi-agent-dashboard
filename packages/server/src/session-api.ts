@@ -5,12 +5,15 @@
  */
 import { existsSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
+import { isAbsolute } from "node:path";
+import { execSync } from "node:child_process";
 import type { SessionManager } from "./memory-session-manager.js";
 import type { PiGateway } from "./pi-gateway.js";
 import type { BrowserGateway } from "./browser-gateway.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { addWorktree, isInsideWorkTree, resolveRepoRoot } from "./worktree-manager.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
 import type { PendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
 import type { BootstrapStateStore } from "./bootstrap-state.js";
@@ -226,23 +229,85 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
   );
 
   // POST /api/session/spawn
-  fastify.post<{ Body: { cwd?: string } }>(
+  fastify.post<{ Body: { cwd?: string; spawnMode?: string; branch?: string; baseBranch?: string; label?: string } }>(
     "/api/session/spawn",
     async (request, reply) => {
-      const { cwd } = request.body ?? {};
+      const { cwd, spawnMode, branch, baseBranch, label } = request.body ?? {};
       if (!cwd) {
         reply.code(400);
         return { success: false, error: "cwd is required" } satisfies ApiResponse;
       }
 
+      // ── Worktree spawn mode validation ──────────────────────────────
+      if (spawnMode === "worktree") {
+        // `branch` is the NEW branch to create in the worktree.
+        // `baseBranch` (optional) is the branch to branch FROM.
+        // If baseBranch is omitted, `branch` must already exist.
+        if (!branch || typeof branch !== "string" || branch.length === 0) {
+          reply.code(400);
+          return { success: false, error: "branch is required for worktree spawn" } satisfies ApiResponse;
+        }
+        if (baseBranch && typeof baseBranch !== "string") {
+          reply.code(400);
+          return { success: false, error: "baseBranch must be a string" } satisfies ApiResponse;
+        }
+        // Validate branch name characters
+        if (!/^[a-zA-Z0-9._\/-]+$/.test(branch)) {
+          reply.code(400);
+          return { success: false, error: `Invalid branch name: "${branch}"` } satisfies ApiResponse;
+        }
+        if (baseBranch && !/^[a-zA-Z0-9._\/-]+$/.test(baseBranch)) {
+          reply.code(400);
+          return { success: false, error: `Invalid base branch name: "${baseBranch}"` } satisfies ApiResponse;
+        }
+        // Validate cwd is absolute
+        if (!isAbsolute(cwd)) {
+          reply.code(400);
+          return { success: false, error: "cwd must be an absolute path" } satisfies ApiResponse;
+        }
+        // Check git repo
+        if (!isInsideWorkTree(cwd)) {
+          reply.code(400);
+          return { success: false, error: "not_a_git_repo" } satisfies ApiResponse;
+        }
+      }
+
       const doSpawn = async () => {
         const config = loadConfig();
-        const spawnResult = await spawnPiSession(cwd, { strategy: config.spawnStrategy });
+
+        // Build pre-spawn hook for worktree mode
+        let preSpawnHook: ((ctx: { cwd: string; branch?: string; label?: string }) => Promise<string>) | undefined;
+        if (spawnMode === "worktree" && branch) {
+          preSpawnHook = async (ctx) => {
+            const repoRoot = resolveRepoRoot(ctx.cwd);
+            const result = addWorktree(repoRoot, branch, {
+              label: label ?? undefined,
+              baseBranch: baseBranch ?? undefined,
+            });
+            try {
+              execSync("npm install", { cwd: result.path, stdio: "pipe", timeout: 120_000 });
+            } catch { /* non-fatal */ }
+            return result.path;
+          };
+        }
+
+        const spawnResult = await spawnPiSession(cwd, {
+          strategy: config.spawnStrategy,
+          preSpawnHook,
+          ...(branch ? { branch } as any : {}),
+          ...(label ? { label } as any : {}),
+        });
+
         if (spawnResult.process && spawnResult.pid) {
-          browserGateway.headlessPidRegistry.register(spawnResult.pid, cwd, spawnResult.process);
+          browserGateway.headlessPidRegistry.register(
+            spawnResult.pid,
+            spawnResult.cwd ?? cwd,
+            spawnResult.process,
+          );
         }
         if (spawnResult.dashboardSpawned && spawnResult.success) {
-          pendingDashboardSpawns?.set(cwd, (pendingDashboardSpawns?.get(cwd) ?? 0) + 1);
+          const actualCwd = spawnResult.cwd ?? cwd;
+          pendingDashboardSpawns?.set(actualCwd, (pendingDashboardSpawns?.get(actualCwd) ?? 0) + 1);
         }
         return spawnResult;
       };
@@ -254,12 +319,48 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return gate.body;
       }
 
+      // Worktree spawn: return 202 immediately, do work in background
+      // (npm install can take 30-120s, which times out tunnel proxies)
+      if (spawnMode === "worktree" && branch) {
+        reply.code(202);
+        const response = { success: true, data: { status: "spawning", message: "Worktree creation started..." } } satisfies ApiResponse;
+        // Fire-and-forget the actual spawn
+        doSpawn().then((result) => {
+          if (!result.success) {
+            browserGateway.broadcastToAll({
+              type: "spawn_error",
+              cwd,
+              strategy: loadConfig().spawnStrategy,
+              message: result.message,
+              code: result.code ?? "SPAWN_FAILED",
+            } as any);
+          }
+        }).catch((err) => {
+          browserGateway.broadcastToAll({
+            type: "spawn_error",
+            cwd,
+            strategy: loadConfig().spawnStrategy,
+            message: err.message ?? String(err),
+            code: "SPAWN_ERRNO",
+          } as any);
+        });
+        return response;
+      }
+
       const spawnResult = await doSpawn();
       if (!spawnResult.success) {
+        // Return structured error code when available (spec: error codes §2.5)
+        const code = spawnResult.code;
+        if (code === "dirty_working_tree" || code === "branch_not_found" || code === "not_a_git_repo" || code === "git_unavailable" || code === "branch_already_checked_out") {
+          reply.code(400);
+          return { success: false, error: code } satisfies ApiResponse;
+        }
         reply.code(500);
         return { success: false, error: spawnResult.message } satisfies ApiResponse;
       }
-      return { success: true, data: { message: spawnResult.message } } satisfies ApiResponse;
+      // Return worktreePath for worktree spawns (spec: return { sessionId, worktreePath })
+      const worktreePath = spawnResult.cwd && spawnResult.cwd !== cwd ? spawnResult.cwd : undefined;
+      return { success: true, data: { message: spawnResult.message, worktreePath } } satisfies ApiResponse;
     },
   );
 

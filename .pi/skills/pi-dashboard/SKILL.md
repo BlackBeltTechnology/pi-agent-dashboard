@@ -93,6 +93,9 @@ curl -s -b "pi_dash_token=YOUR_JWT" "$BASE/api/sessions" | jq .
 | Checkout | `curl -s -X POST "$BASE/api/git/checkout" -H 'Content-Type: application/json' -d '{"cwd":"CWD","branch":"main"}'` |
 | Init repo | `curl -s -X POST "$BASE/api/git/init" -H 'Content-Type: application/json' -d '{"cwd":"CWD"}'` |
 | Stash pop | `curl -s -X POST "$BASE/api/git/stash-pop" -H 'Content-Type: application/json' -d '{"cwd":"CWD"}'` |
+| List worktrees | `curl -s "$BASE/api/git/worktrees?cwd=CWD" \| jq .` |
+| Delete worktree | `curl -s -X DELETE "$BASE/api/git/worktrees" -H 'Content-Type: application/json' -d '{"cwd":"CWD","path":"PATH"}'` |
+| Spawn in worktree | `curl -s -X POST "$BASE/api/session/spawn" -H 'Content-Type: application/json' -d '{"cwd":"CWD","spawnMode":"worktree","branch":"feature/x","baseBranch":"develop"}'` |
 
 ### OpenSpec
 
@@ -132,3 +135,4 @@ A convenience wrapper is available at [scripts/dashboard-api.sh](scripts/dashboa
 
 - [API Reference](references/api-reference.md) — Complete endpoint documentation with request/response schemas
 - [Recipes](references/recipes.md) — Multi-step orchestration workflows
+- [Worktree Spawn](../worktree-spawn/SKILL.md) — Isolated git worktree sessions for subagents

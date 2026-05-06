@@ -108,11 +108,14 @@ export function useMessageHandler(
           pendingSpawnsRef.current.delete(msg.spawnRequestId);
           if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.cwd);
           navigate(`/session/${msg.session.id}`);
-        } else if (spawningCwdsRef.current.has(msg.session.cwd)) {
+        } else if (spawningCwdsRef.current.has(msg.session.cwd) || (msg.session.groupCwd && spawningCwdsRef.current.has(msg.session.groupCwd))) {
           // Tier 2 (legacy fallback): cwd-based heuristic for older servers
           // that don't echo spawnRequestId. Only fires for spawn (not fork)
           // because fork dispatches don't add to spawningCwds today.
+          // Also handles worktree spawns where session.cwd is the worktree path
+          // but spawningCwds was keyed by the original groupCwd.
           clearSpawningCwd(msg.session.cwd);
+          if (msg.session.groupCwd) clearSpawningCwd(msg.session.groupCwd);
           navigate(`/session/${msg.session.id}`);
         }
         // Commands/models/roles metadata is now requested server-side on subscribe

@@ -1,6 +1,6 @@
 /**
  * Unified action bar for folder groups in the sidebar.
- * Buttons: +Session | Terminals(N) | Editor | Zed | Pi Resources
+ * Buttons: +Session | +Worktree | Terminals(N) | Editor | Zed | Pi Resources
  */
 import React from "react";
 import { Icon } from "@mdi/react";
@@ -12,6 +12,7 @@ import {
   mdiOpenInNew,
   mdiAlertCircleOutline,
   mdiCircleSmall,
+  mdiFileTree,
 } from "@mdi/js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
@@ -20,17 +21,17 @@ interface Props {
   cwd: string;
   terminalCount: number;
   editorStatus?: { id: string; status: EditorInstanceStatus } | null;
-  editorAvailable?: boolean; // Whether code-server binary is detected
+  editorAvailable?: boolean;
   nativeEditors: DetectedEditor[];
   spawningDisabled?: boolean;
   onSpawnSession: () => void;
+  onSpawnWorktree?: () => void;
   onOpenTerminals: () => void;
   onOpenEditor: () => void;
   onOpenNativeEditor: (editorId: string) => void;
   onOpenPiResources: () => void;
 }
 
-// Icon map for native editors
 const editorIcons: Record<string, string> = {
   zed: "Z",
 };
@@ -43,13 +44,18 @@ export function FolderActionBar({
   nativeEditors,
   spawningDisabled,
   onSpawnSession,
+  onSpawnWorktree,
   onOpenTerminals,
   onOpenEditor,
   onOpenNativeEditor,
   onOpenPiResources,
 }: Props) {
-  // Filter out vscode/code from native editors (served via EditorView)
   const filteredNativeEditors = nativeEditors.filter((e) => e.id !== "vscode" && e.id !== "code");
+
+  const btn = (disabled: boolean) =>
+    `text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] ${
+      disabled ? "opacity-50 cursor-not-allowed" : ""
+    }`;
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -58,15 +64,28 @@ export function FolderActionBar({
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
         disabled={spawningDisabled}
         data-testid="spawn-session-btn"
-        className={`text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] ${
-          spawningDisabled ? "opacity-50 cursor-not-allowed" : "hover:text-green-400 hover:border-green-500/50"
-        }`}
+        className={`${btn(!!spawningDisabled)} ${spawningDisabled ? "" : "hover:text-green-400 hover:border-green-500/50"}`}
         title="New pi session"
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiPlus} size={0.5} /> Session
         </span>
       </button>
+
+      {/* +Worktree */}
+      {onSpawnWorktree && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onSpawnWorktree(); }}
+          disabled={spawningDisabled}
+          data-testid="spawn-worktree-btn"
+          className={`${btn(!!spawningDisabled)} ${spawningDisabled ? "" : "hover:text-green-400 hover:border-green-500/50"}`}
+          title="Spawn session in a git worktree"
+        >
+          <span className="inline-flex items-center gap-0.5">
+            <Icon path={mdiFileTree} size={0.5} /> Worktree
+          </span>
+        </button>
+      )}
 
       {/* Terminals(N) */}
       <button
@@ -109,7 +128,7 @@ export function FolderActionBar({
         </span>
       </button>
 
-      {/* Native editors (e.g., Zed) — filtered to exclude vscode */}
+      {/* Native editors */}
       {filteredNativeEditors.map((editor) => (
         <button
           key={editor.id}
@@ -128,7 +147,7 @@ export function FolderActionBar({
         </button>
       ))}
 
-      {/* Pi Resources — right-aligned */}
+      {/* Pi Resources */}
       <button
         onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
         className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"

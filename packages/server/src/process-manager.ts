@@ -67,6 +67,14 @@ export interface SessionOptions {
    * See change: spawn-correlation-token.
    */
   spawnToken?: string;
+  /**
+   * Pre-spawn hook: invoked before the pi process is created.
+   * Receives { cwd, branch, label } from the spawn request.
+   * If it returns a string, that string is used as the new spawn cwd.
+   * If it throws, spawn fails with the hook's error message.
+   * See change: worktree-session-spawn.
+   */
+  preSpawnHook?: (ctx: { cwd: string; branch?: string; label?: string }) => Promise<string> | string;
 }
 
 export interface SpawnResult {
@@ -74,6 +82,8 @@ export interface SpawnResult {
   message: string;
   pid?: number;
   process?: ChildProcess;
+  /** Final cwd used for the spawn (may differ from the requested cwd after pre-spawn hook). See change: worktree-session-spawn. */
+  cwd?: string;
   /** True when spawned from the dashboard (for writing session meta) */
   dashboardSpawned?: boolean;
   /** Structured failure classifier. Set on every { success: false } path. See change: spawn-failure-diagnostics. */
@@ -302,8 +312,28 @@ export async function spawnPiSession(
   cwd: string,
   options?: SessionOptions & { electronMode?: boolean },
 ): Promise<SpawnResult> {
-  if (!existsSync(cwd)) {
-    return { success: false, code: "DIR_MISSING", message: `Directory does not exist: ${cwd}` };
+  // ── Pre-spawn hook ────────────────────────────────────────────────
+  // Run before any process creation; hook may change the spawn cwd.
+  // See change: worktree-session-spawn.
+  let spawnCwd = cwd;
+  if (options?.preSpawnHook) {
+    try {
+      const result = await options.preSpawnHook({
+        cwd,
+        branch: (options as any).branch,
+        label: (options as any).label,
+      });
+      if (typeof result === "string") {
+        spawnCwd = result;
+      }
+    } catch (err: any) {
+      const code = err.code ?? "SPAWN_HOOK_ERR";
+      return { success: false, code, message: err.message ?? String(err) };
+    }
+  }
+
+  if (!existsSync(spawnCwd)) {
+    return { success: false, code: "DIR_MISSING", message: `Directory does not exist: ${spawnCwd}`, cwd: spawnCwd };
   }
 
   // Mint a spawn token if the caller didn't provide one. Token is injected
@@ -317,14 +347,14 @@ export async function spawnPiSession(
 
   let result: SpawnResult;
   switch (mechanism) {
-    case "tmux":     result = spawnTmux(cwd, opts); break;
-    case "wt":       result = await spawnWt(cwd, opts); break;
-    case "wsl-tmux": result = spawnWslTmux(cwd, opts); break;
-    case "headless": result = await spawnHeadless(cwd, opts); break;
+    case "tmux":     result = spawnTmux(spawnCwd, opts); break;
+    case "wt":       result = await spawnWt(spawnCwd, opts); break;
+    case "wsl-tmux": result = spawnWslTmux(spawnCwd, opts); break;
+    case "headless": result = await spawnHeadless(spawnCwd, opts); break;
   }
-  // Surface the token on every result (success or failure) so callers
-  // can clean up registries deterministically.
-  return { ...result, spawnToken };
+  // Tag with the final cwd used and surface the token on every result
+  // (success or failure) so callers can clean up registries deterministically.
+  return { ...result, cwd: spawnCwd, spawnToken };
 }
 
 // ── Per-mechanism spawn ────────────────────────────────────────────────────

@@ -79,6 +79,7 @@ interface Props {
   onHideSession?: (sessionId: string) => void;
   onUnhideSession?: (sessionId: string) => void;
   onSpawnSession?: (cwd: string, attachProposal?: string) => void;
+  onSpawnWorktree?: (cwd: string) => void;
   spawningCwds?: Set<string>;
   spawnResult?: { success: boolean; message: string } | null;
   onSpawnResultSeen?: () => void;
@@ -144,7 +145,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, onSpawnWorktree, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
   const now = Date.now();
   const [, navigate] = useLocation();
   const { messages, showToast, dismissToast } = useToast();
@@ -481,6 +482,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               nativeEditors={editorMap.get(group.cwd) ?? []}
               spawningDisabled={spawningCwds?.has(group.cwd)}
               onSpawnSession={() => onSpawnSession?.(group.cwd)}
+              onSpawnWorktree={onSpawnWorktree ? () => onSpawnWorktree(group.cwd) : undefined}
               onOpenTerminals={() => onOpenTerminals?.(group.cwd)}
               onOpenEditor={() => onOpenEditor?.(group.cwd)}
               onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
