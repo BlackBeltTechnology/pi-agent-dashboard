@@ -113,42 +113,8 @@
 
 ---
 
-## Phase 3 — Unified Server Launch & Electron Migration
+## Phase 3 — DROPPED (out of scope; archived state)
 
-## 17. Unified TS Loader Resolution
+Sections 17 (unified TS loader / shared server launcher), 18 (Electron consumer migration to ToolResolver), and 19 (naming inconsistency) were never implemented and are **out of scope for this archived proposal**.
 
-Four callers spawn the dashboard server with different TS loader resolution:
-- Extension `server-launcher.ts`: jiti only (from pi process)
-- CLI `cli.ts` `cmdStart()`: jiti → tsx fallback
-- Electron `launchServer()`: tsx → jiti fallback
-- Electron `launchViaCli()`: delegates to CLI
-
-Plus 3 separate jiti resolution implementations:
-- `packages/shared/src/resolve-jiti.ts` (anchored to `process.argv[1]`)
-- `packages/electron/src/lib/server-lifecycle.ts` `resolveJitiFromPi()` (managed pi → system pi)
-- `packages/electron/src/lib/ts-loader-resolver.ts` (managed pi → global pi)
-
-Note: overlaps with open change `replace-tsx-with-jiti` which wants to create a shared `resolveJitiRegisterPath()` and eliminate tsx entirely.
-
-- [ ] 17.1 Add `resolveJiti()` to ToolResolver. Unifies jiti resolution: managed pi → system pi (via `which()`) → `process.argv[1]` anchor. Returns absolute path to `jiti-register.mjs` or null.
-- [ ] 17.2 Add `resolveTsLoader()` to ToolResolver. Returns `{ loader: "jiti" | "tsx", importPath: string } | null`. Resolution order: jiti (from `resolveJiti()`) → tsx (from `resolveTsx()`, resolving ESM register hook). Callers get a single function instead of implementing their own fallback chains.
-- [ ] 17.3 Create shared `packages/shared/src/server-launcher.ts` with `launchDashboardServer(opts)`. Core pattern: `spawn(node, ["--import", tsLoader, cliPath, ...args], { detached, ... })`. Options control: node binary, CLI path, TS loader (or auto-resolve via ToolResolver), stdio routing (ignore vs log file path), health wait timeout, env overrides.
-- [ ] 17.4 Migrate extension `server-launcher.ts` to use shared launcher (opts: node=process.execPath, loader=jiti-only, stdio=ignore, timeout=2s).
-- [ ] 17.5 Migrate CLI `cmdStart()` to use shared launcher (opts: node=process.execPath, loader=jiti→tsx, stdio=logfile, timeout=5s).
-- [ ] 17.6 Migrate Electron `launchServer()` to use shared launcher (opts: node=detected/bundled, loader=tsx→jiti, stdio=logfile, timeout=15s, env=buildSpawnEnv).
-- [ ] 17.7 Delete `resolveJitiFromPi()` from server-lifecycle.ts, jiti/tsx resolution from ts-loader-resolver.ts, `resolve-jiti.ts` from shared. Consolidate into ToolResolver.
-- [ ] 17.8 Write tests for shared launcher and ToolResolver.resolveJiti(): spawn with jiti, spawn with tsx, early exit detection, health poll timeout, env construction.
-- [ ] 17.9 Coordinate with `replace-tsx-with-jiti` change — if that lands first, the tsx fallback paths can be removed.
-
-## 18. Electron Consumer Migration (Q1 resolved: can import from shared)
-
-- [ ] 18.1 Remove the outdated "must NOT import from shared" NOTEs in `server-lifecycle.ts` and `health-check.ts`. Vite bundles shared imports inline at build time.
-- [ ] 18.2 Replace `packages/electron/src/lib/managed-paths.ts` local mirror with direct import from `@blackbelt-technology/pi-dashboard-shared/managed-paths.js`. Delete the local file.
-- [ ] 18.3 Migrate `dependency-detector.ts`: `detectPi()`, `detectSystemNode()`, `detectOpenSpec()`, `detectPiDashboardCli()` delegate to `ToolResolver.which()`. Remove local `whichSync()` and `detect()` functions.
-- [ ] 18.4 Migrate `server-lifecycle.ts`: replace `resolveTsxCommand()` with `resolver.resolveTsx()`, replace manual PATH construction with `resolver.buildSpawnEnv()`, replace `resolveJitiFromPi()` with `resolver.resolveJiti()`.
-- [ ] 18.5 Update Electron test mocking: tests currently mock `node:child_process` and `node:fs` at module level. After migration, they need to mock ToolResolver or its dependencies instead.
-- [ ] 18.6 Verify all Electron tests pass after migration.
-
-## 19. Naming Inconsistency (Problem #13) — Deferred
-
-Deferred to a future change per Q3 decision.
+The superseder `simplify-electron-bootstrap-derived-state` collapses the Electron *startup decision* but does not consolidate TS-loader resolution or the shared server launcher. Phase 3 motivations remain valid and are tracked in a fresh change: `unify-server-launch-ts-loader` (see `openspec/changes/unify-server-launch-ts-loader/`). Naming inconsistency (#13) remains deferred.
