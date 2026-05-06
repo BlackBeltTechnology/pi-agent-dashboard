@@ -68,6 +68,8 @@ The `ask_user` trigger is **transition-based**: it fires when `currentTool` chan
 - **WHEN** `isUnreadTrigger` matches but `isPushTrigger` does not (e.g. `streaming→idle`)
 - **THEN** the unread broadcast SHALL fire normally; `pushDispatcher` SHALL NOT be called
 
+## ADDED Requirements
+
 ### Requirement: Build push payload accepts push prefs
 
 `buildPushPayload` SHALL accept an optional `PushPrefs` parameter. When the trigger is `agent_end` (success) and `prefs.notifyCompletion === "on"`, the payload SHALL use a completion-appropriate title and body. The gating logic (whether to fire at all) SHALL remain in `isPushTrigger` — `buildPushPayload` only determines the payload shape, not whether a push should be sent.
