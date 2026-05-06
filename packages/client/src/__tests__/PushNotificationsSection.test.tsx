@@ -37,14 +37,16 @@ vi.mock("../hooks/usePushSubscription.js", () => ({
 
 beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
-  mockFetch.mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({ tokens: [] }),
+  mockFetch.mockReset();
+  mockFetch.mockImplementation((url: string) => {
+    if (url === "/api/config") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ push: { defaults: { notifyErrors: true, notifyAskUser: true } } }) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ tokens: [] }) });
   });
   mockSubscribe.mockReset();
   mockUnsubscribe.mockReset();
   mockSendTest.mockReset();
-  mockFetch.mockReset();
   state.status = "available";
   state.supported = true;
   state.tokenId = null;
@@ -91,6 +93,20 @@ describe("PushNotificationsSection", () => {
     it("shows 'Not subscribed' label", () => {
       render(<PushNotificationsSection />);
       expect(getText("Not subscribed")).toBeDefined();
+    });
+
+    it("saves global completion default through PUT /api/config", async () => {
+      const { container } = render(<PushNotificationsSection />);
+      await waitFor(() => expect(container.querySelector("select")).not.toBeNull());
+      const select = container.querySelector("select")!;
+      fireEvent.change(select, { target: { value: "on" } });
+      await waitFor(() => {
+        expect(mockFetch.mock.calls.some(([url, init]) => (
+          url === "/api/config" &&
+          init?.method === "PUT" &&
+          init?.body === JSON.stringify({ push: { defaults: { notifyCompletion: "on" } } })
+        ))).toBe(true);
+      });
     });
 
     it("shows 'Enable on this device' button", () => {

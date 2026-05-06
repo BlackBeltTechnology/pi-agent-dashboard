@@ -3,6 +3,7 @@ import { Icon } from "@mdi/react";
 import { mdiLoading, mdiFlash } from "@mdi/js";
 import { ModelSelector } from "./ModelSelector.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
+import { BellToggle } from "./BellToggle.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 interface Props {
@@ -19,9 +20,15 @@ interface Props {
   onPresetLoad?: (presetName: string) => void;
   onPresetSave?: (presetName: string) => void;
   onPresetDelete?: (presetName: string) => void;
+  /** Per-session bell toggle state */
+  bellState?: "off" | "on" | "auto";
+  /** Called when bell is clicked — cycles to next state */
+  onBellClick?: () => void;
+  /** Whether push is enabled/configured. Bell hidden when false. */
+  pushEnabled?: boolean;
 }
 
-export function StatusBar({ model, models, roles, thinkingLevel, status, currentTool, streamingText, onSelectModel, onSelectThinkingLevel, onRoleSet, onPresetLoad, onPresetSave, onPresetDelete }: Props) {
+export function StatusBar({ model, models, roles, thinkingLevel, status, currentTool, streamingText, onSelectModel, onSelectThinkingLevel, onRoleSet, onPresetLoad, onPresetSave, onPresetDelete, bellState, onBellClick, pushEnabled }: Props) {
   let statusLabel: string | null = null;
   let statusIcon = mdiLoading;
   let toolHighlight = false;
@@ -43,19 +50,24 @@ export function StatusBar({ model, models, roles, thinkingLevel, status, current
       <div className="flex items-center gap-2">
         <ModelSelector current={model} models={models} roles={roles} onSelect={onSelectModel} onRoleSet={onRoleSet} onPresetLoad={onPresetLoad} onPresetSave={onPresetSave} onPresetDelete={onPresetDelete} />
         <ThinkingLevelSelector current={thinkingLevel} onSelect={onSelectThinkingLevel} />
+        {status !== "ended" && pushEnabled !== false && bellState && onBellClick && (
+          <BellToggle state={bellState} onClick={onBellClick} />
+        )}
       </div>
 
-      {statusLabel && (
-        <div className="flex items-center gap-1.5 text-[var(--text-secondary)]" data-testid="working-status">
-          <Icon
-            path={statusIcon}
-            size={0.5}
-            spin={statusIcon === mdiLoading}
-            className={toolHighlight ? "text-yellow-400" : ""}
-          />
-          <span>{statusLabel}</span>
-        </div>
-      )}
+      <div className="flex items-center gap-2">
+        {statusLabel && (
+          <div className="flex items-center gap-1.5 text-[var(--text-secondary)]" data-testid="working-status">
+            <Icon
+              path={statusIcon}
+              size={0.5}
+              spin={statusIcon === mdiLoading}
+              className={toolHighlight ? "text-yellow-400" : ""}
+            />
+            <span>{statusLabel}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

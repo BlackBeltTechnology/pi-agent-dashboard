@@ -16,14 +16,12 @@
       "src/bridge.ts"
     ],
     "skills": [
-      ".pi/skills/pi-dashboard",
-      ".pi/skills/push-notify-user"
+      ".pi/skills/pi-dashboard"
     ]
   },
   "files": [
     "src/",
-    ".pi/skills/pi-dashboard/",
-    ".pi/skills/push-notify-user/"
+    ".pi/skills/pi-dashboard/"
   ],
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-shared": "^0.5.1",

@@ -149,9 +149,8 @@ export function createPushDispatcher(opts: PushDispatcherOptions): PushDispatche
 
       if (filtered.length === 0) return [];
 
-      const results: SendResult[] = [];
-      const promises: Promise<SendResult[]> = Promise.all(
-        filtered.map(async (token) => {
+      const batches = await Promise.all(
+        filtered.map(async (token): Promise<SendResult[]> => {
           const transport = transports.get(token.transport);
           if (!transport) {
             console.warn(`[push-dispatcher] Unknown transport "${token.transport}" for token ${token.id} — skipped`);
@@ -165,9 +164,7 @@ export function createPushDispatcher(opts: PushDispatcherOptions): PushDispatche
         }),
       );
 
-      const all = await promises;
-      for (const batch of all) results.push(...batch);
-      return results;
+      return batches.flat();
     },
   };
 }

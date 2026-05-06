@@ -1174,6 +1174,14 @@ export default function App() {
             onPresetDelete={(presetName) => {
               send({ type: "role_preset_delete", sessionId: selectedId, presetName });
             }}
+            bellState={selectedSession?.pushPrefs?.notifyCompletion ?? "off"}
+            onBellClick={() => {
+              const states = ["off", "on", "auto"] as const;
+              const current = selectedSession?.pushPrefs?.notifyCompletion ?? "off";
+              const nextIdx = (states.indexOf(current) + 1) % states.length;
+              send({ type: "set_push_prefs", sessionId: selectedId, prefs: { notifyCompletion: states[nextIdx] } });
+            }}
+            pushEnabled={true}
           />
           <CommandInput
             commands={selectedCommands}

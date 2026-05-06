@@ -6,6 +6,7 @@ describe("parsePushConfig", () => {
     expect(parsePushConfig(undefined)).toEqual({
       enabled: false,
       coalesceWindowMs: 30_000,
+      defaults: { notifyErrors: true, notifyAskUser: true, notifyCompletion: "off" },
     });
   });
 
@@ -23,6 +24,7 @@ describe("parsePushConfig", () => {
     expect(parsePushConfig({})).toEqual({
       enabled: false,
       coalesceWindowMs: 30_000,
+      defaults: { notifyErrors: true, notifyAskUser: true, notifyCompletion: "off" },
     });
   });
 

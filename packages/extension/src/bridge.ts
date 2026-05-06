@@ -28,6 +28,7 @@ import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { PromptBus } from "./prompt-bus.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { registerPushNotifyUserTool } from "./push-notify-user-tool.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { activate as activateProviderRegister, onProviderChanged, reloadProviders, buildProviderCatalogue } from "./provider-register.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -991,6 +992,11 @@ function initBridge(pi: ExtensionAPI) {
     // Bail out if a newer bridge instance has taken over
     if (!isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
+
+    // Register push_notify_user tool for agent-proactive push (Auto mode).
+    // Tool is registered unconditionally; the description is proactive — agents
+    // decide when to use it based on context. Server fanout handles Off/On modes.
+    registerPushNotifyUserTool(pi);
 
     // On session switch/fork (0.65.0+: event.reason replaces session_switch/session_fork events),
     // unregister the old session before re-registering the new one.

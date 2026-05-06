@@ -29,7 +29,7 @@ interface PushSubscriptionState {
   sendTest: () => Promise<boolean>;
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = atob(base64);
@@ -37,7 +37,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   for (let i = 0; i < rawData.length; i++) {
     outputArray[i] = rawData.charCodeAt(i);
   }
-  return outputArray;
+  return outputArray.buffer.slice(outputArray.byteOffset, outputArray.byteOffset + outputArray.byteLength);
 }
 
 async function swReady(): Promise<ServiceWorkerRegistration | null> {
@@ -149,7 +149,7 @@ export function usePushSubscription(): PushSubscriptionState {
         return;
       }
 
-      const applicationServerKey = urlBase64ToUint8Array(publicKey);
+      const applicationServerKey = urlBase64ToArrayBuffer(publicKey);
       const pushSub = await sw.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey,

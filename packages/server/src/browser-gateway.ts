@@ -120,6 +120,8 @@ export function createBrowserGateway(
   pendingAttachRegistry?: import("./pending-attach-registry.js").PendingAttachRegistry,
   pendingResumeIntents?: import("./pending-resume-intent-registry.js").PendingResumeIntentRegistry,
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations,
+  pushPrefsMap?: Map<string, import("./push/push-types.js").PushPrefs>,
+  getPushDefaults?: () => import("@blackbelt-technology/pi-dashboard-shared/config.js").PushDefaults | undefined,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -309,6 +311,8 @@ export function createBrowserGateway(
           pendingAttachRegistry,
           pendingResumeIntents,
           pendingClientCorrelations,
+          pushPrefsMap,
+          getPushDefaults,
           sendTo, broadcast, getSubscribers, replayPendingUiRequests,
           trackUiRequest: trackUiRequest,
           markReplaying(targetWs, sessionId) {
@@ -522,6 +526,13 @@ export function createBrowserGateway(
           }
           case "session_unview": {
             viewedSessionTracker.unview(msg.sessionId, ws);
+            break;
+          }
+          case "set_push_prefs": {
+            if (pushPrefsMap && msg.prefs?.notifyCompletion && ["off", "on", "auto"].includes(msg.prefs.notifyCompletion)) {
+              pushPrefsMap.set(msg.sessionId, { notifyCompletion: msg.prefs.notifyCompletion as "off" | "on" | "auto" });
+              broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { pushPrefs: pushPrefsMap.get(msg.sessionId) } } as any);
+            }
             break;
           }
           default:

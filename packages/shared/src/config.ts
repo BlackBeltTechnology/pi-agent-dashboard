@@ -172,13 +172,23 @@ export interface PushConfig {
   coalesceWindowMs: number;
   /** Web Push transport settings (VAPID). */
   webPush?: PushWebPushConfig;
+  /** Global push event defaults (errors, ask_user). Completion is per-session only. */
+  defaults: PushDefaults;
   /** Runtime errors surfaced in /api/health. Not persisted. */
   errors?: string[];
+}
+
+export interface PushDefaults {
+  notifyErrors: boolean;
+  notifyAskUser: boolean;
+  /** Completion push default: off (no push), on (always push), auto (agent decides). */
+  notifyCompletion: "off" | "on" | "auto";
 }
 
 export const DEFAULT_PUSH_CONFIG: PushConfig = {
   enabled: false,
   coalesceWindowMs: 30_000,
+  defaults: { notifyErrors: true, notifyAskUser: true, notifyCompletion: "off" as const },
 };
 
 /**
@@ -409,13 +419,20 @@ export function parsePushConfig(raw: any): PushConfig {
   const enabled = raw.enabled === true;
   const coalesceWindowMs = clampNumber(raw.coalesceWindowMs, DEFAULT_PUSH_CONFIG.coalesceWindowMs, 5_000, 300_000);
 
+  const defaultsRaw = raw.defaults;
+  const defaults: PushDefaults = {
+    notifyErrors: defaultsRaw && typeof defaultsRaw.notifyErrors === "boolean" ? defaultsRaw.notifyErrors : true,
+    notifyAskUser: defaultsRaw && typeof defaultsRaw.notifyAskUser === "boolean" ? defaultsRaw.notifyAskUser : true,
+    notifyCompletion: defaultsRaw && ["off", "on", "auto"].includes(defaultsRaw.notifyCompletion) ? defaultsRaw.notifyCompletion : "off",
+  };
+
   const webPushRaw = raw.webPush;
   const webPush: PushWebPushConfig | undefined =
     webPushRaw && typeof webPushRaw === "object" && typeof webPushRaw.contactEmail === "string"
       ? { contactEmail: webPushRaw.contactEmail }
       : undefined;
 
-  const result: PushConfig = { enabled, coalesceWindowMs };
+  const result: PushConfig = { enabled, coalesceWindowMs, defaults };
   if (webPush) result.webPush = webPush;
 
   // When enabled but no contactEmail, surface error

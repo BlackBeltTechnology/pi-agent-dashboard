@@ -512,7 +512,6 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/server/src/routes/push-routes.ts` | 6 push REST endpoints (register/delete/tokens/test/send/vapid-key) |
 | `packages/client/src/hooks/usePushSubscription.ts` | Web Push subscription hook (subscribe/unsubscribe/reconcile/sendTest) |
 | `packages/client/src/components/PushNotificationsSection.tsx` | Settings section: status, subscribe, device list, iOS hint |
-| `.pi/skills/push-notify-user/SKILL.md` | Agent skill for on-demand push via POST /api/push/send |
 
 ## Build & Restart Workflow
 

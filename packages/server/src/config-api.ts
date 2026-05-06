@@ -131,6 +131,28 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge push sub-object. Defaults are runtime-safe; dispatcher shape
+    // changes still require restart because transports are built at startup.
+    if (partial.push) {
+      const existingPush = existing.push || {};
+      const incomingPush = partial.push;
+      const dispatcherFieldsChanged =
+        ("enabled" in incomingPush && incomingPush.enabled !== existingPush.enabled) ||
+        ("coalesceWindowMs" in incomingPush && incomingPush.coalesceWindowMs !== existingPush.coalesceWindowMs) ||
+        ("webPush" in incomingPush && JSON.stringify(incomingPush.webPush) !== JSON.stringify(existingPush.webPush));
+      if (dispatcherFieldsChanged) restartRequired = true;
+      partial.push = {
+        ...existingPush,
+        ...incomingPush,
+        ...(incomingPush.defaults
+          ? { defaults: { ...existingPush.defaults, ...incomingPush.defaults } }
+          : {}),
+        ...(incomingPush.webPush
+          ? { webPush: { ...existingPush.webPush, ...incomingPush.webPush } }
+          : {}),
+      };
+    }
+
     const merged = { ...existing, ...partial };
 
     // Remove computed fields that shouldn't be persisted

@@ -49,3 +49,11 @@ export interface PushPayload {
   body: string;
   url: string;
 }
+
+/**
+ * Per-session push preferences, controlled by the bell toggle.
+ * In-memory only — resets on server restart.
+ */
+export interface PushPrefs {
+  notifyCompletion: "off" | "on" | "auto";
+}

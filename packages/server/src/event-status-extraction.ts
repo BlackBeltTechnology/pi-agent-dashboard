@@ -3,6 +3,16 @@
  * Returns partial DashboardSession updates, or null if the event is not relevant.
  */
 import type { DashboardEvent, DashboardSession, FlowStatus, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { PushPrefs } from "./push/push-types.js";
+
+export interface PushTriggerOptions {
+  /** Global push defaults from config.json */
+  notifyErrors: boolean;
+  notifyAskUser: boolean;
+  notifyCompletion: "off" | "on" | "auto";
+  /** Per-session push prefs (bell toggle) */
+  pushPrefs?: PushPrefs;
+}
 
 // Use null (not undefined) for fields that must be cleared — undefined is
 // dropped during JSON serialisation so the browser would keep the stale value.
@@ -244,10 +254,11 @@ export function isUnreadTrigger(
  *      NOT fire — it's transition-based.
  *   2. `agent_end` event whose payload's `error` field is truthy
  *      (agent crashed).
+ *   3. `agent_end` without error when the session bell toggle is `"on"`.
  *
  * Deliberately excluded:
- *   - `streaming→idle` (routine turn completion — would spam users)
- *   - `streaming→active`
+ *   - `streaming→idle` when completion push is not opted in
+ *   - `streaming→active` when completion push is not opted in
  *
  * The caller is responsible for the "not currently viewed with stale TTL"
  * gate and replay suppression.
@@ -259,16 +270,25 @@ export function isPushTrigger(
   before: UnreadTriggerSnapshot,
   after: UnreadTriggerSnapshot,
   payload?: unknown,
+  opts?: PushTriggerOptions,
 ): boolean {
-  // Trigger 1: currentTool transitions TO "ask_user"
+  const notifyErrors = opts?.notifyErrors ?? true;
+  const notifyAskUser = opts?.notifyAskUser ?? true;
+  const notifyCompletion = opts?.pushPrefs?.notifyCompletion ?? opts?.notifyCompletion ?? "off";
+
+  // Trigger 1: currentTool transitions TO "ask_user" — gated by global
   if (after.currentTool === "ask_user" && before.currentTool !== "ask_user") {
-    return true;
+    return notifyAskUser;
   }
 
-  // Trigger 2: agent_end with error
+  // Trigger 2: agent_end with error — gated by global
   if (eventType === "agent_end") {
     const data = (payload as { error?: unknown } | undefined) ?? undefined;
-    if (data && data.error) return true;
+    if (data?.error) return notifyErrors;
+
+    // Trigger 3: agent_end success — gated by per-session bell toggle
+    // with global completion default as fallback.
+    if (notifyCompletion === "on") return true;
   }
 
   return false;

@@ -6,6 +6,22 @@ import type { ServerToBrowserMessage, BrowserToServerMessage } from "@blackbelt-
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { extractStatsFromEvents } from "../event-status-extraction.js";
 import type { StoredEvent } from "../memory-event-store.js";
+import type { PushPrefs } from "../push/push-types.js";
+import type { PushDefaults } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+
+/** Send push prefs to a single browser. */
+function sendPushPrefs(
+  ws: WebSocket,
+  sessionId: string,
+  pushPrefsMap: Map<string, PushPrefs> | undefined,
+  getPushDefaults: (() => PushDefaults | undefined) | undefined,
+  sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
+): void {
+  const prefs = pushPrefsMap?.get(sessionId) ?? {
+    notifyCompletion: getPushDefaults?.()?.notifyCompletion ?? "off",
+  };
+  sendTo(ws, { type: "push_prefs_update", sessionId, prefs });
+}
 
 const REPLAY_BATCH_SIZE = 50;
 /** Max events to replay per session subscription (0 = unlimited) */
@@ -243,4 +259,7 @@ export function handleSubscribe(
   } else {
     sendTo(ws, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: true });
   }
+
+  // Send current push prefs after subscribe completes
+  sendPushPrefs(ws, msg.sessionId, ctx.pushPrefsMap, ctx.getPushDefaults, sendTo);
 }

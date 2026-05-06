@@ -177,5 +177,33 @@ describe("config-api", () => {
       expect(written.reattachPlacement).toBe("preserve");
       expect(written.port).toBe(8000); // existing fields preserved
     });
+
+    it("should deep-merge push defaults without dropping enabled or webPush", () => {
+      fs.writeFileSync(configFile, JSON.stringify({
+        push: {
+          enabled: true,
+          coalesceWindowMs: 30_000,
+          webPush: { contactEmail: "user@example.com" },
+          defaults: { notifyErrors: true, notifyAskUser: true, notifyCompletion: "off" },
+        },
+      }));
+      const result = writeConfigPartial({ push: { defaults: { notifyCompletion: "on" } } });
+      expect(result.success).toBe(true);
+      expect(result.restartRequired).toBe(false);
+      const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+      expect(written.push).toEqual({
+        enabled: true,
+        coalesceWindowMs: 30_000,
+        webPush: { contactEmail: "user@example.com" },
+        defaults: { notifyErrors: true, notifyAskUser: true, notifyCompletion: "on" },
+      });
+    });
+
+    it("should require restart when push dispatcher settings change", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ push: { enabled: false } }));
+      const result = writeConfigPartial({ push: { enabled: true } });
+      expect(result.success).toBe(true);
+      expect(result.restartRequired).toBe(true);
+    });
   });
 });

@@ -25,12 +25,52 @@ export function PushNotificationsSection() {
   const [testResult, setTestResult] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Global push defaults
+  const [notifyErrors, setNotifyErrors] = useState(true);
+  const [notifyAskUser, setNotifyAskUser] = useState(true);
+  const [notifyCompletion, setNotifyCompletion] = useState<"off" | "on" | "auto">("off");
+  const [defaultsLoaded, setDefaultsLoaded] = useState(false);
+
+  // Fetch global defaults on mount
+  useEffect(() => {
+    if (typeof fetch !== "function") { setDefaultsLoaded(true); return; }
+    let cancelled = false;
+    fetch("/api/config")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.push?.defaults) {
+          setNotifyErrors(data.push.defaults.notifyErrors ?? true);
+          setNotifyAskUser(data.push.defaults.notifyAskUser ?? true);
+          setNotifyCompletion(data.push.defaults.notifyCompletion ?? "off");
+        }
+        setDefaultsLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setDefaultsLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveDefaults = useCallback(async (key: string, value: boolean | string) => {
+    try {
+      await fetch("/api/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push: { defaults: { [key]: value } } }),
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
   // Detect iOS for PWA hint
   const isIOS =
     typeof navigator !== "undefined" &&
     /iPad|iPhone|iPod/.test(navigator.userAgent);
   const isStandalone =
     typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
     (window.matchMedia("(display-mode: standalone)").matches ||
       (navigator as any).standalone === true);
 
@@ -109,6 +149,53 @@ export function PushNotificationsSection() {
           On iOS, push notifications only work when the dashboard is installed
           to your home screen. Tap Share → Add to Home Screen first.
         </p>
+      )}
+
+      {/* Global push defaults */}
+      {defaultsLoaded && (
+        <div className="space-y-2 mb-3 p-3 bg-gray-50 dark:bg-gray-800 rounded">
+          <h4 className="text-sm font-semibold">Global defaults</h4>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notifyErrors}
+              onChange={(e) => {
+                setNotifyErrors(e.target.checked);
+                saveDefaults("notifyErrors", e.target.checked);
+              }}
+              className="rounded"
+            />
+            Notify on errors
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notifyAskUser}
+              onChange={(e) => {
+                setNotifyAskUser(e.target.checked);
+                saveDefaults("notifyAskUser", e.target.checked);
+              }}
+              className="rounded"
+            />
+            Notify when input needed
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <span>Completion push:</span>
+            <select
+              value={notifyCompletion}
+              onChange={(e) => {
+                const v = e.target.value as "off" | "on" | "auto";
+                setNotifyCompletion(v);
+                saveDefaults("notifyCompletion", v);
+              }}
+              className="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm px-1 py-0.5"
+            >
+              <option value="off">Off</option>
+              <option value="on">On</option>
+              <option value="auto">Auto (agent decides)</option>
+            </select>
+          </label>
+        </div>
       )}
 
       <div className="space-y-3">

@@ -150,6 +150,17 @@ export function useMessageHandler(
         }
         break;
 
+      case "push_prefs_update":
+        setSessions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(msg.sessionId);
+          if (existing) {
+            next.set(msg.sessionId, { ...existing, pushPrefs: msg.prefs });
+          }
+          return next;
+        });
+        break;
+
       case "session_removed":
         setSessions((prev) => {
           const next = new Map(prev);

@@ -93,8 +93,8 @@ describe("isPushTrigger", () => {
     });
   });
 
-  describe("streaming→idle does NOT trigger push", () => {
-    it("returns false on streaming → idle (deliberately excluded)", () => {
+  describe("completion push", () => {
+    it("returns false on streaming → idle when completion push is not opted in", () => {
       expect(
         isPushTrigger(
           "agent_end",
@@ -104,12 +104,57 @@ describe("isPushTrigger", () => {
       ).toBe(false);
     });
 
-    it("returns false on streaming → active (deliberately excluded)", () => {
+    it("returns true on successful agent_end when session bell is on", () => {
       expect(
         isPushTrigger(
           "agent_end",
           { status: "streaming", currentTool: null },
-          { status: "active", currentTool: null },
+          { status: "idle", currentTool: null },
+          {},
+          {
+            notifyErrors: true,
+            notifyAskUser: true,
+            notifyCompletion: "off",
+            pushPrefs: { notifyCompletion: "on" },
+          },
+        ),
+      ).toBe(true);
+    });
+
+    it("uses the global completion default when session prefs are absent", () => {
+      expect(
+        isPushTrigger(
+          "agent_end",
+          { status: "streaming", currentTool: null },
+          { status: "idle", currentTool: null },
+          {},
+          {
+            notifyErrors: true,
+            notifyAskUser: true,
+            notifyCompletion: "on",
+          },
+        ),
+      ).toBe(true);
+    });
+
+    it("returns false on successful agent_end when session bell is off or auto", () => {
+      const opts = { notifyErrors: true, notifyAskUser: true, notifyCompletion: "off" as const };
+      expect(
+        isPushTrigger(
+          "agent_end",
+          { status: "streaming", currentTool: null },
+          { status: "idle", currentTool: null },
+          {},
+          { ...opts, pushPrefs: { notifyCompletion: "off" } },
+        ),
+      ).toBe(false);
+      expect(
+        isPushTrigger(
+          "agent_end",
+          { status: "streaming", currentTool: null },
+          { status: "idle", currentTool: null },
+          {},
+          { ...opts, pushPrefs: { notifyCompletion: "auto" } },
         ),
       ).toBe(false);
     });

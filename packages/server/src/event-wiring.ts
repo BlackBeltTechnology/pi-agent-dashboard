@@ -9,12 +9,13 @@ import type { BrowserGateway } from "./browser-gateway.js";
 import type { SessionOrderManager } from "./session-order-manager.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
 import type { DirectoryService } from "./directory-service.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, isPushTrigger } from "./event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger, isPushTrigger, type PushTriggerOptions } from "./event-status-extraction.js";
 import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
 import { setCatalogueForSession } from "./provider-catalogue-cache.js";
 import type { PushDispatcher } from "./push/push-dispatcher.js";
+import type { PushPrefs } from "./push/push-types.js";
 import { spawnPiSession } from "./process-manager.js";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { loadConfig, type PushDefaults } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
@@ -59,6 +60,10 @@ export interface EventWiringDeps {
    * See change: add-server-push-notifications.
    */
   pushDispatcher?: PushDispatcher;
+  /** Per-session push preferences (bell toggle state). */
+  pushPrefsMap?: Map<string, PushPrefs>;
+  /** Reads global push defaults from live config. */
+  getPushDefaults?: () => PushDefaults | undefined;
 }
 
 /**
@@ -80,6 +85,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     viewedSessionTracker,
     pendingClientCorrelations,
     pushDispatcher,
+    pushPrefsMap,
+    getPushDefaults,
   } = deps;
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -93,6 +100,11 @@ export function wireEvents(deps: EventWiringDeps): void {
   // Consume any pending spawn-with-attach intent for the registering session.
   // See change: add-folder-task-checker-and-spawn-attach.
   piGateway.onSessionRegistered = (sessionId, cwd) => {
+    const pushDefaults = getPushDefaults?.();
+    if (pushPrefsMap && !pushPrefsMap.has(sessionId) && pushDefaults) {
+      pushPrefsMap.set(sessionId, { notifyCompletion: pushDefaults.notifyCompletion });
+    }
+
     if (!pendingAttachRegistry) return;
     const changeName = pendingAttachRegistry.consume(cwd);
     if (!changeName) return;
@@ -220,25 +232,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
 
       // Push-trigger evaluation. Narrower predicate than unread — only
-      // ask_user transitions and agent_end errors. Gated on replay + 60s
-      // stale-view TTL so background tabs don't suppress push indefinitely.
+      // ask_user transitions, agent_end errors, and opted-in completions.
+      // Gated on replay only; stale-view TTL removed so bell-on
+      // completion pushes always fire even when the session is open.
       // The pushDispatcher dep is optional — absent on misconfigured or
       // disabled push.
       // See change: add-server-push-notifications.
-      if (!replayingSessions.has(sessionId) && pushDispatcher && viewedSessionTracker) {
+      if (!replayingSessions.has(sessionId) && pushDispatcher) {
         const sessionAfter = sessionManager.get(sessionId);
         const afterSnapshot = {
           status: sessionAfter?.status,
           currentTool: sessionAfter?.currentTool,
         };
+        const pushDefaults = getPushDefaults?.();
+        const pushOpts: PushTriggerOptions | undefined = pushDefaults
+          ? { ...pushDefaults, pushPrefs: pushPrefsMap?.get(sessionId) }
+          : undefined;
         if (
           isPushTrigger(
             msg.event.eventType,
             beforeSnapshot,
             afterSnapshot,
             msg.event.data,
-          ) &&
-          !viewedSessionTracker.isViewedByAnyone(sessionId, { staleMs: 60_000 })
+            pushOpts,
+          )
         ) {
           pushDispatcher.fanout(sessionId, sessionAfter ?? undefined, msg.event);
         }

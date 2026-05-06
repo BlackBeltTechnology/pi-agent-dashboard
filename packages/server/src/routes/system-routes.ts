@@ -153,6 +153,9 @@ export function registerSystemRoutes(
       if (partial.openspec !== undefined && directoryService) {
         directoryService.reconfigurePolling(reloaded.openspec);
       }
+      if (partial.push !== undefined) {
+        config.push = reloaded.push;
+      }
 
       return { success: true, restartRequired: result.restartRequired };
     },

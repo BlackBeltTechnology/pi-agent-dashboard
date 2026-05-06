@@ -13,6 +13,7 @@ import type { PreferencesStore } from "../preferences-store.js";
 import type { DirectoryService } from "../directory-service.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
+import type { PushDefaults } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { PendingResumeRegistry } from "../pending-resume-registry.js";
 import type { PendingAttachRegistry } from "../pending-attach-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
@@ -29,6 +30,8 @@ export interface BrowserHandlerContext {
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
+  pushPrefsMap?: Map<string, import("../push/push-types.js").PushPrefs>;
+  getPushDefaults?: () => PushDefaults | undefined;
   pendingResumeRegistry: PendingResumeRegistry;
   pendingDashboardSpawns?: Map<string, number>;
   /**

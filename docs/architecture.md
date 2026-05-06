@@ -1489,7 +1489,7 @@ When `enabled: true` and no `webPush.contactEmail`, `errors` populates `["missin
 
 ### Skill Auth
 
-`Authorization: Bearer <auth.secret>` validated in `auth-plugin.ts` before cookie/JWT check. Works on loopback and remote. The `push-notify-user` skill reads `auth.secret` from `~/.pi/dashboard/config.json`.
+`Authorization: Bearer <auth.secret>` validated in `auth-plugin.ts` before cookie/JWT check. Works on loopback and remote. The `push_notify_user` extension tool (replacing the removed `push-notify-user` skill) reads `auth.secret` from `~/.pi/dashboard/config.json`.
 
 ### Service Worker
 

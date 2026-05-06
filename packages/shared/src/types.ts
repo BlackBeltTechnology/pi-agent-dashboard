@@ -134,6 +134,8 @@ export interface DashboardSession {
    * See change: chat-markdown-local-images-and-math.
    */
   assets?: Record<string, { data: string; mimeType: string }>;
+  /** Per-session push notification preferences (bell toggle). In-memory, not persisted. */
+  pushPrefs?: { notifyCompletion: "off" | "on" | "auto" };
 }
 
 // ── Extension UI System (Phase 1: management-modal slot) ───────────

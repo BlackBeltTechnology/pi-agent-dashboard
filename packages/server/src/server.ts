@@ -44,6 +44,7 @@ import { createPushTokenRegistry, type PushTokenRegistry } from "./push/push-tok
 import { createPushDispatcher, type PushDispatcher } from "./push/push-dispatcher.js";
 import { createWebPushTransport } from "./push/push-transports/web-push.js";
 import { loadOrGenerateVapidKeys } from "./push/push-vapid.js";
+import type { PushPrefs } from "./push/push-types.js";
 import { registerSessionApi } from "./session-api.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
@@ -120,8 +121,6 @@ export interface ServerConfig {
   /** Fixture mode — disables side effects for deterministic visual testing.
    *  Gated by PI_DASHBOARD_FIXTURE_MODE=1. Not exposed in production. */
   fixtureMode?: boolean;
-  /** Push notification config. Omitted → push disabled. */
-  push?: PushConfig;
 }
 
 export interface DashboardServer {
@@ -290,6 +289,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const preferencesStore = createPreferencesStore();
   const sessionManager = createMemorySessionManager();
+  /** Per-session push preferences (in-memory, resets on restart). */
+  const pushPrefsMap = new Map<string, PushPrefs>();
   const metaPersistence = createMetaPersistence();
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const pendingForkRegistry = createPendingForkRegistry();
@@ -571,7 +572,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, pushPrefsMap, () => config.push?.defaults);
 
   // ── Push dispatcher (conditional on config.push.enabled && !config.push.errors) ──
   let pushDispatcher: PushDispatcher | undefined;
@@ -642,6 +643,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
     pushDispatcher,
+    pushPrefsMap,
+    getPushDefaults: () => config.push?.defaults,
   });
 
   // Auto-shutdown idle timer

@@ -503,6 +503,13 @@ export interface BrowserAssetRegisterMessage {
   data: string;
 }
 
+/** Per-session push notification preferences update. */
+export interface PushPrefsUpdateMessage {
+  type: "push_prefs_update";
+  sessionId: string;
+  prefs: { notifyCompletion: "off" | "on" | "auto" };
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -562,9 +569,8 @@ export type ServerToBrowserMessage =
   | BrowserUiModulesListMessage
   | BrowserUiDataListMessage
   | BrowserExtUiDecoratorMessage
-  | BrowserAssetRegisterMessage;
-
-// ── Browser → Server ────────────────────────────────────────────────
+  | BrowserAssetRegisterMessage
+  | PushPrefsUpdateMessage;
 
 export interface SubscribeMessage {
   type: "subscribe";
@@ -697,6 +703,12 @@ export interface KillProcessBrowserMessage {
   type: "kill_process";
   sessionId: string;
   pgid: number;
+}
+
+export interface SetPushPrefsBrowserMessage {
+  type: "set_push_prefs";
+  sessionId: string;
+  prefs: { notifyCompletion: "off" | "on" | "auto" };
 }
 
 export interface ListSessionsBrowserMessage {
@@ -969,4 +981,5 @@ export type BrowserToServerMessage =
   | UiManagementBrowserMessage
   | SessionViewBrowserMessage
   | SessionUnviewBrowserMessage
-  | KillProcessBrowserMessage;
+  | KillProcessBrowserMessage
+  | SetPushPrefsBrowserMessage;

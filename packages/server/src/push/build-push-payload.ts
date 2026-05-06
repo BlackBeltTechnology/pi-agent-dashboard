@@ -18,12 +18,21 @@ export function buildPushPayload(
 
   if (event.eventType === "agent_end") {
     const error = (event.data as { error?: unknown } | undefined)?.error;
-    const errStr = typeof error === "string" ? error : "An error occurred";
-    title = "Session crashed";
-    body = truncate(
-      `${session.name || sessionId}: ${errStr}`,
-      500,
-    );
+    if (error) {
+      const errStr = typeof error === "string" ? error : "An error occurred";
+      title = "Session crashed";
+      body = truncate(
+        `${session.name || sessionId}: ${errStr}`,
+        500,
+      );
+    } else {
+      // Successful completion
+      title = "Session completed";
+      body = truncate(
+        `${session.name || sessionId} — finished successfully`,
+        500,
+      );
+    }
   } else {
     // ask_user transition
     const toolName = event.data?.toolName
