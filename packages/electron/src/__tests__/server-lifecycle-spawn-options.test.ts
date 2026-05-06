@@ -116,8 +116,8 @@ describe("ensureServer fall-through invariant", () => {
 // fix-electron-windows-installer-and-server-bootstrap.
 
 describe("SERVER_READY_DEADLINE_MS", () => {
-  it("is 60000 (60 seconds), not 15000", () => {
-    expect(SERVER_READY_DEADLINE_MS).toBe(60_000);
+  it("is 15000 (15 seconds) — see change tighten-electron-server-startup-deadline", () => {
+    expect(SERVER_READY_DEADLINE_MS).toBe(15_000);
   });
 
   it("is referenced by every waitForReady call in server-lifecycle.ts", () => {
@@ -125,8 +125,9 @@ describe("SERVER_READY_DEADLINE_MS", () => {
       path.resolve(__dirname, "../lib/server-lifecycle.ts"),
       "utf-8",
     );
-    // Every waitForReady call MUST pass deadlineMs: SERVER_READY_DEADLINE_MS
-    // (or the literal 60_000). Forbid raw 15_000 (the old value).
+    // Every waitForReady call MUST pass deadlineMs: SERVER_READY_DEADLINE_MS —
+    // forbid raw literals so the constant is the single source of truth.
+    expect(src).not.toContain("deadlineMs: 60_000");
     expect(src).not.toContain("deadlineMs: 15_000");
     // At least two callsites use the constant (launchViaCli, launchServer).
     const matches = src.match(/deadlineMs:\s*SERVER_READY_DEADLINE_MS/g);
@@ -157,11 +158,12 @@ describe("buildServerStartupError", () => {
       spawnArgs: ["--import", "jiti", "cli.ts"],
       cwd: "/tmp/server",
       logTail: "",
-      readyError: "deadline 60000ms reached",
+      readyError: "deadline 15000ms reached",
     });
-    expect(err.message).toMatch(/^Server did not respond within 60 seconds/);
+    expect(err.message).toMatch(/^Server did not respond within 15 seconds/);
     expect(err.message).toContain("server is likely still starting");
-    expect(err.message).toContain("Retry button");
+    expect(err.message).toContain("loading page will keep polling");
+    expect(err.message).toContain("Doctor button");
     expect(err.message).toContain("No server log available");
   });
 

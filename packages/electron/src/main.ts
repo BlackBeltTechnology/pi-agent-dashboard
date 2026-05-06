@@ -12,6 +12,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { decideWillNavigate } from "./lib/link-handling.js";
+import { isDeadlineOrChildExitError } from "./lib/server-error-classification.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -607,50 +608,56 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Discover or launch server — retry up to 2 times with wizard fallback
+  // Discover or launch server — single attempt. On deadline / child-exit
+  // failure, fall through to the loading page (which polls indefinitely
+  // and exposes Start server / Doctor / log controls). On configuration
+  // failure (no loader, CLI not found, port conflict), show the
+  // Setup/Retry/Quit dialog and loop. See change:
+  // tighten-electron-server-startup-deadline.
   let serverUrl: string | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const fallbackUrl = `http://localhost:${loadMinimalConfig().port}`;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
     try {
-      updateSplashStatus(
-        attempt === 0
-          ? "Launching dashboard server\u2026"
-          : `Retrying server launch (attempt ${attempt + 1})\u2026`,
-      );
-      log(`ensureServer attempt ${attempt + 1}...`);
+      updateSplashStatus("Launching dashboard server\u2026");
+      log(`ensureServer...`);
       serverUrl = await ensureServer();
       log(`Server found at ${serverUrl}`);
       break;
     } catch (err: any) {
-      console.error(`ensureServer attempt ${attempt + 1} failed:`, err.message);
-      log(`ensureServer failed: ${err.message}`);
+      const msg = String(err?.message ?? err);
+      console.error(`ensureServer failed:`, msg);
+      log(`ensureServer failed: ${msg}`);
 
+      // Deadline elapsed or child exited — the loading page is the better
+      // surface. Skip the dialog and route there directly.
+      if (isDeadlineOrChildExitError(msg)) {
+        log("Routing to loading page (deadline/child-exit failure).");
+        serverUrl = fallbackUrl;
+        break;
+      }
+
+      // Configuration / terminal error — ask the user.
       closeSplash();
       const { response } = await dialog.showMessageBox({
         type: "error",
         title: "PI Dashboard",
         message: "Could not start the dashboard server.",
-        detail: `${err.message}\n\nWould you like to run the setup wizard to fix this?`,
+        detail: `${msg}\n\nWould you like to run the setup wizard to fix this?`,
         buttons: ["Run Setup", "Retry", "Quit"],
         defaultId: 0,
       });
 
       if (response === 0) {
-        // Run Setup
         await openWizardWindow();
-        // Continue loop to retry ensureServer
+        // Loop — try ensureServer again after wizard completes.
       } else if (response === 1) {
-        // Retry — continue loop
+        // Loop — retry directly.
       } else {
         app.quit();
         return;
       }
     }
-  }
-
-  if (!serverUrl) {
-    // All attempts exhausted — show loading page with connection retry
-    // Use default port (can't import shared config in packaged app)
-    serverUrl = "http://localhost:8000";
   }
 
   updateSplashStatus("Opening dashboard\u2026");

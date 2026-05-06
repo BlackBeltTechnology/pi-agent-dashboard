@@ -117,12 +117,15 @@ export function didWeStartServer(): boolean {
 
 /**
  * Server-startup deadline used by both `launchViaCli` and `launchServer`.
- * Bumped from 15s to 60s in change
- * `fix-electron-windows-installer-and-server-bootstrap`. The longer
- * deadline gives `installStandalone()` + offline-cacache extraction +
- * server cold-start headroom on first launch.
+ * History: 15s → 60s in `fix-electron-windows-installer-and-server-bootstrap`
+ * to give `installStandalone()` + offline-cacache extraction headroom on first
+ * launch. Tightened back to 15s in `tighten-electron-server-startup-deadline`
+ * because beyond ~15s the failure is almost always terminal (port conflict,
+ * missing loader, bad Node) and the interactive loading page (resources/
+ * loading.html) is a strictly better surface than a frozen splash — it polls
+ * indefinitely and exposes Start server / Doctor / log-tail controls.
  */
-export const SERVER_READY_DEADLINE_MS = 60_000;
+export const SERVER_READY_DEADLINE_MS = 15_000;
 
 /**
  * Construct a cause-aware server-startup failure message. Distinguishes
@@ -150,8 +153,8 @@ export function buildServerStartupError(args: {
   const header = isChildExit
     ? `Server child process exited prematurely (${args.readyError}).\n` +
       `This usually means a missing dependency or wrong TypeScript loader.\n`
-    : `Server did not respond within 60 seconds (${args.readyError}).\n` +
-      `The server is likely still starting; try the Retry button.\n`;
+    : `Server did not respond within 15 seconds (${args.readyError}).\n` +
+      `The server is likely still starting; the loading page will keep polling — try the Doctor button if it doesn't connect.\n`;
   const body =
     `${cmdLine}\n` +
     `CWD: ${args.cwd}\n` +
