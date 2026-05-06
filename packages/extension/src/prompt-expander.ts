@@ -5,17 +5,18 @@
  * which skips prompt template and skill expansion. This module provides a workaround
  * by reading template/skill files directly and expanding them.
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { readdirSync, statSync } from "node:fs";
 import { buildSkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 /** Scan directories for .md prompt template files */
 function findPromptTemplates(cwd: string): Map<string, string> {
   const templates = new Map<string, string>();
   const dirs = [
-    join(cwd, ".pi", "prompts"),
-    join(cwd, ".pi", "skills"),
+    join(homedir(), ".pi", "agent", "prompts"),  // global prompts (lower priority)
+    join(cwd, ".pi", "prompts"),                    // project prompts
+    join(cwd, ".pi", "skills"),                      // project skills
   ];
 
   for (const dir of dirs) {
