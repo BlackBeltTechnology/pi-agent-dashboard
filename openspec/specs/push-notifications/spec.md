@@ -1,3 +1,7 @@
+## Purpose
+
+Push notifications fan out agent events (ask_user, crashes, opted-in completions) to registered devices via the W3C Web Push protocol.
+
 ## Requirements
 
 ### Requirement: Push trigger predicate (separate from unread)
