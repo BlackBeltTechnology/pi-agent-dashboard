@@ -1,16 +1,21 @@
 ## Purpose
 
 Push notifications fan out agent events (ask_user, crashes, opted-in completions) to registered devices via the W3C Web Push protocol.
-
 ## Requirements
-
 ### Requirement: Push trigger predicate (separate from unread)
 
-The dashboard server SHALL use a dedicated `isPushTrigger` predicate — distinct from `isUnreadTrigger` — that matches only events requiring user attention: `ask_user` (agent needs input) and `agent_end` with truthy `payload.error` (agent crashed). Routine `streaming→idle` transitions SHALL NOT trigger pushes.
+The dashboard server SHALL use a dedicated `isPushTrigger` predicate — distinct from `isUnreadTrigger` — that matches events requiring user attention. The predicate SHALL accept per-session `PushPrefs` and global push defaults to determine which events trigger pushes.
 
-The `ask_user` trigger is **transition-based**: it fires when `currentTool` changes to `"ask_user"` from a non-`"ask_user"` value. A repeated question while `currentTool` is already `"ask_user"` SHALL NOT fire an additional push — coalescing already covers the case where the user hasn't responded yet.
+Events that MAY trigger pushes:
+- `ask_user` (agent needs input) — gated by global `push.defaults.notifyAskUser`
+- `agent_end` with truthy `payload.error` (agent crashed) — gated by global `push.defaults.notifyErrors`
+- `agent_end` without error (agent finished successfully) — gated by per-session `PushPrefs.notifyCompletion === "on"`
 
-**Rationale**: auto-pushing on every turn completion would spam users. There is no "read" concept in the dashboard — unread stripes are ephemeral, while push notifications are disruptive and persist in the OS notification center.
+When `PushPrefs.notifyCompletion === "auto"`, successful `agent_end` SHALL NOT trigger fanout (agent handles via tool).
+
+Routine `streaming→idle` transitions SHALL NOT trigger pushes.
+
+The `ask_user` trigger is **transition-based**: it fires when `currentTool` changes to `"ask_user"` from a non-`"ask_user"` value. A repeated question while `currentTool` is already `"ask_user"` SHALL NOT fire an additional push.
 
 **Gating** (push is suppressed when):
 - A browser has viewed the session within the last 60 seconds (`viewedSessionTracker.isViewedByAnyone(sessionId, {staleMs: 60_000})` returns true)
@@ -18,16 +23,36 @@ The `ask_user` trigger is **transition-based**: it fires when `currentTool` chan
 - Both gates SHALL be evaluated at the same call site in `event-wiring.ts`, co-located with the unread-stripes evaluation
 
 #### Scenario: Agent waits for user input → push fired
-- **WHEN** `currentTool` transitions to `"ask_user"` AND no browser has viewed in the last 60s AND event is not a replay
+- **WHEN** `currentTool` transitions to `"ask_user"` AND global `notifyAskUser` is true AND no browser has viewed in the last 60s AND event is not a replay
 - **THEN** `pushDispatcher.fanout(sessionId, sessionAfter, event)` SHALL be called exactly once
 
 #### Scenario: Agent crashes → push fired
-- **WHEN** an `agent_end` event arrives with truthy `payload.error` under the same gating
+- **WHEN** an `agent_end` event arrives with truthy `payload.error` AND global `notifyErrors` is true under the same gating
 - **THEN** `fanout(sessionId, sessionAfter, event)` SHALL be called exactly once
+
+#### Scenario: Agent finishes successfully with bell On → push fired
+- **WHEN** an `agent_end` event arrives without error AND session `PushPrefs.notifyCompletion` is `"on"` under the same gating
+- **THEN** `fanout(sessionId, sessionAfter, event)` SHALL be called exactly once
+
+#### Scenario: Agent finishes successfully with bell Off → NO push
+- **WHEN** an `agent_end` event arrives without error AND session `PushPrefs.notifyCompletion` is `"off"`
+- **THEN** `fanout` SHALL NOT be called
+
+#### Scenario: Agent finishes successfully with bell Auto → NO fanout
+- **WHEN** an `agent_end` event arrives without error AND session `PushPrefs.notifyCompletion` is `"auto"`
+- **THEN** `fanout` SHALL NOT be called (agent handles via tool)
 
 #### Scenario: Agent finishes a turn → NO push
 - **WHEN** a session transitions from `streaming` to `idle`
 - **THEN** `fanout` SHALL NOT be called
+
+#### Scenario: Global notifyAskUser disabled → ask_user push suppressed
+- **WHEN** global `push.defaults.notifyAskUser` is false
+- **THEN** `ask_user` transitions SHALL NOT trigger fanout
+
+#### Scenario: Global notifyErrors disabled → error push suppressed
+- **WHEN** global `push.defaults.notifyErrors` is false
+- **THEN** `agent_end` with error SHALL NOT trigger fanout
 
 #### Scenario: Browser viewed within 60s → push suppressed
 - **WHEN** a push trigger fires AND `viewedSessionTracker.isViewedByAnyone(sessionId, {staleMs: 60_000})` returns true
@@ -315,42 +340,30 @@ On mount: reconcile — check existing `swReg.pushManager.getSubscription()`, if
 - **WHEN** third call within 60s
 - **THEN** `429`
 
-### Requirement: Push-notify-user skill with error handling
-
-`.pi/skills/push-notify-user/SKILL.md` teaches agents to call `POST /api/push/send`. The skill SHALL also be bundled with the bridge extension at `packages/extension/.pi/skills/push-notify-user/` so that `pi install @blackbelt-technology/pi-dashboard-extension` automatically installs the skill. Authentication: the skill SHALL work via loopback (agent runs on same machine as dashboard). The skill SHALL read `auth.secret` from `~/.pi/dashboard/config.json` (nested under `auth` key) and pass it as `Authorization: Bearer <secret>` header. The auth-plugin SHALL be extended to validate `Authorization: Bearer <auth.secret>` before cookie/JWT validation. Handle all failure modes.
-
-#### Scenario: Successful push
-- **WHEN** agent invokes skill, endpoint returns 200
-- **THEN** agent reports "Push sent"
-
-#### Scenario: Dashboard unreachable
-- **WHEN** dashboard not running
-- **THEN** agent reports "Dashboard not reachable — push not sent"
-
-#### Scenario: Auth failure → 401
-- **WHEN** endpoint returns 401
-- **THEN** agent reports "Auth failed — check dashboard config"
-
-#### Scenario: Push disabled → 404
-- **WHEN** endpoint returns 404
-- **THEN** agent reports "Push notifications not enabled on this server"
-
-#### Scenario: No devices → empty results
-- **WHEN** `200 {results: []}`
-- **THEN** agent reports "No devices registered for push notifications"
-
-#### Scenario: Rate limited → 429
-- **WHEN** endpoint returns 429
-- **THEN** agent reports "Rate limited — wait before sending another push"
-
 ### Requirement: Service worker unit tests
 
 `packages/client/src/__tests__/sw-push.test.ts` SHALL cover 7 scenarios.
 
 #### Scenario: Valid JSON → correct showNotification
+- **WHEN** service worker receives a valid JSON push payload
+- **THEN** showNotification SHALL be called with correct title and body
+
 #### Scenario: Malformed JSON → fallback
 #### Scenario: Empty push → defaults
 #### Scenario: Click with URL → openWindow
 #### Scenario: Click without URL → openWindow("/")
 #### Scenario: Click focuses existing window at same pathname (exact match, not substring)
 #### Scenario: Non-secure context → supported: false
+
+### Requirement: Build push payload accepts push prefs
+
+`buildPushPayload` SHALL accept an optional `PushPrefs` parameter. When the trigger is `agent_end` (success) and `prefs.notifyCompletion === "on"`, the payload SHALL use a completion-appropriate title and body. The gating logic (whether to fire at all) SHALL remain in `isPushTrigger` — `buildPushPayload` only determines the payload shape, not whether a push should be sent.
+
+#### Scenario: Completion push payload
+- **WHEN** `buildPushPayload(session, event, { notifyCompletion: "on" })` is called for a successful `agent_end`
+- **THEN** the payload SHALL have title "Session completed" and body including session name
+
+#### Scenario: Error push payload unchanged
+- **WHEN** `buildPushPayload` is called for an `agent_end` with error, regardless of prefs
+- **THEN** the payload SHALL have error-appropriate title and body (existing behavior)
+
