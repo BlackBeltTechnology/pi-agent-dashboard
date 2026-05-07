@@ -1,28 +1,34 @@
 #!/bin/bash
-# Capture desktop + mobile screenshots for design flow
-# Usage: ./sandbox/scripts/capture-screenshots.sh [url] [output-dir]
-# Default: http://localhost:8000 → screenshots/
+# Capture screenshots inside sandbox container and copy them out.
+# Usage: sandbox/scripts/capture-screenshots.sh <scenario.json> <output-dir>
+#
+# Prerequisites: Docker with compose plugin.
+# Starts sandbox, copies scenario in, runs it, copies screenshots out, tears down.
 
-URL="${1:-http://localhost:8000}"
-OUT="${2:-screenshots}"
+set -e
 
-mkdir -p "$OUT"
+SCENARIO="${1:?Usage: $0 <scenario.json> <output-dir>}"
+OUTDIR="${2:?Usage: $0 <scenario.json> <output-dir>}"
+COMPOSE_FILE="sandbox/docker-compose.yml"
 
-echo "[capture] Desktop (1280x3000)..."
-browser open "$URL" && browser wait 2000
-browser set viewport 1280 3000 && browser screenshot
-TMP=$(ls -t ~/.agent-browser/tmp/screenshots/*.png | head -1)
-cp "$TMP" "$OUT/desktop.png"
-echo "[capture] → $OUT/desktop.png"
+mkdir -p "$OUTDIR"
 
-browser close
+echo "[capture] Starting sandbox..."
+docker compose -f "$COMPOSE_FILE" up -d --wait 2>&1
 
-echo "[capture] Mobile (375x3000)..."
-browser open "$URL" && browser wait 2000
-browser set viewport 375 3000 && browser screenshot
-TMP=$(ls -t ~/.agent-browser/tmp/screenshots/*.png | head -1)
-cp "$TMP" "$OUT/mobile.png"
-echo "[capture] → $OUT/mobile.png"
+echo "[capture] Copying scenario into container..."
+docker compose -f "$COMPOSE_FILE" cp "$SCENARIO" dashboard:/tmp/scenario.json
 
-browser close
-echo "[capture] Done"
+echo "[capture] Running scenarios inside container..."
+docker compose -f "$COMPOSE_FILE" exec -T dashboard \
+  bash sandbox/scripts/run-scenarios.sh /tmp/scenario.json /tmp/screenshots/ 2>&1
+
+echo "[capture] Copying screenshots out..."
+docker compose -f "$COMPOSE_FILE" cp dashboard:/tmp/screenshots/. "$OUTDIR/" 2>/dev/null || \
+  docker compose -f "$COMPOSE_FILE" cp "dashboard:/tmp/screenshots/." "$OUTDIR/"
+
+echo "[capture] Tearing down sandbox..."
+docker compose -f "$COMPOSE_FILE" down 2>&1 || true
+
+echo "[capture] Done. Screenshots in $OUTDIR/"
+ls -la "$OUTDIR"/*.png 2>/dev/null || echo "WARNING: no screenshots found"

@@ -73,11 +73,17 @@ After generating `mockup.html`:
 
 ## Agent Invocation
 
-Called as a subagent with `reads` for screenshots:
+Pass screenshot paths directly in the task text so the agent can `read` them:
 ```
 subagent({
   agent: "sandbox-designer",
-  task: "...",
-  reads: ["<change-dir>/screenshots/before-desktop.png", "<change-dir>/screenshots/before-mobile.png", "<change-dir>/proposal.md"]
+  task: `Generate mockup.html for <change>.
+
+Read these screenshots first:
+- <change-dir>/screenshots/desktop-overview.png
+- <change-dir>/screenshots/mobile-overview.png
+
+Required states: ...`,
+  reads: ["<change-dir>/proposal.md", "<change-dir>/specs/<capability>/spec.md"]
 })
 ```

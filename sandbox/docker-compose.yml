@@ -8,13 +8,8 @@ services:
     volumes:
       - ../seed/active-project:/home/pi/.pi/agent/sessions-seed:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "bash", "-c", "curl -sf http://localhost:8000/api/health && curl -sf http://localhost:9222/json/version"]
       interval: 1s
       timeout: 3s
       retries: 30
       start_period: 5s
-
-  browser:
-    image: chromedp/headless-shell:latest
-    ports:
-      - "9222:9222"

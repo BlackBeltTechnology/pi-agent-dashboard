@@ -69,6 +69,14 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   ELAPSED=$((ELAPSED + 1))
 done
 
+# ── Headless Chromium for screenshot capture ─────────────────────────
+echo "[sandbox] Starting headless Chromium on port 9222..."
+chromium --headless --disable-gpu --no-sandbox \
+  --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0 &
+CHROME_PID=$!
+sleep 2
+echo "[sandbox] Chromium ready (PID $CHROME_PID)"
+
 # ── Wait for bootstrap ──────────────────────────────────────────────
 echo "[sandbox] Waiting for pi bootstrap..."
 for i in $(seq 1 30); do

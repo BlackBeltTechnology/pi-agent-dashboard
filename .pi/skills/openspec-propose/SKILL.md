@@ -91,62 +91,75 @@ When ready to implement, run /opsx-apply
       - Emit: "Design sandbox unavailable (Docker not found) then stop and report.
 
    b. **If Docker IS available:**
-      1. **Start sandbox** (all internal, no host ports exposed):
-         ```bash
-         docker compose -f sandbox/docker-compose.yml up -d --wait 2>&1
+      1. **Write scenario.json** at `<change-dir>/screenshots/scenario.json`. URLs are `http://localhost:8000`. Capture at BOTH desktop (1512px) and mobile (375px) viewports.
+
+         Format — flat array of step objects, each with exactly one key:
+         ```json
+         [
+           {"open": "http://localhost:8000"},
+           {"wait": 3000},
+           {"set viewport": "1512 982"},
+           {"screenshot": "session-list-desktop"},
+           {"set viewport": "375 812"},
+           {"wait": 1000},
+           {"screenshot": "session-list-mobile"}
+         ]
          ```
 
-      2. **Seed sessions inside the container** (NOT on host — uses internal Docker network):
+      2. **Capture screenshots** (starts sandbox, runs scenarios inside container, copies results out):
          ```bash
-         docker compose -f sandbox/docker-compose.yml exec -T dashboard node sandbox/seed-bridge.mjs 2>&1
+         bash sandbox/scripts/capture-screenshots.sh \
+           <change-dir>/screenshots/scenario.json \
+           <change-dir>/screenshots/ 2>&1
+         ```
+         Verify screenshots exist:
+         ```bash
+         ls -la <change-dir>/screenshots/*.png
          ```
 
-      3. **Write scenario.json** at `<change-dir>/screenshots/scenario.json` with browser steps. **Every screenshot MUST be captured at BOTH desktop (1512px) and mobile (375px) viewports.** Specific states to capture depend on the change.
-
-         Execute:
-         ```bash
-         bash sandbox/scripts/run-scenarios.sh <change-dir>/screenshots/scenario.json <change-dir>/screenshots/
-         ```
-
-      4. **Derive visual states** from specs requirements and proposal user stories.
+      3. **Derive visual states** from specs requirements and proposal user stories.
          List every `<!-- state: <name> -->` that the mockup must include.
          Minimum: desktop + mobile variants, all statuses (streaming/idle/ended/error),
          all interactive elements mentioned in specs.
 
-      5. **Invoke sandbox-designer subagent:**
+      4. **Invoke sandbox-designer subagent.** Pass individual file paths — NOT directories. List all spec files with `find <change-dir>/specs -name '*.md'` and include every one:
          ```
          subagent({
            agent: "sandbox-designer",
+           async: true,
            reads: [
-             "<change-dir>/screenshots/",
+             "<change-dir>/screenshots/session-list-desktop.png",
+             "<change-dir>/screenshots/session-list-mobile.png",
              "<change-dir>/proposal.md",
-             "<change-dir>/specs/"
+             "<change-dir>/design.md",
+             "<change-dir>/specs/<capability-1>/spec.md",
+             "<change-dir>/specs/<capability-2>/spec.md"
            ],
-           task: "Generate mockup.html with these states: <state list from step 4>.\nScreenshots show current UI. Proposal + specs define requirements."
+           task: "Generate mockup.html with these states: <state list from step 3>.\nScreenshots show current UI. Proposal + specs define requirements."
          })
          ```
-         Save output as `<change-dir>/mockup.html`. **Validate the designer's first message** — it MUST describe what it sees in the screenshots. If the description is wrong or generic, screenshots didn't load. Retry or fix paths.
+         The subagent runs async — collect output when complete:
+         ```
+         subagent({ action: "status", id: "<run-id>" })
+         ```
+         When status is "completed", save the output as `<change-dir>/mockup.html`.
 
-      6. **Validate mockup.html:**
+         **Validate the designer's first message** — it MUST describe what it sees in the screenshots (mentioning specific colors, layouts, elements). If the description is wrong or generic, screenshots didn't load. Verify screenshots with `read`, then re-invoke.
+
+      5. **Validate mockup.html:**
          - Check ALL `<!-- state: -->` blocks from the task are present
          - Verify no raw Tailwind colors (grep for `bg-gray-`, `text-white`, etc.)
          - If validation fails → intercom to designer asking for fixes, wait, re-check
 
-      7. **Capture mockup screenshot.** Open `mockup.html` in browser, take full-page screenshot, save to `<change-dir>/screenshots/mockup-final.png`.
+      6. **Capture mockup screenshot.** Open `mockup.html` in browser, take full-page screenshot, save to `<change-dir>/screenshots/mockup-final.png`.
 
-      8. **Update design.md** with `## Visual Design` section linking to `mockup.html`.
+      7. **Update design.md** with `## Visual Design` section linking to `mockup.html`.
 
-      9. **Show visuals to user.** Use `read` to display the screenshots sent to the designer (from `<change-dir>/screenshots/`) and the mockup screenshot (`mockup-final.png`). No text — just the images.
+      8. **Show visuals to user.** Use `read` to display the screenshots sent to the designer (from `<change-dir>/screenshots/`) and the mockup screenshot (`mockup-final.png`). No text — just the images.
 
-      10. **Ask user for approval.** Show the mockup and ask: "Does the mockup look good? Any changes needed?" Use `ask_user` with method `confirm`. **Wait indefinitely — do NOT proceed until user responds.** If user wants changes, **resume the sandbox-designer subagent** with the feedback (do NOT restart from scratch): `subagent({ action: "resume", id: "<run-id>", message: "<user feedback>" })`. Loop until approved.
+      9. **Ask user for approval.** Show the mockup and ask: "Does the mockup look good? Any changes needed?" Use `ask_user` with method `confirm`. **Wait indefinitely — do NOT proceed until user responds.** If user wants changes, **resume the sandbox-designer subagent** with the feedback (do NOT restart from scratch): `subagent({ action: "resume", id: "<run-id>", message: "<user feedback>" })`. Loop until approved.
 
-      11. **Teardown sandbox:**
-         ```bash
-         docker compose -f sandbox/docker-compose.yml down
-         ```
-         Teardown failure emits a warning but does NOT block.
-
-      12. **Final mockup review.** Before the summary, read `mockup.html` and `mockup-final.png` one last time.
+      10. **Final mockup review.** Before the summary, read `mockup.html` and `mockup-final.png` one last time.
 
 6. **Create tasks artifact**
 

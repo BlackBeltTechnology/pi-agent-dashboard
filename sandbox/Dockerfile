@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 
-# Install system dependencies for pi and headless Chromium
+# Install system dependencies for pi, headless Chromium, and screenshot tooling
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -9,7 +9,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     gcc \
     g++ \
+    chromium \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdrm2 \
+    libgbm1 \
+    libnspr4 \
+    libnss3 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# Install agent-browser globally for screenshot capture
+RUN npm install -g @mariozechner/agent-browser
+
+ENV CHROME_BIN=/usr/bin/chromium \
+    AGENT_BROWSER_CDP_URL=http://localhost:9222
 
 # Install pi and openspec globally
 RUN npm install -g @mariozechner/pi @fission-ai/openspec
