@@ -47,7 +47,7 @@ interface Props {
   onDetach: () => void;
   onSendPrompt: (text: string, images?: ImageContent[]) => void;
   onReadArtifact?: (changeName: string, artifactId: string) => void;
-  onBulkArchive?: () => void;
+  onBulkArchive?: (cleanupWorktree?: boolean) => void;
   /** Group definitions for grouped attach dialog. */
   groups?: OpenSpecGroup[];
   /** Group assignments map. */
@@ -59,6 +59,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiveAnywayConfirm, setArchiveAnywayConfirm] = useState(false);
   const [bulkArchiveConfirm, setBulkArchiveConfirm] = useState(false);
+  const [cleanupWorktree, setCleanupWorktree] = useState(false);
   const [attachingName, setAttachingName] = useState<string | null>(null);
   const [newChangeOpen, setNewChangeOpen] = useState(false);
   const [attachPickerOpen, setAttachPickerOpen] = useState(false);
@@ -118,10 +119,23 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       message="Bulk archive all completed changes?"
       confirmLabel="Bulk Archive"
       onConfirm={() => {
-        onBulkArchive?.();
+        onBulkArchive?.(cleanupWorktree);
         setBulkArchiveConfirm(false);
+        setCleanupWorktree(false);
       }}
-      onCancel={() => setBulkArchiveConfirm(false)}
+      onCancel={() => { setBulkArchiveConfirm(false); setCleanupWorktree(false); }}
+      extra={
+        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={cleanupWorktree}
+            onChange={(e) => setCleanupWorktree(e.target.checked)}
+            className="rounded"
+            data-testid="cleanup-worktree-checkbox"
+          />
+          Remove associated worktrees
+        </label>
+      }
     /></DialogPortal>
   ) : null;
 

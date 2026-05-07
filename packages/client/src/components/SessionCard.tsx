@@ -328,7 +328,7 @@ export function SessionCard({
   onAttachProposal?: (changeName: string) => void;
   onDetachProposal?: () => void;
   onReadArtifact?: (changeName: string, artifactId: string) => void;
-  onBulkArchive?: () => void;
+  onBulkArchive?: (cleanupWorktree?: boolean) => void;
   onRename?: (name: string) => void;
   onShutdown?: (id: string) => void;
   onResume?: (mode: "continue" | "fork") => void;

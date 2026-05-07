@@ -806,6 +806,8 @@ export interface ReorderPinnedDirsMessage {
 export interface OpenSpecBulkArchiveBrowserMessage {
   type: "openspec_bulk_archive";
   cwd: string;
+  /** When true, remove all dashboard-managed worktrees after archiving. */
+  cleanupWorktree?: boolean;
 }
 
 export interface CreateTerminalBrowserMessage {

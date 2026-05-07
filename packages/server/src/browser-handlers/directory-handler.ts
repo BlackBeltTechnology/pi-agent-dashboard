@@ -6,6 +6,13 @@ import type { BrowserHandlerContext } from "./handler-context.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { listWorktrees, removeWorktree, resolveRepoRoot } from "../worktree-manager.js";
+
+/** Result of worktree cleanup during bulk archive. */
+export interface WorktreeCleanupResult {
+  cleanedUpWorktrees: string[];
+  cleanupErrors: string[];
+}
 
 /**
  * Canonicalize a user-supplied path before storage: normalize separator /
@@ -105,6 +112,32 @@ export function handleOpenSpecBulkArchive(
     // windowsHide, timeout, and argv-array escaping.
     // See change: platform-command-executor.
     openspecArchiveCompleted({ cwd: msg.cwd });
+
+    // ── Worktree cleanup ─────────────────────────────────────────────
+    // When cleanupWorktree is true, remove all dashboard-managed worktrees
+    // for the repository after archiving completes.
+    // See change: fix-worktree-placeholder-replacement.
+    let cleanedUpWorktrees: string[] = [];
+    let cleanupErrors: string[] = [];
+    if (msg.cleanupWorktree) {
+      try {
+        const repoRoot = resolveRepoRoot(msg.cwd);
+        const worktrees = listWorktrees(repoRoot);
+        const worktreesDir = `${repoRoot}/.pi/worktrees/`;
+        for (const wt of worktrees) {
+          if (!wt.path.startsWith(worktreesDir)) continue;
+          try {
+            removeWorktree(repoRoot, wt.path);
+            cleanedUpWorktrees.push(wt.path);
+          } catch (err: any) {
+            cleanupErrors.push(err.message ?? String(err));
+          }
+        }
+      } catch (err: any) {
+        cleanupErrors.push(`worktree listing failed: ${err.message ?? String(err)}`);
+      }
+    }
+
     // Post-archive refresh stays gated: bulk-archive bumps `<changes>/`
     // mtime once (entry removal), so the gate naturally re-runs `list` and
     // any per-change CLI calls whose effective mtime advanced. Skipping
@@ -116,6 +149,18 @@ export function handleOpenSpecBulkArchive(
       .then((data) => {
         if (data) ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
       });
+
+    // Broadcast cleanup results so the client can show a toast.
+    // Note: bulk archive archives ALL completed changes, so we remove ALL
+    // dashboard-managed worktrees under .pi/worktrees/.
+    // See change: fix-worktree-placeholder-replacement.
+    if (msg.cleanupWorktree) {
+      ctx.broadcast({
+        type: "openspec_update",
+        cwd: msg.cwd,
+        data: { worktreeCleanup: { cleanedUpWorktrees, cleanupErrors } },
+      } as any);
+    }
   }
 }
 

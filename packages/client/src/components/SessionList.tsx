@@ -62,7 +62,7 @@ interface Props {
   onFlowAction?: (sessionId: string, action: string, opts?: { flowName?: string; task?: string; description?: string }) => void;
   onOpenSpecRefresh?: (cwd: string) => void;
   onAttachProposal?: (sessionId: string, changeName: string) => void;
-  onBulkArchive?: (cwd: string) => void;
+  onBulkArchive?: (cwd: string, cleanupWorktree?: boolean) => void;
   onReadArtifact?: (cwd: string, changeName: string, artifactId: string) => void;
   onOpenPiResources?: (cwd: string) => void;
   onDetachProposal?: (sessionId: string) => void;
@@ -656,7 +656,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                         onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
                         onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
                         onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
-                        onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
+                        onBulkArchive={onBulkArchive ? (cleanupWorktree) => onBulkArchive(session.cwd, cleanupWorktree) : undefined}
                         onRename={onRename ? (name) => onRename(session.id, name) : undefined}
                         onShutdown={onShutdown}
                         onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiCheck } from "@mdi/js";
 
@@ -7,14 +7,17 @@ interface Props {
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional content rendered between the message and buttons */
+  extra?: ReactNode;
 }
 
-export function ConfirmDialog({ message, confirmLabel = "Confirm", onConfirm, onCancel }: Props) {
+export function ConfirmDialog({ message, confirmLabel = "Confirm", onConfirm, onCancel, extra }: Props) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center" data-testid="confirm-dialog">
       <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onCancel} />
       <div className="relative bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg p-4 max-w-sm mx-4 space-y-3">
         <p className="text-sm text-[var(--text-secondary)]">{message}</p>
+        {extra}
         <div className="flex justify-end gap-2">
           <button
             onClick={onCancel}

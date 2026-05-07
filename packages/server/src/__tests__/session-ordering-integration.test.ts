@@ -99,4 +99,63 @@ describe("Session ordering integration", () => {
     // All should be in reverse order (most recent first)
     expect(orderMgr.getOrder("/project")).toEqual(["s5", "s4", "s3", "s2", "s1"]);
   });
+
+  // ── Worktree groupCwd ordering ────────────────────────────────────
+  // See change: fix-worktree-placeholder-replacement.
+
+  it("worktree session prepended to groupCwd order", () => {
+    const orderMgr = createSessionOrderManager(stateStore);
+
+    // Main repo sessions
+    orderMgr.insert("/repo", "s1");
+    orderMgr.insert("/repo", "s2"); // ["s2", "s1"]
+
+    // Worktree session registers — get groupCwd from the session
+    const groupCwd = "/repo";
+    const sessionId = "wt-1";
+    orderMgr.insert(groupCwd, sessionId);
+    orderMgr.moveToFront(groupCwd, sessionId);
+
+    expect(orderMgr.getOrder(groupCwd)).toEqual(["wt-1", "s2", "s1"]);
+  });
+
+  it("worktree session does not pollute worktree cwd order", () => {
+    const orderMgr = createSessionOrderManager(stateStore);
+
+    // Main repo sessions
+    orderMgr.insert("/repo", "s1");
+
+    // Worktree session registers — its own cwd is the worktree path
+    const worktreeCwd = "/repo/.pi/worktrees/feature-x-123/";
+    const groupCwd = "/repo";
+
+    // Only insert into groupCwd
+    orderMgr.insert(groupCwd, "wt-1");
+    orderMgr.moveToFront(groupCwd, "wt-1");
+
+    // Worktree cwd order should be empty (no insertion there)
+    expect(orderMgr.getOrder(worktreeCwd)).toEqual([]);
+    // Group cwd order should have the worktree session
+    expect(orderMgr.getOrder(groupCwd)).toEqual(["wt-1", "s1"]);
+  });
+
+  it("multiple worktree sessions stack correctly in groupCwd order", () => {
+    const orderMgr = createSessionOrderManager(stateStore);
+    const groupCwd = "/repo";
+
+    // Spawn A
+    orderMgr.insert(groupCwd, "wt-a");
+    orderMgr.moveToFront(groupCwd, "wt-a");
+    expect(orderMgr.getOrder(groupCwd)).toEqual(["wt-a"]);
+
+    // Spawn B
+    orderMgr.insert(groupCwd, "wt-b");
+    orderMgr.moveToFront(groupCwd, "wt-b");
+    expect(orderMgr.getOrder(groupCwd)).toEqual(["wt-b", "wt-a"]);
+
+    // Spawn C
+    orderMgr.insert(groupCwd, "wt-c");
+    orderMgr.moveToFront(groupCwd, "wt-c");
+    expect(orderMgr.getOrder(groupCwd)).toEqual(["wt-c", "wt-b", "wt-a"]);
+  });
 });

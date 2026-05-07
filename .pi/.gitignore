@@ -1,6 +1,1 @@
-prompts/opsx-*.md
-skills/openspec-*/**
-# Our additions live here — keep them in version control even though they
-# share the openspec-* prefix. See change: fix-openspec-design-detection.
-!skills/openspec-shared/
-!skills/openspec-shared/**
+# All .pi/ content tracked via whitelist in root .gitignore

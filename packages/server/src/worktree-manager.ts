@@ -547,3 +547,37 @@ export function removeWorktree(
     });
   }
 }
+
+/**
+ * Find dashboard-managed worktrees matching an OpenSpec change name.
+ *
+ * Matches by exact path prefix: `<repoRoot>/.pi/worktrees/<changeName>-*`.
+ * Only worktrees under the `.pi/worktrees/` directory are considered.
+ *
+ * @param repoRoot — absolute path to the repository root
+ * @param changeName — OpenSpec change slug (e.g., "fix-auth-bug")
+ * @returns absolute paths of matching worktrees
+ *
+ * See change: fix-worktree-placeholder-replacement.
+ */
+export function findMatchingWorktrees(
+  repoRoot: string,
+  changeName: string,
+): string[] {
+  const worktrees = listWorktrees(repoRoot);
+  const worktreesDir = path.join(repoRoot, WORKTREES_DIR) + path.sep;
+  // Match directory name pattern: <changeName>-<digit-only-suffix>
+  // This prevents "fix-auth" from matching "fix-auth-bug-123".
+  const dirPattern = new RegExp(`^${escapeRegex(changeName)}-\\d`);
+  return worktrees
+    .filter((w) => {
+      if (!w.path.startsWith(worktreesDir)) return false;
+      const dirName = w.path.slice(worktreesDir.length).split(path.sep)[0];
+      return dirPattern.test(dirName);
+    })
+    .map((w) => w.path);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

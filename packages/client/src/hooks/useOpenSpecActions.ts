@@ -33,8 +33,8 @@ export function useOpenSpecActions(deps: OpenSpecActionDeps) {
     send({ type: "openspec_refresh", cwd });
   }, [send]);
 
-  const handleBulkArchive = useCallback((cwd: string) => {
-    send({ type: "openspec_bulk_archive", cwd });
+  const handleBulkArchive = useCallback((cwd: string, cleanupWorktree?: boolean) => {
+    send({ type: "openspec_bulk_archive", cwd, cleanupWorktree });
   }, [send]);
 
   const handleReadArtifact = useCallback((cwd: string, changeName: string, artifactId: string) => {

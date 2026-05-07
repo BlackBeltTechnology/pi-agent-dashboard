@@ -562,7 +562,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       const forkParent = msg.spawnToken
         ? pendingForkRegistry.consumeFork(msg.spawnToken)
         : undefined;
-      sessionOrderManager.insert(msg.cwd, sessionId);
+
+      // Defer session order insertion until after worktree detection.
+      // Worktree sessions must go into groupCwd order, not msg.cwd.
+      // See change: fix-worktree-placeholder-replacement.
 
       if (forkParent) {
         const session = sessionManager.get(sessionId);
@@ -579,16 +582,29 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Detect if the session is inside a git worktree and populate metadata.
       // Also set groupCwd so the UI groups this session under the parent repo.
       // See change: worktree-session-spawn.
+      let groupCwd: string | undefined;
       const worktree = detectWorktree(msg.cwd);
       if (worktree) {
-        const groupCwd = resolveMainRepoRoot(msg.cwd);
+        groupCwd = resolveMainRepoRoot(msg.cwd);
         sessionManager.update(sessionId, { worktree, groupCwd });
         browserGateway.broadcastSessionUpdated(sessionId, { worktree, groupCwd });
       }
 
-      const validIds = new Set(sessionManager.listAll().filter((s) => s.cwd === msg.cwd).map((s) => s.id));
-      const order = sessionOrderManager.getOrder(msg.cwd, validIds);
-      browserGateway.broadcastToAll({ type: "sessions_reordered", cwd: msg.cwd, sessionIds: order });
+      // Use groupCwd for session ordering when set (worktree sessions group
+      // under the parent repo). This ensures the real session card replaces
+      // the placeholder card in-place at the top of the group.
+      // See change: fix-worktree-placeholder-replacement.
+      const orderCwd = groupCwd ?? msg.cwd;
+      if (groupCwd) {
+        sessionOrderManager.insert(groupCwd, sessionId);
+        sessionOrderManager.moveToFront(groupCwd, sessionId);
+      } else {
+        sessionOrderManager.insert(msg.cwd, sessionId);
+      }
+
+      const validIds = new Set(sessionManager.listAll().filter((s) => s.cwd === orderCwd || s.groupCwd === orderCwd).map((s) => s.id));
+      const order = sessionOrderManager.getOrder(orderCwd, validIds);
+      browserGateway.broadcastToAll({ type: "sessions_reordered", cwd: orderCwd, sessionIds: order });
 
       const updatedSession = sessionManager.get(sessionId);
       if (updatedSession) {

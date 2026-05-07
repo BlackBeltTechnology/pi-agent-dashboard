@@ -5,7 +5,6 @@ dist/
 *.db-journal
 .env
 .DS_Store
-.pi/proposal-queue.json
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/icons
@@ -16,4 +15,9 @@ packages/electron/.vite
 site/.astro/
 *.tsbuildinfo
 .pi-worktrees/
-.pi/
+.pi/*
+!.pi/settings.json
+!.pi/agents/
+!.pi/prompts/
+!.pi/skills/
+!.pi/.gitignore

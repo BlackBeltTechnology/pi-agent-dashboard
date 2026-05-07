@@ -11,6 +11,7 @@ import {
   isInsideWorkTree,
   ensureWorktreesDir,
   generateWorktreePath,
+  findMatchingWorktrees,
   WORKTREES_DIR,
 } from "../worktree-manager.js";
 
@@ -305,6 +306,59 @@ describe("worktree-manager", () => {
         expect.fail("Should have thrown");
       } catch (err: any) {
         expect(err.code).toBe("not_a_git_repo");
+      }
+    });
+  });
+
+  // ── findMatchingWorktrees ──────────────────────────────────────────
+  // See change: fix-worktree-placeholder-replacement.
+
+  describe("findMatchingWorktrees", () => {
+    it("matches worktree by exact path prefix", () => {
+      exec("git branch fix-auth-bug", repoRoot);
+      const wt = addWorktree(repoRoot, "fix-auth-bug");
+      const matches = findMatchingWorktrees(repoRoot, "fix-auth-bug");
+      expect(matches).toContain(wt.path);
+      expect(matches.length).toBe(1);
+    });
+
+    it("does not match worktree with different change name", () => {
+      exec("git branch add-feature", repoRoot);
+      addWorktree(repoRoot, "add-feature");
+      const matches = findMatchingWorktrees(repoRoot, "fix-auth-bug");
+      expect(matches.length).toBe(0);
+    });
+
+    it("does not match via partial prefix (fix-auth vs fix-auth-bug)", () => {
+      exec("git branch auth-fix", repoRoot);
+      addWorktree(repoRoot, "auth-fix");
+      // "fix-auth" should not match worktrees whose path starts with "auth-fix-"
+      const matches = findMatchingWorktrees(repoRoot, "fix-auth");
+      expect(matches.length).toBe(0);
+    });
+
+    it("matches multiple worktrees sharing common prefix", () => {
+      // Two branches with distinct names — worktree paths should not overlap
+      exec("git branch alpha-fix", repoRoot);
+      exec("git branch beta-fix", repoRoot);
+      const wt1 = addWorktree(repoRoot, "alpha-fix");
+      const wt2 = addWorktree(repoRoot, "beta-fix");
+      // "alpha-fix" exact prefix should match only wt1
+      const matchesA = findMatchingWorktrees(repoRoot, "alpha-fix");
+      expect(matchesA).toContain(wt1.path);
+      expect(matchesA.length).toBe(1);
+      // "beta-fix" exact prefix should match only wt2
+      const matchesB = findMatchingWorktrees(repoRoot, "beta-fix");
+      expect(matchesB).toContain(wt2.path);
+      expect(matchesB.length).toBe(1);
+    });
+
+    it("does not match main worktree", () => {
+      exec("git branch some-change", repoRoot);
+      addWorktree(repoRoot, "some-change");
+      const matches = findMatchingWorktrees(repoRoot, "some-change");
+      for (const m of matches) {
+        expect(m).toContain(WORKTREES_DIR);
       }
     });
   });
