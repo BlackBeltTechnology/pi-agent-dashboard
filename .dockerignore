@@ -1,10 +1,6 @@
 node_modules
 .git
-test-results
+qa
+packages/electron
+.DS_Store
 *.log
-qa/ios-visual
-qa/images
-qa/packer
-qa/scripts
-qa/tests
-qa/.tmp

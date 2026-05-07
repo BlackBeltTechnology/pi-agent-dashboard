@@ -2131,3 +2131,84 @@ Two writer processes for `~/.pi/agent/auth.json`:
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
 See change: `add-dashboard-model-proxy`.
+
+## Design Sandbox
+
+Developer tooling for visual UI mockups in OpenSpec workflows. Docker-based, runs pi-dashboard with fake seed data, captures before-screenshots via browser automation, feeds them to vision-capable design agent → produces Tailwind HTML mockups as visual contracts.
+
+### Pipeline
+
+```
+seed/  →  Docker sandbox  →  browser automation  →  screenshot  →  sandbox-designer  →  mockup.html
+```
+
+1. `seed/` — fake workspace data (JSONL sessions, .meta.json sidecars) covering dashboard UI states.
+2. Docker sandbox — `docker compose -f sandbox/docker-compose.yml up -d` starts dashboard (:8000) + headless Chromium (:9222).
+3. Browser automation — `browser-visual-debug --sandbox --scenario <path>` executes JSON step file, captures before-screenshots.
+4. `sandbox-designer` skill — vision-capable agent receives screenshots + user story → `mockup.html` (Tailwind, `<!-- state: ... -->` annotations).
+5. Sandbox teardown — `docker compose -f sandbox/docker-compose.yml down`.
+
+### Role in OpenSpec workflow
+
+Optional Docker-gated Design Phase in `openspec-propose` (`.pi/skills/openspec-propose/SKILL.md`).
+
+- Docker available: full design phase executes (sandbox up → scenarios → screenshots → mockup → sandbox down).
+- Docker absent: graceful fallback — emits notice, skips to text-only proposal.
+- `mockup.html` stored in change directory as visual contract alongside `design.md`.
+
+### Docker composition
+
+`sandbox/docker-compose.yml` — two services on shared network:
+
+| Service | Image | Port | Purpose |
+|---|---|---|---|
+| `dashboard` | Built from `sandbox/Dockerfile` (node:22-bookworm-slim) | 8000 | pi-dashboard --dev |
+| `browser` | `chromedp/headless-shell:latest` | 9222 | Chrome DevTools Protocol |
+
+Dashboard health check: `curl http://localhost:8000/api/health` (30s timeout).
+Seed data mounted read-only at `~/.pi/agent/sessions/` via volume.
+
+### Seed data format
+
+Native pi session format — no mock adapter, no fixtures:
+
+- `*.jsonl` — session events (one JSON object per line: type, id, parentId, timestamp).
+- `*.meta.json` — session metadata sidecar (cwd, status, model, tokens, cost, attachedProposal).
+- `preferences.json` — pinned directories + per-directory session order.
+- `README.md` — documents covered UI states.
+
+Five workspaces cover: active project, empty workspace, OpenSpec-heavy, multi-folder, error states.
+
+### Scenario-driven browser automation
+
+`browser-visual-debug --sandbox --scenario <path>` executes JSON step files:
+
+- 10-action vocabulary: `open`, `click`, `fill`, `type`, `select`, `press`, `wait`, `screenshot`, `scroll`, `snapshot`.
+- Steps execute sequentially; non-screenshot failures halt execution.
+- Screenshots written to `screenshots/<name>.png` in change directory.
+
+### Mockup generation
+
+`sandbox-designer` skill (`.pi/skills/sandbox-designer/SKILL.md`):
+
+- Input: before-screenshots (PNG) + user story (prose) + optional design.md context.
+- Output: `mockup.html` — valid HTML5, Tailwind CDN, `<!-- state: <name> -->` annotations per visual state.
+- Recommended model: Claude Sonnet/Opus with vision.
+- Self-validation: opens mockup in browser, screenshots, compares against originals.
+- Not pixel-perfect — structure and state coverage are invariant; spacing/colors adjusted by implementation model.
+
+### Archive-merge
+
+`openspec-archive-change` skill applies patches BEFORE `openspec archive` moves directory:
+
+- `seed.patch` → `git apply --directory=seed/`. Conflict aborts archive, leaves seed unchanged.
+- `Dockerfile.patch` → `git apply` to `sandbox/Dockerfile`. Conflict aborts.
+- On success: `git add seed/ sandbox/Dockerfile`, proceed with archive, `git commit --amend --no-edit`.
+- Docker available: `docker compose build` rebuilds sandbox image. Build failure warns, does not abort.
+
+### Non-goals
+
+- No CI integration — local-only developer tool.
+- No dashboard source code changes — sandbox runs production pi-dashboard binary.
+- No pre-built image shipping in Electron installer.
+- No automated visual regression testing.

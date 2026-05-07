@@ -17,6 +17,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 | Electron app | [`file-index-electron.md`](./file-index-electron.md) | `packages/electron/` |
 | Dashboard plugins | [`file-index-plugins.md`](./file-index-plugins.md) | `packages/dashboard-plugin-runtime/`, `packages/{jj,flows,demo}-plugin/` |
 | Skills, scripts, CI | [`file-index-skills-misc.md`](./file-index-skills-misc.md) | `.pi/skills/`, `scripts/`, `public/`, `.github/`, misc |
+| Infrastructure (sandbox, seed) | [`file-index-infra.md`](./file-index-infra.md) | `seed/`, `sandbox/`, `.pi/skills/sandbox-designer/` |
 
 ## Standalone topic docs
 

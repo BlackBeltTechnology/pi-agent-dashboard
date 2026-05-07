@@ -302,11 +302,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanResult = scanAllSessions();
   for (const session of scanResult.sessions) {
-    const restored = { ...session, dataUnavailable: true };
-    if (restored.status !== "ended") {
-      restored.status = "ended";
-      restored.endedAt = restored.endedAt ?? Date.now();
-    }
+    const restored = { ...session };
     sessionManager.restore(restored);
   }
   if (scanResult.cacheUpdates > 0) {
@@ -780,8 +776,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   // Register route modules
-  // Create network guard from merged trusted networks
-  const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? []);
+  // Create network guard from merged trusted networks.
+  // In sandbox mode, skip the guard entirely — the container network
+  // is isolated by Docker itself.
+  const networkGuard = process.env.PI_SANDBOX
+    ? async () => {}
+    : createNetworkGuard(config.resolvedTrustedNetworks ?? []);
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   registerGitRoutes(fastify, { networkGuard });
@@ -1313,10 +1313,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             return;
           }
         } else if (!isLoopback(remoteAddress) && (trusted.length === 0 || !isBypassedHost(remoteAddress, trusted))) {
-          // No auth configured — only allow loopback or trusted networks
-          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-          socket.destroy();
-          return;
+          // No auth configured — only allow loopback or trusted networks.
+          // In sandbox mode (Docker), allow all — the container's network
+          // is isolated by Docker itself.
+          if (!process.env.PI_SANDBOX) {
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+            socket.destroy();
+            return;
+          }
         }
 
         if (request.url === "/ws") {

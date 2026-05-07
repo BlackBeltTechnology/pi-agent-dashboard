@@ -1,0 +1,22 @@
+services:
+  dashboard:
+    build:
+      context: ..
+      dockerfile: sandbox/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PI_SANDBOX=1
+    volumes:
+      - ../seed/active-project:/home/pi/.pi/agent/sessions-seed:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  browser:
+    image: chromedp/headless-shell:latest
+    ports:
+      - "9222:9222"

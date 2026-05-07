@@ -1,0 +1,1 @@
+{"cwd":"/Users/dev/my-project","firstMessage":"Fix the rename bug in SessionCard.","startedAt":1747238400000,"status":"ended","model":"anthropic/claude-sonnet-4-20250514","tokensIn":200,"tokensOut":40,"cost":0.0018,"contextTokens":240,"contextWindow":200000,"cachedAt":1747238580000}

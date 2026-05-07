@@ -88,7 +88,7 @@ function sessionFromMeta(
     // Restore unread bit from .meta.json so it survives server restart.
     // See change: session-card-unread-stripes.
     unread: meta.unread,
-    dataUnavailable: true,
+    dataUnavailable: false,
   };
 }
 

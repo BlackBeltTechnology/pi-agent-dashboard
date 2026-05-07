@@ -1,0 +1,8 @@
+[
+  { "action": "open",   "url": "http://localhost:8000" },
+  { "action": "wait",   "condition": "networkidle" },
+  { "action": "screenshot", "name": "01-sidebar-sessions" },
+  { "action": "click",  "selector": "text=Settings" },
+  { "action": "wait",   "ms": 600 },
+  { "action": "screenshot", "name": "02-settings-panel" }
+]

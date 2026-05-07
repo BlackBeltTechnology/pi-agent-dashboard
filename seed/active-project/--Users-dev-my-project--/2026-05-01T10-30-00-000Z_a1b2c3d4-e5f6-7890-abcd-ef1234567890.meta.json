@@ -1,0 +1,1 @@
+{"cwd":"/Users/dev/my-project","firstMessage":"Refactor the API client to use a shared request builder.","startedAt":1747247400000,"status":"running","model":"anthropic/claude-sonnet-4-20250514","tokensIn":700,"tokensOut":110,"cost":0.0054,"contextTokens":460,"contextWindow":200000,"cachedAt":1747247520000}

@@ -512,6 +512,11 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/server/src/routes/push-routes.ts` | 6 push REST endpoints (register/delete/tokens/test/send/vapid-key) |
 | `packages/client/src/hooks/usePushSubscription.ts` | Web Push subscription hook (subscribe/unsubscribe/reconcile/sendTest) |
 | `packages/client/src/components/PushNotificationsSection.tsx` | Settings section: status, subscribe, device list, iOS hint |
+| `seed/` | Fake developer workspace data covering all dashboard UI states |
+| `sandbox/Dockerfile` | Docker image for reproducible pi-dashboard + headless Chromium |
+| `sandbox/docker-compose.yml` | Sandbox orchestration (dashboard + browser services) |
+| `sandbox/entrypoint.sh` | Startup script: pi-dashboard → health → tail logs |
+| `.pi/skills/sandbox-designer/SKILL.md` | Vision-capable design agent: screenshots + story → mockup.html |
 
 ## Build & Restart Workflow
 

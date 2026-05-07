@@ -176,6 +176,71 @@ Read [references/dashboard-recipes.md](references/dashboard-recipes.md) for deta
 6. **Prefer element screenshots for large pages** — reduces token cost vs full-page captures.
 7. **Chain commands for SPA navigation** — after clicking a link that triggers a route change, `wait --load networkidle` before screenshotting.
 
+## Sandbox Mode
+
+Use `--sandbox` to operate against the design sandbox (Docker-based pi-dashboard with seed data) instead of a live dashboard instance.
+
+### Detection
+
+```bash
+bash "$SKILL_DIR/scripts/detect-dashboard.sh" --sandbox
+```
+
+Outputs `DASHBOARD_URL=http://localhost:8000 MODE=sandbox` — no port probing, no Vite detection. The sandbox's dashboard always runs on port 8000.
+
+### Scenario-Driven Automation
+
+Use `--scenario <path>` to execute a JSON step file:
+
+```bash
+browser-visual-debug --sandbox --scenario screenshots/scenario.json
+```
+
+The scenario file is a JSON array of step objects. Steps execute sequentially and halt on first error.
+
+#### Step Vocabulary
+
+| Action | Required params | Optional params | Description |
+|--------|----------------|-----------------|-------------|
+| `open` | `url` (string) | — | Navigate to URL |
+| `click` | `selector` (string) | — | Click element matching selector |
+| `fill` | `selector` (string), `value` (string) | — | Clear and type into input |
+| `type` | `selector` (string), `value` (string) | — | Type without clearing |
+| `select` | `selector` (string), `value` (string) | — | Select dropdown option |
+| `press` | `key` (string) | — | Press keyboard key (e.g., `Enter`, `Tab`, `Escape`) |
+| `wait` | — | `condition` (`"networkidle"` \| `"load"`), `ms` (number) | Wait for condition or duration. `networkidle` waits until no requests in flight for ≥500ms, 30s timeout |
+| `screenshot` | `name` (string) | `fullPage` (boolean, default false) | Capture screenshot to `screenshots/<name>.png`. Creates `screenshots/` directory if missing |
+| `scroll` | `direction` (`"up"` \| `"down"` \| `"left"` \| `"right"`) | `px` (number) | Scroll viewport |
+| `snapshot` | — | `interactive` (boolean, default false) | Capture DOM snapshot; `interactive: true` returns `@ref` handles |
+
+#### Execution Contract
+
+- Steps execute **sequentially** in array order.
+- Any non-screenshot step that fails (element not found, navigation timeout, invalid selector) **halts execution immediately** with an error message referencing the step index, action, and failure reason.
+- `screenshot` steps write PNG files to `screenshots/<name>.png` relative to the change directory.
+- An invalid scenario JSON file (parse failure) produces an error referencing the file path.
+- A step with an unknown `action` or missing required parameter produces an error referencing the step index.
+
+#### Example Scenario
+
+```json
+[
+  { "action": "open",   "url": "http://localhost:8000" },
+  { "action": "wait",   "condition": "networkidle" },
+  { "action": "screenshot", "name": "01-sidebar-initial" },
+  { "action": "click",  "selector": "text=Settings" },
+  { "action": "wait",   "ms": 500 },
+  { "action": "screenshot", "name": "02-settings-panel" },
+  { "action": "click",  "selector": "text=General" },
+  { "action": "wait",   "ms": 300 },
+  { "action": "screenshot", "name": "03-general-settings" }
+]
+```
+
+### End-to-End Recipe
+
+See [references/sandbox-recipes.md](references/sandbox-recipes.md) for the full sandbox lifecycle recipe (docker-compose up → scenario execution → screenshot capture → docker-compose down).
+
 ## Command Reference
 
 See [references/commands-cheatsheet.md](references/commands-cheatsheet.md) for the full quick-reference table.

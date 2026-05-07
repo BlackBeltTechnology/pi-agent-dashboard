@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mockup: Session Status Pill — Sidebar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 p-6 font-sans text-gray-200">
+
+  <h1 class="text-lg font-bold text-white mb-6">Mockup: Status Pill next to Session Name</h1>
+
+  <!-- ── Before (current UI, no pill) ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">Before — no status pill</div>
+  <div class="w-80 bg-gray-900 rounded-lg border border-gray-800 p-3 mb-2">
+    <div class="flex items-center gap-1">
+      <span class="text-sm font-medium text-gray-200 truncate">Refactor API client builder</span>
+      <span class="text-xs text-gray-600 ml-auto">34s</span>
+    </div>
+    <div class="text-xs text-gray-500 mt-0.5">anthropic/claude-sonnet-4 · $0.01</div>
+  </div>
+
+  <hr class="my-8 border-gray-800">
+
+  <!-- ── state: active (green pill) ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">State: active</div>
+  <div class="w-80 bg-gray-900 rounded-lg border border-gray-800 p-3 mb-2">
+    <div class="flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 shrink-0">active</span>
+      <span class="text-sm font-medium text-gray-200 truncate ml-1">Refactor API client builder</span>
+      <span class="text-xs text-gray-600 ml-auto">34s</span>
+    </div>
+    <div class="text-xs text-gray-500 mt-0.5">anthropic/claude-sonnet-4 · $0.01</div>
+  </div>
+
+  <hr class="my-8 border-gray-800">
+
+  <!-- ── state: idle (gray pill) ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">State: idle</div>
+  <div class="w-80 bg-gray-900 rounded-lg border border-gray-800 p-3 mb-2">
+    <div class="flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-400 shrink-0">idle</span>
+      <span class="text-sm font-medium text-gray-200 truncate ml-1">Add dark mode toggle</span>
+      <span class="text-xs text-gray-600 ml-auto">2m</span>
+    </div>
+    <div class="text-xs text-gray-500 mt-0.5">anthropic/claude-sonnet-4 · $0.01</div>
+  </div>
+
+  <hr class="my-8 border-gray-800">
+
+  <!-- ── state: ended (neutral pill) ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">State: ended</div>
+  <div class="w-80 bg-gray-900 rounded-lg border border-gray-800 p-3 mb-2 opacity-70">
+    <div class="flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-500 border border-gray-700 shrink-0">ended</span>
+      <span class="text-sm font-medium text-gray-400 truncate ml-1">Fix rename bug in SessionCard</span>
+      <span class="text-xs text-gray-600 ml-auto">23m</span>
+    </div>
+    <div class="text-xs text-gray-600 mt-0.5">anthropic/claude-sonnet-4 · $0.01</div>
+  </div>
+
+  <hr class="my-8 border-gray-800">
+
+  <!-- ── state: streaming (blue pill with pulse) ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">State: streaming</div>
+  <div class="w-80 bg-gray-900 rounded-lg border border-blue-500/30 p-3 mb-2 ring-1 ring-blue-500/10">
+    <div class="flex items-center gap-1">
+      <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+        streaming
+      </span>
+      <span class="text-sm font-medium text-gray-200 truncate ml-1">Refactor API client builder</span>
+      <span class="text-xs text-gray-600 ml-auto">now</span>
+    </div>
+    <div class="text-xs text-gray-500 mt-0.5">anthropic/claude-sonnet-4 · $0.01</div>
+  </div>
+
+  <hr class="my-8 border-gray-800">
+
+  <!-- ── Folder-level view: multiple sessions with pills ── -->
+  <div class="mb-2 text-xs font-mono text-gray-500 uppercase tracking-wider">State: folder view (multiple sessions)</div>
+  <div class="w-96 bg-gray-900 rounded-lg border border-gray-800 overflow-hidden">
+    <div class="flex items-center justify-between px-3 py-2 bg-gray-800/50 border-b border-gray-800">
+      <span class="text-sm font-medium text-gray-200">/Users/dev/my-project</span>
+      <span class="text-xs text-gray-500">(3)</span>
+    </div>
+    <div class="px-2 py-1.5 border-b border-gray-800 flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400 shrink-0"><span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>streaming</span>
+      <span class="text-sm text-gray-200 truncate ml-1">Refactor API client builder</span>
+    </div>
+    <div class="px-2 py-1.5 border-b border-gray-800 flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-400 shrink-0">active</span>
+      <span class="text-sm text-gray-200 truncate ml-1">Add dark mode toggle</span>
+    </div>
+    <div class="px-2 py-1.5 opacity-70 flex items-center gap-1">
+      <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-500 border border-gray-700 shrink-0">ended</span>
+      <span class="text-sm text-gray-400 truncate ml-1">Fix rename bug in SessionCard</span>
+    </div>
+  </div>
+
+</body>
+</html>

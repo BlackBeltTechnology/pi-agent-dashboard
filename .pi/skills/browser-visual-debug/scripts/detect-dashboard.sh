@@ -2,7 +2,8 @@
 # Detect dashboard server URL, mode, and Vite dev server status.
 #
 # Usage:
-#   bash detect-dashboard.sh
+#   bash detect-dashboard.sh              # probe running dashboard
+#   bash detect-dashboard.sh --sandbox    # sandbox mode (fixed URL, no probing)
 #
 # Output (key=value):
 #   DASHBOARD_URL=http://localhost:8000
@@ -13,6 +14,14 @@
 #   DASHBOARD=not-running
 
 set -euo pipefail
+
+# ── Sandbox mode: fixed URL, no probing ───────────────────────────
+
+if [ "${1:-}" = "--sandbox" ]; then
+  echo "DASHBOARD_URL=http://localhost:8000"
+  echo "MODE=sandbox"
+  exit 0
+fi
 
 # ── Read port from config ──────────────────────────────────────────
 

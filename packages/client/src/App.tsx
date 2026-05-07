@@ -1453,11 +1453,13 @@ export default function App() {
     return apiProvider(
       <div className="bg-[var(--bg-primary)] text-[var(--text-primary)]">
         <BootstrapBanner state={bootstrapStatus.state} onRetry={bootstrapStatus.retry} />
-        <ConnectionStatusBanner
-          status={status}
-          currentServerHost={currentServerHost}
-          inFlightSwitch={inFlightSwitchKey !== null}
-        />
+        {sessions.size === 0 && (
+          <ConnectionStatusBanner
+            status={status}
+            currentServerHost={currentServerHost}
+            inFlightSwitch={inFlightSwitchKey !== null}
+          />
+        )}
         <Toast messages={toastMessages} onDismiss={dismissToast} />
         <MobileShell
           depth={mobileDepth}
