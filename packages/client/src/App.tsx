@@ -41,7 +41,6 @@ import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
 import { InstallBanner } from "./components/InstallBanner.js";
 import { BootstrapBanner } from "./components/BootstrapBanner.js";
 import { useBootstrapStatus } from "./hooks/useBootstrapStatus.js";
-import { MissingRequiredBanner } from "./components/MissingRequiredBanner.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { EditorView } from "./components/EditorView.js";
@@ -1487,7 +1486,6 @@ export default function App() {
           listPanel={
             <div className="flex flex-col h-full">
               <InstallBanner canInstall={installPrompt.canInstall} isIOS={installPrompt.isIOS} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
-              <MissingRequiredBanner />
               {connectionBanner}
               {sessionList}
             </div>

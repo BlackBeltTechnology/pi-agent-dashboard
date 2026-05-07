@@ -34,8 +34,7 @@ COPY . /app
 EXPOSE 8000
 
 # Use entrypoint script
-COPY sandbox/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY --chmod=755 sandbox/entrypoint.sh /entrypoint.sh
 USER pi
 
 ENTRYPOINT ["/entrypoint.sh"]

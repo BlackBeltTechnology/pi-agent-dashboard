@@ -3,8 +3,6 @@ services:
     build:
       context: ..
       dockerfile: sandbox/Dockerfile
-    ports:
-      - "8000:8000"
     environment:
       - PI_SANDBOX=1
     volumes:

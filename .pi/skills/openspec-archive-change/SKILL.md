@@ -65,7 +65,40 @@ Archive a completed change in the experimental workflow.
 
    If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
 
-5. **Perform the archive**
+5. **Pre-archive merge: seed and Dockerfile patches**
+
+   Check if the change directory contains `seed.patch` or `Dockerfile.patch`.
+
+   **If neither patch exists:** Skip to step 6.
+
+   **If `seed.patch` exists:**
+   ```bash
+   cp openspec/changes/<name>/seed.patch /tmp/seed-<name>.patch
+   git apply --directory=seed/ /tmp/seed-<name>.patch
+   rm /tmp/seed-<name>.patch
+   ```
+   If `git apply` fails with a conflict: emit error "seed.patch failed to apply: <error>. Archive aborted." and STOP. Do NOT proceed.
+
+   **If `Dockerfile.patch` exists:**
+   ```bash
+   cp openspec/changes/<name>/Dockerfile.patch /tmp/dockerfile-<name>.patch
+   git apply /tmp/dockerfile-<name>.patch
+   rm /tmp/dockerfile-<name>.patch
+   ```
+   If `git apply` fails: same abort pattern.
+
+   **If any patch was applied:**
+   ```bash
+   git add seed/ sandbox/Dockerfile
+   ```
+
+   **If Docker is available AND patches were applied:**
+   ```bash
+   docker compose -f sandbox/docker-compose.yml build
+   ```
+   Build failure emits a warning but does NOT abort.
+
+6. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
    ```bash
@@ -82,7 +115,7 @@ Archive a completed change in the experimental workflow.
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
-6. **Display summary**
+7. **Display summary**
 
    Show archive completion summary including:
    - Change name
