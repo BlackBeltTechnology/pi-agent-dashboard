@@ -21,3 +21,5 @@ site/.astro/
 !.pi/prompts/
 !.pi/skills/
 !.pi/.gitignore
+seed/active-project/repo/
+seed/active-project/worktrees/
