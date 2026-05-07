@@ -31,8 +31,8 @@ The "New" button in a workspace group header SHALL be disabled while at least on
 - **WHEN** every `pendingSpawns` entry for that cwd has been removed
 - **THEN** the group's "New" button SHALL be re-enabled
 
-### Requirement: Placeholder replaced on session added matching requestId
-When a `session_added` message arrives carrying `spawnRequestId` matching an entry in `pendingSpawns`, the system SHALL: (a) remove that entry from `pendingSpawns`, (b) cancel any associated timeout timer, (c) navigate to the new session's URL. The real session card SHALL render in its place via the normal session rendering pipeline.
+### Requirement: Placeholder replaced on session added
+When a `session_added` message arrives, the system SHALL clear the matching placeholder using a two-tier correlation strategy. **Tier 1 (preferred):** if the message carries `spawnRequestId` matching an entry in `pendingSpawns`, that entry SHALL be removed, its timeout cancelled, and the client SHALL navigate to the new session's URL. **Tier 2 (legacy fallback):** if no `spawnRequestId` matches but the session's `cwd` or `groupCwd` matches a spawning group's cwd, the placeholder for that group SHALL be removed. The real session card SHALL render in the placeholder's visual position. The server SHALL ensure the new session is placed at the front of the session order for the group's cwd (using `groupCwd` when set) so the client renders it at the top.
 
 #### Scenario: session_added with matching spawnRequestId replaces placeholder
 - **WHEN** a `session_added { session, spawnRequestId: "rq_42" }` message arrives
@@ -40,6 +40,21 @@ When a `session_added` message arrives carrying `spawnRequestId` matching an ent
 - **THEN** the placeholder for `rq_42` SHALL be removed
 - **AND** the client SHALL navigate to `/session/<session.id>`
 - **AND** the real session card SHALL render in the group's list
+
+#### Scenario: Session added replaces placeholder via cwd fallback
+- **WHEN** a `session_added` message arrives without a matching `spawnRequestId` but `session.cwd` matches a spawning group's cwd
+- **THEN** the placeholder card for that group SHALL be removed
+- **AND** the real session card SHALL render at the top of the group's session list
+
+#### Scenario: Worktree session replaces placeholder via groupCwd
+- **WHEN** a `session_added` arrives for a worktree-spawned session where `session.cwd` is a worktree path and `session.groupCwd` matches the spawning group's cwd
+- **THEN** the placeholder card for the spawning group SHALL be removed
+- **AND** the real session card SHALL render at the top of the spawning group's session list (where the placeholder was)
+
+#### Scenario: Sequential multi-spawn places most recent at top
+- **WHEN** the user spawns three sessions for the same group in sequence: first A, then B, then C (each completing before the next starts)
+- **THEN** each session card SHALL replace its corresponding placeholder in-place
+- **AND** after all three register, the final rendered order SHALL be C at top, then B, then A (most recently spawned at top)
 
 #### Scenario: session_added without spawnRequestId is treated as natural arrival
 - **WHEN** `session_added { session }` arrives without a `spawnRequestId` (e.g. TUI-spawned session)
