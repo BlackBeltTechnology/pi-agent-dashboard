@@ -159,6 +159,13 @@ When things crystallize, you might offer a summary - but it's optional. Sometime
 
 ---
 
+## Design Flow Awareness
+
+When exploration leads toward a UI redesign, mention the available design flow:
+- `sandbox-designer` agent — generates Tailwind mockups from screenshots
+- `opsx-propose` — creates full proposal with automated sandbox screenshots + mockup generation
+- Suggest: "This feels like a UI change. Want me to run `/opsx-propose`? It'll capture screenshots and generate a mockup."
+
 ## Guardrails
 
 - **Don't implement** - Never write code or implement features. Creating OpenSpec artifacts is fine, writing application code is not.
@@ -169,3 +176,4 @@ When things crystallize, you might offer a summary - but it's optional. Sometime
 - **Do visualize** - A good diagram is worth many paragraphs
 - **Do explore the codebase** - Ground discussions in reality
 - **Do question assumptions** - Including the user's and your own
+- **Do note tooling gaps** - If you discover missing tooling during explore (e.g. sandbox can't show certain states, designer model too weak), note it as a separate improvement

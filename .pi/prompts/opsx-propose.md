@@ -62,6 +62,7 @@ When ready to implement, run /opsx-apply
       - Read any completed dependency files for context
       - Create the artifact file using `template` as the structure
       - Apply `context` and `rules` as constraints - but do NOT copy them into the file
+      - **For proposal artifact**: If this is a UI/UX change, ADD a `## User Stories` section after `## What Changes`. Each story MUST follow the format: `- **As a <role>**, I want <goal>, so that <reason>.` Stories MUST cover: desktop users, mobile users, and each visual state (active, idle, ended, error, empty). Minimum 3 stories for UI changes.
       - Show brief progress: "Created <artifact-id>"
 
    b. **Continue until all `applyRequires` artifacts are complete**
@@ -73,7 +74,94 @@ When ready to implement, run /opsx-apply
       - Use **AskUserQuestion tool** to clarify
       - Then continue with creation
 
-5. **Show final status**
+5. **Design Phase (after specs, before tasks) — Docker-gated**
+
+   After specs are `done` and before creating `tasks`, check if this is a UI change. If YES, check Docker availability:
+
+   ```bash
+   docker info > /dev/null 2>&1 && echo "DOCKER_AVAILABLE" || echo "NO_DOCKER"
+   ```
+
+   a. **If Docker is NOT available:**
+      - Emit: "Design sandbox unavailable (Docker not found). Proceeding with text-only proposal."
+      - Skip to step 6 (tasks).
+
+   b. **If Docker IS available:**
+      1. **Start sandbox with rich data:**
+         ```bash
+         docker compose -f sandbox/docker-compose.yml up -d --wait 2>&1
+         ```
+         Wait for bootstrap, then seed sessions:
+         ```bash
+         node sandbox/seed-bridge.mjs &
+         sleep 15
+         ```
+         If sandbox fails, emit warning, `docker compose down`, skip to step 6.
+
+      2. **Capture screenshots** via scenario runner:
+         ```bash
+         bash sandbox/scripts/run-scenarios.sh <change-dir>/screenshots/scenario.json <change-dir>/screenshots/
+         ```
+         This executes all browser steps (open, click, scroll, screenshot)
+         and saves PNGs to the screenshots directory.
+
+      3. **Derive visual states** from specs requirements and proposal user stories.
+         List every `<!-- state: <name> -->` that the mockup must include.
+         Minimum: desktop + mobile variants, all statuses (streaming/idle/ended/error),
+         all interactive elements mentioned in specs.
+
+      4. **Write scenario.json** — browser steps to capture each state:
+         Write `<change-dir>/screenshots/scenario.json` as a JSON array:
+         ```json
+         [
+           {"open": "http://localhost:8000"},
+           {"wait": 2000},
+           {"screenshot": "desktop-overview"},
+           {"click": ".session-card:first-child", "screenshot": "selected-card"},
+           {"press": "Escape"},
+           {"set viewport": "375 3000", "screenshot": "mobile-overview"}
+         ]
+         ```
+         Execute each step in order via browser tool. Save screenshots to
+         `<change-dir>/screenshots/<name>.png`.
+
+      5. **Invoke sandbox-designer subagent:**
+         ```
+         subagent({
+           agent: "sandbox-designer",
+           reads: [
+             "<change-dir>/screenshots/",
+             "<change-dir>/proposal.md",
+             "<change-dir>/specs/"
+           ],
+           task: "Generate mockup.html with these states: <state list from step 3>.\nScreenshots show current UI. Proposal + specs define requirements."
+         })
+         ```
+         **Validate the designer's first message** — it MUST describe what it sees in the screenshots. If the description is wrong or generic, screenshots didn't load. Retry or fix paths.
+
+      6. **Validate mockup.html:**
+         - Check ALL `<!-- state: -->` blocks from the task are present
+         - Verify no raw Tailwind colors (grep for `bg-gray-`, `text-white`, etc.)
+         - If validation fails → intercom to designer asking for fixes, wait, re-check
+
+      7. **Update design.md** with `## Visual Design` section linking to `mockup.html`.
+
+      8. **Teardown sandbox:**
+         ```bash
+         docker compose -f sandbox/docker-compose.yml down
+         ```
+         Teardown failure emits a warning but does NOT block.
+
+      9. **Read back visual artifacts** so user can review:
+         ```
+         read <change-dir>/screenshots/before-desktop.png
+         read <change-dir>/screenshots/before-mobile.png
+         read <change-dir>/mockup.html
+         ```
+
+6. **Create tasks artifact**
+
+7. **Show final status**
    ```bash
    openspec status --change "<name>"
    ```

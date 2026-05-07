@@ -11,6 +11,21 @@ Test layouts across device sizes using `agent-browser set viewport` — no brows
 | desktop | 1280  | 720    | Standard laptop        |
 | wide    | 1920  | 1080   | Full HD monitor        |
 
+## One-Shot Capture (Design Flow)
+
+Quick capture of both viewports for design mockups:
+
+```bash
+browser open http://localhost:8000 && browser wait 2000
+browser set viewport 1280 3000 && browser screenshot
+cp ~/.agent-browser/tmp/screenshots/screenshot-*.png screenshots/desktop.png
+browser close
+
+browser open http://localhost:8000 && browser wait 2000
+browser set viewport 375 3000 && browser screenshot
+cp ~/.agent-browser/tmp/screenshots/screenshot-*.png screenshots/mobile.png
+```
+
 ## Multi-Viewport Workflow
 
 Test the same page across all viewports in one browser session:
