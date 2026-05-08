@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install agent-browser globally for screenshot capture
-RUN npm install -g @mariozechner/agent-browser
+RUN npm install -g agent-browser
 
 ENV CHROME_BIN=/usr/bin/chromium \
     AGENT_BROWSER_CDP_URL=http://localhost:9222
@@ -49,6 +49,9 @@ RUN npm ci
 
 # Dashboard source (read-only, for pi-dashboard --dev)
 COPY . /app
+
+# Build client for production fallback (dev mode serves this when Vite is not running)
+RUN npm run build
 
 # Expose dashboard port
 EXPOSE 8000

@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+[Spec purpose]
+## Requirements
 ### Requirement: Session name field on DashboardSession
 The `DashboardSession` type SHALL include an optional `name?: string` field representing the user-defined display name.
 
@@ -95,3 +97,11 @@ When a proposal is attached to a session and the session's `name` field is empty
 #### Scenario: Detach does not revert auto-name
 - **WHEN** a proposal is detached from a session whose name was auto-set to the proposal name
 - **THEN** `session.name` SHALL remain as the proposal name
+
+### Requirement: Inline rename removed from SessionCard
+Inline rename via double-click on the session name in SessionCard SHALL be removed. Rename SHALL remain available in SessionHeader and SessionSidebar.
+
+#### Scenario: Double-click does nothing
+- **WHEN** user double-clicks session name in SessionCard
+- **THEN** no rename input SHALL appear
+

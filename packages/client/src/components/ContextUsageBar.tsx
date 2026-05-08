@@ -10,9 +10,9 @@ interface Props {
 }
 
 function getBarColor(pct: number): string {
-  if (pct > 80) return "bg-red-500";
-  if (pct > 50) return "bg-yellow-500";
-  return "bg-green-500";
+  if (pct > 80) return "bg-red-500/60";
+  if (pct > 50) return "bg-yellow-500/60";
+  return "bg-[var(--text-tertiary)]";
 }
 
 export function ContextUsageBar({ tokens, contextWindow, compact }: Props) {
@@ -22,7 +22,7 @@ export function ContextUsageBar({ tokens, contextWindow, compact }: Props) {
   return (
     <div className={compact ? "flex items-center w-16" : "flex items-center gap-2"} data-testid="context-usage-bar">
       <div
-        className="h-1.5 flex-1 rounded-full bg-gray-300 dark:bg-gray-600 overflow-hidden"
+        className="h-1.5 flex-1 rounded-full bg-[var(--bg-surface)] overflow-hidden"
         title={hasData ? `${Math.round(pct)}% context used (${tokens.toLocaleString()} / ${contextWindow.toLocaleString()})` : "No context data"}
       >
         {hasData && (

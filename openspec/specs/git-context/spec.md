@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+[Spec purpose]
+## Requirements
 ### Requirement: Git branch detection
 The bridge extension SHALL detect the current git branch by running `git rev-parse --abbrev-ref HEAD` in the session's `cwd`. If the command fails (not a git repo), the branch SHALL be `undefined`. When in detached HEAD state, the extension SHALL detect the short commit SHA via `git rev-parse --short HEAD`.
 
@@ -85,3 +87,19 @@ The extension SHALL poll git info every 30 seconds and send a `git_info_update` 
 #### Scenario: Initial git info
 - **WHEN** a session is registered
 - **THEN** the extension SHALL send git info immediately after registration, then poll every 30 seconds
+
+### Requirement: Git branch rendered as chip in session card
+In addition to the existing GroupGitInfo at the folder level, the session card SHALL render git branch information as a compact chip in its meta row. The chip SHALL include the branch name with a git icon. When gitPrNumber is set, the PR number SHALL be included in the same chip.
+
+#### Scenario: Branch chip in card
+- **WHEN** session.gitBranch is "feature/x"
+- **THEN** the card SHALL render a chip with branch icon and "feature/x"
+
+#### Scenario: Branch chip with PR
+- **WHEN** session.gitBranch is "feature/x" and session.gitPrNumber is 42
+- **THEN** the chip SHALL render "feature/x · #42"
+
+#### Scenario: No git info
+- **WHEN** session.gitBranch is not set
+- **THEN** no git chip SHALL render in the card
+

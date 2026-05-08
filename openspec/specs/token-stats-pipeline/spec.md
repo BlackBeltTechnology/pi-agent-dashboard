@@ -1,9 +1,7 @@
 ## Purpose
 
 End-to-end pipeline for extracting, forwarding, accumulating, and displaying per-turn token usage statistics from pi sessions.
-
-## ADDED Requirements
-
+## Requirements
 ### Requirement: Stats extraction from turn_end events
 The bridge extension SHALL extract token usage stats from `turn_end` events by reading `event.message.usage`. The extracted data SHALL include: `tokensIn` (input tokens), `tokensOut` (output tokens), `cost` (from `usage.cost.total`), per-turn breakdown (`turnUsage` with input, output, cacheRead, cacheWrite), and optionally `contextUsage` from `ctx.getContextUsage()`.
 
@@ -60,3 +58,16 @@ The server SHALL extract session status changes from forwarded events and apply 
 #### Scenario: Model change detected
 - **WHEN** a `model_select` event with `model: { provider: "anthropic", id: "claude-4" }` is forwarded
 - **THEN** the session's `model` SHALL be updated to `"anthropic/claude-4"`
+
+### Requirement: Token stats not displayed in session card
+Token statistics (tokensIn, tokensOut, cacheRead, cacheWrite) SHALL NOT be rendered in the SessionCard component. The server SHALL continue to accumulate and broadcast token stats. Display of token stats is deferred to SessionSidebar/detail view.
+
+#### Scenario: Token stats not in card
+- **WHEN** a session has token data
+- **THEN** the SessionCard SHALL NOT render TokenStats component
+
+#### Scenario: Server accumulation unchanged
+- **WHEN** a stats_update is received from the bridge
+- **THEN** the server SHALL still accumulate totals on the session record
+- **AND** SHALL broadcast session_updated with updated totals
+

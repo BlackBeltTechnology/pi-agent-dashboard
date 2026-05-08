@@ -1,0 +1,9 @@
+[
+  {"open": "http://localhost:8000"},
+  {"wait": 3000},
+  {"set viewport": "1512 982"},
+  {"screenshot": "session-list-desktop"},
+  {"set viewport": "375 812"},
+  {"wait": 1000},
+  {"screenshot": "session-list-mobile"}
+]

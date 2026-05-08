@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+[Spec purpose]
+## Requirements
 ### Requirement: Process scanner detects child processes of pi session
 The `process-scanner` module SHALL export a `scanChildProcesses(parentPid: number)` function that returns an array of `ChildProcessInfo` objects. Each object SHALL contain `pid` (number), `pgid` (number), `command` (string, the full args from `ps`), and `elapsedMs` (number, milliseconds since process start).
 
@@ -128,3 +130,11 @@ The dashboard session card SHALL display a process list section when the session
 #### Scenario: Process disappears after kill
 - **WHEN** a kill request succeeds and the next process scan excludes the killed process
 - **THEN** the entry SHALL be removed from the session card
+
+### Requirement: ProcessList removed from session card
+The ProcessList component SHALL NOT render inside SessionCard. Process information SHALL remain available via `session.processes` data and SHALL be accessible in SessionSidebar/detail view.
+
+#### Scenario: No process list in card
+- **WHEN** a session has active child processes
+- **THEN** ProcessList SHALL NOT render inside the SessionCard
+

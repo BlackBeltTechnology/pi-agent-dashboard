@@ -1,3 +1,7 @@
+## Purpose
+
+[Spec purpose]
+## Requirements
 ### Requirement: Two-row header layout
 The sidebar header SHALL render as two distinct rows within a single border-bottom container.
 
@@ -23,3 +27,15 @@ All ten header controls SHALL remain present and functional after the layout cha
 #### Scenario: Conditional controls still conditional
 - **WHEN** InstallButton conditions are not met (already installed or not installable)
 - **THEN** InstallButton SHALL not render, same as current behavior
+
+### Requirement: No README button in folder header
+The folder group header SHALL NOT render a README button. The `onViewReadme` and `readmeDirs` props SHALL be removed from the session list.
+
+#### Scenario: README button not rendered
+- **WHEN** a folder group has a README.md file
+- **THEN** no README icon button SHALL appear in the group header
+
+#### Scenario: readmeDirs prop removed
+- **WHEN** SessionList is instantiated
+- **THEN** `onViewReadme` and `readmeDirs` props SHALL NOT be accepted
+

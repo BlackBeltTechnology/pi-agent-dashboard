@@ -147,7 +147,29 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
-- **For UI changes**: after implementation, offer to capture before/after screenshots via sandbox and compare against `mockup.html`
+- **For UI changes with mockup.html**:
+  1. Before starting implementation, `read <change-dir>/mockup.html` to understand the visual target
+  2. During implementation, reference mockup.html for exact CSS classes, spacing, and layout
+  3. After all UI tasks complete, capture AFTER screenshots via sandbox:
+     - The Docker sandbox builds from the worktree, so it picks up your changes automatically.
+     - `docker compose -f sandbox/docker-compose.yml up -d --wait dashboard`
+     - `sandbox/scripts/capture-screenshots.sh <change-dir>/screenshots/scenario.json <change-dir>/screenshots/`
+     - The dashboard inside sandbox runs on `http://localhost:8000` — scenario.json should use this URL.
+     - Copy results: screenshots appear in `<change-dir>/screenshots/`
+  4. Show BEFORE and AFTER screenshots side by side via `read`
+  5. Show mockup.html final screenshot via `read <change-dir>/screenshots/mockup-final.png`
+  6. **Designer review loop — MANDATORY for UI changes**:
+     - After showing AFTER screenshots, invoke sandbox-designer to critique implementation vs mockup
+     - Use `subagent({ agent: "sandbox-designer", async: false, task: "Compare AFTER vs MOCKUP and list differences..." })`
+     - Fix ALL issues reported by the designer
+     - Rebuild, restart, re-capture screenshots, re-invoke the SAME designer via `subagent({ action: "resume", id: "<run-id>", message: "Re-review. Issues fixed..." })`
+     - **Loop until designer responds with NO_ISSUES** — do NOT stop before that
+  7. Ask user to verify implementation matches mockup
+  - **CRITICAL**: NEVER skip showing screenshots to the user. Always use `read` on PNG files.
+  - **BEFORE screenshots MUST be shown**: `read <change-dir>/screenshots/session-list-desktop.png` and `session-list-mobile.png`
+  - **AFTER screenshots MUST be shown**: capture and `read` the new screenshots
+  - **Mockup MUST be shown**: `read <change-dir>/screenshots/mockup-final.png`
+  - **Designer review MUST loop until NO_ISSUES**
 
 **Fluid Workflow Integration**
 

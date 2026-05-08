@@ -65,38 +65,19 @@ Archive a completed change in the experimental workflow.
 
    If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
 
-5. **Pre-archive merge: seed and Dockerfile patches**
+5. **Save sandbox/seed patch as artifact**
 
-   Check if the change directory contains `seed.patch` or `Dockerfile.patch`.
+   Check if `sandbox/` or `seed/` directories have uncommitted changes vs the main repo (changes made during the apply phase, e.g. Dockerfile fixes, seed data updates).
 
-   **If neither patch exists:** Skip to step 6.
+   **If no changes in sandbox/ or seed/:** Skip to step 6.
 
-   **If `seed.patch` exists:**
+   **If changes exist:**
    ```bash
-   cp openspec/changes/<name>/seed.patch /tmp/seed-<name>.patch
-   git apply --directory=seed/ /tmp/seed-<name>.patch
-   rm /tmp/seed-<name>.patch
+   git diff -- sandbox/ seed/ > openspec/changes/<name>/sandbox-seed.patch
    ```
-   If `git apply` fails with a conflict: emit error "seed.patch failed to apply: <error>. Archive aborted." and STOP. Do NOT proceed.
-
-   **If `Dockerfile.patch` exists:**
-   ```bash
-   cp openspec/changes/<name>/Dockerfile.patch /tmp/dockerfile-<name>.patch
-   git apply /tmp/dockerfile-<name>.patch
-   rm /tmp/dockerfile-<name>.patch
-   ```
-   If `git apply` fails: same abort pattern.
-
-   **If any patch was applied:**
-   ```bash
-   git add seed/ sandbox/Dockerfile
-   ```
-
-   **If Docker is available AND patches were applied:**
-   ```bash
-   docker compose -f sandbox/docker-compose.yml build
-   ```
-   Build failure emits a warning but does NOT abort.
+   This saves the diff as an artifact in the change directory. It documents what sandbox/seed changes were made during implementation.
+   
+   **Do NOT apply the patch.** All changes were already made in the worktree during the apply phase. The patch is purely for documentation/archive purposes.
 
 6. **Perform the archive**
 

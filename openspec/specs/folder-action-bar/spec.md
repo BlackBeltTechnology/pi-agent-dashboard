@@ -1,76 +1,44 @@
-## ADDED Requirements
+## Purpose
 
+[Spec purpose]
+## Requirements
 ### Requirement: Folder action bar layout
-Each folder group in the sidebar SHALL render a horizontal action bar below the group header containing buttons in this order: `+Session`, `Terminals(N)`, `Editor`, `Zed`, and Pi Resources (right-aligned). The action bar SHALL replace the current scattered button layout.
+Each folder group in the sidebar SHALL render a horizontal action bar. On desktop (>= 768px), the action bar SHALL display: +Session button, +Worktree button (if enabled), and a "Tools" dropdown containing Terminals, Editor, native editors, and Pi Resources. On mobile (< 768px), it SHALL display only +Session and +Worktree buttons.
 
-#### Scenario: All buttons visible with detected editors
-- **WHEN** a folder group is rendered and Zed is detected as a running native editor
-- **THEN** the action bar SHALL display: +Session, Terminals(0), Editor, Zed, and Pi Resources icon
-- **THEN** buttons SHALL be arranged horizontally with consistent spacing
-- **THEN** the action bar SHALL NOT contain a `+Terminal` button
+#### Scenario: Desktop action bar
+- **WHEN** viewport >= 768px
+- **THEN** the action bar SHALL display +Session, +Worktree (if enabled), and Tools dropdown
+- **THEN** there SHALL NOT be standalone Terminals, Editor, Zed, or Pi Resources buttons
 
-#### Scenario: Zed not detected
-- **WHEN** a folder group is rendered and Zed is not detected
-- **THEN** the Zed button SHALL NOT appear in the action bar
-- **THEN** all other buttons SHALL remain visible
+#### Scenario: Mobile action bar
+- **WHEN** viewport < 768px
+- **THEN** the action bar SHALL display only +Session and +Worktree (if enabled)
+- **AND** there SHALL NOT be a Tools dropdown
 
 ### Requirement: +Session button
-The +Session button SHALL spawn a new pi session in the folder's cwd. It SHALL be disabled while a session is being spawned (existing behavior, relocated).
+The +Session button SHALL spawn a new pi session in the folder's cwd. It SHALL be disabled while a session is being spawned.
 
 #### Scenario: Spawn session
 - **WHEN** user clicks +Session
 - **THEN** a new pi session SHALL be spawned in the folder's cwd
 - **THEN** the button SHALL be disabled until the session appears
 
-### Requirement: Terminals button with count badge
-The Terminals button SHALL display the count of open terminals for the folder as a badge (e.g., `Terminals(3)`). Clicking it SHALL navigate to the TerminalsView. When no terminals exist, the badge SHALL show 0.
+### Requirement: Tools dropdown on desktop
+The Tools dropdown SHALL group Terminals, Editor, native editors, and Pi Resources into a single expandable menu. Each item SHALL trigger its corresponding action on click.
 
-#### Scenario: Navigate to terminals view
-- **WHEN** user clicks Terminals(N)
-- **THEN** the content area SHALL navigate to `/folder/:encodedCwd/terminals`
+#### Scenario: Terminals with count
+- **WHEN** a folder has 2 active terminals
+- **THEN** the dropdown SHALL show "Terminals (2)"
 
-#### Scenario: Badge reflects terminal count
-- **WHEN** a folder has 3 active terminals
-- **THEN** the Terminals button SHALL display `Terminals(3)`
+#### Scenario: Editor with status
+- **WHEN** code-server is running
+- **THEN** the dropdown SHALL show a green dot next to "Editor"
 
-#### Scenario: No terminals exist
-- **WHEN** a folder has no terminals
-- **THEN** the Terminals button SHALL display `Terminals(0)`
+#### Scenario: Native editors listed
+- **WHEN** Zed is detected
+- **THEN** the dropdown SHALL show "Zed" as a clickable item
 
-### Requirement: Editor button with status indicator
-The Editor button SHALL navigate to the EditorView for the folder. It SHALL display a status indicator: green dot when code-server is running, pulsing dot when starting, yellow warning icon when code-server binary is not found, no indicator when stopped.
+#### Scenario: Pi Resources listed
+- **WHEN** the dropdown is open
+- **THEN** "Pi Resources" SHALL be a clickable item
 
-#### Scenario: Editor running
-- **WHEN** a code-server instance is running for the folder
-- **THEN** the Editor button SHALL display a green dot indicator
-
-#### Scenario: Editor starting
-- **WHEN** a code-server instance is starting for the folder
-- **THEN** the Editor button SHALL display a pulsing dot indicator
-
-#### Scenario: Editor stopped
-- **WHEN** no code-server instance exists for the folder
-- **THEN** the Editor button SHALL display no indicator
-
-#### Scenario: code-server not found
-- **WHEN** code-server binary is not detected on the system
-- **THEN** the Editor button SHALL display a yellow warning icon
-
-#### Scenario: Click navigates to editor
-- **WHEN** user clicks the Editor button
-- **THEN** the content area SHALL navigate to `/folder/:encodedCwd/editor`
-
-### Requirement: Zed button for native launch
-The Zed button SHALL launch Zed natively via the existing `POST /api/open-editor` endpoint. It SHALL NOT cause any content area navigation. It SHALL only appear when Zed is detected as running.
-
-#### Scenario: Launch Zed
-- **WHEN** user clicks the Zed button
-- **THEN** the system SHALL call `POST /api/open-editor` with `{ path: cwd, editor: "zed" }`
-- **THEN** no content area navigation SHALL occur
-
-### Requirement: Pi Resources button with updated icon
-The Pi Resources button SHALL be right-aligned in the action bar and use a more representative icon (replacing `mdiPuzzleOutline`). Clicking it SHALL open the PiResourcesView (existing behavior, relocated).
-
-#### Scenario: Open Pi Resources
-- **WHEN** user clicks the Pi Resources icon
-- **THEN** the PiResourcesView SHALL open for the folder's cwd

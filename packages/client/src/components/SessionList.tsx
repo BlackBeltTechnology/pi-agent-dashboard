@@ -9,9 +9,8 @@ import { FolderActionBar } from "./FolderActionBar.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { SortableSessionCard } from "./SortableSessionCard.js";
-import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
-import type { DashboardSession, OpenSpecData, OpenSpecGroup, CommandInfo, FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { SortablePinnedGroup } from "./SortablePinnedGroup.js";
+import type { DashboardSession, OpenSpecData, CommandInfo, FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import {
   groupSessionsByDirectory,
@@ -55,7 +54,6 @@ interface Props {
   onSelect: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
-  openspecGroupsMap?: Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string> }>;
   sessionOrderMap?: Map<string, string[]>;
   onReorderSessions?: (cwd: string, sessionIds: string[]) => void;
   onSendPrompt?: (sessionId: string, text: string, images?: ImageContent[]) => void;
@@ -107,8 +105,6 @@ interface Props {
   headerExtra?: React.ReactNode;
   /** Set of session IDs that have an active error */
   errorSessionIds?: Set<string>;
-  /** Set of session IDs currently in a synthesized provider-retry phase (no terminal error). */
-  retrySessionIds?: Set<string>;
   /** Per-workspace spawn errors (cwd → detail). See change: spawn-failure-diagnostics. */
   spawnErrors?: Map<string, import("../hooks/useMessageHandler.js").SpawnErrorDetail>;
   /** Dismiss a spawn error for a workspace */
@@ -145,7 +141,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, onSpawnWorktree, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, sessionOrderMap, onReorderSessions, onSendPrompt, onFlowAction, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, onSpawnWorktree, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, flowsMap, onKillProcess, onOpenSpecs, onOpenArchive, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
   const now = Date.now();
   const [, navigate] = useLocation();
   const { messages, showToast, dismissToast } = useToast();
@@ -195,25 +191,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   const editorMap = useEditors(cwds);
 
   // Track which directories have README.md
-  const [readmeDirs, setReadmeDirs] = useState<Set<string>>(new Set());
-  const cwdsKey = useMemo(() => [...new Set(cwds)].sort().join(","), [cwds]);
-  useEffect(() => {
-    if (!onViewReadme) return;
-    const uniqueCwds = cwdsKey.split(",").filter(Boolean);
-    if (uniqueCwds.length === 0) return;
-    let cancelled = false;
-    Promise.all(
-      uniqueCwds.map((cwd) =>
-        fetch(`${getApiBase()}/api/readme?cwd=${encodeURIComponent(cwd)}&check=1`)
-          .then((r) => (r.ok ? cwd : null))
-          .catch(() => null)
-      )
-    ).then((results) => {
-      if (cancelled) return;
-      setReadmeDirs(new Set(results.filter((r): r is string => r !== null)));
-    });
-    return () => { cancelled = true; };
-  }, [cwdsKey, onViewReadme]);
+
+
 
   const handleOpenEditor = useCallback(async (cwd: string, editorId: string) => {
     const result = await openEditor(cwd, editorId);
@@ -427,15 +406,15 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
     const isCollapsed = isFolderCollapsed(group.cwd);
 
     return (
-      <div key={group.cwd} className="bg-[var(--bg-secondary)] rounded-lg p-1.5">
-        <div className="flex gap-1.5 px-1 py-1 min-h-[44px] md:min-h-0 rounded">
-          {/* Left gutter — chevron at top, drag-handle column extending below */}
-          <FolderDragGutter
-            isCollapsed={isCollapsed}
-            onToggle={() => handleToggleCollapse(group.cwd)}
-          />
-          <div className="flex-1 min-w-0">
+      <div key={group.cwd} className="bg-[var(--bg-secondary)] rounded-lg p-2">
+        <div
+          className="px-2 py-1.5 min-h-[44px] md:min-h-0 cursor-pointer rounded hover:bg-[var(--bg-hover)]"
+          onClick={() => handleToggleCollapse(group.cwd)}
+        >
           <div className="flex items-center gap-1.5">
+            <span className="inline-flex text-[var(--text-tertiary)]">
+              <Icon path={isCollapsed ? mdiChevronRight : mdiChevronDown} size={0.6} />
+            </span>
             <span className="text-xs font-medium text-[var(--text-secondary)] truncate flex items-center gap-1">
               <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" /> {dirName}
             </span>
@@ -462,18 +441,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               cwd={group.cwd}
               onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
-            {onViewReadme && readmeDirs.has(group.cwd) && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onViewReadme(group.cwd); }}
-                className="ml-auto text-[var(--text-muted)] hover:text-blue-400 transition-colors"
-                title="View README.md"
-                data-testid="view-readme-btn"
-              >
-                <Icon path={mdiFileDocumentOutline} size={0.5} />
-              </button>
-            )}
           </div>
-          <div className="mt-1">
+          <div className="mt-1 ml-5">
             <FolderActionBar
               cwd={group.cwd}
               terminalCount={terminalsByCwd.get(group.cwd)?.length ?? 0}
@@ -491,9 +460,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           </div>
           {/* Plugin slot: sidebar-folder-section (additive, coexists with FolderOpenSpecSection) */}
           <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
-          {/* Render for both initialized (full section) and pending (spinner).
-              See change: fix-cold-boot-openspec-protocol. */}
-          {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
+          {openspecMap?.get(group.cwd)?.initialized && (
             <FolderOpenSpecSection
               data={openspecMap.get(group.cwd)!}
               cwd={group.cwd}
@@ -504,16 +471,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
               onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
               onSpawnAttached={onSpawnSession ? (cwd, changeName) => onSpawnSession(cwd, changeName) : undefined}
-              onHideSession={onHideSession ? handleHide : undefined}
-              onUnhideSession={onUnhideSession ? handleUnhide : undefined}
-              onResumeSession={onResume}
-              groups={openspecGroupsMap?.get(group.cwd)?.groups}
-              assignments={openspecGroupsMap?.get(group.cwd)?.assignments}
-              selectedId={selectedId}
             />
           )}
 
-          </div>{/* end content column */}
         </div>
         {/* Session + terminal cards — animated collapse */}
         <div className={`group-collapse ${isCollapsed ? "collapsed" : "expanded"}`}>
@@ -618,7 +578,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               sessionSearch.length === 0 &&
               workspaceFilter.length === 0;
             return (
-              <SortableContext items={allIds} strategy={verticalListSortingStrategy}>
+              <>
                 {allIds.map((id, idx) => {
                   const session = sessionMap.get(id);
                   if (!session) return null;
@@ -636,36 +596,21 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                           <span>Hide ended</span>
                         </button>
                       )}
-                    <SortableSessionCard key={id} id={id}>
+                    <React.Fragment key={`f-${id}`}>
                       <SessionCard
                         session={session}
                         selectedId={selectedId}
                         onSelect={onSelect}
                         now={now}
-                        showGitInfo={group.sessions.length === 1}
                         isHidden={!!session.hidden}
                         onHide={handleHide}
                         onUnhide={handleUnhide}
-
                         contextUsage={contextUsageMap?.get(session.id)}
                         openspecChanges={openspecMap?.get(session.cwd)?.changes}
-                        openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
-                        openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
-                        onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
-                        onFlowAction={onFlowAction ? (action, opts) => onFlowAction(session.id, action, opts) : undefined}
-                        onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
-                        onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
-                        onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
-                        onBulkArchive={onBulkArchive ? (cleanupWorktree) => onBulkArchive(session.cwd, cleanupWorktree) : undefined}
                         onRename={onRename ? (name) => onRename(session.id, name) : undefined}
                         onShutdown={onShutdown}
                         onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
-                        commands={commandsMap?.get(session.id)}
-                        flows={flowsMap?.get(session.id)}
-                        processes={session.processes}
-                        onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
                         hasError={errorSessionIds?.has(session.id)}
-                        isRetrying={retrySessionIds?.has(session.id)}
                       />
                       {resumeErrors?.get(session.id) && (
                         <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
@@ -679,11 +624,11 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                           )}
                         </div>
                       )}
-                    </SortableSessionCard>
+                    </React.Fragment>
                     </React.Fragment>
                   );
                 })}
-              </SortableContext>
+              </>
             );
           })()}
           {/* Minimal `Show N ended` expand row at the bottom of the folder.
@@ -834,43 +779,6 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
       <Toast messages={messages} onDismiss={dismissToast} />
 
       </div>
-    </div>
-  );
-}
-
-/**
- * Folder header left gutter — chevron at top, drag-handle column extending
- * the full height of the header content. The chevron itself remains a
- * click-to-toggle button (pointer events stop propagation so the surrounding
- * drag listener doesn't compete on click). The empty space below the chevron
- * is the drag zone, mirroring the SessionCard gutter pattern.
- */
-function FolderDragGutter({
-  isCollapsed,
-  onToggle,
-}: {
-  isCollapsed: boolean;
-  onToggle: () => void;
-}) {
-  const dragHandleProps = useFolderDragHandle();
-  return (
-    <div
-      {...(dragHandleProps ?? {})}
-      className={`flex flex-col items-center flex-shrink-0 w-3 pt-0.5 text-[var(--text-tertiary)] ${dragHandleProps ? "cursor-grab active:cursor-grabbing" : ""}`}
-      data-testid={dragHandleProps ? "drag-handle-pinned" : undefined}
-      title={dragHandleProps ? "Drag to reorder folder" : undefined}
-    >
-      <button
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
-        onPointerDown={(e) => e.stopPropagation()}
-        className="inline-flex items-center justify-center cursor-pointer hover:text-[var(--text-secondary)]"
-        title={isCollapsed ? "Expand folder" : "Collapse folder"}
-        data-testid="folder-toggle-btn"
-      >
-        <Icon path={isCollapsed ? mdiChevronRight : mdiChevronDown} size={0.6} />
-      </button>
-      {/* Remainder of the column is the drag area (no children needed). */}
-      <span className="flex-1" />
     </div>
   );
 }

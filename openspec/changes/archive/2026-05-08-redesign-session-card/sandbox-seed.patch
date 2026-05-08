@@ -1,0 +1,36 @@
+diff --git a/sandbox/Dockerfile b/sandbox/Dockerfile
+index 0fe6f287..17aef89f 100644
+--- a/sandbox/Dockerfile
++++ b/sandbox/Dockerfile
+@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ # Install agent-browser globally for screenshot capture
+-RUN npm install -g @mariozechner/agent-browser
++RUN npm install -g agent-browser
+ 
+ ENV CHROME_BIN=/usr/bin/chromium \
+     AGENT_BROWSER_CDP_URL=http://localhost:9222
+@@ -50,6 +50,9 @@ RUN npm ci
+ # Dashboard source (read-only, for pi-dashboard --dev)
+ COPY . /app
+ 
++# Build client for production fallback (dev mode serves this when Vite is not running)
++RUN npm run build
++
+ # Expose dashboard port
+ EXPOSE 8000
+ 
+diff --git a/sandbox/scripts/run-scenarios.sh b/sandbox/scripts/run-scenarios.sh
+index 25440156..8fa30865 100755
+--- a/sandbox/scripts/run-scenarios.sh
++++ b/sandbox/scripts/run-scenarios.sh
+@@ -38,7 +38,7 @@ out_dir = '$OUT'
+ 
+ def run(cmd):
+     print(f'  → {cmd}')
+-    result = subprocess.run(['browser'] + cmd.split(), capture_output=True, text=True)
++    result = subprocess.run(['agent-browser'] + cmd.split(), capture_output=True, text=True)
+     if result.returncode != 0 and 'screenshot' not in cmd:
+         print(f'  ⚠ {result.stderr.strip()[:200]}')
+ 

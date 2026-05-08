@@ -1,6 +1,7 @@
 /**
  * Unified action bar for folder groups in the sidebar.
- * Buttons: +Session | +Worktree | Terminals(N) | Editor | Zed | Pi Resources
+ * Desktop: +Session | +Worktree | Tools dropdown (Terminals, Editor, native editors, Pi Resources)
+ * Mobile: +Session | +Worktree (compact, text always visible)
  */
 import React from "react";
 import { Icon } from "@mdi/react";
@@ -52,24 +53,19 @@ export function FolderActionBar({
 }: Props) {
   const filteredNativeEditors = nativeEditors.filter((e) => e.id !== "vscode" && e.id !== "code");
 
-  const btn = (disabled: boolean) =>
-    `text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] ${
-      disabled ? "opacity-50 cursor-not-allowed" : ""
-    }`;
-
   return (
-    <div className="flex items-center gap-1 flex-wrap">
+    <div className="flex items-center gap-2">
       {/* +Session */}
       <button
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
         disabled={spawningDisabled}
         data-testid="spawn-session-btn"
-        className={`${btn(!!spawningDisabled)} ${spawningDisabled ? "" : "hover:text-green-400 hover:border-green-500/50"}`}
+        className={`flex items-center gap-1 px-2 md:px-2.5 py-2 md:py-1.5 text-sm md:text-xs font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 ${
+          spawningDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-green-500/20 active:bg-green-500/20"
+        } transition-colors`}
         title="New pi session"
       >
-        <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiPlus} size={0.5} /> Session
-        </span>
+        <Icon path={mdiPlus} size={0.5} /> Session
       </button>
 
       {/* +Worktree */}
@@ -78,83 +74,86 @@ export function FolderActionBar({
           onClick={(e) => { e.stopPropagation(); onSpawnWorktree(); }}
           disabled={spawningDisabled}
           data-testid="spawn-worktree-btn"
-          className={`${btn(!!spawningDisabled)} ${spawningDisabled ? "" : "hover:text-green-400 hover:border-green-500/50"}`}
+          className={`flex items-center gap-1 px-2 md:px-2.5 py-2 md:py-1.5 text-sm md:text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] ${
+            spawningDisabled ? "opacity-50 cursor-not-allowed" : "hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] active:bg-[var(--bg-hover)]"
+          } transition-colors`}
           title="Spawn session in a git worktree"
         >
-          <span className="inline-flex items-center gap-0.5">
-            <Icon path={mdiFileTree} size={0.5} /> Worktree
-          </span>
+          <Icon path={mdiFileTree} size={0.5} /> Worktree
         </button>
       )}
 
-      {/* Terminals(N) */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onOpenTerminals(); }}
-        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-cyan-400 hover:border-cyan-500/50"
-        title="Open terminals view"
-      >
-        <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiConsoleLine} size={0.5} />
-          Terminals({terminalCount})
-        </span>
-      </button>
+      {/* Tools dropdown — desktop only */}
+      <details className="hidden md:block relative ml-auto">
+        <summary className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] bg-[var(--bg-surface)] cursor-pointer transition-colors list-none">
+          Tools <span className="text-[10px]">▾</span>
+        </summary>
+        <div className="absolute right-0 top-full mt-1 w-52 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-lg shadow-[var(--shadow-card)] flex flex-col py-1.5 z-10">
+          {/* Terminals */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenTerminals(); }}
+            className="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Icon path={mdiConsoleLine} size={0.55} className="text-[var(--text-tertiary)]" />
+              Terminals
+            </span>
+            <span className="text-[11px] text-[var(--text-secondary)] font-medium">{terminalCount}</span>
+          </button>
 
-      {/* Editor */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onOpenEditor(); }}
-        className={`text-[10px] px-1.5 py-0.5 rounded border text-[var(--text-secondary)] ${
-          editorStatus?.status === "ready"
-            ? "border-green-500/50 text-green-400"
-            : editorStatus?.status === "starting"
-            ? "border-blue-500/50 text-blue-400"
-            : editorAvailable === false
-            ? "border-yellow-500/50"
-            : "border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50"
-        }`}
-        title={editorAvailable === false ? "code-server not found — click to see install guide" : editorStatus?.status === "ready" ? "Editor running — click to open" : editorStatus?.status === "starting" ? "Editor starting..." : "Open VS Code editor"}
-      >
-        <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiCodeBraces} size={0.5} />
-          Editor
-          {editorAvailable === false && (
-            <Icon path={mdiAlertCircleOutline} size={0.4} className="text-yellow-400" />
-          )}
-          {editorStatus?.status === "ready" && (
-            <Icon path={mdiCircleSmall} size={0.6} className="text-green-500" />
-          )}
-          {editorStatus?.status === "starting" && (
-            <Icon path={mdiCircleSmall} size={0.6} className="text-blue-400 animate-pulse" />
-          )}
-        </span>
-      </button>
-
-      {/* Native editors */}
-      {filteredNativeEditors.map((editor) => (
-        <button
-          key={editor.id}
-          onClick={(e) => { e.stopPropagation(); onOpenNativeEditor(editor.id); }}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
-          title={`Open in ${editor.name}`}
-        >
-          <span className="inline-flex items-center gap-0.5">
-            {editorIcons[editor.id] ? (
-              <span className="text-[10px] font-bold">{editorIcons[editor.id]}</span>
-            ) : (
-              <Icon path={mdiOpenInNew} size={0.5} />
+          {/* Editor */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenEditor(); }}
+            className="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Icon path={mdiCodeBraces} size={0.55} className="text-[var(--text-tertiary)]" />
+              Editor
+              {editorAvailable === false && (
+                <Icon path={mdiAlertCircleOutline} size={0.45} className="text-yellow-400" />
+              )}
+            </span>
+            {editorStatus?.status === "ready" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             )}
-            {editor.name}
-          </span>
-        </button>
-      ))}
+            {editorStatus?.status === "starting" && (
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            )}
+          </button>
 
-      {/* Pi Resources */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
-        className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
-        title="Pi Resources"
-      >
-        <Icon path={mdiToyBrickOutline} size={0.5} />
-      </button>
+          {/* Native editors */}
+          {filteredNativeEditors.map((editor) => (
+            <button
+              key={editor.id}
+              onClick={(e) => { e.stopPropagation(); onOpenNativeEditor(editor.id); }}
+              className="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              <span className="flex items-center gap-2">
+                {editorIcons[editor.id] ? (
+                  <span className="text-[13px] font-bold text-[var(--text-tertiary)]">{editorIcons[editor.id]}</span>
+                ) : (
+                  <Icon path={mdiOpenInNew} size={0.55} className="text-[var(--text-tertiary)]" />
+                )}
+                {editor.name}
+              </span>
+            </button>
+          ))}
+
+          <div className="h-px bg-[var(--border-subtle)] my-1.5 mx-2" />
+
+          {/* Pi Resources */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
+            className="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Icon path={mdiToyBrickOutline} size={0.55} className="text-[var(--text-tertiary)]" />
+              Pi Resources
+            </span>
+            <span className="text-[10px] text-[var(--text-tertiary)]">↗</span>
+          </button>
+        </div>
+      </details>
     </div>
   );
 }

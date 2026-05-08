@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Card Redesign</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class'
+    }
+  </script>
+  <style>
+    /* Providing standalone fallback project tokens purely to make mockup render accurately */
+    :root {
+      --bg-primary: #ffffff; --bg-secondary: #fafafa; --bg-tertiary: #f0f0f0;
+      --bg-surface: #e0e0e0; --bg-hover: rgba(0,0,0,0.06);
+      --text-primary: #1a1a1a; --text-secondary: #444444; --text-tertiary: #777777; --text-muted: #aaaaaa;
+      --border-secondary: #cccccc; --border-subtle: rgba(0,0,0,0.06);
+      --shadow-card: rgba(0,0,0,0.08);
+    }
+    .dark {
+      --bg-primary: #0a0a0a; --bg-secondary: #141414; --bg-tertiary: #1e1e1e;
+      --bg-surface: #2a2a2a; --bg-hover: rgba(255,255,255,0.06);
+      --text-primary: #e5e5e5; --text-secondary: #b0b0b0; --text-tertiary: #808080; --text-muted: #585858;
+      --border-secondary: #333333; --border-subtle: rgba(255,255,255,0.06);
+      --shadow-card: rgba(0,0,0,0.4);
+    }
+  </style>
+</head>
+<body class="bg-[var(--bg-primary)] p-8 text-[var(--text-primary)] pb-24 antialiased">
+  
+  <svg style="display:none">
+    <symbol id="icon-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>
+    </symbol>
+    <symbol id="icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+    </symbol>
+    <symbol id="icon-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>
+    </symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+    </symbol>
+    <symbol id="icon-flash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+    </symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M8 5v14l11-7z"/>
+    </symbol>
+    <symbol id="icon-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="6" r="3"></circle><path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9"></path><path d="M12 12v3"></path>
+    </symbol>
+  </svg>
+
+  <h1 class="text-xl font-bold mb-6">Desktop Elements (>= 768px)</h1>
+
+  <!-- state: desktop-sidebar -->
+  <div class="mb-10 w-[340px] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl shadow-lg h-[600px] overflow-y-auto flex flex-col">
+    <div class="p-3 pb-2 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] sticky top-0 z-10 flex flex-col gap-2.5">
+      <div class="flex items-center justify-between text-sm font-medium text-[var(--text-primary)] px-1">
+        <div class="flex items-center gap-2 min-w-0">
+          <span>📁</span>
+          <span class="truncate">/home/pi/dev/my-project</span>
+          <span class="text-xs text-[var(--text-tertiary)] font-normal shrink-0">(10)</span>
+        </div>
+        <button class="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] shrink-0">📌</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 hover:bg-green-500/20 transition-colors">
+          <span>+</span> Session
+        </button>
+        <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+          <span>⎇</span> Worktree
+        </button>
+        <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] bg-[var(--bg-surface)] ml-auto transition-colors">
+          Tools <span class="text-[10px]">▾</span>
+        </button>
+      </div>
+    </div>
+    
+    <div class="p-3 flex flex-col gap-2.5">
+      <div class="relative group bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 shadow-sm shadow-[var(--shadow-card)] flex flex-col gap-2 hover:-translate-y-0.5 transition-all duration-200">
+        <div class="flex items-center justify-between min-w-0">
+          <div class="flex items-center gap-2 overflow-hidden">
+            <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+            <div class="text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+            <div class="text-[var(--text-primary)] font-semibold text-[13px] truncate">Idle script</div>
+          </div>
+          <div class="flex items-center gap-2.5 shrink-0">
+            <div class="flex items-center gap-1.5 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+               <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-pencil"/></svg></button>
+               <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-eye"/></svg></button>
+               <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-close"/></svg></button>
+            </div>
+            <div class="text-[var(--text-secondary)] text-xs">4s</div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="truncate">google/gemini-2.5-pro</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs mt-1">
+          <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+            <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+            <span class="truncate">Waiting for input</span>
+          </div>
+          <div class="flex items-center gap-3 shrink-0 ml-3">
+            <div class="w-16 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+              <div class="bg-[var(--border-secondary)] h-full w-[40%]"></div>
+            </div>
+            <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$0.02</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="relative group bg-blue-500/5 backdrop-blur-sm border border-blue-500/60 rounded-xl p-3.5 shadow-sm shadow-[var(--shadow-card)] flex flex-col gap-2 hover:-translate-y-0.5 transition-all duration-200">
+        <div class="flex items-center justify-between min-w-0">
+          <div class="flex items-center gap-2 overflow-hidden">
+            <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+            <div class="text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+            <div class="text-[var(--text-primary)] font-semibold text-[13px] truncate">Selected Session</div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="truncate">anthropic/claude-sonnet</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Idle</h2>
+
+  <!-- state: desktop-card-idle -->
+  <div class="w-[340px]">
+    <div class="relative group bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 md:p-4 shadow-sm shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Quick script</div>
+        </div>
+        <div class="hidden md:flex items-center gap-2.5 shrink-0">
+          <div class="flex items-center gap-1.5 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-pencil"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-eye"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-close"/></svg></button>
+          </div>
+          <div class="text-[var(--text-secondary)] text-[11px] md:text-xs">4s</div>
+        </div>
+        <div class="md:hidden flex items-center text-[var(--text-secondary)] text-[11px] shrink-0">$0.02</div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">google/gemini-2.5-pro</span>
+          <span class="text-[var(--text-tertiary)]">(high)</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+          <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+          <span class="truncate">Waiting for input</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+            <div class="bg-[var(--border-secondary)] h-full w-[40%]"></div>
+          </div>
+          <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$0.02</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Streaming</h2>
+
+  <!-- state: desktop-card-streaming -->
+  <div class="w-[340px]">
+    <div class="relative group bg-yellow-500/10 border border-yellow-500/30 animate-pulse rounded-xl p-3.5 md:p-4 shadow-sm shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Verify release v2.0</div>
+        </div>
+        <div class="hidden md:flex items-center gap-2.5 shrink-0">
+          <div class="flex items-center gap-1.5 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-pencil"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-eye"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-close"/></svg></button>
+          </div>
+          <div class="text-[var(--text-secondary)] text-[11px] md:text-xs">9s</div>
+        </div>
+        <div class="md:hidden flex items-center text-[var(--text-secondary)] text-[11px] shrink-0">$0.14</div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">anthropic/claude-sonnet-4</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-yellow-500 font-medium truncate">
+          <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+          <span class="truncate">Read</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+            <div class="bg-[var(--border-secondary)] h-full w-[65%]"></div>
+          </div>
+          <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$0.14</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Ended</h2>
+
+  <!-- state: desktop-card-ended -->
+  <div class="w-[340px]">
+    <div class="relative group bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 md:p-4 shadow-sm shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200 opacity-80">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-[var(--text-tertiary)] shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-secondary)] font-medium md:font-semibold text-[13px] md:text-sm truncate line-through decoration-[var(--border-secondary)]">Fix UI bugs</div>
+        </div>
+        <div class="hidden md:flex items-center gap-2.5 shrink-0">
+          <div class="flex items-center gap-1.5 text-[var(--text-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-pencil"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-eye"/></svg></button>
+            <button class="hover:text-[var(--text-primary)] transition-colors"><svg class="w-3.5 h-3.5"><use href="#icon-close"/></svg></button>
+          </div>
+          <div class="text-[var(--text-secondary)] text-[11px] md:text-xs">2h</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">openai/gpt-4o</span>
+        </div>
+        <div class="hidden md:flex flex-wrap items-center gap-1.5 shrink-0 pl-3">
+          <button class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors">
+            <svg class="w-2.5 h-2.5 text-green-500"><use href="#icon-play"/></svg> Resume
+          </button>
+          <button class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors">
+            <svg class="w-2.5 h-2.5"><use href="#icon-fork"/></svg> Fork
+          </button>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+          <span class="truncate">Session ended</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+            <div class="bg-[var(--border-secondary)] h-full w-[90%]"></div>
+          </div>
+          <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$1.04</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Ask User</h2>
+
+  <!-- state: desktop-card-ask-user -->
+  <div class="w-[340px]">
+    <div class="relative group bg-purple-500/10 border border-purple-500/40 shadow-[0_0_8px_rgba(168,85,247,0.15)] animate-pulse rounded-xl p-3.5 md:p-4 flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-purple-500 shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Build setup step</div>
+        </div>
+        <div class="hidden md:flex items-center gap-2.5 shrink-0">
+          <div class="text-[var(--text-secondary)] text-[11px] md:text-xs">30s</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">anthropic/claude-opus</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-purple-500 font-medium truncate">
+          <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+          <span class="truncate">Waiting for decision</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+            <div class="bg-purple-500/40 h-full w-[30%]"></div>
+          </div>
+          <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$0.42</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Selected</h2>
+
+  <!-- state: desktop-card-selected -->
+  <div class="w-[340px]">
+    <div class="relative group bg-blue-500/5 backdrop-blur-sm border border-blue-500/60 rounded-xl p-3.5 md:p-4 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="hidden md:flex text-blue-500 shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Archive old changes</div>
+        </div>
+        <div class="hidden md:flex items-center gap-2.5 shrink-0">
+          <div class="text-[var(--text-secondary)] text-[11px] md:text-xs">6s</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">anthropic/claude-sonnet</span>
+          <span class="text-[var(--text-tertiary)]">(medium)</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+          <svg class="w-3.5 h-3.5 text-yellow-500"><use href="#icon-flash"/></svg>
+          <span class="truncate">Bash</span>
+        </div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full overflow-hidden flex">
+            <div class="bg-[var(--border-secondary)] h-full w-[50%]"></div>
+          </div>
+          <span class="text-[var(--text-secondary)] w-9 text-right tabular-nums">$0.10</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card Chips</h2>
+
+  <!-- state: desktop-card-chips -->
+  <div class="w-[340px]">
+    <div class="relative group bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 md:p-4 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Add dark mode</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">openai/gpt-4o</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+          <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+          <span class="truncate">Waiting for input</span>
+        </div>
+      </div>
+      <!-- Row 5: Meta Chips -->
+      <div class="flex flex-wrap gap-1.5 mt-1.5">
+        <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+          <span class="text-[var(--text-tertiary)] font-bold">⎇</span>
+          <span class="truncate max-w-[120px]">feature/x · #42</span>
+        </div>
+        <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] text-green-500 bg-green-500/10 border border-green-500/20">
+          <span class="font-bold">📁</span>
+          <span class="truncate max-w-[100px]">shadow/feat</span>
+        </div>
+        <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+          <span class="text-[var(--text-tertiary)] font-bold">📎</span>
+          <span class="truncate max-w-[100px]">add-auth</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Card OpenSpec</h2>
+
+  <!-- state: desktop-card-openspec -->
+  <div class="w-[340px]">
+    <div class="relative group bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 md:p-4 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-2 md:hover:-translate-y-0.5 transition-all duration-200">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="hidden md:flex text-[var(--text-tertiary)] shrink-0"><svg class="w-4 h-4"><use href="#icon-terminal"/></svg></div>
+          <div class="text-[var(--text-primary)] font-medium md:font-semibold text-[13px] md:text-sm truncate">Refactor API</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">google/gemini-2.5-pro</span>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center justify-between text-[11px] md:text-xs mt-1">
+        <div class="flex items-center gap-1.5 text-[var(--text-secondary)] truncate">
+          <svg class="w-3.5 h-3.5"><use href="#icon-flash"/></svg>
+          <span class="truncate">Read</span>
+        </div>
+      </div>
+      <!-- Row 4: OpenSpec Badge -->
+      <div class="hidden md:flex items-center gap-2 mt-1.5">
+        <div class="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] shrink-0">
+          <svg class="w-3 h-3 text-blue-500"><use href="#icon-flash"/></svg>
+          <span>OpenSpec</span>
+        </div>
+        <span class="text-[11px] text-[var(--text-secondary)] truncate">applying feat-x (3/7)</span>
+        <div class="w-12 h-1 bg-[var(--bg-surface)] rounded-full overflow-hidden flex ml-auto shrink-0">
+          <div class="bg-blue-500 h-full w-[42%]"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Desktop Tools Dropdown</h2>
+
+  <!-- state: desktop-tools-dropdown -->
+  <div class="relative w-[340px] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-3 rounded-b-xl pb-24">
+    <div class="flex flex-wrap items-center gap-1.5 z-0">
+      <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 hover:bg-green-500/20">
+        <span>+</span> Session
+      </button>
+      <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
+        <span>⎇</span> Worktree
+      </button>
+      <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-[var(--bg-surface)] rounded border-t border-[var(--border-subtle)] border-l border-r border-b border-b-transparent text-[var(--text-primary)] ml-auto relative z-20 top-[1px] shadow-sm">
+        Tools <span class="text-[10px]">▴</span>
+      </button>
+    </div>
+    
+    <!-- Dropdown Tool Popover -->
+    <div class="absolute right-3 top-11 w-52 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg shadow-lg shadow-[var(--shadow-card)] flex flex-col py-1.5 z-10">
+      <button class="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+        <div class="flex items-center gap-2">
+           <span class="text-[var(--text-tertiary)] font-bold text-sm">>_</span> Terminals
+        </div>
+        <span class="text-[11px] text-[var(--text-secondary)] font-medium">2</span>
+      </button>
+      <button class="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+        <div class="flex items-center gap-2">
+           <span class="text-[var(--text-tertiary)] font-bold">{ }</span> Editor
+        </div>
+        <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+      </button>
+      <button class="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+        <div class="flex items-center gap-2">
+           <span class="text-[var(--text-tertiary)] font-bold text-xl leading-none">⚡</span> Zed
+        </div>
+      </button>
+      <div class="h-px bg-[var(--border-subtle)] my-1.5 mx-2"></div>
+      <button class="flex items-center justify-between px-3 py-1.5 text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+        <div class="flex items-center gap-2">
+           <span class="text-[var(--text-tertiary)] font-bold">📚</span> Pi Resources
+        </div>
+        <span class="text-[10px] text-[var(--text-tertiary)]">↗</span>
+      </button>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-16">
+  <h1 class="text-xl font-bold mb-6">Mobile Elements (< 768px)</h1>
+  <p class="text-[var(--text-secondary)] text-sm mb-4">Hardcoded for 375px viewport visualization to enforce intended structure without media queries collapsing randomly.</p>
+
+  <!-- state: mobile-sidebar -->
+  <div class="mb-10 w-[375px] max-w-full bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-xl shadow-lg h-[500px] overflow-y-auto flex flex-col">
+    <!-- Mobile header + action bar -->
+    <div class="p-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] sticky top-0 z-10 flex flex-col gap-3">
+      <div class="flex items-center justify-between text-sm font-medium text-[var(--text-primary)] px-1">
+        <div class="flex items-center gap-2 min-w-0">
+          <span>📁</span>
+          <span class="truncate">/home/pi/dev/my-project</span>
+          <span class="text-xs text-[var(--text-tertiary)] font-normal shrink-0">(10)</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 w-full">
+        <button class="flex-1 justify-center flex items-center gap-1 px-2 py-2 text-sm font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 active:bg-green-500/20">
+          <span>+</span> Session
+        </button>
+        <button class="flex-1 justify-center flex items-center gap-1 px-2 py-2 text-sm font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]">
+          <span>⎇</span> Worktree
+        </button>
+      </div>
+    </div>
+    
+    <div class="p-4 flex flex-col gap-3">
+      <div class="relative bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-2">
+        <div class="flex items-center justify-between min-w-0">
+          <div class="flex items-center gap-2.5 overflow-hidden">
+            <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+            <div class="text-[var(--text-primary)] font-medium text-sm truncate">First session</div>
+          </div>
+          <div class="flex items-center text-[var(--text-secondary)] text-xs shrink-0 pl-3">
+            $0.15
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="truncate">google/gemini-2.5-pro</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="relative bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-2">
+        <div class="flex items-center justify-between min-w-0">
+          <div class="flex items-center gap-2.5 overflow-hidden">
+            <div class="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0"></div>
+            <div class="text-[var(--text-primary)] font-medium text-sm truncate">Second session with long text wrapping</div>
+          </div>
+          <div class="flex items-center text-[var(--text-secondary)] text-xs shrink-0 pl-3">
+            $1.45
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="truncate">anthropic/claude-sonnet</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Mobile Card Idle</h2>
+
+  <!-- state: mobile-card-idle -->
+  <div class="w-[375px] max-w-full">
+    <div class="relative bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3 md:p-3.5 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-1.5 md:gap-2">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="text-[var(--text-primary)] font-medium text-[13px] md:text-sm truncate">Simple idle session</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">google/gemini-2.5-pro</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Mobile Card Streaming</h2>
+
+  <!-- state: mobile-card-streaming -->
+  <div class="w-[375px] max-w-full">
+    <div class="relative bg-yellow-500/10 border border-yellow-500/30 animate-pulse rounded-xl p-3 md:p-3.5 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-1.5 md:gap-2">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0"></div>
+          <div class="text-[var(--text-primary)] font-medium text-[13px] md:text-sm truncate">Actively reading log output</div>
+        </div>
+        <div class="flex items-center text-[var(--text-secondary)] text-[11px] md:text-xs shrink-0 pl-3">
+          $0.12
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">anthropic/claude-sonnet</span>
+          <span class="text-[var(--text-tertiary)]">(high)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Mobile Card Chips</h2>
+
+  <!-- state: mobile-card-chips -->
+  <div class="w-[375px] max-w-full">
+    <div class="relative bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3 md:p-3.5 shadow-md shadow-[var(--shadow-card)] flex flex-col gap-1.5 md:gap-2">
+      <div class="flex items-center justify-between min-w-0">
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>
+          <div class="text-[var(--text-primary)] font-medium text-[13px] md:text-sm truncate">Complex mapped task</div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-[11px] md:text-xs text-[var(--text-secondary)]">
+        <div class="flex items-center gap-1.5 truncate">
+          <span class="truncate">openai/gpt-4o</span>
+        </div>
+      </div>
+      
+      <!-- Row 3 & 4 Mobile: Meta Chips split across two rows -->
+      <div class="flex flex-col gap-2 mt-1.5">
+        <div class="flex flex-wrap gap-1.5">
+          <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+            <span class="text-[var(--text-tertiary)] font-bold">⎇</span>
+            <span class="truncate max-w-[120px]">feature/x · #42</span>
+          </div>
+          <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-xs text-green-500 bg-green-500/10 border border-green-500/20">
+            <span class="font-bold">📁</span>
+            <span class="truncate max-w-[100px]">shadow/feat</span>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] md:text-xs text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+            <span class="text-[var(--text-tertiary)] font-bold">📎</span>
+            <span class="truncate max-w-[160px]">add-auth-middleware</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Folder Action Bar Desktop</h2>
+
+  <!-- state: folder-action-bar-desktop -->
+  <div class="w-[340px] flex items-center gap-1.5 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-3 rounded-lg shadow-sm">
+    <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 hover:bg-green-500/20 transition-colors">
+      <span>+</span> <span class="hidden sm:inline">Session</span>
+    </button>
+    <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors">
+      <span>⎇</span> <span class="hidden sm:inline">Worktree</span>
+    </button>
+    <button class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] bg-[var(--bg-surface)] ml-auto transition-colors">
+      Tools <span class="text-[10px]">▾</span>
+    </button>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Folder Action Bar Mobile</h2>
+
+  <!-- state: folder-action-bar-mobile -->
+  <div class="w-[375px] max-w-full flex items-center gap-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] p-3 rounded-lg shadow-sm">
+    <button class="flex-1 justify-center flex items-center gap-1 px-2 py-2 text-sm font-medium rounded border border-green-500/30 text-green-500 bg-green-500/10 active:bg-green-500/20">
+      <span>+</span> Session
+    </button>
+    <button class="flex-1 justify-center flex items-center gap-1 px-2 py-2 text-sm font-medium rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]">
+      <span>⎇</span> Worktree
+    </button>
+  </div>
+
+  <hr class="border-[var(--border-subtle)] my-8">
+  <h2 class="text-sm text-[var(--text-tertiary)] mb-2 uppercase tracking-wide font-medium">Placeholder Card (Skeleton)</h2>
+
+  <!-- state: placeholder-card -->
+  <div class="w-[340px]">
+    <div class="relative bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl p-3.5 md:p-4 shadow-sm flex flex-col gap-3 animate-pulse opacity-70">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3 w-full">
+          <div class="w-2.5 h-2.5 rounded-full bg-[var(--border-secondary)] shrink-0"></div>
+          <div class="w-3/5 h-3.5 rounded-md bg-[var(--bg-surface)] shrink-0"></div>
+        </div>
+        <div class="w-8 h-3 rounded-md bg-[var(--bg-surface)] shrink-0 ml-4 hidden md:block"></div>
+      </div>
+      <div class="flex items-center justify-between mt-0.5">
+        <div class="w-28 h-3 rounded-md bg-[var(--bg-surface)]"></div>
+      </div>
+      <div class="hidden md:flex items-center justify-between mt-1 pt-1">
+        <div class="w-20 h-3 rounded-md bg-[var(--bg-surface)]"></div>
+        <div class="flex items-center gap-3 shrink-0 ml-3">
+          <div class="w-20 h-1.5 bg-[var(--bg-surface)] rounded-full"></div>
+          <div class="w-6 h-3 rounded-md bg-[var(--bg-surface)]"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

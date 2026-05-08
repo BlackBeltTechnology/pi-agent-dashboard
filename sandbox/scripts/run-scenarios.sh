@@ -38,7 +38,7 @@ out_dir = '$OUT'
 
 def run(cmd):
     print(f'  → {cmd}')
-    result = subprocess.run(['browser'] + cmd.split(), capture_output=True, text=True)
+    result = subprocess.run(['agent-browser'] + cmd.split(), capture_output=True, text=True)
     if result.returncode != 0 and 'screenshot' not in cmd:
         print(f'  ⚠ {result.stderr.strip()[:200]}')
 

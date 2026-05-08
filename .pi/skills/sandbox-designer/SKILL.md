@@ -4,7 +4,7 @@ description: Design model for generating Tailwind HTML mockups from screenshots 
 license: MIT
 metadata:
   author: pi-dashboard
-  version: "1.1"
+  version: "1.2"
 ---
 
 # Sandbox Designer
@@ -42,15 +42,16 @@ border-[var(--border-secondary)]  border-[var(--border-subtle)]
 **NEVER use raw Tailwind colors** (bg-gray-800, text-white, border-gray-700).
 Accent colors (blue-500, green-500, yellow-500, purple-500, red-500) allowed for status.
 
-## Communication with Orchestrator (Intercom)
+## Communication with Orchestrator
 
-The orchestrator provides a list of required `<!-- state: -->` blocks.
+The orchestrator provides a list of required `<!-- state: -->` blocks in the task text.
 If the designer discovers additional states that should be covered
 (e.g. specs mention a state not in the list, or screenshots reveal a variant):
-- Send intercom: "Should I add `<!-- state: X -->`? I see it in the specs/screenshots."
-- The orchestrator confirms or updates the list.
+- Write the additional state anyway and note it in the output.
+- Do NOT use intercom — the agent runs synchronously and completes in one go.
 
-If screenshots failed to load — report immediately, don't generate from imagination.
+If screenshots failed to load — stop immediately, do NOT generate from imagination.
+Return an error message describing which screenshots are missing.
 
 ## States to Cover
 
@@ -71,19 +72,117 @@ After generating `mockup.html`:
 3. Verify CSS custom property syntax used everywhere
 4. If ANY check fails — fix and re-check before reporting done
 
+## Approval Workflow — MANDATORY
+
+After designer completes, follow these steps IN ORDER. Do NOT skip any step.
+
+### Step 1: Show BEFORE screenshots to user
+
+ALWAYS show the user what was sent to the designer:
+```
+read <change-dir>/screenshots/session-list-desktop.png
+read <change-dir>/screenshots/session-list-mobile.png
+```
+
+### Step 2: Show AFTER mockup to user
+
+```
+read <change-dir>/screenshots/mockup-final.png
+```
+
+### Step 3: List ALL visual states for approval
+
+Output a checklist of every `<!-- state: -->` block from mockup.html so the user can verify:
+```
+grep '<!-- state:' <change-dir>/mockup.html
+```
+
+Present as a numbered list:
+```
+1. desktop-sidebar ✅
+2. desktop-card-idle ✅
+3. mobile-card-streaming ✅
+...
+```
+
+### Step 4: Ask for approval
+
+```
+ask_user({
+  method: "confirm",
+  title: "Mockup — утверждаем?",
+  message: "N состояний. [краткое описание изменений]. Нужны правки?"
+})
+```
+
+If user says NO — ask what to change, then `subagent({ action: "resume", ... })`.
+If user says YES — proceed to tasks.
+
+## Design Review Loop (apply phase)
+
+During implementation, the designer is used for critique — comparing AFTER screenshots against mockup:
+
+1. Capture AFTER screenshots with `agent-browser` (NOT docker sandbox)
+2. Invoke designer: `subagent({ agent: "sandbox-designer", async: false, task: "Compare AFTER vs MOCKUP..." })`
+3. Fix ALL reported issues
+4. Rebuild, restart, re-capture, re-invoke SAME designer via `subagent({ action: "resume", id: "<run-id>", message: "Re-review..." })`
+5. **Loop until designer responds with NO_ISSUES** — do NOT stop before that
+
 ## Agent Invocation
 
-Pass screenshot paths directly in the task text so the agent can `read` them:
+**CRITICAL — Invocation Rules:**
+
+1. **Synchronous mode only.** Agent runs in one shot, completes, and exits. If blocked, parent restarts via `resume`.
+2. **NO `reads` parameter.** ALL file paths (screenshots, proposal, specs, design) go in the `task` text.
+3. **NO intercom.** Agent does not use intercom during operation.
+4. **Before screenshots MUST be shown to user.** Use `read` on the BEFORE screenshots that were sent to the designer.
+5. **Mockup screenshot MUST be shown to user.** Use `read` on `mockup-final.png`.
+6. **All states MUST be listed** before asking for approval.
+
 ```
 subagent({
   agent: "sandbox-designer",
+  async: false,
   task: `Generate mockup.html for <change>.
 
-Read these screenshots first:
+Read these screenshots first to understand the current UI:
 - <change-dir>/screenshots/desktop-overview.png
 - <change-dir>/screenshots/mobile-overview.png
 
-Required states: ...`,
-  reads: ["<change-dir>/proposal.md", "<change-dir>/specs/<capability>/spec.md"]
+Read these design documents:
+- <change-dir>/proposal.md
+- <change-dir>/design.md
+
+Read these specs:
+- <change-dir>/specs/<capability>/spec.md
+
+Required states: ...
+
+CSS constraint: CSS custom properties ONLY. No raw Tailwind colors.
+
+Save output to: <change-dir>/mockup.html`
 })
+```
+
+**After agent completes:**
+1. Validate mockup.html (state count, no raw colors)
+2. Capture mockup screenshot via sandbox browser
+3. `read <change-dir>/screenshots/mockup-final.png` — show to user
+4. Ask user for approval with `ask_user`
+5. If changes needed — `subagent({ action: "resume", id: "<run-id>", message: "<feedback>" })`
+
+## Docker Sandbox Setup
+
+The Docker sandbox MUST be pre-built with all dependencies:
+
+**Dockerfile requirements:**
+- `chromium` package in apt-get install list (Debian bookworm)
+- `agent-browser` npm package (not `@mariozechner/agent-browser`)
+- `run-scenarios.sh` uses `agent-browser` binary (not `browser`)
+- Python 3 for scenario JSON parsing
+- Chromium started via entrypoint: `chromium --headless --disable-gpu --no-sandbox --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0 &`
+
+**Before invoking the designer, verify sandbox is healthy:**
+```bash
+docker compose -f sandbox/docker-compose.yml up -d --wait dashboard
 ```
