@@ -46,10 +46,10 @@ Call POST /api/push/send with title and body via the dashboard server.`;
       },
       required: ["title", "body"],
     },
-    async handler(args: Record<string, unknown>) {
-      const title = String(args.title ?? "");
-      const body = String(args.body ?? "");
-      const url = typeof args.url === "string" ? args.url : undefined;
+    async execute(_toolCallId: any, params: any, _signal: any, _onUpdate: any, _ctx: any) {
+      const title = String(params.title ?? "");
+      const body = String(params.body ?? "");
+      const url = typeof params.url === "string" ? params.url : undefined;
 
       // Read dashboard config for port and auth secret
       const configPath = join(os.homedir(), ".pi", "dashboard", "config.json");
