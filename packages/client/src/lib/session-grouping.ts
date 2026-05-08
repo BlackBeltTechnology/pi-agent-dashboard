@@ -88,17 +88,10 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
 }
 
 /**
- * Resolve a session's group-key path. Priority order (see Decision 15 in
- * `add-jj-workspace-plugin`):
+ * Resolve a session's group-key path. Priority order:
  *   1. Explicit pin wins — if `pathKey(cwd)` matches a pinned entry, the
  *      session groups under its own cwd.
- *   2. Else if `jjState.workspaceRoot` is set, the session collapses
- *      under the parent repo's group key (so `.shadow/<name>/` workspaces
- *      cluster with their parent).
- *   3. Else falls back to `cwd` (status quo for non-jj sessions).
- *
- * The display path returned matches the chosen key — pinned uses cwd,
- * collapsed uses workspaceRoot, default uses cwd.
+ *   2. Else falls back to `cwd`.
  *
  * Exported for tests; consumed by `groupSessionsByDirectory`.
  */
@@ -111,8 +104,6 @@ export function resolveSessionGroupPath(
   const cwd = session.groupCwd ?? session.cwd;
   const cwdKey = pathKey(cwd, platform);
   if (pinnedKeys.has(cwdKey)) return cwd;
-  const wsRoot = session.jjState?.workspaceRoot;
-  if (wsRoot && wsRoot.length > 0) return wsRoot;
   return cwd;
 }
 
@@ -125,14 +116,6 @@ export function resolveSessionGroupPath(
  * keeps the original path for display. Pass `platform` (from
  * `BrowseResult.platform` or a session event) for OS-correct matching;
  * falls back to `process.platform` when absent.
- *
- * Per-session group-key precedence (see `resolveSessionGroupPath`):
- * pin > `jjState.workspaceRoot` > `cwd`. Within a group, sessions are
- * pre-sorted so all rows sharing the same `(jjState?.workspaceName ?? "")`
- * cluster adjacently (main-tree then ws-A then ws-B, etc.); existing
- * `sortSessionsByOrder` ranking applies inside each cluster.
- *
- * See change: add-jj-workspace-plugin (Decision 15).
  */
 export function groupSessionsByDirectory(
   sessions: DashboardSession[],
@@ -140,13 +123,9 @@ export function groupSessionsByDirectory(
   pinnedDirectories?: string[],
   platform?: NodeJS.Platform,
 ): { pinned: DirectoryGroup[]; unpinned: DirectoryGroup[] } {
-  // Infer platform from observed paths (session cwds + pinned entries +
-  // jj workspace roots) when not explicitly supplied. Callers can still
-  // pass `platform` to force a value.
   const plat = inferPlatform(
     [
       ...sessions.map((s) => s.cwd),
-      ...sessions.map((s) => s.jjState?.workspaceRoot),
       ...(pinnedDirectories ?? []),
     ],
     platform,
@@ -169,16 +148,7 @@ export function groupSessionsByDirectory(
     }
   }
 
-  // Pre-sort sessions inside each group so workspace clusters stay
-  // adjacent. Stable sort preserves prior recency/order tiers within
-  // each (workspaceName ?? "") bucket.
-  for (const g of groups.values()) {
-    g.sessions = clusterByWorkspaceName(g.sessions);
-  }
-
   // Build pinned groups in pinned order (including zero-session groups).
-  // Uses the pinned path as the display cwd so the header matches what the
-  // user pinned, not what some session happened to report.
   const pinned: DirectoryGroup[] = [];
   for (const dir of pinnedDirectories ?? []) {
     const key = pathKey(dir, plat);
@@ -189,7 +159,7 @@ export function groupSessionsByDirectory(
     );
     pinned.push({
       cwd: dir,
-      sessions: clusterByWorkspaceName(ordered),
+      sessions: ordered,
       pinned: true,
     });
   }
@@ -199,7 +169,7 @@ export function groupSessionsByDirectory(
     .filter(([key]) => !pinnedKeys.has(key))
     .map(([, g]) => ({
       cwd: g.cwd,
-      sessions: clusterByWorkspaceName(sortSessionsByOrder(g.sessions, orderMap?.get(g.cwd))),
+      sessions: sortSessionsByOrder(g.sessions, orderMap?.get(g.cwd)),
       pinned: false,
     }))
     .sort((a, b) => {
@@ -209,35 +179,6 @@ export function groupSessionsByDirectory(
     });
 
   return { pinned, unpinned };
-}
-
-/**
- * Stable cluster sort by `(jjState?.workspaceName ?? "")`. Sessions
- * sharing a workspace name end up adjacent without losing the relative
- * ordering established by the prior sort step.
- *
- * Empty workspace name (i.e. plain main-tree sessions) sorts first so
- * the parent-repo cluster appears before its workspace clusters inside
- * a collapsed group.
- */
-function clusterByWorkspaceName(sessions: DashboardSession[]): DashboardSession[] {
-  // Map.values() iteration is insertion-ordered, so we walk the input
-  // once and bucket by name; concatenation order is name-order.
-  const buckets = new Map<string, DashboardSession[]>();
-  for (const s of sessions) {
-    const name = s.jjState?.workspaceName ?? "";
-    const bucket = buckets.get(name);
-    if (bucket) bucket.push(s);
-    else buckets.set(name, [s]);
-  }
-  // Sort bucket keys alphabetically with empty-string first.
-  const keys = Array.from(buckets.keys()).sort((a, b) => {
-    if (a === b) return 0;
-    if (a === "") return -1;
-    if (b === "") return 1;
-    return a.localeCompare(b);
-  });
-  return keys.flatMap((k) => buckets.get(k)!);
 }
 
 /** Apply filter pipeline: active-only → hidden → visible sessions */

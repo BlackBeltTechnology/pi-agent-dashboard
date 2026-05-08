@@ -38,7 +38,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from "./bridge-context.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
-import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendJjStateIfChanged as _sendJjStateIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
+import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
@@ -185,7 +185,6 @@ function initBridge(pi: ExtensionAPI) {
   const trackedPgids = new Set<number>(); // PGIDs captured during bash tool calls
   let lastGitBranch: string | undefined;
   let lastGitPrNumber: number | undefined;
-  let lastJjStateJson: string | undefined; // see change: add-jj-workspace-plugin
   let lastSessionName: string | undefined;
   let cachedHasUI: boolean | undefined = prev.hasUI;
   let cachedModelRegistry: any | undefined = prev.modelRegistry;
@@ -585,19 +584,17 @@ function initBridge(pi: ExtensionAPI) {
       if (!isActive()) return; // Stale listener guard
       // Reset caches that aren't persisted server-side so the upcoming
       // 30s tick (and the inline calls below) re-emit the live state.
-      // See change: add-jj-workspace-plugin.
       const _bc = syncBc();
       _resetReconnectCaches(_bc);
       applyBc(_bc);
       sendStateSync();
-      // Force-emit jj/git state for the active session’s cwd. The bridge
+      // Force-emit git state for the active session's cwd. The bridge
       // doesn't have direct ctx here, so we walk the active session.
       try {
         const activeId = (pi as any).getCurrentSessionId?.();
         const activeCtx = activeId ? (pi as any).getCtx?.(activeId) : (cachedCtx as any);
         if (activeCtx?.cwd) {
           sendGitInfoIfChanged(activeCtx.cwd);
-          sendJjStateIfChanged(activeCtx.cwd);
         }
       } catch { /* probe failure non-fatal */ }
       replaySessionEntries();
@@ -756,7 +753,6 @@ function initBridge(pi: ExtensionAPI) {
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
       lastGitBranch, lastGitPrNumber, lastSessionName,
-      lastJjStateJson,
       hasRegisteredOnce,
     };
   }
@@ -774,7 +770,6 @@ function initBridge(pi: ExtensionAPI) {
     lastGitBranch = bc.lastGitBranch;
     lastGitPrNumber = bc.lastGitPrNumber;
     lastSessionName = bc.lastSessionName;
-    lastJjStateJson = bc.lastJjStateJson;
     hasRegisteredOnce = bc.hasRegisteredOnce;
   }
 
@@ -784,7 +779,6 @@ function initBridge(pi: ExtensionAPI) {
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
-  function sendJjStateIfChanged(cwd: string) { const bc = syncBc(); _sendJjStateIfChanged(bc, cwd); applyBc(bc); }
 
   // Forward all pi core events to the dashboard.
   // Events with special enrichment logic:
@@ -1428,9 +1422,8 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git + jj info
+    // Send initial git info
     sendGitInfoIfChanged(ctx.cwd);
-    sendJjStateIfChanged(ctx.cwd);
 
     // Start metrics monitor and heartbeat
     startMetricsMonitor();
@@ -1444,11 +1437,10 @@ function initBridge(pi: ExtensionAPI) {
     }, HEARTBEAT_INTERVAL);
     getBridgeState().timers!.push(heartbeatTimer);
 
-    // Start git + jj + name/model polling
+    // Start git + name/model polling
     gitPollTimer = setInterval(() => {
       if (!isActive()) return;
       sendGitInfoIfChanged(ctx.cwd);
-      sendJjStateIfChanged(ctx.cwd);
       sendSessionNameIfChanged();
       sendModelUpdateIfChanged();
     }, GIT_POLL_INTERVAL);
@@ -1492,7 +1484,6 @@ function initBridge(pi: ExtensionAPI) {
     if (gitPollTimer) clearInterval(gitPollTimer);
     gitPollTimer = setInterval(() => {
       sendGitInfoIfChanged(ctx.cwd);
-      sendJjStateIfChanged(ctx.cwd);
     }, GIT_POLL_INTERVAL);
   }
 

@@ -367,7 +367,6 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   // Native binaries — no interpreter needed.
   registry.register(binaryDef("node", deps));
   registry.register(binaryDef("git", deps));
-  registry.register(binaryDef("jj", deps));
   registry.register(binaryDef("zrok", deps));
 
   // Platform-conditional process-inspection utilities. These are only

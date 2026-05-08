@@ -138,9 +138,8 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Alternatively, add the pack
 
 **Dev tools**
 - **Integrated terminal** — full browser-based terminal emulator (xterm.js + node-pty) with ANSI colors, scrollback, and keep-alive
-- **Diff viewer** — side-by-side and unified diff views with file tree navigation. In Jujutsu workspaces the diff is regime-aware: shows the cumulative changes since the workspace's branch point, not just the working-copy delta.
+- **Diff viewer** — side-by-side and unified diff views with file tree navigation.
 - **Editor integration** — open files in VS Code, Cursor, etc. directly from tool call cards
-- **Jujutsu workspaces (optional)** — when `jj` is on PATH and the session is inside a `.jj/` repo, the dashboard surfaces a workspace badge, a `+ Workspace` action that creates `jj workspace add` + spawns a fresh agent in it, and a `Fold back` action that drives the [`jj-workspace-fold-back`](.pi/skills/jj-workspace-fold-back/SKILL.md) skill (jj-native rebase + push, never `git commit`/`git merge`). Activates silently — zero UI when `jj` is not installed. See [docs/architecture.md](docs/architecture.md#jujutsu-workspaces) for the data flow.
 
 **Networking & distribution**
 - **Network discovery** — mDNS-based auto-discovery of other dashboard servers on the local network

@@ -711,15 +711,6 @@ export function wireEvents(deps: EventWiringDeps): void {
       browserGateway.broadcastSessionUpdated(sessionId, gitUpdates);
     }
 
-    if (msg.type === "jj_state_update") {
-      // jjState is intentionally allowed to be `undefined` (no jj) when
-      // the bridge sends `null`; the session-manager update applies the
-      // value verbatim. See change: add-jj-workspace-plugin.
-      const jjUpdates = { jjState: msg.jjState ?? undefined };
-      sessionManager.update(sessionId, jjUpdates);
-      browserGateway.broadcastSessionUpdated(sessionId, jjUpdates);
-    }
-
     if (msg.type === "files_list") {
       browserGateway.sendToSubscribers(sessionId, {
         type: "files_list",

@@ -4,31 +4,6 @@ export type SessionSource = "tui" | "zed" | "tmux" | "dashboard" | "terminal" | 
 /** Current status of a session */
 export type SessionStatus = "active" | "idle" | "streaming" | "ended";
 
-/**
- * Per-session jj (Jujutsu) probe state. Populated by the bridge when the
- * cwd contains a `.jj/` directory and the `jj` tool resolves; otherwise
- * left undefined.
- * See change: add-jj-workspace-plugin.
- */
-export interface JjState {
-  /** True iff cwd is inside a jj repo (`.jj/` reachable). */
-  isJjRepo: boolean;
-  /** True iff the repo is jj-colocated with git (both `.jj/` and `.git/`). */
-  isColocated: boolean;
-  /**
-   * Name of the workspace whose working copy is at this cwd.
-   * `"default"` for the original/source workspace; user-named for siblings
-   * created via `jj workspace add`.
-   */
-  workspaceName?: string;
-  /** Absolute path of the workspace root (== cwd for the active workspace). */
-  workspaceRoot?: string;
-  /** Bookmarks present on the workspace's `@-` (used by the badge / fold-back). */
-  bookmarks?: string[];
-  /** Last probe error, surfaced for diagnostics. Empty when probe succeeded. */
-  lastError?: string;
-}
-
 /** A dashboard session representing a connected pi instance */
 export interface DashboardSession {
   id: string;
@@ -69,15 +44,6 @@ export interface DashboardSession {
   gitBranchUrl?: string;
   gitPrNumber?: number;
   gitPrUrl?: string;
-  /**
-   * Per-session jj (Jujutsu) state. Populated by the bridge's per-session
-   * VCS probe when (a) the tool registry resolves `jj` AND (b) `.jj/` exists
-   * in the session cwd. Absent or `{ isJjRepo: false }` for sessions outside
-   * a jj repo — jj-plugin slot predicates treat both as inactive. NOT
-   * persisted to `.meta.json`; refreshed on every probe tick.
-   * See change: add-jj-workspace-plugin.
-   */
-  jjState?: JjState;
   /**
    * Git worktree metadata. Populated by the server when the session's `cwd`
    * is inside a git worktree (`.git` is a file, not a directory). Contains

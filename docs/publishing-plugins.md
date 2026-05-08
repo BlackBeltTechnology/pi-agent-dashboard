@@ -85,7 +85,6 @@ PACKAGES=(
   "@blackbelt-technology/pi-dashboard-web"
   "@blackbelt-technology/dashboard-plugin-runtime"
   "@blackbelt-technology/pi-dashboard-flows-plugin"
-  "@blackbelt-technology/pi-dashboard-jj-plugin"
   "@blackbelt-technology/pi-dashboard-<your-new-plugin>"   # ADD HERE
   "@blackbelt-technology/pi-agent-dashboard"
 )
