@@ -113,7 +113,10 @@ Call POST /api/push/send with title and body via the dashboard server.`;
         }
       }
 
-      return [{ type: "text", text }];
+      return {
+        content: [{ type: "text", text }],
+        details: {},
+      };
     },
   });
 }
