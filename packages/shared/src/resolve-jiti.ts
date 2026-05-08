@@ -13,6 +13,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const JITI_PACKAGES = [
+  "jiti",
   "@mariozechner/jiti",
   "@oh-my-pi/jiti",
 ];
