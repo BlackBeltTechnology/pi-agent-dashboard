@@ -68,12 +68,15 @@ export interface MemoryLimitsConfig {
   maxStringFieldSize: number;
   /** Max bytes in browser WebSocket send buffer before dropping messages (0 = no limit). Default: 4194304 (4MB) */
   maxWsBufferBytes: number;
+  /** Node.js --max-old-space-size in MB (0 = Node default, typically ~4 GB). Default: 0 */
+  maxHeapSizeMb: number;
 }
 
 export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
   maxEventsPerSession: 5000,
   maxStringFieldSize: 0,
   maxWsBufferBytes: 4 * 1024 * 1024,
+  maxHeapSizeMb: 0,
 };
 
 export interface OpenSpecPollConfig {
@@ -402,6 +405,7 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
+    maxHeapSizeMb: typeof raw.maxHeapSizeMb === "number" ? raw.maxHeapSizeMb : DEFAULT_MEMORY_LIMITS.maxHeapSizeMb,
   };
 }
 
@@ -466,6 +470,17 @@ export function getPluginsConfig(config: DashboardConfig): PluginsConfig {
  * Get a single plugin's config from a loaded DashboardConfig.
  * Returns {} if the plugin has no stored config.
  */
+/**
+ * Build Node.js --max-old-space-size args from config, or empty if disabled (0).
+ * Returns an array suitable for `nodeArgs` in `spawnNodeScript`.
+ */
+export function buildMaxHeapArgs(limits: MemoryLimitsConfig): string[] {
+  if (limits.maxHeapSizeMb > 0) {
+    return [`--max-old-space-size=${limits.maxHeapSizeMb}`];
+  }
+  return [];
+}
+
 export function getPluginConfig(
   config: DashboardConfig,
   pluginId: string,

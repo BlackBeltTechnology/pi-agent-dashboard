@@ -103,6 +103,7 @@ export interface ServerConfig {
   maxEventsPerSession?: number;
   maxStringFieldSize?: number;
   maxWsBufferBytes?: number;
+  maxHeapSizeMb?: number;
   /** Editor (code-server) config */
   editor: import("@blackbelt-technology/pi-dashboard-shared/config.js").EditorConfig;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
