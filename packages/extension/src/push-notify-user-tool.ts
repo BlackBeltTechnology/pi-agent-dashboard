@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 let toolRegistered = false;
 
@@ -70,7 +70,7 @@ Call POST /api/push/send with title and body via the dashboard server.`;
       let text: string;
       try {
         const curlArgs = [
-          "curl", "-s",
+          "-s",
           "-X", "POST",
           `http://localhost:${port}/api/push/send`,
           "-H", "Content-Type: application/json",
@@ -78,10 +78,14 @@ Call POST /api/push/send with title and body via the dashboard server.`;
           "-d", JSON.stringify({ title, body, url }),
         ];
 
-        const result = execSync(curlArgs.join(" "), {
+        const { stdout, stderr, status } = spawnSync("curl", curlArgs, {
           encoding: "utf-8",
           timeout: 10_000,
         });
+        if (status !== 0) {
+          throw new Error(stderr || stdout || `curl exited with code ${status}`);
+        }
+        const result = stdout;
 
         try {
           const parsed = JSON.parse(result);
