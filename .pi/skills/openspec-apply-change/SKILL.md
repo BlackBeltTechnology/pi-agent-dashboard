@@ -192,6 +192,7 @@ Next turns are triggered by intercom messages (designer completion or user reply
      agent: "sandbox-designer",
      async: true,
      task: `Generate mockup.html for <change>.
+   Parent session ID: <your-current-session-uuid>
    Read these screenshots first:
    - <change-dir>/screenshots/session-list-desktop.png
    - <change-dir>/screenshots/session-list-mobile.png
@@ -199,7 +200,8 @@ Next turns are triggered by intercom messages (designer completion or user reply
    Required states: <list from proposal>
    CSS constraint: CSS custom properties ONLY.
    Save output to: <change-dir>/mockup.html
-   After review, use contact_supervisor({ reason: "progress_update", message: "[designer:<runId>] ..." }).`
+   After review, use contact_supervisor({ reason: "progress_update", message: "[designer:<runId>] ..." }).
+   If contact_supervisor fails with "Multiple sessions", use intercom({ action: "ask", to: "<parent-session-id>", message: "..." }).`
    })
    ```
 4. **COMPLETE TURN.** Last line: `[STATE: phase=awaiting-designer | runId=<id> | change=<changeDir> | round=0 | task=0 | source=apply]`
@@ -231,6 +233,7 @@ Next turns are triggered by intercom messages (designer completion or user reply
    AFTER screenshots: <change-dir>/screenshots/after-*.png
    Mockup: <change-dir>/mockup.html
    Use contact_supervisor to report findings.
+   If contact_supervisor fails with "Multiple sessions", use intercom({ action: "ask", to: "<parent-session-id>", message: "..." }).
    If NO differences: message "[designer:<runId>] NO_ISSUES: implementation matches mockup".`
    })
    ```

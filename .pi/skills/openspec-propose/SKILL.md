@@ -146,6 +146,8 @@ When ready to implement, run /opsx-apply
            async: true,
            task: `Generate mockup.html for <change-name>.
 
+         Parent session ID: <your-current-session-uuid>
+
          Read these screenshots first:
          - <change-dir>/screenshots/session-list-desktop.png
          - <change-dir>/screenshots/session-list-mobile.png

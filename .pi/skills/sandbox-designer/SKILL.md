@@ -67,6 +67,13 @@ match a previously-seen stale version), report via `contact_supervisor`:
 During the review loop (apply phase), the designer runs as an async subagent and
 communicates with the supervisor via `contact_supervisor`. NEVER use raw `intercom()`.
 
+**Fallback on name conflict:** If `contact_supervisor` returns "Multiple sessions named X
+are connected", use `intercom` with the parent session ID provided in the task:
+```
+intercom({ action: "ask", to: "<parent-session-id>", message: "<question>" })
+```
+The parent session ID is passed in the task text as `Parent session ID: <uuid>`.
+
 ### When to use progress_update
 
 After completing a review (comparing AFTER screenshots vs mockup), send findings:
@@ -202,18 +209,21 @@ During implementation, the designer is used for critique — comparing AFTER scr
 
 1. **Async mode.** Designer runs as `async: true` subagent. Communicates via `contact_supervisor`.
 2. **NO `reads` parameter.** ALL file paths (screenshots, proposal, specs, design) go in the `task` text.
-3. **Use contact_supervisor, NOT raw intercom.** Designer never calls `intercom()` directly.
-4. **Validate screenshots on load.** First message MUST describe what is seen in screenshots.
-5. **Reject non-sandbox screenshots.** If screenshots appear local/stale, report error and refuse.
-6. **Before screenshots MUST be shown to user.** Use `read` on the BEFORE screenshots that were sent to the designer.
-7. **Mockup screenshot MUST be shown to user.** Use `read` on `mockup-final.png`.
-8. **All states MUST be listed** before asking for approval.
+3. **Use contact_supervisor, NOT raw intercom.** Designer never calls `intercom()` directly unless `contact_supervisor` fails with "Multiple sessions" error — then fallback to `intercom({ to: "<parent-session-id>" })`.
+4. **Parent session ID.** The task text MUST include `Parent session ID: <uuid>` so the designer can fallback if `contact_supervisor` fails with a session name conflict.
+5. **Validate screenshots on load.** First message MUST describe what is seen in screenshots.
+6. **Reject non-sandbox screenshots.** If screenshots appear local/stale, report error and refuse.
+7. **Before screenshots MUST be shown to user.** Use `read` on the BEFORE screenshots that were sent to the designer.
+8. **Mockup screenshot MUST be shown to user.** Use `read` on `mockup-final.png`.
+9. **All states MUST be listed** before asking for approval.
 
 ```
 subagent({
   agent: "sandbox-designer",
   async: true,
   task: `Generate mockup.html for <change>.
+
+Parent session ID: <your-current-session-uuid>
 
 Read these screenshots first to understand the current UI:
 - <change-dir>/screenshots/desktop-overview.png
