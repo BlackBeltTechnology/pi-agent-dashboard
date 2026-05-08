@@ -154,28 +154,22 @@ What would you like to do?
 ## Design Process State Machine (UI Changes)
 
 When the change includes a `mockup.html`, the implementation process is a **turn-based state machine**.
-Each phase that requires external input ends the current turn. The next turn resumes from a checkpoint file.
+Each phase that requires external input ends the current turn. The next turn reads the state from the agent's own last message.
 
-### Checkpoint File
+### State Persistence
 
-Location: `~/.pi/dashboard/design-review-state.json`
+The agent SHALL write its current state as the LAST LINE of its final message before completing a turn:
 
-```json
-{
-  "phase": "awaiting-review",
-  "designerRunId": "abc123",
-  "changeDir": "openspec/changes/<name>",
-  "reviewRound": 2,
-  "currentTask": 3,
-  "tasksCompleted": [1, 2]
-}
+```
+[STATE: phase=<phase> | runId=<designerRunId> | change=<changeDir> | round=<n> | task=<n> | source=apply]
 ```
 
 **Rules:**
-- Read checkpoint at start of UI design phase. If it exists, resume from recorded phase.
-- If no checkpoint exists, start from `init`.
-- Write checkpoint at every phase transition.
-- Delete checkpoint when phase `done` is reached.
+- On each new turn, scan your own conversation history backwards for the last `[STATE: ...]` line.
+- If found, resume from the recorded phase.
+- If NOT found (first turn), start from `init`.
+- Write the state line at the end of EVERY turn that ends at a stop-point.
+- No file I/O needed — state lives in the conversation.
 
 ### Turn Boundaries
 
@@ -208,8 +202,7 @@ Next turns are triggered by intercom messages (designer completion or user reply
    After review, use contact_supervisor({ reason: "progress_update", message: "[designer:<runId>] ..." }).`
    })
    ```
-4. Write checkpoint: `{ phase: "awaiting-designer", designerRunId: "<id>", changeDir: "...", reviewRound: 0 }`
-5. **COMPLETE TURN.** Do NOT poll. Wait for intercom trigger.
+4. **COMPLETE TURN.** Last line: `[STATE: phase=awaiting-designer | runId=<id> | change=<changeDir> | round=0 | task=0 | source=apply]`
 
 #### Phase: `awaiting-designer` (triggered by designer intercom)
 1. Validate mockup.html: count `<!-- state:` blocks, grep for raw Tailwind colors
@@ -218,12 +211,11 @@ Next turns are triggered by intercom messages (designer completion or user reply
 4. Show mockup to user: `read <change-dir>/screenshots/mockup-final.png`
 5. List ALL visual states from mockup.html
 6. Ask user for approval via `ask_user({ method: "confirm", title: "Mockup — утверждаем?" })`
-7. Update checkpoint: `phase: "showing-mockup"`
-8. **COMPLETE TURN.** Wait for user response.
+7. **COMPLETE TURN.** Last line: `[STATE: phase=showing-mockup | ...same-params...]`
 
 #### Phase: `showing-mockup` (triggered by user reply)
-- If user approves → write checkpoint: `{ phase: "implementing", tasksRemaining: [...] }`, proceed to code tasks
-- If user requests changes → resume designer: `subagent({ action: "resume", id: "<runId>", message: "<feedback>" })`, write checkpoint: `phase: "awaiting-designer"`, **COMPLETE TURN**
+- If user approves → proceed to code tasks with state `[STATE: phase=implementing | ...]`
+- If user requests changes → resume designer: `subagent({ action: "resume", id: "<runId>", message: "<feedback>" })`, **COMPLETE TURN** with `[STATE: phase=awaiting-designer | ...]`
 
 #### Phase: `implementing`
 1. Execute code tasks (reference mockup.html for CSS classes, spacing, layout)
@@ -242,15 +234,13 @@ Next turns are triggered by intercom messages (designer completion or user reply
    If NO differences: message "[designer:<runId>] NO_ISSUES: implementation matches mockup".`
    })
    ```
-4. Write checkpoint: `{ phase: "awaiting-review", currentTask: N, reviewRound: N+1 }`
-5. **COMPLETE TURN.**
+4. **COMPLETE TURN.** Last line: `[STATE: phase=awaiting-review | round=<n+1> | ...]`
 
 #### Phase: `awaiting-review` (triggered by designer intercom)
 1. Read designer findings
 2. If **NO_ISSUES**:
    - Show final BEFORE + AFTER screenshots to user via `read`
-   - Update checkpoint: `phase: "showing-review"`
-   - **COMPLETE TURN**
+   - **COMPLETE TURN.** Last line: `[STATE: phase=showing-review | ...]`
 3. If **issues found**:
    - Send findings + AFTER screenshots to user via intercom
    - Ask user: "Approve these fixes? Any additional changes?"
@@ -258,11 +248,11 @@ Next turns are triggered by intercom messages (designer completion or user reply
 
 #### Phase: `showing-review` (triggered by user reply)
 - Show BEFORE + AFTER + MOCKUP screenshots to user
-- If user approves → write checkpoint: `phase: "done"`, delete checkpoint file
-- If user wants more changes → write checkpoint: `phase: "implementing"`, loop
+- If user approves → state: `phase=done`, proceed to non-UI tasks
+- If user wants more changes → state: `phase=implementing`, loop
 
 #### Phase: `done`
-Delete checkpoint file. Continue with any remaining non-UI tasks.
+No state line needed. Continue with any remaining non-UI tasks.
 
 ### Intercom Coordination Rules
 

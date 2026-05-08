@@ -1,27 +1,28 @@
 ## ADDED Requirements
 
-### Requirement: Checkpoint file for turn-based state machine
-The design process SHALL use a checkpoint file at `$HOME/.pi/dashboard/design-review-state.json` to persist state between agent turns.
+### Requirement: State persistence in conversation for turn-based state machine
+The design process SHALL use a `[STATE: ...]` line in the agent's own conversation to persist state between turns.
 
-#### Scenario: Checkpoint file is created when design process starts
-- **WHEN** the apply-change agent starts the design review phase
-- **THEN** the agent SHALL write a checkpoint file with `phase: "awaiting-designer"`, `designerRunId`, `changeDir`, and `reviewRound: 0`
-- **AND** the file SHALL be valid JSON
+#### Scenario: State line is written when design process starts
+- **WHEN** the apply-change agent starts the design review phase and is about to complete its turn
+- **THEN** the agent SHALL write a `[STATE: phase=awaiting-designer | runId=<id> | change=<changeDir> | round=0 | task=0 | source=apply]` line as the last line of its message
+- **AND** the line SHALL be parseable by scanning for `[STATE:` prefix
 
-#### Scenario: Agent resumes from checkpoint on next turn
-- **WHEN** a new agent turn starts and the checkpoint file exists
-- **THEN** the agent SHALL read the checkpoint file
-- **AND** the agent SHALL identify the current phase and continue from that phase
+#### Scenario: Agent resumes from state on next turn
+- **WHEN** a new agent turn starts
+- **THEN** the agent SHALL scan its own conversation history backwards for the last `[STATE: ...]` line
+- **AND** if found, the agent SHALL parse the phase and context fields and continue from that phase
 - **AND** the agent SHALL NOT restart the process from scratch
 
-#### Scenario: Checkpoint is updated on phase transition
+#### Scenario: State is updated on phase transition
 - **WHEN** the agent transitions from one phase to another (e.g., "awaiting-designer" → "implementing")
-- **THEN** the agent SHALL update the checkpoint file with the new phase
-- **AND** the agent SHALL preserve all context fields (designerRunId, changeDir, etc.)
+- **THEN** the agent SHALL write a new `[STATE: ...]` line with the updated phase
+- **AND** the agent SHALL preserve all context fields (runId, change, round)
 
-#### Scenario: Checkpoint is deleted when design process completes
+#### Scenario: No state cleanup needed on completion
 - **WHEN** the design review loop reaches NO_ISSUES and user approves
-- **THEN** the agent SHALL delete the checkpoint file
+- **THEN** the agent SHALL proceed to non-UI tasks without writing a new state line
+- **AND** no file cleanup is required — the conversation naturally moves on
 
 ### Requirement: Turn-based design process phases
 The design process SHALL be structured as a finite state machine with explicit phases.
@@ -34,8 +35,7 @@ The design process SHALL be structured as a finite state machine with explicit p
 - **AND** phase `showing-mockup` SHALL transition to `implementing` after user approval
 - **AND** phase `implementing` SHALL transition to `awaiting-review` after code changes are built and designer is re-invoked
 - **AND** phase `awaiting-review` SHALL transition to `implementing` (more fixes needed) or `showing-review` (NO_ISSUES from designer)
-- **AND** phase `showing-review` SHALL transition to `approved` after user confirm
-- **AND** phase `approved` SHALL transition to `done` after checkpoint cleanup
+- **AND** phase `showing-review` SHALL transition to `done` after user confirms, no cleanup needed
 
 #### Scenario: Agent completes turn at every phase transition
 - **WHEN** the agent transitions to a phase that requires external input (awaiting-designer, showing-mockup, awaiting-review, showing-review)
@@ -49,13 +49,13 @@ New agent turns in the design process SHALL be triggered by intercom messages, n
 - **WHEN** the sandbox-designer subagent completes (async)
 - **THEN** pi-subagents SHALL emit `emitForegroundResultIntercom` to the supervisor
 - **AND** the intercom message SHALL trigger a new agent turn
-- **AND** the agent SHALL read the checkpoint file and continue from `awaiting-designer` phase
+- **AND** the agent SHALL scan its conversation for the last `[STATE: ...]` line and continue from `awaiting-designer` phase
 
 #### Scenario: Designer progress update triggers new turn
 - **WHEN** the sandbox-designer subagent sends `contact_supervisor({ reason: "progress_update" })`
 - **THEN** the supervisor agent SHALL receive the message via intercom
 - **AND** the intercom message SHALL trigger a new agent turn
-- **AND** the agent SHALL read the checkpoint, see phase `awaiting-review`, and process the designer's findings
+- **AND** the agent SHALL scan its conversation for the last `[STATE: ...]` line, see phase `awaiting-review`, and process the designer's findings
 
 #### Scenario: Designer decision request triggers new turn
 - **WHEN** the sandbox-designer subagent sends `contact_supervisor({ reason: "need_decision" })`

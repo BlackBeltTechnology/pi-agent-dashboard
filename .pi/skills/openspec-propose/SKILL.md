@@ -81,9 +81,9 @@ When ready to implement, run /opsx-apply
 
 5. **Design Phase (after specs, before tasks) — Docker-gated, turn-based**
 
-   **Checkpoint check:** Before starting this phase, check if checkpoint file exists at `~/.pi/dashboard/design-review-state.json`. If it exists with `source: "propose"`, read it and resume from the recorded phase. If not, start fresh.
+   **State check:** On each new turn, scan your own conversation history backwards for the last `[STATE: ...]` line. If found with `source=propose`, resume from the recorded phase. If not found, start fresh.
 
-   This phase uses the same turn-boundary pattern as the apply-change Design Process State Machine. When waiting for the designer subagent or user approval, the agent SHALL complete its turn (NOT poll). The next turn is triggered by intercom.
+   This phase uses the same turn-boundary pattern as the apply-change Design Process State Machine. When waiting for the designer subagent or user approval, the agent SHALL complete its turn (NOT poll). The next turn is triggered by intercom. State is persisted in the conversation, NOT in a file.
 
    After specs are `done` and before creating `tasks`, check if this is a UI change. If YES, check Docker availability:
 
@@ -171,11 +171,9 @@ When ready to implement, run /opsx-apply
          contact_supervisor({ reason: "progress_update", message: "[designer:<runId>] Mockup complete. N states generated." })`
          })
          ```
-         The subagent runs async — do NOT poll. Write checkpoint and complete turn.
+         The subagent runs async — do NOT poll. Complete turn and wait for intercom.
 
-         4a. Write checkpoint: `{ phase: "awaiting-designer", designerRunId: "<id>", changeDir: "<change-dir>", source: "propose" }`
-
-         4b. **COMPLETE TURN.** Wait for intercom trigger from designer completion.
+         4. **COMPLETE TURN.** Last line: `[STATE: phase=awaiting-designer | runId=<id> | change=<changeDir> | source=propose]`
 
       **Phase: `awaiting-designer`** (next turn, triggered by designer intercom)
 
@@ -184,7 +182,7 @@ When ready to implement, run /opsx-apply
          - Verify no raw Tailwind colors (`grep -cE 'bg-gray-|text-white|border-gray-|bg-slate-' mockup.html` must be 0)
          - Verify both light and dark theme variants present
          - Verify visible `<h2>` labels above each state block
-         - If validation fails → resume the designer with feedback: `subagent({ action: "resume", id: "<runId>", message: "<fixes>" })`, write checkpoint `phase: "awaiting-designer"`, **COMPLETE TURN**
+         - If validation fails → resume the designer with feedback: `subagent({ action: "resume", id: "<runId>", message: "<fixes>" })`, **COMPLETE TURN** with `[STATE: phase=awaiting-designer | ...]`
 
       6. **Capture mockup screenshot.** Open `mockup.html` in sandbox browser, take full-page screenshot, save to `<change-dir>/screenshots/mockup-final.png`.
 
@@ -193,13 +191,12 @@ When ready to implement, run /opsx-apply
       8. **Show visuals to user.** Use `read` to display BEFORE screenshots AND mockup screenshot. List ALL states from mockup.html.
 
       9. **Ask user for approval.** Use `ask_user({ method: "confirm", title: "Mockup — утверждаем?", message: "N состояний. Нужны правки?" })`.
-         Write checkpoint: `phase: "showing-mockup"`.
-         **COMPLETE TURN.** Wait for user response.
+         **COMPLETE TURN.** Last line: `[STATE: phase=showing-mockup | ...]`
 
       **Phase: `showing-mockup`** (next turn, triggered by user reply)
 
-      - If user approves → delete checkpoint file, proceed to step 6 (create tasks).
-      - If user requests changes → **resume** the sandbox-designer: `subagent({ action: "resume", id: "<runId>", message: "<user feedback>" })`, write checkpoint `phase: "awaiting-designer"`, **COMPLETE TURN**. Loop until approved.
+      - If user approves → proceed to step 6 (create tasks). No state line needed.
+      - If user requests changes → **resume** the sandbox-designer: `subagent({ action: "resume", id: "<runId>", message: "<user feedback>" })`, **COMPLETE TURN** with `[STATE: phase=awaiting-designer | ...]`. Loop until approved.
 
       10. **Final mockup review.** Before the summary, read `mockup.html` and `mockup-final.png` one last time.
 
@@ -211,8 +208,6 @@ When ready to implement, run /opsx-apply
    ```
 
 **Final Summary**
-
-If a Design Phase was run, delete the checkpoint file (`~/.pi/dashboard/design-review-state.json`).
 
 Before the summary, SHOW the mockup one last time:
 - `read <change-dir>/mockup.html`
@@ -241,6 +236,6 @@ After completing all artifacts, summarize:
 - **Design Phase — intercom coordination**:
   - Sandbox-designer invocations use `async: true` only
   - NEVER poll for async subagent results — complete turn and wait for intercom
-  - Checkpoint file (`~/.pi/dashboard/design-review-state.json`) shared with apply-change; read it at phase start
+  - State persisted as `[STATE: ...]` line in conversation — scan backwards on each new turn
   - Task templates MUST include `contact_supervisor` instructions with `[designer:<runId>]` header format
   - NEVER use `reads` parameter for sandbox-designer — all file paths in `task` text

@@ -3,11 +3,11 @@
 ### Requirement: Apply-change skill structured as state machine
 The `openspec-apply-change` skill's UI design section SHALL be restructured as a turn-based state machine instead of a linear 7-step procedure.
 
-#### Scenario: Skill reads checkpoint on startup
+#### Scenario: Skill reads state on startup
 - **WHEN** the apply-change agent reaches the UI design phase
-- **THEN** the agent SHALL first check for an existing checkpoint file at `$HOME/.pi/dashboard/design-review-state.json`
-- **AND** if the file exists, the agent SHALL resume from the recorded phase
-- **AND** if the file does not exist, the agent SHALL start from phase `init`
+- **THEN** the agent SHALL first scan its own conversation history backwards for the last `[STATE: ...]` line
+- **AND** if a state line with `source=apply` is found, the agent SHALL resume from the recorded phase
+- **AND** if no state line is found, the agent SHALL start from phase `init`
 
 #### Scenario: Phase init — launch sandbox and designer
 - **WHEN** the agent is in phase `init`
@@ -54,7 +54,7 @@ The `openspec-apply-change` skill's UI design section SHALL be restructured as a
 - **WHEN** all tasks are complete and designer reports NO_ISSUES
 - **THEN** the agent SHALL show final BEFORE + AFTER + MOCKUP screenshots to user
 - **AND** the agent SHALL ask for final approval
-- **AND** if approved: agent SHALL update checkpoint to `phase: "done"`, delete checkpoint file
+- **AND** if approved: agent SHALL proceed to non-UI tasks without writing a new state line
 - **AND** if not approved: agent SHALL return to `phase: "implementing"`
 
 ### Requirement: All designer subagent invocations use async:true
