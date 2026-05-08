@@ -14,18 +14,19 @@ The `openspec-propose` skill SHALL include an optional Design Phase between spec
   6. Tear down the sandbox (`docker compose -f sandbox/docker-compose.yml down`)
   7. Reference `mockup.html` in the generated `design.md`
 
-#### Scenario: Docker unavailable — graceful fallback
-- **WHEN** `openspec-propose` is invoked and Docker is NOT available (`docker info` exits non-zero)
-- **THEN** the skill SHALL emit the notice "Design sandbox unavailable (Docker not found). Proceeding with text-only proposal."
-- **AND** the skill SHALL skip the Design Phase entirely
-- **AND** the skill SHALL proceed with text-only proposal generation (today's behavior)
-- **AND** the skill SHALL NOT return an error
+#### Scenario: Docker unavailable — hard stop
+- **WHEN** `openspec-propose` is invoked for a UI change and Docker is NOT available (`docker info` exits non-zero)
+- **THEN** the skill SHALL emit the error "Design sandbox unavailable (Docker not found). Cannot proceed with UI change."
+- **AND** the skill SHALL instruct the user to install Docker and retry
+- **AND** the skill SHALL NOT proceed with text-only proposal generation
+- **AND** the skill SHALL NOT return success
 
-#### Scenario: Docker available but sandbox fails to start
+#### Scenario: Docker available but sandbox fails to start — hard stop with retry
 - **WHEN** Docker is available but `docker compose up` fails (port conflict, build error, health check timeout)
-- **THEN** the skill SHALL emit a warning: "Design sandbox failed to start: <error message>. Proceeding with text-only proposal."
-- **AND** the skill SHALL attempt `docker compose down` to clean up partial state
-- **AND** the skill SHALL proceed with text-only proposal generation
+- **THEN** the skill SHALL emit a warning: "Design sandbox failed to start: <error message>."
+- **AND** the skill SHALL attempt `docker compose down --volumes` to clean up partial state
+- **AND** the skill SHALL retry once with `docker compose up -d --build --wait dashboard`
+- **AND** if retry also fails, the skill SHALL report the error and STOP — do NOT proceed without sandbox
 
 #### Scenario: Sandbox teardown guarantee
 - **WHEN** the Design Phase completes OR fails at any step after `docker compose up`

@@ -92,7 +92,8 @@ When ready to implement, run /opsx-apply
    ```
 
    a. **If Docker is NOT available:**
-      - Emit: "Design sandbox unavailable (Docker not found). Proceeding with text-only proposal." then stop and report.
+      - Emit: "Design sandbox unavailable (Docker not found). Cannot proceed with UI change." 
+      - **STOP.** Do NOT proceed with text-only proposal. Ask user to install Docker and retry.
 
    b. **If Docker IS available:**
       1. **Write scenario.json** at `<change-dir>/screenshots/scenario.json`. URLs are `http://localhost:8000`. Capture at BOTH desktop (1512px) and mobile (375px) viewports.
