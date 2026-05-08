@@ -31,6 +31,7 @@
   },
   "files": [
     "packages/server/src/",
+    "packages/server/scripts/",
     "packages/server/package.json",
     "packages/server/tsconfig.json",
     "packages/shared/src/",
