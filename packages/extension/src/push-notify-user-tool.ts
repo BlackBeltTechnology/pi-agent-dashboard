@@ -67,6 +67,7 @@ Call POST /api/push/send with title and body via the dashboard server.`;
         // Use defaults
       }
 
+      let text: string;
       try {
         const curlArgs = [
           "curl", "-s",
@@ -85,33 +86,34 @@ Call POST /api/push/send with title and body via the dashboard server.`;
         try {
           const parsed = JSON.parse(result);
           if (parsed.results?.length === 0) {
-            return "No devices registered for push notifications. Enable push in dashboard Settings first.";
+            text = "No devices registered for push notifications. Enable push in dashboard Settings first.";
+          } else if (parsed.results?.every((r: any) => r.ok)) {
+            text = `Push notification sent to ${parsed.results.length} device(s).`;
+          } else {
+            text = "Push notification sent.";
           }
-          if (parsed.results?.every((r: any) => r.ok)) {
-            return `Push notification sent to ${parsed.results.length} device(s).`;
-          }
-          return "Push notification sent.";
         } catch {
           if (result.includes("404") || result.includes("not enabled")) {
-            return "Push notifications not enabled on this server. Enable them in dashboard Settings.";
+            text = "Push notifications not enabled on this server. Enable them in dashboard Settings.";
+          } else if (result.includes("401") || result.includes("Auth failed")) {
+            text = "Auth failed — check dashboard config.";
+          } else if (result.includes("503") || result.includes("misconfigured")) {
+            text = "Push misconfigured — missing contactEmail in config.";
+          } else if (result.includes("429") || result.includes("Rate limited")) {
+            text = "Rate limited — wait 60 seconds before sending another push.";
+          } else {
+            text = "Push notification sent.";
           }
-          if (result.includes("401") || result.includes("Auth failed")) {
-            return "Auth failed — check dashboard config.";
-          }
-          if (result.includes("503") || result.includes("misconfigured")) {
-            return "Push misconfigured — missing contactEmail in config.";
-          }
-          if (result.includes("429") || result.includes("Rate limited")) {
-            return "Rate limited — wait 60 seconds before sending another push.";
-          }
-          return "Push notification sent.";
         }
       } catch (err: any) {
         if (err.message?.includes("ECONNREFUSED") || err.message?.includes("Connection refused")) {
-          return "Dashboard not reachable — push not sent.";
+          text = "Dashboard not reachable — push not sent.";
+        } else {
+          text = `Push failed: ${err.message || "unknown error"}`;
         }
-        return `Push failed: ${err.message || "unknown error"}`;
       }
+
+      return [{ type: "text", text }];
     },
   });
 }
