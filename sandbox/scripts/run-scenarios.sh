@@ -2,11 +2,13 @@
 # Execute browser scenarios from JSON and capture screenshots
 # Usage: ./sandbox/scripts/run-scenarios.sh <scenario.json> [output-dir]
 # 
-# scenario.json format — array of steps:
+# scenario.json format — array of steps. Use tall viewports (3000px) because
+# the sidebar scrolls internally in a fixed-height container — regular viewports
+# will crop the content.
 # [
 #   {"open": "http://localhost:8000"},
 #   {"wait": 2000},
-#   {"set viewport": "1280 3000"},
+#   {"set viewport": "1512 3000"},
 #   {"screenshot": "desktop-overview"},
 #   {"click": ".session-card"},
 #   {"screenshot": "selected-card"},
@@ -14,7 +16,7 @@
 #   {"screenshot": "mobile-overview"}
 # ]
 #
-# Supported step keys: open, wait, screenshot, click, scroll, press, set viewport
+# Supported step keys: open, wait, screenshot, fullpage, click, scroll, press, set viewport
 
 set -e
 
@@ -53,6 +55,9 @@ for i, step in enumerate(scenario):
     elif 'screenshot' in step:
         name = step['screenshot']
         run('screenshot')
+    elif 'fullpage' in step:
+        name = step['fullpage']
+        run('screenshot --full')
         # Find latest screenshot and copy it
         tmp = sorted([f for f in os.listdir(os.path.expanduser('~/.agent-browser/tmp/screenshots/')) if f.endswith('.png')])
         if tmp:

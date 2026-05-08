@@ -98,9 +98,9 @@ When ready to implement, run /opsx-apply
          [
            {"open": "http://localhost:8000"},
            {"wait": 3000},
-           {"set viewport": "1512 982"},
+           {"set viewport": "1512 3000"},
            {"screenshot": "session-list-desktop"},
-           {"set viewport": "375 812"},
+           {"set viewport": "375 3000"},
            {"wait": 1000},
            {"screenshot": "session-list-mobile"}
          ]
@@ -112,9 +112,17 @@ When ready to implement, run /opsx-apply
            <change-dir>/screenshots/scenario.json \
            <change-dir>/screenshots/ 2>&1
          ```
-         Verify screenshots exist:
+         Verify screenshots exist AND have correct dimensions:
          ```bash
          ls -la <change-dir>/screenshots/*.png
+         file <change-dir>/screenshots/*.png
+         ```
+         Desktop MUST be ≥ 3000px tall. If not, the viewport was too short — fix scenario.json and re-capture.
+
+         **If sandbox exits with "unhealthy"**, the previous run left stale state. Clean up and retry once:
+         ```bash
+         docker compose -f sandbox/docker-compose.yml down --volumes 2>&1
+         bash sandbox/scripts/capture-screenshots.sh ...
          ```
 
       3. **Derive visual states** from specs requirements and proposal user stories.
@@ -122,20 +130,37 @@ When ready to implement, run /opsx-apply
          Minimum: desktop + mobile variants, all statuses (streaming/idle/ended/error),
          all interactive elements mentioned in specs.
 
-      4. **Invoke sandbox-designer subagent.** Pass individual file paths — NOT directories. List all spec files with `find <change-dir>/specs -name '*.md'` and include every one:
+      4. **Invoke sandbox-designer subagent.**
+
+         **CRITICAL — sandbox-designer skill requires NO `reads` parameter.** All file paths MUST go in the `task` text. Using `reads` causes the designer to fail with "screenshots failed to load".
+
+         List all spec files with `find <change-dir>/specs -name '*.md'` and include every one:
          ```
          subagent({
            agent: "sandbox-designer",
            async: true,
-           reads: [
-             "<change-dir>/screenshots/session-list-desktop.png",
-             "<change-dir>/screenshots/session-list-mobile.png",
-             "<change-dir>/proposal.md",
-             "<change-dir>/design.md",
-             "<change-dir>/specs/<capability-1>/spec.md",
-             "<change-dir>/specs/<capability-2>/spec.md"
-           ],
-           task: "Generate mockup.html with these states: <state list from step 3>.\nScreenshots show current UI. Proposal + specs define requirements."
+           task: `Generate mockup.html for <change-name>.
+
+         Read these screenshots first:
+         - <change-dir>/screenshots/session-list-desktop.png
+         - <change-dir>/screenshots/session-list-mobile.png
+
+         Read these design documents:
+         - <change-dir>/proposal.md
+         - <change-dir>/design.md
+
+         Read these specs:
+         - <change-dir>/specs/<capability-1>/spec.md
+         - <change-dir>/specs/<capability-2>/spec.md
+
+         Required states: <state list from step 3>
+
+         Requirements:
+         - Show BOTH light and dark theme variants for each state.
+         - Add a visible `<h2>` label above each <!-- state: --> block so states are identifiable.
+         - CSS custom properties ONLY. No raw Tailwind colors.
+
+         Save output to: <change-dir>/mockup.html`
          })
          ```
          The subagent runs async — collect output when complete:
@@ -144,12 +169,14 @@ When ready to implement, run /opsx-apply
          ```
          When status is "completed", save the output as `<change-dir>/mockup.html`.
 
-         **Validate the designer's first message** — it MUST describe what it sees in the screenshots (mentioning specific colors, layouts, elements). If the description is wrong or generic, screenshots didn't load. Verify screenshots with `read`, then re-invoke.
+         **Validate the designer's first message** — it MUST describe what it sees in the screenshots (mentioning specific colors, layouts, elements). If the description is wrong or generic, screenshots didn't load. If the designer reports "ERROR: screenshots failed to load", the invocation was wrong (likely used `reads`) — fix and re-invoke.
 
       5. **Validate mockup.html:**
          - Check ALL `<!-- state: -->` blocks from the task are present
-         - Verify no raw Tailwind colors (grep for `bg-gray-`, `text-white`, etc.)
-         - If validation fails → intercom to designer asking for fixes, wait, re-check
+         - Verify no raw Tailwind colors (`grep -cE 'bg-gray-|text-white|border-gray-|bg-slate-' mockup.html` must be 0)
+         - Verify both light and dark theme variants present
+         - Verify visible `<h2>` labels above each state block
+         - If validation fails → resume the designer with feedback: `subagent({ action: "resume", id: "<run-id>", message: "<fixes>" })`
 
       6. **Capture mockup screenshot.** Open `mockup.html` in browser, take full-page screenshot, save to `<change-dir>/screenshots/mockup-final.png`.
 

@@ -122,13 +122,23 @@ For session card / UI changes, cover at minimum:
 - `<!-- state: desktop-tools-dropdown -->` — Tools menu open
 - Additional states from user stories
 
+**Theme requirement:** Every state MUST be shown in BOTH light and dark theme variants.
+Add `<!-- theme: light -->` and `<!-- theme: dark -->` comments within each state block,
+or duplicate each state for both themes.
+
+**Label requirement:** Every `<!-- state: -->` block MUST be preceded by a visible `<h2>` heading
+with the human-readable state name (e.g. `<h2>Desktop Session List</h2>`).
+This makes the mockup scannable when opened in a browser.
+
 ## Self-Validation
 
 After generating `mockup.html`:
 1. Count `<!-- state:` comments — must match the requested state count
 2. Verify NO raw Tailwind colors (grep: `bg-gray-`, `text-white`, `border-gray-`, `bg-slate-`, etc.)
 3. Verify CSS custom property syntax used everywhere
-4. If ANY check fails — fix and re-check before reporting done
+4. Verify BOTH light and dark theme variants present for each state
+5. Verify visible `<h2>` labels above each `<!-- state: -->` block
+6. If ANY check fails — fix and re-check before reporting done
 
 ## Approval Workflow — MANDATORY
 
