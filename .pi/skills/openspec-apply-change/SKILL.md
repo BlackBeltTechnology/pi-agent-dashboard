@@ -147,29 +147,142 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
-- **For UI changes with mockup.html**:
-  1. Before starting implementation, `read <change-dir>/mockup.html` to understand the visual target
-  2. During implementation, reference mockup.html for exact CSS classes, spacing, and layout
-  3. After all UI tasks complete, capture AFTER screenshots via sandbox:
-     - The Docker sandbox builds from the worktree, so it picks up your changes automatically.
-     - `docker compose -f sandbox/docker-compose.yml up -d --wait dashboard`
-     - `sandbox/scripts/capture-screenshots.sh <change-dir>/screenshots/scenario.json <change-dir>/screenshots/`
-     - The dashboard inside sandbox runs on `http://localhost:8000` — scenario.json should use this URL.
-     - Copy results: screenshots appear in `<change-dir>/screenshots/`
-  4. Show BEFORE and AFTER screenshots side by side via `read`
-  5. Show mockup.html final screenshot via `read <change-dir>/screenshots/mockup-final.png`
-  6. **Designer review loop — MANDATORY for UI changes**:
-     - After showing AFTER screenshots, invoke sandbox-designer to critique implementation vs mockup
-     - Use `subagent({ agent: "sandbox-designer", async: false, task: "Compare AFTER vs MOCKUP and list differences..." })`
-     - Fix ALL issues reported by the designer
-     - Rebuild, restart, re-capture screenshots, re-invoke the SAME designer via `subagent({ action: "resume", id: "<run-id>", message: "Re-review. Issues fixed..." })`
-     - **Loop until designer responds with NO_ISSUES** — do NOT stop before that
-  7. Ask user to verify implementation matches mockup
-  - **CRITICAL**: NEVER skip showing screenshots to the user. Always use `read` on PNG files.
-  - **BEFORE screenshots MUST be shown**: `read <change-dir>/screenshots/session-list-desktop.png` and `session-list-mobile.png`
-  - **AFTER screenshots MUST be shown**: capture and `read` the new screenshots
-  - **Mockup MUST be shown**: `read <change-dir>/screenshots/mockup-final.png`
-  - **Designer review MUST loop until NO_ISSUES**
+- **For UI changes with mockup.html**: Follow the Design Process State Machine below. Do NOT use the old linear 7-step procedure.
+
+---
+
+## Design Process State Machine (UI Changes)
+
+When the change includes a `mockup.html`, the implementation process is a **turn-based state machine**.
+Each phase that requires external input ends the current turn. The next turn resumes from a checkpoint file.
+
+### Checkpoint File
+
+Location: `~/.pi/dashboard/design-review-state.json`
+
+```json
+{
+  "phase": "awaiting-review",
+  "designerRunId": "abc123",
+  "changeDir": "openspec/changes/<name>",
+  "reviewRound": 2,
+  "currentTask": 3,
+  "tasksCompleted": [1, 2]
+}
+```
+
+**Rules:**
+- Read checkpoint at start of UI design phase. If it exists, resume from recorded phase.
+- If no checkpoint exists, start from `init`.
+- Write checkpoint at every phase transition.
+- Delete checkpoint when phase `done` is reached.
+
+### Turn Boundaries
+
+The agent MUST complete its turn (NOT poll or sleep-wait) when transitioning to:
+- `awaiting-designer` — waiting for sandbox-designer subagent to complete
+- `showing-mockup` — waiting for user approval
+- `awaiting-review` — waiting for designer review results
+- `showing-review` — waiting for user final approval
+
+Next turns are triggered by intercom messages (designer completion or user reply).
+
+### Phases
+
+#### Phase: `init`
+1. Build sandbox: `docker compose -f sandbox/docker-compose.yml up -d --build --wait dashboard`
+2. Capture BEFORE screenshots: `sandbox/scripts/capture-screenshots.sh <change-dir>/screenshots/scenario.json <change-dir>/screenshots/`
+3. Invoke sandbox-designer:
+   ```
+   subagent({
+     agent: "sandbox-designer",
+     async: true,
+     task: `Generate mockup.html for <change>.
+   Read these screenshots first:
+   - <change-dir>/screenshots/session-list-desktop.png
+   - <change-dir>/screenshots/session-list-mobile.png
+   Read: <change-dir>/proposal.md, <change-dir>/design.md, <change-dir>/specs/<capability>/spec.md
+   Required states: <list from proposal>
+   CSS constraint: CSS custom properties ONLY.
+   Save output to: <change-dir>/mockup.html
+   After review, use contact_supervisor({ reason: "progress_update", message: "[designer:<runId>] ..." }).`
+   })
+   ```
+4. Write checkpoint: `{ phase: "awaiting-designer", designerRunId: "<id>", changeDir: "...", reviewRound: 0 }`
+5. **COMPLETE TURN.** Do NOT poll. Wait for intercom trigger.
+
+#### Phase: `awaiting-designer` (triggered by designer intercom)
+1. Validate mockup.html: count `<!-- state:` blocks, grep for raw Tailwind colors
+2. Capture mockup screenshot via sandbox browser
+3. Show BEFORE screenshots to user: `read <change-dir>/screenshots/session-list-desktop.png`, `read session-list-mobile.png`
+4. Show mockup to user: `read <change-dir>/screenshots/mockup-final.png`
+5. List ALL visual states from mockup.html
+6. Ask user for approval via `ask_user({ method: "confirm", title: "Mockup — утверждаем?" })`
+7. Update checkpoint: `phase: "showing-mockup"`
+8. **COMPLETE TURN.** Wait for user response.
+
+#### Phase: `showing-mockup` (triggered by user reply)
+- If user approves → write checkpoint: `{ phase: "implementing", tasksRemaining: [...] }`, proceed to code tasks
+- If user requests changes → resume designer: `subagent({ action: "resume", id: "<runId>", message: "<feedback>" })`, write checkpoint: `phase: "awaiting-designer"`, **COMPLETE TURN**
+
+#### Phase: `implementing`
+1. Execute code tasks (reference mockup.html for CSS classes, spacing, layout)
+2. After all UI tasks complete:
+   - Build sandbox: `docker compose -f sandbox/docker-compose.yml up -d --build --wait dashboard`
+   - Capture AFTER screenshots: `sandbox/scripts/capture-screenshots.sh <scenario> <output>`
+3. Resume SAME designer:
+   ```
+   subagent({
+     action: "resume",
+     id: "<designerRunId>",
+     message: `Compare AFTER vs MOCKUP.
+   AFTER screenshots: <change-dir>/screenshots/after-*.png
+   Mockup: <change-dir>/mockup.html
+   Use contact_supervisor to report findings.
+   If NO differences: message "[designer:<runId>] NO_ISSUES: implementation matches mockup".`
+   })
+   ```
+4. Write checkpoint: `{ phase: "awaiting-review", currentTask: N, reviewRound: N+1 }`
+5. **COMPLETE TURN.**
+
+#### Phase: `awaiting-review` (triggered by designer intercom)
+1. Read designer findings
+2. If **NO_ISSUES**:
+   - Show final BEFORE + AFTER screenshots to user via `read`
+   - Update checkpoint: `phase: "showing-review"`
+   - **COMPLETE TURN**
+3. If **issues found**:
+   - Send findings + AFTER screenshots to user via intercom
+   - Ask user: "Approve these fixes? Any additional changes?"
+   - **COMPLETE TURN.** Wait for user.
+
+#### Phase: `showing-review` (triggered by user reply)
+- Show BEFORE + AFTER + MOCKUP screenshots to user
+- If user approves → write checkpoint: `phase: "done"`, delete checkpoint file
+- If user wants more changes → write checkpoint: `phase: "implementing"`, loop
+
+#### Phase: `done`
+Delete checkpoint file. Continue with any remaining non-UI tasks.
+
+### Intercom Coordination Rules
+
+**Agent → User:**
+- At `awaiting-review` phase: send findings summary + paths to AFTER screenshots
+- Format: "Designer found N issue(s). Screenshots: <paths>. Approve? Reply with 'ok', 'fix <details>', 'skip', or 'abort'."
+- User feedback takes priority over designer feedback when they conflict
+
+**Agent → Designer:**
+- ALL sandbox-designer invocations use `async: true`
+- Designer is ALWAYS resumed via `subagent({ action: "resume", id: "<runId>" })` — never re-created
+- `reads` parameter SHALL be empty; ALL file paths go in `task`/`message` text
+- Task/message MUST include runId for `contact_supervisor` header format
+
+**Screenshot Rules:**
+- ALL AFTER screenshots captured via `sandbox/scripts/capture-screenshots.sh` (Docker sandbox with `--build`)
+- NEVER use local `agent-browser` for AFTER screenshots
+- NEVER skip showing screenshots to user — always use `read` on PNG files
+
+---
 
 **Fluid Workflow Integration**
 

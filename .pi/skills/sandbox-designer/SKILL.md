@@ -48,10 +48,68 @@ The orchestrator provides a list of required `<!-- state: -->` blocks in the tas
 If the designer discovers additional states that should be covered
 (e.g. specs mention a state not in the list, or screenshots reveal a variant):
 - Write the additional state anyway and note it in the output.
-- Do NOT use intercom — the agent runs synchronously and completes in one go.
+- Report via `contact_supervisor` (see Intercom Coordination below).
 
 If screenshots failed to load — stop immediately, do NOT generate from imagination.
-Return an error message describing which screenshots are missing.
+Report via `contact_supervisor({ reason: "need_decision", message: "ERROR: screenshots failed to load" })`.
+
+**Screenshot validation on first load:** In the designer's first `contact_supervisor` message,
+describe what is seen in the screenshots (specific colors, layouts, elements).
+If the description is generic or wrong, screenshots didn't load — stop and report error.
+
+**Reject non-sandbox screenshots:** If AFTER screenshots appear to come from local
+`agent-browser` (URL shows `localhost:8000` without sandbox indicators, or screenshots
+match a previously-seen stale version), report via `contact_supervisor`:
+"ERROR: screenshots not from sandbox — may show stale code" and refuse to proceed.
+
+## Intercom Coordination
+
+During the review loop (apply phase), the designer runs as an async subagent and
+communicates with the supervisor via `contact_supervisor`. NEVER use raw `intercom()`.
+
+### When to use progress_update
+
+After completing a review (comparing AFTER screenshots vs mockup), send findings:
+```
+contact_supervisor({
+  reason: "progress_update",
+  message: `[designer:<runId>] Found N issue(s):
+- [SEVERITY] <element>: expected <mockup-value>, got <after-value> — <action>
+- ...`
+})
+```
+
+Severity tags: `[CRITICAL]` (layout broken, missing element), `[MAJOR]` (wrong color/size/spacing),
+`[MINOR]` (1-2px off, cosmetic).
+
+If NO differences found:
+```
+contact_supervisor({
+  reason: "progress_update",
+  message: "[designer:<runId>] NO_ISSUES: implementation matches mockup"
+})
+```
+
+Do NOT mark the task as complete after sending — wait for the supervisor to re-invoke you
+with new instructions.
+
+### When to use need_decision
+
+When a finding is ambiguous and the designer cannot determine if it's intentional:
+```
+contact_supervisor({
+  reason: "need_decision",
+  message: `[designer:<runId>] NEED DECISION:
+Element: <element>
+Mockup: <mockup-value>
+After: <after-value>
+Question: Is this an intentional deviation or a bug?`
+})
+```
+
+Wait for supervisor reply before continuing. Classify based on answer:
+- "intentional" → exclude from issue list
+- "fix" → include as finding
 
 ## States to Cover
 
@@ -122,27 +180,29 @@ If user says YES — proceed to tasks.
 
 During implementation, the designer is used for critique — comparing AFTER screenshots against mockup:
 
-1. Capture AFTER screenshots with `agent-browser` (NOT docker sandbox)
-2. Invoke designer: `subagent({ agent: "sandbox-designer", async: false, task: "Compare AFTER vs MOCKUP..." })`
+1. Capture AFTER screenshots via Docker sandbox (`sandbox/scripts/capture-screenshots.sh` with `--build`)
+2. Invoke designer: `subagent({ agent: "sandbox-designer", async: true, task: "Compare AFTER vs MOCKUP..." })`
 3. Fix ALL reported issues
-4. Rebuild, restart, re-capture, re-invoke SAME designer via `subagent({ action: "resume", id: "<run-id>", message: "Re-review..." })`
+4. Rebuild sandbox with `--build`, re-capture, re-invoke SAME designer via `subagent({ action: "resume", id: "<run-id>", message: "Re-review..." })`
 5. **Loop until designer responds with NO_ISSUES** — do NOT stop before that
 
 ## Agent Invocation
 
 **CRITICAL — Invocation Rules:**
 
-1. **Synchronous mode only.** Agent runs in one shot, completes, and exits. If blocked, parent restarts via `resume`.
+1. **Async mode.** Designer runs as `async: true` subagent. Communicates via `contact_supervisor`.
 2. **NO `reads` parameter.** ALL file paths (screenshots, proposal, specs, design) go in the `task` text.
-3. **NO intercom.** Agent does not use intercom during operation.
-4. **Before screenshots MUST be shown to user.** Use `read` on the BEFORE screenshots that were sent to the designer.
-5. **Mockup screenshot MUST be shown to user.** Use `read` on `mockup-final.png`.
-6. **All states MUST be listed** before asking for approval.
+3. **Use contact_supervisor, NOT raw intercom.** Designer never calls `intercom()` directly.
+4. **Validate screenshots on load.** First message MUST describe what is seen in screenshots.
+5. **Reject non-sandbox screenshots.** If screenshots appear local/stale, report error and refuse.
+6. **Before screenshots MUST be shown to user.** Use `read` on the BEFORE screenshots that were sent to the designer.
+7. **Mockup screenshot MUST be shown to user.** Use `read` on `mockup-final.png`.
+8. **All states MUST be listed** before asking for approval.
 
 ```
 subagent({
   agent: "sandbox-designer",
-  async: false,
+  async: true,
   task: `Generate mockup.html for <change>.
 
 Read these screenshots first to understand the current UI:
@@ -186,3 +246,5 @@ The Docker sandbox MUST be pre-built with all dependencies:
 ```bash
 docker compose -f sandbox/docker-compose.yml up -d --wait dashboard
 ```
+
+**Screenshot capture always rebuilds:** `sandbox/scripts/capture-screenshots.sh` passes `--build` to `docker compose up` on every invocation. The image is rebuilt from the current worktree, so screenshots always reflect the latest code. This adds 30-90 seconds per capture round but guarantees correctness.

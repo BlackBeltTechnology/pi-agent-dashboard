@@ -13,8 +13,8 @@ COMPOSE_FILE="sandbox/docker-compose.yml"
 
 mkdir -p "$OUTDIR"
 
-echo "[capture] Starting sandbox..."
-docker compose -f "$COMPOSE_FILE" up -d --wait 2>&1
+echo "[capture] Starting sandbox (with --build to pick up worktree changes)..."
+docker compose -f "$COMPOSE_FILE" up -d --build --wait 2>&1
 
 echo "[capture] Copying scenario into container..."
 docker compose -f "$COMPOSE_FILE" cp "$SCENARIO" dashboard:/tmp/scenario.json
