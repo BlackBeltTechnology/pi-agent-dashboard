@@ -114,7 +114,7 @@ describe("SessionCard", () => {
     const session = makeSession({ status: "streaming" });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("bg-yellow-500/10");
+    expect(card.className).toContain("bg-yellow-500/5");
     expect(card.className).toContain("animate-pulse");
   });
 
@@ -122,21 +122,21 @@ describe("SessionCard", () => {
     const session = makeSession({ status: "idle", resuming: true });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("bg-yellow-500/10");
+    expect(card.className).toContain("bg-yellow-500/5");
   });
 
   it("should apply ask_user pulse when currentTool is ask_user", () => {
     const session = makeSession({ status: "streaming", currentTool: "ask_user" });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("bg-purple-500/10");
+    expect(card.className).toContain("bg-purple-500/5");
   });
 
-  it("should apply card-unread-pulse when unread and idle", () => {
+  it("should tint background when unread and idle", () => {
     const session = makeSession({ status: "idle", unread: true });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("card-unread-pulse");
+    expect(card.className).toContain("bg-cyan-500/5");
   });
 
   it("should show meta chips for git branch", () => {

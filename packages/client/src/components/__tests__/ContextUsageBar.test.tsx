@@ -14,11 +14,11 @@ describe("ContextUsageBar", () => {
     expect(screen.queryByTestId("context-usage-pct")).toBeNull();
   });
 
-  it("shows green fill below 50% with percentage", () => {
+  it("shows neutral fill below 50% with percentage", () => {
     render(<ContextUsageBar tokens={4000} contextWindow={10000} />);
     const fill = screen.getByTestId("context-usage-fill");
     expect(fill.style.width).toBe("40%");
-    expect(fill.className).toContain("bg-green-500");
+    expect(fill.className).toContain("bg-[var(--text-tertiary)]");
     expect(screen.getByTestId("context-usage-pct").textContent).toBe("40%");
   });
 
@@ -26,14 +26,14 @@ describe("ContextUsageBar", () => {
     render(<ContextUsageBar tokens={6500} contextWindow={10000} />);
     const fill = screen.getByTestId("context-usage-fill");
     expect(fill.style.width).toBe("65%");
-    expect(fill.className).toContain("bg-yellow-500");
+    expect(fill.className).toContain("bg-yellow-500/60");
   });
 
   it("shows red fill above 80%", () => {
     render(<ContextUsageBar tokens={9000} contextWindow={10000} />);
     const fill = screen.getByTestId("context-usage-fill");
     expect(fill.style.width).toBe("90%");
-    expect(fill.className).toContain("bg-red-500");
+    expect(fill.className).toContain("bg-red-500/60");
   });
 
   it("caps at 100%", () => {

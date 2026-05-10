@@ -299,7 +299,7 @@ export function registerSystemRoutes(
         loader,
         port: config.port,
         extraArgs,
-        maxHeapSizeMb: config.memoryLimits.maxHeapSizeMb,
+        maxHeapSizeMb: config.maxHeapSizeMb,
       });
 
       setTimeout(() => process.exit(0), 200);

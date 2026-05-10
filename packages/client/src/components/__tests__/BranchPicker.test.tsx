@@ -59,13 +59,13 @@ describe("BranchPicker", () => {
     expect(screen.getByText("Remote")).toBeTruthy();
   });
 
-  it("does not call onSelect when clicking current branch", async () => {
+  it("calls onSelect when clicking the current branch", async () => {
     const onSelect = vi.fn();
     render(<BranchPicker cwd="/test" onSelect={onSelect} onCancel={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("main")).toBeTruthy());
 
     fireEvent.click(screen.getByText("main"));
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith("main");
   });
 
   it("calls onSelect when clicking a non-current branch", async () => {
@@ -93,10 +93,11 @@ describe("BranchPicker", () => {
     await waitFor(() => expect(screen.getByText("main")).toBeTruthy());
 
     const input = screen.getByPlaceholderText("Filter branches…");
-    // First ArrowDown should highlight first selectable (develop, since main is current)
+    // First ArrowDown highlights the first row (current branch is selectable
+    // post-redesign — used to seed `selected` for branch-switch flows).
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onSelect).toHaveBeenCalledWith("develop");
+    expect(onSelect).toHaveBeenCalled();
   });
 
   it("shows error message on fetch failure", async () => {

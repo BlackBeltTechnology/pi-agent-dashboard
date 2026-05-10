@@ -60,14 +60,14 @@ export function HonchoCardActions({ cwd: _cwd, onOpenPopover, sessionId }: Props
     "inline-flex items-center justify-center text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed";
 
   // Inline vertical-align: middle on every button so they sit on the same
-  // line as sibling pills (HonchoBadge, jj badge). Without this, the buttons
+  // line as sibling pills (e.g. HonchoBadge). Without this, the buttons
   // baseline-align via their internal SVG (bottom edge) and float ~2-3px
   // higher than pills that align by text middle.
   const btnStyle = { verticalAlign: "middle" as const };
 
   return (
     // verticalAlign: middle on the outer wrapper so the entire action bar
-    // aligns with sibling pills (HonchoBadge, jj badge) on the same line.
+    // aligns with sibling pills (e.g. HonchoBadge) on the same line.
     // Without this, the wrapper sits ~2px higher (baseline-aligned) than
     // the middle-aligned pills.
     <div className="inline-flex gap-1" style={{ verticalAlign: "middle" }}>

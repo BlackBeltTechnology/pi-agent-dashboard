@@ -759,7 +759,6 @@ export default function App() {
       onSelect={handleSelect}
       contextUsageMap={contextUsageMap}
       openspecMap={openspecMap}
-      openspecGroupsMap={openspecGroupsMap}
       sessionOrderMap={sessionOrderMap}
       onReorderSessions={(cwd, sessionIds) => {
         setSessionOrderMap((prev) => {
@@ -816,7 +815,6 @@ export default function App() {
       editorStatuses={editorStatuses}
       editorAvailable={editorAvailable}
       errorSessionIds={errorSessionIds}
-      retrySessionIds={retrySessionIds}
       spawnErrors={spawnErrors}
       onDismissSpawnError={(cwd) => setSpawnErrors((prev) => { const next = new Map(prev); next.delete(cwd); return next; })}
       resumeErrors={resumeErrors}

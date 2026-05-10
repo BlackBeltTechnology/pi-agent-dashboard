@@ -78,6 +78,11 @@ export interface LaunchOpts {
   cliPath: string;
   /** Args appended after the entry script (e.g. `--port`, `--pi-port`, `start`). */
   extraArgs?: readonly string[];
+  /**
+   * Node-level args inserted before `--import <loader>` (e.g.
+   * `--max-old-space-size=4096`). See change: configurable max heap.
+   */
+  nodeArgs?: readonly string[];
   /** Caller-supplied jiti-resolution anchor (e.g. cliPath inside a node_modules tree). */
   anchor?: string;
   /**
@@ -225,6 +230,7 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
       loader,
       entry: opts.cliPath,
       args: opts.extraArgs ? [...opts.extraArgs] : undefined,
+      nodeArgs: opts.nodeArgs ? [...opts.nodeArgs] : undefined,
       spawnOptions: {
         detached: opts.detach ?? true,
         stdio,

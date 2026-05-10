@@ -12,7 +12,7 @@
  * See change: fix-windows-server-parity.
  */
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { toFileUrl, shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { buildNodeImportArgvParts, toFileUrl, shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -42,24 +42,29 @@ export function buildOrchestratorScript(params: RestartParams): string {
   // so quoting/path-separator handling is correct on Windows.
   // See change: fix-restart-bridge-auto-start-race.
   const pidPath = path.join(os.homedir(), ".pi", "dashboard", "dashboard.pid");
-  // Loader is always URL-wrapped (required on Windows for non-C: drives).
-  // Entry is URL-wrapped only on Windows + non-tsx loader. POSIX + jiti MUST
-  // pass raw path because jiti's resolver treats file:// URL entries as
-  // relative specifiers (normalises to file:/... then prepends cwd).
-  // See openspec/changes/archive/2026-04-24-fix-windows-entry-script-url.
-  const wrapEntry = shouldUrlWrapEntry(params.loader);
-  const spawnArgs: string[] = [];
-  if (params.maxHeapSizeMb && params.maxHeapSizeMb > 0) {
-    spawnArgs.push(`--max-old-space-size=${params.maxHeapSizeMb}`);
-  }
-  if (params.loader) {
-    spawnArgs.push("--import", toFileUrl(params.loader));
-  }
-  spawnArgs.push(
-    wrapEntry ? toFileUrl(params.cliPath) : params.cliPath,
-    "start",
-    ...params.extraArgs,
-  );
+  // Argv shape (loader URL-wrapping + entry URL-wrapping rule) is
+  // owned by `buildNodeImportArgvParts` in `node-spawn.ts` — the same
+  // helper `spawnNodeScript` calls. Keeps the `--import` argv shape
+  // in exactly one place.
+  // See change: unify-server-launch-ts-loader.
+  const heapArgs: string[] = params.maxHeapSizeMb && params.maxHeapSizeMb > 0
+    ? [`--max-old-space-size=${params.maxHeapSizeMb}`]
+    : [];
+  const spawnArgs: string[] = params.loader
+    ? [
+        ...heapArgs,
+        ...buildNodeImportArgvParts({
+          loader: params.loader,
+          entry: params.cliPath,
+          args: ["start", ...params.extraArgs],
+        }),
+      ]
+    : [
+        ...heapArgs,
+        shouldUrlWrapEntry(params.loader) ? toFileUrl(params.cliPath) : params.cliPath,
+        "start",
+        ...params.extraArgs,
+      ];
 
   // The script runs in a fresh Node process. Keep it self-contained and use
   // only built-ins (net, http, fs, child_process). JSON.stringify is used to

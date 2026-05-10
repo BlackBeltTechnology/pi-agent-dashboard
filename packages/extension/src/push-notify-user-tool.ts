@@ -78,7 +78,7 @@ Call POST /api/push/send with title and body via the dashboard server.`;
           "-d", JSON.stringify({ title, body, url }),
         ];
 
-        const { stdout, stderr, status } = spawnSync("curl", curlArgs, {
+        const { stdout, stderr, status } = spawnSync<string>("curl", curlArgs, {
           encoding: "utf-8",
           timeout: 10_000,
         });

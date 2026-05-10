@@ -71,7 +71,7 @@ export function HonchoBadge() {
       // verticalAlign: middle as inline style — Tailwind's `align-middle` class
       // isn't shipped (honcho-plugin source not in dashboard's Tailwind content
       // scan). Without this, the pill's baseline (driven by the SVG icon's
-      // bottom edge) differs from sibling pills (jj:default, etc.) whose
+      // bottom edge) differs from sibling pills whose
       // baseline comes from text. Result: ~4px vertical offset between pills.
       style={{ background: bg, color: fg, verticalAlign: "middle" }}
     >

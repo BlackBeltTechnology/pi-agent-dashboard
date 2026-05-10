@@ -47,7 +47,10 @@ export interface SpawnNodeScriptOptions {
   /** Arguments passed to the script (after entry). */
   args?: string[];
 
-  /** Extra Node/V8 flags inserted before --import/entry (e.g. --max-old-space-size=10240). */
+  /**
+   * Node-level args inserted before `--import <loader>` (e.g.
+   * `--max-old-space-size=4096`). See change: configurable max heap.
+   */
   nodeArgs?: string[];
 
   /** Standard spawn options (cwd, env, stdio, detached, etc.). */
@@ -121,29 +124,37 @@ export function toFileUrl(pathOrUrl: string): string {
  * host can exercise the Windows branch without mutating `process.platform`.
  *
  * !! JITI VERSION CONTRACT !!
- * The Windows-non-tsx arm assumes the jiti loader is from
- * `@mariozechner/pi-coding-agent@0.70.x` (jiti 2.x with the `file:///`
- * triple-slash URL handling fix). jiti 2.x correctly handles `file:///`
- * URL entries on Windows — it was the version we carved this contract
- * around in change `fix-windows-entry-script-url`.
+ * The Windows-non-tsx arm relies on jiti's `file:///` triple-slash URL
+ * handling. Verified-good baselines (must be one of these in the
+ * offline cacache):
+ *   • `@earendil-works/pi-coding-agent@0.74.x` (jiti `^2.7.0`)  — current
+ *   • `@mariozechner/pi-coding-agent@0.70.x`  (jiti 2.x)        — legacy
  *
- * Newer jiti versions (e.g. jiti 2.6.5 in `pi-coding-agent@0.71.x`)
- * MISBEHAVE on `file:///` entries: they normalize triple-slash to
- * single-slash and prepend cwd as if the entry were a relative
- * specifier, producing `<cwd>/file:/...` ENOENT errors.
+ * Both ship a jiti that correctly normalises `file:///` entries on
+ * Windows. The contract was originally carved around 0.70.x in change
+ * `fix-windows-entry-script-url` and re-anchored at 0.74.x in change
+ * `migrate-pi-fork-to-earendil` (E.7).
  *
- * The Electron Windows codepath defends against this version drift by
- * resolving jiti from the managed dir's `pi-coding-agent@0.70.0` (the
- * version pinned in `packages/electron/offline-packages.json` and
- * extracted into `~/.pi-dashboard/` by `installStandalone()` on first
- * launch — see Defect 1 of change
- * `fix-electron-windows-installer-and-server-bootstrap`). Since the
- * managed-dir tree is pinned, the contract holds regardless of what
- * jiti is on the user's PATH.
+ * Known-broken (do NOT pin): `pi-coding-agent@0.71.x` shipping
+ * `jiti@2.6.5`. That jiti version misnormalises triple-slash to
+ * single-slash and prepends cwd as if the entry were a relative
+ * specifier, producing `<cwd>/file:/...` ENOENT errors. Keep the
+ * 0.71.x / 2.6.5 mention here so contributors recognise the
+ * regression pattern if it recurs in a future jiti.
+ *
+ * The Electron Windows codepath defends against version drift by
+ * resolving jiti from the managed dir's pinned `pi-coding-agent`
+ * (currently `@earendil-works/pi-coding-agent@0.74.0`, pinned in
+ * `packages/electron/offline-packages.json` and extracted into
+ * `~/.pi-dashboard/` by `installStandalone()` on first launch — see
+ * Defect 1 of change `fix-electron-windows-installer-and-server-bootstrap`).
+ * Since the managed-dir tree is pinned, the contract holds regardless
+ * of what jiti is on the user's PATH.
  *
  * If a future change bumps the offline-cacache `pi-coding-agent` pin to
- * a version with a different jiti, RE-VERIFY this contract on Windows
- * manually (run a packaged Electron app on Win10 + Win11) and either:
+ * a version OUTSIDE the verified baselines, RE-VERIFY this contract on
+ * Windows manually (run a packaged Electron app on Win10 + Win11) and
+ * either:
  *   1. Update the contract (fix the file:// URL handling expectation), OR
  *   2. Add a per-jiti-version branch here, OR
  *   3. Switch the bundled loader to tsx (which has its own contract).
@@ -172,19 +183,56 @@ export function shouldUrlWrapEntry(
  * preserved. Does not import `node:child_process` directly (the type
  * imports above are annotated with the opt-out marker).
  */
+/**
+ * Pure helper: build the bare argv chunk for `node --import <loader>
+ * <entry> [...args]` with correct URL-wrapping at both positions.
+ *
+ * Single source of truth for the `--import` argv shape — used by
+ * `spawnNodeScript` (runtime spawn) and by
+ * `packages/server/src/restart-helper.ts buildOrchestratorScript`
+ * (which embeds the argv into a `node -e` orchestrator script that
+ * executes in a fresh process and therefore cannot call
+ * `spawnNodeScript` directly).
+ *
+ * No I/O. The `platform` parameter is passed through to
+ * `shouldUrlWrapEntry` for testability.
+ *
+ * Loader is always URL-wrapped. Entry is URL-wrapped per
+ * `shouldUrlWrapEntry(loader, platform)`.
+ */
+export function buildNodeImportArgvParts(opts: {
+  loader: string;
+  entry: string;
+  args?: readonly string[];
+  platform?: NodeJS.Platform;
+}): string[] {
+  const wrapEntry = shouldUrlWrapEntry(opts.loader, opts.platform);
+  const parts: string[] = [
+    "--import", toFileUrl(opts.loader),
+    wrapEntry ? toFileUrl(opts.entry) : opts.entry,
+  ];
+  if (opts.args && opts.args.length > 0) parts.push(...opts.args);
+  return parts;
+}
+
 export function spawnNodeScript(opts: SpawnNodeScriptOptions): ChildProcess {
   const nodeBin = opts.nodeBin ?? process.execPath;
-  const wrapEntry = shouldUrlWrapEntry(opts.loader);
 
-  const argv: string[] = [];
+  let argv: string[] = [];
   if (opts.nodeArgs && opts.nodeArgs.length > 0) {
     argv.push(...opts.nodeArgs);
   }
   if (opts.loader) {
-    argv.push("--import", toFileUrl(opts.loader));
+    argv.push(...buildNodeImportArgvParts({
+      loader: opts.loader,
+      entry: opts.entry,
+      args: opts.args,
+    }));
+  } else {
+    const wrapEntry = shouldUrlWrapEntry(opts.loader);
+    argv.push(wrapEntry ? toFileUrl(opts.entry) : opts.entry);
+    if (opts.args) argv.push(...opts.args);
   }
-  argv.push(wrapEntry ? toFileUrl(opts.entry) : opts.entry);
-  if (opts.args) argv.push(...opts.args);
 
   return execSpawn(nodeBin, argv, opts.spawnOptions ?? {});
 }

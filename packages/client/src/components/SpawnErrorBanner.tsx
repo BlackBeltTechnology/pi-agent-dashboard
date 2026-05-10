@@ -16,7 +16,7 @@ interface HintEntry {
   cta?: { label: string; action: "wizard" | "log" };
 }
 
-const CODE_HINTS: Record<SpawnFailureCode, HintEntry> = {
+const CODE_HINTS: Partial<Record<SpawnFailureCode, HintEntry>> = {
   DIR_MISSING: { label: "Folder no longer exists." },
   PI_NOT_FOUND: { label: "Pi binary not found.", cta: { label: "Open Setup Wizard", action: "wizard" } },
   WIN_PI_CMD_ONLY: { label: "Windows install incomplete (only pi.cmd found).", cta: { label: "Open Setup Wizard", action: "wizard" } },
@@ -26,6 +26,13 @@ const CODE_HINTS: Record<SpawnFailureCode, HintEntry> = {
   SPAWN_ERRNO: { label: "OS refused to start pi. See message." },
   PREFLIGHT_FAILED: { label: "Preflight checks failed." },
   REGISTER_TIMEOUT: { label: "Pi started but never connected to the dashboard.", cta: { label: "View log", action: "log" } },
+  SPAWN_HOOK_ERR: { label: "Pre-spawn hook failed (worktree creation)." },
+  FORK_DEGRADED_TO_NEW: { label: "Fork source had no history — started fresh session." },
+  dirty_working_tree: { label: "Working tree has uncommitted changes — commit or stash first." },
+  branch_not_found: { label: "Branch not found in repository." },
+  not_a_git_repo: { label: "Directory is not a git repository." },
+  git_unavailable: { label: "Git is not available on PATH." },
+  branch_already_checked_out: { label: "Branch is already checked out in another worktree." },
 };
 
 function openWizard(): void {

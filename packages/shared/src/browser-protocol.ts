@@ -187,7 +187,14 @@ export type SpawnFailureCode =
   | "PI_CRASHED"
   | "SPAWN_ERRNO"
   | "PREFLIGHT_FAILED"
-  | "REGISTER_TIMEOUT";
+  | "REGISTER_TIMEOUT"
+  | "SPAWN_HOOK_ERR"
+  | "FORK_DEGRADED_TO_NEW"
+  | "dirty_working_tree"
+  | "branch_not_found"
+  | "not_a_git_repo"
+  | "git_unavailable"
+  | "branch_already_checked_out";
 
 /**
  * A single reason from the synchronous spawn preflight check.

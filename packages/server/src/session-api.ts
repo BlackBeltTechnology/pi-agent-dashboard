@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import { isAbsolute } from "node:path";
-import { execSync } from "node:child_process";
+import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import type { PiGateway } from "./pi-gateway.js";
 import type { BrowserGateway } from "./browser-gateway.js";
