@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useRoute, useLocation, useSearchParams, Redirect, Switch, Route } from "wouter";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
+import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
 import { SessionList } from "./components/SessionList.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
@@ -669,6 +670,7 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  useDocumentTitle(selectedSession);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
   const editorMap = useEditors(editorCwds);
