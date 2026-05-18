@@ -80,16 +80,32 @@ describe("bridge slash command routing (regression contract)", () => {
     expect(evs.map((e) => e.status)).toEqual(["started", "completed"]);
   });
 
-  it("extension cmd, NO dispatchCommand → stopgap error, no sendUserMessage, started+error", async () => {
-    // regression: see openspec/changes/fix-extension-slash-commands-in-dashboard/
-    const stub = makeStubPi({ withDispatch: false });
-    const sink = await drive("/ctx-stats", stub);
+  it("extension cmd with delivery: steer → dispatchCommand called with streamingBehavior: steer", async () => {
+    const stub = makeStubPi({ withDispatch: true });
+    const sink = await drive("/ctx-stats", stub, "steer");
 
+    expect(stub.dispatchCommand).toHaveBeenCalledTimes(1);
+    expect(stub.dispatchCommand).toHaveBeenCalledWith("/ctx-stats", { streamingBehavior: "steer" });
     expect(stub.sendUserMessage).not.toHaveBeenCalled();
 
     const evs = feedbackEvents(sink, "/ctx-stats");
-    expect(evs.map((e) => e.status)).toEqual(["started", "error"]);
-    expect(evs[1].message).toMatch(/pi 0\.71\+/);
+    expect(evs.map((e) => e.status)).toEqual(["started", "completed"]);
+  });
+
+  it("extension cmd, NO dispatchCommand, not headless → error feedback with rpc-keeper hint, no sendUserMessage", async () => {
+    // Path D: extension commands cannot be dispatched for non-headless sessions.
+    // Emits error with hint to enable useRpcKeeper for headless mode.
+    // See change: fix-slash-dispatch-delivery.
+    const stub = makeStubPi({ withDispatch: false });
+    const sink = await drive("/ctx-stats", stub);
+
+    // sendUserMessage is NOT called — the command is handled (with error).
+    expect(stub.sendUserMessage).not.toHaveBeenCalled();
+
+    // Error feedback emitted with rpc-keeper hint.
+    const evs = feedbackEvents(sink, "/ctx-stats");
+    expect(evs.map((e) => e.status)).toEqual(["error"]);
+    expect(evs[0].message).toContain("useRpcKeeper");
   });
 
   it("extension cmd dispatch rejects → started+error with err.message, no sendUserMessage", async () => {
@@ -169,21 +185,28 @@ describe("bridge slash command routing (regression contract)", () => {
     expect(evs.filter((e) => e.status === "completed" || e.status === "error")).toHaveLength(1);
   });
 
-  it("never duplicates command_feedback on stopgap path", async () => {
+  it("error feedback on fallthrough path (dispatchCommand absent, non-headless)", async () => {
+    // Path D returns true with error feedback (including rpc-keeper hint).
+    // See change: fix-slash-dispatch-delivery.
     const stub = makeStubPi({ withDispatch: false });
     const sink = await drive("/ctx-stats", stub);
     const evs = feedbackEvents(sink, "/ctx-stats");
-    expect(evs.filter((e) => e.status === "started")).toHaveLength(1);
-    expect(evs.filter((e) => e.status === "completed" || e.status === "error")).toHaveLength(1);
+    expect(evs).toHaveLength(1);
+    expect(evs[0].status).toBe("error");
+    expect(evs[0].message).toContain("useRpcKeeper");
   });
 
-  it("anti-regression: /ctx-stats NEVER reaches sendUserMessage", async () => {
-    // regression: see openspec/changes/fix-extension-slash-commands-in-dashboard/
-    for (const withDispatch of [true, false]) {
-      const stub = makeStubPi({ withDispatch });
-      await drive("/ctx-stats", stub);
-      expect(stub.sendUserMessage, `withDispatch=${withDispatch}`).not.toHaveBeenCalled();
-    }
+  it("anti-regression: /ctx-stats does NOT reach sendUserMessage when dispatchCommand absent", async () => {
+    // Path D now emits error feedback instead of falling through silently.
+    // Extension commands can only be dispatched for headless sessions with
+    // the RPC keeper enabled. See change: fix-slash-dispatch-delivery.
+    const stub = makeStubPi({ withDispatch: false });
+    const sink = await drive("/ctx-stats", stub);
+    // sendUserMessage is NOT called — command handled with error feedback.
+    expect(stub.sendUserMessage).not.toHaveBeenCalled();
+    const evs = feedbackEvents(sink, "/ctx-stats");
+    expect(evs).toHaveLength(1);
+    expect(evs[0].status).toBe("error");
   });
 });
 
@@ -270,36 +293,37 @@ describe("tryDispatchExtensionCommand: Path B/C/D mutual exclusion", () => {
     expect(evs).toEqual(["started"]);
   });
 
-  it("Path D: no dispatchCommand + non-headless + connection → stopgap error; no connection.send", async () => {
+  it("Path D: no dispatchCommand + non-headless → returns true with error feedback including rpc-keeper hint", async () => {
     const { pi } = makePi({ withDispatch: false });
     const sink = vi.fn();
     const { conn, sent } = makeConn();
     setHeadless(false);
 
     const handled = await tryDispatchExtensionCommand(pi, "/ctx-stats", "sid", sink, conn);
-    expect(handled).toBe(true);
+    expect(handled).toBe(true); // handled with error feedback
     expect(sent.filter((m) => m.type === "dispatch_extension_command")).toEqual([]);
+    // Error feedback emitted with rpc-keeper hint.
     const evs = sink.mock.calls
       .map((c: any[]) => c[0])
       .filter((m: any) => m?.event?.eventType === "command_feedback");
-    expect(evs).toHaveLength(2);
-    expect(evs[0].event.data.status).toBe("started");
-    expect(evs[1].event.data.status).toBe("error");
-    expect(evs[1].event.data.message).toMatch(/pi 0\.71\+/);
+    expect(evs).toHaveLength(1);
+    expect((evs[0] as any).event.data.status).toBe("error");
+    expect((evs[0] as any).event.data.message).toContain("useRpcKeeper");
   });
 
-  it("Path C degrades to Path D when connection arg is undefined", async () => {
+  it("Path D: no dispatchCommand + no connection → returns true with error feedback", async () => {
     const { pi } = makePi({ withDispatch: false });
     const sink = vi.fn();
-    setHeadless(true);
+    setHeadless(false);
 
     const handled = await tryDispatchExtensionCommand(pi, "/ctx-stats", "sid", sink, undefined);
-    expect(handled).toBe(true);
+    expect(handled).toBe(true); // handled with error feedback
+    // Error feedback emitted with rpc-keeper hint.
     const evs = sink.mock.calls
       .map((c: any[]) => c[0])
       .filter((m: any) => m?.event?.eventType === "command_feedback");
-    // started + error (Path D fallback) — NOT just started.
-    expect(evs.map((e: any) => e.event.data.status)).toEqual(["started", "error"]);
+    expect(evs).toHaveLength(1);
+    expect((evs[0] as any).event.data.status).toBe("error");
   });
 
   it("non-extension /skill:foo → returns false; no path fires; no events", async () => {
@@ -332,14 +356,17 @@ describe("tryDispatchExtensionCommand: Path B/C/D mutual exclusion", () => {
       const { conn, sent } = makeConn();
       setHeadless(s.headless);
 
-      await tryDispatchExtensionCommand(pi, "/ctx-stats", "sid", sink, conn);
+      const handled = await tryDispatchExtensionCommand(pi, "/ctx-stats", "sid", sink, conn);
 
       const dispatchedB = !!dispatchCommand && dispatchCommand.mock.calls.length > 0;
       const dispatchedC = sent.some((m) => m.type === "dispatch_extension_command");
-      const errorD = sink.mock.calls.some((c: any[]) =>
-        (c[0] as any)?.event?.data?.status === "error");
+      const dispatchedD = sink.mock.calls
+        .map((c: any[]) => c[0])
+        .some((m: any) => m?.event?.eventType === "command_feedback" && m?.event?.data?.status === "error");
 
-      const fired = [dispatchedB && "B", dispatchedC && "C", errorD && "D"].filter(Boolean);
+      expect(handled, JSON.stringify(s)).toBe(true); // all paths now handle the command
+
+      const fired = [dispatchedB && "B", dispatchedC && "C", dispatchedD && "D"].filter(Boolean);
       expect(fired, JSON.stringify(s)).toEqual([s.expect]);
     }
   });

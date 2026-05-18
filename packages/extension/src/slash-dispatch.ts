@@ -8,10 +8,14 @@
  *     dashboard-spawned headless `pi --mode rpc` AND a `connection` is wired
  *     → emit `dispatch_extension_command` to the server (server forwards to
  *     the per-session RPC keeper UDS and emits the terminal command_feedback).
- *   - Path D (stopgap, last resort): `pi.dispatchCommand` absent AND the bridge
- *     is NOT headless (tmux / wt / unrecognized spawn shape) OR no `connection`
- *     was supplied → emit `command_feedback {status:"error"}` with a pi-version
- *     reminder.
+ *   - Path D: `pi.dispatchCommand` absent AND the bridge is NOT headless
+ *     (tmux / wt) OR no `connection` was supplied → emit
+ *     `command_feedback {status:"error"}` with a hint to enable
+ *     `useRpcKeeper: true` for headless sessions.
+ *     Note: pi.sendUserMessage() hardcodes expandPromptTemplates: false, which
+ *     skips _tryExecuteExtensionCommand; extension commands sent this way
+ *     become regular LLM messages. This is a pi limitation — the bridge has
+ *     no mechanism to dispatch extension commands outside the RPC path.
  *
  * If `text` is NOT an extension command, return `false` so the caller can
  * fall through to its existing template-expansion / sendUserMessage path.
@@ -21,7 +25,8 @@
  * Path C does NOT emit a terminal event — the server emits it.
  *
  * See change: fix-extension-slash-commands-in-dashboard,
- *             add-rpc-stdin-dispatch-with-keeper-sidecar.
+ *             add-rpc-stdin-dispatch-with-keeper-sidecar,
+ *             fix-slash-dispatch-delivery.
  */
 import crypto from "node:crypto";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
@@ -37,9 +42,6 @@ export type FeedbackSink = (msg: ExtensionToServerMessage) => void;
 export interface DispatchConnection {
   send(msg: ExtensionToServerMessage): void;
 }
-
-const PI_071_REQUIRED =
-  "Extension slash commands cannot be dispatched from the dashboard yet — requires pi 0.71+ (`pi.dispatchCommand`). Invoke from the pi TUI, or use the extension's tools directly.";
 
 function emitFeedback(
   sink: FeedbackSink | undefined,
@@ -64,8 +66,8 @@ function emitFeedback(
  * Try to dispatch a slash command as an extension command.
  *
  * @returns `true` if the helper handled the text (extension command detected;
- *          dispatch attempted or stopgap emitted). The caller MUST NOT fall
- *          through to template expansion or `sendUserMessage`.
+ *          dispatch attempted or error feedback emitted). The caller MUST NOT
+ *          fall through to template expansion or `sendUserMessage`.
  * @returns `false` if `text` is not an extension slash command. The caller
  *          SHOULD continue with its existing fallback path.
  */
@@ -75,6 +77,7 @@ export async function tryDispatchExtensionCommand(
   sessionId: string,
   sink: FeedbackSink | undefined,
   connection?: DispatchConnection,
+  delivery?: "steer" | "followUp",
 ): Promise<boolean> {
   // Defensive: pi.getCommands() can throw on a stale ctx during dispose.
   let commands: Array<{ name: string; source?: string }> = [];
@@ -88,12 +91,13 @@ export async function tryDispatchExtensionCommand(
 
   if (!isExtensionSlashCommand(text, commands)) return false;
 
-  emitFeedback(sink, sessionId, text, "started");
-
   // Path B (preferred when available): pi 0.71+ exposes dispatchCommand.
+  // Note: as of pi 0.74.1, dispatchCommand does NOT exist in the ExtensionAPI.
+  // This path is dead code until pi ships the API; preserved for future use.
   if (hasDispatchCommand(pi)) {
+    emitFeedback(sink, sessionId, text, "started");
     try {
-      await (pi as any).dispatchCommand(text, { streamingBehavior: "followUp" });
+      await (pi as any).dispatchCommand(text, { streamingBehavior: delivery ?? "followUp" });
       emitFeedback(sink, sessionId, text, "completed");
     } catch (err: any) {
       const message = err instanceof Error ? err.message : String(err);
@@ -108,6 +112,7 @@ export async function tryDispatchExtensionCommand(
   // terminal event for this path — that would duplicate the reducer's
   // started→terminal upsert. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
   if (connection && isHeadlessRpcSession()) {
+    emitFeedback(sink, sessionId, text, "started");
     connection.send({
       type: "dispatch_extension_command",
       sessionId,
@@ -117,7 +122,17 @@ export async function tryDispatchExtensionCommand(
     return true;
   }
 
-  // Path D (stopgap): no dispatchCommand and not headless (tmux / wt / unrecognized).
-  emitFeedback(sink, sessionId, text, "error", PI_071_REQUIRED);
+  // Path D: No dispatchCommand, not headless (tmux / wt) or no connection.
+  // Extension commands can only be dispatched through the RPC keeper, which
+  // is available for headless sessions (`pi --mode rpc`). For tmux/wt sessions
+  // there is no injection channel — the command becomes a regular LLM message.
+  // To enable extension command dispatch for headless sessions:
+  //   { "spawnStrategy": "headless", "useRpcKeeper": true }
+  // See change: fix-slash-dispatch-delivery.
+  const RPC_KEEPER_HINT =
+    "Extension slash commands cannot be dispatched from the dashboard for " +
+    "non-headless (tmux/wt) sessions. If you're using headless mode, add " +
+    '"useRpcKeeper": true to your dashboard config (~/.pi/dashboard/config.json).';
+  emitFeedback(sink, sessionId, text, "error", RPC_KEEPER_HINT);
   return true;
 }
