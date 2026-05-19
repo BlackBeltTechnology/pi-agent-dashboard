@@ -385,6 +385,214 @@ Tasks 1.2 (macOS arm64), 1.3 (Linux .deb), 1.4 (Windows .exe), and
 clean target machine for each platform. The macOS x86_64 result above
 satisfies the size half of 1.10 on one of four platforms.
 
+### Field observations against today's runtime-extract layout (2026-05-19)
+
+A hands-on session against an installed `PI-Dashboard.app` v0.5.3 surfaced
+three concrete failure modes that this change eliminates by construction.
+Recorded here because they sharpen the proposal's motivation and give
+QA (task 9.7) concrete scenarios to assert against.
+
+| Observation | Today's behavior | After this change |
+|---|---|---|
+| `~/.pi-dashboard/` size on a single user's machine | **1.5 GB** (extracted node_modules tree, duplicated against the .app's bundled copy at `/Applications/PI-Dashboard.app/Contents/Resources/server/node_modules/`) | 0 bytes — directory not created |
+| `~/.pi-dashboard/node_modules/@blackbelt-technology/` between Electron launches | Wiped to empty between launches by the re-extract whitelist ("survive-extract" list excludes the namespace dir). Running server keeps module references in memory but any lazy file lookup (incl. `existsSync` in static-serve) misses. | Path does not exist; bundled `.app/Contents/Resources/server/` is the only resolver target |
+| `GET /` after Electron launch | HTTP 404 — server boots in API-only mode because all 6 `clientSearchPaths` (relative to the wiped namespace dir) miss the actual bundle at `~/.pi-dashboard/packages/dist/client/index.html` | HTTP 200 — single resolver target is `<resources>/server/dist/client/`, which never moves |
+| `/api/health` after Electron launch | 200 (server's WS/HTTP gateways do not depend on the wiped dir) | unchanged |
+| Symptom presented to the user | "Unexpected error during startup: Port 8000 is occupied by a non-dashboard service" (the identity-check banner from a second launch attempt racing the first) **plus** silent 404 on `/` from the first | First launch: server up, UI served, no error dialog |
+
+**Failure-mode chain reproduced end-to-end (proves Failure 1+2 of group 16 are vestigial under this change):**
+
+1. `PI-Dashboard.app` launches, spawns server pointing at `~/.pi-dashboard/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`.
+2. `bundle-extract.ts` re-extracts the app bundle into `~/.pi-dashboard/`, wiping the namespace dir as a side effect.
+3. Server process keeps running (Node holds module references in memory from the brief window the files existed).
+4. Server's static-serve `clientSearchPaths.find(p => existsSync(...))` returns null — all 6 strategies miss because they're relative to the wiped namespace dir.
+5. `hasProductionBuild = false` → `fastify-static` never registers → every `GET /<anything>` returns 404.
+
+`materializeWorkspaceSymlinks` (Failure 1) and `resolveManagedDirRoot`
+(Failure 2) are precisely the rescue paths that exist *because of*
+this chain. Under the immutable-bundle architecture proposed here,
+step 2 cannot occur (no re-extract), so step 5 cannot occur (resolver
+has one durable target), so both rescue paths are dead code.
+
+### Findings from `enable-standalone-npm-install` work (2026-05-20)
+
+The in-flight change `enable-standalone-npm-install` ran a parallel
+investigation against the *standalone* arm (`npm i -g
+@blackbelt-technology/pi-agent-dashboard`) and produced concrete
+artifacts (Docker repro + smoke scripts + repo-lints) that this
+change inherits when it archives that proposal (tasks.md §2.9).
+Five findings materially affect this proposal:
+
+#### F1 — `node-pty@1.1.0` has NO linux prebuilds (corrects "Why" table Reason d)
+
+The proposal's "Why" table claimed `node-pty` ships prebuilds for
+`darwin/linux/win × arm64/x64`. **This is false for the pinned
+version.** A repacked `node-pty@1.1.0` tarball contains only
+`prebuilds/darwin-arm64`, `darwin-x64`, `win32-arm64`, `win32-x64`.
+Linux is absent. On a clean `node:22-bookworm-slim`, `npm install`
+fires the `node scripts/prebuild.js || node-gyp rebuild` postinstall,
+which fails without Python + C++ toolchain.
+
+```
+npm error path /usr/local/lib/node_modules/@blackbelt-technology/.../node-pty
+npm error command sh -c node scripts/prebuild.js || node-gyp rebuild
+npm error > Rebuilding because directory .../prebuilds/linux-x64 does not exist
+npm error gyp ERR! find Python ... Could not find any Python installation to use
+```
+
+**Fix:** pin `node-pty` to `1.2.0-beta.13` (or later beta in the
+`1.2.0-beta.*` track) in `packages/server/package.json`. That version
+ships all six prebuild triples. Verified locally:
+
+```
+$ tar tzf node-pty-1.2.0-beta.13.tgz | grep prebuilds/ | sort -u
+prebuilds/darwin-arm64
+prebuilds/darwin-x64
+prebuilds/linux-arm64
+prebuilds/linux-x64
+prebuilds/win32-arm64
+prebuilds/win32-x64
+```
+
+Done in this branch (`packages/server/package.json`: `"node-pty":
+"1.2.0-beta.13"`, lockfile regenerated). The pin is guarded against
+regression by `scripts/verify-release-deps.mjs` (a `minVersion`
+rule).
+
+**Implication for this proposal:** the build-time `npm install` in
+`bundle-server.mjs` (Phase 1 task 1.1.e) MUST run with `node-pty
+>= 1.2.0-beta.13` resolved, or every linux build will fail at
+`npm install` time (not at user-install time, which is the
+standalone arm's problem). Phase 1 GO/NO-GO threshold should
+explicitly assert prebuild presence for all four target platforms
+in the bundled `node_modules/node-pty/prebuilds/` tree.
+
+#### F2 — `runDegradedModeBootstrap` is NOT unchanged
+
+The proposal's "Code kept" section lists `packages/server/src/cli.ts`
+as `(unchanged)`. That is inconsistent with the deletion of
+`packages/shared/src/bootstrap-install.ts`. `cli.ts::runDegradedModeBootstrap`
+(lines ~297–350) imports and calls `bootstrapInstall(...)` from that
+module. Removing the module without touching cli.ts produces a
+TypeScript compile error.
+
+Three consistent dispositions, pick one in Phase 3:
+
+1. **Delete `runDegradedModeBootstrap` outright.** Justified: under
+   regular-dep lift, pi is always resolvable from the package's own
+   `node_modules/`. `runDegradedModeBootstrap`'s `if (initial.ok)`
+   short-circuit ALWAYS fires. The function becomes a single log
+   line. Simpler to delete the entire `if-pi-not-resolved` branch
+   and inline the `if (initial.ok)` happy-path logic into
+   `runForeground`.
+2. **Keep the function as a defensive log-only happy-path.** Reduces
+   diff size; the function body becomes `const r = registry.resolve("pi");
+   if (r.ok) console.log(...); else throw;`. The `else` throw becomes
+   appropriate because pi-missing in this architecture is a corrupted
+   install, not a bootstrap state.
+3. **Keep both the function AND `bootstrapInstall`.** Defensible only
+   if the bridge arm or some future scenario still needs the runtime
+   installer. Today's bridge arm does not. Not recommended.
+
+Recommendation: option 1 (delete). It is the cleanest match for
+"runtime-install elimination" semantics. Add an explicit task under
+Phase 3 (e.g. `3.X Delete runDegradedModeBootstrap and inline the
+pi-resolved logging into runForeground`).
+
+#### F3 — `localhost-guard` blocks Docker port-forwarded smoke requests
+
+`packages/server/src/localhost-guard.ts` returns HTTP 403 to any
+request whose source IP is not loopback/trusted/authenticated. Docker's
+`-p 18000:18000` makes host-originated `curl localhost:18000`
+requests appear to come from the container's docker0 bridge IP
+(`172.17.0.1` typically), which is NOT loopback from the container's
+perspective. Body: `{"success":false,"error":"Access denied"}`.
+
+From inside the container, `curl localhost:18000` works (loopback).
+
+For Phase 1 functional smokes (tasks 1.6–1.8) and any CI gate
+running under Docker: the smoke runner MUST curl from inside the
+container (`docker exec ... curl ...`) or set up auth headers. The
+existing `scripts/test-standalone-npm-install-docker.sh` (inherited
+from `enable-standalone-npm-install`) implements the
+curl-from-inside-container pattern and is a working reference.
+
+#### F4 — `npm pack -ws --include-workspace-root` crashes on npm@11.11.0
+
+Running `npm pack -ws --include-workspace-root --pack-destination ...`
+at the workspace root exits with `npm error code ERR_OUT_OF_RANGE
+npm error data is too long` AFTER successfully producing the
+workspace tarballs. Reproduced on `npm@11.11.0` on macOS Sonoma.
+
+Workaround: loop over `find packages -maxdepth 2 -name package.json`
+and call `npm pack --workspace=<dir> ...` individually, plus a
+separate `npm pack ...` for the root. Filter out `private: true`
+workspaces (Electron, demo-plugin). Implemented in
+`scripts/test-standalone-npm-install-docker.sh`.
+
+Relevant to this proposal because Phase 1's spike + Phase 6's
+release workflow rely on `npm pack`. The `--include-workspace-root`
+shorthand cannot be trusted on the current npm version; either pin
+npm to a working version (none confirmed yet) or use the
+individual-pack pattern.
+
+#### F5 — Working Docker smoke + WebSocket session-spawn helper
+
+The `enable-standalone-npm-install` branch ships:
+
+- `scripts/test-standalone-npm-install-docker.sh` — 9-step lifecycle
+  smoke against `node:22-bookworm-slim`: pack → install all
+  tarballs at once → `pi-dashboard --version` → `pi-dashboard start`
+  → poll `/api/bootstrap/status` (`installing` → `ready`) → `GET /`
+  → `spawn_session` via WebSocket → verify session in `/api/sessions`.
+- `scripts/lib/smoke-spawn-session.mjs` — Node 22 native-WebSocket
+  helper that sends `spawn_session` and awaits `session_added`.
+  No `wscat`/`websocat` dependency; works in stock `node:22-*`
+  containers.
+
+Last run against current branch (post F1 fix):
+```
+[smoke] step 9/9: spawn a pi session and confirm it registers
+[smoke]   [spawn] ws open → sending spawn_session cwd=/tmp/smoke-cwd
+[smoke]   [spawn] spawn_result success=true
+[smoke]   [spawn] ✓ session live: type=session_added cwd=/tmp/smoke-cwd
+[smoke]   /api/sessions confirms 1 session at /tmp/smoke-cwd
+[smoke] ✓ All checks passed on node:22-bookworm-slim.
+```
+
+**Implication for this proposal's Phase 1:** the standalone-arm
+lifecycle is already proven against a clean Linux container with
+pi/openspec installed as regular deps (the same mechanism this
+proposal will use for the Electron arm). The smoke scripts are
+ready to be repurposed for Phase 1 task 1.6 — swap `pi-dashboard
+start` for `open PI-Dashboard.app`, swap `node:22-bookworm-slim`
+for a clean macOS/Linux/Windows VM, and the WebSocket
+`spawn_session` step ports verbatim.
+
+#### F6 — Auxiliary inheritances
+
+Smaller artifacts from the `enable-standalone-npm-install` branch
+that survive supersedure and are useful here:
+
+- `scripts/verify-release-deps.mjs` — pre-release dep-shape gate.
+  Currently asserts `jiti` + pinned `node-pty` are in
+  `packages/server/package.json`. Phase 6 should extend it with
+  rules for `@earendil-works/pi-coding-agent`, `@fission-ai/openspec`,
+  and `tsx` once they are lifted to regular deps.
+- `packages/shared/src/__tests__/jiti-packages-parity.test.ts` —
+  repo-lint asserting `JITI_PACKAGES` in `binary-lookup.ts` and
+  `bin/pi-dashboard.mjs` stay identical. Defends against the
+  v0.5.3 fork-name drift that bit one prior release.
+- Improved `bin/pi-dashboard.mjs` error message ("jiti not found…
+  This is unexpected: jiti ships as a direct dep…") replaces the
+  legacy "install pi globally" hint.
+
+All six findings reinforce the proposal's central architecture
+(immutable bundle, regular-dep lift). F1 and F2 are corrections;
+F3–F5 are operational guidance for Phase 1 smokes; F6 is salvage
+list for Phase 1 task 1.1.c-style "already done in another change"
+annotations.
+
 ## Decisions ratified
 
 Three open questions surfaced during exploration. All three are ratified

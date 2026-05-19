@@ -42,33 +42,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ELECTRON_DIR = path.resolve(__dirname, "..");
 const PROJECT_DIR = path.resolve(ELECTRON_DIR, "..", "..");
 const SERVER_BUNDLE = path.join(ELECTRON_DIR, "resources", "server");
-const PINS_FILE = path.join(ELECTRON_DIR, "offline-packages.json");
 
 // ── parse args ────────────────────────────────────────────────────────────
 const SOURCE_ONLY = process.argv.slice(2).includes("--source-only");
 
 console.log("→ Bundling dashboard server...");
 
-// ── read pi/openspec/tsx pins from offline-packages.json ──────────────────
-// Phase 1 of change: eliminate-electron-runtime-install.
-// Pins live in offline-packages.json (build-time pin source). That file is
-// removed in Phase 5; at that point these pins move into a constant here.
-const PI_RUNTIME_DEPS = {};
-try {
-  const pins = JSON.parse(readFileSync(PINS_FILE, "utf-8"));
-  for (const entry of pins.packages ?? []) {
-    if (entry?.name && entry?.version) {
-      PI_RUNTIME_DEPS[entry.name] = entry.version;
-    }
-  }
-  const pinList = Object.entries(PI_RUNTIME_DEPS)
-    .map(([n, v]) => `${n}@${v}`)
-    .join(", ");
-  console.log(`  Pi-runtime pins (→ deps of bundled server): ${pinList}`);
-} catch (err) {
-  console.error(`  FATAL: could not read ${PINS_FILE}: ${err.message}`);
-  process.exit(1);
-}
+// Phase 1 of change: eliminate-electron-runtime-install (R3 dep lift).
+// pi/openspec/tsx are regular `dependencies` of packages/server/package.json.
+// They get materialized under resources/server/node_modules/ by the
+// `npm install --omit=dev` step below — same as every other workspace
+// dep. No synthetic dependency block needed at this layer.
+// `offline-packages.json` is vestigial and removed in Phase 5.
 
 // ── clean & re-create target structure ───────────────────────────────────
 rmSync(SERVER_BUNDLE, { recursive: true, force: true });
@@ -190,7 +175,6 @@ const bundlePkg = {
   name: "pi-dashboard-bundled-server",
   private: true,
   workspaces: BUNDLED_WORKSPACE_PKGS.map((p) => `packages/${p}`),
-  dependencies: PI_RUNTIME_DEPS,
 };
 writeFileSync(
   path.join(SERVER_BUNDLE, "package.json"),

@@ -23,7 +23,7 @@ were evaluated against the actual code:
 | (a) Installer-size — pre-installed `node_modules` would balloon the .dmg | Rejected. Installer is already 225 MB (v0.5.3). Adding ~50–80 MB of pre-installed pi/openspec/tsx is not a step change. |
 | (b) User-installed `pi-*` extensions coexist in the same `node_modules/` and must be preserved | Rejected. User `pi install <ext>` writes to **pi's own cache under `~/.pi/agent/…`**, not to `~/.pi-dashboard/node_modules/`. The whitelist defends against a coexistence pattern that does not exist. |
 | (c) `electron-updater` patches incrementally and benefits from a writable cache | Rejected. `electron-updater` performs **whole-`.app` replacement**. It cannot and does not patch `~/.pi-dashboard/`. |
-| (d) Native dependencies (notably `node-pty`) need cross-platform resolution at install time | Rejected. `node-pty` ships prebuilds for darwin/linux/win × arm64/x64; these are loaded at runtime from a read-only location with no compile step. |
+| (d) Native dependencies (notably `node-pty`) need cross-platform resolution at install time | Rejected, **with one correction**. The pinned version `node-pty@1.1.0` ships prebuilds for `darwin-{arm64,x64}` + `win32-{arm64,x64}` ONLY — **no `linux-{arm64,x64}` prebuilds**. On clean linux (`node:22-bookworm-slim`), v0.5.3 installs trigger `node-gyp rebuild` and fail without Python + C++ toolchain. **The fix is to bump to `node-pty@1.2.0-beta.13`**, which ships all six prebuild triples. Reproduced end-to-end in `docs/repro/v0.5.3-clean-node22-linux-x64-2026-05-19.log`. The runtime-install-vs-build-time-install argument still holds (prebuilds load read-only either way), but the version pin must change first. See design.md → "Findings from enable-standalone-npm-install work (2026-05-20)". |
 
 The decision captured in this proposal: **`/api/pi-core/update` is
 replaceable by an `.app` update via `electron-updater`.** Once that is
@@ -46,15 +46,36 @@ code path.
 
 ## What Changes
 
-### Bundle layout (build time)
+### Dependency layout (build time + npm install time)
 
-- Extend `bundle-server.mjs` to install `pi`, `openspec`, `tsx` into
-  `packages/electron/resources/server/node_modules/` at build time
-  (alongside the dashboard server's own `node_modules`).
-- `node-pty` prebuilds continue to ride along inside this tree.
+**Mechanism: lift `pi`, `openspec`, `tsx` from optional peers to regular
+`dependencies` in `packages/server/package.json` (and the root
+`@blackbelt-technology/pi-agent-dashboard` package as needed for global
+install reach).**
+
+Consequences:
+
+- **Standalone arm** (`npm i -g @blackbelt-technology/pi-agent-dashboard`):
+  npm itself installs pi/openspec/tsx into the package's `node_modules/`
+  at install time. No runtime install. No `~/.pi-dashboard/`.
+- **Electron arm**: `bundle-server.mjs` already runs an `npm install`
+  step that populates `resources/server/node_modules/`. With pi as a
+  regular dep, that single step now also installs pi. No special-case
+  bundling logic.
+- **Bridge arm**: pi is by definition already present (the bridge runs
+  inside a pi process). The bridge extension keeps pi as an
+  optional peer; the dashboard-server it auto-starts finds pi via the
+  same package-resolution path it would in any arm.
+- `node-pty` prebuilds continue to ride along inside the resolved
+  `node_modules` tree.
 - The `.app` (or `.deb` / `.AppImage` / `.exe`) ships with a complete
   pre-installed runtime. No tarballs, no offline cacache, no extraction
   step beyond what the OS installer already does.
+- The `npm i -g` published tarball gets ~10–15 MB heavier (pi + openspec).
+  Accepted: the alternative is a broken first launch + runtime bootstrap.
+
+**This subsumes** `enable-standalone-npm-install` — see the
+Supersedes table below.
 
 ### Launch (runtime)
 
@@ -72,12 +93,26 @@ code path.
 
 ### Server (runtime)
 
-- Remove `POST /api/pi-core/update`, `GET /api/pi-core/changelog`, and
-  the `pi-core-checker` + `pi-core-updater` modules.
+- **Retain** `POST /api/pi-core/update`, `GET /api/pi-core/changelog`,
+  `GET /api/pi-core/versions`, and the `pi-core-checker` /
+  `pi-core-updater` / `changelog-parser` modules. These remain useful
+  for the standalone (`npm i -g`) and bridge (pi-extension) arms,
+  which have a writable npm target. The Electron arm has no writable
+  target (bundled `node_modules` is inside the read-only `.app`/
+  `.deb`/`.AppImage`/`.exe`) and therefore **hides** the pi-core UI
+  via a new `launchSource` field on `/api/health` (see below). The
+  Electron arm's pi-version update path is `electron-updater` whole-app
+  replacement.
+- Add `launchSource: "electron" | "standalone" | "bridge"` field to
+  `GET /api/health`. Detection: `process.env.DASHBOARD_STARTER ===
+  "Electron"` → `"electron"`; `"Bridge"` → `"bridge"`; else
+  `"standalone"`. Single source of truth for the client-side gate.
 - Remove the `/api/bootstrap/*` routes and `bootstrap-state` /
-  `bootstrap-queue` / `bootstrap-install-from-list`.
+  `bootstrap-queue` / `bootstrap-install-from-list`. Drop the
+  `bootstrapGate` `preHandler` from `pi-core-routes.ts` (pi-core
+  endpoints become unconditionally available).
 - Remove `pi-version-skew.ts` bootstrap-compatibility writer; keep
-  only the pure comparator if standalone arm needs it.
+  only the pure `comparePiVersions` comparator for standalone arm.
 - Remove `materializeWorkspaceSymlinks` rescue (Failure 1 of group 16
   goes away because the wipe it defends against no longer occurs).
 
@@ -144,6 +179,14 @@ On first launch of a `.app` containing this change:
 - `electron-wizard` — collapses to one welcome step (or zero on auto-launch).
 - `dashboard-recovery` (loading-page surface) — collapses to "retry +
   Doctor + log + known-servers". Reinstall affordances removed.
+- `dashboard-server` — `GET /api/health` gains a `launchSource:
+  "electron" | "standalone" | "bridge"` field. Single source of truth
+  for arm-aware client gating.
+- `pi-core-version-ui` — the Core sub-group of the Pi Ecosystem
+  settings panel and the `PiUpdateBadge` header element SHALL be
+  hidden when `launchSource === "electron"`. Recommended Extensions
+  and Other Packages sub-groups continue to render in all arms.
+  Backing endpoints, hooks, and components are otherwise unchanged.
 
 ### Removed Capabilities
 
@@ -155,10 +198,13 @@ On first launch of a `.app` containing this change:
   catalog assembly.
 - `managed-package-whitelist` — `ELECTRON_OWNED_PACKAGES` set and the
   parity regression test.
-- `pi-core-update` — `/api/pi-core/update` + `/api/pi-core/changelog`
-  endpoints and the checker/updater modules.
 - `build-local` — `BUNDLE_OFFLINE_PACKAGES` opt-in and stale-pin
   invalidation. Replaced by a thin always-on bundling step.
+
+> **Note:** the `pi-core-update` capability is **retained** (not
+> removed). The pi-core update path is hidden under Electron but
+> remains live for the standalone and bridge arms. See the `Server
+> (runtime)` section above.
 
 ## Supersedes / interacts with in-flight work
 
@@ -172,6 +218,7 @@ On first launch of a `.app` containing this change:
 | `fix-build-installer-stale-server-bundle` | 21/22 | **Independent — keep.** The fix concerns build-pipeline staleness and applies regardless of this change. |
 | `docker-packaging` | in-progress | **Independent — keep.** The standalone (Docker) arm is untouched; in fact this change reinforces its position as the reference deployment. |
 | `npm-publish-first-party-extensions` | 30/32 | **Independent — keep.** Unrelated to bootstrap layout. |
+| `enable-standalone-npm-install` | 0/N | **Supersedes entirely.** That proposal solves "npm-global install needs runtime bootstrap of pi via existing bootstrap-install machinery into `~/.pi-dashboard/`." This proposal solves the same problem by **lifting pi/openspec/tsx from optional peers to regular `dependencies`**, so `npm install` itself handles it. The jiti direct-dep fix from that proposal is salvaged into Phase 1 of this change (small, orthogonal, genuinely correct). The bootstrap-from-empty-list / `useBootstrapStatus` polling / managed-dir-on-the-standalone-arm story all becomes unnecessary. Recommended: archive `enable-standalone-npm-install` with a supersede note pointing here. |
 
 ## Impact
 
@@ -200,11 +247,18 @@ packages/server/src/bootstrap-queue.ts
 packages/server/src/pi-core-checker.ts
 packages/server/src/pi-core-updater.ts
 packages/server/src/pi-version-skew.ts           (bootstrap-writer part)
-packages/server/src/routes/pi-core-routes.ts
 packages/server/src/routes/bootstrap-routes.ts
+packages/shared/src/bootstrap-install.ts                             (runtime installer into ~/.pi-dashboard/)
 packages/client/src/hooks/useBootstrapStatus.ts
 packages/client/src/components/BootstrapBanner.tsx
 ```
+
+**Pi-core machinery is retained** for the standalone and bridge arms:
+`pi-core-routes.ts`, `pi-core-checker.ts`, `pi-core-updater.ts`,
+`changelog-parser.ts`, `usePiCoreVersions`, `usePiChangelog`,
+`pi-core-api.ts`, `PiUpdateBadge`, `WhatsNewDialog`, and the `Core`
+sub-group of `UnifiedPackagesSection` all survive. They are gated
+off in the client when `launchSource === "electron"`.
 
 ### Code simplified
 
@@ -219,9 +273,21 @@ packages/electron/src/lib/doctor.ts                  (force-reinstall removed)
 packages/electron/src/lib/doctor-window.ts           (force-reinstall IPC removed)
 packages/electron/src/renderer/doctor.html           (force-reinstall UI removed)
 packages/electron/scripts/bundle-server.mjs          (extended to include pi/openspec/tsx)
-packages/server/src/server.ts                        (client-dir resolver: 6 → 1)
+packages/server/src/server.ts                        (client-dir resolver: 6 → 1; drop bootstrap route wiring + bootstrap-state gate plumbing)
+packages/server/src/routes/system-routes.ts          (add launchSource field to /api/health)
+packages/server/src/routes/pi-core-routes.ts         (drop bootstrapGate preHandler; pi-core endpoints become unconditional)
 packages/server/src/resolve-client-dir.ts            (single strategy)
 packages/electron/src/lib/pick-node.ts               (single bundled node)
+packages/server/src/pi-version-skew.ts               (trim to pure `comparePiVersions`; drop bootstrap-compat writer)
+packages/shared/src/rest-api.ts                      (HealthResponse gains launchSource)
+packages/client/src/App.tsx                          (drop BootstrapBanner / useBootstrapStatus mounts; gate <PiUpdateBadge /> on launchSource !== "electron")
+packages/client/src/hooks/useMessageHandler.ts       (drop bootstrap_status_update / bootstrap_ticket_complete branches; keep pi_core_event)
+packages/client/src/components/UnifiedPackagesSection.tsx  (gate Core sub-group rendering on launchSource !== "electron"; Recommended/Other survive in all arms)
+```
+
+New files:
+```
+packages/client/src/hooks/useLaunchSource.ts         (one-shot /api/health probe; module-level cache)
 ```
 
 ### Code kept (load-bearing for standalone arm and Electron-app lifecycle)
@@ -236,7 +302,7 @@ packages/electron/src/lib/tray.ts
 packages/electron/src/lib/doctor.ts                  (read-only diagnostics kept)
 packages/shared/src/dashboard-paths.ts               (Failure 3 — log path single source of truth)
 packages/shared/src/server-identity.ts               (Failure 4 — retry loop)
-packages/server/src/cli.ts                           (unchanged)
+packages/server/src/cli.ts                           (NOT unchanged — see design.md "Findings from enable-standalone-npm-install work". `runDegradedModeBootstrap` calls `bootstrapInstall` from `packages/shared/src/bootstrap-install.ts`, which is in the delete list. Two options: (a) delete `runDegradedModeBootstrap` and the import — pi is always resolvable under regular-dep lift; (b) keep the function but have it noop when pi resolves successfully (it already does). Phase 3 of tasks.md must pick one explicitly.)
 packages/server/src/process-manager.ts               (unchanged)
 packages/extension/src/bridge.ts                     (bridge arm untouched)
 ```
