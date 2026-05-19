@@ -21,3 +21,41 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  # Pack the workspace into tarballs, install into a clean HOME, launch
+  # pi-dashboard, assert bootstrap reaches ready. Guards against the v0.5.3
+  # regressions captured in docs/repro/. See change:
+  # enable-standalone-npm-install task 7.4.
+  standalone-install-smoke-linux:
+    name: standalone-install-smoke (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - node:22-bookworm-slim
+          - node:22-alpine
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Install base tooling (Debian/Ubuntu)
+        if: contains(matrix.image, 'bookworm') || contains(matrix.image, 'debian')
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl bash procps
+      - name: Install base tooling (Alpine)
+        if: contains(matrix.image, 'alpine')
+        run: apk add --no-cache git ca-certificates curl bash procps
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --engine-strict=false
+      - run: npm run build
+      - name: Run standalone install smoke
+        run: bash scripts/test-standalone-npm-install.sh --port 18000
+
+  # Windows smoke is intentionally not yet wired — the smoke runner is
+  # currently a bash script and the repo-lint `no-bash-on-windows.test.ts`
+  # rejects `shell: bash` on Windows runners. A Node-port of
+  # `scripts/test-standalone-npm-install.sh` is tracked as a follow-up
+  # under change enable-standalone-npm-install task 7.4 sub-bullet 3.

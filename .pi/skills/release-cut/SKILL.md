@@ -54,6 +54,12 @@ Run these in order. If any fails, **stop and report** — do not continue.
    npm run build
    ```
 
+6. **Dependency-shape gate** (introduced by `enable-standalone-npm-install` to prevent regressions of v0.5.3 publish-time bugs)
+   ```bash
+   node scripts/verify-release-deps.mjs
+   ```
+   Asserts critical runtime deps (`jiti`, pinned `node-pty`, etc.) are still declared in the publishable workspace `package.json` files. Failure means the next published tarball would be broken — STOP and fix the workspace before cutting.
+
 If any pre-flight step fails, stop and surface the exact error to the user.
 
 ## Step 1 — Read current state
