@@ -106,6 +106,10 @@
     "add-honcho-docker-integration-tests": "next-phase",
     "pi-flows-adopt-extension-ui": "separate-functions-to-plugins",
     "add-rpc-stdin-dispatch-with-keeper-sidecar": "ui",
-    "fix-flows-anthropic-bridge-resolution": "separate-functions-to-plugins"
+    "fix-flows-anthropic-bridge-resolution": "separate-functions-to-plugins",
+    "harvest-bootstrap-survivor-fixes": "ui",
+    "fix-electron-auto-update-pipeline": "future",
+    "fix-electron-server-launch-node-bin": "ui",
+    "fix-slash-dispatch-delivery": "ui"
   }
 }
