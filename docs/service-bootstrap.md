@@ -120,6 +120,25 @@ bridge:        System (npm global) → Bundled (Electron resources) → Dev (rel
 serverCli:     System (pi-dashboard CLI) → Bundled → Managed
 ```
 
+### Standalone npm install
+
+Install: `npm install -g @blackbelt-technology/pi-agent-dashboard`. No pre-install of pi required.
+
+`jiti` ships as direct dep of `@blackbelt-technology/pi-dashboard-server`. Bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves jiti from own `node_modules/jiti` via `argv[1]` walk-up. Re-execs `node --import <jiti-url> cli.ts <args>`.
+
+First launch: `cli.ts maybeSeedDefaultInstallableList()` writes `~/.pi/dashboard/installable.json` with pi + openspec (`kind: "npm"`, `required: true`) when:
+- `~/.pi/dashboard/installable.json` absent, AND
+- `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent/package.json` absent, AND
+- `DASHBOARD_STARTER !== "Electron"`.
+
+Electron starter skipped — wizard owns its own seeding via `selectLaunchSource()` extracted path.
+
+Server binds port 8000 immediately. `bootstrapInstallFromList` runs in background, installs into `~/.pi-dashboard/`. Web UI degraded-mode while installing. Session-spawn endpoints return 503 until ready. Banner driven by `useBootstrapStatus`.
+
+Offline first run: bootstrap transitions `installing` → `failed`. UI remains. Settings + docs reachable. Sessions stay 503 until network restored + retry.
+
+Re-seed semantic: delete `installable.json` → next `pi-dashboard` launch re-seeds. Idempotent against current state, not against history.
+
 ### Standalone mode
 
 Prefers app's copies:

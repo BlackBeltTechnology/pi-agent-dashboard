@@ -1,0 +1,176 @@
+Unable to find image 'node:22-bookworm-slim' locally
+22-bookworm-slim: Pulling from library/node
+9b02e9fcb401: Pulling fs layer
+2d6acbc8e716: Pulling fs layer
+17245302a67c: Pulling fs layer
+3b703c5d9722: Pulling fs layer
+2f26afb99d23: Pulling fs layer
+3b703c5d9722: Waiting
+2f26afb99d23: Waiting
+2d6acbc8e716: Download complete
+3b703c5d9722: Download complete
+17245302a67c: Verifying Checksum
+17245302a67c: Download complete
+2f26afb99d23: Verifying Checksum
+2f26afb99d23: Download complete
+9b02e9fcb401: Verifying Checksum
+9b02e9fcb401: Download complete
+9b02e9fcb401: Pull complete
+2d6acbc8e716: Pull complete
+17245302a67c: Pull complete
+3b703c5d9722: Pull complete
+2f26afb99d23: Pull complete
+Digest: sha256:689c11043dad91472750cd824c97dd5e2318e9dd6f954e492fe7af0135d33ceb
+Status: Downloaded newer image for node:22-bookworm-slim
+
+================================================================
+## ENV: clean machine baseline
+================================================================
+v22.22.3
+10.9.8
+(no pi)
+(no pi-dashboard)
+ls: cannot access '/root/.pi-dashboard': No such file or directory
+
+================================================================
+## STEP 1 — published v0.5.3 default install (Finding B expected)
+================================================================
+npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+npm error code 1
+npm error path /usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/node-pty
+npm error command failed
+npm error command sh -c node scripts/prebuild.js || node-gyp rebuild
+npm error [32m> Checking prebuilds...[0m
+npm error [33m> Rebuilding because directory /usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/node-pty/prebuilds/linux-x64 does not exist[0m
+npm error gyp info it worked if it ends with ok
+npm error gyp info using node-gyp@11.5.0
+npm error gyp info using node@22.22.3 | linux | x64
+npm error gyp ERR! find Python 
+npm error gyp ERR! find Python Python is not set from command line or npm configuration
+npm error gyp ERR! find Python Python is not set from environment variable PYTHON
+npm error gyp ERR! find Python checking if "python3" can be used
+npm error gyp ERR! find Python - executable path is ""
+npm error gyp ERR! find Python - "" could not be run
+npm error gyp ERR! find Python checking if "python" can be used
+npm error gyp ERR! find Python - executable path is ""
+npm error gyp ERR! find Python - "" could not be run
+npm error gyp ERR! find Python 
+npm error gyp ERR! find Python **********************************************************
+npm error gyp ERR! find Python You need to install the latest version of Python.
+npm error gyp ERR! find Python Node-gyp should be able to find and use Python. If not,
+npm error gyp ERR! find Python you can try one of the following options:
+npm error gyp ERR! find Python - Use the switch --python="/path/to/pythonexecutable"
+npm error gyp ERR! find Python (accepted by both node-gyp and npm)
+npm error gyp ERR! find Python - Set the environment variable PYTHON
+npm error gyp ERR! find Python - Set the npm configuration variable python:
+npm error gyp ERR! find Python npm config set python "/path/to/pythonexecutable"
+npm error gyp ERR! find Python For more information consult the documentation at:
+npm error gyp ERR! find Python https://github.com/nodejs/node-gyp#installation
+npm error gyp ERR! find Python **********************************************************
+npm error gyp ERR! find Python 
+npm error gyp ERR! configure error 
+npm error gyp ERR! stack Error: Could not find any Python installation to use
+npm error gyp ERR! stack at PythonFinder.fail (/usr/local/lib/node_modules/npm/node_modules/node-gyp/lib/find-python.js:306:11)
+npm error gyp ERR! stack at PythonFinder.findPython (/usr/local/lib/node_modules/npm/node_modules/node-gyp/lib/find-python.js:164:17)
+npm error gyp ERR! stack at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+npm error gyp ERR! stack at async configure (/usr/local/lib/node_modules/npm/node_modules/node-gyp/lib/configure.js:27:18)
+npm error gyp ERR! stack at async run (/usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js:81:18)
+npm error gyp ERR! System Linux 6.12.76-linuxkit
+npm error gyp ERR! command "/usr/local/bin/node" "/usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js" "rebuild"
+npm error gyp ERR! cwd /usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/node-pty
+npm error gyp ERR! node -v v22.22.3
+npm error gyp ERR! node-gyp -v v11.5.0
+npm error gyp ERR! not ok
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 11.14.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.14.1
+npm notice To update run: npm install -g npm@11.14.1
+npm notice
+npm error A complete log of this run can be found in: /root/.npm/_logs/2026-05-19T23_16_53_152Z-debug-0.log
+exit: 1
+
+================================================================
+## STEP 2 — workaround B: --ignore-scripts (Finding A expected at invoke)
+================================================================
+npm warn deprecated glob@11.1.0: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+
+added 469 packages in 12s
+
+157 packages are looking for funding
+  run `npm fund` for details
+exit: 0
+/usr/local/bin/pi-dashboard
+lrwxrwxrwx 1 root root 97 May 19 23:17 /usr/local/bin/pi-dashboard -> ../lib/node_modules/@blackbelt-technology/pi-agent-dashboard/packages/server/bin/pi-dashboard.mjs
+
+================================================================
+## STEP 3 — invoke pi-dashboard (Finding A: bin -> .ts)
+================================================================
+pi-dashboard: cannot find jiti. Install pi: 'npm install -g @earendil-works/pi-coding-agent'
+exit: 0
+
+================================================================
+## STEP 4 — check what's missing in the installed tree
+================================================================
+--- root package.json bin ---
+{
+  "pi-dashboard": "packages/server/bin/pi-dashboard.mjs"
+}
+--- inner server package.json bin ---
+{
+  "pi-dashboard": "bin/pi-dashboard.mjs"
+}
+--- is bin/pi-dashboard.mjs in tarball? ---
+pi-dashboard.mjs
+--- is scripts/fix-pty-permissions.cjs in tarball? ---
+fix-pty-permissions.cjs
+--- is jiti installed? ---
+ls: cannot access '/usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/jiti/package.json': No such file or directory
+--- which @mariozechner/jiti or @oh-my-pi/jiti? ---
+ls: cannot access '/usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/@mariozechner/jiti/package.json': No such file or directory
+ls: cannot access '/usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/@oh-my-pi/jiti/package.json': No such file or directory
+--- fastify ---
+/usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/fastify/package.json
+--- @blackbelt-technology/pi-dashboard-web (client) ---
+/usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html
+
+================================================================
+## STEP 5 — direct .ts invoke (proves Finding A is structural, not just shim)
+================================================================
+node:internal/modules/typescript:156
+    throw new ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING(filename);
+          ^
+
+Error [ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING]: Stripping types is currently unsupported for files under node_modules, for "file:///usr/local/lib/node_modules/@blackbelt-technology/pi-agent-dashboard/packages/server/src/cli.ts"
+exit: 0
+
+================================================================
+## STEP 6 — published-tarball file list (proves A/B at the tarball layer)
+================================================================
+bin: pi-dashboard
+
+--- pack the tarball locally and inspect contents ---
+npm notice
+blackbelt-technology-pi-agent-dashboard-0.5.3.tgz
+tarball: /tmp/blackbelt-technology-pi-agent-dashboard-0.5.3.tgz
+--- does tarball contain bin/pi-dashboard.mjs? ---
+package/packages/server/scripts/fix-pty-permissions.cjs
+package/packages/server/bin/pi-dashboard.mjs
+--- does tarball contain fix-pty-permissions.cjs? ---
+package/packages/server/scripts/fix-pty-permissions.cjs
+package/packages/server/src/__tests__/fix-pty-permissions.test.ts
+package/packages/server/src/fix-pty-permissions.ts
+--- does tarball declare jiti? ---
+bin: {"pi-dashboard":"packages/server/bin/pi-dashboard.mjs"}
+dependencies.jiti: (none)
+peerDependencies.jiti: (none)
+
+================================================================
+## SUMMARY
+================================================================
+Tested: @blackbelt-technology/pi-agent-dashboard@0.5.3 published to npm
+Tested in: node:22-bookworm-slim, fresh container, no host pollution
+Findings reproduced:
+  A — bin field targets .ts source (npm shim cannot invoke)
+  B — postinstall script missing from tarball
+  C — jiti not declared as runtime dep
+(Finding D resolver mismatch is inside the source, surfaces after A/B/C fixed)

@@ -64,6 +64,28 @@ Cross-refs:
 - README.md:54
 - README.md:129
 
+## How do I install pi-dashboard without Electron?
+
+Direct npm install. Zero prerequisites beyond Node.
+
+Commands:
+```bash
+npm install -g @blackbelt-technology/pi-agent-dashboard
+pi-dashboard
+```
+
+- Server binds `:8000`. Open `http://localhost:8000`.
+- First launch bootstraps pi + openspec into `~/.pi-dashboard/`. ~30s on broadband.
+- Sessions return `503 bootstrap-in-progress` until install completes. `useBootstrapStatus` drives UI banner.
+- Offline: bootstrap state → `failed`. Settings + docs still serve. Session spawn stays 503.
+- Requires Node.js ≥ 22.18.0. `npm` on PATH.
+- Seeding skipped when `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent/package.json` already present, or when `DASHBOARD_STARTER=Electron`.
+
+Cross-refs:
+- docs/service-bootstrap.md — "Standalone npm install"
+- packages/server/src/cli.ts — `maybeSeedDefaultInstallableList`
+- packages/shared/src/installable-list.ts — `defaultInstallableList`
+
 ## How do I install from source for development?
 
 Path C. Clone repo, install deps, register as pi package.

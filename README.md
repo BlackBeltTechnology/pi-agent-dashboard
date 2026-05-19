@@ -75,6 +75,16 @@ On first launch a setup wizard walks you through mode selection (standalone vs. 
 
 ### B — pi package (recommended for CLI users)
 
+If you don't have pi yet, you can install the dashboard directly via npm — it will bootstrap pi + openspec into `~/.pi-dashboard/` on first run:
+
+```bash
+npm install -g @blackbelt-technology/pi-agent-dashboard
+pi-dashboard
+# open http://localhost:8000
+```
+
+If pi is already installed, the bridge-extension flow is equivalent:
+
 ```bash
 pi install npm:@blackbelt-technology/pi-agent-dashboard
 pi
