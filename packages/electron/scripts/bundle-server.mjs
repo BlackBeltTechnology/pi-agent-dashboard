@@ -42,11 +42,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ELECTRON_DIR = path.resolve(__dirname, "..");
 const PROJECT_DIR = path.resolve(ELECTRON_DIR, "..", "..");
 const SERVER_BUNDLE = path.join(ELECTRON_DIR, "resources", "server");
+const PINS_FILE = path.join(ELECTRON_DIR, "offline-packages.json");
 
 // ── parse args ────────────────────────────────────────────────────────────
 const SOURCE_ONLY = process.argv.slice(2).includes("--source-only");
 
 console.log("→ Bundling dashboard server...");
+
+// ── read pi/openspec/tsx pins from offline-packages.json ──────────────────
+// Phase 1 of change: eliminate-electron-runtime-install.
+// Pins live in offline-packages.json (build-time pin source). That file is
+// removed in Phase 5; at that point these pins move into a constant here.
+const PI_RUNTIME_DEPS = {};
+try {
+  const pins = JSON.parse(readFileSync(PINS_FILE, "utf-8"));
+  for (const entry of pins.packages ?? []) {
+    if (entry?.name && entry?.version) {
+      PI_RUNTIME_DEPS[entry.name] = entry.version;
+    }
+  }
+  const pinList = Object.entries(PI_RUNTIME_DEPS)
+    .map(([n, v]) => `${n}@${v}`)
+    .join(", ");
+  console.log(`  Pi-runtime pins (→ deps of bundled server): ${pinList}`);
+} catch (err) {
+  console.error(`  FATAL: could not read ${PINS_FILE}: ${err.message}`);
+  process.exit(1);
+}
 
 // ── clean & re-create target structure ───────────────────────────────────
 rmSync(SERVER_BUNDLE, { recursive: true, force: true });
@@ -150,20 +172,25 @@ if (clientSrc) {
 // NOTE: intentionally NO "type": "module" here — node_modules contain CJS
 // packages (e.g. node-pty) that break if loaded as ESM.
 //
-// pi-coding-agent is intentionally NOT declared as a dependency here.
-// Architectural rationale: the dashboard ships pi/tsx/openspec via the
-// offline cacache (`offline-packages.json` + `offline-packages/`) which
-// `installStandalone()` extracts into `~/.pi-dashboard/` on first run.
-// At runtime, server-lifecycle.ts resolves tsx (preferred) and jiti
-// (fallback) from the managed dir first, then system pi. Bundling pi
-// inside this tree would duplicate it (~10MB) and create version-drift
-// risk against the offline cacache pin. The original D5 in the design
-// proposed this; pushed back during review — see change:
-// fix-electron-windows-installer-and-server-bootstrap (D5 reconsidered).
+// pi-coding-agent / openspec / tsx are declared as production dependencies
+// here so the `npm install --omit=dev` step below materializes them under
+// `resources/server/node_modules/`. The .app then ships a complete
+// pre-installed runtime — no offline cacache, no runtime install into
+// `~/.pi-dashboard/`. Versions come from `offline-packages.json` until
+// Phase 5 of change: eliminate-electron-runtime-install collapses the pin
+// source into a constant in this file.
+//
+// This reverses the prior architectural decision (D5 in change:
+// fix-electron-windows-installer-and-server-bootstrap) which kept pi out of
+// the bundle to defer to an in-place `/api/pi-core/update` upgrader. That
+// upgrade path is removed in Phase 3; the bundle is now the single source
+// of truth for pi/openspec/tsx versions, refreshed via electron-updater
+// whole-.app replacement.
 const bundlePkg = {
   name: "pi-dashboard-bundled-server",
   private: true,
   workspaces: BUNDLED_WORKSPACE_PKGS.map((p) => `packages/${p}`),
+  dependencies: PI_RUNTIME_DEPS,
 };
 writeFileSync(
   path.join(SERVER_BUNDLE, "package.json"),
