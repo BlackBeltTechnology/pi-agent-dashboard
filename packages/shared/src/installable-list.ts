@@ -78,6 +78,35 @@ export async function readInstallableList(
 }
 
 /**
+ * Default installable list seeded by the `pi-dashboard` CLI on first-run
+ * npm installs (when no `installable.json` exists and no managed pi is
+ * present). Matches the package set the Electron wizard installs.
+ *
+ * Kept as a pure factory (no I/O) so callers can mutate before writing.
+ *
+ * See change: enable-standalone-npm-install.
+ */
+export function defaultInstallableList(): InstallableList {
+  return {
+    version: "1",
+    packages: [
+      {
+        name: "@earendil-works/pi-coding-agent",
+        version: "*",
+        required: true,
+        kind: "npm",
+      },
+      {
+        name: "@fission-ai/openspec",
+        version: "*",
+        required: true,
+        kind: "npm",
+      },
+    ],
+  };
+}
+
+/**
  * Atomically write `list` to `configDir/installable.json`.
  * Writes a temp file then renames so readers never see a partial write.
  */

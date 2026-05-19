@@ -33,6 +33,11 @@ describe("MANAGED_PI_PACKAGES + JITI_PACKAGES contract", () => {
 
   it("upstream jiti first, legacy fork fallback", () => {
     expect(JITI_PACKAGES).toEqual(["jiti", "@mariozechner/jiti"]);
+    // Primary lookup MUST be bare "jiti" — that's what `packages/server/
+    // package.json#dependencies.jiti` resolves on a clean npm install.
+    // Regression for v0.5.3 fork-name drift; see change:
+    // enable-standalone-npm-install task 7.3.
+    expect(JITI_PACKAGES[0]).toBe("jiti");
   });
 });
 
@@ -179,6 +184,29 @@ describe("ToolResolver.resolveJiti — anchor walk-up + argv fallback", () => {
       resolver: makeResolver({ "jiti/package.json": jitiPkgJson }),
     });
     expect(url).not.toBeNull();
+  });
+
+  it("resolves jiti shipped as a direct dep of pi-dashboard-server (own-tree, no pi anywhere)", () => {
+    // Simulates the npm-install path post enable-standalone-npm-install:
+    // - no managed pi at ~/.pi-dashboard/
+    // - no system pi on PATH
+    // - no caller-supplied anchor
+    // - jiti lives in pi-dashboard-server's own node_modules, reachable
+    //   via createRequire(argv[1]) walk-up
+    const argv = "/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-server/bin/pi-dashboard.mjs";
+    const jitiPkgJson = "/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-server/node_modules/jiti/package.json";
+    const url = new ToolResolver().resolveJiti({
+      _managedDir: MANAGED_DIR,
+      // Managed pi pkg.json + legacy variant miss; only the jiti register exists.
+      _pathExists: (p) => p === path.join(path.dirname(jitiPkgJson), "lib", "jiti-register.mjs"),
+      _whichPi: () => null,
+      _realpath: (p) => p,
+      _argv1: argv,
+      resolver: makeResolver({ "jiti/package.json": jitiPkgJson }),
+    });
+    expect(url).not.toBeNull();
+    expect(url!.startsWith("file://")).toBe(true);
+    expect(url!).toMatch(/\/jiti\/lib\/jiti-register\.mjs$/);
   });
 
   it("returns null when every anchor misses", () => {

@@ -56,7 +56,69 @@ import type { DashboardServer } from "./server.js";
 import { updateBootstrapCompatibility } from "./pi-version-skew.js";
 import type { BootstrapStateStore } from "./bootstrap-state.js";
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import {
+  defaultInstallableList,
+  writeInstallableList,
+} from "@blackbelt-technology/pi-dashboard-shared/installable-list.js";
+import { getManagedDir } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { bootstrapInstallFromList } from "./bootstrap-install-from-list.js";
+import { existsSync } from "node:fs";
+
+/**
+ * Utility: idempotently write the default installable list (pi + openspec)
+ * to `<configDir>/installable.json` when both the file is absent AND no
+ * managed pi install exists. Exposed for explicit callers that want to
+ * pre-seed the installable list (e.g. provisioning scripts, future
+ * Electron-equivalent wizards, programmatic bootstrap tooling).
+ *
+ * NOT wired into the default `runForeground` path. The npm-install
+ * case is handled by `runDegradedModeBootstrap()` below, which detects
+ * an unresolvable pi via the ToolRegistry and installs the same
+ * package set in the background after the HTTP server is listening.
+ * That keeps the UI available immediately in degraded mode rather than
+ * blocking startup on `npm install pi` (the previous design here).
+ *
+ * Kept as a public export because:
+ *   - The 4-scenario test (`__tests__/cli-seed-installable-list.test.ts`)
+ *     locks down the file-absent / managed-pi-present / present-file /
+ *     Electron-caller contract for any future caller.
+ *   - It's the canonical way to programmatically declare "the npm install
+ *     pipeline is what should run" without invoking degraded-mode.
+ *
+ * See change: enable-standalone-npm-install (design correction).
+ */
+export async function maybeSeedDefaultInstallableList(opts?: {
+  configDir?: string;
+  managedDir?: string;
+}): Promise<void> {
+  const configDir =
+    opts?.configDir ?? path.join(os.homedir(), ".pi", "dashboard");
+  const managedDir = opts?.managedDir ?? getManagedDir();
+  const installableJsonPath = path.join(configDir, "installable.json");
+  const managedPiPkgJson = path.join(
+    managedDir,
+    "node_modules",
+    "@earendil-works",
+    "pi-coding-agent",
+    "package.json",
+  );
+
+  if (existsSync(installableJsonPath)) {
+    return; // file present — never overwrite
+  }
+  if (existsSync(managedPiPkgJson)) {
+    // Managed pi already installed (e.g. by a previous standalone install
+    // that completed before installable.json was introduced). Skip seed.
+    return;
+  }
+
+  const list = defaultInstallableList();
+  await writeInstallableList(list, configDir);
+  const names = list.packages.map((p) => p.name).join(", ");
+  console.log(
+    `[bootstrap] no installable.json — seeding default list: ${names}`,
+  );
+}
 
 /**
  * Emit a stderr warning at CLI startup when the resolved pi version is
@@ -195,7 +257,7 @@ async function runForeground(config: ServerConfig): Promise<void> {
   // Reconcile installable.json before binding the port.
   // Required-package failures throw and prevent server start.
   // Optional failures are logged and continue.
-  // File-absent is a no-op (Bridge/Standalone starters don't seed installable.json).
+  // File-absent is a no-op (Bridge starters don't seed installable.json).
   // See change: simplify-electron-bootstrap-derived-state.
   try {
     await bootstrapInstallFromList(server.bootstrapState);

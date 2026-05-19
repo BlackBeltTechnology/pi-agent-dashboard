@@ -4,15 +4,23 @@
  *
  * The actual CLI is `../src/cli.ts`. This wrapper exists because a
  * `#!/usr/bin/env` shebang cannot interpolate a dynamic `--import`
- * loader path. The wrapper resolves jiti from pi's tree at runtime
- * and re-execs Node with `--import <jiti-url> cli.ts <args>`.
+ * loader path. The wrapper resolves jiti from `process.argv[1]`'s
+ * module graph at runtime and re-execs Node with
+ * `--import <jiti-url> cli.ts <args>`.
  *
- * No tsx fallback: if jiti cannot be resolved, the wrapper exits 1
- * with an install-hint pointing at pi. Mirrors the resolution shape
- * in `packages/shared/src/resolve-jiti.ts` (cannot import the .ts
- * module before a TS loader is registered, so the lookup is inlined).
+ * Since `@blackbelt-technology/pi-dashboard-server` declares `jiti` as
+ * a direct runtime dependency, `createRequire(argv[1]).resolve("jiti/...")`
+ * SHALL succeed in any well-formed npm install layout (flat, scoped,
+ * hoisted, pnpm). A miss therefore indicates a corrupted install, not
+ * a missing prerequisite. The error message reflects that.
  *
- * See change: replace-tsx-with-jiti.
+ * No tsx fallback: jiti is the sole supported TypeScript loader.
+ * Mirrors the resolution shape in
+ * `packages/shared/src/platform/binary-lookup.ts::ToolResolver.resolveJiti`
+ * (cannot import the .ts module before a TS loader is registered, so
+ * the lookup is inlined).
+ *
+ * See change: replace-tsx-with-jiti, enable-standalone-npm-install.
  */
 import { createRequire } from "node:module";
 import { realpathSync, readFileSync } from "node:fs";
@@ -49,7 +57,9 @@ if (metaArg === "--version" || metaArg === "-v" || metaArg === "version") {
   }
 }
 
-// Mirrors packages/shared/src/resolve-jiti.ts JITI_PACKAGES.
+// Mirrors packages/shared/src/platform/binary-lookup.ts JITI_PACKAGES.
+// Kept in sync by repo-lint: packages/shared/src/__tests__/jiti-packages-parity.test.ts.
+// See change: enable-standalone-npm-install task 7.3.
 const JITI_PACKAGES = ["jiti", "@mariozechner/jiti"];
 
 /** Resolve pi's jiti register hook as a file:// URL. Returns null on miss. */
@@ -77,9 +87,18 @@ function resolveJitiUrl() {
 
 const loader = resolveJitiUrl();
 if (!loader) {
+  // jiti is a direct dep of @blackbelt-technology/pi-dashboard-server, so a
+  // miss here means the install is corrupted (deleted node_modules entry,
+  // partial extract, etc.). The legacy "install pi globally" hint is kept
+  // as a workaround for users who can't reinstall the dashboard cleanly.
   process.stderr.write(
-    "pi-dashboard: cannot find jiti. " +
-      "Install pi: 'npm install -g @earendil-works/pi-coding-agent'\n",
+    "pi-dashboard: cannot find jiti.\n" +
+      "This is unexpected: jiti ships as a direct dependency of pi-dashboard-server.\n" +
+      "Your install may be corrupted. Try:\n" +
+      "  npm install -g @blackbelt-technology/pi-agent-dashboard\n" +
+      "Workaround: install pi globally (provides a fallback jiti):\n" +
+      "  npm install -g @earendil-works/pi-coding-agent\n" +
+      "Please report at https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues\n",
   );
   process.exit(1);
 }
