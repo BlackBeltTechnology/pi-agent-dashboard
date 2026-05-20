@@ -680,7 +680,10 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
-  useDocumentTitle(selectedSession);
+  const folderTitleCwd = folderEditorCwd ?? folderTermCwd
+    ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
+    ?? readmeCwd ?? piResourcesCwd ?? null;
+  useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
   const editorMap = useEditors(editorCwds);
