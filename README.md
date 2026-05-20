@@ -98,6 +98,35 @@ The bridge extension auto-starts the dashboard server on first launch:
 
 Open **http://localhost:8000** in any browser. All active pi sessions appear automatically. See [Prerequisites](#prerequisites) for Node.js / build-tool requirements.
 
+#### Windows install (PowerShell, Administrator)
+
+Windows has a few extra one-time setup steps. Run the following in an **Administrator** PowerShell session:
+
+```powershell
+# 1. Enable long paths (required — npm node_modules nesting exceeds 260 chars)
+reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
+
+# 2. Install Node.js LTS 22 via winget (ships >= 22.18 so no node-guard refusal)
+winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+
+# 3. CLOSE this PowerShell, open a NEW one as Administrator (PATH refresh)
+
+# 4. Verify
+node --version    # expect v22.18+ (any 22.x >= 22.18, NOT v22.0–v22.17)
+npm --version     # expect 10.x
+
+# 5. Install
+npm install -g @blackbelt-technology/pi-agent-dashboard
+
+# 6. Start (foreground first time so you can see any errors)
+pi-dashboard start
+
+# 7. From the browser
+start http://localhost:8000
+```
+
+C++ build tools are typically **not** required — `node-pty` ships a Windows x64 prebuild. Install Visual Studio Build Tools only if the prebuild fails to load. See [docs/installation-windows.md](docs/installation-windows.md) for more detail (offline / tarball / nvm-windows caveats).
+
 ### C — From source (contributors)
 
 ```bash
