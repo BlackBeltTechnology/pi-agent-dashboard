@@ -116,14 +116,30 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
     - [ ] `packages/server/src/__tests__/bootstrap-queue.test.ts`
     - [ ] `packages/server/src/__tests__/bootstrap-install-from-list.test.ts`
     - [ ] `packages/server/src/__tests__/cli-bootstrap.test.ts`
+    - [ ] `packages/server/src/__tests__/cli-seed-installable-list.test.ts` (added by `enable-standalone-npm-install`)
   - [ ] Update `pi-core-routes.ts` `PiCoreRouteDeps`: drop the optional `bootstrapState` field and the gate `preHandler`.
+
+- [ ] 3.5b **Trim `packages/server/src/cli.ts`.** `enable-standalone-npm-install` integrated bootstrap-install orchestration into the CLI startup path; under R3 this entire block becomes vestigial because pi/openspec/tsx are now regular npm deps and always resolvable at startup.
+  - [ ] Remove imports of `defaultInstallableList`, `bootstrapInstallFromList`, `updateBootstrapCompatibility`, `logCompatibilityWarning`.
+  - [ ] Delete the `maybeSeedDefaultInstallableList()` function and its call site.
+  - [ ] Delete the bootstrap-install orchestration block (the section that constructs `installPackages`, calls `server.bootstrapState.set(...)`, subscribes to bootstrap-state changes, runs `bootstrapInstall(...)`, and surfaces version-skew warnings). Approximately lines 226–392 of the pre-change cli.ts.
+  - [ ] Remove the `bootstrapState` field from the `server` object created in `cli.ts`. Sweep `rg -n 'server\.bootstrapState' packages/` and remove every reference (notably also in `packages/server/src/server.ts`).
+  - [ ] Verify the simplified CLI still: parses argv (start/stop/restart/status/version), binds the port, registers all surviving routes, exits cleanly on SIGTERM.
+  - [ ] After this trim, the CLI does **not** install anything at startup. The user's responsibility is `npm i -g @blackbelt-technology/pi-agent-dashboard` (npm fetches pi via the regular dep tree at install time).
+
+- [ ] 3.5c **Trim `packages/server/src/server.ts`.**
+  - [ ] Remove the `bootstrapState.subscribe(...)` hook (broadcasts `bootstrap_status_update` to browser clients — no listeners after Phase 3.1).
+  - [ ] Remove `bootstrapState` from the server's exposed state shape.
+  - [ ] Drop the `registerBootstrapRoutes(...)` call (already covered by 3.4).
+  - [ ] Drop the `bootstrapState` argument plumbed to `registerPiCoreRoutes(...)`.
 - [ ] 3.6 Trim `packages/server/src/pi-version-skew.ts` to pure comparator. Drop the bootstrap-compatibility writer. Keep `comparePiVersions(a, b)` for standalone arm usage. Update `packages/server/src/__tests__/pi-version-skew.test.ts` to cover only the comparator.
 - [ ] 3.7 Delete shared support modules (verify zero `import` references in surviving code first):
   - [ ] `packages/shared/src/managed-workspace-materialize.ts`
-  - [ ] `packages/shared/src/installable-list.ts`
+  - [ ] `packages/shared/src/installable-list.ts` (contains `defaultInstallableList` from `enable-standalone-npm-install`; whole module dies)
   - [ ] `packages/shared/src/managed-package-whitelist.ts`
   - [ ] `packages/shared/src/recommended-extensions.ts`
   - [ ] `packages/shared/src/bootstrap-install.ts` (the `~/.pi-dashboard/` installer; bundled-runtime replaces it)
+  - [ ] `scripts/test-standalone-npm-install.sh` (smoke test from `enable-standalone-npm-install`; its `bootstrap.state` polling is invalidated by R3 — either delete or rewrite to assert pi resolves at startup; recommend delete since R3 makes the assertion trivially true)
 - [ ] 3.8 Delete regression tests:
   - [ ] `packages/shared/src/__tests__/managed-package-whitelist-parity.test.ts`
   - [ ] `packages/shared/src/__tests__/installable-list.test.ts`
@@ -218,6 +234,17 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
   - [ ] Delete legacy dir manually → next Doctor open hides advisory
 
 ## 8. Documentation rewrites (delegate every `docs/` write to subagent per AGENTS.md)
+
+> **Includes reverting / updating `enable-standalone-npm-install`'s doc landings.**
+> That change added a "Standalone npm install" section to `docs/service-bootstrap.md`, a FAQ entry in `docs/faq.md`, a CHANGELOG `## [Unreleased]` line claiming the dashboard "bootstraps pi + openspec into `~/.pi-dashboard/` on first run," and `docs/file-index-server.md` / `docs/file-index-shared.md` rows. All of those are wrong under R3 and need rewriting.
+
+- [ ] 8.0 Revert `enable-standalone-npm-install`'s now-incorrect doc additions and rewrite under R3:
+  - [ ] `docs/service-bootstrap.md` "Standalone npm install" subsection — rewrite from "bootstrapInstallFromList runs in background into `~/.pi-dashboard/` … sessions return 503 until ready" to "npm install of `@blackbelt-technology/pi-agent-dashboard` pulls pi/openspec/tsx via regular deps; server starts ready; no first-run install delay".
+  - [ ] `docs/faq.md` "How do I install pi-dashboard without Electron?" entry — strip the 503 / bootstrap-state / useBootstrapStatus references; describe the now-clean flow.
+  - [ ] `CHANGELOG.md ## [Unreleased]` — update the existing "Standalone npm install no longer requires pre-installing pi; the dashboard CLI now bootstraps pi + openspec into `~/.pi-dashboard/` on first run" entry to reflect R3 ("pi/openspec/tsx are now regular dependencies; standalone npm install brings them in via npm itself; runtime bootstrap-install is eliminated in all arms").
+  - [ ] `docs/file-index-server.md`, `docs/file-index-shared.md` — remove rows for the deleted modules (`bootstrap-install.ts`, `bootstrap-state.ts`, `bootstrap-queue.ts`, `bootstrap-install-from-list.ts`, `installable-list.ts`, `managed-workspace-materialize.ts`, etc.). Caveman style.
+  - [ ] `README.md` if it currently mentions the bootstrap-install flow.
+
 
 - [ ] 8.1 Rewrite `docs/electron-bootstrap-flow.md` — state machine 12→6 states, 7→3 triggers, 10→3 end states. Update Mermaid diagram.
 - [ ] 8.2 Rewrite `docs/service-bootstrap.md` Chain 1 section — drop `installable.json`, preflight, silent-install language. Replace with "Electron is a launcher; runtime install eliminated."

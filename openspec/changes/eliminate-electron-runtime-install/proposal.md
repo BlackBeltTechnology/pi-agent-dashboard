@@ -273,7 +273,8 @@ packages/electron/src/lib/doctor.ts                  (force-reinstall removed)
 packages/electron/src/lib/doctor-window.ts           (force-reinstall IPC removed)
 packages/electron/src/renderer/doctor.html           (force-reinstall UI removed)
 packages/electron/scripts/bundle-server.mjs          (extended to include pi/openspec/tsx)
-packages/server/src/server.ts                        (client-dir resolver: 6 → 1; drop bootstrap route wiring + bootstrap-state gate plumbing)
+packages/server/src/cli.ts                          (drop `maybeSeedDefaultInstallableList` + bootstrap-install orchestration block + `server.bootstrapState` field; CLI no longer installs anything at startup)
+packages/server/src/server.ts                        (client-dir resolver: 6 → 1; drop bootstrap route wiring + `bootstrapState.subscribe` hook + bootstrap-state gate plumbing)
 packages/server/src/routes/system-routes.ts          (add launchSource field to /api/health)
 packages/server/src/routes/pi-core-routes.ts         (drop bootstrapGate preHandler; pi-core endpoints become unconditional)
 packages/server/src/resolve-client-dir.ts            (single strategy)
@@ -284,6 +285,49 @@ packages/client/src/App.tsx                          (drop BootstrapBanner / use
 packages/client/src/hooks/useMessageHandler.ts       (drop bootstrap_status_update / bootstrap_ticket_complete branches; keep pi_core_event)
 packages/client/src/components/UnifiedPackagesSection.tsx  (gate Core sub-group rendering on launchSource !== "electron"; Recommended/Other survive in all arms)
 ```
+
+### Reverting / unwinding `enable-standalone-npm-install`
+
+That change (mostly implemented, not yet archived) integrated bootstrap-install
+into the CLI startup path: `cli.ts maybeSeedDefaultInstallableList()` writes
+`~/.pi/dashboard/installable.json` with pi + openspec on first run when the
+file is absent, then `bootstrapInstallFromList` fetches them into
+`~/.pi-dashboard/` in the background while the server runs in degraded mode.
+
+Under R3 (pi/openspec/tsx as regular `dependencies` of
+`@blackbelt-technology/pi-dashboard-server`), the entire degraded-mode dance
+is unnecessary — `npm install -g @blackbelt-technology/pi-agent-dashboard`
+brings pi/openspec/tsx in via the normal dep tree, so the server starts
+ready.
+
+Specific code paths added by `enable-standalone-npm-install` that this change
+undoes:
+
+- `cli.ts` `maybeSeedDefaultInstallableList()` function — removed.
+- `cli.ts` import of `defaultInstallableList`, `bootstrapInstallFromList`,
+  `updateBootstrapCompatibility`, `logCompatibilityWarning` — removed.
+- `cli.ts` bootstrap-install orchestration block (≈ 165 LOC managing
+  `server.bootstrapState`, `installPackages`, the `bootstrapInstall` call,
+  version-skew compat warnings, subscription propagation) — removed.
+- `packages/shared/src/installable-list.ts` (including the new
+  `defaultInstallableList` helper) — deleted with the rest of the
+  installable-list module.
+- `scripts/test-standalone-npm-install.sh` — deleted (its `bootstrap.state`
+  polling no longer exists).
+- `packages/server/src/__tests__/cli-seed-installable-list.test.ts` —
+  deleted (tests an absent feature).
+- `docs/service-bootstrap.md` "Standalone npm install" subsection — rewritten.
+- `docs/faq.md` "How do I install pi-dashboard without Electron?" entry — rewritten.
+- `CHANGELOG.md ## [Unreleased]` entry for the standalone-install flow — rewritten.
+
+What survives from `enable-standalone-npm-install`:
+
+- `jiti` as a direct dep of `packages/server/package.json` (task 1.1.c).
+- `packages/server/bin/pi-dashboard.mjs` improved error message (task 1.1.f).
+- `packages/shared/src/__tests__/binary-lookup-resolveJiti.test.ts` "own-tree, no pi" scenario (task 1.1.g).
+
+Those three are genuinely orthogonal improvements to the npm-global path
+and survive intact.
 
 New files:
 ```
