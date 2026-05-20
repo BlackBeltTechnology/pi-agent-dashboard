@@ -5,7 +5,7 @@
 #   1. npm pack every publishable workspace
 #   2. install them into an isolated temp HOME with no pi installed
 #   3. spawn pi-dashboard headless
-#   4. poll /api/health until bootstrap.state transitions to "ready"
+#   4. poll /api/bootstrap/status until status transitions to "ready"
 #   5. assert the web UI is reachable
 #   6. tear down
 #
@@ -89,8 +89,10 @@ HOME="$TMP_HOME" \
 SERVER_PID=$!
 echo "[smoke] server pid: $SERVER_PID"
 
-# Poll /api/health for up to 120s.
-DEADLINE=$((SECONDS + 120))
+# Poll /api/bootstrap/status for up to 240s. Clean install of pi + openspec
+# from npm on CI runners regularly approaches 120s; 240s gives headroom
+# without making genuine failures hang the job.
+DEADLINE=$((SECONDS + 240))
 LAST_STATE=""
 while [[ $SECONDS -lt $DEADLINE ]]; do
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -98,8 +100,10 @@ while [[ $SECONDS -lt $DEADLINE ]]; do
     cat "$TMP/server.log" >&2
     exit 1
   fi
-  if RESP=$(curl -fsS "http://localhost:$PORT/api/health" 2>/dev/null); then
-    STATE=$(echo "$RESP" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).bootstrap?.status||'unknown')}catch{console.log('parse-error')}})")
+  # /api/bootstrap/status returns the BootstrapState object directly
+  # (top-level `status` field). /api/health does NOT expose bootstrap.status.
+  if RESP=$(curl -fsS "http://localhost:$PORT/api/bootstrap/status" 2>/dev/null); then
+    STATE=$(echo "$RESP" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).status||'unknown')}catch{console.log('parse-error')}})")
     if [[ "$STATE" != "$LAST_STATE" ]]; then
       echo "[smoke] bootstrap.status = $STATE"
       LAST_STATE="$STATE"
@@ -118,7 +122,7 @@ while [[ $SECONDS -lt $DEADLINE ]]; do
 done
 
 if [[ "$LAST_STATE" != "ready" ]]; then
-  echo "[smoke] FAIL: bootstrap did not become ready within 120s (last: $LAST_STATE)" >&2
+  echo "[smoke] FAIL: bootstrap did not become ready within 240s (last: $LAST_STATE)" >&2
   tail -50 "$TMP/server.log" >&2
   exit 1
 fi
