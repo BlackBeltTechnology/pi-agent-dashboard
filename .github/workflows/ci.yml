@@ -40,12 +40,21 @@ jobs:
     steps:
       - name: Install base tooling (Debian/Ubuntu)
         if: contains(matrix.image, 'bookworm') || contains(matrix.image, 'debian')
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl bash procps
+        # bzip2 is required to extract phantomjs-prebuilt's .tar.bz2 at install
+        # time (pulled transitively via electron-icon-builder → icon-gen →
+        # svg2png). TODO: evict electron-icon-builder to drop deprecated
+        # phantomjs from the install graph.
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl bash procps bzip2
       - name: Install base tooling (Alpine)
         if: contains(matrix.image, 'alpine')
-        run: apk add --no-cache git ca-certificates curl bash procps
+        run: apk add --no-cache git ca-certificates curl bash procps bzip2
       - uses: actions/checkout@v4
+      # actions/setup-node mounts the host runner's glibc Node into the
+      # container and prepends it to PATH. On Alpine (musl) that binary
+      # fails to exec with "required file not found". The node:22-* images
+      # already ship a matching Node, so skip setup-node on Alpine.
       - uses: actions/setup-node@v4
+        if: "!contains(matrix.image, 'alpine')"
         with:
           node-version: 22
           cache: npm
