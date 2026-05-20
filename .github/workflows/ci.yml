@@ -32,9 +32,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - node:22-bookworm-slim
-          - node:22-alpine
+        include:
+          - image: node:22-bookworm-slim
+            node-version: 22
+          - image: node:22-alpine
+            node-version: 22
+          - image: node:24-bookworm-slim
+            node-version: 24
+          - image: node:24-alpine
+            node-version: 24
+          - image: node:25-bookworm-slim
+            node-version: 25
+          - image: node:25-alpine
+            node-version: 25
     container:
       image: ${{ matrix.image }}
     steps:
@@ -51,12 +61,12 @@ jobs:
       - uses: actions/checkout@v4
       # actions/setup-node mounts the host runner's glibc Node into the
       # container and prepends it to PATH. On Alpine (musl) that binary
-      # fails to exec with "required file not found". The node:22-* images
-      # already ship a matching Node, so skip setup-node on Alpine.
+      # fails to exec with "required file not found". The node:<major>-*
+      # images already ship a matching Node, so skip setup-node on Alpine.
       - uses: actions/setup-node@v4
         if: "!contains(matrix.image, 'alpine')"
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci --engine-strict=false
       - run: npm run build
