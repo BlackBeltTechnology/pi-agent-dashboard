@@ -255,13 +255,20 @@ export function deterministicSerializePlugins(
           command: c.command ?? null,
           tab: c.tab ?? null,
           toolName: c.toolName ?? null,
+          // First-class shell-overlay-route fields. See change:
+          // fix-flows-plugin-polish (path-as-first-class-claim-field).
+          path: c.path ?? null,
+          sessionParam: c.sessionParam ?? null,
+          // Generic config escape hatch — included so any plugin using it
+          // for slot-specific extras participates in staleness detection.
+          config: c.config ?? null,
         }))
         .sort((a, b) =>
-          [a.slot, a.component, a.predicate, a.command]
+          [a.slot, a.component, a.predicate, a.command, a.path]
             .map((x) => x ?? "")
             .join("\0")
             .localeCompare(
-              [b.slot, b.component, b.predicate, b.command]
+              [b.slot, b.component, b.predicate, b.command, b.path]
                 .map((x) => x ?? "")
                 .join("\0"),
             ),

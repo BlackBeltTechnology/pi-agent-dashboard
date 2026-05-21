@@ -42,6 +42,14 @@ export interface PromptResponse {
 export interface PromptAdapter {
   name: string;
   /**
+   * Routing priority. Lower numbers run first. Default 1000.
+   * `DashboardDefaultAdapter` uses 9999 so any plugin adapter with the
+   * default priority (1000) or lower beats it automatically.
+   *
+   * See change: route-flow-asks-to-upper-slot.
+   */
+  priority?: number;
+  /**
    * Called when a new prompt arrives.
    * Return a PromptClaim to participate, or null/undefined to skip.
    */
@@ -92,11 +100,18 @@ export class PromptBus {
   /**
    * Register an adapter. Returns an unsubscribe function.
    * Re-registering with the same name replaces the previous adapter.
+   *
+   * Adapters are kept sorted by `priority` (default 1000, lower first).
+   * `Array.prototype.sort` is stable in V8 ≥ ES2019 so equal priorities
+   * preserve insertion order. See change: route-flow-asks-to-upper-slot.
    */
   registerAdapter(adapter: PromptAdapter): () => void {
     // Replace existing adapter with same name
     this.adapters = this.adapters.filter(a => a.name !== adapter.name);
     this.adapters.push(adapter);
+    this.adapters.sort(
+      (a, b) => (a.priority ?? 1000) - (b.priority ?? 1000),
+    );
 
     return () => {
       this.adapters = this.adapters.filter(a => a !== adapter);

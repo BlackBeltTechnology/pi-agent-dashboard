@@ -195,8 +195,14 @@ function generateRegistryContent(entries: PluginEntry[]): string {
       const tabStr = claim.tab ? `, tab: ${JSON.stringify(claim.tab)}` : "";
       const toolNameStr = claim.toolName ? `, toolName: ${JSON.stringify(claim.toolName)}` : "";
       const commandStr = claim.command ? `, command: ${JSON.stringify(claim.command)}` : "";
+      // First-class fields for shell-overlay-route claims. See change:
+      // fix-flows-plugin-polish (path-as-first-class-claim-field).
+      const pathStr = claim.path ? `, path: ${JSON.stringify(claim.path)}` : "";
+      const sessionParamStr = claim.sessionParam ? `, sessionParam: ${JSON.stringify(claim.sessionParam)}` : "";
+      // Generic config escape hatch (rare — prefer first-class fields).
+      const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${commandStr}${componentRef}${predicateRef}${shouldRenderRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${commandStr}${pathStr}${sessionParamStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef} },`,
       );
     }
     lines.push("    ],");

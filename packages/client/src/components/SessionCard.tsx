@@ -35,12 +35,20 @@ import { InlineRenameInput } from "./InlineRenameInput.js";
 import { ProcessList, type ProcessEntry } from "./ProcessList.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 
-export function getCardPulseClass(session: DashboardSession): string {
-  if (session.currentTool === "ask_user") return "card-input-pulse";
+/**
+ * @param hasWidgetBarPrompt true when the session has a pending PromptBus
+ *   request whose component type is registered with `placement: "widget-bar"`.
+ *   In that case the purple `card-input-pulse` class is suppressed — a
+ *   widget-bar slot owns the prompt's render, not the chat. Plugin-agnostic;
+ *   the shell only knows about `placement`, not specific component type ids.
+ *   See change: fix-flows-plugin-polish (B1).
+ */
+export function getCardPulseClass(session: DashboardSession, hasWidgetBarPrompt = false): string {
+  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-pulse";
   if (session.status === "streaming" || session.resuming) return "card-working-pulse";
   // Unread state — gray scrolling stripes. Lower priority than the two above
   // so streaming/ask_user keep their stronger colors.
@@ -50,13 +58,18 @@ export function getCardPulseClass(session: DashboardSession): string {
 }
 
 export function ActivityIndicator({ session }: { session: DashboardSession }) {
+  // Suppress chat-routed indicators when a widget-bar slot owns the prompt.
+  // Plugin-agnostic via the `placement` primitive. See change:
+  // fix-flows-plugin-polish (B1).
+  const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
+
   if (session.resuming) {
     return <span className="text-yellow-400">Resuming…</span>;
   }
 
   if (session.status === "ended") return null;
 
-  if (session.currentTool === "ask_user") {
+  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
     return <span className="text-purple-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> Waiting for input</span>;
   }
 
@@ -356,6 +369,9 @@ export function SessionCard({
   const isAlive = session.status !== "ended";
   const isMobile = useMobile();
   const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying });
+  // Suppress purple `card-input-pulse` when a widget-bar slot owns the
+  // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
+  const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
   // Source-icon text color mirrors the dot's status color so the icon
   // doubles as a status indicator. See `deriveIconStatusColor` for ended /
   // arbitrary-bg-token defenses.
@@ -380,7 +396,7 @@ export function SessionCard({
         onClick={() => onSelect(session.id)}
         className={`px-4 py-3 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg transition-all duration-200 ${
           isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
-        } ${isHidden ? "opacity-40" : ""} ${getCardPulseClass(session)}`}
+        } ${isHidden ? "opacity-40" : ""} ${getCardPulseClass(session, hasWidgetBarPrompt)}`}
       >
         {/* Line 1: source icon (colored by status) + name + age */}
         <div className="flex items-center gap-2">
@@ -481,7 +497,7 @@ export function SessionCard({
       onClick={() => onSelect(session.id)}
       className={`px-2 py-2 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 ${
         isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
-      } ${isHidden ? "opacity-40" : ""} ${getCardPulseClass(session)}`}
+      } ${isHidden ? "opacity-40" : ""} ${getCardPulseClass(session, hasWidgetBarPrompt)}`}
     >
       <div className="flex gap-1.5">
       {/* Left gutter: a status-tinted capsule rail with a circular icon chip

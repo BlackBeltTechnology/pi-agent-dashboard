@@ -15,6 +15,7 @@ export type SlotId =
   | "sidebar-folder-section"
   | "session-card-action-bar"
   | "workspace-action-bar"
+  | "shell-overlay-route"
   // (session-card-memory and session-card-flows are also react-only; declared below for ordering)
   | "content-inline-footer"
   | "anchored-popover"
@@ -54,6 +55,11 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Collapsible block above session list per workspace folder",
+  },
+  "shell-overlay-route": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description: "Plugin-owned full-screen route mounted at top of the shell (desktop + mobile). Each claim ships a wouter path pattern via `config.path` and a React component receiving { params, onBack, session? }.",
   },
   "session-card-badge": {
     multiplicity: "many",
@@ -190,7 +196,8 @@ type SessionScopedSlot =
   | "content-view"
   | "content-header-sticky"
   | "content-inline-footer"
-  | "command-route";
+  | "command-route"
+  | "shell-overlay-route";
 
 /** Slot ids whose predicates receive a folder descriptor. */
 type FolderScopedSlot = "sidebar-folder-section";

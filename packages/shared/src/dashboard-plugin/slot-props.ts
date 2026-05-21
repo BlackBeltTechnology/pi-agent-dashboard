@@ -75,6 +75,13 @@ export interface SlotPropsMap {
     onClose: () => void;
     pluginContext: AnyPluginContext;
   };
+  "shell-overlay-route": {
+    params: Record<string, string>;
+    /** DashboardSession metadata resolved from the URL’s session param (`config.sessionParam`, default `"sid"`). Undefined when the URL has no session id or no matching session. */
+    session?: DashboardSession;
+    onBack: () => void;
+    pluginContext: AnyPluginContext;
+  };
   "settings-section": {
     pluginContext: AnyPluginContext;
   };

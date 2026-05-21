@@ -121,11 +121,11 @@ describe("UnifiedPackagesSection", () => {
 		mockUseInstalledPackages.mockReturnValue({
 			packages: [
 				{
-					source: "npm:@tintinweb/pi-subagents",
+					source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
 					scope: "user",
 					filtered: false,
-					version: "0.6.1",
-					displayName: "@tintinweb/pi-subagents",
+					version: "0.1.1",
+					displayName: "pi-dashboard-subagents",
 					isRecommended: true,
 					isBundled: false,
 				},
@@ -136,7 +136,7 @@ describe("UnifiedPackagesSection", () => {
 		});
 		render(<UnifiedPackagesSection />);
 		// Display name appears in the recommended group
-		expect(screen.getAllByText("@tintinweb/pi-subagents").length).toBeGreaterThan(0);
+		expect(screen.getAllByText("pi-dashboard-subagents").length).toBeGreaterThan(0);
 	});
 
 	it("falls a non-recommended row into Other Packages", () => {

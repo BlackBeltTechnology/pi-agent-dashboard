@@ -35,12 +35,14 @@
     "priority": 100,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
     "claims": [
-      { "slot": "session-card-badge", "component": "FlowActivityBadgeClaim" },
       { "slot": "session-card-flows", "component": "SessionFlowActionsClaim", "shouldRender": "shouldRenderFlowsSubcard" },
       { "slot": "content-header-sticky", "component": "FlowDashboardClaim" },
       { "slot": "content-header-sticky", "component": "FlowArchitectClaim" },
-      { "slot": "content-view", "component": "FlowYamlPreviewClaim", "predicate": "isFlowYamlPreviewActive" }
+      { "slot": "content-view", "component": "FlowYamlPreviewClaim", "predicate": "isFlowYamlPreviewActive" },
+      { "slot": "shell-overlay-route", "component": "FlowAgentPopoutClaim", "path": "/session/:sid/flow/:flowId/agent/:agentId", "sessionParam": "sid" },
+      { "slot": "shell-overlay-route", "component": "FlowArchitectPopoutClaim", "path": "/session/:sid/architect", "sessionParam": "sid" }
     ]
   },
   "peerDependencies": {

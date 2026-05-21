@@ -35,11 +35,11 @@ const FAKE_MANIFEST: readonly RecommendedExtension[] = [
 		toolsRegistered: [],
 	},
 	{
-		id: "@tintinweb/pi-subagents",
-		source: "npm:@tintinweb/pi-subagents",
-		displayName: "@tintinweb/pi-subagents",
+		id: "pi-dashboard-subagents",
+		source: "npm:pi-dashboard-subagents",
+		displayName: "pi-dashboard-subagents",
 		fallbackDescription: "Sub-agents for pi.",
-		status: "strongly-suggested",
+		status: "optional",
 		unlocks: [],
 		toolsRegistered: [],
 	},
@@ -49,7 +49,7 @@ describe("extractBasenameFromSource", () => {
 	it("strips npm: prefix and version pin", () => {
 		expect(extractBasenameFromSource("npm:pi-agent-browser")).toBe("pi-agent-browser");
 		expect(extractBasenameFromSource("npm:pi-agent-browser@1.2.3")).toBe("pi-agent-browser");
-		expect(extractBasenameFromSource("npm:@tintinweb/pi-subagents")).toBe("@tintinweb/pi-subagents");
+		expect(extractBasenameFromSource("npm:@scope/example-pkg")).toBe("@scope/example-pkg"); // generic scoped-name parsing
 	});
 
 	it("strips .git suffix from git URLs", () => {
@@ -70,8 +70,8 @@ describe("extractBasenameFromSource", () => {
 describe("matchRecommendedEntry", () => {
 	it("matches by exact source", () => {
 		expect(
-			matchRecommendedEntry("npm:@tintinweb/pi-subagents", FAKE_MANIFEST)?.id,
-		).toBe("@tintinweb/pi-subagents");
+			matchRecommendedEntry("npm:pi-dashboard-subagents", FAKE_MANIFEST)?.id,
+		).toBe("pi-dashboard-subagents");
 	});
 
 	it("matches git source regardless of trailing slash / case", () => {
@@ -115,21 +115,21 @@ describe("enrichInstalledRow", () => {
 
 	it("enriches a recommended npm row with displayName and description from manifest", () => {
 		const row: RawInstalledRow = {
-			source: "npm:@tintinweb/pi-subagents",
+			source: "npm:pi-dashboard-subagents",
 			scope: "user",
 			filtered: false,
 			installedPath: "/fake/path",
 		};
 		const out = enrichInstalledRow(row, {
 			...baseDeps,
-			readMeta: () => ({ version: "0.6.1", description: "Live npm desc" }),
+			readMeta: () => ({ version: "0.1.1", description: "Live npm desc" }),
 			existsFn: () => false,
 			resourcesPath: "/res",
 		});
-		expect(out.displayName).toBe("@tintinweb/pi-subagents");
+		expect(out.displayName).toBe("pi-dashboard-subagents");
 		// Recommended manifest description wins over package.json description.
 		expect(out.description).toBe("Sub-agents for pi.");
-		expect(out.version).toBe("0.6.1");
+		expect(out.version).toBe("0.1.1");
 		expect(out.isRecommended).toBe(true);
 		expect(out.isBundled).toBe(false);
 	});
@@ -173,7 +173,7 @@ describe("enrichInstalledRow", () => {
 
 	it("handles missing installedPath silently", () => {
 		const row: RawInstalledRow = {
-			source: "npm:@tintinweb/pi-subagents",
+			source: "npm:pi-dashboard-subagents",
 			scope: "user",
 			filtered: false,
 		};

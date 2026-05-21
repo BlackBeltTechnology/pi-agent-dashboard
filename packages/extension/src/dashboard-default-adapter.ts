@@ -10,6 +10,11 @@ import type { PromptAdapter, PromptRequest, PromptResponse, PromptClaim } from "
 
 export class DashboardDefaultAdapter implements PromptAdapter {
   readonly name = "dashboard-default";
+  /**
+   * Last-resort fallback. Any plugin adapter with default priority (1000)
+   * or lower beats this. See change: route-flow-asks-to-upper-slot.
+   */
+  readonly priority = 9999;
 
   onRequest(_prompt: PromptRequest): PromptClaim {
     return {

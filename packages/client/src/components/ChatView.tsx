@@ -16,6 +16,7 @@ import { formatMessageTime } from "../lib/format.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
 import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
+import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../lib/group-tool-calls.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../lib/collapse-retried-errors.js";
@@ -416,6 +417,16 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
 
         if (msg.role === "interactiveUi") {
           const args = msg.args as any;
+          // Suppress widget-bar-placed prompts from chat. A widget-bar slot
+          // owns the render (e.g. the flow plugin's FlowQuestionCard). The
+          // shell uses the placement primitive only — no plugin-specific
+          // component-type literals. See change: fix-flows-plugin-polish (B2).
+          const cmp = (args?.params as Record<string, unknown> | undefined)?._promptBusComponent as
+            | { type?: string }
+            | undefined;
+          if (cmp?.type && isWidgetBarPrompt(cmp.type)) {
+            return null;
+          }
           const request: InteractiveUiRequest = {
             requestId: args.requestId,
             method: args.method,

@@ -20,7 +20,7 @@ describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 	});
 
 	it("rejects scoped pi-* packages that are NOT in the whitelist", () => {
-		expect(_internal.looksLikePiEcosystem("@tintinweb/pi-subagents")).toBe(false);
+		expect(_internal.looksLikePiEcosystem("@scope/pi-fake")).toBe(false);
 		expect(_internal.looksLikePiEcosystem("@benvargas/pi-claude-code-use")).toBe(false);
 	});
 
@@ -105,7 +105,7 @@ describe("PiCoreChecker.getStatus", () => {
 					dependencies: {
 						"pi-agent-browser": { version: "0.1.0" },
 						"pi-web-access": { version: "0.10.6" },
-						"@tintinweb/pi-subagents": { version: "0.6.1" },
+						"pi-dashboard-subagents": { version: "0.1.1" },
 					},
 				}),
 			fetchLatest: async () => null,

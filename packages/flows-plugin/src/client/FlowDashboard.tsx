@@ -2,8 +2,14 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Icon } from "@mdi/react";
 import { mdiRobotOutline, mdiStop, mdiChevronUp, mdiChevronRight, mdiChevronDown, mdiFileDocumentOutline, mdiLoading } from "@mdi/js";
 import type { DashboardSession, FlowState, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  usePluginSend,
+  useSessionInteractiveRequests,
+  type InteractiveUiRequestSnapshot,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { FlowAgentCard } from "./FlowAgentCard.js";
+import { FlowQuestionCard } from "./FlowQuestionCard.js";
+import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { FlowSummary } from "./FlowSummary.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
@@ -23,6 +29,7 @@ export function FlowDashboard({
   onDismiss,
   onSendPrompt,
   session,
+  sessionId,
 }: {
   flowState: FlowState;
   /** All flow states (main + subflows) for tab navigation */
@@ -33,6 +40,9 @@ export function FlowDashboard({
   onSendPrompt?: (text: string, images?: import("@blackbelt-technology/pi-dashboard-shared/types.js").ImageContent[]) => void;
   /** Phase-2 decorator host — carries breadcrumb + agent-metric descriptors. */
   session?: Pick<DashboardSession, "uiDecorators">;
+  /** Session id — threaded so child cards can render popout URLs and the
+      upper-slot question card can submit responses. See change: add-flow-agent-popout. */
+  sessionId?: string;
 }) {
   const isMobile = useMobile();
   const [collapsed, setCollapsed] = useState(false);
@@ -181,6 +191,15 @@ export function FlowDashboard({
           {/* Phase-2 breadcrumb decorator slot. See change: add-extension-ui-decorations. */}
           <BreadcrumbSlot session={session} />
 
+          {/* Pending flow-question card — head of the per-flow FIFO queue.
+             See change: route-flow-asks-to-upper-slot. */}
+          {sessionId && (
+            <FlowQuestionsSection
+              sessionId={sessionId}
+              flowId={displayState.flowName}
+            />
+          )}
+
           <FlowGraph
             steps={flowStateToGraphSteps(displayState)}
           />
@@ -203,6 +222,8 @@ export function FlowDashboard({
                 key={agent.stepId || agent.agentName}
                 agent={agent}
                 session={session}
+                sessionId={sessionId}
+                flowId={displayState.flowName}
               />
             ))}
           </div>
@@ -213,6 +234,115 @@ export function FlowDashboard({
 }
 
 /**
+ * Renders the head of the per-flow `flow-question` queue. Derived from
+ * the shell's active interactive UI requests, filtered by component
+ * type `flow-question` and grouped by `flowId`. The first matching
+ * request is the head; queue depth shown as a "+N more queued" badge
+ * on the rendered card.
+ *
+ * Returns null when no flow-question is pending for `flowId`.
+ *
+ * See change: route-flow-asks-to-upper-slot.
+ */
+/** Most recent N transcript entries kept visible. See change: fix-flows-plugin-polish (C3). */
+const FLOW_QUESTION_TRANSCRIPT_CAP = 10;
+
+/**
+ * Renders the per-flow flow-question transcript above the agent grid.
+ *
+ * Includes ALL flow-question prompts for `flowId` — pending AND answered —
+ * in insertion order (oldest first), capped at {@link FLOW_QUESTION_TRANSCRIPT_CAP}.
+ * Pending entries render as the interactive `FlowQuestionCard`;
+ * answered/cancelled/dismissed entries render as a collapsed
+ * `FlowQuestionTranscriptPill`.
+ *
+ * Chat suppresses widget-bar prompts (B2) so the slot is the single visible
+ * site — no double-render.
+ *
+ * See change: fix-flows-plugin-polish (C3).
+ */
+function FlowQuestionsSection({
+  sessionId,
+  flowId,
+}: {
+  sessionId: string;
+  flowId: string;
+}) {
+  const requests = useSessionInteractiveRequests(sessionId);
+  const send = usePluginSend();
+
+  const queue = useMemo<InteractiveUiRequestSnapshot[]>(() => {
+    const out: InteractiveUiRequestSnapshot[] = [];
+    for (const req of requests) {
+      const cmp = req.params._promptBusComponent as
+        | { type?: string; props?: { flowId?: unknown } }
+        | undefined;
+      if (cmp?.type !== "flow-question") continue;
+      if (cmp?.props?.flowId !== flowId) continue;
+      out.push(req);
+    }
+    return out.slice(-FLOW_QUESTION_TRANSCRIPT_CAP);
+  }, [requests, flowId]);
+
+  if (queue.length === 0) return null;
+
+  const pendingCount = queue.filter((r) => r.status === "pending").length;
+
+  return (
+    <div data-testid="flow-questions-transcript" className="flex flex-col gap-1">
+      {queue.map((req) => {
+        const props =
+          (req.params._promptBusComponent as { props?: Record<string, unknown> }).props ?? {};
+        const question = typeof props.question === "string" ? props.question : "";
+        if (req.status === "pending") {
+          const submit = (answer: string) => {
+            send({
+              type: "prompt_response",
+              sessionId,
+              promptId: req.requestId,
+              answer,
+              source: "dashboard-flow-question",
+            });
+          };
+          const dismiss = () => {
+            send({ type: "prompt_cancel", sessionId, promptId: req.requestId });
+          };
+          return (
+            <FlowQuestionCard
+              key={req.requestId}
+              sessionId={sessionId}
+              promptId={req.requestId}
+              flowId={typeof props.flowId === "string" ? props.flowId : flowId}
+              stepId={typeof props.stepId === "string" ? props.stepId : ""}
+              question={question}
+              type={(props.type as FlowQuestionCardType) ?? "input"}
+              options={Array.isArray(props.options) ? (props.options as string[]) : undefined}
+              defaultValue={
+                typeof props.defaultValue === "string" ? props.defaultValue : undefined
+              }
+              queueDepth={pendingCount}
+              onSubmit={submit}
+              onDismiss={dismiss}
+            />
+          );
+        }
+        const answer = typeof req.result === "string" ? req.result : undefined;
+        return (
+          <FlowQuestionTranscriptPill
+            key={req.requestId}
+            question={question}
+            answer={answer}
+            status={req.status}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+type FlowQuestionCardType = "select" | "input" | "confirm" | "editor" | "multiselect";
+
+/**
  * Slot-consumer wrapper for the `content-header-sticky` claim.
  * Self-derives flow state from useFlowsSessionState; selection state
  * and callbacks come from useFlowsUiState / pluginContext.send.
@@ -220,8 +350,26 @@ export function FlowDashboard({
  * pluginize-flows-via-registry.
  */
 export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
-  const { flowState, flowStates } = useFlowsSessionState(session.id);
+  const { flowState, flowStates, architectState } = useFlowsSessionState(session.id);
   const send = usePluginSend();
+
+  // Diagnostic logging — helps trace why the upper slot might be empty when
+  // a flow is running. Gated to dev builds. See change: fix-flows-plugin-polish (C1).
+  if (typeof import.meta !== "undefined" && (import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+    // eslint-disable-next-line no-console
+    console.debug(
+      "[flows] FlowDashboardClaim render",
+      {
+        sessionId: session.id,
+        hasFlowState: !!flowState,
+        flowName: flowState?.flowName,
+        flowStatus: flowState?.status,
+        flowsCount: flowStates.size,
+        hasArchitect: !!architectState,
+        architectPhase: architectState?.phase,
+      },
+    );
+  }
 
   if (!flowState) return null;
 
@@ -233,6 +381,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
       flowState={flowState}
       flowStates={flowStates as Map<string, FlowState>}
       session={session}
+      sessionId={session.id}
       onAbort={() => flowControl("abort")}
       onToggleAutonomous={() => flowControl("toggle_autonomous")}
       onDismiss={() => flowControl("dismiss_summary")}

@@ -1,9 +1,8 @@
 /**
- * SubagentDetailView — four-tier rendering test.
+ * SubagentDetailView — three-tier rendering test (Tier 2 removed §14).
  *
  * Tier 1: entries present → renders entry rows.
- * Tier 2: running, no entries → activity + counters + footnote.
- * Tier 3: completed, no entries → result block.
+ * Tier 3: completed/failed, no entries → result/error block.
  * Tier 4: no useful data → "No detail available yet."
  * Row mode: single-line summary, no body.
  *
@@ -57,11 +56,12 @@ describe("SubagentDetailView", () => {
     expect(screen.getByText("/foo.ts")).toBeTruthy();
     expect(screen.getByText(/Hello world/)).toBeTruthy();
     expect(screen.getByText("Thinking")).toBeTruthy();
-    // Tier 2 footnote must NOT be rendered
-    expect(screen.queryByText(/Live timeline requires/i)).toBeNull();
   });
 
-  it("Tier 2 — running, no entries: shows activity + counters + footnote", () => {
+  it("running, no entries: collapses to Tier-4 placeholder (no upgrade footnote)", () => {
+    // Tier 2 was removed in §14 — pi-dashboard-subagents reliably streams
+    // entries from its first tool_execution_end, so the intermediate
+    // "running, no entries" branch is no longer needed.
     const session = makeSession({
       id: "a1",
       type: "Explore",
@@ -72,9 +72,9 @@ describe("SubagentDetailView", () => {
       tokens: { input: 100, output: 50, total: 150 },
     });
     renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
-    expect(screen.getByText(/Reading src\/foo\.ts/)).toBeTruthy();
-    expect(screen.getByText(/5 tool uses/)).toBeTruthy();
-    expect(screen.getByText(/Live timeline requires/i)).toBeTruthy();
+    expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
+    // No leftover @tintinweb upgrade footnote
+    expect(screen.queryByText(/Live timeline requires/i)).toBeNull();
   });
 
   it("Tier 3 — completed, no entries: shows result block, no footnote", () => {
@@ -89,8 +89,6 @@ describe("SubagentDetailView", () => {
     });
     renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
     expect(screen.getByText(/Found 3 issues/)).toBeTruthy();
-    // Tier 2 footnote must NOT render for completed agents
-    expect(screen.queryByText(/Live timeline requires/i)).toBeNull();
   });
 
   it("Tier 4 — nothing useful yet: placeholder", () => {
@@ -102,6 +100,35 @@ describe("SubagentDetailView", () => {
     });
     renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
+  });
+
+  it("renders agentMdPath as monospace path under displayName when present", () => {
+    const session = makeSession({
+      id: "a1",
+      type: "general-purpose",
+      description: "search",
+      status: "completed",
+      displayName: "explorer",
+      agentMdPath: "/home/u/.pi/agent/agents/Explore.md",
+      result: "done",
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
+    expect(screen.getByText("explorer")).toBeTruthy();
+    expect(screen.getByText("/home/u/.pi/agent/agents/Explore.md")).toBeTruthy();
+  });
+
+  it("omits the path line when agentMdPath is undefined", () => {
+    const session = makeSession({
+      id: "a1",
+      type: "general-purpose",
+      description: "search",
+      status: "completed",
+      displayName: "explorer",
+      result: "done",
+    });
+    renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
+    expect(screen.getByText("explorer")).toBeTruthy();
+    expect(screen.queryByText(/\.md$/)).toBeNull();
   });
 
   it("row mode — single-line summary, no body", () => {

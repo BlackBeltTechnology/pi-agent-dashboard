@@ -9,7 +9,7 @@ import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared
 describe("classifySource", () => {
 	it("identifies npm sources", () => {
 		expect(classifySource("npm:pi-flows")).toBe("npm");
-		expect(classifySource("npm:@tintinweb/pi-subagents")).toBe("npm");
+		expect(classifySource("npm:@scope/example-pkg")).toBe("npm");
 		expect(classifySource("npm:pi-flows@1.2.3")).toBe("npm");
 	});
 
@@ -48,7 +48,7 @@ describe("npmNameFromSource", () => {
 	it("strips version pin from scoped npm specs", () => {
 		expect(npmNameFromSource("npm:@scope/name")).toBe("@scope/name");
 		expect(npmNameFromSource("npm:@scope/name@1.0.0")).toBe("@scope/name");
-		expect(npmNameFromSource("npm:@tintinweb/pi-subagents@^0.6.1")).toBe("@tintinweb/pi-subagents");
+		expect(npmNameFromSource("npm:@scope/example-pkg@^0.6.1")).toBe("@scope/example-pkg");
 	});
 });
 

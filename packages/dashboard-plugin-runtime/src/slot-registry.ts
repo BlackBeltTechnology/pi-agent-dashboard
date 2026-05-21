@@ -31,7 +31,12 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   command?: string;
   trigger?: string;
   toolName?: string;
+  /** Wouter path pattern for `shell-overlay-route` claims. */
+  path?: string;
+  /** Session-id URL parameter name for `shell-overlay-route` claims. */
+  sessionParam?: string;
   tab?: string;
+  /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**
    * Filters whether this claim *targets* the given props (session, folder, …).

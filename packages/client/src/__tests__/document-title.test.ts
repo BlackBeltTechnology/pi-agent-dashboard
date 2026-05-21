@@ -42,4 +42,12 @@ describe("buildDocumentTitle", () => {
     const session = makeSession({ cwd: "/" });
     expect(buildDocumentTitle(session)).toBe("test-ses — PI Dashboard");
   });
+
+  it("should show directory name for folder cwd when no session", () => {
+    expect(buildDocumentTitle(undefined, "/home/user/my-project")).toBe("my-project — PI Dashboard");
+  });
+
+  it("should fallback when neither session nor folderCwd is provided", () => {
+    expect(buildDocumentTitle(undefined, "")).toBe("PI Dashboard");
+  });
 });

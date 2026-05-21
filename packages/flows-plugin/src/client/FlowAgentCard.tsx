@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiEyeOutline, mdiEyeOffOutline, mdiFileDocumentOutline } from "@mdi/js";
+import { mdiRefresh, mdiEyeOutline, mdiEyeOffOutline, mdiFileDocumentOutline, mdiOpenInNew } from "@mdi/js";
 import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -8,6 +8,7 @@ import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // — it stays as a direct import. See add-plugin-ui-primitive-registry Decision 4.
 import { AgentMetricSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/AgentMetricSlot";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
+import { buildFlowAgentPopoutUrl } from "./popout-url.js";
 
 /**
  * State of the agent-source fetch for the document-icon popover.
@@ -29,12 +30,27 @@ export function FlowAgentCard({
   agent,
   selected,
   session,
+  sessionId,
+  flowId,
 }: {
   agent: FlowAgentState;
   selected?: boolean;
   /** Phase-2 decorator host — used for `agent-metric` filtering by agentId. */
   session?: Pick<DashboardSession, "uiDecorators">;
+  /** Session id of the parent flow — required for the popout button. */
+  sessionId?: string;
+  /** Flow name (acts as flow id in the URL) — required for the popout button. */
+  flowId?: string;
 }) {
+  const popoutUrl = buildFlowAgentPopoutUrl(sessionId, flowId, agent.stepId);
+  const popoutEnabled = popoutUrl !== null;
+  const handlePopout = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (popoutUrl) window.open(popoutUrl, "_blank", "noopener");
+    },
+    [popoutUrl],
+  );
   const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
   const formatTokens = useUiPrimitive(UI_PRIMITIVE_KEYS.formatTokens);
   const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
@@ -201,16 +217,32 @@ export function FlowAgentCard({
               </>
             )}
           <button
+            type="button"
+            onClick={handlePopout}
+            disabled={!popoutEnabled}
+            data-testid="flow-agent-popout-button"
+            className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
+              popoutEnabled
+                ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
+                : "border-[var(--border-subtle)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
+            }`}
+            title={popoutEnabled ? `Open ${displayName} in new tab` : "Popout unavailable (no session context)"}
+          >
+            <Icon path={mdiOpenInNew} size={0.55} />
+            <span className="text-[10px]">Popout</span>
+          </button>
+          <button
             ref={detailButtonRef}
             onClick={(e) => { e.stopPropagation(); setDetailOpen((prev) => !prev); }}
-            className={`transition-colors p-0.5 rounded inline-flex items-center ${
+            className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
               detailOpen
-                ? "text-blue-400 bg-blue-400/10"
-                : "text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-[var(--bg-surface)]"
+                ? "text-blue-400 bg-blue-400/10 border-blue-400/40"
+                : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
             }`}
             title={detailOpen ? `Close ${displayName} detail` : `View ${displayName} detail`}
           >
-            <Icon path={detailOpen ? mdiEyeOffOutline : mdiEyeOutline} size={0.45} />
+            <Icon path={detailOpen ? mdiEyeOffOutline : mdiEyeOutline} size={0.55} />
+            <span className="text-[10px]">Details</span>
           </button>
           {detailOpen && detailButtonRef.current && (
             <Popover
@@ -218,12 +250,17 @@ export function FlowAgentCard({
               onDismiss={() => setDetailOpen(false)}
             >
               <div
-                className="w-[640px] max-w-[90vw] max-h-[70vh] overflow-hidden bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-md shadow-xl"
+                // `h-[70vh]` (not max-h) gives MinimalChatView's `h-full`
+                // popout mode a concrete height to fill, so its inner body
+                // scrolls instead of overflowing the popover.
+                // See change: fix-flows-plugin-polish (scrollbar fix).
+                className="w-[640px] max-w-[90vw] h-[70vh] overflow-hidden bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-md shadow-xl"
                 onClick={(e) => e.stopPropagation()}
               >
                 <FlowAgentDetail
                   agent={agent}
                   onBack={() => setDetailOpen(false)}
+                  sessionId={sessionId}
                 />
               </div>
             </Popover>

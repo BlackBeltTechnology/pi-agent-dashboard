@@ -5,8 +5,11 @@ import type {
   CommandInfo,
   DashboardSession,
   FlowInfo,
+  FlowState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
+import { FlowActivityBadge } from "./FlowActivityBadge.js";
+import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { UiSelectOption as SelectOption } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
@@ -21,12 +24,18 @@ export function SessionFlowActions({
   hasFlowsEdit,
   hasFlowsDelete,
   onFlowAction,
+  flowState,
+  onAbortFlow,
 }: {
   flows: FlowInfo[];
   hasFlowsNew: boolean;
   hasFlowsEdit?: boolean;
   hasFlowsDelete?: boolean;
   onFlowAction: (action: string, opts?: { flowName?: string; task?: string; description?: string }) => void;
+  /** Current flow state for this session. Drives the status pill rendered above the action buttons. */
+  flowState?: FlowState | null;
+  /** Dispatch flow_control abort. Called by the running-flow pill's Abort button. */
+  onAbortFlow?: () => void;
 }) {
   const ConfirmDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.confirmDialog);
   const SearchableSelectDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.searchableSelectDialog);
@@ -38,7 +47,25 @@ export function SessionFlowActions({
   const [selectedFlow, setSelectedFlow] = useState<FlowInfo | null>(null);
   const [newFlowOpen, setNewFlowOpen] = useState(false);
 
-  if (flows.length === 0 && !hasFlowsNew) return null;
+  // Compute running-flow badge inputs from flowState (when present).
+  // See change: fix-flows-plugin-polish (A5 + A6).
+  const badgeProps = flowState
+    ? (() => {
+        const agents = flowState.agents;
+        const total = agents.size;
+        const done = Array.from(agents.values()).filter(
+          (a) => a.status === "complete" || a.status === "error" || a.status === "blocked",
+        ).length;
+        return {
+          flowName: flowState.flowName,
+          agentsDone: done,
+          agentsTotal: total,
+          status: flowState.status,
+        };
+      })()
+    : null;
+
+  if (flows.length === 0 && !hasFlowsNew && !badgeProps) return null;
 
   const flowOptions: SelectOption[] = flows.map((f) => ({
     value: f.name,
@@ -48,7 +75,13 @@ export function SessionFlowActions({
 
   return (
     <>
-      <div>
+      <div className="flex flex-col gap-1.5">
+        {badgeProps && (
+          <FlowActivityBadge
+            {...badgeProps}
+            onAbort={badgeProps.status === "running" ? onAbortFlow : undefined}
+          />
+        )}
         <div className="flex items-center gap-1.5 flex-wrap">
           {flows.length > 0 && (
             <button
@@ -201,13 +234,16 @@ export function SessionFlowActions({
 export function SessionFlowActionsClaim({ session }: { session: DashboardSession }) {
   const flows = useSessionData<FlowInfo[]>(session.id, "flowsList") ?? [];
   const commands = useSessionData<CommandInfo[]>(session.id, "commandsList") ?? [];
+  const { flowState } = useFlowsSessionState(session.id);
   const send = usePluginSend();
 
   const hasFlowsNew = commands.some((c) => c.name === "flows:new");
   const hasFlowsEdit = commands.some((c) => c.name === "flows:edit");
   const hasFlowsDelete = commands.some((c) => c.name === "flows:delete");
 
-  if (flows.length === 0 && !hasFlowsNew) return null;
+  // Render when there's a flow active OR action buttons are available.
+  // See change: fix-flows-plugin-polish (A5).
+  if (flows.length === 0 && !hasFlowsNew && !flowState) return null;
 
   return (
     <SessionFlowActions
@@ -215,6 +251,8 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
       hasFlowsNew={hasFlowsNew}
       hasFlowsEdit={hasFlowsEdit}
       hasFlowsDelete={hasFlowsDelete}
+      flowState={flowState}
+      onAbortFlow={() => send({ type: "flow_control", sessionId: session.id, action: "abort" })}
       onFlowAction={(action, opts) =>
         send({
           type: "flow_management",

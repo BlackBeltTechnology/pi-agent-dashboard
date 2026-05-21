@@ -4,11 +4,14 @@ import { buildDocumentTitle } from "../lib/document-title.js";
 
 const DEFAULT_TITLE = "PI Dashboard";
 
-export function useDocumentTitle(session: DashboardSession | undefined): void {
+export function useDocumentTitle(
+  session: DashboardSession | undefined,
+  folderCwd?: string,
+): void {
   useEffect(() => {
-    document.title = buildDocumentTitle(session);
+    document.title = buildDocumentTitle(session, folderCwd);
     return () => {
       document.title = DEFAULT_TITLE;
     };
-  }, [session]);
+  }, [session, folderCwd]);
 }

@@ -78,6 +78,7 @@ describe("SubagentPopoutPage", () => {
       status: "running",
       activity: "reading",
       toolUses: 2,
+      entries: [{ kind: "text", text: "Looking up files", ts: 1 }],
     });
     renderWithPrimitives(
       <SubagentPopoutPage
@@ -89,6 +90,30 @@ describe("SubagentPopoutPage", () => {
       />,
     );
     expect(screen.getByText(/\/home\/me\/project/)).toBeTruthy();
-    expect(screen.getByText(/Live timeline requires/i)).toBeTruthy();
+    // Tier 1 entries render via the detail view body
+    expect(screen.getByText(/Looking up files/)).toBeTruthy();
+  });
+
+  it("renders agentMdPath in the chrome header when present", () => {
+    const session = sessionWithAgent("abc123", {
+      displayName: "code-reviewer",
+      status: "completed",
+      agentMdPath: "/home/u/.pi/agent/agents/CodeReviewer.md",
+      result: "LGTM",
+    });
+    renderWithPrimitives(
+      <SubagentPopoutPage
+        sessionId="sess_42"
+        agentId="abc123"
+        session={session}
+        subscriptionResolved={true}
+        parentLabel="/home/me/project"
+      />,
+    );
+    // The path renders as monospace text under the displayName.
+    // It appears in both the chrome header and the SubagentDetailView header,
+    // so we just check at least one occurrence.
+    const matches = screen.getAllByText("/home/u/.pi/agent/agents/CodeReviewer.md");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 });

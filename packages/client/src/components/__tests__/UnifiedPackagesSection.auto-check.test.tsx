@@ -46,12 +46,12 @@ function makeFetchMock() {
           success: true,
           data: [
             {
-              source: "npm:@tintinweb/pi-subagents",
+              source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
               scope: "user",
-              displayName: "@tintinweb/pi-subagents",
+              displayName: "pi-dashboard-subagents",
               isRecommended: false,
               isBundled: false,
-              version: "0.6.0",
+              version: "0.1.0",
             },
           ],
         }),
@@ -62,7 +62,7 @@ function makeFetchMock() {
       return new Response(
         JSON.stringify({
           success: true,
-          data: [{ source: "npm:@tintinweb/pi-subagents", latest: "0.6.1" }],
+          data: [{ source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git", latest: "0.1.1" }],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );

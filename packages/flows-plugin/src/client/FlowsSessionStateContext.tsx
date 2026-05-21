@@ -82,8 +82,13 @@ export function reduceFlowsSessionState(
   let flowStates: Map<string, FlowState> = new Map();
   let flowStatesMutated = false;
 
+  // Diagnostic counters for C1 — see fix-flows-plugin-polish. Gated to dev.
+  let flowEventCount = 0;
+  let architectEventCount = 0;
+
   for (const event of events) {
     if (isFlowEvent(event.eventType)) {
+      flowEventCount++;
       flowState = reduceFlowEvent(flowState, event);
       if (flowState) {
         if (!flowStatesMutated) {
@@ -99,7 +104,26 @@ export function reduceFlowsSessionState(
       }
     }
     if (isArchitectEvent(event.eventType)) {
+      architectEventCount++;
       architectState = reduceArchitectEvent(architectState, event);
+    }
+  }
+
+  if (typeof import.meta !== "undefined" && (import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+    if (flowEventCount > 0 || architectEventCount > 0) {
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[flows] reduceFlowsSessionState",
+        {
+          totalEvents: events.length,
+          flowEvents: flowEventCount,
+          architectEvents: architectEventCount,
+          resolvedFlowName: flowState?.flowName,
+          resolvedFlowStatus: flowState?.status,
+          flowsCount: flowStates.size,
+          architectPhase: architectState?.phase,
+        },
+      );
     }
   }
 

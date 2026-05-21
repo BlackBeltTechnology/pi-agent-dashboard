@@ -1,8 +1,18 @@
+/**
+ * FlowActivityBadge — renderer for the running-flow status pill.
+ *
+ * Previously claimed the `session-card-badge` slot (which the shell
+ * mounts inside the WORKSPACE subcard — wrong place for flow status).
+ * The slot claim was dropped in `fix-flows-plugin-polish`; the badge
+ * is now consumed only by `SessionFlowActions` (rendered inside the
+ * `session-card-flows` slot, i.e. the FLOWS subcard).
+ *
+ * See change: fix-flows-plugin-polish (A5).
+ */
 import React, { type ReactNode } from "react";
 import { Icon } from "@mdi/react";
-import { mdiLoading, mdiCheckCircle, mdiAlertCircle, mdiStopCircle } from "@mdi/js";
-import type { DashboardSession, FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
+import { mdiLoading, mdiCheckCircle, mdiAlertCircle, mdiStopCircle, mdiStop } from "@mdi/js";
+import type { FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 const statusConfig: Record<string, { icon: ReactNode; color: string }> = {
   running: { icon: <Icon path={mdiLoading} size={0.45} className="animate-spin" />, color: "text-blue-400" },
@@ -11,24 +21,29 @@ const statusConfig: Record<string, { icon: ReactNode; color: string }> = {
   aborted: { icon: <Icon path={mdiStopCircle} size={0.45} />, color: "text-orange-400" },
 };
 
+export interface FlowActivityBadgeProps {
+  flowName: string;
+  agentsDone?: number;
+  agentsTotal?: number;
+  status?: FlowStatus;
+  /** When provided AND status === "running", renders an "Abort" button after the badge. */
+  onAbort?: () => void;
+}
+
 export function FlowActivityBadge({
   flowName,
   agentsDone,
   agentsTotal,
   status,
-}: {
-  flowName: string;
-  agentsDone?: number;
-  agentsTotal?: number;
-  status?: FlowStatus;
-}) {
+  onAbort,
+}: FlowActivityBadgeProps) {
   const { icon, color } = statusConfig[status ?? "running"] ?? statusConfig.running;
   const isRunning = status === "running";
 
   return (
-    <div className={`text-[11px] mt-0.5 ml-4 flex items-center gap-1 ${color}`}>
+    <div className={`text-[11px] flex items-center gap-1 ${color}`}>
       <span className="inline-flex">{icon}</span>
-      <span className="truncate">
+      <span className="truncate flex-1 min-w-0">
         {flowName}
         {isRunning && agentsTotal != null && agentsTotal > 0 && (
           <span className="text-[var(--text-secondary)]"> · {agentsDone ?? 0}/{agentsTotal} agents</span>
@@ -37,35 +52,17 @@ export function FlowActivityBadge({
           <span className="text-[var(--text-secondary)]"> · {status}</span>
         )}
       </span>
+      {isRunning && onAbort && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAbort(); }}
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
+          title="Abort running flow"
+        >
+          <Icon path={mdiStop} size={0.4} />
+          Abort
+        </button>
+      )}
     </div>
-  );
-}
-
-/**
- * Slot-consumer wrapper for the `session-card-badge` claim. Self-
- * derives flow info from the plugin-internal session state. Returns
- * null when no flow is active for the session (the slot consumer
- * handles null returns natively). See change:
- * pluginize-flows-via-registry.
- */
-export function FlowActivityBadgeClaim({ session }: { session: DashboardSession }) {
-  const { flowState } = useFlowsSessionState(session.id);
-  if (!flowState) return null;
-
-  // Derive agent counts from the FlowState the same way the reducer
-  // does today (see FlowDashboard's displayState).
-  const agents = flowState.agents;
-  const total = agents.size;
-  const done = Array.from(agents.values()).filter(
-    (a) => a.status === "complete" || a.status === "error" || a.status === "blocked",
-  ).length;
-
-  return (
-    <FlowActivityBadge
-      flowName={flowState.flowName}
-      agentsDone={done}
-      agentsTotal={total}
-      status={flowState.status}
-    />
   );
 }

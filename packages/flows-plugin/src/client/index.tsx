@@ -14,6 +14,10 @@
 export { FlowDashboard } from "./FlowDashboard.js";
 export { FlowAgentCard } from "./FlowAgentCard.js";
 export { FlowAgentDetail } from "./FlowAgentDetail.js";
+export { FlowAgentPopoutPage } from "./FlowAgentPopoutPage.js";
+export { FlowAgentPopoutClaim } from "./FlowAgentPopoutClaim.js";
+export { FlowArchitectPopoutPage } from "./FlowArchitectPopoutPage.js";
+export { FlowArchitectPopoutClaim } from "./FlowArchitectPopoutClaim.js";
 export { FlowSummary } from "./FlowSummary.js";
 export { FlowGraph, flowStateToGraphSteps, architectStepsToGraphSteps, computeLayout } from "./FlowGraph.js";
 export { FlowArchitect, FlowArchitectDetail, ArchitectInputPrompt } from "./FlowArchitect.js";
@@ -25,7 +29,10 @@ export { SessionFlowActions } from "./SessionFlowActions.js";
 // Slot-claim wrappers — the plugin's manifest references these.
 // Each derives state from the plugin-internal contexts and dispatches
 // via pluginContext.send. See change: pluginize-flows-via-registry.
-export { FlowActivityBadgeClaim } from "./FlowActivityBadge.js";
+// FlowActivityBadgeClaim removed in fix-flows-plugin-polish (A5) — the
+// session-card-badge claim was dropped because the badge belongs in the
+// FLOWS subcard, not WORKSPACE. SessionFlowActions now renders the badge
+// directly via the FlowActivityBadge component.
 export { FlowDashboardClaim } from "./FlowDashboard.js";
 export { FlowArchitectClaim } from "./FlowArchitect.js";
 
@@ -57,6 +64,13 @@ export {
 export type { FlowsSessionState } from "./FlowsSessionStateContext.js";
 import { getFlowsUiStateSnapshot } from "./FlowsUiStateContext.js";
 import { installFlowsAvailabilitySubscriber } from "./flowsAvailability.js";
+import { registerPromptComponent } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+// Register the `flow-question` prompt component type so the shell knows to
+// route flow-tagged prompts to the widget-bar placement instead of inline
+// chat. Idempotent under HMR — `registerPromptComponent` replaces prior
+// entries without throwing. See change: route-flow-asks-to-upper-slot.
+registerPromptComponent({ type: "flow-question", placement: "widget-bar" });
 
 // Install the per-session flows-availability subscriber once at module
 // load. The subscriber populates the sync cache that

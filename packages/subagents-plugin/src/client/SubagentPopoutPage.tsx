@@ -24,6 +24,8 @@ export interface SubagentPopoutPageProps {
   /** Optional parent-session display label (e.g. cwd basename) for the breadcrumb. */
   parentLabel?: string;
   onBack?: () => void;
+  /** Forwarded to SubagentDetailView → MinimalChatView so per-tool renderers can build session-scoped links. */
+  forwardSessionId?: string;
 }
 
 export function SubagentPopoutPage({
@@ -33,6 +35,7 @@ export function SubagentPopoutPage({
   subscriptionResolved,
   parentLabel,
   onBack,
+  forwardSessionId,
 }: SubagentPopoutPageProps) {
   const sub = session?.subagents.get(agentId);
 
@@ -113,15 +116,27 @@ export function SubagentPopoutPage({
             <Icon path={mdiArrowLeft} size={0.7} />
           </button>
         )}
-        <span className="text-[11px] text-[var(--text-tertiary)] truncate">
+        <span className="text-[11px] text-[var(--text-tertiary)] truncate flex-shrink-0">
           {parentLabel ?? sessionId} ›
         </span>
-        <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-          {sub.displayName || sub.type}
-        </span>
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-sm font-medium text-[var(--text-primary)] truncate">
+            {sub.displayName || sub.type}
+          </span>
+          {sub.agentMdPath && (
+            <span
+              className="text-[10px] font-mono text-[var(--text-tertiary)] truncate"
+              title={sub.agentMdPath}
+            >
+              {sub.agentMdPath}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex-1 overflow-hidden">
-        <SubagentDetailView session={session} agentId={agentId} mode="popout" />
+      {/* `min-h-0` is required so the body scrolls instead of overflowing.
+          See change: fix-flows-plugin-polish (scrollbar fix). */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <SubagentDetailView session={session} agentId={agentId} mode="popout" sessionId={forwardSessionId ?? sessionId} />
       </div>
     </div>
   );

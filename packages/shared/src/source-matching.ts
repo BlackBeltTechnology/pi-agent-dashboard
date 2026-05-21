@@ -9,7 +9,7 @@
 // Input sources take one of these forms:
 //
 //   npm:<name>[@<version>]
-//     e.g.  "npm:pi-web-access", "npm:@tintinweb/pi-subagents@0.5.2"
+//     e.g.  "npm:pi-web-access", "npm:@scope/example-pkg@0.5.2"
 //
 //   git@<host>:<owner>/<repo>[.git]
 //     e.g.  "git@github.com:BlackBeltTechnology/pi-flows.git"

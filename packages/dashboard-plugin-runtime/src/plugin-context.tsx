@@ -21,6 +21,39 @@ import { createSlotRegistry, type SlotRegistry, type ClaimEntry } from "./slot-r
 import { getSessionEvents, subscribeSessionEvents } from "./session-events-store.js";
 import { getSessionData, subscribeSessionData } from "./session-data-store.js";
 
+/**
+ * Snapshot shape of an interactive UI request as exposed to plugins. Mirrors
+ * the shell's `InteractiveUiRequest` shape but typed independently so the
+ * runtime doesn't reach into shell internals.
+ *
+ * See change: route-flow-asks-to-upper-slot.
+ */
+export interface InteractiveUiRequestSnapshot {
+  requestId: string;
+  method: string;
+  params: Record<string, unknown>;
+  status: "pending" | "resolved" | "cancelled" | "dismissed";
+  result?: unknown;
+}
+
+/**
+ * Snapshot shape of subagent state as exposed to plugins. Structurally
+ * typed to avoid pulling in the subagents-plugin's full state type from
+ * here — the runtime stays plugin-agnostic.
+ *
+ * Transitional: subagent state currently lives in the shell's central
+ * reducer. A follow-up change will move it into the subagents-plugin
+ * reducer (mirror of `pluginize-flows-via-registry`). When that lands,
+ * `useSessionSubagents` keeps the same contract but reads from the plugin's
+ * own reducer instead of shell state.
+ *
+ * See change: add-flow-agent-popout.
+ */
+export type SubagentStateSnapshot = Record<string, unknown> & { id: string };
+
+const EMPTY_INTERACTIVE_REQUESTS: readonly InteractiveUiRequestSnapshot[] = Object.freeze([]);
+const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
+
 // ── Logger ───────────────────────────────────────────────────────────────────
 
 export interface PluginLogger {
@@ -70,6 +103,35 @@ export interface PluginContextValue {
    * See change: pluginize-flows-via-registry.
    */
   useSessionEvents(sessionId: string): readonly DashboardEvent[];
+  /**
+   * Access the shell's WebSocket connection status. Plugins use this to
+   * gate effects that send messages (e.g. cold-open `subscribe` on mount):
+   * sending before `connected` is silently dropped by the shell's send
+   * primitive (only fires when `readyState === OPEN`).
+   *
+   * See change: fix-flows-plugin-polish (popout cold-open subscribe).
+   */
+  useShellConnectionStatus(): "connecting" | "connected" | "disconnected";
+  /**
+   * Access the per-session active interactive UI requests (PromptBus
+   * pending prompts). Wired by the shell to the same array it stores
+   * on its event-reducer state; plugins read it to derive their own
+   * pending-prompt views (e.g. flow-plugin's per-flow question queue
+   * filtered by component type).
+   *
+   * Returns the empty array reference for unknown sessions.
+   *
+   * See change: route-flow-asks-to-upper-slot.
+   */
+  useSessionInteractiveRequests(sessionId: string): readonly InteractiveUiRequestSnapshot[];
+  /**
+   * Access the per-session subagent state map. Transitional read bridge
+   * while subagent state lives in the shell reducer; will be re-pointed
+   * at the subagents-plugin's own reducer in a follow-up.
+   *
+   * See change: add-flow-agent-popout.
+   */
+  useSessionSubagents(sessionId: string): ReadonlyMap<string, SubagentStateSnapshot>;
   /** Get plugin config for a specific plugin id. */
   getPluginConfig(pluginId: string): Record<string, unknown>;
   /** Subscribe to plugin config updates. Returns an unsubscribe fn. */
@@ -132,6 +194,60 @@ export function useSessionState(sessionId: string): DashboardSession | undefined
   const ctx = useContext(PluginReactContext);
   if (!ctx) throw new Error("Slot consumer must be rendered inside <PluginContextProvider>");
   return ctx.useSessionState(sessionId);
+}
+
+/**
+ * @public — reactive: returns the shell's WebSocket connection status.
+ * Use this to gate effects that call `usePluginSend` so messages aren't
+ * dropped while the connection is still being established.
+ *
+ * Returns `"disconnected"` when called outside a `<PluginContextProvider>`
+ * (soft contract, matches other status-style hooks).
+ *
+ * See change: fix-flows-plugin-polish (popout cold-open subscribe).
+ */
+export function useShellConnectionStatus(): "connecting" | "connected" | "disconnected" {
+  const ctx = useContext(PluginReactContext);
+  if (!ctx) return "disconnected";
+  return ctx.useShellConnectionStatus();
+}
+
+/**
+ * @public — reactive: read the active interactive UI requests for a session.
+ * Plugins use this to derive their own pending-prompt views (e.g. the
+ * flow-plugin's per-flow question queue filtered by component type).
+ *
+ * See change: route-flow-asks-to-upper-slot.
+ */
+export function useSessionInteractiveRequests(
+  sessionId: string,
+): readonly InteractiveUiRequestSnapshot[] {
+  // Soft contract: returns the empty array when called outside a
+  // `<PluginContextProvider>` (e.g. in shell unit tests). Plugin slot
+  // contributions are always descendants of the provider in production.
+  const ctx = useContext(PluginReactContext);
+  if (!ctx) return EMPTY_INTERACTIVE_REQUESTS;
+  return ctx.useSessionInteractiveRequests(sessionId);
+}
+
+/**
+ * @public — reactive: read the per-session subagent state map.
+ *
+ * Transitional bridge while subagent state lives in the shell reducer.
+ * Returns the same value reference until a new event for that session
+ * changes the map. Returns the shared `EMPTY_SUBAGENTS` frozen-Map for
+ * unknown session ids.
+ *
+ * See change: add-flow-agent-popout.
+ */
+export function useSessionSubagents(
+  sessionId: string,
+): ReadonlyMap<string, SubagentStateSnapshot> {
+  // Soft contract: returns the empty map when called outside a
+  // `<PluginContextProvider>` (e.g. in shell unit tests).
+  const ctx = useContext(PluginReactContext);
+  if (!ctx) return EMPTY_SUBAGENTS;
+  return ctx.useSessionSubagents(sessionId);
 }
 
 /**
@@ -242,6 +358,30 @@ export interface PluginContextProviderProps {
   sessions?: DashboardSession[];
   sessionStates?: Map<string, DashboardSession>;
   /**
+   * Resolver returning the active interactive UI requests for a session.
+   * Wired by the shell from its event-reducer state. When omitted, the
+   * provider returns the empty array for every session.
+   *
+   * See change: route-flow-asks-to-upper-slot.
+   */
+  useSessionInteractiveRequests?: (sessionId: string) => readonly InteractiveUiRequestSnapshot[];
+  /**
+   * WebSocket connection status accessor. Wired by the shell from its
+   * `useWebSocket().status` value. When omitted, the provider returns
+   * `"disconnected"`.
+   *
+   * See change: fix-flows-plugin-polish (popout cold-open subscribe).
+   */
+  connectionStatus?: "connecting" | "connected" | "disconnected";
+  /**
+   * Resolver returning the per-session subagent state map. Wired by the
+   * shell from its event-reducer state. When omitted, the provider returns
+   * the empty map for every session.
+   *
+   * See change: add-flow-agent-popout.
+   */
+  useSessionSubagents?: (sessionId: string) => ReadonlyMap<string, SubagentStateSnapshot>;
+  /**
    * Currently-selected session id (from URL `/session/:id`). Plugins
    * read it via `useSelectedSessionId()`. See change:
    * fix-pi-flows-end-to-end (Group 5).
@@ -310,6 +450,9 @@ export function PluginContextProvider({
   selectedSessionId,
   send: sendFn,
   pluginRouter: routerProp,
+  useSessionInteractiveRequests: useSessionInteractiveRequestsProp,
+  useSessionSubagents: useSessionSubagentsProp,
+  connectionStatus,
   ws,
 }: PluginContextProviderProps) {
   const resolvedRegistry = registry ?? createSlotRegistry();
@@ -320,6 +463,24 @@ export function PluginContextProvider({
     [sessions],
   );
   const useSelectedSessionIdFn = useCallback(() => selectedSessionId, [selectedSessionId]);
+  const useSessionInteractiveRequestsFn = useCallback(
+    (sessionId: string): readonly InteractiveUiRequestSnapshot[] => {
+      if (useSessionInteractiveRequestsProp) return useSessionInteractiveRequestsProp(sessionId);
+      return EMPTY_INTERACTIVE_REQUESTS;
+    },
+    [useSessionInteractiveRequestsProp],
+  );
+  const useSessionSubagentsFn = useCallback(
+    (sessionId: string): ReadonlyMap<string, SubagentStateSnapshot> => {
+      if (useSessionSubagentsProp) return useSessionSubagentsProp(sessionId);
+      return EMPTY_SUBAGENTS;
+    },
+    [useSessionSubagentsProp],
+  );
+  const useShellConnectionStatusFn = useCallback(
+    () => connectionStatus ?? "disconnected",
+    [connectionStatus],
+  );
 
   const send = useCallback(
     (message: unknown) => {
@@ -356,6 +517,9 @@ export function PluginContextProvider({
     useSessionState: useSessionStateFn,
     useSelectedSessionId: useSelectedSessionIdFn,
     useSessionEvents: useSessionEventsHookImpl,
+    useSessionInteractiveRequests: useSessionInteractiveRequestsFn,
+    useSessionSubagents: useSessionSubagentsFn,
+    useShellConnectionStatus: useShellConnectionStatusFn,
     getPluginConfig: getConfig,
     subscribePluginConfig: subscribeConfig,
     send,
