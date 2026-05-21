@@ -22,20 +22,29 @@ import type {
 function fakeRegistry(opts: {
   hasNpm?: boolean;
   resolveResult?: Partial<Resolution>;
+  executorArgv?: string[];
 }): ToolRegistry {
   // Only the methods `resolveNpmArgv` actually calls.
+  const base = {
+    name: "npm",
+    ok: true as const,
+    path: "/managed/node/bin/npm",
+    source: "managed" as const,
+    tried: [],
+    resolvedAt: Date.now(),
+    ...opts.resolveResult,
+  };
   return {
     has: (name: string) => name === "npm" && (opts.hasNpm ?? true),
-    resolve: () =>
-      ({
-        name: "npm",
-        ok: true,
-        path: "/managed/node/bin/npm",
-        source: "managed",
-        tried: [],
-        resolvedAt: Date.now(),
-        ...opts.resolveResult,
-      }) as Resolution,
+    resolve: () => base as Resolution,
+    // `resolveNpmArgv` switched from `resolve` to `resolveExecutor` so the
+    // ToolDefinition's `toArgv` hook is applied (Windows needs
+    // `[node.exe, npm-cli.js]` not bare `[npm-cli.js]`). Mirror the real
+    // registry's `{ ...resolution, argv }` shape.
+    resolveExecutor: () => ({
+      ...base,
+      argv: opts.executorArgv ?? [base.path],
+    }),
   } as unknown as ToolRegistry;
 }
 
@@ -48,13 +57,36 @@ describe("resolveNpmArgv", () => {
     expect(argv).toEqual(["/explicit/node", "/explicit/npm-cli.js"]);
   });
 
-  it("uses ToolRegistry.resolve('npm') when no explicit argv", () => {
+  it("uses ToolRegistry.resolveExecutor('npm') when no explicit argv", () => {
     const argv = resolveNpmArgv({
       registry: fakeRegistry({
         resolveResult: { ok: true, path: "/managed/node/bin/npm" } as Partial<Resolution>,
       }),
     });
     expect(argv).toEqual(["/managed/node/bin/npm"]);
+  });
+
+  it("propagates Windows [node.exe, npm-cli.js] argv from resolveExecutor", () => {
+    // On Windows, npmCliBesideNodeStrategy resolves npm to a `.js` file and
+    // nodeScriptToArgv wraps it with [node.exe, npm-cli.js]. resolveNpmArgv
+    // must surface that full argv so spawn doesn't try to exec a bare .js
+    // (which fails with EFTYPE).
+    const argv = resolveNpmArgv({
+      registry: fakeRegistry({
+        resolveResult: {
+          ok: true,
+          path: "C:\\hostedtoolcache\\windows\\node\\22\\x64\\node_modules\\npm\\bin\\npm-cli.js",
+        } as Partial<Resolution>,
+        executorArgv: [
+          "C:\\hostedtoolcache\\windows\\node\\22\\x64\\node.exe",
+          "C:\\hostedtoolcache\\windows\\node\\22\\x64\\node_modules\\npm\\bin\\npm-cli.js",
+        ],
+      }),
+    });
+    expect(argv).toEqual([
+      "C:\\hostedtoolcache\\windows\\node\\22\\x64\\node.exe",
+      "C:\\hostedtoolcache\\windows\\node\\22\\x64\\node_modules\\npm\\bin\\npm-cli.js",
+    ]);
   });
 
   it("falls back to npm/npm.cmd on PATH when registry has no entry", () => {

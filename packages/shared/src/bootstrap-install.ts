@@ -110,8 +110,16 @@ export function resolveNpmArgv(
 
   const registry = opts.registry ?? getDefaultRegistry();
   if (registry.has("npm")) {
-    const res = registry.resolve("npm");
-    if (res.ok && res.path) return [res.path];
+    // Use resolveExecutor (NOT resolve) so the ToolDefinition's `toArgv` hook
+    // gets applied — on Windows, `npmCliBesideNodeStrategy` resolves npm to
+    // `<nodeDir>/node_modules/npm/bin/npm-cli.js`, and `nodeScriptToArgv`
+    // wraps that with `[node.exe, npm-cli.js]`. Without resolveExecutor we
+    // return `[npm-cli.js]` and `spawn EFTYPE` because Windows can't directly
+    // execute a `.js` file (CVE-2024-27980 + missing #! shebang support).
+    // Verified on GitHub Actions windows-latest hostedtoolcache layout.
+    // See change: fix-windows-standalone-spawn.
+    const exec = registry.resolveExecutor("npm");
+    if (exec.ok && exec.argv.length > 0) return exec.argv;
   }
 
   // Last resort: rely on PATH. On Windows the .cmd shim is required
