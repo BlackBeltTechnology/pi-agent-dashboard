@@ -36,7 +36,11 @@ export function SubagentPopoutClaim({ params, session, onBack }: SubagentPopoutC
   const sessionId = params.sessionId ?? "";
   const agentId = params.agentId ?? "";
   const send = usePluginSend();
-  const subagents = useSessionSubagents(sessionId) as ReadonlyMap<string, SubagentState>;
+  // `SubagentStateSnapshot` is the runtime's structural minimum (`{ id: string }`);
+  // the producer-defined `SubagentState` is the canonical full shape. Downcast
+  // through `unknown` since the snapshot type does not include the plugin's
+  // typed fields (`type`/`description`/`status`/...).
+  const subagents = useSessionSubagents(sessionId) as unknown as ReadonlyMap<string, SubagentState>;
   const connectionStatus = useShellConnectionStatus();
 
   // Cold-open subscribe exactly once for this claim instance, AFTER the

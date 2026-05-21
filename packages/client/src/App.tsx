@@ -85,10 +85,13 @@ import type { ContextUsageInfo } from "./components/SessionList.js";
 import { ApiContext, deriveApiBase, VITE_API_URL, setGlobalApiBase } from "./lib/api-context.js";
 import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
 import { PluginContextProvider, applyPluginConfigUpdate } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { SubagentState } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
 const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
-const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, never> = Object.freeze(new Map());
+const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentState> = Object.freeze(
+  new Map<string, SubagentState>(),
+);
 import {
   ContentViewSlot,
   ContentHeaderStickySlot,

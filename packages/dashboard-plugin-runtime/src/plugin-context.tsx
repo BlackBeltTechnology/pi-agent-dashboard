@@ -49,7 +49,13 @@ export interface InteractiveUiRequestSnapshot {
  *
  * See change: add-flow-agent-popout.
  */
-export type SubagentStateSnapshot = Record<string, unknown> & { id: string };
+// Structural minimum: any subagent record exposing an `id` is assignable.
+// Plugins downcast (via `as unknown as ReadonlyMap<string, FullType>`) to
+// the full producer-defined shape. Dropping the `Record<string, unknown>`
+// intersection lets the shell's actual `SubagentState` (which has typed
+// fields, not an index signature) flow through `useSessionSubagents`
+// without coercion. See change: add-flow-agent-popout.
+export type SubagentStateSnapshot = { id: string };
 
 const EMPTY_INTERACTIVE_REQUESTS: readonly InteractiveUiRequestSnapshot[] = Object.freeze([]);
 const EMPTY_SUBAGENTS: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
@@ -111,7 +117,7 @@ export interface PluginContextValue {
    *
    * See change: fix-flows-plugin-polish (popout cold-open subscribe).
    */
-  useShellConnectionStatus(): "connecting" | "connected" | "disconnected";
+  useShellConnectionStatus(): "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
   /**
    * Access the per-session active interactive UI requests (PromptBus
    * pending prompts). Wired by the shell to the same array it stores
@@ -206,7 +212,7 @@ export function useSessionState(sessionId: string): DashboardSession | undefined
  *
  * See change: fix-flows-plugin-polish (popout cold-open subscribe).
  */
-export function useShellConnectionStatus(): "connecting" | "connected" | "disconnected" {
+export function useShellConnectionStatus(): "connecting" | "connected" | "disconnected" | "offline" | "auth_required" {
   const ctx = useContext(PluginReactContext);
   if (!ctx) return "disconnected";
   return ctx.useShellConnectionStatus();
@@ -372,7 +378,7 @@ export interface PluginContextProviderProps {
    *
    * See change: fix-flows-plugin-polish (popout cold-open subscribe).
    */
-  connectionStatus?: "connecting" | "connected" | "disconnected";
+  connectionStatus?: "connecting" | "connected" | "disconnected" | "offline" | "auth_required";
   /**
    * Resolver returning the per-session subagent state map. Wired by the
    * shell from its event-reducer state. When omitted, the provider returns

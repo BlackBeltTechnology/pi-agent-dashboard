@@ -22,7 +22,7 @@ import { FlowAgentDetail } from "./FlowAgentDetail.js";
 
 /** Minimal session-state shape this page consumes. */
 export interface FlowAgentPopoutSessionLike {
-  flowStates?: Map<string, FlowState>;
+  flowStates?: ReadonlyMap<string, FlowState>;
 }
 
 export interface FlowAgentPopoutPageProps {

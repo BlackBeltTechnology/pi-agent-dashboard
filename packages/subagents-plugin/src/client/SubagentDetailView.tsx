@@ -29,7 +29,7 @@ import type { SubagentState, SubagentTimelineEntry } from "./types.js";
 
 /** Minimal session-state shape this component cares about. */
 export interface SessionStateLike {
-  subagents: Map<string, SubagentState>;
+  subagents: ReadonlyMap<string, SubagentState>;
 }
 
 export type SubagentDetailMode = "inline" | "popout" | "row";
