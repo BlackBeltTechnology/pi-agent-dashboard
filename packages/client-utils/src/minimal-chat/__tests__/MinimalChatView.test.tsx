@@ -95,7 +95,9 @@ describe("MinimalChatView", () => {
         <MinimalChatView title="a" status="running" entries={[]} mode="inline" />,
       );
       const root = container.firstElementChild as HTMLElement;
-      expect(root.className).toContain("max-h-[60vh]");
+      // Inline mode uses a STABLE height (`h-[60vh]`, not `max-h-[60vh]`) so
+      // the popover doesn't reflow as messages stream in. See MinimalChatView.tsx:330.
+      expect(root.className).toContain("h-[60vh]");
     }
     cleanup();
     {
@@ -109,7 +111,7 @@ describe("MinimalChatView", () => {
       // Root has no flex-col h-full
       const root = container.firstElementChild as HTMLElement;
       expect(root.className).not.toContain("h-full");
-      expect(root.className).not.toContain("max-h-[60vh]");
+      expect(root.className).not.toContain("h-[60vh]");
     }
   });
 

@@ -114,8 +114,8 @@ describe("AgentToolRenderer — expand + popout", () => {
         toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
       />
     ));
-    fireEvent.click(screen.getByTitle(/Open in new tab/i));
-    expect(open).toHaveBeenCalledWith("/session/sess_42/subagent/abc123", "_blank");
+    fireEvent.click(screen.getByTitle(/Open subagent in new tab/i));
+    expect(open).toHaveBeenCalledWith("/session/sess_42/subagent/abc123", "_blank", "noopener");
     open.mockRestore();
   });
 
