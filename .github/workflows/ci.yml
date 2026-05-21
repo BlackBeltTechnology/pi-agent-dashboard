@@ -73,8 +73,34 @@ jobs:
       - name: Run standalone install smoke
         run: bash scripts/test-standalone-npm-install.sh --port 18000
 
-  # Windows smoke is intentionally not yet wired — the smoke runner is
-  # currently a bash script and the repo-lint `no-bash-on-windows.test.ts`
-  # rejects `shell: bash` on Windows runners. A Node-port of
-  # `scripts/test-standalone-npm-install.sh` is tracked as a follow-up
-  # under change enable-standalone-npm-install task 7.4 sub-bullet 3.
+  # Windows counterpart of standalone-install-smoke-linux. Locks down the
+  # three Windows-only spawn bugs fixed in 0f2d08aa that escaped CI to a
+  # user-reported Windows 11 reproduction:
+  #   1. shouldUrlWrapEntry mis-wrapping jiti entries with file:///C:/…
+  #      (Node misnormalises triple-slash on the entry argv)
+  #   2. runNpmOnce spawn EFTYPE on npm.cmd (CVE-2024-27980 mitigation
+  #      requires shell:true for .cmd/.bat shims)
+  #   3. nodeScriptToArgv falling back to [resolvedPath] when
+  #      registry.resolve("node") fails — spawned cli.js without node.exe
+  #      prefix, EFTYPE
+  # Uses pwsh (pre-installed on windows-latest) per the repo-lint
+  # `no-bash-on-windows.test.ts`. See change: enable-standalone-npm-install
+  # task 7.4 sub-bullet 3.
+  standalone-install-smoke-windows:
+    name: standalone-install-smoke-windows (node ${{ matrix.node-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24, 25]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci --engine-strict=false
+      - run: npm run build
+      - name: Run standalone install smoke
+        shell: pwsh
+        run: ./scripts/test-standalone-npm-install.ps1 -Port 18000
