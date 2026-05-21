@@ -116,9 +116,12 @@ try {
 
   while ((Get-Date) -lt $deadline) {
     if ($server.HasExited) {
-      Write-Error "[smoke] FAIL: server exited early (exit $($server.ExitCode))"
-      if (Test-Path $ServerLog) { Get-Content -Tail 50 $ServerLog | Write-Error }
-      if (Test-Path $ServerErr) { Get-Content -Tail 50 $ServerErr | Write-Error }
+      Write-Host "[smoke] FAIL: server exited early (exit $($server.ExitCode))"
+      Write-Host "---- server.log (last 100 lines) ----"
+      if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
+      Write-Host "---- server.err.log (last 100 lines) ----"
+      if (Test-Path $ServerErr) { Get-Content -Tail 100 $ServerErr | ForEach-Object { Write-Host $_ } }
+      Write-Host "--------------------------------------"
       exit 1
     }
 
@@ -146,9 +149,14 @@ try {
         break
       }
       if ($state -eq "failed") {
-        Write-Error "[smoke] FAIL: bootstrap failed; log:"
-        if (Test-Path $ServerLog) { Get-Content -Tail 50 $ServerLog | Write-Error }
-        if (Test-Path $ServerErr) { Get-Content -Tail 50 $ServerErr | Write-Error }
+        Write-Host "[smoke] FAIL: bootstrap failed."
+        $errMsg = if ($resp.error -and $resp.error.message) { [string]$resp.error.message } else { "(no error.message in bootstrap status)" }
+        Write-Host "[smoke] bootstrap.error.message = $errMsg"
+        Write-Host "---- server.log (last 100 lines) ----"
+        if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
+        Write-Host "---- server.err.log (last 100 lines) ----"
+        if (Test-Path $ServerErr) { Get-Content -Tail 100 $ServerErr | ForEach-Object { Write-Host $_ } }
+        Write-Host "--------------------------------------"
         exit 1
       }
     }
@@ -157,9 +165,12 @@ try {
   }
 
   if (-not $ready) {
-    Write-Error "[smoke] FAIL: bootstrap did not become ready within 240s (last: $lastState)"
-    if (Test-Path $ServerLog) { Get-Content -Tail 50 $ServerLog | Write-Error }
-    if (Test-Path $ServerErr) { Get-Content -Tail 50 $ServerErr | Write-Error }
+    Write-Host "[smoke] FAIL: bootstrap did not become ready within 240s (last: $lastState)"
+    Write-Host "---- server.log (last 100 lines) ----"
+    if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
+    Write-Host "---- server.err.log (last 100 lines) ----"
+    if (Test-Path $ServerErr) { Get-Content -Tail 100 $ServerErr | ForEach-Object { Write-Host $_ } }
+    Write-Host "--------------------------------------"
     exit 1
   }
 
@@ -168,9 +179,12 @@ try {
     Invoke-WebRequest -Uri "http://localhost:$Port/" -TimeoutSec 5 -UseBasicParsing | Out-Null
     Write-Host "[smoke] OK web UI reachable"
   } catch {
-    Write-Error "[smoke] FAIL: web UI not reachable: $($_.Exception.Message)"
-    if (Test-Path $ServerLog) { Get-Content -Tail 50 $ServerLog | Write-Error }
-    if (Test-Path $ServerErr) { Get-Content -Tail 50 $ServerErr | Write-Error }
+    Write-Host "[smoke] FAIL: web UI not reachable: $($_.Exception.Message)"
+    Write-Host "---- server.log (last 100 lines) ----"
+    if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
+    Write-Host "---- server.err.log (last 100 lines) ----"
+    if (Test-Path $ServerErr) { Get-Content -Tail 100 $ServerErr | ForEach-Object { Write-Host $_ } }
+    Write-Host "--------------------------------------"
     exit 1
   }
 
