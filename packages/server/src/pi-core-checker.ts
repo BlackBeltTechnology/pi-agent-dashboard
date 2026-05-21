@@ -92,7 +92,7 @@ export function _resetDynamicPiAliases(): void {
  * tooling if and only if its name is in `CORE_PACKAGE_NAMES` OR a
  * pi.dev-declared alias. The previous `pi-*` name-prefix heuristic was
  * removed because it caused recommended-extension packages (e.g.
- * `pi-agent-browser`, `@tintinweb/pi-subagents`) to appear in BOTH the
+ * `pi-agent-browser`, `pi-dashboard-subagents`) to appear in BOTH the
  * Core ecosystem panel and the Installed Packages panel. Recommended
  * extensions are now surfaced exclusively through
  * `/api/packages/installed`. See change: consolidate-packages-settings-ui.

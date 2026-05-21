@@ -4,8 +4,6 @@ import { EditToolRenderer } from "./EditToolRenderer.js";
 import { WriteToolRenderer } from "./WriteToolRenderer.js";
 import { BashToolRenderer } from "./BashToolRenderer.js";
 import { AgentToolRenderer } from "./AgentToolRenderer.js";
-import { GetSubagentResultRenderer } from "./GetSubagentResultRenderer.js";
-import { SteerSubagentRenderer } from "./SteerSubagentRenderer.js";
 import { GenericToolRenderer } from "./GenericToolRenderer.js";
 import { AskUserToolRenderer } from "./AskUserToolRenderer.js";
 
@@ -15,8 +13,6 @@ const renderers = new Map<string, ToolRenderer>([
   ["write", WriteToolRenderer],
   ["bash", BashToolRenderer],
   ["Agent", AgentToolRenderer],
-  ["get_subagent_result", GetSubagentResultRenderer],
-  ["steer_subagent", SteerSubagentRenderer],
   ["ask_user", AskUserToolRenderer],
 ]);
 

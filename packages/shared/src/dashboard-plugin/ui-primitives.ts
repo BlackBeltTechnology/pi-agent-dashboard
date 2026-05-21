@@ -53,6 +53,13 @@ export const UI_PRIMITIVE_KEYS = {
   modelSelector: "ui:model-selector",
   /** Floating panel anchored to a DOM element; dismisses on outside-click/Esc. */
   popover: "ui:popover",
+  /** Rich tool-call card matching the main chat view (per-tool renderers,
+   *  collapsible output, status icon). Used by plugin timelines that want
+   *  parity with the dashboard chat tool rendering. */
+  toolCallStep: "ui:tool-call-step",
+  /** Reasoning / thinking block with collapsible content + elapsed-time badge.
+   *  Matches the main chat view's thinking rendering. */
+  thinkingBlock: "ui:thinking-block",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -234,4 +241,47 @@ export interface UiPrimitiveMap {
   "ui:status-pill": ComponentType<UiStatusPillProps>;
   "ui:model-selector": ComponentType<UiModelSelectorProps>;
   "ui:popover": ComponentType<UiPopoverProps>;
+  "ui:tool-call-step": ComponentType<UiToolCallStepProps>;
+  "ui:thinking-block": ComponentType<UiThinkingBlockProps>;
+}
+
+/**
+ * Image attachment shape carried by tool-call rendering. Structurally
+ * compatible with the shell's `ChatImage` and the shared
+ * `ImageContent` (the `type: "image"` field is optional here so plugins
+ * don't need to manufacture it).
+ */
+export interface UiToolCallImage {
+  data: string;
+  mimeType: string;
+}
+
+/**
+ * Public prop signature for the rich tool-call card. The shell registers
+ * an implementation backed by its `ToolCallStep` component (which fans
+ * out to per-tool renderers — Bash, Read, Edit, Write, Agent, AskUser,
+ * Generic). Optional fields stay optional; required fields stay required.
+ */
+export interface UiToolCallStepProps {
+  toolName: string;
+  /** Identifier used by per-tool renderers to scope click handlers; synthetic ids are fine. */
+  toolCallId: string;
+  args?: Record<string, unknown>;
+  status: "running" | "complete" | "error";
+  result?: string;
+  images?: UiToolCallImage[];
+  toolDetails?: Record<string, unknown>;
+  startedAt?: number;
+  duration?: number;
+  /** Session id passed through to per-tool renderers that need session scope. */
+  sessionId?: string;
+}
+
+/** Public prop signature for the thinking-block primitive. */
+export interface UiThinkingBlockProps {
+  content: string;
+  isStreaming?: boolean;
+  defaultExpanded?: boolean;
+  startedAt?: number;
+  duration?: number;
 }

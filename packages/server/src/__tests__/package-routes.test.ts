@@ -112,14 +112,18 @@ describe("package-routes", () => {
 
     it("matches a row to RECOMMENDED_EXTENSIONS by source", async () => {
       wrapper.listInstalled.mockReturnValueOnce([
-        { source: "npm:@tintinweb/pi-subagents", scope: "user", filtered: false },
+        {
+          source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
+          scope: "user",
+          filtered: false,
+        },
       ]);
       const res = await app.inject({ method: "GET", url: "/api/packages/installed?scope=global" });
       const body = JSON.parse(res.body);
       const row = body.data[0];
       expect(row.isRecommended).toBe(true);
       // displayName comes from the recommended manifest.
-      expect(row.displayName).toBe("@tintinweb/pi-subagents");
+      expect(row.displayName).toBe("pi-dashboard-subagents");
     });
 
     it("missing installedPath does not break enrichment", async () => {

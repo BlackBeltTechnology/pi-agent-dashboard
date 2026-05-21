@@ -33,6 +33,12 @@ import {
 } from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { ModelSelector } from "./components/ModelSelector.js";
+import { ToolCallStep } from "./components/ToolCallStep.js";
+import { ThinkingBlock } from "./components/ThinkingBlock.js";
+import type {
+  UiToolCallStepProps,
+  UiThinkingBlockProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 
 const primitiveRegistry = createUiPrimitiveRegistry();
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);
@@ -51,6 +57,48 @@ registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.actionList, ActionList)
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.statusPill, StatusPill);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.modelSelector, ModelSelector);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.popover, Popover);
+
+// `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
+// MinimalChatView) consume this to render tool calls with the same
+// per-tool renderers and visual style as the main chat view. The
+// shell's `ToolCallStep` requires a `ToolContext` (editors list, cwd,
+// session) plus `onAbort` / `onForceKill`; popout/inline views can't
+// abort tools, so we adapt the primitive to omit those and supply a
+// minimal context. See change: fix-flows-plugin-polish (chat-view parity).
+const ToolCallStepPrimitive: React.FC<UiToolCallStepProps> = (props) => (
+  <ToolCallStep
+    toolName={props.toolName}
+    toolCallId={props.toolCallId}
+    args={props.args}
+    status={props.status}
+    result={props.result}
+    images={props.images}
+    toolDetails={props.toolDetails}
+    startedAt={props.startedAt}
+    duration={props.duration}
+    context={{ editors: [], sessionId: props.sessionId }}
+  />
+);
+registerUiPrimitive(
+  primitiveRegistry,
+  UI_PRIMITIVE_KEYS.toolCallStep,
+  ToolCallStepPrimitive,
+);
+
+const ThinkingBlockPrimitive: React.FC<UiThinkingBlockProps> = (props) => (
+  <ThinkingBlock
+    content={props.content}
+    isStreaming={props.isStreaming}
+    defaultExpanded={props.defaultExpanded}
+    startedAt={props.startedAt}
+    duration={props.duration}
+  />
+);
+registerUiPrimitive(
+  primitiveRegistry,
+  UI_PRIMITIVE_KEYS.thinkingBlock,
+  ThinkingBlockPrimitive,
+);
 
 // Register service worker for PWA installability
 if ("serviceWorker" in navigator) {

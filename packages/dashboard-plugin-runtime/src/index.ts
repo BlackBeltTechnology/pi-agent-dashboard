@@ -3,6 +3,14 @@
  */
 export * from "./slot-registry.js";
 export * from "./slot-consumers.js";
+export * from "./prompt-component-registry.js";
+export {
+  ShellSessionsProvider,
+  useShellSession,
+  useShellSessionOrNull,
+  type ShellSessionsValue,
+  type ShellSessionsProviderProps,
+} from "./shell-sessions-context.js";
 export * from "./dependency-graph.js";
 export * from "./slot-error-boundary.js";
 export {
@@ -11,12 +19,16 @@ export {
   useSessionEvents,
   useSessionData,
   useSessionState,
+  useSessionInteractiveRequests,
+  useSessionSubagents,
+  useShellConnectionStatus,
   useAllSessions,
   usePluginSend,
   usePluginRouter,
   usePluginConfig,
   usePluginLogger,
 } from "./plugin-context.js";
+export type { InteractiveUiRequestSnapshot, SubagentStateSnapshot } from "./plugin-context.js";
 export type { PluginContextProviderProps, PluginLogger, PluginRouter } from "./plugin-context.js";
 export { publishSessionEvent, clearSessionEvents } from "./session-events-store.js";
 export { intentStore, useSlotIntents, IntentStore, keyToString } from "./intent-store.js";

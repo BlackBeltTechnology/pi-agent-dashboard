@@ -19,7 +19,24 @@ export interface PluginClaim {
    * Defaults to "general" if omitted.
    */
   tab?: SettingsTab;
-  /** Slot-specific extra config. */
+  /**
+   * URL path pattern (wouter syntax, must start with "/") for the
+   * `shell-overlay-route` slot. First-class field so the slot consumer
+   * has a typed contract instead of digging through `config`.
+   * Example: "/session/:sid/flow/:flowId/agent/:agentId".
+   *
+   * See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
+   */
+  path?: string;
+  /**
+   * For `shell-overlay-route` claims: which URL parameter holds the session
+   * id. The slot consumer uses this to resolve the parent session metadata
+   * via `useShellSession`. Defaults to "sid" when omitted.
+   *
+   * See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
+   */
+  sessionParam?: string;
+  /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**
    * Optional exported predicate function name for filtering contributions.

@@ -76,6 +76,10 @@
     "./StatusPill": {
       "types": "./src/StatusPill.tsx",
       "default": "./src/StatusPill.tsx"
+    },
+    "./minimal-chat": {
+      "types": "./src/minimal-chat/index.ts",
+      "default": "./src/minimal-chat/index.ts"
     }
   },
   "files": [

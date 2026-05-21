@@ -1,5 +1,5 @@
 /**
- * Custom renderer for the Agent tool (from @tintinweb/pi-subagents).
+ * Custom renderer for the Agent tool (from pi-dashboard-subagents).
  *
  * Card layout:
  *   ┌──────────────────────────────────────────┐
@@ -27,7 +27,7 @@ import { ElapsedBadge } from "../ElapsedBadge.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 
-/** Shape of AgentDetails sent by pi-subagents via partialResult.details */
+/** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
 interface AgentDetails {
   displayName?: string;
   description?: string;
@@ -102,7 +102,16 @@ function ResultBlock({ text }: { text: string }) {
   );
 }
 
-/** Header-right icon cluster: expand toggle + popout button. */
+/**
+ * Header-right icon cluster: expand toggle + popout button.
+ *
+ * Pill-style buttons (icon + text label, contrasted border, hover state)
+ * so the affordances read clearly. Previously these were sub-pixel icons
+ * in `text-tertiary` and easy to miss. Matches the visual treatment
+ * applied to `FlowAgentCard` and `FlowArchitect`.
+ *
+ * See change: fix-flows-plugin-polish (button visibility).
+ */
 function CardControls({
   expanded,
   onToggleExpand,
@@ -115,31 +124,37 @@ function CardControls({
   elapsed?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-1 flex-shrink-0">
+    <div className="flex items-center gap-1.5 flex-shrink-0">
       {elapsed}
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-        className="text-[var(--text-tertiary)] hover:text-blue-400 p-0.5 rounded inline-flex items-center"
-        title={expanded ? "Collapse" : "Expand to inspect"}
+        className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
+          expanded
+            ? "text-blue-400 bg-blue-400/10 border-blue-400/40"
+            : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
+        }`}
+        title={expanded ? "Collapse subagent timeline" : "Expand to inspect tool calls & messages"}
       >
         <Icon path={expanded ? mdiChevronUp : mdiChevronDown} size={0.55} />
+        <span>{expanded ? "Collapse" : "Details"}</span>
       </button>
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          if (popoutUrl) window.open(popoutUrl, "_blank");
+          if (popoutUrl) window.open(popoutUrl, "_blank", "noopener");
         }}
         disabled={!popoutUrl}
-        className={`p-0.5 rounded inline-flex items-center ${
+        className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
           popoutUrl
-            ? "text-[var(--text-tertiary)] hover:text-blue-400"
-            : "text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+            ? "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"
+            : "border-[var(--border-subtle)] text-[var(--text-muted)] opacity-40 cursor-not-allowed"
         }`}
-        title={popoutUrl ? "Open in new tab" : "Subagent id not yet available"}
+        title={popoutUrl ? "Open subagent in new tab" : "Subagent id not yet available"}
       >
         <Icon path={mdiOpenInNew} size={0.5} />
+        <span>Popout</span>
       </button>
     </div>
   );
@@ -178,7 +193,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
   // Inline expanded body — preferred whenever the user has expanded the card,
   // even if details/agentId are partial (SubagentDetailView handles fallbacks).
   const expandedBody = expanded && session && agentId
-    ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" /></div>
+    ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={context.sessionId} /></div>
     : null;
 
   // --- Fallback: no toolDetails (replayed/older sessions) ---

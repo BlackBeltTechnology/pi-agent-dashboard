@@ -49,9 +49,9 @@ describe("parseSourceKey", () => {
 	});
 
 	it("parses scoped npm: sources", () => {
-		expect(parseSourceKey("npm:@tintinweb/pi-subagents")).toEqual({
+		expect(parseSourceKey("npm:@scope/example-pkg")).toEqual({
 			kind: "npm",
-			name: "@tintinweb/pi-subagents",
+			name: "@scope/example-pkg",
 		});
 	});
 

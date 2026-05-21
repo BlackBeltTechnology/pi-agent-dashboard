@@ -44,6 +44,43 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
   }
   const slotId = c.slot as SlotId;
 
+  // shell-overlay-route: require component + top-level path; default sessionParam.
+  // Accepts legacy `config.path` / `config.sessionParam` (warns) for backward
+  // compat. See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
+  if (slotId === "shell-overlay-route") {
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" requires a non-empty "component"`,
+      );
+    }
+    const cfg = (c.config && typeof c.config === "object" && !Array.isArray(c.config))
+      ? (c.config as Record<string, unknown>)
+      : null;
+    const pathVal = typeof c.path === "string" ? c.path : (cfg?.path as string | undefined);
+    if (typeof pathVal !== "string" || !pathVal.startsWith("/")) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" requires top-level "path" (a string starting with "/")`,
+      );
+    }
+    const sessionParamVal =
+      typeof c.sessionParam === "string"
+        ? c.sessionParam
+        : (cfg?.sessionParam as string | undefined);
+    if (sessionParamVal !== undefined && typeof sessionParamVal !== "string") {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" sessionParam must be a string if provided`,
+      );
+    }
+    // Normalize: lift legacy config.path / config.sessionParam to top-level.
+    if (typeof c.path !== "string") c.path = pathVal;
+    if (typeof c.sessionParam !== "string" && typeof sessionParamVal === "string") {
+      c.sessionParam = sessionParamVal;
+    }
+  }
+
   // settings-section: validate optional tab field
   if (slotId === "settings-section" && c.tab !== undefined) {
     if (!VALID_SETTINGS_TABS.includes(c.tab as SettingsTab)) {
@@ -60,6 +97,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     "command",
     "trigger",
     "toolName",
+    "path",
+    "sessionParam",
     "predicate",
     "shouldRender",
   ] as const) {
@@ -77,6 +116,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.command === "string" ? { command: c.command } : {}),
     ...(typeof c.trigger === "string" ? { trigger: c.trigger } : {}),
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
+    ...(typeof c.path === "string" ? { path: c.path } : {}),
+    ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(typeof c.tab === "string" ? { tab: c.tab as SettingsTab } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
@@ -229,6 +270,24 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
         );
       }
       commandRoutes.add(claim.command);
+    }
+  }
+
+  // shell-overlay-route: detect duplicate path within a plugin.
+  // See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
+  {
+    const overlayPaths = new Set<string>();
+    for (const claim of claims) {
+      if (claim.slot !== "shell-overlay-route") continue;
+      const p = claim.path ?? null;
+      if (!p) continue;
+      if (overlayPaths.has(p)) {
+        throw new ManifestValidationError(
+          pluginId,
+          `duplicate shell-overlay-route claim for path "${p}"`,
+        );
+      }
+      overlayPaths.add(p);
     }
   }
 

@@ -438,7 +438,6 @@ async function cmdStart(config: ServerConfig): Promise<void> {
       starter: "Standalone",
       healthTimeoutMs: 30_000,
       port: config.port,
-      env: { ...process.env },
     });
     const reportedPid = result.reportedPid ?? readPid() ?? result.childPid;
     console.log(`Dashboard server started (pid ${reportedPid}) at http://localhost:${config.port}`);

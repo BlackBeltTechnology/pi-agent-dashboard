@@ -75,7 +75,9 @@ describe("installRecommendedExtensions resolver behaviour (shape)", () => {
 		expect(byId.get("pi-flows")).toBe(
 			"https://github.com/BlackBeltTechnology/pi-flows.git",
 		);
-		expect(byId.get("tintinweb-pi-subagents")).toBe("npm:@tintinweb/pi-subagents");
+		expect(byId.get("pi-dashboard-subagents")).toBe(
+			"https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
+		);
 		expect(byId.get("pi-web-access")).toBe("npm:pi-web-access");
 		expect(byId.get("pi-agent-browser")).toBe("npm:pi-agent-browser");
 	});

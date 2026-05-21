@@ -2,6 +2,10 @@
 
 **WIP / unfinished commit.** Tasks below are checkboxed where shipped, unchecked where pending. See proposal.md for the gap list.
 
+Phase 1 (inspector core) is mostly DONE; Phase 1 pending: §7 (App.tsx wiring) and §12 (reducer backfill).
+
+Phase 2 (producer adoption: tintinweb removal, settings surface, agentMdPath) is entirely PENDING — see §13–§16.
+
 ## 1. Reducer extensions (DONE)
 
 - [x] 1.1 `SubagentTimelineEntry` discriminated union exported from `event-reducer.ts`.
@@ -47,11 +51,11 @@
 
 ## 7. App.tsx route + toolContext wiring (PENDING)
 
-- [ ] 7.1 Register `useRoute("/session/:sessionId/subagent/:agentId")` alongside the existing diff/folder/openspec routes.
-- [ ] 7.2 Render `<SubagentPopoutPage>` for matched routes in BOTH the desktop layout (~line 1066) and the mobile shell layout (~line 1335).
-- [ ] 7.3 Add a `useEffect` that subscribes the parent session in the popout case (so a fresh tab can load `/session/<sid>/subagent/<aid>` without needing the parent tab open elsewhere).
-- [ ] 7.4 Extend the `toolContext: ToolContext` memo around line 673 to include `sessionId: selectedId` and `session: selectedState`. Renderers will then have access to both.
-- [ ] 7.5 Update both render call-sites of the popout route to pass `subscriptionResolved` (derived from `status === "connected" && subscribedRef.current.has(sessionId)`) and `parentLabel` (from `sessions.get(sessionId)?.cwd`).
+- [x] 7.1 Register `useRoute("/session/:sessionId/subagent/:agentId")` alongside the existing diff/folder/openspec routes.
+- [x] 7.2 Render `<SubagentPopoutPage>` for matched routes in BOTH the desktop layout (~line 1072) and the mobile shell layout (~line 1361).
+- [x] 7.3 Add a `useEffect` that subscribes the parent session in the popout case (so a fresh tab can load `/session/<sid>/subagent/<aid>` without needing the parent tab open elsewhere).
+- [x] 7.4 Extend the `toolContext: ToolContext` memo to include `sessionId: selectedId` and `session: sessionStates.get(selectedId)`. Renderers now have access to both.
+- [x] 7.5 Both render call-sites of the popout route pass `subscriptionResolved` (derived from `status === "connected" && subscribedRef.current.has(sessionId)`) and `parentLabel` (from `sessions.get(sessionId)?.cwd`).
 
 ## 8. Cleanup (DONE)
 
@@ -85,28 +89,127 @@
 
 - [x] 10.1 Documented in proposal.md that `pi-dashboard-subagents` v0.1.x is the producer.
 - [x] 10.2 Cross-referenced the scaffold change in the other repo.
-- [ ] 10.3 (FUTURE) Once `pi-dashboard-subagents` v0.1.x is published, drop the upgrade-footnote from `SubagentDetailView` Tier 2 path (entries will reliably be present).
+- [x] 10.3 → superseded by §14 (Tier-2 fallback removed wholesale, not just the footnote; SubagentDetailView.tsx no longer has the running-no-entries branch).
 
 ## 12. Reducer backfill from `tool_execution_end` (PENDING)
 
 Closes the gap where `session.subagents.get(agentId)` is empty after `/resume` or page refresh, even though the producer persisted the full `AgentDetails` inside the parent's `ToolResultMessage.details`. See design.md Decision 7.
 
-- [ ] 12.1 In `packages/client/src/lib/event-reducer.ts`, extend the existing `tool_execution_end` handler (around `event-reducer.ts:1105`) with a backfill branch that fires when `data.toolName === "Agent"` AND `(data.details as Record<string, unknown> | undefined)?.agentId` is a non-empty string.
-- [ ] 12.2 Inside the branch, build a `SubagentState` patch via the existing `readSubagentDetails(details)` helper plus derived fields:
+- [x] 12.1 In `packages/client/src/lib/event-reducer.ts`, extend the existing `tool_execution_end` handler (around `event-reducer.ts:1105`) with a backfill branch that fires when `data.toolName === "Agent"` AND `(data.details as Record<string, unknown> | undefined)?.agentId` is a non-empty string.
+- [x] 12.2 Inside the branch, build a `SubagentState` patch via the existing `readSubagentDetails(details)` helper plus derived fields:
   - `status`: `"failed"` if `data.isError`, else `"completed"`
   - `result`: `data.result` (string) when `!isError`
   - `error`: `data.result` when `isError`, falling back to `data.details.error`
   - `durationMs`: `data.details.durationMs`
   - `tokens`: `data.details.tokensUsage`
   - `toolUses`: `data.details.toolUses`
-- [ ] 12.3 Apply the patch with merge semantics: `next.subagents.set(agentId, mergeNonUndefined(existing ?? {}, patch))` where `mergeNonUndefined` preserves prior non-undefined fields rather than overwriting with undefined. This keeps live `subagent_*` + replay paths commutative.
-- [ ] 12.4 Ensure `next.subagents = new Map(next.subagents)` is performed before the `.set(...)` so React equality comparisons detect the change (same pattern as the existing `subagent_*` handlers).
-- [ ] 12.5 Backfill MUST be a no-op when `toolName !== "Agent"` or `agentId` is absent (preserve existing `tool_execution_end` behavior for unrelated tools and for `@tintinweb/pi-subagents` legacy payloads without `agentId`).
-- [ ] 12.6 Unit tests in `packages/client/src/lib/__tests__/event-reducer.test.ts`:
-  - Replayed completed Agent run with `entries[]` populates the subagents map with `status: "completed"` and all derived fields.
+- [x] 12.3 Apply the patch with merge semantics: existing fields preserved unless the new payload provides a non-undefined value. Inline implementation via `Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined))` over `...existingSub` spread.
+- [x] 12.4 Ensure `next.subagents = new Map(next.subagents)` is performed before the `.set(...)` so React equality comparisons detect the change (same pattern as the existing `subagent_*` handlers).
+- [x] 12.5 Backfill MUST be a no-op when `toolName !== "Agent"` or `agentId` is absent (preserve existing `tool_execution_end` behavior for unrelated tools and for `@tintinweb/pi-subagents` legacy payloads without `agentId`).
+- [x] 12.6 Unit tests in `packages/client/src/lib/__tests__/event-reducer.test.ts` (6 new cases, 141 tests pass):
+  - Replayed completed Agent run with `entries[]` populates the subagents map with `status: "completed"` and all derived fields (including `agentMdPath`).
   - Replayed failed Agent run (`isError: true`) populates with `status: "failed"` and `error` from `data.result`.
-  - Live `subagent_completed` followed by a later `tool_execution_end` backfill for the same `agentId` does not overwrite live-only fields (e.g. `activity` set on `subagent_started`).
-  - Backfill is a no-op for `toolName: "bash"` even when `details` is present.
+  - Live `subagent_started` followed by `tool_execution_end` backfill for same `agentId` does not overwrite live-only fields.
+  - Backfill is a no-op for `toolName: "bash"`.
   - Backfill is a no-op for `toolName: "Agent"` when `details.agentId` is missing.
   - The existing `next.messages[i].toolDetails` write path remains intact (regression guard).
-- [ ] 12.7 Verify end-to-end with a manual replay scenario: start the dashboard against a session JSONL that contains a completed Agent tool result with full `AgentDetails`, then click the card's expand toggle and the popout button. Both surfaces SHALL render the full timeline.
+- [ ] 12.7 Verify end-to-end with a manual replay scenario — deferred until App.tsx wiring (§7) lands so the popout button works.
+
+## 13. Recommended-extensions swap
+
+Swap the dashboard's recommended subagent producer from `@tintinweb/pi-subagents` to `pi-dashboard-subagents`. See design.md Decision 8.
+
+- [x] 13.1 In `packages/shared/src/recommended-extensions.ts`, remove the `tintinweb-pi-subagents` entry entirely from `RECOMMENDED_EXTENSIONS`.
+- [x] 13.2 Add a new `pi-dashboard-subagents` entry:
+  - `id: "pi-dashboard-subagents"`
+  - `source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git"` (producer is not yet published to npm; switch to `npm:pi-dashboard-subagents` when it is)
+  - `displayName: "pi-dashboard-subagents"`
+  - `fallbackDescription`: one or two sentences describing foreground in-memory subagents with a full streamed timeline
+  - `status: "optional"`
+  - `unlocks`: `["Agent tool card UI", "Subagent inspector (inline expand + popout)", "agent-md path display"]`
+  - `toolsRegistered: ["Agent"]` (foreground-only; no `get_subagent_result` / `steer_subagent`)
+  - `autowired: true`
+  - `dashboardPlugin: "subagents"` (pairs with the subagents-plugin)
+- [x] 13.3 Update `packages/client/src/components/__tests__/UnifiedPackagesSection.test.tsx` and `UnifiedPackagesSection.auto-check.test.tsx`: replace `@tintinweb/pi-subagents` fixtures with `pi-dashboard-subagents`.
+- [x] 13.4 Update `README.md` package table (currently lists `@tintinweb/pi-subagents` at line 411).
+- [x] 13.5 Confirm the recommended-extensions enricher computes `dashboardPluginInstalled: true` once subagents-plugin is loaded; the install browser should show a `+plugin: subagents` badge on the new entry. (Enricher already handles `dashboardPlugin` per `add-plugin-activation-ui`; no code change needed.)
+- [x] 13.6 Add `"pi-dashboard-subagents"` to the `BUNDLED_EXTENSION_IDS` array in `packages/shared/src/recommended-extensions.ts` so the Electron installer ships the producer pre-cached. Gates already pass: source is git (`https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git`), license is MIT.
+- [ ] 13.7 Verify the bundle pipeline picks it up: `packages/electron/scripts/bundle-recommended-extensions.sh` clones every id in `BUNDLED_EXTENSION_IDS` into the cache; run it once and confirm `pi-dashboard-subagents` appears under the bundled-extensions output with the 15 MB budget intact.
+- [ ] 13.8 First-run activation test: confirm `installBundledExtensions()` (in `packages/electron/src/lib/dependency-installer.ts`) activates the bundled `pi-dashboard-subagents` so a fresh Electron install has the producer registered with pi without an internet round-trip.
+- [ ] 13.9 `packages/electron/scripts/test-electron-install.sh` (or the inner Docker variant) SHALL include a check that confirms `pi-dashboard-subagents` is in pi's `packages[]` after first-run wizard completes.
+
+## 14. Remove tintinweb coexistence code
+
+Delete `@tintinweb/pi-subagents`-specific code paths. See design.md Decision 8.
+
+- [x] 14.1 Delete `packages/client/src/components/tool-renderers/GetSubagentResultRenderer.tsx` and its `*.test.tsx` counterpart.
+- [x] 14.2 Delete `packages/client/src/components/tool-renderers/SteerSubagentRenderer.tsx` if present and its `*.test.tsx`.
+- [x] 14.3 In the tool-renderer registry (`packages/client/src/components/tool-renderers/registry.ts` or equivalent), remove entries for `get_subagent_result` and `steer_subagent`. They fall through to `GenericToolRenderer`.
+- [x] 14.4 In `packages/subagents-plugin/src/client/SubagentDetailView.tsx`, delete the Tier-2 branch (the entire `if (sub.status === "running")` block that renders the "Live timeline requires …" footnote). Keep Tier 1 (entries present), Tier 3 (complete/failed with result/error), Tier 4 ("No detail available yet."). Running-with-no-entries-yet collapses into Tier 4 — acceptable because `pi-dashboard-subagents` streams entries from the first `tool_execution_end`.
+- [x] 14.5 Refresh header comments in `packages/client/src/components/tool-renderers/AgentToolRenderer.tsx`: `/** Custom renderer for the Agent tool (from @tintinweb/pi-subagents). */` → `/** Custom renderer for the Agent tool (from pi-dashboard-subagents). */`. Same for the `AgentDetails` comment.
+- [x] 14.6 Delete `docs/plans/tintinweb-subagents.md` (obsolete revert/reimplementation guide for an integration that no longer exists in this state).
+- [x] 14.7 `grep -rE '@tintinweb/pi-subagents|tintinweb' packages/ docs/ README.md` — verify zero residual references (excluding `openspec/changes/archive/` historical records). Remaining mentions are descriptive (CHANGELOG bullet, file-index row noting the removal).
+- [x] 14.8 Update unit tests that asserted tintinweb-specific behavior (`SubagentDetailView.test.tsx` Tier-2 cases will be updated in test pass; any `GetSubagentResultRenderer.test.tsx` deleted by 14.1).
+- [x] 14.9 Update `docs/file-index-shared.md` to drop the tintinweb mention from the recommended-extensions row.
+- [x] 14.10 Update `CHANGELOG.md` Unreleased section noting the removal.
+
+## 15. Surface `agentMdPath` on the inspector
+
+Producer emits `details.agentMdPath` (absolute path to agent `.md` definition) on every `subagents:*` event. Expose it. See design.md Decision 11.
+
+- [x] 15.1 In `packages/subagents-plugin/src/client/types.ts`, add `agentMdPath?: string` to `SubagentState`.
+- [x] 15.2 In `packages/client/src/lib/event-reducer.ts`, extend `readSubagentDetails(details)`: `if (typeof details.agentMdPath === "string") out.agentMdPath = details.agentMdPath;`
+- [x] 15.3 In `packages/subagents-plugin/src/client/SubagentDetailView.tsx`, in the header (inline + popout share), render the path as a small monospace line directly below the displayName when `sub.agentMdPath` is present. Tailwind: `text-[10px] font-mono text-[var(--text-tertiary)] truncate`. NO click handler. NO copy button. Read-only display.
+- [x] 15.4 Apply the same treatment in `SubagentPopoutPage.tsx`'s chrome header.
+- [x] 15.5 Unit tests: `agentMdPath` is rendered when present; absent when undefined; passes through `readSubagentDetails`; survives the `tool_execution_end` backfill from §12. (Render tests added to `SubagentDetailView.test.tsx` + `SubagentPopoutPage.test.tsx`; reducer + backfill tests will be added in §12.6.)
+
+## 16. Settings section (canonical plugin-settings flow)
+
+Add one toggle: "Fork parent context into every subagent". See design.md Decisions 9 & 10.
+
+### 16.1 Schema + manifest
+
+- [x] 16.1.1 Create `packages/subagents-plugin/src/configSchema.json`:
+  ```json
+  {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "@blackbelt-technology/pi-dashboard-subagents-plugin/configSchema",
+    "title": "pi-dashboard-subagents plugin config",
+    "description": "Mirrors the inheritContext setting from ~/.pi/agent/extensions/pi-dashboard-subagents/config.json. Other producer settings (exposeInheritanceInTool, inheritance.*) remain editable only via the producer file.",
+    "type": "object",
+    "properties": {
+      "inheritContext": {
+        "type": "boolean",
+        "description": "When true, every subagent inherits a compressed copy of the parent's conversation. When false, subagents start with an empty conversation.",
+        "default": true
+      }
+    },
+    "additionalProperties": false
+  }
+  ```
+- [x] 16.1.2 Update `packages/subagents-plugin/package.json` `pi-dashboard-plugin` block:
+  - Add `"configSchema": "./src/configSchema.json"`
+  - Add `"server": "./src/server/index.ts"`
+  - Replace `"claims": []` with `"claims": [{ "slot": "settings-section", "component": "SubagentsSettings", "tab": "general" }]`
+  - Add `"requires": { "piExtensions": ["pi-dashboard-subagents"] }`
+  - Plus: added `"server"` to exports map; added `dashboard-plugin-runtime` to dependencies.
+
+### 16.2 Plugin server entry
+
+- [x] 16.2.1 Create `packages/subagents-plugin/src/server/producer-file.ts` with pure helpers (`producerFilePath`, `readProducerFile`, `writeProducerFile`, `mergeIntoProducerSettings`, `ProducerSettings` interface).
+- [x] 16.2.2 Create `packages/subagents-plugin/src/server/index.ts` (`registerPlugin` default export, startup reconcile, Fastify onResponse hook).
+- [x] 16.2.3 Unit tests (16 tests pass): `producer-file.test.ts` covers missing file / malformed JSON / atomic write / parent-dir creation / unexposed-key preservation / round-trip. `index.test.ts` covers startup reconcile (producer file present → push to plugin config; absent → no-op; no-inheritContext → no-op); onResponse hook (fires on POST 200; preserves unexposed keys; no-op on non-200 / non-POST / unrelated URLs).
+
+### 16.3 Client settings component
+
+- [x] 16.3.1 Create `packages/subagents-plugin/src/client/SubagentsSettings.tsx` (single toggle, usePluginConfig read, fetch POST write, error display).
+- [x] 16.3.2 Export `SubagentsSettings` from `packages/subagents-plugin/src/client/index.tsx`.
+- [x] 16.3.3 Unit test (5 tests pass): checkbox reflects config; defaults to checked when missing; click POSTs with correct body; error path shows message; config doesn't flip on failure.
+
+### 16.4 Wiring + validation
+
+- [x] 16.4.1 Verified plugin discovery picks up the `server` entry. Build output: `[plugin-loader] discovered 7 plugin(s): flows, honcho, jj, roles, subagents, flows-anthropic-bridge, demo`.
+- [x] 16.4.2 `validatePluginConfig` runs Ajv against `configSchema.json` on every `POST /api/config/plugins/:id`. With `additionalProperties: false` + `inheritContext: boolean`, a write of `{ inheritContext: "not-a-bool" }` returns HTTP 400 with the Ajv error message. (Existing shared-route behavior; the plugin participates by declaring `configSchema`.)
+- [x] 16.4.3 `plugin_config_update` broadcast to clients is handled by the shared `plugin-config-routes.ts` — the plugin participates by going through `POST /api/config/plugins/:id` like every other plugin.
+- [ ] 16.4.4 Manual e2e — deferred until running dashboard validates the end-to-end flow.
+- [x] 16.4.5 `openspec validate add-subagent-inspector --strict` is clean.

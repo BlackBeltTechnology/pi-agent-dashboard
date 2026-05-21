@@ -1822,6 +1822,183 @@ describe("command_feedback events", () => {
       expect(state.subagents.get("s")!.startedAt).toBe(1234);
     });
   });
+
+  // §12: tool_execution_end backfills the subagents map for replayed/refreshed
+  // sessions. The producer persists full AgentDetails inside ToolResultMessage.
+  // details; state-replay.ts threads that into a tool_execution_end event;
+  // this branch in the reducer writes the subagent state back into the map.
+  describe("§12 tool_execution_end subagent backfill", () => {
+    it("replayed completed Agent run populates the subagents map", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: { prompt: "do work" } },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 5000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "Done.",
+            details: {
+              agentId: "sub_abc",
+              displayName: "explorer",
+              entries: [{ kind: "text", text: "hi", ts: 1 }],
+              durationMs: 4200,
+              tokensUsage: { input: 500, output: 200, total: 700 },
+              toolUses: 7,
+              agentMdPath: "/home/u/.pi/agent/agents/Explore.md",
+            },
+          },
+        },
+      ]);
+
+      const sub = state.subagents.get("sub_abc");
+      expect(sub).toBeDefined();
+      expect(sub!.status).toBe("completed");
+      expect(sub!.result).toBe("Done.");
+      expect(sub!.entries).toEqual([{ kind: "text", text: "hi", ts: 1 }]);
+      expect(sub!.durationMs).toBe(4200);
+      expect(sub!.tokens).toEqual({ input: 500, output: 200, total: 700 });
+      expect(sub!.toolUses).toBe(7);
+      expect(sub!.displayName).toBe("explorer");
+      expect(sub!.agentMdPath).toBe("/home/u/.pi/agent/agents/Explore.md");
+    });
+
+    it("replayed failed Agent run populates with status=failed and error from data.result", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: true,
+            result: "aborted by user",
+            details: { agentId: "sub_xyz" },
+          },
+        },
+      ]);
+      const sub = state.subagents.get("sub_xyz");
+      expect(sub).toBeDefined();
+      expect(sub!.status).toBe("failed");
+      expect(sub!.error).toBe("aborted by user");
+    });
+
+    it("backfill merges with prior live state without overwriting non-undefined fields", () => {
+      // Live subagent_started arrives first with displayName "liveName"
+      // Then a tool_execution_end backfill arrives with displayName undefined.
+      // The merged state should keep "liveName".
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "sub_abc", type: "general", description: "d", details: { displayName: "liveName" } },
+        },
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1500,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "ok",
+            // displayName intentionally absent in this details payload
+            details: { agentId: "sub_abc", durationMs: 1234 },
+          },
+        },
+      ]);
+      const sub = state.subagents.get("sub_abc")!;
+      expect(sub.displayName).toBe("liveName"); // not clobbered
+      expect(sub.durationMs).toBe(1234); // updated
+      expect(sub.status).toBe("completed"); // updated by backfill
+    });
+
+    it("backfill is a no-op for non-Agent tools", () => {
+      const before = createInitialState();
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "bash", args: { command: "ls" } },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "bash",
+            isError: false,
+            result: "file1\nfile2",
+            details: { foo: "bar" },
+          },
+        },
+      ]);
+      expect(state.subagents.size).toBe(before.subagents.size); // unchanged
+    });
+
+    it("backfill is a no-op when details.agentId is missing", () => {
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: {} },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "done",
+            details: { somethingElse: "yes" }, // no agentId
+          },
+        },
+      ]);
+      expect(state.subagents.size).toBe(0);
+    });
+
+    it("existing toolDetails write path remains intact (regression guard)", () => {
+      // The pre-existing tool_execution_end behavior writes data.details to
+      // next.messages[idx].toolDetails. Verify backfill does not break that.
+      const state = applyEvents([
+        {
+          eventType: "tool_execution_start",
+          timestamp: 1000,
+          data: { toolCallId: "tc1", toolName: "Agent", args: { prompt: "p" } },
+        },
+        {
+          eventType: "tool_execution_end",
+          timestamp: 2000,
+          data: {
+            toolCallId: "tc1",
+            toolName: "Agent",
+            isError: false,
+            result: "ok",
+            details: { agentId: "sub_abc", displayName: "explorer" },
+          },
+        },
+      ]);
+      const toolMsg = state.messages.find((m) => m.toolCallId === "tc1");
+      expect(toolMsg?.toolDetails).toBeDefined();
+      expect((toolMsg?.toolDetails as Record<string, unknown>).agentId).toBe("sub_abc");
+      expect(state.subagents.get("sub_abc")?.displayName).toBe("explorer");
+    });
+  });
 });
 
 describe("turnIndex tracking", () => {

@@ -14,10 +14,10 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 			[
 				"pi-anthropic-messages",
 				"pi-agent-browser",
+				"pi-dashboard-subagents",
 				"pi-flows",
 				"pi-memory-honcho",
 				"pi-web-access",
-				"tintinweb-pi-subagents",
 			].sort(),
 		);
 	});
@@ -65,11 +65,16 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		expect(entry?.toolsRegistered).toContain("flow_write");
 	});
 
-	it("tintinweb-pi-subagents registers Agent under its canonical capitalization", () => {
-		const entry = getRecommendedExtension("tintinweb-pi-subagents");
+	it("pi-dashboard-subagents registers Agent and pairs with the subagents plugin", () => {
+		// See change: add-subagent-inspector.
+		const entry = getRecommendedExtension("pi-dashboard-subagents");
 		expect(entry).toBeDefined();
-		expect(entry?.source).toBe("npm:@tintinweb/pi-subagents");
-		expect(entry?.toolsRegistered).toContain("Agent");
+		expect(entry?.source).toBe(
+			"https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
+		);
+		expect(entry?.toolsRegistered).toEqual(["Agent"]);
+		expect(entry?.dashboardPlugin).toBe("subagents");
+		expect(entry?.autowired).toBe(true);
 	});
 
 	it("npm-sourced entries use the npm: prefix", () => {
@@ -79,7 +84,6 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"pi-agent-browser",
 				"pi-memory-honcho",
 				"pi-web-access",
-				"tintinweb-pi-subagents",
 			].sort(),
 		);
 	});
@@ -92,7 +96,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 			expect(entry.source).toMatch(/^https:\/\/github\.com\/[^/]+\/[^/]+\.git$/);
 		}
 		expect(gitEntries.map((e) => e.id).sort()).toEqual(
-			["pi-anthropic-messages", "pi-flows"].sort(),
+			["pi-anthropic-messages", "pi-dashboard-subagents", "pi-flows"].sort(),
 		);
 	});
 });
@@ -117,14 +121,14 @@ describe("getRecommendedByStatus", () => {
 	it("filters by strongly-suggested", () => {
 		const suggested = getRecommendedByStatus("strongly-suggested");
 		expect(suggested.map((e) => e.id).sort()).toEqual(
-			["pi-flows", "pi-web-access", "tintinweb-pi-subagents"].sort(),
+			["pi-flows", "pi-web-access"].sort(),
 		);
 	});
 
 	it("filters by optional", () => {
 		const optional = getRecommendedByStatus("optional");
 		expect(optional.map((e) => e.id).sort()).toEqual(
-			["pi-agent-browser", "pi-memory-honcho"].sort(),
+			["pi-agent-browser", "pi-dashboard-subagents", "pi-memory-honcho"].sort(),
 		);
 	});
 });
@@ -151,8 +155,10 @@ describe("BUNDLED_EXTENSION_IDS manifest", () => {
 		// blocking the bundle-recommended-extensions.mjs license check.
 		// Re-add when https://github.com/BlackBeltTechnology/pi-flows has
 		// a license declared.
+		// pi-dashboard-subagents added in add-subagent-inspector §13.6
+		// (git source + MIT license, both gates pass).
 		expect([...BUNDLED_EXTENSION_IDS].sort()).toEqual(
-			["pi-anthropic-messages"].sort(),
+			["pi-anthropic-messages", "pi-dashboard-subagents"].sort(),
 		);
 	});
 

@@ -112,21 +112,24 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		autowired: true,
 	},
 	{
-		id: "tintinweb-pi-subagents",
-		source: "npm:@tintinweb/pi-subagents",
-		displayName: "@tintinweb/pi-subagents",
+		id: "pi-dashboard-subagents",
+		source: "https://github.com/BlackBeltTechnology/pi-dashboard-subagents.git",
+		displayName: "pi-dashboard-subagents",
 		fallbackDescription:
-			"Claude Code-style autonomous sub-agents for pi. Registers " +
-			"the Agent tool and its companions. The dashboard has custom " +
-			"card UI for it.",
-		status: "strongly-suggested",
+			"Foreground in-memory subagents for pi with a streamed timeline " +
+			"(every tool call, reasoning step, and assistant text). Pairs with " +
+			"the dashboard's subagent-inspector plugin for inline-expand + popout " +
+			"card UI. Producer of the Agent tool; no background spawning.",
+		status: "optional",
 		unlocks: [
 			"Agent tool card UI",
-			"Subagent activity badge",
-			"get_subagent_result / steer_subagent renderers",
+			"Subagent inspector (inline expand + popout)",
+			"agent-md path display",
 		],
-		toolsRegistered: ["Agent", "get_subagent_result", "steer_subagent"],
+		toolsRegistered: ["Agent"],
 		autowired: true,
+		// Companion dashboard plugin id. See change: add-subagent-inspector.
+		dashboardPlugin: "subagents",
 	},
 	{
 		id: "pi-flows",
@@ -216,6 +219,9 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
  */
 export const BUNDLED_EXTENSION_IDS: readonly string[] = [
 	"pi-anthropic-messages",
+	// Foreground subagent producer. Git source + MIT license = bundle eligible.
+	// See change: add-subagent-inspector §13.
+	"pi-dashboard-subagents",
 	// "pi-flows" is intentionally NOT bundled until the upstream repo declares
 	// an SPDX-conformant license (`LICENSE` file or `package.json#license`).
 	// The bundle-recommended-extensions.mjs license allowlist enforcement

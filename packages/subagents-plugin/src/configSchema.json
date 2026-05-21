@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-subagents-plugin/configSchema",
+  "title": "pi-dashboard-subagents plugin config",
+  "description": "Mirrors the inheritContext setting from ~/.pi/agent/extensions/pi-dashboard-subagents/config.json. Other producer settings (exposeInheritanceInTool, inheritance.*) remain editable only via the producer file.",
+  "type": "object",
+  "properties": {
+    "inheritContext": {
+      "type": "boolean",
+      "description": "When true, every subagent inherits a compressed copy of the parent's conversation. When false, subagents start with an empty conversation.",
+      "default": true
+    }
+  },
+  "additionalProperties": false
+}

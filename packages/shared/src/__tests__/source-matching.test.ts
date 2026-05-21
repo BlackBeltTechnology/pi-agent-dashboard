@@ -14,16 +14,16 @@ describe("parseSourceKey", () => {
 	});
 
 	it("parses scoped npm name without version", () => {
-		expect(parseSourceKey("npm:@tintinweb/pi-subagents")).toEqual({
+		expect(parseSourceKey("npm:@scope/example-pkg")).toEqual({
 			kind: "npm",
-			name: "@tintinweb/pi-subagents",
+			name: "@scope/example-pkg",
 		});
 	});
 
 	it("parses scoped npm name with version", () => {
-		expect(parseSourceKey("npm:@tintinweb/pi-subagents@0.5.2")).toEqual({
+		expect(parseSourceKey("npm:@scope/example-pkg@0.5.2")).toEqual({
 			kind: "npm",
-			name: "@tintinweb/pi-subagents",
+			name: "@scope/example-pkg",
 		});
 	});
 
@@ -67,7 +67,7 @@ describe("sourcesMatch", () => {
 
 	it("matches scoped npm names", () => {
 		expect(
-			sourcesMatch("npm:@tintinweb/pi-subagents@0.5.2", "npm:@tintinweb/pi-subagents"),
+			sourcesMatch("npm:@scope/example-pkg@0.5.2", "npm:@scope/example-pkg"),
 		).toBe(true);
 	});
 

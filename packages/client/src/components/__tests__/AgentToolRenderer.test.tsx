@@ -72,9 +72,8 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     // Expand button is present
     expect(screen.getByTitle(/Expand to inspect/i)).toBeTruthy();
-    // Detail view body NOT rendered until expanded (look for the footnote that
-    // only appears in SubagentDetailView Tier 2).
-    expect(screen.queryByText(/Live timeline requires/i)).toBeNull();
+    // Detail view body NOT rendered until expanded.
+    expect(screen.queryByText(/No detail available yet/i)).toBeNull();
   });
 
   it("clicking expand shows the SubagentDetailView body", () => {
@@ -99,8 +98,9 @@ describe("AgentToolRenderer — expand + popout", () => {
       />
     ));
     fireEvent.click(screen.getByTitle(/Expand to inspect/i));
-    // After expanding, the Tier-2 footnote from SubagentDetailView should appear.
-    expect(screen.getByText(/Live timeline requires/i)).toBeTruthy();
+    // After expanding without entries[], Tier-4 placeholder shows
+    // (Tier-2 footnote was removed in add-subagent-inspector §14).
+    expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
   });
 
   it("popout button opens new tab with the correct URL when agentId is present", () => {

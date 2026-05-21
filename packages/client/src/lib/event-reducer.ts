@@ -91,9 +91,9 @@ export interface InteractiveUiRequest {
 }
 
 /**
- * Per-step timeline entry for a subagent's run. Phase 1 ships with no producer
- * (current `@tintinweb/pi-subagents` streams summary only); Phase 2 upstream
- * patch will populate `details.entries[]` on streaming events.
+ * Per-step timeline entry for a subagent's run. Populated by the
+ * `pi-dashboard-subagents` extension via `details.entries[]` on every
+ * `subagents:*` event.
  *
  * Shape mirrors `FlowDetailEntry` (see flows-plugin) for visual consistency.
  * See change: add-subagent-inspector.
@@ -128,7 +128,7 @@ export interface SessionState {
   interactiveRequests: InteractiveUiRequest[];
   /** Whether any Write/Edit tool calls have been seen (for Changed Files button) */
   hasFileChanges: boolean;
-  /** Active subagents from @tintinweb/pi-subagents */
+  /** Active subagents from pi-dashboard-subagents (foreground, in-memory). */
   subagents: Map<string, SubagentState>;
   /** Total turn count (for turnIndex assignment and sliding window offset) */
   turnCount: number;
@@ -181,6 +181,7 @@ function readSubagentDetails(
   if (typeof details.subagentType === "string") out.subagentType = details.subagentType;
   if (typeof details.toolUses === "number") out.toolUses = details.toolUses;
   if (typeof details.durationMs === "number") out.durationMs = details.durationMs;
+  if (typeof details.agentMdPath === "string") out.agentMdPath = details.agentMdPath;
   return out;
 }
 
@@ -1144,6 +1145,79 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           ...(images ? { images } : {}),
           ...(mergedDetails ? { toolDetails: mergedDetails } : {}),
         };
+      }
+
+      // Subagent backfill: when this tool_execution_end refers to a completed
+      // Agent run (toolName === "Agent" + details.agentId), also write to
+      // next.subagents so `/resume` and page-refresh re-hydrate the inspector
+      // map. Live `subagent_*` events normally populate this map, but
+      // state-replay.ts does NOT synthesize them — it only re-emits the
+      // tool_execution_end. Without this branch, expand/popout for completed
+      // subagents shows "Subagent not found" after refresh.
+      //
+      // Merge semantics preserve prior non-undefined fields (live
+      // subagent_completed could arrive before or after this backfill),
+      // making the two paths commutative.
+      //
+      // See change: add-subagent-inspector §12 and design.md Decision 7.
+      {
+        const toolName = data.toolName as string | undefined;
+        const endDetails = data.details as Record<string, unknown> | undefined;
+        const agentId =
+          endDetails && typeof endDetails.agentId === "string" ? endDetails.agentId : undefined;
+        if (toolName === "Agent" && agentId) {
+          const isError = data.isError as boolean;
+          const resultStr = typeof data.result === "string" ? (data.result as string) : undefined;
+          const detailError =
+            endDetails && typeof endDetails.error === "string"
+              ? (endDetails.error as string)
+              : undefined;
+          const durationMs =
+            endDetails && typeof endDetails.durationMs === "number"
+              ? (endDetails.durationMs as number)
+              : undefined;
+          const tokensUsage = endDetails?.tokensUsage as SubagentState["tokens"] | undefined;
+          const toolUses =
+            endDetails && typeof endDetails.toolUses === "number"
+              ? (endDetails.toolUses as number)
+              : undefined;
+          const detailsPatch = readSubagentDetails(endDetails);
+
+          // Build the patch with the explicit-fields-take-precedence rule.
+          const patch: Partial<SubagentState> = {
+            status: isError ? "failed" : "completed",
+            ...(resultStr && !isError ? { result: resultStr } : {}),
+            ...(isError ? { error: resultStr ?? detailError } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+            ...(tokensUsage !== undefined ? { tokens: tokensUsage } : {}),
+            ...(toolUses !== undefined ? { toolUses } : {}),
+            ...detailsPatch,
+          };
+
+          next.subagents = new Map(next.subagents);
+          const existingSub = next.subagents.get(agentId);
+          // mergeNonUndefined semantics: preserve prior non-undefined fields
+          // rather than overwrite with undefined. This makes live + replay
+          // paths commutative regardless of arrival order.
+          const merged: SubagentState = {
+            id: agentId,
+            type:
+              existingSub?.type ??
+              (typeof endDetails?.subagentType === "string"
+                ? (endDetails.subagentType as string)
+                : "unknown"),
+            description:
+              existingSub?.description ??
+              (typeof endDetails?.description === "string"
+                ? (endDetails.description as string)
+                : ""),
+            ...existingSub,
+            ...Object.fromEntries(
+              Object.entries(patch).filter(([, v]) => v !== undefined),
+            ),
+          } as SubagentState;
+          next.subagents.set(agentId, merged);
+        }
       }
       break;
     }

@@ -1,174 +1,114 @@
+/**
+ * FlowAgentDetail — thin adapter shim over `MinimalChatView`.
+ *
+ * Maps `FlowAgentState` → `MinimalChatViewProps`. Preserves the existing
+ * public API (`agent`, `onBack`) so `FlowAgentCard`'s eye-button popover
+ * (and the future `FlowAgentPopoutPage` route) keep working without change.
+ *
+ * See change: extract-minimal-chat-view.
+ */
 import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiCheckCircle, mdiCloseCircle, mdiAlertCircle, mdiCircle, mdiCircleOutline } from "@mdi/js";
-import type { FlowAgentState, FlowDetailEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type {
+  FlowAgentState,
+  FlowAgentStatus,
+  FlowDetailEntry,
+} from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  MinimalChatView,
+  type MinimalChatEntry,
+  type MinimalChatStatus,
+} from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
 
-// Local formatTokens / formatDuration replaced by registry lookups
-// inside each component body — see TextEntry / ToolCallEntry below.
-// (PH-2 fix from validation report; was hardcoded local function.)
-
-function extractInputPreview(toolName: string, input: unknown): string {
-  if (!input || typeof input !== "object") return "";
-  const inp = input as Record<string, unknown>;
-  switch (toolName.toLowerCase()) {
-    case "read":
-    case "write":
-    case "edit":
-      return String(inp.file_path || inp.path || "");
-    case "bash":
-      return String(inp.command || "").slice(0, 80);
-    case "grep":
-      return String(inp.pattern || "").slice(0, 40);
-    default:
-      return JSON.stringify(input).slice(0, 60);
+function mapFlowStatus(status: FlowAgentStatus): MinimalChatStatus {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "running":
+      return "running";
+    case "complete":
+      return "complete";
+    case "error":
+      return "error";
+    case "blocked":
+      return "blocked";
+    default: {
+      const _exhaustive: never = status;
+      void _exhaustive;
+      return "pending";
+    }
   }
 }
 
-function ToolCallEntry({ entry }: { entry: FlowDetailEntry & { kind: "tool" } }) {
-  const preview = extractInputPreview(entry.toolName, entry.input);
-  const hasOutput = entry.output !== undefined;
-  const [expanded, setExpanded] = React.useState(false);
-
-  return (
-    <div className={`border-l-2 pl-3 py-1.5 ${entry.isError ? "border-red-500/50" : "border-blue-500/30"}`}>
-      <div
-        className="flex items-center gap-1.5 cursor-pointer"
-        onClick={() => hasOutput && setExpanded(!expanded)}
-      >
-        <span className={`text-xs font-mono ${entry.isError ? "text-red-400" : "text-blue-400"}`}>
-          {entry.toolName}
-        </span>
-        <span className="text-xs text-[var(--text-tertiary)] truncate">{preview}</span>
-        {hasOutput && (
-          <span className="text-[10px] text-[var(--text-muted)] ml-auto flex-shrink-0">
-            {expanded ? "▾" : "▸"}
-          </span>
-        )}
-      </div>
-      {expanded && hasOutput && (
-        <pre className="text-[11px] text-[var(--text-secondary)] mt-1 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-words bg-[var(--bg-tertiary)] rounded p-2">
-          {typeof entry.output === "string" ? entry.output : JSON.stringify(entry.output, null, 2)}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function TextEntry({ text }: { text: string }) {
-  const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
-  return (
-    <div className="py-1.5 pl-3">
-      <MarkdownContent content={text} />
-    </div>
-  );
-}
-
-function ThinkingEntry({ text }: { text: string }) {
-  const [expanded, setExpanded] = React.useState(false);
-  return (
-    <div className="py-1 pl-3">
-      <div
-        className="flex items-center gap-1 cursor-pointer text-[11px] text-purple-400/70"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span>{expanded ? "▾" : "▸"}</span>
-        <span>Thinking</span>
-      </div>
-      {expanded && (
-        <pre className="text-[11px] text-[var(--text-muted)] mt-1 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
-          {text}
-        </pre>
-      )}
-    </div>
-  );
+function mapFlowEntries(detailHistory: FlowDetailEntry[]): MinimalChatEntry[] {
+  return detailHistory.map((e) => {
+    switch (e.kind) {
+      case "tool":
+        return {
+          kind: "tool",
+          toolName: e.toolName,
+          input: e.input,
+          output: e.output,
+          isError: e.isError,
+        };
+      case "text":
+        return { kind: "text", text: e.text };
+      case "thinking":
+        return { kind: "thinking", text: e.text };
+      case "error":
+        return { kind: "error", text: e.text };
+      default: {
+        const _exhaustive: never = e;
+        void _exhaustive;
+        return { kind: "error", text: "(unknown entry)" };
+      }
+    }
+  });
 }
 
 export function FlowAgentDetail({
   agent,
   onBack,
+  sessionId,
 }: {
   agent: FlowAgentState;
-  onBack: () => void;
+  onBack?: () => void;
+  /** Forwarded to MinimalChatView so per-tool renderers can build session-scoped links. */
+  sessionId?: string;
 }) {
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
-  const formatTokens = useUiPrimitive(UI_PRIMITIVE_KEYS.formatTokens);
-  const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
-  const displayName = agent.label || agent.agentName;
-  const isComplete = agent.status === "complete" || agent.status === "error" || agent.status === "blocked";
+  const title = agent.label || agent.agentName;
+  const status = mapFlowStatus(agent.status);
+  const isComplete =
+    agent.status === "complete" || agent.status === "error" || agent.status === "blocked";
 
-  const statusIconPath = agent.status === "complete" ? mdiCheckCircle
-    : agent.status === "error" ? mdiCloseCircle
-    : agent.status === "blocked" ? mdiAlertCircle
-    : agent.status === "running" ? mdiCircle
-    : mdiCircleOutline;
+  const entries = mapFlowEntries(agent.detailHistory);
 
-  const statusColor = agent.status === "complete" ? "text-green-400"
-    : agent.status === "error" ? "text-red-400"
-    : agent.status === "blocked" ? "text-orange-400"
-    : agent.status === "running" ? "text-yellow-400"
-    : "text-[var(--text-tertiary)]";
+  const footer = agent.summary ? (
+    <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
+      <div className="text-[11px] text-[var(--text-muted)] mb-1">Summary</div>
+      <MarkdownContent content={agent.summary} />
+    </div>
+  ) : undefined;
+
+  const emptyMessage = agent.status === "pending" ? "Waiting to start..." : "No activity yet";
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] flex items-center gap-2">
-        <button
-          onClick={onBack}
-          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          <Icon path={mdiArrowLeft} size={0.7} />
-        </button>
-        <span className={`${statusColor} inline-flex`}><Icon path={statusIconPath} size={0.6} /></span>
-        <span className="text-sm font-medium text-[var(--text-primary)]">{displayName}</span>
-        {agent.model && (
-          <span className="text-[11px] text-[var(--text-tertiary)]">{agent.model}</span>
-        )}
-        {isComplete && agent.tokens && (
-          <span className="text-[11px] text-[var(--text-muted)] ml-auto">
-            ↑{formatTokens(agent.tokens.input)} ↓{formatTokens(agent.tokens.output)} · {formatDuration(agent.duration ?? 0)}
-          </span>
-        )}
-      </div>
-
-      {/* Detail history */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
-        {agent.detailHistory.length === 0 ? (
-          <div className="text-sm text-[var(--text-muted)] py-4 text-center">
-            {agent.status === "pending" ? "Waiting to start..." : "No activity yet"}
-          </div>
-        ) : (
-          agent.detailHistory.map((entry, i) => {
-            switch (entry.kind) {
-              case "tool":
-                return <ToolCallEntry key={i} entry={entry} />;
-              case "text":
-                return <TextEntry key={i} text={entry.text} />;
-              case "thinking":
-                return <ThinkingEntry key={i} text={entry.text} />;
-              case "error":
-                return (
-                  <div key={i} className="py-1.5 pl-3 text-sm text-red-400">
-                    {entry.text}
-                  </div>
-                );
-              default:
-                return null;
-            }
-          })
-        )}
-
-        {/* Summary at bottom */}
-        {agent.summary && (
-          <div className="mt-3 pt-2 border-t border-[var(--border-subtle)]">
-            <div className="text-[11px] text-[var(--text-muted)] mb-1">Summary</div>
-            <MarkdownContent content={agent.summary} />
-          </div>
-        )}
-      </div>
-    </div>
+    <MinimalChatView
+      title={title}
+      status={status}
+      entries={entries}
+      mode="popout"
+      onBack={onBack}
+      sessionId={sessionId}
+      meta={{
+        modelName: agent.model,
+        tokens: agent.tokens,
+        durationMs: isComplete ? agent.duration : undefined,
+      }}
+      emptyMessage={emptyMessage}
+      footer={footer}
+    />
   );
 }
-
-
