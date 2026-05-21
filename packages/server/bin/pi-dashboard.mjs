@@ -104,9 +104,12 @@ if (!loader) {
 }
 
 // Mirrors shouldUrlWrapEntry() in packages/shared/src/platform/node-spawn.ts:
-// jiti needs the entry URL-wrapped on Windows (Node rejects raw drive-letter
-// paths for --import). POSIX takes the raw path.
-const entry = process.platform === "win32" ? pathToFileURL(cliPath).href : cliPath;
+// jiti misnormalises file:/// URL entries on Windows (verified live on
+// Node 22.18.0 + jiti 2.7.0 in a standalone install — the entry gets
+// re-prepended with cwd as if it were a relative specifier). Pass the
+// RAW path on every platform; Node's drive-letter heuristic handles
+// `C:\…` entries directly. See change: fix-windows-standalone-spawn.
+const entry = cliPath;
 
 const child = spawn(
   process.execPath,

@@ -100,58 +100,58 @@ export function toFileUrl(pathOrUrl: string): string {
 }
 
 /**
+ * Detect whether a loader (file:// URL or raw path) is jiti.
+ *
+ * Mirrors `isTsxLoader`. jiti's hook ships under `jiti/lib/`. Used so
+ * `shouldUrlWrapEntry` can refuse to URL-wrap the entry when jiti is
+ * the loader on Windows — see the JITI VERSION CONTRACT below.
+ */
+export function isJitiLoader(loader: string | null | undefined): boolean {
+  if (!loader) return false;
+  const normalized = loader.replace(/\\/g, "/");
+  return /\/jiti\//i.test(normalized);
+}
+
+/**
  * Decide whether the entry-script position needs `file://` URL wrapping.
  *
  * Rule:
  *   - tsx loader: always raw path (tsx rejects file:// entries on every OS)
- *   - non-tsx (jiti / Node default) on POSIX: raw path
- *     (POSIX has no drive-letter / URL-scheme collision; jiti's resolver
- *      actively MISBEHAVES when handed `file://` URL entries — it
- *      normalises away the triple-slash and then treats `file:/...` as
- *      a relative specifier, producing `<cwd>/file:/...` ENOENT errors.)
- *   - non-tsx on Windows: file:// URL
+ *   - jiti loader: always raw path (jiti misnormalises file:// URL
+ *     entries on Windows — see the JITI VERSION CONTRACT below)
+ *   - any loader on POSIX: raw path (no drive-letter / URL-scheme collision)
+ *   - other / default Node resolver on Windows: file:// URL
  *     (Node parses drive letters like `B:` / `A:` as URL schemes in argv
  *      before loaders run, throwing ERR_UNSUPPORTED_ESM_URL_SCHEME.
- *      Wrapping with `file://` sidesteps the parse.)
+ *      Wrapping with `file://` sidesteps the parse. The drive-letter
+ *      heuristic in Node catches `C:\…` / `D:\…` etc., which is what
+ *      jiti relies on for the standalone install layout.)
  *
  * Keeps a `platform` parameter for testability so unit tests on a POSIX
  * host can exercise the Windows branch without mutating `process.platform`.
  *
  * !! JITI VERSION CONTRACT !!
- * The Windows-non-tsx arm relies on jiti's `file:///` triple-slash URL
- * handling. Verified-good baselines (must be one of these in the
- * offline cacache):
- *   • `@earendil-works/pi-coding-agent@0.74.x` (jiti `^2.7.0`)  — current
- *   • `@mariozechner/pi-coding-agent@0.70.x`  (jiti 2.x)        — legacy
+ * jiti — at every version verified on Windows so far, including the
+ * current pin `jiti@^2.7.0` shipped under
+ * `@earendil-works/pi-coding-agent@0.74.x` — MISHANDLES `file:///`
+ * triple-slash URL entries on Windows. Symptom: the entry is rewritten
+ * to single-slash `file:/C:/…` and then re-resolved relative to cwd,
+ * yielding `Cannot find module 'file:///<cwd>/file:/C:/…/cli.ts'`.
  *
- * Both ship a jiti that correctly normalises `file:///` entries on
- * Windows. The contract was originally carved around 0.70.x in change
- * `fix-windows-entry-script-url` and re-anchored at 0.74.x in change
- * `migrate-pi-fork-to-earendil` (E.7).
+ * This was verified live in a Windows 11 standalone install
+ * (Node 22.18.0 + jiti 2.7.0) and is the reason the Windows branch of
+ * this function now returns `false` for jiti loaders. Node's own
+ * drive-letter heuristic accepts raw `C:\…` argv entries, so the URL
+ * wrap is unnecessary for the common standalone-install layout where
+ * pi + the dashboard live under `C:\Users\<u>\.pi-dashboard\…`.
  *
- * Known-broken (do NOT pin): `pi-coding-agent@0.71.x` shipping
- * `jiti@2.6.5`. That jiti version misnormalises triple-slash to
- * single-slash and prepends cwd as if the entry were a relative
- * specifier, producing `<cwd>/file:/...` ENOENT errors. Keep the
- * 0.71.x / 2.6.5 mention here so contributors recognise the
- * regression pattern if it recurs in a future jiti.
- *
- * The Electron Windows codepath defends against version drift by
- * resolving jiti from the managed dir's pinned `pi-coding-agent`
- * (currently `@earendil-works/pi-coding-agent@0.74.0`, pinned in
- * `packages/electron/offline-packages.json` and extracted into
- * `~/.pi-dashboard/` by `installStandalone()` on first launch — see
- * Defect 1 of change `fix-electron-windows-installer-and-server-bootstrap`).
- * Since the managed-dir tree is pinned, the contract holds regardless
- * of what jiti is on the user's PATH.
- *
- * If a future change bumps the offline-cacache `pi-coding-agent` pin to
- * a version OUTSIDE the verified baselines, RE-VERIFY this contract on
- * Windows manually (run a packaged Electron app on Win10 + Win11) and
- * either:
- *   1. Update the contract (fix the file:// URL handling expectation), OR
- *   2. Add a per-jiti-version branch here, OR
- *   3. Switch the bundled loader to tsx (which has its own contract).
+ * Earlier baselines (`@mariozechner/pi-coding-agent@0.70.x`,
+ * `jiti@2.6.5` in `pi-coding-agent@0.71.x`) exhibited the same or
+ * worse breakage; we no longer attempt to special-case any single
+ * jiti version. If a future jiti release fixes file:/// handling and
+ * we want to URL-wrap again (e.g. to cover `B:` / `A:` drives outside
+ * Node's heuristic), narrow the rule here and add a per-version
+ * branch — re-verify on real Windows before changing.
  *
  * Locked by `node-spawn-jiti-contract.test.ts`.
  */
@@ -160,6 +160,7 @@ export function shouldUrlWrapEntry(
   platform: NodeJS.Platform = process.platform,
 ): boolean {
   if (isTsxLoader(loader)) return false;
+  if (isJitiLoader(loader)) return false;
   return platform === "win32";
 }
 

@@ -168,11 +168,24 @@ function packageDirModuleDef(
  * registered with this `toArgv` so the spawn becomes
  * `node.exe <script.js>` (pure console-subsystem inherit, no new
  * window ever).
+ *
+ * Node resolution order on Windows (see change:
+ * fix-windows-standalone-spawn):
+ *   1. `registry.resolve("node")` when it returns ok with a non-null
+ *      path (the strategy chain has already validated existence via
+ *      its injected `exists` dep).
+ *   2. `process.execPath` — the dashboard server's own Node — as a
+ *      guaranteed-working fallback. Live repro: Windows 11 standalone
+ *      install where the registry chain failed to find node and the
+ *      spawn argv became `[cli.js]` → `spawn EFTYPE`. Falling back to
+ *      execPath keeps the spawn argv well-formed because the dashboard
+ *      server is itself running on a compatible Node.
  */
 const nodeScriptToArgv: ToolDefinition["toArgv"] = (resolvedPath, { platform, registry }) => {
   if (platform === "win32" && /\.js$/i.test(resolvedPath)) {
     const node = registry.resolve("node");
     if (node.ok && node.path) return [node.path, resolvedPath];
+    return [process.execPath, resolvedPath];
   }
   return [resolvedPath];
 };

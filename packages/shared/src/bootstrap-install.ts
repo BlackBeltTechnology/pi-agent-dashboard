@@ -136,11 +136,20 @@ function runNpmOnce(
     }
     const args = [...baseArgs, "install", ...packages];
 
+    // Windows + `.cmd`/`.bat` shim requires `shell: true`. Since
+    // CVE-2024-27980 (Node ≥ 18.20 / 20.12.1 / 22.0), spawning a
+    // batch shim with `shell: false` fails with EFTYPE — verified
+    // live on Windows 11 + Node 22.18.0 bootstrapping pi via
+    // `npm.cmd`. Native `.exe` and PATH-resolved `npm` (Unix) keep
+    // the existing direct-spawn path. See change:
+    // fix-windows-standalone-spawn.
+    const isBatchShim = /\.(cmd|bat)$/i.test(cmd);
     const child = cpSpawn(cmd, args, {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 300_000,
+      ...(isBatchShim ? { shell: true, windowsHide: true } : {}),
     });
 
     let tail = "";

@@ -62,14 +62,14 @@ describe("isTsxLoader", () => {
 });
 
 describe("spawnNodeScript", () => {
-  it("URL-wraps both loader and entry when loader is NOT tsx (jiti/default)", () => {
+  it("URL-wraps loader but passes RAW entry when loader is jiti (any platform)", () => {
     const spawnSpy = vi
       .spyOn(execModule, "spawn")
       .mockImplementation(() => ({ unref: () => {} } as unknown as ReturnType<typeof execModule.spawn>));
 
     spawnNodeScript({
       nodeBin: "C:\\Program Files\\nodejs\\node.exe",
-      loader: "B:\\jiti\\register.mjs",
+      loader: "B:\\jiti\\lib\\jiti-register.mjs",
       entry: "B:\\Dev\\cli.ts",
       args: ["start", "--dev"],
     });
@@ -77,12 +77,11 @@ describe("spawnNodeScript", () => {
     expect(spawnSpy).toHaveBeenCalledTimes(1);
     const [bin, argv] = spawnSpy.mock.calls[0]!;
     expect(bin).toBe("C:\\Program Files\\nodejs\\node.exe");
-    // On Linux host: entry stays raw even with a Windows-styled path
-    // (shouldUrlWrapEntry consults process.platform, which is Linux).
-    // The Windows-wrapped branch is exercised separately via shouldUrlWrapEntry.
+    // jiti loader → entry RAW everywhere (jiti misnormalises file:///
+    // URL entries on Windows; POSIX never needed the wrap).
     expect(argv).toEqual([
       "--import",
-      "file:///B:/jiti/register.mjs",
+      "file:///B:/jiti/lib/jiti-register.mjs",
       "B:\\Dev\\cli.ts",
       "start",
       "--dev",
@@ -197,16 +196,25 @@ describe("buildNodeImportArgvParts", () => {
     expect(parts.slice(3)).toEqual(["start", "--port", "8000"]);
   });
 
-  it("Windows + jiti: entry URL-wrapped", async () => {
+  it("Windows + jiti: entry passed RAW (jiti misnormalises file:/// URLs on Windows)", async () => {
+    // See change: fix-windows-standalone-spawn. Live repro on
+    // Win11 + Node 22.18.0 + jiti 2.7.0 showed the URL-wrapped entry
+    // re-resolved against cwd; Node's drive-letter heuristic accepts
+    // raw `C:\…` argv entries so the wrap is no longer needed.
     const { buildNodeImportArgvParts } = await import("../platform/node-spawn.js");
     const parts = buildNodeImportArgvParts({
-      loader: "B:\\Dev\\jiti\\lib\\jiti-register.mjs",
-      entry: "B:\\srv\\cli.ts",
+      loader: "C:\\Users\\u\\.pi-dashboard\\node_modules\\jiti\\lib\\jiti-register.mjs",
+      entry: "C:\\Users\\u\\.pi-dashboard\\node_modules\\@earendil-works\\pi-agent-dashboard\\packages\\server\\src\\cli.ts",
       args: ["start"],
       platform: "win32",
     });
-    expect(parts[1]).toBe("file:///B:/Dev/jiti/lib/jiti-register.mjs");
-    expect(parts[2]).toBe("file:///B:/srv/cli.ts");
+    expect(parts[1]).toBe(
+      "file:///C:/Users/u/.pi-dashboard/node_modules/jiti/lib/jiti-register.mjs",
+    );
+    // Entry is RAW — NOT URL-wrapped — because the loader is jiti.
+    expect(parts[2]).toBe(
+      "C:\\Users\\u\\.pi-dashboard\\node_modules\\@earendil-works\\pi-agent-dashboard\\packages\\server\\src\\cli.ts",
+    );
   });
 
   it("tsx loader: entry RAW on any platform", async () => {
@@ -245,9 +253,17 @@ describe("shouldUrlWrapEntry", () => {
     expect(shouldUrlWrapEntry(jiti, "darwin")).toBe(false);
   });
 
-  it("returns true for non-tsx loader on Windows (drive letters need file://)", () => {
+  it("returns false for jiti loader on Windows (jiti misnormalises file:/// entries)", () => {
+    // See change: fix-windows-standalone-spawn.
     const jiti = "file:///C:/node_modules/@mariozechner/jiti/lib/jiti-register.mjs";
-    expect(shouldUrlWrapEntry(jiti, "win32")).toBe(true);
+    expect(shouldUrlWrapEntry(jiti, "win32")).toBe(false);
+  });
+
+  it("returns true for an unknown loader on Windows (drive-letter URL-scheme protection)", () => {
+    // A hypothetical non-tsx, non-jiti loader (or a future Node default
+    // resolver) still needs the wrap for edge-case drives like `B:`/`A:`.
+    const unknown = "file:///C:/node_modules/some-other-loader/index.mjs";
+    expect(shouldUrlWrapEntry(unknown, "win32")).toBe(true);
   });
 
   it("returns false when no loader is provided, regardless of platform", () => {
