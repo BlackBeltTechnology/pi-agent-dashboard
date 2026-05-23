@@ -40,17 +40,65 @@ function freshRegistry(opts: {
 }
 
 describe("pi binary definition", () => {
-  it("chain order: override → managed → where", () => {
-    const r = freshRegistry({ which: (n) => (n === "pi" ? "/usr/bin/pi" : null) });
+  it("chain order: override → bare-import ×2 → managed → where", () => {
+    // bare-import strategies probe both pi-coding-agent aliases
+    // (@earendil-works + @mariozechner) before falling through to
+    // managed-bin and PATH. They fail in this fixture because the
+    // injected `exists` returns false for all paths.
+    // See change: eliminate-electron-runtime-install F9.
+    const r = freshRegistry({
+      which: (n) => (n === "pi" ? "/usr/bin/pi" : null),
+      // No resolveModule injection — real resolver runs against the
+      // repo's node_modules. The bare-import strategy returns a
+      // path, but `exists: () => false` invalidates it, so the chain
+      // falls through to `where`.
+    });
     const res = r.resolve("pi");
     expect(res.tried.map((t) => t.strategy)).toEqual([
       "override",
+      "bare-import",
+      "bare-import",
       "managed",
       "where",
     ]);
     expect(res.ok).toBe(true);
     expect(res.path).toBe("/usr/bin/pi");
     expect(res.source).toBe("system");
+  });
+
+  it("bare-import wins over PATH when bundled cli.js exists (F9)", () => {
+    // Simulates the Electron immutable-bundle architecture: a
+    // bundled @earendil-works/pi-coding-agent ships inside the
+    // server's own node_modules. With no PATH, no managed dir,
+    // bare-import must resolve the bundled cli.js — otherwise the
+    // server falls into bootstrapInstall() and writes to
+    // ~/.pi-dashboard/ (the failure mode F9 documents).
+    const bundledPkgJson =
+      "/Volumes/PI Dashboard/PI-Dashboard.app/Contents/Resources/server/node_modules/@earendil-works/pi-coding-agent/package.json";
+    const bundledCli =
+      "/Volumes/PI Dashboard/PI-Dashboard.app/Contents/Resources/server/node_modules/@earendil-works/pi-coding-agent/dist/cli.js";
+    const r = new ToolRegistry({
+      overrides: new OverridesStore({
+        filePath: path.join(os.tmpdir(), `f9-test-${Math.random()}.json`),
+        warn: () => {},
+      }),
+      platform: "linux",
+    });
+    registerDefaultTools(r, {
+      exists: (p) => p === bundledCli, // only the bundled cli.js exists
+      which: () => null, // no PATH
+      npmRootGlobal: () => "", // no npm-global
+      resolveModule: (id, _from) =>
+        id === "@earendil-works/pi-coding-agent/package.json"
+          ? bundledPkgJson
+          : null,
+    });
+    const res = r.resolve("pi");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(bundledCli);
+    expect(res.tried.find((t) => t.strategy === "bare-import")?.result).toBe(
+      "ok",
+    );
   });
 
   it("managed wins over system when MANAGED_BIN/pi exists", () => {

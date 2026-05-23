@@ -7,6 +7,8 @@ source: —
 path:   —
 tried:
   override     no override set
+  bare-import  cannot locate @earendil-works/pi-coding-agent package directory
+  bare-import  cannot locate @mariozechner/pi-coding-agent package directory
   managed      missing: <HOME>/.pi-dashboard/node_modules/.bin/pi
   where        not found on PATH"
 `;

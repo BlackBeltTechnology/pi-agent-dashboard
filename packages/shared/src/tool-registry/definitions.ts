@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ToolDefinition, Source } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import {
@@ -110,13 +111,62 @@ function bareImportPackageDirStrategy(
   return {
     name: "bare-import",
     run() {
-      const pkgJson = resolveModule(`${pkgName}/package.json`, import.meta.url);
+      const pkgJson =
+        resolveModule(`${pkgName}/package.json`, import.meta.url)
+        ?? findPackageJsonByDirWalk(pkgName, import.meta.url, searchPaths, deps?.exists);
       if (!pkgJson) {
-        return { ok: false, reason: `cannot resolve ${pkgName}/package.json` };
+        return { ok: false, reason: `cannot resolve ${pkgName} package directory` };
       }
       return { ok: true, path: path.dirname(pkgJson) };
     },
   };
+}
+
+/**
+ * Helper: walks up from `fromUrl`'s directory looking for
+ * `node_modules/<pkgName>/package.json` directly on the filesystem.
+ *
+ * Exports-map-immune: required because both `@earendil-works/pi-coding-agent`
+ * and `@fission-ai/openspec` declare `exports` blocks that omit
+ * `./package.json`, so `createRequire(from).resolve("<pkg>/package.json")`
+ * returns `ERR_PACKAGE_PATH_NOT_EXPORTED` in modern Node. This walk is
+ * a deliberate end-run around the resolver — we already know the file
+ * we want and just need its absolute path.
+ *
+ * Honors the injected `exists` predicate so tests with mocked
+ * filesystems stay deterministic; falls back to `existsSync` when
+ * none is injected.
+ *
+ * See change: eliminate-electron-runtime-install (F9 follow-on).
+ */
+function findPackageJsonByDirWalk(
+  pkgName: string,
+  fromUrl: string,
+  searchPaths?: readonly string[],
+  exists?: StrategyDeps["exists"],
+): string | null {
+  const check = exists ?? existsSync;
+  const candidates: string[] = [];
+  try {
+    candidates.push(path.dirname(fileURLToPath(fromUrl)));
+  } catch {
+    // fromUrl might not be a file: URL in synthetic test contexts.
+  }
+  for (const sp of searchPaths ?? []) candidates.push(sp);
+  for (const start of candidates) {
+    let dir = start;
+    // Bound the walk: stop at filesystem root or once dirname is
+    // unchanged. Defensive cap at 64 levels covers any plausible
+    // workspace nesting without an infinite-loop risk on broken paths.
+    for (let i = 0; i < 64; i += 1) {
+      const candidate = path.join(dir, "node_modules", pkgName, "package.json");
+      if (check(candidate)) return candidate;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+  return null;
 }
 
 /** Module def that returns the package directory (containing package.json). */
@@ -198,7 +248,17 @@ const nodeScriptToArgv: ToolDefinition["toArgv"] = (resolvedPath, { platform, re
  * `node.exe` to produce `[node.exe, cli.js]`. Falls back to `pi.cmd`
  * on PATH when the cli.js is nowhere to be found.
  *
- * On Unix, the chain finds `pi` on PATH; argv = [pi].
+ * On Unix, the chain first tries `bare-import` so a bundled
+ * `<server>/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`
+ * wins over a system install. This is load-bearing for the Electron
+ * immutable-bundle architecture (see openspec change
+ * `eliminate-electron-runtime-install` finding F9). On a clean machine
+ * with no system `pi` and no managed `~/.pi-dashboard/node/bin/`,
+ * bare-import resolves the bundled cli.js (`#!/usr/bin/env node`
+ * shebang, executable) and `nodeScriptToArgv` returns `[cli.js]`
+ * directly. Without this strategy, the server falls into
+ * `bootstrapInstall(...)` and writes to `~/.pi-dashboard/` — the
+ * exact failure mode the immutable-bundle architecture eliminates.
  */
 function piExecutorDef(deps?: StrategyDeps): ToolDefinition {
   const piPkgAliases = ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"];
@@ -215,6 +275,7 @@ function piExecutorDef(deps?: StrategyDeps): ToolDefinition {
 
   const unixStrategies = [
     overrideStrategy("pi", deps),
+    ...piPkgAliases.map((pkg) => bareImportCliStrategy(pkg, cliEntry, deps)),
     managedBinStrategy("pi", deps),
     whereStrategy("pi", deps),
   ];
@@ -234,7 +295,10 @@ function piExecutorDef(deps?: StrategyDeps): ToolDefinition {
  *
  * On Windows: finds `@fission-ai/openspec/bin/openspec.js` via managed
  * → bare-import → npm-global. `toArgv` wraps with node.exe.
- * On Unix: finds `openspec` binary on PATH.
+ * On Unix: tries bare-import first (bundled
+ * `<server>/node_modules/@fission-ai/openspec/bin/openspec.js`), then
+ * managed-bin, then PATH. Symmetric with pi; same Electron
+ * immutable-bundle rationale (F9).
  */
 function openspecExecutorDef(deps?: StrategyDeps): ToolDefinition {
   const pkgName = "@fission-ai/openspec";
@@ -242,7 +306,7 @@ function openspecExecutorDef(deps?: StrategyDeps): ToolDefinition {
 
   const winStrategies = [
     overrideStrategy("openspec", deps),
-    bareImportCliStrategy(pkgName, cliEntry),
+    bareImportCliStrategy(pkgName, cliEntry, deps),
     managedModuleStrategy(pkgName, cliEntry, deps),
     npmGlobalStrategy(pkgName, cliEntry, deps),
     managedBinStrategy("openspec", deps),
@@ -251,6 +315,7 @@ function openspecExecutorDef(deps?: StrategyDeps): ToolDefinition {
 
   const unixStrategies = [
     overrideStrategy("openspec", deps),
+    bareImportCliStrategy(pkgName, cliEntry, deps),
     managedBinStrategy("openspec", deps),
     whereStrategy("openspec", deps),
   ];
@@ -343,6 +408,10 @@ function bareImportCliStrategy(
 ) {
   // Default uses the real module resolver anchored to this file;
   // tests inject a fake via deps.resolveModule.
+  // Fallback to a filesystem walk because both pi-coding-agent and
+  // openspec declare exports maps that omit ./package.json (modern Node
+  // resolver returns ERR_PACKAGE_PATH_NOT_EXPORTED). See change:
+  // eliminate-electron-runtime-install (F9 follow-on).
   const resolveModule: NonNullable<StrategyDeps["resolveModule"]> =
     deps?.resolveModule
     ?? ((id, from) => {
@@ -355,9 +424,11 @@ function bareImportCliStrategy(
   return {
     name: "bare-import",
     run(): { ok: true; path: string } | { ok: false; reason: string } {
-      const pkgJson = resolveModule(`${pkgName}/package.json`, import.meta.url);
+      const pkgJson =
+        resolveModule(`${pkgName}/package.json`, import.meta.url)
+        ?? findPackageJsonByDirWalk(pkgName, import.meta.url, undefined, deps?.exists);
       if (!pkgJson) {
-        return { ok: false, reason: `cannot resolve ${pkgName}/package.json` };
+        return { ok: false, reason: `cannot locate ${pkgName} package directory` };
       }
       const entry = path.join(path.dirname(pkgJson), entryRelative);
       return { ok: true, path: entry };
