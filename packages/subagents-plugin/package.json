@@ -58,9 +58,9 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "*",
-    "@blackbelt-technology/pi-dashboard-client-utils": "*",
-    "@blackbelt-technology/pi-dashboard-shared": "*",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.3",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.5.3",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.3",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },
