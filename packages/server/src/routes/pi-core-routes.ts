@@ -18,16 +18,10 @@ import type {
 import type { PiCoreChecker } from "../pi-core-checker.js";
 import type { PiCoreUpdater } from "../pi-core-updater.js";
 import { PackageOperationBusyError } from "../package-manager-wrapper.js";
-import type { BootstrapStateStore } from "../bootstrap-state.js";
 
 export interface PiCoreRouteDeps {
 	piCoreChecker: PiCoreChecker;
 	piCoreUpdater: PiCoreUpdater;
-	/**
-	 * When provided, pi-core endpoints return 503 unless bootstrap
-	 * status is "ready". See change: unified-bootstrap-install §5.5.
-	 */
-	bootstrapState?: BootstrapStateStore;
 	/**
 	 * Called after the updater finishes a batch (success or per-package failure).
 	 * The server wires this to broadcast a `pi_core_update_complete` WS message
@@ -44,28 +38,15 @@ export function registerPiCoreRoutes(
 	fastify: FastifyInstance,
 	deps: PiCoreRouteDeps,
 ): void {
-	const { piCoreChecker, piCoreUpdater, bootstrapState } = deps;
+	const { piCoreChecker, piCoreUpdater } = deps;
 
-	/** Gate: 503 unless bootstrap is ready. Returns undefined when OK to proceed. */
-	const bootstrapGate = async (
-		_req: unknown,
-		reply: { code: (n: number) => { send: (body: unknown) => unknown } },
-	): Promise<unknown> => {
-		if (!bootstrapState) return undefined;
-		const status = bootstrapState.get().status;
-		if (status === "ready") return undefined;
-		return reply.code(503).send({
-			success: false,
-			error: `pi not yet installed (bootstrap status: ${status})`,
-			bootstrap: status,
-		});
-	};
+	// bootstrapGate removed under change: eliminate-electron-runtime-install (task 3.5).
+	// pi-core endpoints are unconditionally available; pi ships as regular npm dep.
 
 	// ── GET /api/pi-core/versions ──────────────────────────────────
 
 	fastify.get<{ Querystring: { refresh?: string } }>(
 		"/api/pi-core/versions",
-		{ preHandler: bootstrapGate as any },
 		async (request) => {
 			const refresh = request.query.refresh === "true";
 			try {
@@ -81,7 +62,6 @@ export function registerPiCoreRoutes(
 
 	fastify.post<{ Body: PiCoreUpdateRequest }>(
 		"/api/pi-core/update",
-		{ preHandler: bootstrapGate as any },
 		async (request, reply) => {
 			const requested = request.body?.packages ?? [];
 

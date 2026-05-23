@@ -5,10 +5,8 @@
  * a `(from, to]` half-open version range, plus a derived `hasBreaking`
  * flag and a public GitHub URL for the full changelog.
  *
- * Gated identically to other `/api/pi-core/*` routes via the shared
- * bootstrap-status gate.
- *
- * See change: pi-update-whats-new-panel.
+ * See change: pi-update-whats-new-panel. Bootstrap gate removed under
+ * change: eliminate-electron-runtime-install (task 3.5).
  */
 import type { FastifyInstance } from "fastify";
 import type {
@@ -33,11 +31,9 @@ import {
   fetchRemoteChangelog,
 } from "../changelog-remote.js";
 import type { ChangelogRelease } from "@blackbelt-technology/pi-dashboard-shared/changelog-types.js";
-import type { BootstrapStateStore } from "../bootstrap-state.js";
 
 export interface PiChangelogRouteDeps {
-  /** When provided, route returns 503 unless bootstrap status is "ready". */
-  bootstrapState?: BootstrapStateStore;
+  // Bootstrap gate field removed; route is unconditionally available.
 }
 
 interface QueryShape {
@@ -48,27 +44,12 @@ interface QueryShape {
 
 export function registerPiChangelogRoutes(
   fastify: FastifyInstance,
-  deps: PiChangelogRouteDeps,
+  _deps: PiChangelogRouteDeps,
 ): void {
-  const { bootstrapState } = deps;
 
-  const bootstrapGate = async (
-    _req: unknown,
-    reply: { code: (n: number) => { send: (body: unknown) => unknown } },
-  ): Promise<unknown> => {
-    if (!bootstrapState) return undefined;
-    const status = bootstrapState.get().status;
-    if (status === "ready") return undefined;
-    return reply.code(503).send({
-      success: false,
-      error: `pi not yet installed (bootstrap status: ${status})`,
-      bootstrap: status,
-    });
-  };
 
   fastify.get<{ Querystring: QueryShape }>(
     "/api/pi-core/changelog",
-    { preHandler: bootstrapGate as any },
     async (request, reply) => {
       const pkg = (request.query.pkg ?? "").trim();
       const from = (request.query.from ?? "").trim();

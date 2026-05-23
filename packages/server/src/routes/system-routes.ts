@@ -31,7 +31,7 @@ import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/
 import fs from "node:fs";
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import type { BootstrapStateStore } from "../bootstrap-state.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
@@ -81,10 +81,9 @@ export function registerSystemRoutes(
     version?: string;
     directoryService?: DirectoryService;
     piGateway?: PiGateway;
-    bootstrapState?: BootstrapStateStore;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, bootstrapState } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -277,8 +276,11 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
-      starter: bootstrapState?.get().starter ?? "Standalone",
-      installable: bootstrapState?.get().installable,
+      // launchSource: single source of truth for arm-aware client gating
+      // (e.g. hide pi-core update UI under Electron, since bundled
+      // node_modules/ is read-only). See change:
+      // eliminate-electron-runtime-install task 3.2.
+      launchSource: parseLaunchSource(process.env),
       version: version ?? "unknown",
       uptime: Math.floor((Date.now() - serverStartTime) / 1000),
       // ISO timestamp of process start. Used by the Plugins tab to detect
@@ -336,13 +338,13 @@ export function registerSystemRoutes(
     "/api/electron/reextract",
     { preHandler: networkGuard },
     async (_request, reply) => {
-      const starter = bootstrapState?.get().starter ?? "Standalone";
-      if (starter !== "Electron") {
+      const launchSource = parseLaunchSource(process.env);
+      if (launchSource !== "electron") {
         reply.status(403);
         return {
           error: "reextract_not_allowed",
-          message: `Re-extract is only available when the server was started by Electron (current starter: ${starter})`,
-          starter,
+          message: `Re-extract is only available when the server was started by Electron (current launchSource: ${launchSource})`,
+          launchSource,
         };
       }
       reply.status(202);

@@ -28,6 +28,7 @@ import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
 import { performServerSwitch } from "./lib/server-switch.js";
 import { openStagingSocket } from "./lib/staging-socket.js";
 import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
+import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { TokenStatsBar } from "./components/TokenStatsBar.js";
 
 import { CommandInput } from "./components/CommandInput.js";
@@ -39,9 +40,9 @@ import { LandingPage } from "./components/LandingPage.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
 import { InstallBanner } from "./components/InstallBanner.js";
-import { BootstrapBanner } from "./components/BootstrapBanner.js";
+
 import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
-import { useBootstrapStatus } from "./hooks/useBootstrapStatus.js";
+
 import { MissingRequiredBanner } from "./components/MissingRequiredBanner.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { TerminalsView } from "./components/TerminalsView.js";
@@ -333,7 +334,7 @@ export default function App() {
   const chatViewRef = useRef<ChatViewHandle>(null);
   const isMobile = useMobile();
   const installPrompt = useInstallPrompt();
-  const bootstrapStatus = useBootstrapStatus();
+  const launchSource = useLaunchSource();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
@@ -958,7 +959,7 @@ export default function App() {
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
         <div className="flex items-center gap-2">
-          <PiUpdateBadge />
+          {launchSource !== "electron" && <PiUpdateBadge />}
           <ServerSelector
             currentHost={currentServerHost}
             currentPort={currentServerPort}
@@ -1374,11 +1375,6 @@ export default function App() {
     });
     return apiProvider(
       <div className="bg-[var(--bg-primary)] text-[var(--text-primary)]">
-        <BootstrapBanner
-          state={bootstrapStatus.state}
-          onRetry={bootstrapStatus.retry}
-          onCleanupLegacyPi={bootstrapStatus.cleanupLegacyPi}
-        />
         <PluginStalenessBanner />
         <ConnectionStatusBanner
           status={status}

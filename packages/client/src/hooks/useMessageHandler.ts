@@ -665,18 +665,10 @@ export function useMessageHandler(
         window.dispatchEvent(new CustomEvent("plugin-config-update", { detail: msg }));
         break;
 
-      case "bootstrap_status_update":
-        // Dispatch to BootstrapBanner + useBootstrapStatus via custom DOM event.
-        // See change: unified-bootstrap-install §6.
-        window.dispatchEvent(new CustomEvent("bootstrap-status", { detail: msg }));
-        break;
-
-      case "bootstrap_ticket_complete":
-        // Dispatch ticket-completion to anyone holding a 202 ticketId from a
-        // queued pi-dependent operation (session spawn, etc).
-        // See change: unified-bootstrap-install (verification follow-up).
-        window.dispatchEvent(new CustomEvent("bootstrap-ticket", { detail: msg }));
-        break;
+      // bootstrap_status_update + bootstrap_ticket_complete WS messages
+      // removed under change: eliminate-electron-runtime-install (task 3.1).
+      // pi-core update progress still flows via the surviving pi_core_event
+      // dispatch below.
 
       case "editor_status":
         setEditorStatuses((prev) => {

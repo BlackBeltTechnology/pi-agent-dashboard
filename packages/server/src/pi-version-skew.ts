@@ -11,7 +11,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import type { BootstrapCompatibility, BootstrapStateStore } from "./bootstrap-state.js";
 import { getDefaultRegistry, type ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 /**
@@ -60,6 +59,30 @@ export function isBelow(version: string, threshold: string): boolean {
 export function isAbove(version: string, threshold: string): boolean {
   const thresholdClean = threshold.replace(/\.x$/i, ".99999");
   return compareVersions(version, thresholdClean) > 0;
+}
+
+/**
+ * Pi version compatibility snapshot.
+ *
+ * Previously declared in `./bootstrap-state.js`; moved here under change:
+ * eliminate-electron-runtime-install (task 3.6) once the bootstrap-state
+ * store was removed. The shape stays stable so consumers (CLI version
+ * skew log, future UI version-skew banner for standalone arm) keep
+ * compiling.
+ */
+export interface BootstrapCompatibility {
+  /** Minimum pi version supported by this dashboard server. */
+  minimum: string;
+  /** Recommended pi version; below = soft warning, above = OK. */
+  recommended: string;
+  /** Maximum supported pi version, or `null` for unbounded. */
+  maximum: string | null;
+  /** Currently-resolved pi version (or `undefined` if pi unresolvable). */
+  current?: string;
+  /** Set when `current < recommended`. */
+  upgradeRecommended?: boolean;
+  /** Set when `current > maximum`. */
+  upgradeDashboard?: boolean;
 }
 
 /**
@@ -168,48 +191,3 @@ export function computeCompatibility(
   return out;
 }
 
-interface CacheEntry {
-  value: BootstrapCompatibility;
-  /** Milliseconds epoch when this entry should be discarded. */
-  expiresAt: number;
-}
-
-let cached: CacheEntry | undefined;
-const CACHE_TTL_MS = 60_000;
-
-/**
- * Convenience wrapper: read range + current version, compute result,
- * cache for 60 s. `store` is called with a structured compatibility
- * update and (when minimum is violated) a blocking `error` message.
- */
-export function updateBootstrapCompatibility(
-  store: BootstrapStateStore,
-  serverPkgJsonPath: string,
-  registry: ToolRegistry = getDefaultRegistry(),
-  now: () => number = Date.now,
-): BootstrapCompatibility {
-  const t = now();
-  if (cached && t < cached.expiresAt) {
-    store.set({ compatibility: cached.value });
-    return cached.value;
-  }
-  const range = readPiCompatibility(serverPkgJsonPath);
-  const current = readCurrentPiVersion(registry);
-  const computed = computeCompatibility(range, current);
-  cached = { value: computed, expiresAt: t + CACHE_TTL_MS };
-  store.set({ compatibility: computed });
-  // Minimum-violated → block pi-dependent ops by setting `error`.
-  if (current && isBelow(current, range.minimum)) {
-    store.set({
-      error: {
-        message: `pi version ${current} is below minimum ${range.minimum}. Please run \`pi-dashboard upgrade-pi\`.`,
-      },
-    });
-  }
-  return computed;
-}
-
-/** Test helper: clear the 60-second cache between runs. */
-export function _resetVersionSkewCache(): void {
-  cached = undefined;
-}

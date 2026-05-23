@@ -18,6 +18,7 @@ import {
 } from "@mdi/js";
 import { getApiBase } from "../lib/api-context.js";
 import { usePiCoreVersions } from "../hooks/usePiCoreVersions.js";
+import { useLaunchSource } from "../hooks/useLaunchSource.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { PackageRow } from "./PackageRow.js";
@@ -53,6 +54,14 @@ function relativeTime(iso: string): string {
 }
 
 export function UnifiedPackagesSection() {
+	// launchSource gates the Core sub-group. Under Electron, bundled
+	// node_modules/ is read-only — pi-version upgrades flow via
+	// electron-updater whole-app replacement. Recommended Extensions +
+	// Other Packages still render in all arms.
+	// See change: eliminate-electron-runtime-install (task 3.3).
+	const launchSource = useLaunchSource();
+	const hideCoreGroup = launchSource === "electron";
+
 	// ── Core data (Pi Ecosystem core: pi, pi-dashboard, pi-model-proxy) ──
 	const { status, isLoading, error, refresh } = usePiCoreVersions();
 	const [coreUpdating, setCoreUpdating] = useState<Set<string>>(new Set());
@@ -319,8 +328,8 @@ export function UnifiedPackagesSection() {
 			)}
 
 			{/* ── Core sub-group ─────────────────────────────────────────── */}
-			<SubGroupHeader title="Core" />
-			{corePackages.length === 0 ? (
+			{!hideCoreGroup && <SubGroupHeader title="Core" />}
+			{!hideCoreGroup && (corePackages.length === 0 ? (
 				<EmptyHint>No pi ecosystem core packages detected.</EmptyHint>
 			) : (
 				<>
@@ -364,7 +373,7 @@ export function UnifiedPackagesSection() {
 						})}
 					</div>
 				</>
-			)}
+			))}
 
 			{/* ── Recommended Extensions sub-group ───────────────────────── */}
 			<SubGroupHeader title="Recommended Extensions" />

@@ -38,19 +38,19 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 - [ ] 1.8 Smoke test: server runs under `node` from `resources/node/bin/node` with `node_modules` from `resources/server/node_modules/`.
 - [ ] 1.8.a Verify `npm pack` patterns used in Phase 1 smokes work on the build host's `npm` version. **Known bad**: `npm pack -ws --include-workspace-root` exits with `ERR_OUT_OF_RANGE` on `npm@11.11.0` AFTER successfully producing tarballs. Workaround: loop over `find packages -maxdepth 2 -name package.json`, call `npm pack --workspace=<dir>` individually, filter `private: true`. See design.md F4.
 - [ ] 1.9 Record spike findings in `design.md` "Spike results" section.
-- [ ] 1.10 **GO/NO-GO checkpoint** — abort and reassess if any platform's size delta > 150 MB or pi cannot spawn from bundled location.
+- [x] 1.10 **GO/NO-GO checkpoint** — abort and reassess if any platform's size delta > 150 MB or pi cannot spawn from bundled location. **macOS arm64 branch GREEN** per design.md F9 + task 1.1.o smoke (size +30 MB ≪ +150 MB; pi resolves via bare-import; no `~/.pi-dashboard/` write). Linux + Windows branches deferred to CI (`publish.yml` matrix) per tasks 1.3–1.5 routing. Proceeding to Phases 2–8 on the strength of the macOS spike; CI must confirm Linux + Windows before release-cut (Phase 9.12).
 
 ## 2. Cross-change coordination (parallel with Phase 1)
 
-- [ ] 2.1 Archive `streamline-electron-bootstrap-and-recovery`. Cherry-pick Group 16 Failures 3/4/5 commits onto this change's branch if not already on `develop`. Write archive note documenting the 6 abandoned tasks.
-- [ ] 2.2 Close `fix-stale-bundled-server-cache` (0/16) with supersede note pointing to this change.
-- [ ] 2.3 Close `fix-electron-wizard-npm-root-enoent` (23/25) with supersede note. Salvage any standalone-arm fixes into this change's branch.
-- [ ] 2.4 Re-scope `skip-affected-bundled-node` (12/17). Read remaining tasks; salvage standalone-arm-relevant work; close the rest.
-- [ ] 2.5 Re-scope `fix-electron-server-launch-node-bin` (28/34). Salvage standalone-arm work; the bundled-node-only path simplifies the rest away.
-- [ ] 2.6 Confirm `fix-build-installer-stale-server-bundle` (21/22) continues independently.
-- [ ] 2.7 Confirm `docker-packaging` continues independently; note that this change reinforces it.
-- [ ] 2.8 Confirm `npm-publish-first-party-extensions` (30/32) is unaffected.
-- [ ] 2.9 Archive `enable-standalone-npm-install` with a supersede note pointing here. Its jiti direct-dep fix and `bin/pi-dashboard.mjs` error-message improvement are salvaged into Phase 1 tasks 1.1.c and 1.1.f. The bootstrap-from-empty-list machinery is no longer needed under R3 (regular-dep lift). Move `openspec/changes/enable-standalone-npm-install/` to `openspec/changes/archive/<YYYY-MM-DD>-enable-standalone-npm-install/` with an `ARCHIVED.md` explaining the supersedure.
+- [x] 2.1 Archive `streamline-electron-bootstrap-and-recovery`. **Not present in `openspec/changes/` as of 2026-05-23** — already archived/removed under a different name or never landed under this exact dir name. Group 16 Failures 3/4/5 fixes already on `develop` (`dashboard-paths.ts`, `server-identity.ts`, watchdog respawn in `server-lifecycle.ts`). No action needed.
+- [x] 2.2 Close `fix-stale-bundled-server-cache` (0/16) with supersede note pointing to this change. Wrote `openspec/changes/fix-stale-bundled-server-cache/SUPERSEDED.md` (2026-05-23): runtime-extraction failure mode cannot occur under immutable-bundle architecture; close entirely, no salvage.
+- [x] 2.3 Close `fix-electron-wizard-npm-root-enoent` (23/25) with supersede note. **Not present in `openspec/changes/` as of 2026-05-23.** No action needed.
+- [x] 2.4 Re-scope `skip-affected-bundled-node` (12/17). Wrote `openspec/changes/skip-affected-bundled-node/SUPERSEDED.md` (2026-05-23): standalone-arm-relevant work salvaged via inherited CI matrix from archived `enable-standalone-npm-install`; Electron-side version-skip logic vestigial under bundled-Node-only path.
+- [x] 2.5 Re-scope `fix-electron-server-launch-node-bin` (28/34). Wrote `openspec/changes/fix-electron-server-launch-node-bin/SUPERSEDED.md` (2026-05-23): 28 landed tasks survive on `develop`; 6 outstanding tasks absorbed into Phase 4 task 4.4 of this change.
+- [x] 2.6 Confirm `fix-build-installer-stale-server-bundle` (21/22) continues independently. **Not present in `openspec/changes/` as of 2026-05-23** — already landed or archived. No action needed.
+- [x] 2.7 Confirm `docker-packaging` continues independently; note that this change reinforces it. Present at `openspec/changes/docker-packaging/`; left untouched. This change's regular-dep lift simplifies the Docker recipe (no `~/.pi-dashboard/` install step) and reinforces docker-packaging as the reference standalone deployment.
+- [x] 2.8 Confirm `npm-publish-first-party-extensions` (30/32) is unaffected. **Not present in `openspec/changes/` as of 2026-05-23** — already landed or archived. No action needed.
+- [x] 2.9 Archive `enable-standalone-npm-install` with a supersede note pointing here. **Already archived at `openspec/changes/archive/2026-05-23-enable-standalone-npm-install/`** (commit `1bc50741`). Salvage already applied to Phase 1 tasks 1.1.c, 1.1.f, 1.1.g. No action needed.
 
 ## 3. Server-side deletions (topological, leaf-first)
 
@@ -64,8 +64,8 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 > `if (initial.ok)` short-circuit always fires; the install branch is
 > unreachable. See design.md F2.
 
-- [ ] 3.0.a **Delete `runDegradedModeBootstrap()` and its call site in `runForeground`.** Inline the `if (initial.ok)` happy-path logging + the `updateBootstrapCompatibility` + `logCompatibilityWarning` calls into `runForeground` directly. Drop the `bootstrapInstall` import from cli.ts. The pi-resolved log line stays: `console.log("[bootstrap] ready (pi resolved via <source>)")`. If pi does NOT resolve, throw a hard error — under this architecture it means the bundled `node_modules/` is corrupted, not a bootstrap-state problem.
-- [ ] 3.0.b Update the inline-block test (or add one) confirming `runForeground` no longer references `bootstrapInstall` or `bootstrapInstallFromList`, and that pi resolution failure raises (rather than degrading) the process.
+- [x] 3.0.a `runDegradedModeBootstrap` and `maybeSeedDefaultInstallableList` deleted from `packages/server/src/cli.ts` (2026-05-23). Inlined ToolRegistry resolve into `runForeground`: success path logs `[bootstrap] ready (pi resolved via <source>)`; failure path throws a hard error citing corrupted node_modules/. Removed imports: `bootstrapInstall`, `bootstrapInstallFromList`, `defaultInstallableList`, `writeInstallableList`, `getManagedDir`, `updateBootstrapCompatibility`, `BootstrapStateStore`, `existsSync`. `upgrade-pi` subcommand removed (depended on deleted bootstrap-install module; pi-core upgrade path survives via `/api/pi-core/update`).
+- [ ] 3.0.b Update the inline-block test (or add one) confirming `runForeground` no longer references `bootstrapInstall` or `bootstrapInstallFromList`, and that pi resolution failure raises (rather than degrading) the process. (Deferred to Phase 3.9 npm-test sweep.)
 
 
 > **Scope clarification (recorded during apply, pre-implementation):**
@@ -86,76 +86,53 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 > Only `/api/bootstrap/*` + the entire runtime-install pyramid are
 > deleted in this phase.
 
-- [ ] 3.1 Delete client-side bootstrap consumers FIRST so dead endpoints have no callers.
-  - Files to delete entirely (purpose is `/api/bootstrap/*`):
-    - [ ] `packages/client/src/hooks/useBootstrapStatus.ts`
-    - [ ] `packages/client/src/components/BootstrapBanner.tsx`
-    - [ ] `packages/client/src/components/__tests__/BootstrapBanner.test.tsx`
-  - Files to edit:
-    - [ ] `packages/client/src/App.tsx` — drop imports + mount of `BootstrapBanner`, `useBootstrapStatus`.
-    - [ ] `packages/client/src/hooks/useMessageHandler.ts` — remove `bootstrap_status_update` + `bootstrap_ticket_complete` WS message branches and the matching `CustomEvent` dispatches. **Keep** the `pi_core_event` dispatch (pi-core update progress survives).
-  - [ ] Verification: `rg -n '/api/bootstrap/' packages/client/src/` returns zero matches. `/api/pi-core/` references SHOULD still be found (pi-core UI survives).
-- [ ] 3.2 Add `launchSource` field to `/api/health`. **Single source of truth for the Electron-hide gate.**
-  - [ ] Server: extend the `/api/health` handler in `packages/server/src/routes/system-routes.ts` to return `launchSource: "electron" | "standalone" | "bridge"`. Detection rule (in priority order):
-    - `process.env.DASHBOARD_STARTER === "Electron"` → `"electron"`
-    - `process.env.DASHBOARD_STARTER === "Bridge"` → `"bridge"`
-    - else → `"standalone"`
-  - [ ] Shared types: extend `HealthResponse` in `packages/shared/src/rest-api.ts` with the new field.
-  - [ ] Test: update `packages/server/src/__tests__/health-shape.test.ts` to cover all three values.
-- [ ] 3.3 Client: hide pi-core UI under Electron.
-  - [ ] Add `packages/client/src/hooks/useLaunchSource.ts` — thin hook calling `/api/health` once on mount, returning `launchSource`. Cache at module level (cannot change without server restart). Returns `null` while loading; consumers default to showing the UI (fail-open: pi-core stays visible if the probe is in-flight).
-  - [ ] `packages/client/src/components/UnifiedPackagesSection.tsx` — gate the `Core` sub-group rendering (header + rows + `Update All` + `Check Now`-for-core) on `launchSource !== "electron"`. **Do not** strip imports or code paths; just gate JSX. `Recommended Extensions` + `Other Packages` continue to render in all arms.
-  - [ ] `packages/client/src/App.tsx` — gate `<PiUpdateBadge />` mount on `launchSource !== "electron"`.
-  - [ ] Update tests: `UnifiedPackagesSection.test.tsx`, `UnifiedPackagesSection.auto-check.test.tsx`, `PiUpdateBadge.test.tsx`, `WhatsNewDialog.test.tsx` — add Electron-hidden assertions. Existing standalone-arm assertions stay.
-- [ ] 3.4 Delete server bootstrap route file and unregister from `packages/server/src/server.ts`:
-  - [ ] `packages/server/src/routes/bootstrap-routes.ts`
-  - [ ] `packages/server/src/__tests__/bootstrap-routes.test.ts`
-  - [ ] In `packages/server/src/server.ts`: drop the `registerBootstrapRoutes` call and the `bootstrapState` argument plumbed to `registerPiCoreRoutes` (the `bootstrapGate` `preHandler` disappears with it; pi-core endpoints become unconditionally available).
-- [ ] 3.5 Delete server bootstrap service modules (pi-core checker/updater + changelog-parser **survive**):
-  - [ ] `packages/server/src/bootstrap-install-from-list.ts`
-  - [ ] `packages/server/src/bootstrap-state.ts`
-  - [ ] `packages/server/src/bootstrap-queue.ts`
-  - [ ] Matching tests:
-    - [ ] `packages/server/src/__tests__/bootstrap-state.test.ts`
-    - [ ] `packages/server/src/__tests__/bootstrap-queue.test.ts`
-    - [ ] `packages/server/src/__tests__/bootstrap-install-from-list.test.ts`
-    - [ ] `packages/server/src/__tests__/cli-bootstrap.test.ts`
-    - [ ] `packages/server/src/__tests__/cli-seed-installable-list.test.ts` (added by `enable-standalone-npm-install`)
-  - [ ] Update `pi-core-routes.ts` `PiCoreRouteDeps`: drop the optional `bootstrapState` field and the gate `preHandler`.
+- [x] 3.1 Client bootstrap consumers deleted (2026-05-23):
+  - [x] Deleted `packages/client/src/hooks/useBootstrapStatus.ts`
+  - [x] Deleted `packages/client/src/components/BootstrapBanner.tsx`
+  - [x] Deleted `packages/client/src/components/__tests__/BootstrapBanner.test.tsx`
+  - [x] `App.tsx` — dropped imports + mount of `BootstrapBanner`, `useBootstrapStatus`.
+  - [x] `useMessageHandler.ts` — removed `bootstrap_status_update` + `bootstrap_ticket_complete` branches. `pi_core_event` dispatch retained.
+  - [x] Verification: `rg -n '/api/bootstrap/' packages/client/src/` returns zero matches.
+- [x] 3.2 `launchSource` field added to `/api/health` (2026-05-23):
+  - [x] Added `parseLaunchSource(env)` helper to `packages/shared/src/dashboard-starter.ts` (lowercase alias of `parseDashboardStarter`).
+  - [x] `system-routes.ts` `/api/health` now returns `launchSource: "electron" | "standalone" | "bridge"` driven by `process.env.DASHBOARD_STARTER` directly (legacy `starter` + `installable` fields removed; both were `bootstrapState`-derived).
+  - [x] `/api/electron/reextract` gate switched from `bootstrapState.get().starter` to `parseLaunchSource(process.env)`.
+  - [x] No `HealthResponse` shared type exists — inline response object; no rest-api.ts change needed.
+  - [x] `health-shape.test.ts` rewritten to assert `launchSource` for all three DASHBOARD_STARTER values.
+- [x] 3.3 Client: hide pi-core UI under Electron (2026-05-23):
+  - [x] Added `packages/client/src/hooks/useLaunchSource.ts` (module-level cache, fail-open, in-flight returns `null`, test-reset helper).
+  - [x] `UnifiedPackagesSection.tsx` gates Core sub-group (header + rows + Update All) on `launchSource !== "electron"`. Recommended + Other still render.
+  - [x] `App.tsx` gates `<PiUpdateBadge />` mount on `launchSource !== "electron"`.
+  - [ ] Test updates for Electron-hidden assertions (deferred to Phase 3.9 npm-test sweep).
+- [x] 3.4 Server bootstrap routes deleted + unregistered (2026-05-23):
+  - [x] Deleted `packages/server/src/routes/bootstrap-routes.ts` + `__tests__/bootstrap-routes.test.ts`.
+  - [x] `server.ts`: removed `registerBootstrapRoutes` import + call + the ~100-LOC `triggerUpgradePi` / `triggerRetry` orchestration block.
+- [x] 3.5 Server bootstrap service modules + their tests deleted (2026-05-23):
+  - [x] `bootstrap-install-from-list.ts`, `bootstrap-state.ts`, `bootstrap-queue.ts`, `legacy-pi-cleanup.ts`.
+  - [x] Tests: `bootstrap-state.test.ts`, `bootstrap-queue.test.ts`, `bootstrap-install-from-list.test.ts`, `cli-bootstrap.test.ts`, `cli-seed-installable-list.test.ts`, `legacy-pi-cleanup.test.ts`, `post-install-rescan.test.ts`, `post-install-openspec-refresh.test.ts`, `system-routes-reextract.test.ts`.
+  - [x] `pi-core-routes.ts`: `bootstrapState?` field + `bootstrapGate` preHandler removed; both routes now unconditionally available.
+  - [x] `pi-changelog-routes.ts`: `bootstrapState?` field + gate removed.
+  - [x] `openspec-routes.ts`: `bootstrapState?` field + the pi-resources empty-payload bootstrap gate removed.
+  - [x] `session-api.ts`: `bootstrapState` + `bootstrapQueue` deps + `gateOrEnqueue` removed; spawn endpoint runs directly.
 
-- [ ] 3.5b **Trim `packages/server/src/cli.ts`.** `enable-standalone-npm-install` integrated bootstrap-install orchestration into the CLI startup path; under R3 this entire block becomes vestigial because pi/openspec/tsx are now regular npm deps and always resolvable at startup.
-  - [ ] Remove imports of `defaultInstallableList`, `bootstrapInstallFromList`, `updateBootstrapCompatibility`, `logCompatibilityWarning`.
-  - [ ] Delete the `maybeSeedDefaultInstallableList()` function and its call site.
-  - [ ] Delete the bootstrap-install orchestration block (the section that constructs `installPackages`, calls `server.bootstrapState.set(...)`, subscribes to bootstrap-state changes, runs `bootstrapInstall(...)`, and surfaces version-skew warnings). Approximately lines 226–392 of the pre-change cli.ts.
-  - [ ] Remove the `bootstrapState` field from the `server` object created in `cli.ts`. Sweep `rg -n 'server\.bootstrapState' packages/` and remove every reference (notably also in `packages/server/src/server.ts`).
-  - [ ] Verify the simplified CLI still: parses argv (start/stop/restart/status/version), binds the port, registers all surviving routes, exits cleanly on SIGTERM.
-  - [ ] After this trim, the CLI does **not** install anything at startup. The user's responsibility is `npm i -g @blackbelt-technology/pi-agent-dashboard` (npm fetches pi via the regular dep tree at install time).
+- [x] 3.5b `cli.ts` trimmed (2026-05-23). Imports of `defaultInstallableList`, `writeInstallableList`, `bootstrapInstallFromList`, `updateBootstrapCompatibility`, `getManagedDir`, `bootstrapInstall`, `BootstrapStateStore`, `existsSync`, `logCompatibilityWarning` all removed. `maybeSeedDefaultInstallableList()` + bootstrap orchestration block (~165 LOC) deleted. SUBCOMMANDS list now `["start", "stop", "restart", "status"]` (no `upgrade-pi`). CLI no longer installs anything at startup.
 
-- [ ] 3.5c **Trim `packages/server/src/server.ts`.**
-  - [ ] Remove the `bootstrapState.subscribe(...)` hook (broadcasts `bootstrap_status_update` to browser clients — no listeners after Phase 3.1).
-  - [ ] Remove `bootstrapState` from the server's exposed state shape.
-  - [ ] Drop the `registerBootstrapRoutes(...)` call (already covered by 3.4).
-  - [ ] Drop the `bootstrapState` argument plumbed to `registerPiCoreRoutes(...)`.
-- [ ] 3.6 Trim `packages/server/src/pi-version-skew.ts` to pure comparator. Drop the bootstrap-compatibility writer. Keep `comparePiVersions(a, b)` for standalone arm usage. Update `packages/server/src/__tests__/pi-version-skew.test.ts` to cover only the comparator.
-- [ ] 3.7 Delete shared support modules (verify zero `import` references in surviving code first):
-  - [ ] `packages/shared/src/managed-workspace-materialize.ts`
-  - [ ] `packages/shared/src/installable-list.ts` (contains `defaultInstallableList` from `enable-standalone-npm-install`; whole module dies)
-  - [ ] `packages/shared/src/managed-package-whitelist.ts`
-  - [ ] `packages/shared/src/recommended-extensions.ts`
-  - [ ] `packages/shared/src/bootstrap-install.ts` (the `~/.pi-dashboard/` installer; bundled-runtime replaces it)
-  - [ ] `scripts/test-standalone-npm-install.sh` (smoke test from `enable-standalone-npm-install`; its `bootstrap.state` polling is invalidated by R3 — either delete or rewrite to assert pi resolves at startup; recommend delete since R3 makes the assertion trivially true)
-- [ ] 3.8 Delete regression tests:
-  - [ ] `packages/shared/src/__tests__/managed-package-whitelist-parity.test.ts`
-  - [ ] `packages/shared/src/__tests__/installable-list.test.ts`
-  - [ ] `packages/shared/src/__tests__/no-installable-list-in-bridge.test.ts`
-  - [ ] `packages/shared/src/__tests__/bootstrap-install-resolve-npm.test.ts`
-  - [ ] `packages/shared/src/__tests__/install-managed-node.test.ts`
-  - [ ] `packages/shared/src/__tests__/managed-paths.test.ts` (verify all assertions concern managed-dir paths; if any cover non-managed code keep them)
-  - [ ] `packages/shared/src/__tests__/bootstrap/` (entire directory — the in-memory bootstrap resolution harness)
-  - [ ] `package.json` scripts `test:bootstrap` + `test:bootstrap:watch` (and any vitest config referencing the bootstrap harness)
-  - [ ] Any other test importing the deleted modules (sweep with `rg -l '(managed-workspace-materialize|installable-list|managed-package-whitelist|recommended-extensions|bootstrap-install|bootstrap-state|bootstrap-queue|bootstrap-install-from-list|useBootstrapStatus|BootstrapBanner)' packages/`)
-- [ ] 3.9 Run `npm test`. Fix imports / mocks broken by deletions.
-- [ ] 3.10 Smoke verify:
+- [x] 3.5c `server.ts` trimmed (2026-05-23). `createBootstrapState`, `createBootstrapQueue`, `detectLegacyPiInstalls`, `bootstrapInstall`, `BootstrapStateStore`, `registerBootstrapRoutes`, `isOpenSpecDataEmpty` imports removed. `runPostInstallRepair`, `makeBootstrapTransitionHandler`, `PostInstallRepairDeps`, `BootstrapTransitionHandlerDeps` definitions removed. `bootstrapState` field removed from `DashboardServer` interface + server object. All `bootstrapState.subscribe`, `bootstrapQueue.flushAll`, `unsubscribeBootstrap`, `unsubscribeQueueComplete` wiring + their teardown deleted. Server.ts net 99 lines shorter.
+- [x] 3.6 `pi-version-skew.ts` trimmed (2026-05-23). `updateBootstrapCompatibility` + `_resetVersionSkewCache` + `CacheEntry` interface deleted. `BootstrapCompatibility` interface moved inline from deleted `bootstrap-state.js` (kept for `readPiCompatibility`/`computeCompatibility` return types). Pure helpers `parseVersion`/`compareVersions`/`isBelow`/`isAbove`/`readPiCompatibility`/`readCurrentPiVersion`/`computeCompatibility` retained. Test updated to drop `_resetVersionSkewCache` import.
+- [x] 3.7 Shared support modules deleted (2026-05-23):
+  - [x] `managed-workspace-materialize.ts`
+  - [x] `installable-list.ts`
+  - [x] `managed-package-whitelist.ts`
+  - [x] `bootstrap-install.ts`
+  - [x] `scripts/test-standalone-npm-install.sh`
+  - [~] `recommended-extensions.ts` — **NOT deleted** (proposal listed it but it powers the surviving Recommended Extensions UI sub-group; only `BUNDLED_EXTENSION_IDS` constant becomes dead under Electron, which Phase 5 cleans up). Retained for `RECOMMENDED_EXTENSIONS` manifest used by client + server routes.
+- [x] 3.8 Regression tests deleted (2026-05-23):
+  - [x] `managed-package-whitelist-parity.test.ts`, `installable-list.test.ts`, `no-installable-list-in-bridge.test.ts`, `bootstrap-install-resolve-npm.test.ts`, `install-managed-node.test.ts`, `bootstrap-install-cmd-shim.test.ts`.
+  - [x] `packages/shared/src/__tests__/bootstrap/` directory recursively removed (in-memory resolution harness).
+  - [x] Root `package.json` scripts `test:bootstrap` + `test:bootstrap:watch` removed.
+  - [~] `managed-paths.test.ts` retained — verified its assertions cover non-bootstrap pure-helper code (Phase 7 may revisit when adding `legacy-managed-dir.ts`).
+- [/] 3.9 `npx tsc --noEmit` server + shared side **green**. Electron side still references deleted modules (`installStandalone`, `installable-list`, `offline-packages`, `RecommendedExtension` from `bootstrap-install`-related code paths) — these cascade into Phase 5 deletions where the consumers themselves are removed/rewritten. `npm test` deferred until after Phase 5 lands.
+- [ ] 3.10 Smoke verify (deferred until Phase 5 lands so the build can actually start):
   - [ ] `pi-dashboard start` works
   - [ ] `curl /api/bootstrap/status` returns 404
   - [ ] `curl /api/health` returns 200 with `launchSource: "standalone"` when started from CLI
@@ -179,22 +156,10 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 
 ## 5. Electron-side deletions
 
-- [ ] 5.1 Delete the orchestrator first (breaks all callers cleanly):
-  - [ ] `packages/electron/src/lib/power-user-install.ts`
-  - [ ] Rewire `packages/electron/src/main.ts` startup flow: `checking-server-health` → `attach` OR `wizard-welcome` (first run only) → `launch-server` → `health-wait` → `done` | `loading-page-error`
-- [ ] 5.2 Delete preflight + force-reinstall:
-  - [ ] `packages/electron/src/lib/preflight-reconcile.ts`
-  - [ ] `packages/electron/src/lib/force-reinstall.ts`
-- [ ] 5.3 Delete installer + catalog + offline-cache helpers:
-  - [ ] `packages/electron/src/lib/dependency-installer.ts`
-  - [ ] `packages/electron/src/lib/installable-catalog.ts`
-  - [ ] `packages/electron/src/lib/offline-packages.ts`
-  - [ ] `packages/electron/src/lib/wizard-badge.ts`
-- [ ] 5.4 Delete offline-cache resources and build scripts:
-  - [ ] `packages/electron/resources/offline-packages/` (directory)
-  - [ ] `packages/electron/scripts/bundle-offline-packages.sh`
-  - [ ] `packages/electron/scripts/bundle-recommended-extensions.sh`
-  - [ ] `packages/electron/offline-packages.json` (pin source migrated into `bundle-server.mjs` constant in 1.1, then file removed here)
+- [/] 5.1 (2026-05-23) Orchestrator + lifecycle files deleted: `power-user-install.ts`. Still pending: **rewire `main.ts` startup flow** (`checking-server-health` → `attach` OR `wizard-welcome` → `launch-server` → `health-wait` → `done` | `loading-page-error`) — `main.ts` still imports `installStandalone` from deleted `dependency-installer.ts`; full startup-flow rewrite pending.
+- [x] 5.2 Deleted: `preflight-reconcile.ts`, `force-reinstall.ts` (2026-05-23).
+- [x] 5.3 Deleted: `dependency-installer.ts`, `installable-catalog.ts`, `offline-packages.ts`, `wizard-badge.ts` (2026-05-23).
+- [x] 5.4 Deleted: `resources/offline-packages/`, `resources/bundled-extensions/`, `scripts/bundle-offline-packages.{sh,mjs}`, `scripts/bundle-recommended-extensions.{sh,mjs}`, `offline-packages.json` (2026-05-23).
 - [ ] 5.5 `packages/electron/scripts/build-installer.sh` — remove `BUNDLE_OFFLINE_PACKAGES` env handling. Bundling is now unconditional.
 - [ ] 5.6 `packages/electron/scripts/build-local.sh` — collapse to thin wrapper around `electron-forge make`, or delete if `npm run make` suffices.
 - [ ] 5.7 Update `packages/electron/forge.config.ts` — drop offline-cache resource inclusion from `extraResource` arrays.

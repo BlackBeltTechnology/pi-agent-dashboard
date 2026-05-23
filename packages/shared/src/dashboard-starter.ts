@@ -31,3 +31,25 @@ export function parseDashboardStarter(
   );
   return "Standalone";
 }
+
+/**
+ * `LaunchSource` — lowercase alias of `DashboardStarter` exposed on
+ * `/api/health` as a stable client contract for arm-aware gating
+ * (notably hiding pi-core update UI when running under Electron, since
+ * the bundled `node_modules/` is read-only under the .app).
+ *
+ * Detection follows `parseDashboardStarter` then lowercases:
+ *   DASHBOARD_STARTER=Electron   → "electron"
+ *   DASHBOARD_STARTER=Bridge     → "bridge"
+ *   else                          → "standalone"
+ *
+ * See change: eliminate-electron-runtime-install (task 3.2).
+ */
+export type LaunchSource = "electron" | "standalone" | "bridge";
+
+export function parseLaunchSource(
+  env: Record<string, string | undefined>,
+): LaunchSource {
+  const s = parseDashboardStarter(env);
+  return s === "Electron" ? "electron" : s === "Bridge" ? "bridge" : "standalone";
+}

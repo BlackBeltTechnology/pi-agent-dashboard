@@ -13,8 +13,6 @@ import { spawnPiSession } from "./process-manager.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
 import type { PendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
-import type { BootstrapStateStore } from "./bootstrap-state.js";
-import type { BootstrapQueue } from "./bootstrap-queue.js";
 import { attachRenameTarget, detachShouldClearName } from "./proposal-attach-naming.js";
 import { FORK_DEGRADED_TO_NEW_MESSAGE, FORK_DEGRADED_TO_NEW_CODE } from "./browser-handlers/session-action-handler.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
@@ -25,13 +23,6 @@ export interface SessionApiDeps {
   browserGateway: BrowserGateway;
   pendingForkRegistry?: PendingForkRegistry;
   pendingDashboardSpawns?: Map<string, number>;
-  /**
-   * Bootstrap state + queue for degraded-mode gating. When omitted,
-   * session operations run normally (legacy behavior for tests that
-   * don't exercise the bootstrap flow). See change: unified-bootstrap-install.
-   */
-  bootstrapState?: BootstrapStateStore;
-  bootstrapQueue?: BootstrapQueue;
   /**
    * User-resume-intent registry. Tagged in the resume endpoint so the
    * `sessionManager.onChange` ended→alive branch can distinguish a
@@ -58,54 +49,12 @@ function getSessionOrFail(sessionManager: SessionManager, id: string): { session
 }
 
 export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDeps) {
-  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, bootstrapState, bootstrapQueue, pendingResumeIntents, pendingAttachRegistry } = deps;
+  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry } = deps;
 
-  /**
-   * Gate pi-dependent operations on bootstrap status. Returns:
-   *   - null when ready (proceed).
-   *   - `{ code: 202, body: { status: "queued", ticketId } }` when installing;
-   *     the operation is enqueued and will run once status flips to "ready".
-   *   - `{ code: 503, body: { error } }` when failed.
-   * See change: unified-bootstrap-install §5.
-   */
-  function gateOrEnqueue<T>(handler: () => Promise<T>):
-    | null
-    | { code: 202; body: { status: "queued"; ticketId: string } }
-    | { code: 503; body: { error: string; bootstrap: "failed" | "version-too-old" } } {
-    if (!bootstrapState) return null;
-    const snap = bootstrapState.get();
-    // Block when pi version is below the configured minimum —
-    // even when status is "ready", a too-old pi must not run sessions.
-    // See change: unified-bootstrap-install §9.3.
-    if (
-      snap.status === "ready"
-      && snap.error?.message?.startsWith("pi version ")
-    ) {
-      return {
-        code: 503,
-        body: { error: snap.error.message, bootstrap: "version-too-old" },
-      };
-    }
-    if (snap.status === "ready") return null;
-    if (snap.status === "installing") {
-      if (!bootstrapQueue) {
-        return {
-          code: 202,
-          body: { status: "queued", ticketId: "" },
-        };
-      }
-      const ticket = bootstrapQueue.enqueue(handler);
-      return {
-        code: 202,
-        body: { status: "queued", ticketId: ticket.ticketId },
-      };
-    }
-    // status === "failed"
-    return {
-      code: 503,
-      body: { error: "pi not installed (bootstrap failed)", bootstrap: "failed" },
-    };
-  }
+  // Bootstrap gate + queue removed under change: eliminate-electron-runtime-install
+  // (task 3.5). pi/openspec/tsx ship as regular npm deps so pi is always
+  // resolvable at startup; queueing pi-dependent operations during an
+  // install window is no longer needed.
 
   // POST /api/session/:id/prompt
   fastify.post<IdParams & { Body: { text?: string; images?: any[] } }>(
@@ -253,13 +202,6 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         }
         return spawnResult;
       };
-
-      // Bootstrap gate: if pi isn't ready, queue the spawn and return 202.
-      const gate = gateOrEnqueue(doSpawn);
-      if (gate) {
-        reply.code(gate.code);
-        return gate.body;
-      }
 
       const spawnResult = await doSpawn();
       if (!spawnResult.success) {

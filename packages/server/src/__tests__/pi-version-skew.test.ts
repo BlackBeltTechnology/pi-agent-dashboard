@@ -15,13 +15,14 @@ import {
   readPiCompatibility,
   readCurrentPiVersion,
   computeCompatibility,
-  _resetVersionSkewCache,
 } from "../pi-version-skew.js";
 import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 describe("pi-version-skew", () => {
   beforeEach(() => {
-    _resetVersionSkewCache();
+    // Cache (formerly `_resetVersionSkewCache`) removed under change:
+    // eliminate-electron-runtime-install (task 3.6) along with
+    // updateBootstrapCompatibility. Tests now exercise pure helpers only.
   });
 
   describe("parseVersion", () => {

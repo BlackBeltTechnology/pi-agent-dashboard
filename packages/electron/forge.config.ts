@@ -56,12 +56,10 @@ const config: ForgeConfig = {
       "./resources/loading.html",
       // Bundled server (created by scripts/bundle-server.mjs)
       ...(fs.existsSync(path.resolve(__dirname, "resources/server")) ? ["./resources/server"] : []),
-      // Bundled first-party recommended extensions (created by scripts/bundle-recommended-extensions.mjs
-      // when BUNDLE_RECOMMENDED_EXTENSIONS=1; absent on feature-branch / local builds)
-      ...(fs.existsSync(path.resolve(__dirname, "resources/bundled-extensions")) ? ["./resources/bundled-extensions"] : []),
-      // Offline npm cache for pi + openspec + tsx (created by scripts/bundle-offline-packages.mjs).
-      // Presence of the manifest file gates inclusion — dev/local forge builds skip silently.
-      ...(fs.existsSync(path.resolve(__dirname, "resources/offline-packages/manifest.json")) ? ["./resources/offline-packages"] : []),
+      // bundled-extensions + offline-packages resources removed under change:
+      // eliminate-electron-runtime-install (task 5.7). pi/openspec/tsx now
+      // ship as regular npm deps of the bundled server tree at
+      // resources/server/node_modules/; no runtime cache extraction.
     ],
     // macOS code signing — requires APPLE_IDENTITY env var in CI
     ...(process.env.APPLE_IDENTITY ? {
