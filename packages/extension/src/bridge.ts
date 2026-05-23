@@ -784,6 +784,33 @@ function initBridge(pi: ExtensionAPI) {
       setTimeout(() => sendModelUpdateIfChanged(), 50);
     },
     shutdown: () => {
+      // Reset shadow queues + clear pi's native queues BEFORE cachedCtx.shutdown()
+      // so the bridge is still in a known-good state when the final queue_update
+      // is emitted. Pi's own teardown may fire events the bridge no longer
+      // processes after cachedCtx.shutdown(). Mirrors the session-change reset
+      // pattern at handleSessionChange (~bridge.ts:1709). See change:
+      // reset-shadow-queues-on-shutdown and capability mid-turn-prompt-queue
+      // requirement "Session shutdown resets shadow queues and clears pi's
+      // native queues".
+      try {
+        if (typeof (pi as any).clearSteeringQueue === "function") {
+          (pi as any).clearSteeringQueue();
+        }
+      } catch (err) {
+        console.warn("[dashboard] pi.clearSteeringQueue threw during shutdown:", err);
+      }
+      try {
+        if (typeof (pi as any).clearFollowUpQueue === "function") {
+          (pi as any).clearFollowUpQueue();
+        }
+      } catch (err) {
+        console.warn("[dashboard] pi.clearFollowUpQueue threw during shutdown:", err);
+      }
+      if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
+        bridgeSteering = [];
+        bridgeFollowUp = [];
+        emitQueueUpdate();
+      }
       if (cachedCtx?.shutdown) {
         cachedCtx.shutdown();
       }
@@ -792,6 +819,28 @@ function initBridge(pi: ExtensionAPI) {
       setTimeout(() => process.exit(0), 500);
     },
     abort: () => {
+      // Mirror shutdown-time reset: clear pi's native queues + bridge shadows
+      // so queued steers/follow-ups don't deliver after the user clicked Stop.
+      // See change: reset-shadow-queues-on-shutdown (extended scope).
+      try {
+        if (typeof (pi as any).clearSteeringQueue === "function") {
+          (pi as any).clearSteeringQueue();
+        }
+      } catch (err) {
+        console.warn("[dashboard] pi.clearSteeringQueue threw during abort:", err);
+      }
+      try {
+        if (typeof (pi as any).clearFollowUpQueue === "function") {
+          (pi as any).clearFollowUpQueue();
+        }
+      } catch (err) {
+        console.warn("[dashboard] pi.clearFollowUpQueue threw during abort:", err);
+      }
+      if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
+        bridgeSteering = [];
+        bridgeFollowUp = [];
+        emitQueueUpdate();
+      }
       if (cachedCtx?.abort) {
         cachedCtx.abort();
       }

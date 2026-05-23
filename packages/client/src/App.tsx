@@ -810,6 +810,34 @@ export default function App() {
     }
   }, [handleSend, selectedId, clearDraftForSession, clearImagesForSession, sessions, BUILTIN_SLASH_COMMANDS]);
 
+  // Wrap handleAbort to restore queued steering + follow-up text into the
+  // command-input draft, matching pi-TUI's `restoreQueuedMessagesToEditor`
+  // behavior (interactive-mode.js:3040). Order: queued text first (steering
+  // then followUp, joined with \n\n), then whatever the user was currently
+  // typing. The bridge clears both shadow queues on abort, so this snapshot
+  // happens BEFORE dispatching the WS abort message.
+  // See change: reset-shadow-queues-on-shutdown.
+  const wrappedHandleAbort = useCallback(() => {
+    if (!selectedId) {
+      handleAbort();
+      return;
+    }
+    const session = sessions.get(selectedId);
+    const steering = session?.pendingQueues?.steering ?? [];
+    const followUp = session?.pendingQueues?.followUp ?? [];
+    const queuedText = [...steering, ...followUp]
+      .filter((t) => t.trim())
+      .join("\n\n");
+    if (queuedText) {
+      const currentDraft = drafts.get(selectedId) ?? "";
+      const combined = [queuedText, currentDraft]
+        .filter((t) => t.trim())
+        .join("\n\n");
+      setDraftForSelected(combined);
+    }
+    handleAbort();
+  }, [selectedId, sessions, drafts, setDraftForSelected, handleAbort]);
+
   const openspecActions = useOpenSpecActions({
     send,
     openspecMap,
@@ -1121,7 +1149,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onCancelPending={handleCancelPending} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} onCancelSteering={handleClearSteeringQueue} onRetryAfterError={selectedId ? () => {
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onCancelPending={handleCancelPending} onRespondToUi={handleRespondToUi} onAbort={wrappedHandleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} onCancelSteering={handleClearSteeringQueue} onRetryAfterError={selectedId ? () => {
               // Retry the last user prompt by re-sending it via send_prompt.
               // The previous behaviour (handleResumeSession with mode="continue")
               // no-ops on alive-but-errored sessions because the server short-
@@ -1192,7 +1220,7 @@ export default function App() {
             disabled={false}
             sessionStatus={selectedState.status}
             retrying={selectedState.retryState !== undefined}
-            onAbort={handleAbort}
+            onAbort={wrappedHandleAbort}
             onForceKill={handleForceKill}
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}
