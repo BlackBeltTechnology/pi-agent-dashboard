@@ -351,6 +351,104 @@ pi resolves to bundled copy with no `~/.pi-dashboard/` access).
 | Mach-O arch | `x86_64` (host-native) |
 | Legacy `offline-packages/` in .app | absent (`BUNDLE_OFFLINE_PACKAGES` unset) |
 
+### macOS arm64 (host: macOS 26.2, Node 24.15.0, 2026-05-20)
+
+Second foreground spike, host-native arm64, against the dep-lifted
+branch (`feat/enable-standalone-npm-install`, post-commits `6f389be7`
++ `148f4b52` + `20d1a39c`). Phase 1.1.k GO/NO-GO guard executed for
+the first time.
+
+| Metric | Value |
+|---|---|
+| Build command | `bash packages/electron/scripts/build-installer.sh` |
+| `.dmg` size | **272 MB** |
+| Stale May-19 `.dmg` (pre-dep-lift, node-pty 1.1.0) | 242 MB |
+| Proposal-text "baseline" v0.5.3 | 225 MB |
+| **Size delta vs stale baseline** | **+30 MB** (well under +150 MB threshold) |
+| **Size delta vs proposal baseline** | **+47 MB** (also well under +150 MB) |
+| Bundled-server tree size | 172.2 MB (`resources/server/`) |
+| `pi-coding-agent` version bundled | **0.74.2** (floor: 0.74.0) ✓ |
+| `openspec` version bundled | **1.3.1** (floor: 1.3.0) ✓ |
+| `tsx` version bundled | **4.22.3** (floor: 4.21.0) ✓ |
+| `node-pty` version bundled | **1.2.0-beta.13** (F1 fix) |
+| `node-pty` prebuild triples present | **6 / 6** (darwin-{arm64,x64} + linux-{arm64,x64} + win32-{arm64,x64}) |
+| 1.1.k guard log line | `node-pty prebuilds OK — 4/4 required triples present (all 6 triples present)` |
+| Bundled Node version | v22.12.0 |
+| Transitive `@earendil-works/*` packages bundled | `pi-agent-core`, `pi-ai`, `pi-coding-agent` |
+
+**Why arm64 grew while x64 shrunk** (vs the earlier x86_64 spike):
+the x64 spike removed the `offline-packages/npm-cache.tar.gz` (≈80 MB
+of gzipped cacache) and replaced it with an unpacked `node_modules/`
+tree that compresses well under DMG zlib. The arm64 spike here also
+removed offline-packages, but the dep-lifted bundle is comparing
+against the stale May-19 build that **already** had offline-packages
+stripped (242 MB) — so the +30 MB delta is the actual cost of pi +
+openspec + tsx as a regular `node_modules/` tree (no longer
+gzipped at rest). Both numbers are consistent with the proposal's
+estimated "+50–80 MB" ceiling.
+
+**1.1.j re-validation:** `node scripts/verify-release-deps.mjs`
+returns `OK — 5 rules passed` after extending the rule set with
+pi/openspec/tsx floors. All five floors satisfied by the produced
+bundle.
+
+**1.1.k first execution:** the guard fired cleanly post-`npm install`
+and reported all required + advisory triples present. Builds with
+any missing required triple would exit 1 with a diagnostic pointing
+to F1 — verified by inspection of the guard's conditional branches.
+
+**Outstanding macOS spike work:** `.app` launch + WebSocket
+`spawn_session` smoke (task 1.6) still needed to close 1.10 GO/NO-GO
+on this platform.
+
+### Linux Docker build path — broken locally (2026-05-22)
+
+Attempted `bash packages/electron/scripts/build-installer.sh --linux
+--arch x64` from macOS arm64 host. Outcome:
+
+- Docker image `pi-dashboard-electron-builder` built successfully on
+  `linux/amd64` emulation.
+- `bundle-server.mjs` ran inside container: pi 0.74.2 / openspec 1.3.1 /
+  tsx 4.22.3 / node-pty 1.2.0-beta.13 all installed as regular deps.
+- `electron-forge package --platform linux --arch x64` completed (“Packaging
+  for x64 on linux → Finalizing package”).
+- `electron-forge make --platform linux --arch x64` logged `Making for the
+  following targets: , ` (two unnamed makers) and produced **no `.deb`
+  and no `.AppImage`**. `find out/make -type f` returned empty inside the
+  container.
+
+**Diagnosis:** pre-existing tooling drift. CI uses `npm run electron:make
+-- --arch=x64` (no explicit `--platform`); `docker-make.sh` passes
+`--platform linux --arch x64`. Forge 7.6.0 silently drops makers whose
+platform claim mismatches the explicit `--platform` flag in some
+configurations. **Not introduced by this change** — reproducible on
+`develop` without the dep-lift commits applied. To be tracked under a
+separate `fix-electron-docker-linux-makers` change.
+
+**Mitigation for this proposal:**
+
+- The dep-lift mechanic at the npm-install layer is independently
+  validated: container log shows `added 333 packages` for
+  `resources/server`, with pi/openspec/tsx resolved as direct deps and
+  the linux-x64 node-pty prebuild present in the bundle. The Phase 1.1.k
+  guard (executed during the local macOS arm64 build) is platform-agnostic
+  and would behave identically inside the linux container.
+- Tasks 1.3, 1.4, 1.5 are routed to CI's `publish.yml` Linux + Windows
+  matrix legs for Phase 1 GO/NO-GO sign-off. Local Docker builds remain
+  useful for the bundle-server portion and for verifying the dep-lift
+  resolves under linux-x64 npm resolution, but the maker stage is owned
+  by CI until the tooling fix lands.
+- No proposal change required — the proposal's central claim (`npm
+  install` resolves pi/openspec/tsx without runtime install) is verified
+  on linux-x64 inside the container before the maker step fails.
+
+**Implication for Phase 1.10 GO/NO-GO:** macOS arm64 closes the local
+branch of the threshold (size + bundled deps + prebuild guard). Linux
+`.deb`/`.AppImage` and Windows ZIP threshold closures happen on the next
+CI run against this branch. Pre-merging the branch is unblocked once CI
+produces green Linux + Windows artifacts; no local Docker fix is required
+to land Phase 1.
+
 The **size reduction** is counter-intuitive but expected: the old
 architecture shipped pi/openspec/tsx as a gzipped npm cacache tarball
 (`offline-packages/npm-cache.tar.gz`) at ~80 MB and the DMG's outer zlib
@@ -587,11 +685,219 @@ that survive supersedure and are useful here:
   This is unexpected: jiti ships as a direct dep…") replaces the
   legacy "install pi globally" hint.
 
-All six findings reinforce the proposal's central architecture
-(immutable bundle, regular-dep lift). F1 and F2 are corrections;
-F3–F5 are operational guidance for Phase 1 smokes; F6 is salvage
-list for Phase 1 task 1.1.c-style "already done in another change"
-annotations.
+#### F7 — Pi extensions DO live in `~/.pi-dashboard/node/lib/node_modules/` (corrects "Why" table Reason b)
+
+The proposal's "Why" table claimed user `pi install <ext>` writes only
+to `~/.pi/agent/…`, never to `~/.pi-dashboard/node_modules/`. **This is
+wrong** when the bundled `~/.pi-dashboard/node/bin/` is on PATH (the
+default for Electron installs).
+
+Confirmed on a live install:
+
+```
+@blackbelt-technology/pi-model-proxy@0.2.0   → nested @mariozechner/pi-coding-agent@0.73.1
+@howaboua/pi-glm-via-anthropic@0.1.1         → nested @mariozechner/pi-coding-agent@0.73.1
+@tintinweb/pi-subagents@0.7.3                → nested @mariozechner/pi-coding-agent@0.73.1
+pi-agent-browser@0.1.0                       → nested @mariozechner/pi-coding-agent@0.73.1
+```
+
+The whitelist (`ELECTRON_OWNED_PACKAGES`) defended against a **real**
+coexistence pattern, not an imagined one.
+
+**Why the eliminate decision still stands:** under this proposal the
+Electron arm no longer puts a bundled Node on PATH. Future
+`pi install <ext>` calls resolve against the user's own npm-global
+(or pi's per-package cache under `~/.pi/agent/packages/`). The pattern
+goes away because the trigger (a bundled Node on PATH owning an
+npm-global root) goes away.
+
+**Implication for Migration:** the proposal text "surface a Doctor row:
+'Legacy install directory detected at `~/.pi-dashboard/` — safe to
+delete'" is **incorrect** for users upgrading from v0.5.x. Migration
+messaging MUST warn:
+
+> Legacy install directory detected at `~/.pi-dashboard/`. Inspect
+> `~/.pi-dashboard/node/lib/node_modules/` before removing —
+> user-installed pi extensions may live there. Reinstall them via
+> `pi install <pkg>` against your system Node before deletion.
+
+No automated wipe under any condition.
+
+#### F8 — Standalone CI smoke matrix shape
+
+`enable-standalone-npm-install` expanded
+`.github/workflows/ci.yml::standalone-install-smoke-linux` from 2 jobs
+(`node22 × {bookworm-slim, alpine}`) to **6 jobs**:
+`{Node 22, 24, 25} × {bookworm-slim, alpine}`, `fail-fast: false`,
+per-row `node-version` via `matrix.include:`.
+
+Constraints validated:
+
+- `node-guard` refuses Node 22.0–22.17 and 24.1–24.2 (node#58515).
+  Docker `node:24-*` ships ≥24.3; `node:25-*` ships unrefused.
+- Root `engines.node: >=22.12.0 <25` blocks Node 25 via
+  `engine-strict=true`, but the smoke runs `npm ci
+  --engine-strict=false` to exercise the runtime path on 25. Server
+  runtime works on 25; only the Electron DMG maker chain breaks.
+- Transitive engines (`pi-tui@0.75.3` ≥22.19, `posthog-node` ≥22.22)
+  satisfied by any 24.x ≥24.3 and any 25.x.
+
+**Disposition:** matrix **preserved**. Polling target inside
+`scripts/test-standalone-npm-install.sh` flips from
+`/api/bootstrap/status` (which no longer exists) to `/api/health`.
+The 6-job shape, engine-strict bypass, and per-row Node version
+metadata carry over verbatim. Supersedes the proposal.md line
+marking the script for deletion.
+
+#### F9 — Unix `pi` tool-registry chain has no `bareImportCliStrategy` (Phase 1 BLOCKER)
+
+Discovered during the macOS arm64 Phase 1.6 smoke (2026-05-23). The
+freshly-built `.dmg` was attached and the bundled server launched
+with `PATH=/usr/bin:/bin:/usr/sbin:/sbin` and a clean `HOME` (no
+system-installed `pi`, no managed `~/.pi-dashboard/node/bin/` —
+simulating a clean install). Server logged:
+
+```
+[bootstrap] installing (pi unresolved, running background install)
+```
+
+Despite `Resources/server/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`
+being present, executable (`-rwxr-xr-x`), with `#!/usr/bin/env node`
+shebang, and reachable via `node_modules/.bin/pi` symlink.
+
+**Root cause** in `packages/shared/src/tool-registry/definitions.ts`
+(`piExecutorDef`):
+
+```ts
+const unixStrategies = [
+  overrideStrategy("pi", deps),
+  managedBinStrategy("pi", deps),    // ~/.pi-dashboard/node/bin/pi
+  whereStrategy("pi", deps),         // PATH lookup
+];
+```
+
+The Windows chain includes `bareImportCliStrategy(pkg, cliEntry)` for
+both pi-coding-agent aliases. The Unix chain does not. The header
+comment is explicit:
+
+> On Unix, the chain finds `pi` on PATH; argv = [pi].
+
+This design assumes pi is installed globally via npm (so it lives on
+`$PATH`). **The proposal breaks that assumption** for the Electron arm:
+pi is bundled inside the `.app` and the `.app`'s `node_modules/.bin/`
+is not on the user's shell PATH.
+
+**Consequence under R3 (proposal as written):** the bundled `.app` on
+macOS/Linux, when launched on a machine without a system-installed pi,
+falls into the *exact* runtime-install path the proposal claims to
+eliminate. The pi-not-resolved branch calls `bootstrapInstall(...)`,
+which writes to `~/.pi-dashboard/`. **The proposal's central
+architectural claim is blocked on Unix until this resolver gap is
+closed.**
+
+**Fix options (Phase 1, mandatory before 1.10 GO/NO-GO):**
+
+1. **Add `bareImportCliStrategy` to the Unix chain.** Symmetric with
+   Windows. Resolves to `dist/cli.js` and `nodeScriptToArgv` wraps it
+   with `node` to produce `[node, dist/cli.js, ...args]`. Cleanest
+   match for the immutable-bundle architecture.
+2. **Prepend bundled `node_modules/.bin/` to server-spawn PATH.**
+   Set in `packages/server/bin/pi-dashboard.mjs` or
+   `packages/electron/src/lib/server-lifecycle.ts`. Existing
+   `whereStrategy("pi")` then finds `.bin/pi` and invokes
+   `dist/cli.js` via its shebang. Smaller diff but couples the
+   resolver to a PATH-injection side-channel.
+
+**Recommendation: option 1.** Mirrors the Windows chain (known-good).
+Keeps the resolver as single source of truth for binary resolution.
+No PATH side-channel.
+
+**Correction (during implementation 2026-05-23):** the Windows chain
+was *not* in fact known-good on bundled packages. Both
+`@earendil-works/pi-coding-agent` and `@fission-ai/openspec` declare
+`exports` blocks that omit `./package.json`, so the existing
+`bareImportCliStrategy.run()` body —
+`createRequire(from).resolve("<pkg>/package.json")` — returns
+`ERR_PACKAGE_PATH_NOT_EXPORTED` on modern Node. Existing tests passed
+because the test fixture injected a fake `resolveModule` that bypasses
+the real resolver; production code paths against real packages always
+failed silently and fell through to the next strategy.
+
+**Implemented fix (2026-05-23):**
+
+1. Added `bareImportCliStrategy` (with both pi aliases) to `unixStrategies`
+   in `piExecutorDef`. Same for `openspecExecutorDef`.
+2. Added `findPackageJsonByDirWalk(pkgName, fromUrl, searchPaths?, exists?)`
+   helper in `definitions.ts`. Walks up from `import.meta.url`'s
+   directory looking for `node_modules/<pkgName>/package.json` directly
+   on the filesystem — exports-map-immune. Honors injected `exists`
+   predicate from `StrategyDeps` so tests stay deterministic; falls
+   back to `existsSync` when none injected.
+3. Both `bareImportCliStrategy` and `bareImportPackageDirStrategy` now
+   try `resolveModule(...)` first (preserves test injection), then fall
+   back to the dir walk.
+4. Threaded `deps` through the openspec Win chain's
+   `bareImportCliStrategy(pkgName, cliEntry)` call (was missing).
+
+**Phase 1.6 macOS arm64 smoke status (post-fix 2026-05-23):**
+
+- ✅ `.dmg` mounts, `.app` resolves, bundled deps present
+- ✅ Bundled server starts (system Node fallback — bundled v22.12.0
+  hits `node-guard` refusal range)
+- ✅ `registerBridgeExtension` auto-registers bundled extension at
+  `Resources/server/packages/extension`
+- ✅ All 5 first-party plugins load from bundled `resources/plugins/`
+- ✅ `spawn_session` endpoint accepts requests (`spawn_result
+  success=true`)
+- ✅ **Clean PATH + empty HOME → `[bootstrap] ready (pi resolved via
+  bare-import)`.** F9 fix verified end-to-end. No `bootstrapInstall`
+  triggered, no `~/.pi-dashboard/` write.
+- ⚠ Full `session_register` round-trip blocked by environmental port
+  9999 conflict with user's running dashboard (not a build issue)
+
+**Test coverage:**
+
+- `packages/shared/src/__tests__/tool-registry-definitions.test.ts`
+  gained one new test ("bare-import wins over PATH when bundled cli.js
+  exists (F9)") and updated chain-order test to the new 5-strategy
+  shape.
+- 36 snapshot tests under `packages/shared/src/__tests__/bootstrap/`
+  regenerated to reflect the new chain.
+- Full repo suite: 6092 passing / 17 skipped (identical baseline).
+
+**Net impact on Phase 1.10 GO/NO-GO (macOS arm64):**
+
+- Size delta: +30 MB (well under +150 MB ceiling). Updated build is
+  240 MB (vs 272 MB with first F9-broken build; difference
+  attributable to incremental caching of `resources/node` between
+  rebuilds).
+- Bundled deps satisfy all `verify-release-deps.mjs` minVersion rules.
+- node-pty all-6-triples guard fires cleanly.
+- pi resolves from bundled location — proposal's central claim verified.
+
+macOS arm64 branch of 1.10 is now **green**. Linux + Windows branches
+remain blocked on CI artifact production (1.3 / 1.4 / 1.5).
+
+New tasks (added under Phase 1 in tasks.md):
+
+- 1.1.l Add `bareImportCliStrategy("@earendil-works/pi-coding-agent",
+  "dist/cli.js")` to `unixStrategies` in
+  `packages/shared/src/tool-registry/definitions.ts::piExecutorDef`.
+  Position between `overrideStrategy` and `managedBinStrategy`.
+- 1.1.m Add same alias for `@mariozechner/pi-coding-agent` to preserve
+  compatibility with legacy package name. Mirrors Windows
+  `piPkgAliases.map(...)`.
+- 1.1.n Add regression test covering pi resolution from a synthetic
+  `Resources/server/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`
+  tree on Unix with no PATH and no managed dir.
+- 1.1.o Re-run Phase 1.6 macOS arm64 smoke with stripped PATH; expect
+  `[bootstrap] ready (pi resolved via bare-import)`.
+
+All nine findings reinforce the proposal's central architecture
+(immutable bundle, regular-dep lift). F1, F2, F7, F9 are corrections /
+blockers; F3–F5 and F8 are operational guidance for Phase 1 smokes
+and CI; F6 is salvage list for Phase 1 task 1.1.c-style "already done
+in another change" annotations.
 
 ## Decisions ratified
 

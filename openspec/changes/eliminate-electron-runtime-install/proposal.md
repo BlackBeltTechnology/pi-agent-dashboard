@@ -21,7 +21,7 @@ were evaluated against the actual code:
 | Reason | Verdict |
 |---|---|
 | (a) Installer-size — pre-installed `node_modules` would balloon the .dmg | Rejected. Installer is already 225 MB (v0.5.3). Adding ~50–80 MB of pre-installed pi/openspec/tsx is not a step change. |
-| (b) User-installed `pi-*` extensions coexist in the same `node_modules/` and must be preserved | Rejected. User `pi install <ext>` writes to **pi's own cache under `~/.pi/agent/…`**, not to `~/.pi-dashboard/node_modules/`. The whitelist defends against a coexistence pattern that does not exist. |
+| (b) User-installed `pi-*` extensions coexist in the same `node_modules/` and must be preserved | **Partially rejected (corrected 2026-05-20).** Pi extensions installed via `pi install` while the bundled `~/.pi-dashboard/node/bin/` is on PATH do land in `~/.pi-dashboard/node/lib/node_modules/` (confirmed: `pi-model-proxy`, `pi-glm-via-anthropic`, `pi-subagents`, `pi-agent-browser`, each with nested `@mariozechner/pi-coding-agent@0.73.1`). The whitelist did defend against a real coexistence pattern. The **eliminate decision still stands** because the Electron arm under this proposal no longer puts a bundled Node on PATH — future `pi install` calls resolve against the user's own npm-global. Legacy `~/.pi-dashboard/` must be treated as **read-only user data** (see Migration). See design.md F7. |
 | (c) `electron-updater` patches incrementally and benefits from a writable cache | Rejected. `electron-updater` performs **whole-`.app` replacement**. It cannot and does not patch `~/.pi-dashboard/`. |
 | (d) Native dependencies (notably `node-pty`) need cross-platform resolution at install time | Rejected, **with one correction**. The pinned version `node-pty@1.1.0` ships prebuilds for `darwin-{arm64,x64}` + `win32-{arm64,x64}` ONLY — **no `linux-{arm64,x64}` prebuilds**. On clean linux (`node:22-bookworm-slim`), v0.5.3 installs trigger `node-gyp rebuild` and fail without Python + C++ toolchain. **The fix is to bump to `node-pty@1.2.0-beta.13`**, which ships all six prebuild triples. Reproduced end-to-end in `docs/repro/v0.5.3-clean-node22-linux-x64-2026-05-19.log`. The runtime-install-vs-build-time-install argument still holds (prebuilds load read-only either way), but the version pin must change first. See design.md → "Findings from enable-standalone-npm-install work (2026-05-20)". |
 
@@ -162,8 +162,10 @@ On first launch of a `.app` containing this change:
 - If `~/.pi-dashboard/` exists from a prior install, **do not use it
   and do not delete it.** Use only the bundled resources.
 - Surface a Doctor row: "Legacy install directory detected at
-  `~/.pi-dashboard/` — safe to delete". User-driven cleanup, no
-  automated wipe.
+  `~/.pi-dashboard/` — may contain pi extensions installed via the
+  bundled Node (check `node/lib/node_modules/` before removing).
+  Manual review recommended." User-driven cleanup, no automated
+  wipe. (Wording reflects F7 — see design.md.)
 - `~/.pi/dashboard/config.json`, `~/.pi/agent/sessions/`, and
   `~/.pi/agent/settings.json` are unaffected and continue to work.
 
@@ -312,8 +314,13 @@ undoes:
 - `packages/shared/src/installable-list.ts` (including the new
   `defaultInstallableList` helper) — deleted with the rest of the
   installable-list module.
-- `scripts/test-standalone-npm-install.sh` — deleted (its `bootstrap.state`
-  polling no longer exists).
+- `scripts/test-standalone-npm-install.sh` — **converted, not deleted.**
+  Polling target moves from `/api/bootstrap/status` → `/api/health`
+  (`bootstrap.state` no longer exists). The 6-job CI matrix
+  ({Node 22, 24, 25} × {bookworm-slim, alpine}) introduced by
+  `enable-standalone-npm-install` (commits 8e890823 → 4dba29f9) is
+  preserved — its purpose (validate `npm i -g` produces a runnable
+  server) is more valuable post-elimination, not less. See design.md F8.
 - `packages/server/src/__tests__/cli-seed-installable-list.test.ts` —
   deleted (tests an absent feature).
 - `docs/service-bootstrap.md` "Standalone npm install" subsection — rewritten.
@@ -325,9 +332,22 @@ What survives from `enable-standalone-npm-install`:
 - `jiti` as a direct dep of `packages/server/package.json` (task 1.1.c).
 - `packages/server/bin/pi-dashboard.mjs` improved error message (task 1.1.f).
 - `packages/shared/src/__tests__/binary-lookup-resolveJiti.test.ts` "own-tree, no pi" scenario (task 1.1.g).
+- **`.github/workflows/ci.yml` standalone-install-smoke-linux matrix**
+  — 6 jobs ({Node 22, 24, 25} × {bookworm-slim, alpine}). Polling
+  endpoint flips to `/api/health` under this proposal; matrix shape
+  preserved.
+- **`scripts/verify-release-deps.mjs`** — pre-release dep-shape gate;
+  extended in Phase 1 with rules for pi/openspec/tsx and node-pty
+  pinned floor (5 rules total as of 2026-05-22).
+- **`scripts/test-standalone-npm-install-docker.sh`** +
+  **`scripts/lib/smoke-spawn-session.mjs`** — Docker lifecycle smoke +
+  WebSocket spawn-session helper (see design.md F5). Repurposed as
+  the Phase 1 reference smoke.
+- **`engines.node: >=22.12.0 <25`** ceiling — Node 25 incompatible
+  with Electron DMG maker (`macos-alias` → `appdmg`); server itself
+  works on 25.
 
-Those three are genuinely orthogonal improvements to the npm-global path
-and survive intact.
+Those survive intact as genuinely orthogonal improvements.
 
 New files:
 ```
