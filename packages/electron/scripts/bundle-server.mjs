@@ -265,6 +265,39 @@ const npmOut = (npmInstall.stdout || "") + (npmInstall.stderr || "");
 const tail = npmOut.trim().split(/\r?\n/).slice(-5).join("\n");
 if (tail) console.log(tail);
 
+// ── GO/NO-GO: assert node-pty prebuilds for all required targets ────────
+// Phase 1.1.k of eliminate-electron-runtime-install. node-pty@1.2.0-beta.13
+// ships prebuilds for all six triples; if a future bump regresses the set,
+// fail the build here rather than at user-install time.
+{
+  const prebuildsDir = path.join(SERVER_BUNDLE, "node_modules", "node-pty", "prebuilds");
+  const required = ["darwin-arm64", "darwin-x64", "linux-x64", "win32-x64"];
+  const advisory = ["linux-arm64", "win32-arm64"];
+  const missingRequired = required.filter(
+    (t) => !existsSync(path.join(prebuildsDir, t)),
+  );
+  const missingAdvisory = advisory.filter(
+    (t) => !existsSync(path.join(prebuildsDir, t)),
+  );
+  if (missingRequired.length > 0) {
+    console.error(
+      `✗ node-pty prebuilds GO/NO-GO failed at ${prebuildsDir}`,
+    );
+    console.error(`  Missing required triples: ${missingRequired.join(", ")}`);
+    console.error(
+      `  Required set: ${required.join(", ")}. See change: ` +
+        `eliminate-electron-runtime-install task 1.1.k and design.md F1.`,
+    );
+    process.exit(1);
+  }
+  console.log(
+    `  node-pty prebuilds OK — ${required.length}/${required.length} required triples present` +
+      (missingAdvisory.length > 0
+        ? ` (advisory missing: ${missingAdvisory.join(", ")})`
+        : " (all 6 triples present)"),
+  );
+}
+
 // ── strip __tests__ from workspace source ────────────────────────────────
 // Test config + __tests__ already stripped above (before source-only exit).
 // This block kept for full-mode runs that need the same cleanup post-install.

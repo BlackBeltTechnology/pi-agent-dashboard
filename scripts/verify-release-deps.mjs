@@ -51,6 +51,38 @@ const RULES = [
       "See change: enable-standalone-npm-install task 7.1.",
     minVersion: "1.2.0-beta.13",
   },
+  {
+    pkgPath: "packages/server/package.json",
+    dep: "@earendil-works/pi-coding-agent",
+    kind: "dependencies",
+    evidence:
+      "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
+      "optional peer to regular dep so `npm install` resolves it for the " +
+      "standalone + Electron arms. Floor 0.74.0 taken from the now-vestigial " +
+      "packages/electron/offline-packages.json pin.",
+    minVersion: "0.74.0",
+  },
+  {
+    pkgPath: "packages/server/package.json",
+    dep: "@fission-ai/openspec",
+    kind: "dependencies",
+    evidence:
+      "eliminate-electron-runtime-install task 1.1.a — openspec lifted from " +
+      "optional peer to regular dep. Floor 1.3.0 taken from the now-vestigial " +
+      "packages/electron/offline-packages.json pin.",
+    minVersion: "1.3.0",
+  },
+  {
+    pkgPath: "packages/server/package.json",
+    dep: "tsx",
+    kind: "dependencies",
+    evidence:
+      "eliminate-electron-runtime-install task 1.1.a — tsx lifted from " +
+      "optional peer to regular dep so the server can run TypeScript entry " +
+      "points without a separate user install. Floor 4.21.0 matches the " +
+      "jiti/tsx loader contract used by packages/server/bin/pi-dashboard.mjs.",
+    minVersion: "4.21.0",
+  },
 ];
 
 const failures = [];
