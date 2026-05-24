@@ -15,7 +15,16 @@
  *   --dev            Development mode (skip static files)
  *   --no-tunnel      Disable zrok tunnel
  */
-import { createServer, type ServerConfig } from "./server.js";
+// `createServer` is imported dynamically inside `runForeground()` so a
+// top-level module-resolution failure (missing `fastify` etc.) can be
+// caught and degraded into the recovery HTTP server instead of crashing
+// the process. The type-only import here is fully erased at runtime.
+import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
+import {
+  startRecoveryServer,
+  isModuleNotFoundError,
+  parseModuleNotFoundError,
+} from "./recovery-server.js";
 import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   launchDashboardServer,
@@ -131,6 +140,29 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
  */
 async function runForeground(config: ServerConfig): Promise<void> {
   assertNodeVersionSupported();
+
+  // Dynamic-import boundary for the main server module. If a top-level
+  // dependency (fastify, toad-cache, readable-stream, …) is missing, the
+  // import throws ERR_MODULE_NOT_FOUND here — caught and degraded to the
+  // recovery HTTP server bound to the same port.
+  let createServer: typeof _CreateServerType;
+  try {
+    ({ createServer } = await import("./server.js"));
+  } catch (err) {
+    if (isModuleNotFoundError(err)) {
+      await startRecoveryServer({
+        port: config.port,
+        error: err as Error,
+        missingModule: parseModuleNotFoundError(err),
+      });
+      // startRecoveryServer never returns — its HTTP server keeps the
+      // event loop alive until the user clicks Retry (which respawns and
+      // process.exits) or the process is killed externally.
+      return new Promise<void>(() => { /* unreachable */ });
+    }
+    throw err;
+  }
+
   const server = await createServer(config);
 
   // Tool-registry resolve confirms pi is reachable from the bundled
