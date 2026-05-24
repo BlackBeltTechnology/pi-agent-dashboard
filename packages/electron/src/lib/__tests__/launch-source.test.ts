@@ -1,417 +1,190 @@
 /**
  * Unit tests for selectLaunchSource() and parsePreferOverride().
  *
+ * Under the immutable-bundle architecture (see change:
+ * eliminate-electron-runtime-install), the resolver has three branches:
+ *   - attach       (running server detected via health probe)
+ *   - devMonorepo  (ELECTRON_DEV; bridge.ts + cli.ts under cwd)
+ *   - bundled      (resourcesPath/server/.../cli.ts exists)
+ *
  * All I/O probes are injected as mocks — no real filesystem, network, or
- * child processes. The extracted source always succeeds (fallback of last resort).
+ * child processes.
  */
 import { describe, it, expect, vi } from "vitest";
-import path from "node:path";
-
-// Stub dependency-installer BEFORE importing launch-source so the runtime
-// baseline install (`installStandalone()`) doesn't run real npm/fs work
-// during tests. The production code calls it after extractBundle in the
-// `extracted` source path; tests only need to verify the wiring.
-vi.mock("../dependency-installer.js", () => ({
-  installStandalone: vi.fn().mockResolvedValue(undefined),
-}));
-
 import {
   selectLaunchSource,
   parsePreferOverride,
   PinnedSourceUnavailableError,
-  extractedSourceIsHealthy,
+  BundledServerMissingError,
+  getBundledCliPath,
   type LaunchSourceOpts,
   type LaunchSourceProbes,
 } from "../launch-source.js";
-import * as bundleExtract from "../bundle-extract.js";
-import * as depInstaller from "../dependency-installer.js";
 
-// ── Probe factory ─────────────────────────────────────────────────────────────
-
-/** Build a probe set where every probe returns "not found" / "not running". */
 function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<LaunchSourceProbes> {
   return {
     healthProbe: vi.fn().mockResolvedValue({ running: false }),
     existsSync: vi.fn().mockReturnValue(false),
-    readFileSync: vi.fn().mockImplementation(() => {
-      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-    }),
-    which: vi.fn().mockResolvedValue(null),
-    spawnVersion: vi.fn().mockResolvedValue(null),
-    realpathSync: vi.fn().mockImplementation((p: string) => p),
-    requireResolve: vi.fn().mockImplementation(() => {
-      throw new Error("Cannot resolve");
-    }),
-    // Default: no pi packages registered — piExtension probe returns null.
-    // Tests that exercise piExtension override this with a stub returning
-    // fake ResolvedPiPackage entries (the new packages[]-based schema).
-    // See change: fix-electron-cold-launch-probe-cascade (Bug A).
-    listPiPackages: vi.fn().mockReturnValue([]),
     ...overrides,
   };
 }
 
-/** Common base opts (packaged=true so devMonorepo never fires by default). */
 function baseOpts(overrides: Partial<LaunchSourceOpts> = {}): LaunchSourceOpts {
   return {
     isPackaged: true,
     cwd: "/fake/cwd",
     preferOverride: null,
-    bundledMinVersion: "0.1.0",
     resourcesPath: "/fake/resources",
     port: 8000,
     ...overrides,
   };
 }
 
-// ── 1. attach ─────────────────────────────────────────────────────────────────
+// ── attach ────────────────────────────────────────────────────────────────────
 
-it("1. returns attach when health probe reports running", async () => {
-  const probes = makeProbes({
-    healthProbe: vi.fn().mockResolvedValue({
-      running: true,
-      starter: "Bridge",
+describe("selectLaunchSource — attach", () => {
+  it("returns attach when health probe reports running", async () => {
+    const probes = makeProbes({
+      healthProbe: vi.fn().mockResolvedValue({
+        running: true,
+        starter: "Bridge",
+        url: "http://localhost:8000",
+      }),
+    });
+    const result = await selectLaunchSource(baseOpts({ probes }));
+    expect(result).toEqual({
+      kind: "attach",
       url: "http://localhost:8000",
-    }),
-  });
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result).toEqual({ kind: "attach", url: "http://localhost:8000", starter: "Bridge" });
-});
-
-// ── 2. devMonorepo ────────────────────────────────────────────────────────────
-
-it("2. returns devMonorepo when not packaged and both files exist", async () => {
-  const probes = makeProbes({
-    existsSync: vi.fn().mockImplementation((p: string) => {
-      return p.includes("cli.ts") || p.includes("bridge.ts");
-    }),
-  });
-  const result = await selectLaunchSource(
-    baseOpts({ isPackaged: false, cwd: "/repo", probes }),
-  );
-  expect(result.kind).toBe("devMonorepo");
-  expect((result as any).cliPath).toContain("cli.ts");
-  expect((result as any).cwd).toBe("/repo");
-});
-
-// ── 3. piExtension ────────────────────────────────────────────────────────────
-
-it("3. returns piExtension when settings.packages[] has an entry with bridge.ts and resolvable server", async () => {
-  const serverPkg = JSON.stringify({ version: "1.0.0" });
-  const probes = makeProbes({
-    listPiPackages: vi.fn().mockReturnValue([
-      {
-        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
-        entryPath: null,
-        scope: "user",
-        source: "npm:pi-agent-dashboard",
-        packageJsonName: "pi-agent-dashboard",
-      },
-    ]),
-    readFileSync: vi.fn().mockImplementation((p: string) => {
-      if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
-      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-    }),
-    existsSync: vi.fn().mockImplementation((p: string) => p.includes("bridge.ts")),
-    requireResolve: vi.fn().mockReturnValue(
-      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
-    ),
-    spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
-  });
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("piExtension");
-  expect((result as any).cliPath).toContain("cli.ts");
-});
-
-it("3a. piExtension probe ignores legacy settings.extensions field (Bug A regression guard)", async () => {
-  const probes = makeProbes({
-    listPiPackages: vi.fn().mockReturnValue([]),
-    existsSync: vi.fn().mockReturnValue(true),
-  });
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("extracted");
-});
-
-it("3b. piExtension skips packages without bridge.ts", async () => {
-  const probes = makeProbes({
-    listPiPackages: vi.fn().mockReturnValue([
-      {
-        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-browser",
-        entryPath: null,
-        scope: "user",
-        source: "npm:pi-agent-browser",
-        packageJsonName: "pi-agent-browser",
-      },
-    ]),
-    existsSync: vi.fn().mockReturnValue(false),
-  });
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("extracted");
-});
-
-it("3c. piExtension iterates multiple packages, first valid match wins", async () => {
-  const serverPkg = JSON.stringify({ version: "1.0.0" });
-  const probes = makeProbes({
-    listPiPackages: vi.fn().mockReturnValue([
-      {
-        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-browser",
-        entryPath: null, scope: "user",
-        source: "npm:pi-agent-browser", packageJsonName: "pi-agent-browser",
-      },
-      {
-        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
-        entryPath: null, scope: "user",
-        source: "npm:pi-agent-dashboard", packageJsonName: "pi-agent-dashboard",
-      },
-    ]),
-    existsSync: vi.fn().mockImplementation((p: string) =>
-      p.includes("pi-agent-dashboard") && p.includes("bridge.ts"),
-    ),
-    readFileSync: vi.fn().mockImplementation((p: string) => {
-      if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
-      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-    }),
-    requireResolve: vi.fn().mockReturnValue(
-      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
-    ),
-    spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
-  });
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("piExtension");
-  expect((result as any).cwd).toContain("pi-agent-dashboard");
-});
-
-// ── 4. npmGlobal ──────────────────────────────────────────────────────────────
-
-it("4. returns npmGlobal when which returns a path not under resourcesPath with good version", async () => {
-  const probes = makeProbes({
-    which: vi.fn().mockResolvedValue("/usr/local/bin/pi-dashboard"),
-    realpathSync: vi.fn().mockReturnValue("/usr/local/bin/pi-dashboard"),
-    spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
-    requireResolve: vi.fn().mockReturnValue(
-      "/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
-    ),
+      starter: "Bridge",
+    });
   });
 
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("npmGlobal");
-  expect((result as any).cliPath).toContain("cli.ts");
+  it("defaults starter to Standalone when health response omits it", async () => {
+    const probes = makeProbes({
+      healthProbe: vi.fn().mockResolvedValue({
+        running: true,
+        url: "http://localhost:8000",
+      }),
+    });
+    const result = await selectLaunchSource(baseOpts({ probes }));
+    expect(result.kind).toBe("attach");
+    if (result.kind === "attach") expect(result.starter).toBe("Standalone");
+  });
 });
 
-// ── 5. extracted (fallback) ───────────────────────────────────────────────────
+// ── devMonorepo ───────────────────────────────────────────────────────────────
 
-it("5. falls back to extracted when all other probes fail", async () => {
-  const probes = makeProbes();
-  const result = await selectLaunchSource(baseOpts({ probes }));
-  expect(result.kind).toBe("extracted");
-});
-
-// ── 6. override pin success ───────────────────────────────────────────────────
-
-it("6. override pin success: uses npmGlobal when DASHBOARD_PREFER_SOURCE=npmGlobal and probe passes", async () => {
-  const probes = makeProbes({
-    which: vi.fn().mockResolvedValue("/usr/local/bin/pi-dashboard"),
-    realpathSync: vi.fn().mockReturnValue("/usr/local/bin/pi-dashboard"),
-    spawnVersion: vi.fn().mockResolvedValue("1.0.0"),
-    requireResolve: vi.fn().mockReturnValue(
-      "/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
-    ),
+describe("selectLaunchSource — devMonorepo", () => {
+  it("returns devMonorepo when isPackaged=false and both files exist", async () => {
+    const probes = makeProbes({
+      existsSync: vi
+        .fn()
+        .mockImplementation(
+          (p: string) => p.endsWith("cli.ts") || p.endsWith("bridge.ts"),
+        ),
+    });
+    const result = await selectLaunchSource(
+      baseOpts({ isPackaged: false, cwd: "/repo", probes }),
+    );
+    expect(result.kind).toBe("devMonorepo");
+    if (result.kind === "devMonorepo") {
+      expect(result.cliPath).toBe("/repo/packages/server/src/cli.ts");
+      expect(result.cwd).toBe("/repo");
+    }
   });
 
-  const result = await selectLaunchSource(
-    baseOpts({ preferOverride: "npmGlobal", probes }),
-  );
-  expect(result.kind).toBe("npmGlobal");
+  it("does NOT return devMonorepo when isPackaged=true", async () => {
+    // Even if cli.ts + bridge.ts exist, packaged builds skip dev probe.
+    const probes = makeProbes({
+      existsSync: vi.fn().mockReturnValue(true),
+    });
+    const result = await selectLaunchSource(
+      baseOpts({ isPackaged: true, cwd: "/repo", probes }),
+    );
+    expect(result.kind).toBe("bundled");
+  });
 });
 
-// ── 7. override pin fail ──────────────────────────────────────────────────────
+// ── bundled ───────────────────────────────────────────────────────────────────
 
-it("7. override pin fail: throws PinnedSourceUnavailableError when pinned source unavailable", async () => {
-  const probes = makeProbes({
-    which: vi.fn().mockResolvedValue(null), // npmGlobal unavailable
+describe("selectLaunchSource — bundled", () => {
+  it("returns bundled when resourcesPath/server/.../cli.ts exists", async () => {
+    const cliPath = getBundledCliPath("/fake/resources");
+    const probes = makeProbes({
+      existsSync: vi.fn().mockImplementation((p: string) => p === cliPath),
+    });
+    const result = await selectLaunchSource(baseOpts({ probes }));
+    expect(result).toEqual({
+      kind: "bundled",
+      cliPath,
+      cwd: "/fake/resources/server",
+    });
   });
 
-  await expect(
-    selectLaunchSource(baseOpts({ preferOverride: "npmGlobal", probes })),
-  ).rejects.toBeInstanceOf(PinnedSourceUnavailableError);
+  it("throws BundledServerMissingError when no source resolves", async () => {
+    const probes = makeProbes(); // existsSync always false
+    await expect(selectLaunchSource(baseOpts({ probes }))).rejects.toBeInstanceOf(
+      BundledServerMissingError,
+    );
+  });
 });
 
-// ── 8. default precedence walk ────────────────────────────────────────────────
+// ── preferOverride ────────────────────────────────────────────────────────────
 
-it("8. walks full chain to extracted when all real probes fail", async () => {
-  // Same as test 5, but explicitly verifying no earlier source is chosen.
-  const probes = makeProbes();
-  const result = await selectLaunchSource(
-    baseOpts({ isPackaged: true, probes }),
-  );
-  expect(result.kind).toBe("extracted");
-});
-
-// ── 9. version gate ───────────────────────────────────────────────────────────
-
-it("9. version gate: piExtension skipped when server version below bundledMinVersion", async () => {
-  const serverPkg = JSON.stringify({ version: "0.0.1" }); // below "1.0.0"
-  const probes = makeProbes({
-    listPiPackages: vi.fn().mockReturnValue([
-      {
-        packageDir: "/home/user/.pi/agent/npm/node_modules/pi-agent-dashboard",
-        entryPath: null, scope: "user",
-        source: "npm:pi-agent-dashboard", packageJsonName: "pi-agent-dashboard",
-      },
-    ]),
-    readFileSync: vi.fn().mockImplementation((p: string) => {
-      if (p.includes("pi-dashboard-server") && p.endsWith("package.json")) return serverPkg;
-      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-    }),
-    existsSync: vi.fn().mockImplementation((p: string) => p.includes("bridge.ts")),
-    requireResolve: vi.fn().mockReturnValue(
-      "/home/user/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-server/package.json",
-    ),
-    spawnVersion: vi.fn().mockResolvedValue("0.0.1"),
+describe("selectLaunchSource — preferOverride", () => {
+  it("throws PinnedSourceUnavailableError when pinned source can't resolve", async () => {
+    const probes = makeProbes();
+    await expect(
+      selectLaunchSource(baseOpts({ preferOverride: "bundled", probes })),
+    ).rejects.toBeInstanceOf(PinnedSourceUnavailableError);
   });
 
-  // With bundledMinVersion=1.0.0 and server at 0.0.1, piExtension should be skipped.
-  const result = await selectLaunchSource(
-    baseOpts({ bundledMinVersion: "1.0.0", probes }),
-  );
-  // Should fall through to extracted.
-  expect(result.kind).toBe("extracted");
+  it("uses pinned bundled source when available", async () => {
+    const cliPath = getBundledCliPath("/fake/resources");
+    const probes = makeProbes({
+      existsSync: vi.fn().mockImplementation((p: string) => p === cliPath),
+    });
+    const result = await selectLaunchSource(
+      baseOpts({ preferOverride: "bundled", probes }),
+    );
+    expect(result.kind).toBe("bundled");
+  });
 });
 
-// ── 10. invalid override ──────────────────────────────────────────────────────
+// ── parsePreferOverride ───────────────────────────────────────────────────────
 
 describe("parsePreferOverride", () => {
-  it("10. returns null and warns on invalid DASHBOARD_PREFER_SOURCE value", () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "bogus" });
-    expect(result).toBeNull();
-    expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0]![0]).toContain("bogus");
-    warnSpy.mockRestore();
-  });
-
-  it("returns null when DASHBOARD_PREFER_SOURCE is unset", () => {
+  it("returns null when env var is unset", () => {
     expect(parsePreferOverride({})).toBeNull();
   });
 
-  it("returns valid SourceKind for known values", () => {
-    expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "npmGlobal" })).toBe("npmGlobal");
-    expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "extracted" })).toBe("extracted");
-  });
-});
-
-// ── 12. extracted source triggers runtime baseline install ─────────────────
-//
-// Phase C bring-up gap: the bundled `resources/server/` does NOT include
-// pi-coding-agent / jiti (by design — see bundle-server.mjs). The spawned
-// server cannot resolve jiti to load TS source unless `installStandalone()`
-// has populated `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent`
-// from the offline cacache before the spawn. Pin the call site here so a
-// future refactor cannot silently drop the install step.
-it("12. extracted: installStandalone is called after extractBundle when didExtract=true", async () => {
-  const extractSpy = vi
-    .spyOn(bundleExtract, "extractBundle")
-    .mockImplementation(() => {});
-  const installMock = vi.mocked(depInstaller.installStandalone);
-  installMock.mockClear();
-  const probes = makeProbes({
-    // existsSync(managedDir) === false → needsExtraction returns true
-    existsSync: vi.fn().mockReturnValue(false),
+  it("returns null when env var is empty", () => {
+    expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "" })).toBeNull();
   });
 
-  const result = await selectLaunchSource(
-    baseOpts({ resourcesPath: "/fake/resources", probes }),
+  it.each(["attach", "bundled", "devMonorepo"] as const)(
+    "accepts known source kind '%s'",
+    (kind) => {
+      expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: kind })).toBe(kind);
+    },
   );
 
-  expect(result.kind).toBe("extracted");
-  expect(extractSpy).toHaveBeenCalledOnce();
-  expect(installMock).toHaveBeenCalledOnce();
-  // Order matters: extractBundle must run BEFORE installStandalone (npm needs
-  // managedDir to exist to write into).
-  const extractOrder = extractSpy.mock.invocationCallOrder[0];
-  const installOrder = installMock.mock.invocationCallOrder[0];
-  expect(extractOrder).toBeLessThan(installOrder!);
-  extractSpy.mockRestore();
-});
-
-// ── 11. extracted source path is <resourcesPath>/server ──────────────────────
-//
-// Regression for the Windows ZIP launch failure: passing the entire Electron
-// resourcesPath (which contains app.asar — a file) to extractBundle causes
-// `cpSync(…, { recursive: true })` to opendir(app.asar) and fail with ENOTDIR.
-// The bundle layout produced by bundle-server.mjs lives at <resourcesPath>/server,
-// and the cliPath under managedDir/node_modules/…/cli.ts only resolves when
-// that subdir is the source.
-it("11. extracted: extractBundle is called with <resourcesPath>/server as sourceDir", async () => {
-  const spy = vi
-    .spyOn(bundleExtract, "extractBundle")
-    .mockImplementation(() => {});
-  const probes = makeProbes({
-    // existsSync(managedDir) === false → needsExtraction returns true
-    existsSync: vi.fn().mockReturnValue(false),
-  });
-  const opts = baseOpts({ resourcesPath: "/fake/resources", probes });
-
-  const result = await selectLaunchSource(opts);
-
-  expect(result.kind).toBe("extracted");
-  expect(spy).toHaveBeenCalledOnce();
-  // Args: (managedDir, sourceDir, currentVersion, migrateDir, fs)
-  const sourceArg = spy.mock.calls[0]![1] as string;
-  expect(sourceArg).toBe(path.join("/fake/resources", "server"));
-  // Defensive: never the bare resourcesPath (regression against ENOTDIR bug).
-  expect(sourceArg).not.toBe("/fake/resources");
-  spy.mockRestore();
-});
-
-// ── extractedSourceIsHealthy ───────────────────────────────────────────────
-
-describe("extractedSourceIsHealthy", () => {
-  it("returns false when cliPath does not exist", () => {
-    const result = extractedSourceIsHealthy("/missing/cli.ts", {
-      existsSync: () => false,
-      resolveJiti: () => "file:///should-not-be-called",
-    });
-    expect(result).toBe(false);
+  it("rejects unknown source kinds and logs a warning", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(
+      parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "extracted" }),
+    ).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
-  it("returns true when cliPath exists and jiti is reachable", () => {
-    const result = extractedSourceIsHealthy("/managed/cli.ts", {
-      existsSync: () => true,
-      resolveJiti: () => "file:///jiti/lib/jiti-register.mjs",
-    });
-    expect(result).toBe(true);
-  });
-
-  it("returns false when cliPath exists but jiti cannot be resolved", () => {
-    const result = extractedSourceIsHealthy("/managed/cli.ts", {
-      existsSync: () => true,
-      resolveJiti: () => null,
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when existsSync throws", () => {
-    const result = extractedSourceIsHealthy("/managed/cli.ts", {
-      existsSync: () => { throw new Error("EACCES"); },
-      resolveJiti: () => "file:///jiti/lib/jiti-register.mjs",
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when resolveJiti throws", () => {
-    const result = extractedSourceIsHealthy("/managed/cli.ts", {
-      existsSync: () => true,
-      resolveJiti: () => { throw new Error("createRequire failed"); },
-    });
-    expect(result).toBe(false);
-  });
-
-  it("returns false when resolveJiti returns empty string", () => {
-    const result = extractedSourceIsHealthy("/managed/cli.ts", {
-      existsSync: () => true,
-      resolveJiti: () => "",
-    });
-    expect(result).toBe(false);
+  it("rejects pre-R3 source kinds (piExtension, npmGlobal, extracted)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const removed of ["piExtension", "npmGlobal", "extracted"]) {
+      expect(
+        parsePreferOverride({ DASHBOARD_PREFER_SOURCE: removed }),
+      ).toBeNull();
+    }
+    warnSpy.mockRestore();
   });
 });

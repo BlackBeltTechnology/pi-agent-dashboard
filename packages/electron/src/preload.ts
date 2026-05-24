@@ -1,5 +1,5 @@
 /**
- * Preload script for Electron renderer (wizard window).
+ * Preload script for Electron renderer (wizard window + loading page).
  * Exposes IPC APIs to the renderer via contextBridge.
  */
 import { contextBridge, ipcRenderer } from "electron";
@@ -8,88 +8,21 @@ import { contextBridge, ipcRenderer } from "electron";
 // See change: doctor-rich-output.
 import "./preload/doctor-preload.js";
 
+/**
+ * Slim wizard API under the immutable-bundle architecture.
+ * Pre-R3 install / detection / installable-list / recommended-extensions
+ * methods are removed (see change: eliminate-electron-runtime-install).
+ */
 export interface WizardApi {
-  /** Detect installed tools */
-  detectDependencies: () => Promise<{
-    pi: { found: boolean; source?: string };
-    openspec: { found: boolean; source?: string };
-    dashboard: { found: boolean; source?: string };
-    node: { found: boolean; source?: string };
-    apiKeyConfigured: boolean;
-  }>;
-  /** Run standalone install (optionally skip already-installed packages) */
-  installStandalone: (skipPackages?: string[]) => Promise<void>;
-  /** Install dashboard package globally (power user) */
-  installDashboardGlobal: () => Promise<void>;
-  /** Register the bundled bridge extension in pi's settings */
-  registerBundledBridge: () => Promise<void>;
-  /** Save API key */
-  saveApiKey: (provider: string, key: string) => Promise<void>;
-  /** Complete wizard and persist mode */
-  completeWizard: (mode: "standalone" | "power-user") => Promise<void>;
-  /** Listen for install progress events */
-  onInstallProgress: (callback: (progress: { step: string; status: string; error?: string; output?: string }) => void) => void;
-  /** Get the static recommended-extensions manifest + persisted skipped ids */
-  getRecommendedExtensions: () => Promise<{
-    recommended: Array<{
-      id: string;
-      source: string;
-      displayName: string;
-      fallbackDescription: string;
-      status: "required" | "strongly-suggested" | "optional";
-      unlocks: string[];
-      toolsRegistered?: string[];
-      autowired?: boolean;
-    }>;
-    skipped: string[];
-  }>;
-  /** Install the selected recommended extensions by id */
-  installRecommendedExtensions: (ids: string[]) => Promise<{ installed: number }>;
-  /** Persist the list of skipped recommended ids */
-  persistRecommendedSkipped: (skippedIds: string[]) => Promise<void>;
-  /** Open the Doctor diagnostic window. See change: doctor-rich-output (task 3.7). */
+  /** Mark first run complete and persist the marker file. */
+  completeWizard: () => Promise<void>;
+  /** Open the Doctor diagnostic window. */
   openDoctor: () => void;
-
-  // ── V2 API (behind LAUNCH_SOURCE_V2 flag) ───────────────────────────────
-  // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
-
-  /** Read installable.json; null when file is absent. */
-  getInstallableList: () => Promise<import("@blackbelt-technology/pi-dashboard-shared/installable-list.js").InstallableList | null>;
-  /** Save updated installable.json (used by package-selection sub-screen). */
-  saveInstallableList: (list: import("@blackbelt-technology/pi-dashboard-shared/installable-list.js").InstallableList) => Promise<void>;
-  /**
-   * Fetch server bootstrap status (installable reconcile progress).
-   * Returns null when server is not reachable.
-   */
-  getServerBootstrap: (serverUrl: string) => Promise<{
-    status: string;
-    installable?: { total: number; installed: number; failed: string[] };
-    progress?: { step: string; output?: string };
-  } | null>;
-  /** Trigger a bootstrap retry on the running server. */
-  retryBootstrap: (serverUrl: string) => Promise<boolean>;
 }
 
 const api: WizardApi = {
-  detectDependencies: () => ipcRenderer.invoke("wizard:detect"),
-  installStandalone: (skipPackages) => ipcRenderer.invoke("wizard:install-standalone", skipPackages),
-  installDashboardGlobal: () => ipcRenderer.invoke("wizard:install-dashboard-global"),
-  registerBundledBridge: () => ipcRenderer.invoke("wizard:register-bundled-bridge"),
-  saveApiKey: (provider, key) => ipcRenderer.invoke("wizard:save-api-key", provider, key),
-  completeWizard: (mode) => ipcRenderer.invoke("wizard:complete", mode),
-  onInstallProgress: (callback) => {
-    ipcRenderer.on("wizard:progress", (_event, progress) => callback(progress));
-  },
-  getRecommendedExtensions: () => ipcRenderer.invoke("wizard:get-recommended"),
-  installRecommendedExtensions: (ids) => ipcRenderer.invoke("wizard:install-recommended", ids),
-  persistRecommendedSkipped: (skippedIds) => ipcRenderer.invoke("wizard:persist-recommended-skipped", skippedIds),
+  completeWizard: () => ipcRenderer.invoke("wizard:complete"),
   openDoctor: () => ipcRenderer.send("wizard:open-doctor"),
-
-  // V2 API
-  getInstallableList: () => ipcRenderer.invoke("wizard:v2:get-installable"),
-  saveInstallableList: (list) => ipcRenderer.invoke("wizard:v2:save-installable", list),
-  getServerBootstrap: (serverUrl) => ipcRenderer.invoke("wizard:v2:get-server-bootstrap", serverUrl),
-  retryBootstrap: (serverUrl) => ipcRenderer.invoke("wizard:v2:retry-bootstrap", serverUrl),
 };
 
 contextBridge.exposeInMainWorld("wizardApi", api);

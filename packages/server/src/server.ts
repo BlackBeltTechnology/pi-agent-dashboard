@@ -828,25 +828,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // that works in the dev repo silently returns wrong paths in the
   // installed node_modules layout. require.resolve identifies packages
   // by name, which is the only canonical identity across layouts.
+  // Client-dir resolution — single strategy under change:
+  // eliminate-electron-runtime-install. The legacy 5-strategy chain
+  // (sibling/hoisted/monorepo/legacy paths) defended against runtime
+  // re-extraction wiping the bundled tree. Under the immutable bundle
+  // architecture that scenario cannot occur; the npm-resolver-anchored
+  // path is the only durable identity across install layouts.
+  //
+  // Dev / monorepo fallbacks are still allowed when require.resolve
+  // misses (e.g. running from a checked-out workspace where the web
+  // package hasn't been linked yet).
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const clientSearchPaths: string[] = [];
+  let clientDir = "";
   try {
-    const webPkgJson = createRequire(import.meta.url).resolve("@blackbelt-technology/pi-dashboard-web/package.json");
-    clientSearchPaths.push(path.join(path.dirname(webPkgJson), "dist"));
+    const webPkgJson = createRequire(import.meta.url).resolve(
+      "@blackbelt-technology/pi-dashboard-web/package.json",
+    );
+    const candidate = path.join(path.dirname(webPkgJson), "dist");
+    if (existsSync(path.join(candidate, "index.html"))) clientDir = candidate;
   } catch {
-    // Web package not resolvable — fall through to path-based search.
+    // Web package not resolvable — try dev-monorepo sibling.
+    const devCandidate = path.join(__dirname, "../../client/dist");
+    if (existsSync(path.join(devCandidate, "index.html"))) clientDir = devCandidate;
   }
-  clientSearchPaths.push(
-    // Installed as scoped sibling of server
-    path.join(__dirname, "..", "..", "pi-dashboard-web", "dist"),
-    // Installed in a parent node_modules (hoisted)
-    path.join(__dirname, "..", "..", "..", "@blackbelt-technology", "pi-dashboard-web", "dist"),
-    // Monorepo workspace sibling
-    path.join(__dirname, "../../client/dist"),
-    // Legacy path
-    path.join(__dirname, "../../dist/client"),
-  );
-  const clientDir = clientSearchPaths.find(p => existsSync(path.join(p, "index.html"))) ?? "";
   const hasProductionBuild = !!clientDir;
   if (!hasProductionBuild) {
     console.log("[dashboard] No client build found — running in API-only mode");

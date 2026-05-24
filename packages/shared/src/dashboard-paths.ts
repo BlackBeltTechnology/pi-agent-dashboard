@@ -39,6 +39,21 @@ export function getDashboardServerLogPath(env?: DashboardPathsEnv): string {
   return path.join(getDashboardConfigDir(env), "server.log");
 }
 
+/**
+ * `~/.pi/dashboard/first-run-done` — sentinel file written by the Electron
+ * wizard on completion. Presence means the one-step welcome was shown and
+ * acknowledged; subsequent launches skip the wizard.
+ *
+ * Lives under `~/.pi/dashboard/` (not the legacy `~/.pi-dashboard/`) so it
+ * survives Electron whole-app updates and remains the same path across
+ * all install layouts.
+ *
+ * See change: eliminate-electron-runtime-install (Q2 ratification).
+ */
+export function getFirstRunMarkerPath(env?: DashboardPathsEnv): string {
+  return path.join(getDashboardConfigDir(env), "first-run-done");
+}
+
 /** `~/.pi-dashboard/` — managed-install root (npm packages, etc.). Re-export. */
 export function getManagedDir(env?: DashboardPathsEnv): string {
   return getManagedDirInternal(env);

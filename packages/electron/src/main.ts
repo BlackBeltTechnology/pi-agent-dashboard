@@ -1,18 +1,22 @@
 /**
  * Electron main process entry point.
  *
- * Flow:
- * 1. Single-instance lock
- * 2. First-run wizard (if ~/.pi-dashboard/mode.json is missing)
- * 3. Discover or launch dashboard server (mDNS → health check → spawn)
- * 4. Open BrowserWindow pointing at the server URL
- * 5. System tray (minimize on close, Show/Quit menu)
+ * Six-state startup flow (see openspec/specs/electron-bootstrap-flow/spec.md
+ * and change: eliminate-electron-runtime-install):
+ *
+ *   checking-server-health
+ *     ├─→ attach            (a server is already running on the port)
+ *     └─→ wizard-welcome    (first launch; marker absent)
+ *           └─→ launch-server → health-wait → done
+ *                                            └─→ loading-page-error (on timeout)
+ *
+ * On second+ launches the wizard-welcome state is skipped via the
+ * `~/.pi/dashboard/first-run-done` marker.
  */
 
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { decideWillNavigate } from "./lib/link-handling.js";
-import { isDeadlineOrChildExitError } from "./lib/server-error-classification.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -20,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 if (process.platform === "linux" && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
   app.commandLine.appendSwitch("ozone-platform-hint", "auto");
 }
-import { mkdirSync, appendFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -40,9 +44,8 @@ log(`resourcesPath=${(process as any).resourcesPath || "(none)"}`);
 log(`execPath=${process.execPath}`);
 
 // Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
-// VM detection now lives in the shared platform primitive.
-// See change: consolidate-platform-handlers.
 import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
+import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 const isVM = isVirtualMachine();
 const disableGpu = process.env.ELECTRON_DISABLE_GPU || isVM;
@@ -54,24 +57,34 @@ if (disableGpu) {
   log("GPU disabled");
 }
 log("Importing lib modules...");
-import { isFirstRun, writeModeFile } from "./lib/wizard-state.js";
-import { openWizardWindow, getWizardWindow } from "./lib/wizard-window.js";
-import { registerWizardIpc } from "./lib/wizard-ipc.js";
-import { ensureServer, stopServerIfNeeded, didWeStartServer, loadMinimalConfig, setSpawnedPid, requestServerLaunch, isManagedServerRunning, readServerLogTail, onLaunchStatus, setGracefulShutdownInProgress, isGracefulShutdownInProgress, makeServerWatchdog } from "./lib/server-lifecycle.js";
+import { registerWizardIpc, writeFirstRunMarker } from "./lib/wizard-ipc.js";
+import {
+  stopServerIfNeeded,
+  loadMinimalConfig,
+  setSpawnedPid,
+  requestServerLaunch,
+  isManagedServerRunning,
+  readServerLogTail,
+  onLaunchStatus,
+  setGracefulShutdownInProgress,
+  isGracefulShutdownInProgress,
+  makeServerWatchdog,
+} from "./lib/server-lifecycle.js";
 import { showDoctorDialog } from "./lib/app-menu.js";
-import { isDashboardRunning } from "./lib/health-check.js";
-import { detectPi, detectBridgeExtension } from "./lib/dependency-detector.js";
 import { registerBundledBridgeExtension } from "./lib/bridge-register.js";
-import { installStandalone } from "./lib/dependency-installer.js";
-import { decideStartupAction, runPowerUserManagedInstall } from "./lib/power-user-install.js";
 import { loadWindowState, saveWindowState } from "./lib/window-state.js";
 import { createTray, destroyTray } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { initAutoUpdater, quitAndInstall } from "./lib/app-updater.js";
 import { setupAppMenu } from "./lib/app-menu.js";
-import { isLaunchSourceV2Enabled } from "@blackbelt-technology/pi-dashboard-shared/launch-source-flag.js";
-import { selectLaunchSource, spawnFromSource, parsePreferOverride, PinnedSourceUnavailableError } from "./lib/launch-source.js";
+import {
+  selectLaunchSource,
+  spawnFromSource,
+  parsePreferOverride,
+  PinnedSourceUnavailableError,
+  BundledServerMissingError,
+} from "./lib/launch-source.js";
 import fs from "node:fs";
 log("All imports loaded");
 
@@ -142,9 +155,6 @@ function closeSplash(): void {
 
 /**
  * Resolve the path to the preload script attached to the main window.
- * Mirrors `lib/wizard-window.ts::getPreloadPath`. Same preload bundle
- * exposes both `wizardApi` and `piDashboard`; renderers use only what
- * they need.
  */
 function getMainPreloadPath(): string {
   const dir = path.dirname(__filename);
@@ -158,7 +168,6 @@ function getMainPreloadPath(): string {
 /**
  * Register IPC handlers used by the loading-page preload (`piDashboard`).
  * Idempotent — calling twice (e.g. across reload cycles) replaces handlers.
- * See change: electron-server-launch-controls.
  */
 function registerPiDashboardIpc(): void {
   ipcMain.removeHandler("dashboard:request-launch");
@@ -174,15 +183,12 @@ function registerPiDashboardIpc(): void {
   ipcMain.removeAllListeners("dashboard:open-doctor");
   ipcMain.on("dashboard:open-doctor", () => { void showDoctorDialog(); });
 
-  // Wizard → Doctor link. See change: doctor-rich-output (task 3.7).
   ipcMain.removeAllListeners("wizard:open-doctor");
   ipcMain.on("wizard:open-doctor", () => { void showDoctorDialog(); });
 }
 
 /**
  * Forward `LaunchStatus` events to the main window's renderer (loading page).
- * Returns an unsubscribe function. The forward is best-effort — if the
- * window is destroyed, the call silently no-ops.
  */
 function wireLaunchStatusForwarder(): () => void {
   return onLaunchStatus((status) => {
@@ -192,11 +198,7 @@ function wireLaunchStatusForwarder(): () => void {
   });
 }
 
-/**
- * Resolve the path to the loading-page HTML resource.
- * Packaged: under `process.resourcesPath/loading.html`.
- * Dev: relative to `src/lib/` — `../../resources/loading.html` from main.ts compiled output.
- */
+/** Resolve path to the loading-page HTML resource. */
 function resolveLoadingPagePath(): string {
   const dir = path.dirname(__filename);
   const dev = path.resolve(dir, "..", "..", "resources", "loading.html");
@@ -216,78 +218,10 @@ function showLoadingPage(win: BrowserWindow, serverUrl: string): void {
   const query: Record<string, string> = { serverUrl };
   if (config.knownServers.length > 0) query.knownServers = knownServersBase64;
   win.loadFile(loadingHtml, { query }).catch((err: any) => {
-    log(`loadFile(loading.html) failed: ${err?.message || err} — falling back to inline data: URL`);
-    win.loadURL(buildLegacyLoadingDataUrl(serverUrl, config.knownServers));
+    log(`loadFile(loading.html) failed: ${err?.message || err}`);
   });
 }
 
-/**
- * Legacy fallback: builds the inline data: URL we used before the resource
- * file existed. Only reached if `resources/loading.html` is missing from
- * the package (should never happen in a properly-built bundle). Kept so
- * the app still shows *something* useful instead of a blank window.
- */
-function buildLegacyLoadingDataUrl(
-  serverUrl: string,
-  knownServers: ReturnType<typeof loadMinimalConfig>["knownServers"],
-): string {
-  const knownServersHtml = knownServers.length > 0
-    ? `<div class="known-servers" id="known-servers" style="display:none; margin-top:20px; text-align:left;">
-        <h3 style="color:#c9d1d9; font-size:14px; margin:0 0 8px;">Known Servers</h3>
-        ${knownServers.map((s) =>
-          `<button onclick="window.switchServer('${s.host}', ${s.port})" class="server-btn">
-            <span class="server-label">${s.label || s.host}</span>
-            <span class="server-addr">${s.host}:${s.port}</span>
-          </button>`
-        ).join("")}
-      </div>`
-    : "";
-  const html = `
-    <html>
-    <head><style>
-      body { font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-             display: flex; align-items: center; justify-content: center;
-             height: 100vh; margin: 0; background: #0d1117; color: #c9d1d9; }
-      .container { text-align: center; max-width: 480px; padding: 0 24px; }
-      .pi { font-size: 72px; color: #4a90d9; margin-bottom: 16px; }
-      .status { font-size: 14px; color: #8b949e; }
-      .error { display: none; margin-top: 24px; text-align: left; }
-      .error h3 { color: #f85149; margin: 0 0 12px; font-size: 16px; }
-      .error p { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: #8b949e; }
-      .error code { background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
-      .server-btn { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 8px 12px;
-        margin-bottom: 6px; background: #161b22; border: 1px solid #30363d; border-radius: 6px;
-        color: #c9d1d9; cursor: pointer; font-size: 13px; text-align: left; }
-      .server-btn:hover { border-color: #4a90d9; background: #1c2128; }
-      .server-label { font-weight: 500; }
-      .server-addr { color: #8b949e; font-size: 12px; }
-      .dot { animation: blink 1.4s infinite; }
-      .dot:nth-child(2) { animation-delay: 0.2s; }
-      .dot:nth-child(3) { animation-delay: 0.4s; }
-      @keyframes blink { 0%,20% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
-    </style></head>
-    <body><div class="container">
-      <div class="pi">π</div>
-      <div class="status" id="status">Connecting to dashboard<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>
-      <div class="error" id="error">
-        <h3>Cannot connect to dashboard server</h3>
-        <p>The server at <code>${serverUrl}</code> is not responding.</p>
-        <p>Make sure the dashboard is installed and running:</p>
-        <p><code>npm install -g @blackbelt-technology/pi-dashboard</code></p>
-        <p><code>pi-dashboard start</code></p>
-        <p style="margin-top: 16px; color: #c9d1d9;">The app will connect automatically once the server is available.</p>
-        ${knownServersHtml}
-      </div>
-    </div>
-    <script>
-      window.switchServer = function(host, port) {
-        window.location.href = 'http://' + host + ':' + port;
-      };
-    </script>
-    </body>
-    </html>`;
-  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
-}
 let isQuitting = false;
 let cleanupUpdateChecker: (() => void) | null = null;
 let cleanupAutoUpdater: (() => void) | null = null;
@@ -304,10 +238,6 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      // Preload exposes `window.piDashboard` for the loading page (Start
-      // server, Open Doctor, Server log). Once the dashboard URL loads,
-      // the namespace is unused but harmless. See change:
-      // electron-server-launch-controls.
       preload: getMainPreloadPath(),
     },
   });
@@ -315,27 +245,10 @@ function createMainWindow(serverUrl: string): BrowserWindow {
   if (state.isMaximized) mainWindow.maximize();
 
   // External-link hardening (issue #13, change: harden-external-link-handling).
-  // Register BEFORE loadURL so the handlers are live for any navigation the
-  // initial load triggers (e.g. an OAuth redirect that bounces through an
-  // external provider).
-  //
-  // Layer 1: target=_blank / window.open → open in system browser, do NOT
-  // spawn a secondary Electron BrowserWindow.
   mainWindow.webContents.setWindowOpenHandler((details) => {
     void shell.openExternal(details.url);
     return { action: "deny" };
   });
-  // Layer 2: defense-in-depth for bare <a href> without target=_blank.
-  // Same-origin navigation (e.g. /auth/login?return=/) proceeds normally;
-  // external navigation is preempted and routed through the system browser
-  // so the dashboard's only window is never replaced by a foreign page.
-  //
-  // The decision is **current-origin-aware** via `decideWillNavigate`: while
-  // the user is mid-OAuth on a provider page (e.g. accounts.google.com), the
-  // provider's internal multi-step navigation is allowed to proceed. The
-  // trap guard fires only when leaving the dashboard. The eventual redirect
-  // back to the dashboard origin is itself same-origin and lands cleanly.
-  // See change: fix-oauth-blocked-by-external-link-guard.
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const currentUrl = mainWindow?.webContents.getURL() ?? "";
     const decision = decideWillNavigate(serverUrl, currentUrl, url);
@@ -345,17 +258,14 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     } else if (decision === "cancel") {
       event.preventDefault();
     }
-    // "allow" → do nothing, navigation proceeds.
   });
 
   mainWindow.loadURL(serverUrl);
 
-  // Save window state on resize/move
   mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
 
   // macOS: minimize to tray on close (standard macOS behavior)
-  // Linux/Windows: quit on close (tray may not be visible)
   mainWindow.on("close", (event) => {
     if (!isQuitting && process.platform === "darwin") {
       event.preventDefault();
@@ -371,10 +281,7 @@ function createMainWindow(serverUrl: string): BrowserWindow {
 }
 
 function startUpdaters(): void {
-  // Dependency updates (pi, openspec)
   cleanupUpdateChecker = startUpdateChecker(notifyUpdatesAvailable);
-
-  // App self-update (electron-updater + GitHub Releases)
   cleanupAutoUpdater = initAutoUpdater({
     onUpdateAvailable: (version) => {
       dialog.showMessageBox({
@@ -404,14 +311,38 @@ function startUpdaters(): void {
 
 async function quit(): Promise<void> {
   isQuitting = true;
-  // Signal watchdog before stopping server so a graceful shutdown is not
-  // misidentified as a crash. See change: harvest-bootstrap-survivor-fixes.
   setGracefulShutdownInProgress(true);
   cleanupUpdateChecker?.();
   cleanupAutoUpdater?.();
   await stopServerIfNeeded();
   destroyTray();
   app.quit();
+}
+
+/**
+ * True when the first-run-done marker is absent (i.e. this is the first
+ * launch of the .app on this machine).
+ */
+function isFirstRun(): boolean {
+  return !existsSync(getFirstRunMarkerPath());
+}
+
+/**
+ * Show the one-step welcome window. Resolves when the user clicks
+ * `[Launch dashboard]` in the renderer (which calls `wizardApi.completeWizard`).
+ *
+ * Currently a no-op: the dedicated welcome renderer is delivered by Phase 6.1
+ * (wizard.html rewrite). For now we auto-complete the first-run on launch —
+ * the user observes only the splash and the loading page. The marker is
+ * written immediately so subsequent launches behave identically.
+ */
+async function showWelcomeStep(): Promise<void> {
+  log("wizard-welcome: writing first-run marker (Phase 6.1 will add UI)");
+  try {
+    writeFirstRunMarker();
+  } catch (err: any) {
+    log(`wizard-welcome: marker write failed: ${err?.message || err}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -431,99 +362,38 @@ async function main(): Promise<void> {
 
   await app.whenReady();
 
-  // Show splash screen immediately
   showSplash();
 
-  // Set proper app name (overrides package.json name in dev mode)
   app.name = "PI Dashboard";
-
-  // Set up macOS application menu (About, Edit, View, Window)
   setupAppMenu();
 
-  // Register wizard IPC handlers
-  registerWizardIpc(getWizardWindow);
+  // Register slim wizard IPC (currently only wizard:complete + open-doctor).
+  registerWizardIpc(() => null);
 
   // Register loading-page IPC (Start server / Open Doctor / Server log).
-  // See change: electron-server-launch-controls.
   registerPiDashboardIpc();
   wireLaunchStatusForwarder();
 
-  // Allow triggering setup wizard from menu (Doctor → Run Setup)
-  app.on("run-setup-wizard" as any, async () => {
-    await openWizardWindow();
-  });
-
-  // Pre-wizard: check if dashboard server is already running
   const config = loadMinimalConfig();
-  updateSplashStatus("Checking dashboard server\u2026");
-  const preCheck = await isDashboardRunning(config.port);
-  log(`Pre-wizard health check: running=${preCheck.running}`);
 
-  // ── LaunchSource V2 path (Phase C default; disable with LAUNCH_SOURCE_V2=false) ────
-  // See change: simplify-electron-bootstrap-derived-state.
-  if (isLaunchSourceV2Enabled(process.env)) {
-    try {
-      const source = await selectLaunchSource({
-        isPackaged: app.isPackaged,
-        cwd: process.cwd(),
-        preferOverride: parsePreferOverride(process.env),
-        bundledMinVersion: app.getVersion(),
-        resourcesPath: (process as any).resourcesPath ?? "",
-        port: config.port,
-      });
-      log(`[launch-source-v2] resolved kind=${source.kind}`);
+  try {
+    // ── State: checking-server-health ────────────────────────────────────────
+    updateSplashStatus("Checking dashboard server…");
+    const source = await selectLaunchSource({
+      isPackaged: app.isPackaged,
+      cwd: process.cwd(),
+      preferOverride: parsePreferOverride(process.env),
+      resourcesPath: (process as any).resourcesPath ?? "",
+      port: config.port,
+    });
+    log(`[launch-source] resolved kind=${source.kind}`);
 
-      let spawnedPid: number | undefined;
-      if (source.kind !== "attach") {
-        // Log-file lifecycle (mkdir + open + write + close) is owned
-        // by `launchDashboardServer` inside `spawnFromSource`. We pass
-        // only the absolute path; the launcher writes a header line
-        // and routes child stdout/stderr to it.
-        const logFile = path.join(os.homedir(), ".pi", "dashboard", "server.log");
-        const spawnResult = await spawnFromSource(
-          source as Exclude<typeof source, { kind: "attach" }>,
-          { port: config.port, piPort: config.piPort },
-          {
-            logFile,
-            onChildExit: makeServerWatchdog({
-              isGraceful: isGracefulShutdownInProgress,
-              log,
-              onCrash: (_code, _signal) => {
-                // Show loading page so the user can retry.
-                // Guard against mainWindow already closed during quit.
-                const win = mainWindow;
-                if (win && !win.isDestroyed()) {
-                  showLoadingPage(win, `http://localhost:${config.port}`);
-                }
-              },
-            }),
-          },
-        );
-        spawnedPid = spawnResult.pid;
-        log(`[launch-source-v2] spawned server pid=${spawnedPid}`);
-        // Record spawned PID for lifecycle ownership check on quit.
-        setSpawnedPid(spawnedPid);
-      }
-
-      // Show setup screen when extracted source triggered an extraction
-      // (bundle wipe + re-extract + bootstrap about to run).
-      const needsSetupScreen =
-        source.kind === "extracted" && (source as { didExtract?: boolean }).didExtract === true;
-
-      const serverUrl = source.kind === "attach" ? source.url : `http://localhost:${config.port}`;
-
-      if (needsSetupScreen) {
-        updateSplashStatus("Preparing dashboard…");
-        closeSplash();
-        log("[launch-source-v2] opening setup screen for extraction/bootstrap");
-        await openWizardWindow();
-        log("[launch-source-v2] setup screen closed");
-      }
-
+    if (source.kind === "attach") {
+      // ── State: attach ───────────────────────────────────────────────────
       updateSplashStatus("Opening dashboard…");
-      const win = createMainWindow(serverUrl);
-      if (!needsSetupScreen) closeSplash();
-      showLoadingPage(win, serverUrl);
+      const win = createMainWindow(source.url);
+      closeSplash();
+      showLoadingPage(win, source.url);
       createTray(() => mainWindow, quit, {
         getServerStatus: isManagedServerRunning,
         onLaunch: (force) => { void requestServerLaunch({ force }); },
@@ -531,159 +401,101 @@ async function main(): Promise<void> {
       startUpdaters();
       isStartingUp = false;
       return;
-    } catch (err: any) {
-      if (err instanceof PinnedSourceUnavailableError) {
-        closeSplash();
-        await dialog.showMessageBox({
-          type: "error",
-          title: "PI Dashboard — Launch Source Unavailable",
-          message: err.message,
-          detail: "Remove the DASHBOARD_PREFER_SOURCE override or fix the pinned source.",
-        });
-        app.quit();
-        return;
-      }
-      throw err;
     }
-  }
 
-  // ── Legacy path (LAUNCH_SOURCE_V2=false only) ─────────────────────────────────
-
-  if (preCheck.running && isFirstRun()) {
-    log("Server running, auto-writing mode.json as power-user");
-    writeModeFile("power-user");
-    try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
-  }
-
-  const firstRun = isFirstRun();
-  log(`isFirstRun=${firstRun}`);
-  if (firstRun) {
-    updateSplashStatus("Detecting pi agent…");
-    const pi = detectPi();
-    updateSplashStatus("Checking bridge extension…");
-    const bridge = detectBridgeExtension();
-    log(`Smart detection: pi=${pi.found}, bridge=${bridge.found}`);
-
-    const startupAction = decideStartupAction({
-      firstRun,
-      piFound: pi.found,
-      bridgeFound: bridge.found,
-    });
-    log(`startupAction=${startupAction.kind}${"step" in startupAction ? `:${startupAction.step}` : ""}`);
-
-    if (startupAction.kind === "auto-skip-wizard-with-install") {
-      log("Pi + bridge detected, auto-writing mode.json as power-user");
-      writeModeFile("power-user");
+    // ── State: wizard-welcome (first launch only) ────────────────────────────
+    if (isFirstRun()) {
+      updateSplashStatus("Preparing first launch…");
+      // Best-effort bundled bridge registration; non-fatal.
       try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
-      const installResult = await runPowerUserManagedInstall({
-        installStandaloneFn: installStandalone,
-        onStatus: (s) => updateSplashStatus(s),
-      });
-      log(`runPowerUserManagedInstall: ran=${installResult.ran} reason=${installResult.reason}${installResult.error ? ` error=${installResult.error.message}` : ""}`);
-      if (installResult.reason === "failed") {
-        console.error("[pi-dashboard] managed install failed:", installResult.error?.message);
-      }
-    } else if (pi.found && !bridge.found) {
-      updateSplashStatus("Opening setup wizard…");
-      closeSplash();
-      log("Opening wizard at bridge-install step...");
-      await openWizardWindow("bridge-install");
-      log("Wizard window closed");
-      if (isFirstRun()) {
-        log("Wizard not completed, quitting");
-        app.quit();
-        return;
-      }
-    } else {
-      updateSplashStatus("Opening setup wizard…");
-      closeSplash();
-      log("Opening wizard window...");
-      await openWizardWindow();
-      log("Wizard window closed");
-      if (isFirstRun()) {
-        log("Wizard not completed, quitting");
-        app.quit();
-        return;
-      }
+      await showWelcomeStep();
     }
-  }
 
-  // Dev mode: skip discovery, wait for server
-  if (process.env.ELECTRON_DEV) {
-    const devUrl = "http://localhost:8000";
-    const win = createMainWindow(devUrl);
-    showLoadingPage(win, devUrl);
+    // ── State: launch-server ─────────────────────────────────────────────────
+    updateSplashStatus("Launching dashboard server…");
+    const logFile = path.join(os.homedir(), ".pi", "dashboard", "server.log");
+    const spawnResult = await spawnFromSource(
+      source as Exclude<typeof source, { kind: "attach" }>,
+      { port: config.port, piPort: config.piPort },
+      {
+        logFile,
+        onChildExit: makeServerWatchdog({
+          isGraceful: isGracefulShutdownInProgress,
+          log,
+          onCrash: () => {
+            const win = mainWindow;
+            if (win && !win.isDestroyed()) {
+              showLoadingPage(win, `http://localhost:${config.port}`);
+            }
+          },
+        }),
+      },
+    );
+    log(`[launch-source] spawned server pid=${spawnResult.pid}`);
+    setSpawnedPid(spawnResult.pid);
+
+    // ── State: health-wait → done ────────────────────────────────────────────
+    // (`launchDashboardServer` inside `spawnFromSource` already waits for the
+    // readiness signal; reaching here means health-wait completed.)
+    updateSplashStatus("Opening dashboard…");
+    const serverUrl = `http://localhost:${config.port}`;
+    const win = createMainWindow(serverUrl);
+    closeSplash();
+    showLoadingPage(win, serverUrl);
+    createTray(() => mainWindow, quit, {
+      getServerStatus: isManagedServerRunning,
+      onLaunch: (force) => { void requestServerLaunch({ force }); },
+    });
+    startUpdaters();
+
+    // Confirm first-run marker is on disk now that we reached `done`.
+    try {
+      const markerPath = getFirstRunMarkerPath();
+      if (!existsSync(markerPath)) {
+        mkdirSync(path.dirname(markerPath), { recursive: true });
+        writeFileSync(markerPath, new Date().toISOString() + "\n");
+      }
+    } catch { /* non-fatal */ }
+
+    isStartingUp = false;
+    return;
+  } catch (err: any) {
+    // ── State: loading-page-error ────────────────────────────────────────────
+    if (err instanceof PinnedSourceUnavailableError) {
+      closeSplash();
+      await dialog.showMessageBox({
+        type: "error",
+        title: "PI Dashboard — Launch Source Unavailable",
+        message: err.message,
+        detail: "Remove the DASHBOARD_PREFER_SOURCE override or fix the pinned source.",
+      });
+      app.quit();
+      return;
+    }
+    if (err instanceof BundledServerMissingError) {
+      closeSplash();
+      await dialog.showMessageBox({
+        type: "error",
+        title: "PI Dashboard — Bundled Server Missing",
+        message: err.message,
+        detail: "Reinstall the application from the official installer.",
+      });
+      app.quit();
+      return;
+    }
+
+    log(`startup failed: ${err?.message || err}`);
+    const serverUrl = `http://localhost:${config.port}`;
+    const win = createMainWindow(serverUrl);
+    closeSplash();
+    showLoadingPage(win, serverUrl);
     createTray(() => mainWindow, quit, {
       getServerStatus: isManagedServerRunning,
       onLaunch: (force) => { void requestServerLaunch({ force }); },
     });
     startUpdaters();
     isStartingUp = false;
-    return;
   }
-
-  // Discover or launch server — single attempt. On deadline / child-exit
-  // failure, fall through to the loading page (which polls indefinitely
-  // and exposes Start server / Doctor / log controls). On configuration
-  // failure (no loader, CLI not found, port conflict), show the
-  // Setup/Retry/Quit dialog and loop. See change:
-  // tighten-electron-server-startup-deadline.
-  let serverUrl: string | undefined;
-  const fallbackUrl = `http://localhost:${loadMinimalConfig().port}`;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      updateSplashStatus("Launching dashboard server\u2026");
-      log(`ensureServer...`);
-      serverUrl = await ensureServer();
-      log(`Server found at ${serverUrl}`);
-      break;
-    } catch (err: any) {
-      const msg = String(err?.message ?? err);
-      console.error(`ensureServer failed:`, msg);
-      log(`ensureServer failed: ${msg}`);
-
-      // Deadline elapsed or child exited — the loading page is the better
-      // surface. Skip the dialog and route there directly.
-      if (isDeadlineOrChildExitError(msg)) {
-        log("Routing to loading page (deadline/child-exit failure).");
-        serverUrl = fallbackUrl;
-        break;
-      }
-
-      // Configuration / terminal error — ask the user.
-      closeSplash();
-      const { response } = await dialog.showMessageBox({
-        type: "error",
-        title: "PI Dashboard",
-        message: "Could not start the dashboard server.",
-        detail: `${msg}\n\nWould you like to run the setup wizard to fix this?`,
-        buttons: ["Run Setup", "Retry", "Quit"],
-        defaultId: 0,
-      });
-
-      if (response === 0) {
-        await openWizardWindow();
-        // Loop — try ensureServer again after wizard completes.
-      } else if (response === 1) {
-        // Loop — retry directly.
-      } else {
-        app.quit();
-        return;
-      }
-    }
-  }
-
-  updateSplashStatus("Opening dashboard\u2026");
-  const win = createMainWindow(serverUrl);
-  closeSplash();
-  showLoadingPage(win, serverUrl);
-  createTray(() => mainWindow, quit, {
-    getServerStatus: isManagedServerRunning,
-    onLaunch: (force) => { void requestServerLaunch({ force }); },
-  });
-  startUpdaters();
-  isStartingUp = false;
 }
 
 // macOS: re-create window when dock icon clicked

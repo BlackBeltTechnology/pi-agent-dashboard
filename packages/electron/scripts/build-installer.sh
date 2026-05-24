@@ -240,8 +240,7 @@ maybe_wipe_arch_caches() {
   if [ -n "$last_arch" ] && [ "$last_arch" != "$target_arch" ]; then
     echo "→ Arch switch detected ($last_arch → $target_arch) — invalidating per-arch caches"
     rm -rf "$ELECTRON_DIR/resources/node" \
-           "$ELECTRON_DIR/resources/server" \
-           "$ELECTRON_DIR/resources/offline-packages"
+           "$ELECTRON_DIR/resources/server"
   fi
   mkdir -p "$ELECTRON_DIR/resources"
   echo "$target_arch" > "$SENTINEL_FILE"
@@ -304,18 +303,10 @@ build_native_one_arch() {
     echo "✓ Bundled server already present"
   fi
 
-  # Offline npm cache (opt-in)
-  if [ "${BUNDLE_OFFLINE_PACKAGES:-0}" = "1" ]; then
-    if [ ! -f "$ELECTRON_DIR/resources/offline-packages/manifest.json" ]; then
-      echo ""
-      echo "→ Bundling offline packages (pi + openspec + tsx, arch=$target_arch)..."
-      node "$ELECTRON_DIR/scripts/bundle-offline-packages.mjs" --platform="$HOST_PLATFORM-$target_arch"
-    else
-      echo "✓ Offline package bundle already present"
-    fi
-  else
-    echo "→ Skipping offline package bundle (set BUNDLE_OFFLINE_PACKAGES=1 to enable)"
-  fi
+  # Offline npm cache step removed under change: eliminate-electron-runtime-install.
+  # pi/openspec/tsx are bundled as regular dependencies of
+  # @blackbelt-technology/pi-dashboard-server, materialised into
+  # `resources/server/node_modules/` by `bundle-server.mjs` above.
 
   # Bundled Node.js (per-arch)
   if [ "$HOST_PLATFORM" != "win32" ]; then
