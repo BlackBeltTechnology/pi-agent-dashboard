@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<unattend xmlns="urn:schemas-microsoft-com:unattend">
+<unattend xmlns="urn:schemas-microsoft-com:unattend"
+          xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
   <!-- Windows PE pass: disk partitioning -->
   <settings pass="windowsPE">
@@ -22,6 +24,56 @@
                publicKeyToken="31bf3856ad364e35"
                language="neutral"
                versionScope="nonSxS">
+      <!--
+        Win 11 hardware-check bypass (Microsoft-documented for evaluation /
+        lab scenarios). Setup.exe runs the TPM 2.0 / SecureBoot / RAM / CPU
+        family checks during the windowsPE pass. The autounattend
+        `<RunSynchronous>` block executes after WinPE init but before the
+        checks complete — setting these LabConfig keys causes Setup to skip
+        the hardware compatibility gate.
+
+        Without this we hit "This PC doesn't currently meet Windows 11
+        system requirements — The PC must support TPM 2.0" because
+        VMware's `managedvm.autoAddVTPM` flag is not honoured for VMs
+        created by packer's vmware-iso builder (only for Fusion-GUI-
+        created VMs). The vmx_data tpm.* keys we set don't actually
+        attach a vTPM device to the running VM.
+
+        Reference: https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements
+      -->
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /f</Path>
+          <Description>Create LabConfig key</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass TPM 2.0 check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass Secure Boot check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass RAM check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass CPU compatibility check</Description>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>6</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+          <Description>Bypass storage check</Description>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+
       <DiskConfiguration>
         <Disk wcm:action="add">
           <DiskID>0</DiskID>
@@ -66,6 +118,16 @@
 
       <ImageInstall>
         <OSImage>
+          <!-- Disambiguate edition when the ISO carries multiple SKUs.
+               25H2 ENTERPRISE EVAL ISO contains "Windows 11 Enterprise";
+               without InstallFrom the unattended Setup bails on the
+               edition picker (no UI in unattended mode) and reboots. -->
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows 11 Enterprise Evaluation</Value>
+            </MetaData>
+          </InstallFrom>
           <InstallTo>
             <DiskID>0</DiskID>
             <PartitionID>3</PartitionID>

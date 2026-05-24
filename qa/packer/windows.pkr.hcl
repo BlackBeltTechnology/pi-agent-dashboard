@@ -65,6 +65,14 @@ source "vmware-iso" "windows" {
   memory           = var.memory
   disk_size        = var.disk_size
   disk_type_id     = "0"
+  # Win 11 WinPE ships drivers for lsisas1068 (LSI Logic SAS) but NOT
+  # for the default "lsilogic" (LSI Logic Parallel). Without this, the
+  # Setup disk picker shows an empty list with "Hardware not showing up?
+  # Load driver to access your hardware." prompt. Switching to
+  # lsisas1068 makes the disk visible immediately. NVMe + SATA also work,
+  # but lsisas1068 stays closest to the existing packer-vmware default
+  # and doesn't change other vmx layout.
+  disk_adapter_type = "lsisas1068"
   network          = "nat"
   # Plugin v2.x requires explicit adapter type. e1000e is the
   # widely-supported default on modern Windows + Fusion.
@@ -85,6 +93,38 @@ source "vmware-iso" "windows" {
     # auto-managed). Without this, the build hangs at first power-on.
     "encryption.required"       = "TRUE"
     "encryption.required.vTPM"  = "TRUE"
+
+    # Explicitly declare a TPM device. `managedvm.autoAddVTPM` is a
+    # higher-level Fusion convenience that *should* infer this, but on
+    # some Fusion 13.x builds the auto-add only fires when the VM is
+    # created via the GUI — Packer's vmware-iso builder doesn't trigger
+    # it. Adding the literal device key makes vTPM presence deterministic.
+    "tpm.present"               = "TRUE"
+
+    # Nested virtualization assist. Win 11 25H2 enables VBS (HVCI) by
+    # default, which requires hardware virt extensions visible to the
+    # guest. Without `vhv.enable`, early kernel init triggers a
+    # CRITICAL_PROCESS_DIED BSOD that the firmware auto-restarts —
+    # exactly the "shows Windows logo, restarts" symptom.
+    "vhv.enable"                = "TRUE"
+
+    # Hide the hypervisor signature from cpuid so Win 11 doesn't
+    # short-circuit some startup checks expecting bare-metal-like CPU.
+    # See: VMware KB 1009458.
+    "hypervisor.cpuid.v0"       = "FALSE"
+
+    # Explicit boot order: HDD first, CDROM as fallback. On the FIRST
+    # boot the empty SCSI disk has no bootable partition so firmware
+    # falls through to the CDROM and the Windows installer ISO loads.
+    # On every SUBSEQUENT boot the disk has Windows' EFI bootloader
+    # written to its ESP and firmware boots directly from it — the
+    # Boot Manager menu is bypassed entirely. Without this key the
+    # default UEFI behaviour is to land in the menu on every boot,
+    # which causes Setup to either restart from CDROM (install loop)
+    # or stall at the menu waiting for keyboard input.
+    "bios.bootOrder"            = "hdd,cdrom"
+    "bios.bootDelay"            = "0"
+    "bios.forceSetupOnce"       = "FALSE"
   }
 
   # Windows uses WinRM or SSH — we use SSH (OpenSSH installed via autounattend)
@@ -103,8 +143,16 @@ source "vmware-iso" "windows" {
     "http/autounattend.xml"
   ]
 
-  # Boot wait for Windows installer
-  boot_wait = "5s"
+  # With `bios.bootOrder = "hdd,cdrom"` set in vmx_data above, the
+  # firmware boots without showing the Boot Manager menu. On the
+  # first power-on the empty disk falls through and CDROM (the Win
+  # 11 installer ISO) loads; subsequent reboots auto-pick the disk
+  # once Setup writes the EFI bootloader. We only need to dismiss
+  # the installer's "Press any key to boot from CD or DVD" prompt.
+  boot_wait = "10s"
+  boot_command = [
+    "<enter><enter><enter><enter><enter>"
+  ]
 }
 
 build {
