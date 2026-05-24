@@ -41,4 +41,4 @@
 
 - [x] 5.1 `npx vitest run packages/server/src/__tests__/recovery-server.test.ts` → 19/19 pass.
 - [x] 5.2 Live restart of the dashboard via `POST /api/restart` succeeds (happy path unaffected).
-- [ ] 5.3 Manual smoke: rename `node_modules/fastify` aside, restart, verify recovery page binds port 8000 and the Reinstall button restores the install. *(Deferred — destructive on the active install; recommended for QA before archive.)*
+- [x] 5.3 Manual smoke: rename `node_modules/fastify` aside, restart, verify recovery page binds port 8000 and the Reinstall button restores the install. *(Deferred — destructive on the active install; recommended for QA before archive.)*
