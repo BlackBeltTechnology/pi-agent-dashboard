@@ -194,12 +194,46 @@
         <LogonCount>1</LogonCount>
       </AutoLogon>
 
-      <!-- Run provisioning on first logon -->
+      <!-- Run provisioning on first logon.
+
+           IMPORTANT: on Win 11 25H2 OpenSSH Server is an *optional* Windows
+           capability that is NOT installed by default. We must add the
+           capability BEFORE Set-Service / Start-Service can succeed.
+
+           Also: open inbound TCP/22 in the Windows firewall, otherwise
+           packer's SSH connect from the host hangs (Win 11 firewall blocks
+           unknown ports by default for the Public network profile that
+           the NAT adapter is assigned to). -->
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
-          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Set-Service -Name sshd -StartupType Automatic; Start-Service sshd"</CommandLine>
-          <Description>Enable OpenSSH</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"</CommandLine>
+          <Description>Install OpenSSH Server capability</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Set-Service -Name sshd -StartupType Automatic"</CommandLine>
+          <Description>Set sshd service to auto-start</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Start-Service sshd"</CommandLine>
+          <Description>Start sshd service</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22"</CommandLine>
+          <Description>Open firewall TCP/22</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False"</CommandLine>
+          <Description>Disable Windows firewall entirely for QA VM (sandboxed, simplifies packer + test SSH)</Description>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>6</Order>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "New-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -PropertyType String -Force"</CommandLine>
+          <Description>Set OpenSSH default shell to PowerShell (packer's PowerShell provisioner expects it)</Description>
         </SynchronousCommand>
       </FirstLogonCommands>
     </component>
