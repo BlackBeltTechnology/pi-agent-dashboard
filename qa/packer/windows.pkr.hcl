@@ -66,6 +66,9 @@ source "vmware-iso" "windows" {
   disk_size        = var.disk_size
   disk_type_id     = "0"
   network          = "nat"
+  # Plugin v2.x requires explicit adapter type. e1000e is the
+  # widely-supported default on modern Windows + Fusion.
+  network_adapter_type = "e1000e"
 
   # Windows uses WinRM or SSH — we use SSH (OpenSSH installed via autounattend)
   communicator     = "ssh"

@@ -57,36 +57,41 @@ define check_user_data
 	fi
 endef
 
+# `packer init .` scans every .pkr.hcl in the directory, which fails
+# because each template redeclares common variables (`vm_name`,
+# `cpus`, `ssh_username`, etc.). Pass the specific template file to
+# `packer init` so only that file's variable/required_plugin block is
+# evaluated. See: https://github.com/hashicorp/packer/issues/12260
 .PHONY: build-linux-x86
 build-linux-x86:
 	$(call check_placeholders,$(PACKER_DIR)/vars/ubuntu-24.pkrvars.hcl)
 	$(call check_user_data)
-	cd $(PACKER_DIR) && packer init . && \
+	cd $(PACKER_DIR) && packer init ubuntu-x86.pkr.hcl && \
 	packer build -var-file=vars/ubuntu-24.pkrvars.hcl ubuntu-x86.pkr.hcl
 
 .PHONY: build-linux-arm
 build-linux-arm:
 	$(call check_placeholders,$(PACKER_DIR)/vars/ubuntu-24-arm.pkrvars.hcl)
 	$(call check_user_data)
-	cd $(PACKER_DIR) && packer init . && \
+	cd $(PACKER_DIR) && packer init ubuntu-arm.pkr.hcl && \
 	packer build -var-file=vars/ubuntu-24-arm.pkrvars.hcl ubuntu-arm.pkr.hcl
 
 .PHONY: build-windows
 build-windows:
 	$(call check_placeholders,$(PACKER_DIR)/vars/win-11.pkrvars.hcl)
-	cd $(PACKER_DIR) && packer init . && \
+	cd $(PACKER_DIR) && packer init windows.pkr.hcl && \
 	packer build -var-file=vars/win-11.pkrvars.hcl windows.pkr.hcl
 
 .PHONY: build-macos-x86
 build-macos-x86:
 	$(call check_placeholders,$(PACKER_DIR)/vars/macos-14.pkrvars.hcl)
-	cd $(PACKER_DIR) && packer init . && \
+	cd $(PACKER_DIR) && packer init macos-x86.pkr.hcl && \
 	packer build -var-file=vars/macos-14.pkrvars.hcl macos-x86.pkr.hcl
 
 .PHONY: build-macos-arm
 build-macos-arm:
 	$(call check_placeholders,$(PACKER_DIR)/vars/macos-14-arm.pkrvars.hcl)
-	cd $(PACKER_DIR) && packer init . && \
+	cd $(PACKER_DIR) && packer init macos-arm.pkr.hcl && \
 	packer build -var-file=vars/macos-14-arm.pkrvars.hcl macos-arm.pkr.hcl
 
 .PHONY: build-all

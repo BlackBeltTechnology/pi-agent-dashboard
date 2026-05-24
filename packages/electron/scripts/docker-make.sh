@@ -39,22 +39,43 @@ fi
 # IMPORTANT: do NOT delete the host's existing platform packages. The
 # project root is bind-mounted into Docker, so any rm inside the
 # container also wipes the host's node_modules. We `npm install` the
-# missing Linux packages directly without --save, so:
-#   - host's darwin/win32 packages stay intact
-#   - linux variants are added alongside
-#   - subsequent host `npm run build` keeps working
+# missing Linux packages **without going through `npm install`**, because
+# `npm install --no-save` still re-evaluates `optionalDependencies` and on
+# current npm versions (>= 10) wipes the host's darwin variants when run
+# on the bind-mounted node_modules. See: https://github.com/npm/cli/issues/4828
 #
-# See: https://github.com/npm/cli/issues/4828
-if [ ! -f /build/node_modules/@rollup/rollup-linux-$ARCH-gnu/package.json ]; then
-  echo "→ Installing missing Linux-$ARCH optional deps..."
-  cd /build
-  npm install --no-save --no-audit --no-fund --prefer-offline \
-    "@rollup/rollup-linux-$ARCH-gnu" 2>&1 | tail -3 || true
-  # Other native build tools that may be missing on Linux:
-  npm install --no-save --no-audit --no-fund --prefer-offline \
-    "@swc/core-linux-$ARCH-gnu" 2>&1 | tail -3 || true
-  cd /build
-fi
+# Strategy: use `npm pack` (registry fetch only, never touches
+# node_modules) to download the tarball, then extract it into the target
+# path manually. This guarantees:
+#   - host's darwin/win32 packages stay intact (no npm install side effects)
+#   - linux variant is added alongside
+#   - subsequent host `npm run build` keeps working
+_install_linux_optional() {
+  local pkg="$1"  # e.g. "@rollup/rollup-linux-x64-gnu"
+  local target="/build/node_modules/$pkg"
+  if [ -f "$target/package.json" ]; then return 0; fi
+  echo "→ Side-loading $pkg via npm pack (bypasses optional-deps re-eval)"
+  local tmp
+  tmp="$(mktemp -d)"
+  if ! (cd "$tmp" && npm pack --silent --pack-destination=. "$pkg" >/dev/null 2>&1); then
+    echo "  ⚠ npm pack failed for $pkg — build may fail later"
+    rm -rf "$tmp"
+    return 0  # non-fatal; let forge fail with the real error if it needs it
+  fi
+  local tgz
+  tgz="$(ls -1 "$tmp"/*.tgz 2>/dev/null | head -1)"
+  if [ -z "$tgz" ]; then
+    echo "  ⚠ npm pack produced no tarball for $pkg"
+    rm -rf "$tmp"
+    return 0
+  fi
+  mkdir -p "$target"
+  tar -xzf "$tgz" -C "$target" --strip-components=1
+  rm -rf "$tmp"
+  echo "  ✓ $pkg side-loaded at $target"
+}
+_install_linux_optional "@rollup/rollup-linux-$ARCH-gnu"
+_install_linux_optional "@swc/core-linux-$ARCH-gnu"
 
 # Bundle server source (no npm install — that happens here for correct native binaries)
 echo "→ Bundling dashboard server source..."
