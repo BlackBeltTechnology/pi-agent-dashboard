@@ -70,6 +70,23 @@ source "vmware-iso" "windows" {
   # widely-supported default on modern Windows + Fusion.
   network_adapter_type = "e1000e"
 
+  # Windows 11 hard requirements: UEFI firmware with Secure Boot enabled
+  # AND a TPM 2.0 device. Without these the installer halts at
+  # "The PC must support TPM 2.0 / Secure Boot". Packer's vmware-iso
+  # builder exposes them via `vmx_data` (raw .vmx key/value injection).
+  # See: VMware KB 95934, Fusion 13+ supports virtual TPM 2.0.
+  vmx_data = {
+    "firmware"                  = "efi"
+    "uefi.secureBoot.enabled"   = "TRUE"
+    "managedvm.autoAddVTPM"     = "software"
+    # VMware encrypts the .vmx + virtual disk when a vTPM is attached;
+    # `encryption.required` opts into the lightweight "encryption for vTPM"
+    # variant that does NOT prompt for a passphrase (the encryption key is
+    # auto-managed). Without this, the build hangs at first power-on.
+    "encryption.required"       = "TRUE"
+    "encryption.required.vTPM"  = "TRUE"
+  }
+
   # Windows uses WinRM or SSH — we use SSH (OpenSSH installed via autounattend)
   communicator     = "ssh"
   ssh_username     = var.ssh_username
