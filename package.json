@@ -55,6 +55,8 @@
     "lint": "tsc --noEmit",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",
+    "link:local": "npm link --workspace=@blackbelt-technology/pi-dashboard-server",
+    "unlink:local": "npm rm -g @blackbelt-technology/pi-dashboard-server",
     "electron:dev": "npm run start:dev --workspace=@blackbelt-technology/pi-dashboard-electron",
     "electron:start": "npm run start --workspace=@blackbelt-technology/pi-dashboard-electron",
     "electron:make": "npm run make --workspace=@blackbelt-technology/pi-dashboard-electron",

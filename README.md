@@ -133,9 +133,24 @@ C++ build tools are typically **not** required — `node-pty` ships a Windows x6
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
 cd pi-agent-dashboard
 npm install
+npm run build                              # one-time client build
 pi install /path/to/pi-agent-dashboard     # global
 # or: pi install -l /path/to/pi-agent-dashboard   # project-local only
 ```
+
+#### Use the local checkout as the global `pi-dashboard` command
+
+By default, `pi-dashboard` on your PATH refers to whatever copy was installed globally (via `npm i -g` or the Electron bundle). To make it point at your working tree instead — so every edit is live and bridge auto-start uses your changes — link the workspace:
+
+```bash
+npm run link:local      # symlinks `pi-dashboard` on PATH to packages/server/bin/pi-dashboard.mjs
+pi-dashboard status
+npm run unlink:local    # restore (removes the global symlink)
+```
+
+The link survives across shells. Every invocation — including `pi`'s bridge auto-spawn — runs `packages/server/src/cli.ts` via jiti, so you don't need to rebuild the server on edits. The client still requires `npm run build` (or `npm run dev` for HMR).
+
+> **Windows note:** symlink creation needs an admin shell or Windows Developer Mode enabled. Everything else works the same as POSIX.
 
 To try the extension in a single pi session without registering it:
 
