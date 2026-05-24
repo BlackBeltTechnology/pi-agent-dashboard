@@ -40,13 +40,41 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   const perPid = new Map<number, BridgeStatus>();
 
   // REST endpoint — last-known status snapshot, for diagnostics.
-  ctx.fastify.get("/api/flows-anthropic-bridge/status", async () => {
-    return {
-      ok: true,
-      pluginId: "flows-anthropic-bridge",
-      sessions: Array.from(perPid.values()),
-    };
-  });
+  //
+  // Defensive route registration: if `loadServerEntries` is ever called
+  // after `fastify.listen()` (race conditions during restart, hot-install,
+  // dynamic plugin enable, etc.) Fastify throws
+  // `FST_ERR_INSTANCE_ALREADY_LISTENING` and our load fails. The route is
+  // diagnostic-only — the plugin's primary value is the bridge event
+  // listeners below, which don't depend on Fastify state. Guarding the
+  // registration keeps the rest of the plugin functional.
+  //
+  // `fastify.server` is the underlying http.Server; `.listening` flips to
+  // true after `listen()` resolves and is the canonical pre-flight check.
+  const httpServer = (ctx.fastify as unknown as { server?: { listening?: boolean } }).server;
+  if (httpServer?.listening) {
+    ctx.logger?.warn?.(
+      "flows-anthropic-bridge: Fastify already listening; skipping /api/flows-anthropic-bridge/status route registration. " +
+      "Bridge event listeners still active.",
+    );
+  } else {
+    try {
+      ctx.fastify.get("/api/flows-anthropic-bridge/status", async () => {
+        return {
+          ok: true,
+          pluginId: "flows-anthropic-bridge",
+          sessions: Array.from(perPid.values()),
+        };
+      });
+    } catch (err) {
+      // Last-resort safety net for any Fastify state we didn't anticipate.
+      // Surface a warning but keep the plugin's bridge listeners active.
+      ctx.logger?.warn?.(
+        `flows-anthropic-bridge: route registration failed (${err instanceof Error ? err.message : String(err)}); ` +
+        "continuing with bridge event listeners only.",
+      );
+    }
+  }
 
   // Wire generic event listeners IF the runtime exposes them. The event
   // surface for plugin-emitted custom events is host-version dependent; we
