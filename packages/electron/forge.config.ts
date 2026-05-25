@@ -23,22 +23,39 @@ const pkgVersion: string = JSON.parse(
 // Windows PE VERSIONINFO requires MAJOR.MINOR.BUILD[.REVISION] integers;
 // SemVer prereleases like "0.5.3-ci.20260525-141712.feat.abc" (produced by
 // ci-electron.yml's slug step) are rejected by @electron/packager's
-// resedit. Derive a 4-integer buildVersion from the SemVer triple +
-// GITHUB_RUN_NUMBER. macOS CFBundleVersion accepts arbitrary integers, so
-// this stays compatible across platforms. `appVersion` is left to default
-// to pkgVersion so users still see the full SemVer in `app.getVersion()`
-// / About dialog / macOS CFBundleShortVersionString.
+// `resedit` step. Derive a 4-integer buildVersion from the SemVer triple +
+// GITHUB_RUN_NUMBER.
+//
+// @electron/packager wires the PE VERSIONINFO fields like this
+// (see node_modules/@electron/packager/dist/win32.js):
+//   productVersion: this.opts.appVersion             // ← no override path
+//   fileVersion:    this.opts.buildVersion || appVersion
+// Both run through parseVersionString. `buildVersion` only fixes FileVersion;
+// to satisfy ProductVersion we must also pin `appVersion` to the 4-integer
+// form, but only when building for Windows so darwin / linux artifacts keep
+// the full SemVer in CFBundleShortVersionString / Info.plist.
+//
+// Build-host detection (`process.platform === "win32"`) is correct here
+// because the ci-electron matrix builds Windows artifacts only on
+// windows-latest runners; cross-builds are not used for win32.
+//
 // See change: fix-electron-windows-version-format.
 const buildVersion = deriveWindowsBuildVersion(
   pkgVersion,
   process.env.GITHUB_RUN_NUMBER,
 );
+const isWindowsBuildHost = process.platform === "win32";
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: "PI-Dashboard",
     buildVersion,
+    // Windows-only: pin appVersion so ProductVersion (which packager's
+    // win32.js hardcodes from appVersion) is also a 4-integer string.
+    // On darwin/linux this stays unset, so packager defaults to
+    // pkgVersion (= full SemVer slug) for Info.plist visibility.
+    ...(isWindowsBuildHost ? { appVersion: buildVersion } : {}),
     executableName: "pi-dashboard",
     icon: path.resolve(__dirname, "resources/icon"),
     appBundleId: "com.blackbelt-technology.pi-dashboard",
