@@ -1,6 +1,6 @@
 {
-  "name": "PI Dashboard",
-  "short_name": "PI Dash",
+  "name": "Pi-Dash",
+  "short_name": "Pi-Dash",
   "start_url": "/",
   "display": "standalone",
   "theme_color": "#3b82f6",
