@@ -212,6 +212,15 @@ export interface DashboardConfig {
   cors: CorsConfig;
   /** Last-used server address (host:port) for reconnection */
   lastServer?: string;
+  /**
+   * Display name shown as the PWA app label when installed on a home screen
+   * or app drawer. Used as the `<source>` segment of the dynamic
+   * `/manifest.json` `name` field: `"Pi-Dash · <source>"`. Trimmed; blank /
+   * whitespace-only values are treated as unset and the server falls back to
+   * the request `Host` header (port stripped) → `os.hostname()` → literal
+   * `"Pi-Dash"`. See change: add-dynamic-pwa-manifest-naming.
+   */
+  dashboardName?: string;
   /** Whether the server was launched by the Electron app */
   electronMode: boolean;
   /**
@@ -574,6 +583,9 @@ export function loadConfig(): DashboardConfig {
           : defaults.cors.allowedOrigins,
       },
       ...(typeof parsed.lastServer === "string" ? { lastServer: parsed.lastServer } : {}),
+      ...(typeof parsed.dashboardName === "string" && parsed.dashboardName.trim()
+        ? { dashboardName: parsed.dashboardName }
+        : {}),
       electronMode: parsed.electronMode === true,
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),

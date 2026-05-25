@@ -43,6 +43,7 @@ import { createNetworkGuard, isLoopback, isBypassedHost } from "./localhost-guar
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { loadConfig, CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { registerSessionApi } from "./session-api.js";
+import { registerManifestRoute } from "./routes/manifest-route.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerFileRoutes } from "./routes/file-routes.js";
@@ -855,6 +856,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   if (!hasProductionBuild) {
     console.log("[dashboard] No client build found — running in API-only mode");
   }
+
+  // Dynamic PWA manifest — MUST be registered before fastify-static so
+  // explicit route matching wins over the static asset. See change:
+  // add-dynamic-pwa-manifest-naming.
+  registerManifestRoute(fastify, {
+    clientDir,
+    // Re-read config per request so Settings panel changes propagate
+    // without a server restart. loadConfig() is fs-cheap (<1ms).
+    getDashboardName: () => loadConfig().dashboardName,
+  });
 
   // Register static file serving for production build.
   // Always enabled — in dev mode, Vite handles most requests via the

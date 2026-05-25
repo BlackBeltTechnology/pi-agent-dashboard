@@ -82,6 +82,8 @@ interface Config {
   };
   devBuildOnReload: boolean;
   defaultModel: string;
+  /** Display name for the PWA app label. See change: add-dynamic-pwa-manifest-naming. */
+  dashboardName?: string;
   auth?: AuthConfig;
   memoryLimits: MemoryLimitsConfig;
   trustedNetworks?: string[];
@@ -205,6 +207,13 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
     }
     if (config.devBuildOnReload !== original.devBuildOnReload) partial.devBuildOnReload = config.devBuildOnReload;
     if (config.defaultModel !== original.defaultModel) partial.defaultModel = config.defaultModel;
+    // PWA display name. Empty/whitespace clears the override (server falls
+    // back to Host header → os.hostname()). See change:
+    // add-dynamic-pwa-manifest-naming.
+    if ((config.dashboardName ?? "") !== (original.dashboardName ?? "")) {
+      const trimmed = (config.dashboardName ?? "").trim();
+      partial.dashboardName = trimmed.length > 0 ? trimmed : "";
+    }
 
     // Trusted networks diff
     if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
@@ -508,6 +517,21 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                     models={availableModels}
                     onSelect={(v) => update((c) => { c.defaultModel = v; })}
                   />
+                </div>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-[var(--text-secondary)]">PWA Display Name</label>
+                    <input
+                      type="text"
+                      className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
+                      placeholder="(auto from hostname)"
+                      value={config.dashboardName ?? ""}
+                      onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request <code>Host</code> header (or the server hostname). Distinguishes installs from multiple machines or tunnels.
+                  </p>
                 </div>
               </Section>
 

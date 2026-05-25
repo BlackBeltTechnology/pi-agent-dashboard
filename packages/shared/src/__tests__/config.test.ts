@@ -519,3 +519,43 @@ describe("loadConfig spawnRegisterTimeoutMs", () => {
     expect(loadConfig().spawnRegisterTimeoutMs).toBe(30000);
   });
 });
+
+// See change: add-dynamic-pwa-manifest-naming.
+describe("dashboardName", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("is undefined when absent from config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    expect(loadConfig().dashboardName).toBeUndefined();
+  });
+
+  it("round-trips a non-empty string", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ dashboardName: "Home NAS" }));
+    expect(loadConfig().dashboardName).toBe("Home NAS");
+  });
+
+  it("is undefined for whitespace-only override", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ dashboardName: "   " }));
+    expect(loadConfig().dashboardName).toBeUndefined();
+  });
+
+  it("is undefined for non-string override", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ dashboardName: 42 }));
+    expect(loadConfig().dashboardName).toBeUndefined();
+  });
+});
