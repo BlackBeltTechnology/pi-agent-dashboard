@@ -147,6 +147,26 @@ jobs:
         # and bash. Default Windows shell (cmd) handles it without MSYS.
         run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
 
+      # The three steps below mirror publish.yml's prepare job. Without them,
+      # cross-workspace dep specifiers stay at `^<base>` after the version bump
+      # to `<base>-ci.<...>`, and `^<base>` does not satisfy prerelease
+      # `<base>-ci.<...>` per SemVer. npm then resolves those refs from the
+      # registry (stale published `<base>`) instead of the local workspace,
+      # producing taxonomy drift (e.g. plugin slot ids unknown to a stale
+      # @blackbelt-technology/pi-dashboard-shared). See change:
+      # add-ci-electron-on-demand-build (post-fix for stale-registry resolve).
+      - name: Sync inter-package dep specifiers
+        shell: bash
+        run: node scripts/sync-versions.js
+
+      - name: Regenerate package-lock.json with bumped versions
+        shell: bash
+        run: npm install --package-lock-only --no-audit --no-fund
+
+      - name: Verify lockfile matches workspace versions
+        shell: bash
+        run: node scripts/verify-lockfile-versions.mjs
+
       - name: Install Linux build dependencies
         if: matrix.platform == 'linux'
         run: |
