@@ -55,52 +55,63 @@ on:
         default: ""
 
 jobs:
+  # Resolve the matrix subset *before* fan-out. Job-level `if:` cannot reference
+  # matrix.* (GitHub Actions evaluates job-level if: prior to matrix expansion),
+  # so we precompute the include[] as JSON and feed it to build's strategy via
+  # fromJSON(). Filtered legs never spawn runners.
+  # See change: add-ci-electron-on-demand-build (Decision 2 in design.md).
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+      count: ${{ steps.compute.outputs.count }}
+    steps:
+      - id: compute
+        env:
+          LEGS: ${{ inputs.legs }}
+        run: |
+          set -euo pipefail
+          ALL='[
+            {"os":"macos-14","platform":"darwin","arch":"arm64","node-arch":"arm64"},
+            {"os":"macos-15-intel","platform":"darwin","arch":"x64","node-arch":"x64"},
+            {"os":"ubuntu-latest","platform":"linux","arch":"x64","node-arch":"x64"},
+            {"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64","node-arch":"arm64"},
+            {"os":"windows-latest","platform":"win32","arch":"x64","node-arch":"x64"},
+            {"os":"windows-latest","platform":"win32","arch":"arm64","node-arch":"arm64"}
+          ]'
+          # macos-15-intel runs Intel x86_64 on macOS 15 host. Available until 2027-08.
+          # After that, GitHub-hosted Intel macOS is gone — pivot to universal binary or
+          # self-hosted runner. See change: add-darwin-x64-build.
+          if [ "$LEGS" = "all" ]; then
+            FILTERED="$ALL"
+          else
+            FILTERED=$(echo "$ALL" | jq --arg legs "$LEGS" '
+              [ .[] | select(
+                  ($legs == .platform) or
+                  ( ($legs | split(",") | map(gsub("^\\s+|\\s+$";"")))
+                    | index(.platform + "-" + .arch) )
+              ) ]
+            ')
+          fi
+          COUNT=$(echo "$FILTERED" | jq 'length')
+          if [ "$COUNT" = "0" ]; then
+            echo "::error::inputs.legs='$LEGS' selected zero legs. Accepted: 'all' | 'darwin'|'linux'|'win32' | comma-list of '<platform>-<arch>'." >&2
+            exit 1
+          fi
+          # Emit as {include:[...]} so strategy.matrix consumes it directly.
+          MATRIX=$(jq -nc --argjson inc "$FILTERED" '{include:$inc}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved $COUNT leg(s) for legs='$LEGS':"
+          echo "$FILTERED" | jq -r '.[] | "  - \(.platform)-\(.arch) on \(.os)"'
+
   build:
+    needs: resolve
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            platform: darwin
-            arch: arm64
-            node-arch: arm64
-          # Intel x86_64 macOS build. macos-13 was retired on 2025-12-08;
-          # macos-15-intel is the replacement label (runs Intel x86_64 on a
-          # macOS 15 host) available until 2027-08. After that, GitHub-hosted
-          # Intel macOS is gone and we'll need to pivot to a universal binary
-          # or self-hosted runner. See change: add-darwin-x64-build.
-          - os: macos-15-intel
-            platform: darwin
-            arch: x64
-            node-arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: x64
-            node-arch: x64
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-            node-arch: arm64
-          - os: windows-latest
-            platform: win32
-            arch: x64
-            node-arch: x64
-          - os: windows-latest
-            platform: win32
-            arch: arm64
-            node-arch: arm64
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
 
     runs-on: ${{ matrix.os }}
-
-    # Per-leg matrix-subset gate. Three accepted shapes:
-    #   inputs.legs == 'all'                       → run everything
-    #   inputs.legs == matrix.platform             → e.g. 'darwin' runs both darwin legs
-    #   contains(inputs.legs, '<platform>-<arch>') → comma-list with explicit legs
-    # See change: add-ci-electron-on-demand-build (Decision 2 in design.md).
-    if: >-
-      inputs.legs == 'all' ||
-      inputs.legs == matrix.platform ||
-      contains(inputs.legs, format('{0}-{1}', matrix.platform, matrix.arch))
 
     steps:
       - uses: actions/checkout@v4
