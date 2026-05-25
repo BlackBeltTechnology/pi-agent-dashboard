@@ -304,6 +304,7 @@ This section lists only the **architectural backbone** — the files agents touc
 | `src/server/routes/session-routes.ts` | REST routes: sessions, events, session-diff |
 | `src/server/routes/git-routes.ts` | REST routes: git branches, checkout, init, stash-pop |
 | `src/server/routes/file-routes.ts` | REST routes: file read, browse, browse-flags, browse-mkdir, readme, pinned-dirs |
+| `packages/server/src/routes/manifest-route.ts` | Dynamic `/manifest.json` route. Pure `stripPort` + `resolveManifestSource` + `buildManifestBody`; registered before fastify-static. |
 | `src/server/routes/openspec-routes.ts` | REST routes: openspec-archive, pi-resources, pi-resource-file |
 | `src/server/routes/system-routes.ts` | REST routes: config, health, shutdown, tunnel, editors |
 | `src/server/event-wiring.ts` | Pi gateway → browser gateway event forwarding; UI cache + activity stamping + unread trigger |

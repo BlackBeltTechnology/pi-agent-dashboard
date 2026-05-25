@@ -280,6 +280,24 @@ Cross-refs:
 - README.md:178
 - docs/architecture.md:959
 
+## Why do all my PWA installs of the dashboard have the same name on the launcher?
+
+Server serves `/manifest.json` dynamically per request.
+
+Name format: `Pi-Dash · <source>`. Source resolution order:
+1. `dashboardName` field in `~/.pi/dashboard/config.json` (override).
+2. Request `Host` header, port stripped, IPv6-safe.
+3. `os.hostname()`.
+4. Literal `"Pi-Dash"`.
+
+Result: each origin (`laptop.local`, `nas.local`, `abc.share.zrok.io`) gets distinct launcher label. `short_name` truncated to 12 chars.
+
+Override via Settings → General → "PWA Display Name". Empty value clears override. Config re-read per request — no server restart needed.
+
+Refresh behavior:
+- iOS Safari freezes name at install time. Uninstall + re-add for new name.
+- Chrome / Edge / Android refresh manifest within ~24h.
+
 ## How do I set up OAuth authentication for external access?
 
 Add `auth.providers` block to `~/.pi/dashboard/config.json`. Localhost stays unguarded; external (tunnel) requests must authenticate.
