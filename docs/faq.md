@@ -590,6 +590,27 @@ Cross-refs:
 - README.md:674
 - docs/release-process.md:60
 
+## How do I get an installer for a feature branch without cutting a release?
+
+CI dispatch workflow. No release, no publish, no tag.
+
+Steps:
+1. GitHub Actions tab → **CI Electron (on-demand)** workflow → **Run workflow** button.
+2. Select branch. Optional `legs` input narrows the matrix (default `all`; accepts `darwin`, `linux`, `win32`, or comma-list like `darwin-arm64,linux-x64`; pick `linux-x64` for cheap iteration).
+3. Wait for legs to finish. Download artifacts from the run page → **Artifacts** section.
+
+Version slug: `<base>-ci.<UTC-stamp>.<branch-slug>.<sha7>` (e.g. `0.5.3-ci.20260525-143000.feature-foo-bar.abc1234`). Prerelease segment SemVer-ranks strictly below `<base>`.
+
+Retention 14 days. Past 14 days → re-dispatch from same commit.
+
+No effect on installed-user update channel — `electron-updater` default `allowPrerelease: false` skips `-ci.` slugs. No npm publish, no GitHub Release.
+
+Cross-refs:
+- README.md → "On-demand Electron build (CI dispatch)"
+- .github/workflows/ci-electron.yml
+- .github/workflows/_electron-build.yml
+- See change: add-ci-electron-on-demand-build
+
 ## What is the npm Trusted Publishers setup for releases?
 
 OIDC token exchange replaces `NPM_TOKEN`. Per-package one-time configuration on npmjs.com.

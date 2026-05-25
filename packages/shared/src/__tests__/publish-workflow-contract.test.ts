@@ -1,6 +1,8 @@
 /**
  * Repo-level invariant: `.github/workflows/publish.yml`'s `electron` job
- * MUST `needs: [prepare, publish]` and MUST set `strategy.fail-fast: false`.
+ * MUST `needs: [prepare, publish]` AND MUST delegate to the reusable
+ * workflow `.github/workflows/_electron-build.yml`, which MUST itself set
+ * `strategy.fail-fast: false`.
  *
  * Why: the bundled-server step in the electron matrix runs `npm install`
  * against the live npm registry, which depends on `@blackbelt-technology/*`
@@ -12,14 +14,18 @@
  * other four matrix variants — losing diagnostic output and wasting runner
  * minutes.
  *
- * If this test fails, restore the two lines in `publish.yml`:
- *   electron:
- *     needs: [prepare, publish]
- *     strategy:
- *       fail-fast: false
- *       matrix: ...
+ * If this test fails, restore the contract in `publish.yml` + `_electron-build.yml`:
+ *   publish.yml:
+ *     electron:
+ *       needs: [prepare, publish]
+ *       uses: ./.github/workflows/_electron-build.yml
+ *   _electron-build.yml:
+ *     jobs:
+ *       build:
+ *         strategy:
+ *           fail-fast: false
  *
- * See change: publish-fix-macos.
+ * See changes: publish-fix-macos, add-ci-electron-on-demand-build.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -29,6 +35,12 @@ import url from "node:url";
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "publish.yml");
+const REUSABLE_WORKFLOW_PATH = path.join(
+  REPO_ROOT,
+  ".github",
+  "workflows",
+  "_electron-build.yml",
+);
 
 /**
  * Extract the YAML body of a top-level job by name. Returns the lines
@@ -105,20 +117,87 @@ describe("publish.yml — electron job dependency-graph contract", () => {
     expect(names).toContain("publish");
   });
 
-  it("electron job's `strategy.fail-fast` is `false`", () => {
-    // Match `fail-fast: false` (any whitespace after the colon, but the
-    // value must be the literal `false` — not `False`, not absent).
-    const m = electronBlock.match(/^\s{6}fail-fast:\s*(\S+)\s*$/m);
+  it("electron job delegates to the reusable workflow via `uses:`", () => {
+    // After change add-ci-electron-on-demand-build, the electron job is a
+    // thin consumer of the shared workflow. The same definition serves
+    // both publish.yml and ci-electron.yml.
+    const m = electronBlock.match(
+      /^\s{4}uses:\s*\.\/\.github\/workflows\/_electron-build\.yml\s*$/m,
+    );
     if (!m) {
       throw new Error(
-        "electron job's `strategy.fail-fast` is absent — the GitHub Actions " +
-          "default of `true` would re-introduce the run-#34 cascade. " +
-          "Set `fail-fast: false`. See change: publish-fix-macos.\n" +
+        "electron job MUST be `uses: ./.github/workflows/_electron-build.yml`. " +
+          "The reusable workflow is the sole definition of the build matrix. " +
+          "See change: add-ci-electron-on-demand-build.\n" +
           "Job block was:\n" +
           electronBlock,
       );
     }
+  });
+});
+
+describe("_electron-build.yml — reusable workflow contract", () => {
+  const reusableYaml = fs.readFileSync(REUSABLE_WORKFLOW_PATH, "utf8");
+
+  it("sets `fail-fast: false` on the build job", () => {
+    // Without `fail-fast: false`, a single OS failure cascades and cancels the
+    // other matrix variants — losing diagnostic output and wasting runner
+    // minutes. Locked here because the assertion moved out of publish.yml
+    // in change add-ci-electron-on-demand-build (electron job is now a thin
+    // `uses:` shim). See change: publish-fix-macos.
+    const m = reusableYaml.match(/^\s+fail-fast:\s*(\S+)\s*$/m);
+    if (!m) {
+      throw new Error(
+        "_electron-build.yml `strategy.fail-fast` is absent — the GitHub Actions " +
+          "default of `true` would re-introduce the run-#34 cascade. " +
+          "Set `fail-fast: false` on jobs.build.strategy. See change: publish-fix-macos.",
+      );
+    }
     expect(m[1]).toBe("false");
+  });
+
+  it("declares the input contract documented in design.md", () => {
+    // Inputs locked: version, ref, legs, source_only_bundle,
+    // artifact_retention_days, artifact_name_suffix. Adding inputs is
+    // safe; removing or renaming requires updating both callers
+    // (publish.yml + ci-electron.yml) plus the spec.
+    for (const key of [
+      "version",
+      "ref",
+      "legs",
+      "source_only_bundle",
+      "artifact_retention_days",
+    ]) {
+      const re = new RegExp(`^\\s+${key}:\\s*$`, "m");
+      if (!re.test(reusableYaml)) {
+        throw new Error(
+          `_electron-build.yml is missing required input '${key}'. ` +
+            "See change: add-ci-electron-on-demand-build (design.md Decision 2).",
+        );
+      }
+    }
+  });
+
+  it("contains no forbidden side-effect actions (npm publish, gh-release, tag push)", () => {
+    // The reusable workflow MUST be a pure artifact producer. Publishing
+    // remains the sole responsibility of publish.yml's `publish` +
+    // `github-release` jobs. See change: add-ci-electron-on-demand-build
+    // (proposal.md "Safety lints" + spec ci-electron-on-demand-build).
+    const forbidden = [
+      /softprops\/action-gh-release/,
+      /actions\/create-release/,
+      /npm\s+publish/,
+      /git\s+push\s+origin\s+v/,
+    ];
+    for (const re of forbidden) {
+      if (re.test(reusableYaml)) {
+        throw new Error(
+          `_electron-build.yml contains forbidden action matching ${re}. ` +
+            "The reusable workflow MUST NOT publish or release. See change: " +
+            "add-ci-electron-on-demand-build.",
+        );
+      }
+    }
   });
 });
 

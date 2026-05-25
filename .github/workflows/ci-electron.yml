@@ -1,0 +1,106 @@
+name: CI Electron (on-demand)
+
+# Manually-dispatched workflow that builds the full Electron installer matrix
+# for the dispatching branch, WITHOUT publishing to npm or creating a GitHub
+# Release. Use it to:
+#   - Smoke-test that the matrix still builds green on a feature branch
+#   - Hand a teammate a one-off installer to reproduce a packaging bug
+#   - Verify bundle-server / forge-config changes without burning a SemVer slot
+#
+# Safety invariants (locked by repo-lint tests):
+#   - No `npm publish`
+#   - No GitHub Release (drafts, prereleases, or full)
+#   - No tag push
+#   - Version slug is a SemVer prerelease ranked BELOW the base stable, so
+#     even an accidental Release publish wouldn't reach electron-updater
+#     clients with the default `allowPrerelease: false`.
+#
+# See change: add-ci-electron-on-demand-build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      legs:
+        description: |
+          Matrix subset. 'all' | 'darwin' | 'linux' | 'win32' |
+          comma-list like 'darwin-arm64,linux-x64'
+        type: string
+        required: false
+        default: all
+
+# Re-dispatching on the same branch cancels the prior run. Different
+# branches run in parallel. See design.md Decision 6.
+concurrency:
+  group: ci-electron-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── resolve: compute the CI version slug + summary ──────────────────────
+  # Slug shape: <base>-ci.<UTC-stamp>.<branch-slug>.<sha7>
+  # Branch slug: GITHUB_REF_NAME with [^a-zA-Z0-9.-] → '-', truncated to 20,
+  # leading/trailing '.' and '-' stripped. See design.md Decision 1.
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version:     ${{ steps.slug.outputs.version }}
+      sha7:        ${{ steps.slug.outputs.sha7 }}
+      branch_slug: ${{ steps.slug.outputs.branch_slug }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Compute CI version slug
+        id: slug
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(node -p "require('./package.json').version")
+          stamp=$(date -u +%Y%m%d-%H%M%S)
+          sha7=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          # Branch slug: sanitise, truncate, strip leading/trailing punctuation.
+          raw="${GITHUB_REF_NAME}"
+          slug=$(printf '%s' "$raw" | sed -E 's/[^a-zA-Z0-9.-]/-/g' | cut -c1-20 | sed -E 's/^[-.]+//; s/[-.]+$//')
+          if [ -z "$slug" ]; then
+            echo "::error::branch slug empty after sanitisation (raw='$raw')"
+            exit 1
+          fi
+          version="${base}-ci.${stamp}.${slug}.${sha7}"
+          # Validate against the same SemVer regex publish.yml uses.
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::computed version '$version' is not valid SemVer"
+            exit 1
+          fi
+          echo "version=$version"        >> "$GITHUB_OUTPUT"
+          echo "sha7=$sha7"               >> "$GITHUB_OUTPUT"
+          echo "branch_slug=$slug"        >> "$GITHUB_OUTPUT"
+          # Surface to run summary so the dispatcher can copy/paste.
+          {
+            echo "## CI Electron Build"
+            echo ""
+            echo "| Field        | Value                       |"
+            echo "|--------------|-----------------------------|"
+            echo "| Version      | \`$version\`                |"
+            echo "| Branch       | \`$GITHUB_REF_NAME\`         |"
+            echo "| Branch slug  | \`$slug\`                   |"
+            echo "| Commit       | \`$sha7\` (\`$GITHUB_SHA\`)  |"
+            echo "| Legs         | \`${{ inputs.legs }}\`       |"
+            echo ""
+            echo "Artifacts uploaded to this run page only \u2014 no registry side effects, no GitHub Release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── build: delegate to the reusable workflow ────────────────────────────
+  # Same definition as publish.yml's electron job, parameterised. The
+  # `source_only_bundle: true` flag avoids the registry round-trip that
+  # release builds rely on (since the CI version was never published).
+  build:
+    needs: resolve
+    uses: ./.github/workflows/_electron-build.yml
+    with:
+      version:                 ${{ needs.resolve.outputs.version }}
+      ref:                     ${{ github.sha }}
+      legs:                    ${{ inputs.legs }}
+      source_only_bundle:      true
+      artifact_retention_days: 14
+      artifact_name_suffix:    -${{ needs.resolve.outputs.sha7 }}

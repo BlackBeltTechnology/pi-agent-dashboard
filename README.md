@@ -819,6 +819,20 @@ This runs CI, publishes to npm with `--provenance` for supply-chain transparency
 
 All artifacts are uploaded to a **draft GitHub Release**. Release notes are extracted automatically from the matching `## [<version>]` section of [`CHANGELOG.md`](CHANGELOG.md).
 
+### On-demand Electron build (CI dispatch)
+
+Build a one-off installer for a feature branch. No release, no publish, no tag.
+
+Workflow: [`.github/workflows/ci-electron.yml`](.github/workflows/ci-electron.yml). Trigger from GitHub Actions tab → **CI Electron (on-demand)** → **Run workflow** button.
+
+Optional `legs` input narrows the matrix (default `all`; accepts `darwin`, `linux`, `win32`, or comma-list like `darwin-arm64,linux-x64` for cheap iteration).
+
+Version slug: `<base>-ci.<UTC-stamp>.<branch-slug>.<sha7>` (e.g. `0.5.3-ci.20260525-143000.feature-foo-bar.abc1234`). Prerelease segment SemVer-ranks below `<base>`.
+
+Download installers from the Actions run page → **Artifacts** section. 14-day retention.
+
+Safe by construction: no npm publish, no GitHub Release, no auto-update impact. `electron-updater` default `allowPrerelease: false` skips `-ci.` slugs — installed users unaffected.
+
 ### Trusted Publisher (OIDC) setup
 
 The publish workflow uses **[npm Trusted Publishers](https://docs.npmjs.com/trusted-publishers)** over OIDC — **no `NPM_TOKEN` secret required**. Short-lived, workflow-scoped credentials are exchanged between GitHub and npm at publish time, and every release carries automatic [npm provenance](https://docs.npmjs.com/generating-provenance-statements) tying the published artifact to the exact workflow run.

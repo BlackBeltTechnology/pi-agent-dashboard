@@ -11,38 +11,41 @@
 
 ## 2. Extract reusable workflow
 
-- [ ] 2.1 Create `.github/workflows/_electron-build.yml` with `on: workflow_call` and the input contract from design.md Decision 2.
-- [ ] 2.2 Move the entire body of `publish.yml`'s `electron` job into the reusable workflow, parameterising `version`, `ref`, `legs`, `source_only_bundle`, `artifact_retention_days`.
-- [ ] 2.3 Implement the per-leg `if:` guard that consumes the `legs` input. Supported values: `all`, `darwin`, `linux`, `win32`, and comma-lists like `darwin-arm64,linux-x64`.
-- [ ] 2.4 Verify the reusable workflow is syntactically valid via `actionlint .github/workflows/_electron-build.yml` (or `gh workflow view` after push).
+- [x] 2.1 Create `.github/workflows/_electron-build.yml` with `on: workflow_call` and the input contract from design.md Decision 2.
+- [x] 2.2 Move the entire body of `publish.yml`'s `electron` job into the reusable workflow, parameterising `version`, `ref`, `legs`, `source_only_bundle`, `artifact_retention_days`. Added `artifact_name_suffix` for CI sha7 traceability.
+- [x] 2.3 Implement the per-leg `if:` guard at job level using `inputs.legs == 'all' || inputs.legs == matrix.platform || contains(inputs.legs, format('{0}-{1}', matrix.platform, matrix.arch))`.
+- [x] 2.4 YAML parse verified via `yaml` package; workflow contract verified by `publish-workflow-contract.test.ts` (9 tests pass). `actionlint` not installed locally; `gh workflow view` after first push will be the final validator.
 
 ## 3. Refactor `publish.yml` to consume the reusable workflow
 
-- [ ] 3.1 Replace the `electron:` job body with a `uses: ./.github/workflows/_electron-build.yml` reference plus `with:` block.
-- [ ] 3.2 Keep `needs: [prepare, publish]` exactly as-is — this is the registry-availability gate the existing comment + lint protect.
-- [ ] 3.3 Update `packages/shared/src/__tests__/publish-workflow-contract.test.ts` to assert: (a) the `uses:` reference, (b) `needs: [prepare, publish]` is preserved, (c) `fail-fast: false` survives into the reusable workflow.
-- [ ] 3.4 Smoke-test: re-run the release pipeline on a throwaway tag (`v0.0.0-test.1`) and confirm artifact set is bit-for-bit identical to the pre-refactor baseline (same DMG/AppImage/etc filenames, same matrix legs).
+- [x] 3.1 Replaced lines 265–630 of `publish.yml` (366 lines) with a 15-line `uses: ./.github/workflows/_electron-build.yml` block. File reduced from 715 → 367 lines.
+- [x] 3.2 `needs: [prepare, publish]` preserved on the electron job; verified by contract test.
+- [x] 3.3 `publish-workflow-contract.test.ts` updated: (a) asserts the `uses:` reference, (b) asserts `needs: [prepare, publish]`, (c) `fail-fast: false` assertion moved to a new `describe('_electron-build.yml — reusable workflow contract')` block with input-contract + no-side-effects checks. All 9 tests pass.
+- [ ] 3.4 Smoke-test: re-run the release pipeline on a throwaway tag (`v0.0.0-test.1`) and confirm artifact set is bit-for-bit identical to the pre-refactor baseline. **Manual — requires CI dispatch.**
 
 ## 4. Add `ci-electron.yml`
 
-- [ ] 4.1 Create `.github/workflows/ci-electron.yml` with `on: workflow_dispatch` and inputs: `legs` (string, default `all`).
-- [ ] 4.2 Implement the version-slug resolver job that computes `<base>-ci.<UTC-stamp>.<branch-slug>.<sha7>`. Sanitiser: replace `[^a-zA-Z0-9.-]` with `-`, truncate to 20, strip leading/trailing `.` and `-`. Validate against the SemVer regex used by `publish.yml`.
-- [ ] 4.3 Surface the resolved slug, branch, and sha7 in `GITHUB_STEP_SUMMARY` so the dispatcher can copy/paste them.
-- [ ] 4.4 Call `_electron-build.yml` via `uses:` with `source_only_bundle: true`, `ref: ${{ github.sha }}`, `legs: ${{ inputs.legs }}`, `artifact_retention_days: 14`.
-- [ ] 4.5 Add the concurrency group `ci-electron-${{ github.ref }}` with `cancel-in-progress: true`.
+- [x] 4.1 Created `.github/workflows/ci-electron.yml` with `on: workflow_dispatch` and the `legs` input (string, default `all`).
+- [x] 4.2 Version-slug `resolve` job implemented with the exact sanitiser from design.md Decision 1. Validates against the same SemVer regex as `publish.yml`.
+- [x] 4.3 Run summary includes version, branch, branch slug, commit, and legs in a markdown table.
+- [x] 4.4 `build` job delegates to `_electron-build.yml` with `source_only_bundle: true`, `ref: ${{ github.sha }}`, `legs: ${{ inputs.legs }}`, `artifact_retention_days: 14`, `artifact_name_suffix: -${{ needs.resolve.outputs.sha7 }}`.
+- [x] 4.5 Concurrency group `ci-electron-${{ github.ref }}` with `cancel-in-progress: true` declared at workflow level.
 
 ## 5. Safety lints
 
-- [ ] 5.1 Add a repo lint test (`packages/shared/src/__tests__/ci-electron-no-side-effects.test.ts`) that scans `ci-electron.yml` and fails if it contains any of: `softprops/action-gh-release`, `actions/create-release`, `npm publish`, `git tag`, `git push origin v`.
-- [ ] 5.2 Add an assertion to the same test that `_electron-build.yml` is purely an artifact producer — no `softprops/action-gh-release`, no `npm publish` inside the reusable workflow body either. Release/publish stay in the callers.
+- [x] 5.1 Added `packages/shared/src/__tests__/ci-electron-no-side-effects.test.ts`. Scans for `softprops/action-gh-release`, `actions/create-release`, `npm publish`, `git tag v\d`, `git push origin v\d`. Strips YAML full-line comments before scanning so documentation discussing the forbidden patterns is not falsely flagged.
+- [x] 5.2 Same test also scans `_electron-build.yml` with the same patterns. Additionally asserts `ci-electron.yml` triggers only on `workflow_dispatch` (no push/pr/schedule/release). All 3 tests pass.
 
 ## 6. Documentation
 
-- [ ] 6.1 Update `README.md` (or `docs/` split) with a "Build a one-off Electron installer" section pointing at the `ci-electron` workflow's "Run workflow" UI.
-- [ ] 6.2 Add a `docs/file-index-*.md` row for `.github/workflows/_electron-build.yml` and `.github/workflows/ci-electron.yml` (via subagent, per AGENTS.md Documentation Update Protocol caveman-style rule).
-- [ ] 6.3 Add a `docs/faq.md` entry: "How do I get an installer for a feature branch without cutting a release?" → dispatch `ci-electron`, download from the run page's Artifacts section.
+- [x] 6.1 `README.md` updated: new `### On-demand Electron build (CI dispatch)` subsection under `## CI/CD & releasing` (between Releasing and Trusted Publisher setup). Covers workflow path, trigger, slug shape, artifact retention, safety guarantees.
+- [x] 6.2 `docs/file-index-skills-misc.md` updated via subagent: rows added for `_electron-build.yml` and `ci-electron.yml` in path-alphabetical order, caveman style.
+- [x] 6.3 `docs/faq.md` updated via subagent: Q/A entry "How do I get an installer for a feature branch without cutting a release?" inserted between the release-cut and Trusted Publisher entries.
 
 ## 7. Verification
+
+All Phase 7 tasks require manual CI dispatches and external observation — they
+cannot be completed locally. Run them after the change is pushed to a branch.
 
 - [ ] 7.1 Dispatch `ci-electron` on `develop` with `legs: linux-x64` (cheap). Confirm: artifact appears, downloadable from Actions UI, contains an AppImage that installs in a clean `ubuntu:24.04` container via `test-electron-install.sh` and reaches `GET /api/health` 200. (The source-bundle harness in task 1 already validates boot via `Test 8`; task 7.1 validates the full Electron-packaged artifact path end-to-end.)
 - [ ] 7.2 Dispatch `ci-electron` on a `feature/*` branch with `legs: all`. Confirm: branch slug appears in version, all 6 legs upload, no Release created, no npm version published.
