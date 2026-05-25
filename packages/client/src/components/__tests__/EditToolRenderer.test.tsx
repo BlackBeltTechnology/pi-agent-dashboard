@@ -249,9 +249,9 @@ describe("EditToolRenderer — viewport branching", () => {
       />,
     );
     expect(queryAllByTestId("rich-diff").length).toBe(0);
-    expect(container.textContent).toContain("Replace 11#KT (1 lines)");
-    expect(container.textContent).toContain("Insert 1 lines after 15#AB");
-    expect(container.textContent).toContain("Insert 1 lines before BOF");
+    expect(container.textContent).toContain("Replace at 11#KT");
+    expect(container.textContent).toContain("Insert after 15#AB");
+    expect(container.textContent).toContain("Insert before BOF");
   });
 
   it("mobile: renders hashline replace/append/prepend as summaries", () => {
@@ -269,7 +269,7 @@ describe("EditToolRenderer — viewport branching", () => {
         context={ctx}
       />,
     );
-    expect(container.textContent).toContain("Replace 11#KT");
+    expect(container.textContent).toContain("Replace at 11#KT");
   });
 
   // --- NEW: mixed valid/invalid edits ---
@@ -316,8 +316,8 @@ describe("EditToolRenderer — viewport branching", () => {
     // Should render hashline summaries, NOT fall back to JSON or RichDiff
     expect(queryAllByTestId("rich-diff").length).toBe(0);
     expect(container.querySelector("pre")).toBeNull();
-    expect(container.textContent).toContain("Replace 11#KT (1 lines)");
-    expect(container.textContent).toContain("Insert 1 lines after 15#AB");
+    expect(container.textContent).toContain("Replace at 11#KT");
+    expect(container.textContent).toContain("Insert after 15#AB");
   });
 
   // --- NEW: defensive validation ---

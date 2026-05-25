@@ -82,21 +82,31 @@ function isHashlineOp(e: HashlineEditOp): boolean {
 }
 
 function HashlineEditSummary({ edit }: { edit: HashlineEditOp }) {
-  let label: string;
-  switch (edit.op) {
-    case "replace":
-      label = `Replace ${edit.pos}${edit.end ? ` to ${edit.end}` : ""} (${edit.lines?.length ?? 0} lines)`;
-      break;
-    case "append":
-      label = `Insert ${edit.lines?.length ?? 0} lines after ${edit.pos ?? "EOF"}`;
-      break;
-    case "prepend":
-      label = `Insert ${edit.lines?.length ?? 0} lines before ${edit.pos ?? "BOF"}`;
-      break;
-    default:
-      label = `Hashline edit (${edit.op})`;
-  }
-  return <div className="font-mono text-xs text-[var(--text-secondary)] px-2 py-1">{label}</div>;
+  const lines = Array.isArray(edit.lines) ? edit.lines : [];
+
+  const header = () => {
+    switch (edit.op) {
+      case "replace":
+        return `● Replace at ${edit.pos}`;
+      case "append":
+        return `● Insert after ${edit.pos ?? "EOF"}:`;
+      case "prepend":
+        return `● Insert before ${edit.pos ?? "BOF"}:`;
+      default:
+        return `● Hashline edit (${edit.op}):`;
+    }
+  };
+
+  return (
+    <div className="px-2 py-1">
+      <div className="font-mono text-xs text-[var(--text-secondary)] mb-0.5">{header()}</div>
+      <div className="font-mono text-xs leading-relaxed">
+        {lines.map((line, i) => (
+          <div key={i} className="text-[var(--accent-green)] px-2">+ {line}</div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // --- Main renderer ---
@@ -175,7 +185,9 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
       {renderDiffs()}
 
       {result && status !== "running" && (
-        <div className="text-xs text-[var(--text-tertiary)] italic">{result}</div>
+        result.startsWith("---")
+          ? <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap">{result}</pre>
+          : <div className="text-xs text-[var(--text-tertiary)] italic">{result}</div>
       )}
     </div>
   );
