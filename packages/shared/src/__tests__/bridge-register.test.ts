@@ -181,5 +181,72 @@ describe("shared bridge-register", () => {
       const settings = readSettings();
       expect(settings.packages).toContain("/app/extension");
     });
+
+    it("identity-dedups across install layouts (same package.json#name wins last)", () => {
+      // Three install layouts, all registering the same extension package
+      // name under different absolute paths: dev workspace, .app bundle,
+      // npm-global. After all three register, only the most recent path
+      // should remain.
+      const devPath = path.join(tmpDir, "dev", "ext");
+      const appPath = path.join(tmpDir, "app", "ext");
+      const globalPath = path.join(tmpDir, "global", "ext");
+      for (const p of [devPath, appPath, globalPath]) {
+        fs.mkdirSync(p, { recursive: true });
+        fs.writeFileSync(
+          path.join(p, "package.json"),
+          '{"name":"@blackbelt-technology/pi-dashboard-extension"}',
+        );
+      }
+
+      registerBridgeExtension(devPath);
+      registerBridgeExtension(appPath);
+      registerBridgeExtension(globalPath);
+
+      const settings = readSettings();
+      const packages = settings.packages as string[];
+      expect(packages).toEqual([globalPath]);
+    });
+
+    it("preserves entries with different package names", () => {
+      const otherExt = path.join(tmpDir, "other", "ext");
+      fs.mkdirSync(otherExt, { recursive: true });
+      fs.writeFileSync(
+        path.join(otherExt, "package.json"),
+        '{"name":"some-unrelated-extension"}',
+      );
+
+      const dashExt = path.join(tmpDir, "dash", "ext");
+      fs.mkdirSync(dashExt, { recursive: true });
+      fs.writeFileSync(
+        path.join(dashExt, "package.json"),
+        '{"name":"@blackbelt-technology/pi-dashboard-extension"}',
+      );
+
+      writeSettings({ packages: [otherExt] });
+      registerBridgeExtension(dashExt);
+
+      const settings = readSettings();
+      const packages = settings.packages as string[];
+      expect(packages).toContain(otherExt);
+      expect(packages).toContain(dashExt);
+    });
+
+    it("leaves npm:-scheme entries untouched during identity dedup", () => {
+      const npmEntry = "npm:@blackbelt-technology/pi-dashboard-extension";
+      const localExt = path.join(tmpDir, "local", "ext");
+      fs.mkdirSync(localExt, { recursive: true });
+      fs.writeFileSync(
+        path.join(localExt, "package.json"),
+        '{"name":"@blackbelt-technology/pi-dashboard-extension"}',
+      );
+
+      writeSettings({ packages: [npmEntry] });
+      registerBridgeExtension(localExt);
+
+      const settings = readSettings();
+      const packages = settings.packages as string[];
+      expect(packages).toContain(npmEntry);
+      expect(packages).toContain(localExt);
+    });
   });
 });

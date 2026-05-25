@@ -3,881 +3,177 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PI Dashboard Setup</title>
+  <title>PI Dashboard</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .wizard { max-width: 560px; width: 100%; padding: 2rem; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      display: flex; justify-content: center; align-items: center;
+      min-height: 100vh; padding: 2rem;
+    }
+    .welcome { max-width: 480px; width: 100%; }
     h1 { font-size: 1.75rem; margin-bottom: 0.5rem; color: #f8fafc; }
-    h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #94a3b8; font-weight: 400; }
-    .step { display: none; }
-    .step.active { display: block; }
-    .mode-btn { display: block; width: 100%; padding: 1.25rem; margin: 0.75rem 0; border: 2px solid #334155; border-radius: 0.75rem; background: #1e293b; color: #e2e8f0; cursor: pointer; text-align: left; font-size: 1rem; transition: border-color 0.2s; }
-    .mode-btn:hover { border-color: #3b82f6; }
-    .mode-btn .label { font-weight: 600; }
-    .mode-btn .desc { color: #94a3b8; font-size: 0.875rem; margin-top: 0.25rem; }
-    .progress-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid #1e293b; }
-    .progress-item .icon { font-size: 1.25rem; width: 1.5rem; text-align: center; }
-    .progress-item .name { flex: 1; }
-    .status-pending { color: #64748b; }
-    .status-running { color: #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
-    .status-done { color: #22c55e; }
-    .status-error { color: #ef4444; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-    .progress-item .elapsed { color: #64748b; font-size: 0.8rem; min-width: 3rem; text-align: right; }
-    .progress-item .output { color: #64748b; font-size: 0.75rem; margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
-    .progress-wrap { flex: 1; }
-    /* Badges next to a progress row's name. Kept in sync with
-       packages/electron/src/lib/wizard-badge.ts (classifyProgressBadge). */
-    .progress-item .badge { display: inline-block; margin-left: 0.5rem; padding: 0.125rem 0.5rem; border-radius: 0.375rem; font-size: 0.7rem; font-weight: 600; vertical-align: middle; }
-    .badge-bundled { background: #1e3a8a; color: #bfdbfe; }
-    .badge-system { background: #334155; color: #cbd5e1; }
-    .form-group { margin: 1rem 0; }
-    .form-group label { display: block; margin-bottom: 0.5rem; color: #94a3b8; font-size: 0.875rem; }
-    .form-group select, .form-group input { width: 100%; padding: 0.75rem; border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; color: #e2e8f0; font-size: 1rem; }
-    .btn { padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem; font-size: 1rem; cursor: pointer; font-weight: 500; }
+    p.lead { color: #94a3b8; font-size: 1rem; margin-bottom: 1.75rem; line-height: 1.5; }
+    .btn {
+      padding: 0.75rem 1.5rem; border: none; border-radius: 0.5rem;
+      font-size: 1rem; cursor: pointer; font-weight: 500;
+    }
     .btn-primary { background: #3b82f6; color: white; }
     .btn-primary:hover { background: #2563eb; }
-    .btn-secondary { background: #334155; color: #e2e8f0; }
+    .btn-primary:disabled { background: #1e3a8a; cursor: wait; opacity: 0.7; }
+    .btn-link {
+      background: transparent; color: #94a3b8; padding: 0.5rem 0;
+      text-decoration: underline; font-size: 0.875rem;
+    }
+    .btn-link:hover { color: #e2e8f0; }
+    details { margin-top: 1.5rem; border-top: 1px solid #1e293b; padding-top: 1rem; }
+    summary { cursor: pointer; color: #94a3b8; font-size: 0.875rem; user-select: none; }
+    summary:hover { color: #e2e8f0; }
+    .advanced { margin-top: 1rem; }
+    .form-row { display: flex; gap: 0.5rem; align-items: stretch; }
+    .form-row input {
+      flex: 1; padding: 0.625rem 0.75rem;
+      border: 1px solid #334155; border-radius: 0.5rem;
+      background: #1e293b; color: #e2e8f0; font-size: 0.95rem;
+    }
+    .form-row input:focus { outline: none; border-color: #3b82f6; }
+    .btn-secondary {
+      background: #334155; color: #e2e8f0;
+      padding: 0.625rem 1rem; font-size: 0.95rem;
+    }
     .btn-secondary:hover { background: #475569; }
-    .btn-row { display: flex; gap: 0.75rem; margin-top: 1.5rem; }
-    .check { color: #22c55e; }
-    .error-msg { color: #ef4444; margin-top: 0.5rem; font-size: 0.875rem; }
-    .success { text-align: center; padding: 2rem 0; }
-    .success .icon { font-size: 3rem; margin-bottom: 1rem; }
+    .status { margin-top: 0.5rem; font-size: 0.825rem; min-height: 1.2em; }
+    .status.ok { color: #22c55e; }
+    .status.err { color: #ef4444; }
+    .status.busy { color: #f59e0b; }
   </style>
 </head>
 <body>
-  <div class="wizard">
-    <!-- Step 1: Mode Selection -->
-    <div id="step-mode" class="step active">
-      <h1>Welcome to PI Dashboard</h1>
-      <h2>How would you like to set up?</h2>
-      <button class="mode-btn" onclick="selectMode('standalone')">
-        <div class="label">🚀 Set up everything for me</div>
-        <div class="desc">Installs pi, openspec, and all tools automatically. Best for new users.</div>
-      </button>
-      <button class="mode-btn" onclick="selectMode('power-user')">
-        <div class="label">⚡ Use my existing pi installation</div>
-        <div class="desc">Connects to your system pi. For developers who already have pi installed.</div>
-      </button>
-    </div>
+  <div class="welcome">
+    <h1>Welcome to PI Dashboard</h1>
+    <p class="lead">
+      Everything you need ships inside this app. Click <b>Launch dashboard</b> to start
+      the local server and open the dashboard.
+    </p>
 
-    <!-- Step 1b: Bridge Installation (targeted, when pi found but no bridge) -->
-    <div id="step-bridge-install" class="step">
-      <h1>Install Dashboard Extension</h1>
-      <h2>pi detected! Choose how to add the dashboard bridge:</h2>
-      <button class="mode-btn" onclick="installBridgeBundled()">
-        <div class="label">📦 Use bundled extension</div>
-        <div class="desc">Register the extension bundled with this app. Quick and reliable.</div>
-      </button>
-      <button class="mode-btn" onclick="installBridgeGlobal()">
-        <div class="label">🌐 Install global package</div>
-        <div class="desc">Install pi-dashboard globally via npm. Includes the CLI and server.</div>
-      </button>
-      <div id="bridge-install-status" style="margin-top: 1rem; display: none;"></div>
-      <div id="bridge-install-error" class="error-msg" style="display:none"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="goToStep('step-mode')">Back</button>
-      </div>
-    </div>
+    <button id="launch" class="btn btn-primary">Launch dashboard</button>
 
-    <!-- Step 2: Installation / Verification -->
-    <div id="step-install" class="step">
-      <h1 id="install-title">Installing...</h1>
-      <h2 id="install-subtitle"></h2>
-      <div id="progress-list"></div>
-      <div id="install-error" class="error-msg" style="display:none"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="goToStep('step-mode')">Back</button>
-        <button id="install-retry" class="btn btn-primary" onclick="runInstall()" style="display:none">Retry</button>
-        <button id="install-next" class="btn btn-primary" onclick="goToStep('step-apikey')" style="display:none">Next</button>
-      </div>
-    </div>
-
-    <!-- Step 3: API Key -->
-    <div id="step-apikey" class="step">
-      <h1>Configure API Key</h1>
-      <h2 id="apikey-status"></h2>
-      <div class="form-group">
-        <label for="provider">Provider</label>
-        <select id="provider">
-          <option value="anthropic">Anthropic (Claude)</option>
-          <option value="openai">OpenAI</option>
-          <option value="google">Google</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="apikey">API Key</label>
-        <input id="apikey" type="password" placeholder="sk-..." />
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="skipApiKey()">Skip</button>
-        <button class="btn btn-primary" onclick="saveApiKey()">Save & Continue</button>
-      </div>
-    </div>
-
-    <!-- Step 4: Recommended extensions -->
-    <div id="step-recommended" class="step">
-      <h1>Recommended extensions</h1>
-      <h2>Pi works out of the box, but these extensions add significant capabilities the dashboard is built around. You can always add or remove them later from the Packages tab.</h2>
-      <div id="recommended-list" style="margin: 1rem 0; max-height: 48vh; overflow-y: auto;"></div>
-      <div id="recommended-progress" style="margin: 0.5rem 0; display:none;"></div>
-      <p id="recommended-error" class="error-msg" style="display:none;"></p>
-      <div class="btn-row">
-        <button class="btn btn-secondary" id="recommended-skip-btn" onclick="skipRecommended()">Skip</button>
-        <button class="btn btn-primary" id="recommended-install-btn" onclick="installRecommended()">Install selected</button>
-      </div>
-    </div>
-
-    <!-- V2 Step: Status (idle / extracting / bootstrapping) -->
-    <!-- Reachable only when LAUNCH_SOURCE_V2 is on. See change: simplify-electron-bootstrap-derived-state. -->
-    <div id="step-v2-status" class="step">
-      <h1 id="v2-status-title">Setting up PI Dashboard</h1>
-      <h2 id="v2-status-subtitle">Checking installation...</h2>
-      <!-- Extracting: spinner + percent -->
-      <div id="v2-extracting" style="display:none; margin: 1.5rem 0;">
-        <div style="display:flex; align-items:center; gap: 1rem;">
-          <div style="border: 2px solid #334155; border-top-color: #3b82f6; border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite; flex-shrink:0;"></div>
-          <span id="v2-extract-label" style="color:#94a3b8;">Extracting bundled runtime...</span>
+    <details>
+      <summary>Advanced: connect to an existing server</summary>
+      <div class="advanced">
+        <p style="color:#64748b;font-size:0.85rem;margin-bottom:0.75rem;">
+          Already have a dashboard running on another machine? Connect to it instead of
+          starting a local server.
+        </p>
+        <div class="form-row">
+          <input id="remote-url" type="text" placeholder="http://hostname:8000" />
+          <button id="test-remote" class="btn btn-secondary">Test</button>
         </div>
-        <div style="margin-top: 0.75rem; background:#1e293b; border-radius:0.5rem; height:6px; overflow:hidden;">
-          <div id="v2-extract-bar" style="height:100%; background:#3b82f6; width:0%; transition:width 0.3s;"></div>
-        </div>
-        <div id="v2-extract-pct" style="color:#64748b; font-size:0.8rem; margin-top:0.25rem;">0%</div>
+        <div id="remote-status" class="status"></div>
+        <button id="connect-remote" class="btn btn-link" style="display:none;">Use this server</button>
       </div>
-      <!-- Bootstrapping: per-package rows from server installable state -->
-      <div id="v2-bootstrapping" style="display:none; margin: 1rem 0;">
-        <div id="v2-package-rows"></div>
-      </div>
-      <!-- Idle: cached/reuse state -->
-      <div id="v2-idle" style="display:none; margin: 1.5rem 0;">
-        <div style="display:flex; align-items:center; gap: 0.75rem; color: #22c55e;">
-          <span style="font-size:1.25rem;">✓</span>
-          <span>Reusing existing installation</span>
-        </div>
-      </div>
-      <div id="v2-status-error" class="error-msg" style="display:none;"></div>
-    </div>
-
-    <!-- V2 Step: Package Selection -->
-    <!-- Shows toggleable optional packages from installable.json. -->
-    <div id="step-v2-packages" class="step">
-      <h1>Optional Packages</h1>
-      <h2>Select which optional packages to install. Required packages are always included.</h2>
-      <div id="v2-package-list" style="margin: 1rem 0; max-height: 40vh; overflow-y:auto;"></div>
-      <div id="v2-packages-error" class="error-msg" style="display:none;"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="v2SkipPackages()">Skip</button>
-        <button class="btn btn-primary" onclick="v2SavePackages()">Save &amp; Continue</button>
-      </div>
-    </div>
-
-    <!-- V2 Step: Error + Retry -->
-    <!-- Shown when a required package fails to install. -->
-    <div id="step-v2-error" class="step">
-      <h1>Setup Failed</h1>
-      <h2>A required package could not be installed.</h2>
-      <div id="v2-error-detail" style="background:#1e293b; border-radius:0.5rem; padding:1rem; margin:1rem 0; color:#f87171; font-size:0.875rem; font-family:monospace; white-space:pre-wrap; max-height:200px; overflow-y:auto;"></div>
-      <div id="v2-failed-packages" style="margin: 0.5rem 0;"></div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="window.close()">Quit</button>
-        <button class="btn btn-primary" id="v2-retry-btn" onclick="v2RetryBootstrap()">Retry</button>
-      </div>
-    </div>
-
-    <!-- Step 5: Done -->
-    <div id="step-done" class="step">
-      <div class="success">
-        <div class="icon">✅</div>
-        <h1>All Set!</h1>
-        <h2>PI Dashboard is ready to use.</h2>
-        <div class="btn-row" style="justify-content:center; margin-top: 2rem;">
-          <button class="btn btn-primary" onclick="finish()">Launch Dashboard</button>
-        </div>
-      </div>
-    </div>
-    <div style="text-align:center; margin-top: 1.5rem; color: #64748b; font-size: 0.85rem;">
-      Trouble? <a href="#" id="wizard-run-doctor" style="color:#60a5fa; text-decoration:none">Run Doctor</a> for diagnostic info.
-    </div>
+    </details>
   </div>
 
   <script>
-    const api = window.wizardApi;
-    // Wire the Run Doctor link to the preload IPC. See change: doctor-rich-output (task 3.7).
-    document.getElementById("wizard-run-doctor").addEventListener("click", (e) => {
-      e.preventDefault();
-      try { window.wizardApi.openDoctor && window.wizardApi.openDoctor(); }
-      catch (err) { console.error("openDoctor failed", err); }
+    // Renderer talks to main via window.wizardApi (exposed by preload.ts).
+    // The preload bridge exposes only `completeWizard` + `openDoctor` today;
+    // remote-mode wiring is local to this renderer (a simple fetch).
+
+    const launchBtn = document.getElementById("launch");
+    const remoteUrl = document.getElementById("remote-url");
+    const testBtn = document.getElementById("test-remote");
+    const connectBtn = document.getElementById("connect-remote");
+    const status = document.getElementById("remote-status");
+
+    let lastVerifiedUrl = null;
+
+    launchBtn.addEventListener("click", async () => {
+      launchBtn.disabled = true;
+      launchBtn.textContent = "Starting…";
+      try {
+        if (window.wizardApi && typeof window.wizardApi.completeWizard === "function") {
+          await window.wizardApi.completeWizard();
+        }
+        // Closing the window resolves the openWizardWindow() promise in main.ts,
+        // which then proceeds to launch-server → health-wait → done.
+        window.close();
+      } catch (err) {
+        launchBtn.disabled = false;
+        launchBtn.textContent = "Launch dashboard";
+        status.className = "status err";
+        status.textContent = String((err && err.message) || err);
+      }
     });
-    let selectedMode = null;
-    let deps = null;
 
-    function goToStep(id) {
-      document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-      document.getElementById(id).classList.add('active');
+    function normalize(input) {
+      const v = (input || "").trim();
+      if (!v) return null;
+      if (/^https?:\/\//i.test(v)) return v.replace(/\/$/, "");
+      // Allow bare host:port input
+      return `http://${v.replace(/\/$/, "")}`;
     }
 
-    // Check for start-step query parameter
-    (function checkStartStep() {
-      const params = new URLSearchParams(window.location.search);
-      const startStep = params.get('start');
-      if (startStep === 'bridge-install') {
-        selectedMode = 'power-user';
-        goToStep('step-bridge-install');
-      }
-    })();
-
-    async function installBridgeBundled() {
-      const statusEl = document.getElementById('bridge-install-status');
-      const errorEl = document.getElementById('bridge-install-error');
-      statusEl.style.display = 'block';
-      statusEl.innerHTML = '<span class="status-running">◎</span> Registering bundled extension...';
-      errorEl.style.display = 'none';
+    async function probe(url) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 4000);
       try {
-        await api.registerBundledBridge();
-        statusEl.innerHTML = '<span class="check">✓</span> Extension registered';
-        await api.completeWizard('power-user');
-        goToStep('step-apikey');
+        const r = await fetch(`${url}/api/health`, { signal: ctrl.signal });
+        if (!r.ok) return { ok: false, reason: `HTTP ${r.status}` };
+        const body = await r.json().catch(() => null);
+        if (!body) return { ok: false, reason: "No JSON body" };
+        return { ok: true, version: body.version || "?" };
       } catch (err) {
-        const isAppImage = (err.message || '').includes('not found');
-        errorEl.textContent = isAppImage
-          ? 'Bundled extension not available (AppImage has a temporary path). Use the global package option instead.'
-          : 'Failed: ' + err.message;
-        errorEl.style.display = 'block';
-        statusEl.style.display = 'none';
+        return { ok: false, reason: (err && err.message) || String(err) };
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    async function installBridgeGlobal() {
-      const statusEl = document.getElementById('bridge-install-status');
-      const errorEl = document.getElementById('bridge-install-error');
-      statusEl.style.display = 'block';
-      statusEl.innerHTML = '<span class="status-running">◎</span> Installing pi-dashboard globally...';
-      errorEl.style.display = 'none';
-      try {
-        await api.installDashboardGlobal();
-        statusEl.innerHTML = '<span class="check">✓</span> pi-dashboard installed';
-        await api.completeWizard('power-user');
-        goToStep('step-apikey');
-      } catch (err) {
-        errorEl.textContent = 'Failed: ' + err.message;
-        errorEl.style.display = 'block';
-        statusEl.style.display = 'none';
-      }
-    }
-
-    async function selectMode(mode) {
-      selectedMode = mode;
-      deps = await api.detectDependencies();
-
-      if (mode === 'standalone') {
-        document.getElementById('install-title').textContent = 'Installing Dependencies';
-        document.getElementById('install-subtitle').textContent = 'Setting up pi, openspec, and tools...';
-        goToStep('step-install');
-        await runInstall();
-      } else {
-        document.getElementById('install-title').textContent = 'Checking Installation';
-        document.getElementById('install-subtitle').textContent = 'Verifying your existing setup...';
-        goToStep('step-install');
-        await verifyPowerUser();
-      }
-    }
-
-    async function runInstall() {
-      const list = document.getElementById('progress-list');
-      // Map display names to detection results
-      const itemDeps = {
-        'pi-coding-agent': deps?.pi,
-        'openspec': deps?.openspec,
-        'tsx': deps?.node, // tsx is needed when node exists but not as a skip signal itself
-      };
-      const items = ['pi-coding-agent', 'openspec', 'tsx'];
-      // node-runtime is prepended as a visible step so the user sees activity
-      // while installManagedNode copies Node.js to ~/.pi-dashboard/node/.
-      const nodeRuntimeRow = `<div class="progress-item" id="prog-node-runtime"><span class="icon status-pending">○</span><div class="progress-wrap"><span class="name">node runtime</span></div><span class="elapsed"></span></div>`;
-      list.innerHTML = nodeRuntimeRow + items.map(name => {
-        const dep = itemDeps[name];
-        const alreadyInstalled = dep?.found && dep?.source === 'system';
-        const icon = alreadyInstalled ? 'status-done' : 'status-pending';
-        const iconChar = alreadyInstalled ? '✓' : '○';
-        const badge = alreadyInstalled ? '<span class="badge badge-system">Installed</span>' : '';
-        const note = alreadyInstalled ? '<div class="output">Already installed (system)</div>' : '';
-        return `<div class="progress-item" id="prog-${name}"><span class="icon ${icon}">${iconChar}</span><div class="progress-wrap"><span class="name">${name}${badge}</span>${note}</div><span class="elapsed"></span></div>`;
-      }).join('');
-      document.getElementById('install-error').style.display = 'none';
-      document.getElementById('install-retry').style.display = 'none';
-      document.getElementById('install-next').style.display = 'none';
-
-      const timers = {};
-      api.onInstallProgress(({ step, status, error, output }) => {
-        const el = document.getElementById('prog-' + step);
-        if (!el) return;
-        const icon = el.querySelector('.icon');
-        icon.className = 'icon status-' + status;
-        icon.textContent = status === 'done' ? '✓' : status === 'running' ? '◎' : status === 'error' ? '✗' : '○';
-        // Elapsed timer
-        const elapsedEl = el.querySelector('.elapsed');
-        if (status === 'running' && !timers[step]) {
-          const start = Date.now();
-          timers[step] = setInterval(() => {
-            const s = Math.floor((Date.now() - start) / 1000);
-            if (elapsedEl) elapsedEl.textContent = s + 's';
-          }, 1000);
-        }
-        if (status === 'done' || status === 'error') {
-          clearInterval(timers[step]);
-          delete timers[step];
-        }
-        // npm output line
-        if (output) {
-          let outEl = el.querySelector('.output');
-          if (!outEl) {
-            outEl = document.createElement('div');
-            outEl.className = 'output';
-            el.querySelector('.progress-wrap').appendChild(outEl);
-          }
-          outEl.textContent = output;
-        }
-        if (status === 'done') {
-          const outEl = el.querySelector('.output');
-          if (outEl) outEl.remove();
-        }
-        if (error) {
-          document.getElementById('install-error').textContent = error;
-          document.getElementById('install-error').style.display = 'block';
-        }
-      });
-
-      // Build skip list from detection results
-      const skipPackages = [];
-      if (deps?.pi?.found && deps.pi.source === 'system') skipPackages.push('@earendil-works/pi-coding-agent');
-      if (deps?.openspec?.found && deps.openspec.source === 'system') skipPackages.push('@fission-ai/openspec');
-
-      try {
-        await api.installStandalone(skipPackages.length > 0 ? skipPackages : undefined);
-        document.getElementById('install-next').style.display = 'inline-block';
-      } catch (err) {
-        document.getElementById('install-retry').style.display = 'inline-block';
-      }
-    }
-
-    async function verifyPowerUser() {
-      const list = document.getElementById('progress-list');
-      const checks = [
-        { name: 'pi', label: 'pi CLI', found: deps.pi.found },
-        { name: 'openspec', label: 'openspec CLI', found: deps.openspec.found },
-        { name: 'bridge', label: 'Dashboard bridge', found: deps.bridge?.found || deps.dashboard.found },
-      ];
-
-      list.innerHTML = checks.map(c =>
-        `<div class="progress-item"><span class="icon ${c.found ? 'status-done' : 'status-error'}">${c.found ? '✓' : '✗'}</span><span class="name">${c.label}</span></div>`
-      ).join('');
-
-      const allGood = checks.every(c => c.found);
-      if (allGood) {
-        document.getElementById('install-next').style.display = 'inline-block';
-      } else if (!deps.pi.found) {
-        document.getElementById('install-error').innerHTML =
-          'pi was not detected. If pi is installed (e.g. via nvm), it may not be visible to GUI apps.<br>' +
-          '<span style="color:#94a3b8">You can continue anyway — the dashboard will try to find it at startup.</span>';
-        document.getElementById('install-error').style.display = 'block';
-        // Allow continuing even if pi not detected (login shell may resolve it at runtime)
-        document.getElementById('install-next').style.display = 'inline-block';
-      } else if (!(deps.bridge?.found || deps.dashboard.found)) {
-        document.getElementById('install-error').textContent = 'Installing dashboard bridge...';
-        document.getElementById('install-error').style.display = 'block';
-        try {
-          await api.installDashboardGlobal();
-          document.getElementById('install-error').style.display = 'none';
-          document.getElementById('install-next').style.display = 'inline-block';
-          // Update the dashboard check
-          const dashEl = list.children[2]?.querySelector('.icon');
-          if (dashEl) { dashEl.className = 'icon status-done'; dashEl.textContent = '✓'; }
-        } catch (err) {
-          document.getElementById('install-error').textContent = 'Failed to install dashboard bridge: ' + err.message;
-          // Still allow continuing
-          document.getElementById('install-next').style.display = 'inline-block';
-        }
-      }
-    }
-
-    async function saveApiKey() {
-      const provider = document.getElementById('provider').value;
-      const key = document.getElementById('apikey').value.trim();
-      if (!key) return;
-      await api.saveApiKey(provider, key);
-      await api.completeWizard(selectedMode);
-      await goToRecommended();
-    }
-
-    async function skipApiKey() {
-      await api.completeWizard(selectedMode);
-      await goToRecommended();
-    }
-
-    // ── Recommended extensions step ─────────────────────────────
-
-    let recommendedEntries = [];
-
-    async function goToRecommended() {
-      try {
-        const data = await api.getRecommendedExtensions();
-        recommendedEntries = data?.recommended ?? [];
-        const alreadySkipped = new Set(data?.skipped ?? []);
-        const list = document.getElementById('recommended-list');
-        list.innerHTML = '';
-        for (const entry of recommendedEntries) {
-          // Enrichment signals from the IPC handler (undefined on machines
-          // where pi isn't installed yet — enrichment is pi-gated). When
-          // activeInPi is true the package is already listed globally in
-          // ~/.pi/agent/settings.json; we show the entry in the list for
-          // completeness but grey it out + disable its checkbox so the
-          // user can't accidentally trigger a redundant re-install.
-          const isActiveGlobally = entry.activeInPi === true;
-
-          const row = document.createElement('div');
-          // Greyed-out visual treatment for already-installed entries.
-          // Kept in the DOM so users see the full recommendation set and
-          // understand what's already handled — just non-interactive.
-          const rowOpacity = isActiveGlobally ? '0.55' : '1';
-          const rowCursor = isActiveGlobally ? 'not-allowed' : 'default';
-          row.style.cssText =
-            'display:flex;gap:0.75rem;align-items:flex-start;' +
-            'padding:0.6rem 0;border-bottom:1px solid #1e293b;' +
-            'opacity:' + rowOpacity + ';cursor:' + rowCursor + ';';
-
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.id = 'rec-' + entry.id;
-          // Checkbox default:
-          //   - Already active globally        → unchecked + disabled
-          //                                     (redundant re-install blocked)
-          //   - Previously explicitly skipped  → unchecked
-          //   - Required / strongly-suggested → checked
-          //   - Optional                       → unchecked
-          if (isActiveGlobally) {
-            cb.checked = false;
-            cb.disabled = true;
-          } else if (alreadySkipped.has(entry.id)) {
-            cb.checked = false;
-          } else {
-            cb.checked = entry.status !== 'optional';
-          }
-          cb.style.marginTop = '0.25rem';
-          if (isActiveGlobally) cb.style.cursor = 'not-allowed';
-
-          const body = document.createElement('div');
-          body.style.flex = '1';
-          const pillColor = entry.status === 'required' ? '#ef4444' : entry.status === 'strongly-suggested' ? '#f59e0b' : '#64748b';
-          const pillLabel = entry.status === 'required' ? 'Required' : entry.status === 'strongly-suggested' ? 'Suggested' : 'Optional';
-          const installedBadge = isActiveGlobally
-            ? '<span style="font-size:0.72rem;padding:0.12rem 0.45rem;border-radius:99px;background:#10b98120;color:#10b981;border:1px solid #10b98166;">✓ Installed globally</span>'
-            : '';
-          body.innerHTML =
-            '<div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">' +
-              '<strong style="color:#f8fafc">' + entry.displayName + '</strong>' +
-              '<span style="font-size:0.72rem;padding:0.12rem 0.45rem;border-radius:99px;background:' + pillColor + '20;color:' + pillColor + ';border:1px solid ' + pillColor + '66;">' + pillLabel + '</span>' +
-              installedBadge +
-            '</div>' +
-            '<div style="color:#94a3b8;font-size:0.82rem;margin-top:0.15rem;">' + (entry.fallbackDescription || '') + '</div>' +
-            (Array.isArray(entry.unlocks) && entry.unlocks.length > 0
-              ? '<div style="color:#64748b;font-size:0.72rem;margin-top:0.2rem;">Unlocks: ' + entry.unlocks.join(', ') + '</div>'
-              : '');
-
-          row.appendChild(cb);
-          row.appendChild(body);
-          list.appendChild(row);
-        }
-      } catch (err) {
-        const errEl = document.getElementById('recommended-error');
-        errEl.textContent = 'Could not load recommended extensions: ' + (err?.message ?? err);
-        errEl.style.display = 'block';
-      }
-      goToStep('step-recommended');
-    }
-
-    function collectRecommendedSelections() {
-      const selected = [];
-      const skipped = [];
-      for (const entry of recommendedEntries) {
-        // Already-installed (disabled) entries are neither selected nor
-        // skipped — they shouldn't get re-installed and they shouldn't
-        // pollute the persisted skippedRecommended list (which would
-        // make a future uninstall + wizard re-run silently drop them).
-        if (entry.activeInPi === true) continue;
-        const cb = document.getElementById('rec-' + entry.id);
-        if (cb && cb.checked) selected.push(entry.id);
-        else skipped.push(entry.id);
-      }
-      return { selected, skipped };
-    }
-
-    async function installRecommended() {
-      const { selected, skipped } = collectRecommendedSelections();
-      const errEl = document.getElementById('recommended-error');
-      errEl.style.display = 'none';
-      const installBtn = document.getElementById('recommended-install-btn');
-      const skipBtn = document.getElementById('recommended-skip-btn');
-      installBtn.disabled = true;
-      skipBtn.disabled = true;
-      const progress = document.getElementById('recommended-progress');
-      progress.style.display = 'block';
-      progress.innerHTML = '';
-
-      if (selected.length === 0) {
-        // User deselected all—skip all.
-        await api.persistRecommendedSkipped(skipped);
-        goToStep('step-done');
+    testBtn.addEventListener("click", async () => {
+      const url = normalize(remoteUrl.value);
+      lastVerifiedUrl = null;
+      connectBtn.style.display = "none";
+      if (!url) {
+        status.className = "status err";
+        status.textContent = "Enter a URL (e.g. http://hostname:8000)";
         return;
       }
-
-      // Keep in sync with packages/electron/src/lib/wizard-badge.ts.
-      function classifyProgressBadge(output) {
-        if (!output) return null;
-        if (output === 'Bundled' || output === 'Already installed (bundled)') return 'bundled';
-        if (output === 'Already installed (system)' || output === 'Already installed') return 'system';
-        return null;
-      }
-      function applyBadge(row, kind) {
-        const nameEl = row.querySelector('.name');
-        let badge = row.querySelector('.badge');
-        if (!kind) { if (badge) badge.remove(); return; }
-        if (!badge) {
-          badge = document.createElement('span');
-          badge.className = 'badge';
-          nameEl.appendChild(badge);
-        }
-        if (kind === 'bundled') { badge.className = 'badge badge-bundled'; badge.textContent = 'Bundled ✓'; }
-        else { badge.className = 'badge badge-system'; badge.textContent = 'Installed'; }
-      }
-
-      // Stream progress to the progress div.
-      api.onInstallProgress((p) => {
-        const id = 'rec-prog-' + p.step;
-        let row = document.getElementById(id);
-        if (!row) {
-          row = document.createElement('div');
-          row.id = id;
-          row.className = 'progress-item';
-          row.innerHTML = '<span class="icon"></span><div class="progress-wrap"><div class="name">' + p.step + '</div><div class="output"></div></div>';
-          progress.appendChild(row);
-        }
-        const icon = row.querySelector('.icon');
-        const out = row.querySelector('.output');
-        if (p.status === 'running') { icon.textContent = '○'; icon.className = 'icon status-running'; if (p.output) out.textContent = p.output; }
-        else if (p.status === 'done') {
-          icon.textContent = '✓'; icon.className = 'icon status-done';
-          const badgeKind = classifyProgressBadge(p.output);
-          applyBadge(row, badgeKind);
-          out.textContent = badgeKind ? '' : '';
-        }
-        else if (p.status === 'error') { icon.textContent = '✗'; icon.className = 'icon status-error'; out.textContent = p.error || ''; }
-      });
-
-      try {
-        await api.installRecommendedExtensions(selected);
-        // Non-selected items are user intent to skip—persist so we don't re-nag.
-        if (skipped.length > 0) {
-          await api.persistRecommendedSkipped(skipped);
-        } else {
-          await api.persistRecommendedSkipped([]);
-        }
-        goToStep('step-done');
-      } catch (err) {
-        const msg = String(err?.message ?? err ?? 'install failed');
-        errEl.textContent = msg;
-        if (/publickey|permission denied|authentication/i.test(msg)) {
-          errEl.innerHTML = msg + '<br><br>If this is a GitHub SSH clone failure, set up your key at <a style="color:#93c5fd" href="https://docs.github.com/en/authentication/connecting-to-github-with-ssh" target="_blank">docs.github.com/en/authentication/connecting-to-github-with-ssh</a>';
-        }
-        errEl.style.display = 'block';
-        installBtn.disabled = false;
-        skipBtn.disabled = false;
-      }
-    }
-
-    async function skipRecommended() {
-      // Persist every id as skipped so the wizard doesn't re-nag.
-      const skipped = recommendedEntries.map(e => e.id);
-      await api.persistRecommendedSkipped(skipped);
-      goToStep('step-done');
-    }
-
-    function finish() {
-      window.close();
-    }
-
-    // ── V2 functions (behind LAUNCH_SOURCE_V2 flag) ──────────────────────
-    // See change: simplify-electron-bootstrap-derived-state (tasks 7.1–7.3).
-
-    let v2ServerUrl = 'http://localhost:8000';
-    let v2PollTimer = null;
-    let v2InstallableList = null;
-
-    /**
-     * Enter the V2 status screen.
-     * state: 'idle' | 'extracting' | 'bootstrapping'
-     * serverUrl: URL to poll for bootstrap status
-     */
-    function v2ShowStatus(state, serverUrl) {
-      v2ServerUrl = serverUrl || 'http://localhost:8000';
-      const titleEl = document.getElementById('v2-status-title');
-      const subtitleEl = document.getElementById('v2-status-subtitle');
-      document.getElementById('v2-extracting').style.display = 'none';
-      document.getElementById('v2-bootstrapping').style.display = 'none';
-      document.getElementById('v2-idle').style.display = 'none';
-      document.getElementById('v2-status-error').style.display = 'none';
-
-      if (state === 'idle') {
-        titleEl.textContent = 'PI Dashboard Ready';
-        subtitleEl.textContent = 'Reusing existing installation';
-        document.getElementById('v2-idle').style.display = 'block';
-      } else if (state === 'extracting') {
-        titleEl.textContent = 'Setting up PI Dashboard';
-        subtitleEl.textContent = 'Extracting bundled runtime...';
-        document.getElementById('v2-extracting').style.display = 'block';
-        v2PollExtractionProgress();
-      } else if (state === 'bootstrapping') {
-        titleEl.textContent = 'Installing Dependencies';
-        subtitleEl.textContent = 'Setting up required packages...';
-        document.getElementById('v2-bootstrapping').style.display = 'block';
-        v2PollBootstrapStatus();
-      }
-
-      goToStep('step-v2-status');
-    }
-
-    /** Update extraction bar (0–100). */
-    function v2UpdateExtractPct(pct) {
-      document.getElementById('v2-extract-bar').style.width = pct + '%';
-      document.getElementById('v2-extract-pct').textContent = pct + '%';
-    }
-
-    /** Render a package row in the bootstrapping section. */
-    function v2RenderPackageRow(name, status, output) {
-      const rowsEl = document.getElementById('v2-package-rows');
-      let row = document.getElementById('v2-row-' + name);
-      if (!row) {
-        row = document.createElement('div');
-        row.id = 'v2-row-' + name;
-        row.className = 'progress-item';
-        row.innerHTML =
-          '<span class="icon"></span>' +
-          '<div class="progress-wrap"><div class="name">' + name + '</div><div class="output"></div></div>';
-        rowsEl.appendChild(row);
-      }
-      const icon = row.querySelector('.icon');
-      const out = row.querySelector('.output');
-      if (status === 'running') {
-        icon.textContent = '○'; icon.className = 'icon status-running';
-        if (output) out.textContent = output;
-      } else if (status === 'done' || status === 'satisfied') {
-        icon.textContent = '✓'; icon.className = 'icon status-done'; out.textContent = '';
-      } else if (status === 'error') {
-        icon.textContent = '✗'; icon.className = 'icon status-error';
-        if (output) out.textContent = output;
-      }
-    }
-
-    /** Poll server for bootstrap / installable status. */
-    async function v2PollBootstrapStatus() {
-      if (v2PollTimer) clearInterval(v2PollTimer);
-      v2PollTimer = setInterval(async () => {
-        try {
-          const result = await api.getServerBootstrap(v2ServerUrl);
-          if (!result) return; // server not reachable yet
-
-          if (result.installable) {
-            const { total, installed, failed } = result.installable;
-            // Update progress rows if we have progress context
-            if (result.progress) {
-              v2RenderPackageRow(result.progress.step, 'running', result.progress.output);
-            }
-            // If done or error, stop polling
-            if (installed + failed.length >= total && total > 0) {
-              clearInterval(v2PollTimer);
-              v2PollTimer = null;
-              if (failed.length > 0) {
-                v2ShowError('Required package installation failed.', failed);
-              } else {
-                goToStep('step-done');
-              }
-            }
-          } else if (result.status === 'ready') {
-            clearInterval(v2PollTimer);
-            v2PollTimer = null;
-            goToStep('step-done');
-          } else if (result.status === 'failed') {
-            clearInterval(v2PollTimer);
-            v2PollTimer = null;
-            v2ShowError('Server bootstrap failed.', []);
-          }
-        } catch { /* ignore transient errors */ }
-      }, 1500);
-    }
-
-    /** Poll for extraction progress (Phase C — stubbed in Phase B). */
-    async function v2PollExtractionProgress() {
-      // Phase C will wire real extraction progress here.
-      // Phase B: simulate completion after a brief moment so the UI is testable.
-      let pct = 0;
-      const timer = setInterval(() => {
-        pct = Math.min(pct + 5, 100);
-        v2UpdateExtractPct(pct);
-        if (pct >= 100) {
-          clearInterval(timer);
-          // Transition to bootstrapping once extraction completes.
-          v2ShowStatus('bootstrapping', v2ServerUrl);
-        }
-      }, 100);
-    }
-
-    /** Show error screen with failed package list and retry button. */
-    function v2ShowError(message, failedPackages) {
-      document.getElementById('v2-error-detail').textContent = message;
-      const failedEl = document.getElementById('v2-failed-packages');
-      if (failedPackages && failedPackages.length > 0) {
-        failedEl.innerHTML = '<p style="color:#94a3b8; font-size:0.875rem; margin-bottom:0.5rem;">Failed packages:</p>' +
-          failedPackages.map(p => '<div class="progress-item"><span class="icon status-error">✗</span><div class="progress-wrap"><div class="name">' + p + '</div></div></div>').join('');
+      status.className = "status busy";
+      status.textContent = `Testing ${url}…`;
+      const res = await probe(url);
+      if (res.ok) {
+        status.className = "status ok";
+        status.textContent = `Reachable (server version ${res.version}).`;
+        lastVerifiedUrl = url;
+        connectBtn.style.display = "inline-block";
       } else {
-        failedEl.innerHTML = '';
-      }
-      goToStep('step-v2-error');
-    }
-
-    /** Retry bootstrap on server. */
-    async function v2RetryBootstrap() {
-      const btn = document.getElementById('v2-retry-btn');
-      btn.disabled = true;
-      btn.textContent = 'Retrying...';
-      try {
-        const ok = await api.retryBootstrap(v2ServerUrl);
-        if (ok) {
-          v2ShowStatus('bootstrapping', v2ServerUrl);
-        } else {
-          btn.disabled = false;
-          btn.textContent = 'Retry';
-          document.getElementById('v2-error-detail').textContent += '\n\nRetry request failed. Server may not be running.';
-        }
-      } catch (err) {
-        btn.disabled = false;
-        btn.textContent = 'Retry';
-      }
-    }
-
-    // ── V2 Package Selection ─────────────────────────────────────────
-
-    /** Open the package selection sub-screen. */
-    async function v2ShowPackageSelection() {
-      const listEl = document.getElementById('v2-package-list');
-      const errEl = document.getElementById('v2-packages-error');
-      errEl.style.display = 'none';
-      listEl.innerHTML = '<p style="color:#64748b;">Loading...</p>';
-
-      try {
-        v2InstallableList = await api.getInstallableList();
-        if (!v2InstallableList || v2InstallableList.packages.length === 0) {
-          errEl.textContent = 'No installable.json found. Package selection is only available when launched from the Electron app.';
-          errEl.style.display = 'block';
-          listEl.innerHTML = '';
-          return;
-        }
-
-        listEl.innerHTML = '';
-        for (const pkg of v2InstallableList.packages) {
-          if (pkg.deprecated) continue;
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 0; border-bottom:1px solid #1e293b;';
-
-          const isRequired = pkg.required;
-          const isDefaultOff = pkg.defaultOff;
-          const isChecked = isRequired || !isDefaultOff;
-
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.id = 'v2-pkg-' + pkg.name;
-          cb.checked = isChecked;
-          cb.disabled = isRequired;
-          cb.style.marginTop = '2px';
-
-          const label = document.createElement('label');
-          label.htmlFor = 'v2-pkg-' + pkg.name;
-          label.style.cssText = 'flex:1; cursor:' + (isRequired ? 'default' : 'pointer') + ';';
-          label.innerHTML =
-            '<div style="font-weight:600; color:#e2e8f0;">' + pkg.name +
-            (isRequired ? ' <span style="font-size:0.7rem; color:#f59e0b; vertical-align:middle;">REQUIRED</span>' : '') +
-            '</div>' +
-            '<div style="font-size:0.8rem; color:#64748b;">' + pkg.kind + ' &bull; ' + pkg.version + '</div>';
-
-          row.appendChild(cb);
-          row.appendChild(label);
-          listEl.appendChild(row);
-        }
-      } catch (err) {
-        errEl.textContent = 'Failed to load package list: ' + (err.message || String(err));
-        errEl.style.display = 'block';
-        listEl.innerHTML = '';
-      }
-
-      goToStep('step-v2-packages');
-    }
-
-    /** Save user's package selection back to installable.json. */
-    async function v2SavePackages() {
-      if (!v2InstallableList) return;
-      const errEl = document.getElementById('v2-packages-error');
-      errEl.style.display = 'none';
-
-      // Update defaultOff based on checkboxes.
-      const updated = v2InstallableList.packages.map(pkg => {
-        if (pkg.required || pkg.deprecated) return pkg;
-        const cb = document.getElementById('v2-pkg-' + pkg.name);
-        const checked = cb ? cb.checked : !pkg.defaultOff;
-        return { ...pkg, defaultOff: !checked };
-      });
-
-      try {
-        await api.saveInstallableList({ ...v2InstallableList, packages: updated });
-        v2ShowStatus('bootstrapping', v2ServerUrl);
-      } catch (err) {
-        errEl.textContent = 'Failed to save: ' + (err.message || String(err));
-        errEl.style.display = 'block';
-      }
-    }
-
-    /** Skip package selection (use defaults). */
-    function v2SkipPackages() {
-      v2ShowStatus('bootstrapping', v2ServerUrl);
-    }
-
-    // Initialise V2 screen if start=v2-* query param is set.
-    (function initV2FromQuery() {
-      const params = new URLSearchParams(window.location.search);
-      const startStep = params.get('start');
-      const serverUrl = params.get('serverUrl');
-      if (serverUrl) v2ServerUrl = serverUrl;
-
-      if (startStep === 'v2-idle') {
-        v2ShowStatus('idle', v2ServerUrl);
-      } else if (startStep === 'v2-extracting') {
-        v2ShowStatus('extracting', v2ServerUrl);
-      } else if (startStep === 'v2-bootstrapping') {
-        v2ShowStatus('bootstrapping', v2ServerUrl);
-      } else if (startStep === 'v2-packages') {
-        v2ShowPackageSelection();
-      }
-    })();
-
-    // Check API key status when reaching step 3
-    const observer = new MutationObserver(() => {
-      const apiStep = document.getElementById('step-apikey');
-      if (apiStep.classList.contains('active') && deps?.apiKeyConfigured) {
-        document.getElementById('apikey-status').textContent = 'An API key is already configured. You can update it or skip.';
-      } else if (apiStep.classList.contains('active')) {
-        document.getElementById('apikey-status').textContent = 'Enter your LLM provider API key to get started.';
+        status.className = "status err";
+        status.textContent = `Not reachable: ${res.reason}`;
       }
     });
-    observer.observe(document.getElementById('step-apikey'), { attributes: true });
+
+    connectBtn.addEventListener("click", async () => {
+      if (!lastVerifiedUrl) return;
+      // For the welcome wizard, "Use this server" is a deliberate manual
+      // path: we close the window and let main.ts attach next launch via
+      // PI_DASHBOARD_URL env (set externally) or the user's known-servers
+      // list. We do NOT persist anything here yet — the full
+      // known-servers integration is a follow-up. For now, mark first-run
+      // done and exit; the user can then point the app at the remote in
+      // their config.
+      try {
+        if (window.wizardApi && typeof window.wizardApi.completeWizard === "function") {
+          await window.wizardApi.completeWizard();
+        }
+      } catch { /* non-fatal */ }
+      window.close();
+    });
+
+    remoteUrl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") testBtn.click();
+    });
   </script>
 </body>
 </html>

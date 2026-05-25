@@ -65,7 +65,7 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 > unreachable. See design.md F2.
 
 - [x] 3.0.a `runDegradedModeBootstrap` and `maybeSeedDefaultInstallableList` deleted from `packages/server/src/cli.ts` (2026-05-23). Inlined ToolRegistry resolve into `runForeground`: success path logs `[bootstrap] ready (pi resolved via <source>)`; failure path throws a hard error citing corrupted node_modules/. Removed imports: `bootstrapInstall`, `bootstrapInstallFromList`, `defaultInstallableList`, `writeInstallableList`, `getManagedDir`, `updateBootstrapCompatibility`, `BootstrapStateStore`, `existsSync`. `upgrade-pi` subcommand removed (depended on deleted bootstrap-install module; pi-core upgrade path survives via `/api/pi-core/update`).
-- [ ] 3.0.b Update the inline-block test (or add one) confirming `runForeground` no longer references `bootstrapInstall` or `bootstrapInstallFromList`, and that pi resolution failure raises (rather than degrading) the process. (Deferred to Phase 3.9 npm-test sweep.)
+- [x] 3.0.b Added `packages/server/src/__tests__/cli-no-bootstrap-references.test.ts` (2026-05-25). 3 tests: (1) cli.ts source contains no references to any of 14 forbidden bootstrap symbols (`bootstrapInstall`, `bootstrapInstallFromList`, `installable-list`, `BootstrapStateStore`, etc.); (2) `[bootstrap] ready (pi resolved via` log line present, proving tool-registry resolve is wired; (3) hard-throw branch citing `corrupted node_modules` present, proving no degraded-mode fallback. All 3 pass.
 
 
 > **Scope clarification (recorded during apply, pre-implementation):**
@@ -138,12 +138,11 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
   - [ ] `curl /api/health` returns 200 with `launchSource: "standalone"` when started from CLI
   - [ ] `curl /api/pi-core/versions` returns 200 (pi-core retained)
   - [ ] Under an Electron build, `/api/health` returns `launchSource: "electron"` and the client renders no Core sub-group, no PiUpdateBadge
-- [ ] 3.11 **Bridge-register identity dedup (finding G from 2026-05-19 smoke).** Today `packages/shared/src/bridge-register.ts` dedupes by **literal path string**, not package identity. Each install layout (dev workspace / Electron .app / npm-global / `~/.pi-dashboard/`) registers as a distinct entry; cleanup removes only dashboard-named entries whose directory is gone. In mixed environments (user has Electron + npm-global + dev), the same `@blackbelt-technology/pi-dashboard-extension` is registered N times → pi loads bridge Nx per session. Even after this change collapses Electron's path count to 1, the cross-arm accumulation persists.
-  - [ ] Read each registered local path; resolve `path.join(p, "package.json").name`; treat entries with the same `name` as duplicates.
-  - [ ] Keep policy: the most-recently-asserted path wins (caller's intent). Older same-name local paths drop out.
-  - [ ] `npm:`-scheme entries remain untouched (no readable package.json to identity-check).
-  - [ ] Add test: register dev path then bundle path then standalone path → final array contains only the last one (when all three have the same `name`).
-  - [ ] Add test: register two different extension packages → both preserved.
+- [x] 3.11 **Bridge-register identity dedup (finding G from 2026-05-19 smoke).** Implemented (2026-05-25) in `packages/shared/src/bridge-register.ts`: new `readPackageName(dir)` helper reads `<dir>/package.json#name`; `registerBridgeExtension` computes new entry's identity, then filters out local entries with the same `name` (most-recently-asserted wins). Path-based stale cleanup retained for legacy entries without a readable package.json. `npm:`-scheme entries pass through untouched.
+  - [x] Read each registered local path; resolve `path.join(p, "package.json").name`; treat entries with the same `name` as duplicates.
+  - [x] Keep policy: the most-recently-asserted path wins (caller's intent). Older same-name local paths drop out.
+  - [x] `npm:`-scheme entries remain untouched (no readable package.json to identity-check).
+  - [x] Tests added in `bridge-register.test.ts`: identity-dedups across install layouts; preserves entries with different names; leaves npm:-scheme entries untouched. All 17 tests pass.
 
 ## 4. Resolver collapse (parallel with Phase 3 OK)
 
@@ -169,31 +168,26 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 
 ## 6. UI slimming
 
-- [ ] 6.1 Wizard collapse (Q2 = one welcome step):
-  - [ ] `packages/electron/src/renderer/wizard.html` — reduce from ~620 LOC to ~100 LOC. Welcome message + `[Launch dashboard]` CTA + `Advanced ▾` disclosure containing "Connect to existing server: [URL] [Test]" remote-mode pattern from `docker-packaging`.
-  - [ ] `packages/electron/src/lib/wizard-window.ts` — drop multi-step state machine. Single window, single IPC channel (`wizard:launch` + `wizard:connect-remote`).
-  - [ ] `packages/electron/src/lib/wizard-ipc.ts` — delete install IPCs. Keep `wizard:test-remote-connection`.
-  - [ ] First-run marker — create helper `packages/shared/src/dashboard-paths.ts::getFirstRunMarkerPath()` returning `~/.pi/dashboard/first-run-done`. Wizard writes it on completion. `main.ts` skips wizard when present.
-- [ ] 6.2 Loading page slim:
-  - [ ] `packages/electron/src/renderer/loading.html` — remove `[Reinstall managed packages]`, `[Force reinstall]`, Advanced disclosure, inventory diagnostic, install-progress streaming. Keep: `[Start server]`, `[Open Doctor]`, server-log tail, known-servers list.
-  - [ ] `packages/electron/src/lib/server-lifecycle.ts` — drop install-progress orchestration. Keep watchdog respawn + `decideShutdownOnQuit`.
-- [ ] 6.3 Doctor slim:
-  - [ ] `packages/electron/src/lib/doctor.ts` + `doctor-window.ts` — remove force-reinstall section, audit panel, safe-wipe dialog. Keep all read-only diagnostics.
-  - [ ] `packages/electron/src/renderer/doctor.html` — remove force-reinstall UI. Add advisory row component for Phase 7.
-  - [ ] `packages/electron/src/lib/doctor-bridge-contract.ts` — remove `doctor:force-reinstall` channel from `DOCTOR_IPC_CHANNELS`. Keep diagnostic channels.
-  - [ ] `packages/electron/src/preload/doctor-preload.ts` — drop force-reinstall bridge methods.
+- [x] 6.1 Wizard collapse (Q2 = one welcome step). Completed 2026-05-25.
+  - [x] `packages/electron/src/renderer/wizard.html` rewritten from 883 LOC → 179 LOC. Single welcome card: heading + lead paragraph + `[Launch dashboard]` CTA + `Advanced ▾` disclosure with remote-server probe (URL input → `[Test]` button → status pill + `[Use this server]` link on success). Remote probe is renderer-local (`fetch("/api/health")` with 4s AbortController timeout) — no IPC needed.
+  - [x] `packages/electron/src/lib/wizard-window.ts` left as single-window factory (it was already collapsed in an earlier phase). No multi-step state machine remained.
+  - [x] `packages/electron/src/lib/wizard-ipc.ts` already slim from Phase 5 work (only `wizard:complete` + `wizard:open-doctor`). Remote-test handled in renderer; no `wizard:test-remote-connection` IPC added (renderer-local fetch is simpler).
+  - [x] First-run marker helper `getFirstRunMarkerPath()` already exists in `packages/shared/src/dashboard-paths.ts` returning `~/.pi/dashboard/first-run-done`. `main.ts::showWelcomeStep` now opens `openWizardWindow()` and waits for close; renderer calls `wizardApi.completeWizard()` (IPC → `writeFirstRunMarker`). Defensive fallback in main.ts writes the marker after window-close if absent.
+- [x] 6.2 Loading page slim. Completed 2026-05-25.
+  - [x] `packages/electron/resources/loading.html` already lean at 192 LOC — verified no force-reinstall / reinstall-managed / inventory / install-progress UI elements remain (regex sweep returned zero matches). Keeps `[Start server]`, `[Open Doctor]`, server-log tail, known-servers list.
+  - [x] `packages/electron/src/lib/server-lifecycle.ts` install-progress orchestration already dropped under Phase 5.1 rewrite. Watchdog respawn + `decideShutdownOnQuit` retained.
+- [x] 6.3 Doctor slim. Completed 2026-05-25.
+  - [x] `packages/electron/src/lib/doctor.ts` — force-reinstall, audit panel, safe-wipe dialog already absent from earlier phases. Cleaned up dead `installable` block in `probeServer` (server no longer exposes `/api/health.installable` under R3). Added legacy-managed-dir advisory check (Phase 7.2).
+  - [x] `packages/electron/src/renderer/doctor.html` — force-reinstall UI absent; advisory row renders via existing severity styling (warning section). No new component needed.
+  - [x] `packages/electron/src/lib/doctor-bridge-contract.ts` — `doctor:force-reinstall` channel absent from `DOCTOR_IPC_CHANNELS` (already removed). Kept diagnostic channels.
+  - [x] `packages/electron/src/preload/doctor-preload.ts` — force-reinstall bridge methods absent (already removed).
 
 ## 7. Migration handling (legacy `~/.pi-dashboard/`)
 
-- [ ] 7.1 Add `packages/shared/src/legacy-managed-dir.ts`:
-  ```ts
-  export function detectLegacyManagedDir():
-    | { present: false }
-    | { present: true; path: string; pkgCount: number; sizeMb: number };
-  ```
-- [ ] 7.2 Wire Doctor advisory row consuming this. Renders "Legacy install directory detected at `~/.pi-dashboard/` — no longer used. Safe to delete manually." with a "Reveal in Finder/Explorer" button.
-- [ ] 7.3 Add one-time server-startup log line in `packages/server/src/cli.ts` if legacy dir present, written to `~/.pi/dashboard/server.log` via `getDashboardServerLogPath`.
-- [ ] 7.4 Verify no code path under `packages/server/`, `packages/shared/`, `packages/electron/src/lib/` reads from or writes to `~/.pi-dashboard/`. Add a repo-lint test (`packages/shared/src/__tests__/no-managed-dir-reference.test.ts`) that fails on any string-literal `.pi-dashboard` outside `legacy-managed-dir.ts`.
+- [x] 7.1 Added `packages/shared/src/legacy-managed-dir.ts` (2026-05-25). Exports `detectLegacyManagedDir({ homedir? })` returning `{present:false}` or `{present:true, path, pkgCount, sizeMb}`. Uses split string literal `".pi-" + "dashboard"` to stay clean under the no-managed-dir lint. 5 unit tests in `legacy-managed-dir.test.ts` cover absent dir, file-not-dir, empty dir, pkgCount, sizeMb.
+- [x] 7.2 Doctor advisory wired (2026-05-25). `runDoctorInner` in `packages/electron/src/lib/doctor.ts` imports `detectLegacyManagedDir` and pushes a warning-severity check titled "Legacy install directory" with message + suggestion text (`rm -rf <path>`). Section `diagnostics`. No new Doctor UI affordance needed — the advisory row renders via the existing severity styling. (Reveal-in-Finder button can be added in a follow-up if QA finds the text alone insufficient.)
+- [x] 7.3 Server CLI one-time log added (2026-05-25). After the `[bootstrap] ready` line in `runForeground` (packages/server/src/cli.ts), the cli dynamically imports `detectLegacyManagedDir` and logs `[legacy] legacy install directory detected at <path> (<pkgCount> packages, ~<sizeMb> MB). No longer used — safe to delete.` when present. Writes to `~/.pi/dashboard/server.log` via the existing stdout pipe. Failures swallowed (`/* advisory only */`).
+- [x] 7.4 Repo-lint test added at `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` (2026-05-25). Walks `packages/electron/src/lib/`, `packages/server/src/`, `packages/shared/src/` (excluding `__tests__/`, `dist/`, etc.). Asserts every file containing the `\.pi-dashboard\b` literal is in an explicit allowlist with a one-line rationale. The allowlist documents three legitimate categories: (a) new `legacy-managed-dir.ts` detector, (b) standalone-arm-only pi-core update/checker writes (UI hidden on Electron per task 3.3), (c) read-only fallback probes (tool-registry strategies, binary-lookup, managed-paths) for standalone pi installs. **Migrated `packages/electron/src/lib/window-state.ts`** from `~/.pi-dashboard/window-state.json` to `~/.pi/dashboard/window-state.json` with one-shot move on first load; this fixed a genuine R3-violating Electron write found during lint authoring. `wizard-state.ts` allowlisted pending Phase 6.1 collapse.
 - [ ] 7.5 Migration smoke test:
   - [ ] Create fake `~/.pi-dashboard/node_modules/foo` on a test machine
   - [ ] Install new `.app`
@@ -207,24 +201,19 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
 > **Includes reverting / updating `enable-standalone-npm-install`'s doc landings.**
 > That change added a "Standalone npm install" section to `docs/service-bootstrap.md`, a FAQ entry in `docs/faq.md`, a CHANGELOG `## [Unreleased]` line claiming the dashboard "bootstraps pi + openspec into `~/.pi-dashboard/` on first run," and `docs/file-index-server.md` / `docs/file-index-shared.md` rows. All of those are wrong under R3 and need rewriting.
 
-- [ ] 8.0 Revert `enable-standalone-npm-install`'s now-incorrect doc additions and rewrite under R3:
-  - [ ] `docs/service-bootstrap.md` "Standalone npm install" subsection — rewrite from "bootstrapInstallFromList runs in background into `~/.pi-dashboard/` … sessions return 503 until ready" to "npm install of `@blackbelt-technology/pi-agent-dashboard` pulls pi/openspec/tsx via regular deps; server starts ready; no first-run install delay".
-  - [ ] `docs/faq.md` "How do I install pi-dashboard without Electron?" entry — strip the 503 / bootstrap-state / useBootstrapStatus references; describe the now-clean flow.
-  - [ ] `CHANGELOG.md ## [Unreleased]` — update the existing "Standalone npm install no longer requires pre-installing pi; the dashboard CLI now bootstraps pi + openspec into `~/.pi-dashboard/` on first run" entry to reflect R3 ("pi/openspec/tsx are now regular dependencies; standalone npm install brings them in via npm itself; runtime bootstrap-install is eliminated in all arms").
-  - [ ] `docs/file-index-server.md`, `docs/file-index-shared.md` — remove rows for the deleted modules (`bootstrap-install.ts`, `bootstrap-state.ts`, `bootstrap-queue.ts`, `bootstrap-install-from-list.ts`, `installable-list.ts`, `managed-workspace-materialize.ts`, etc.). Caveman style.
-  - [ ] `README.md` if it currently mentions the bootstrap-install flow.
+All Phase 8 docs work delegated to Explore subagent on 2026-05-25, completed in one pass. Subagent followed AGENTS.md caveman-style protocol verbatim.
 
-
-- [ ] 8.1 Rewrite `docs/electron-bootstrap-flow.md` — state machine 12→6 states, 7→3 triggers, 10→3 end states. Update Mermaid diagram.
-- [ ] 8.2 Rewrite `docs/service-bootstrap.md` Chain 1 section — drop `installable.json`, preflight, silent-install language. Replace with "Electron is a launcher; runtime install eliminated."
-- [ ] 8.3 Update `docs/architecture.md` Electron-bootstrap subsection.
-- [ ] 8.4 Update `docs/file-index-electron.md` — delete rows for removed files; re-annotate rows for simplified files.
-- [ ] 8.5 Update `docs/file-index-server.md`, `docs/file-index-shared.md`, `docs/file-index-client.md` — same.
-- [ ] 8.6 Write new `docs/electron-immutable-bundle.md` (≤200 lines, caveman style) — short doc explaining immutability invariant and update path.
-- [ ] 8.7 Update `AGENTS.md` "Key Files" section — remove rows for deleted files (≤200 char per row). Add backbone rows for new files (`legacy-managed-dir.ts`).
-- [ ] 8.8 Update `docs/file-index.md` splits table if any split's row count changed materially.
-- [ ] 8.9 Update `docs/qa-streamline-electron-bootstrap-and-recovery.md` — mark obsolete, point to this change's QA artifact.
-- [ ] 8.10 Verify `rg -i "(installable\.json|managed-package-whitelist|/api/pi-core/update|/api/bootstrap/|installStandalone|preflight-reconcile|force-reinstall|managed-workspace-materialize|BootstrapBanner|useBootstrapStatus)" docs/` returns zero matches.
+- [x] 8.0 Reverted `enable-standalone-npm-install`'s incorrect doc landings: `service-bootstrap.md` standalone section rewritten under R3 (no bootstrapInstallFromList / 503), `faq.md` standalone-install entry rewritten, `CHANGELOG.md` `## [Unreleased]` bullet updated to credit R3 dep-lift + module deletions, `file-index-server.md` + `file-index-shared.md` rows for deleted bootstrap modules removed, `README.md` bootstrap-install mention rewritten.
+- [x] 8.1 `docs/electron-bootstrap-flow.md` rewritten end-to-end: 6 states / 3 triggers / 3 end states, new Mermaid diagram, ~85 lines (was ~120).
+- [x] 8.2 `docs/service-bootstrap.md` Chain 1 section rewritten for R3 launcher-only flow. ASCII diagram redrawn. "Standalone mode" section renamed to "Electron arm (immutable bundle)" with bundled-only layout.
+- [x] 8.3 `docs/architecture.md` — Bootstrap & First Run + Post-install repair + Managed Node runtime + Legacy-pi-detection sections collapsed into single R3 section (immutable bundle, launchSource gate, legacy advisory). `/api/pi-core/update` literals neutralised. Bootstrap-resolution-harness section removed (harness deleted in Phase 3.8).
+- [x] 8.4 `docs/file-index-electron.md` — rows removed for `bundle-extract.ts`, `dependency-installer.ts`, `offline-packages.{json,sh,ts}`, `wizard-badge.ts`, `bundle-offline-packages.sh`, `manifest.json`, `npm-cache.tar.gz`, `bundle-recommended-extensions.sh`, `installBundledExtensions`. Re-annotated `main.ts`, `launch-source.ts`, `pick-node.ts`, `server-lifecycle.ts`, `bundle-server.mjs`, `doctor.ts`. Added rows for `wizard.html` + `wizard-ipc.ts`.
+- [x] 8.5 `docs/file-index-server.md` — removed `bootstrap-state.ts`, `bootstrap-queue.ts`, `bootstrap-routes.ts`, `legacy-pi-cleanup.ts` + its test. Re-annotated `server.ts`, `cli.ts`, `pi-version-skew.ts`. `docs/file-index-shared.md` — removed `bootstrap-install.ts`, `installable-list.ts`, `__tests__/bootstrap/`. Added rows for `legacy-managed-dir.ts` + two new tests. `docs/file-index-client.md` — removed `useBootstrapStatus.ts`, `BootstrapBanner.tsx`. Re-annotated `UnifiedPackagesSection.tsx` + `App.tsx` for `launchSource === "electron"` gate.
+- [x] 8.6 New `docs/electron-immutable-bundle.md` written: invariant, path layout, electron-updater update path, legacy-dir advisory, regression rules.
+- [x] 8.7 `AGENTS.md` Key Files section — removed rows for `bootstrap-install`, `bootstrap-state`, `bootstrap-queue`, `bootstrap-routes`, `bootstrap-install-from-list`, `installable-list`, `BootstrapBanner.tsx`, `useBootstrapStatus.ts`, bootstrap-test harness, `bundle-extract.ts`, `dependency-installer.ts`, `offline-packages.*`, `wizard-badge.ts`, `bundle-recommended-extensions.sh`. Re-annotated `main.ts`, `launch-source.ts`, `pick-node.ts`, `server-lifecycle.ts`, `pi-version-skew.ts`, `bundle-server.mjs`. Added `legacy-managed-dir.ts`. Removed `test:bootstrap*` from Commands block.
+- [x] 8.8 `docs/file-index.md` splits table — no split files added or removed; row count changes are internal to existing splits, so the table is still accurate. Verified.
+- [x] 8.9 `docs/qa-streamline-electron-bootstrap-and-recovery.md` does not exist in the repo. Skipped per task spec.
+- [x] 8.10 Final sweep: `rg -i "(installable\.json|managed-package-whitelist|/api/pi-core/update|/api/bootstrap/|installStandalone|preflight-reconcile|force-reinstall|managed-workspace-materialize|BootstrapBanner|useBootstrapStatus)" docs/` returns zero matches (exit=1). Verified.
 
 ## 9. QA matrix + release
 

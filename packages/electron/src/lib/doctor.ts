@@ -98,7 +98,6 @@ async function probeServer(): Promise<{
   version?: string;
   mode?: string;
   starter?: string | null;
-  installable?: { total: number; installed: number; failed: string[] } | null;
 }> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
@@ -119,17 +118,10 @@ async function probeServer(): Promise<{
     version: typeof health.version === "string" ? health.version : undefined,
     mode: typeof health.mode === "string" ? health.mode : undefined,
     starter: typeof health.starter === "string" ? health.starter : null,
-    installable:
-      health.installable && typeof health.installable === "object"
-        ? {
-            total: (health.installable as { total?: number }).total ?? 0,
-            installed: (health.installable as { installed?: number }).installed ?? 0,
-            failed: Array.isArray((health.installable as { failed?: unknown }).failed)
-              ? ((health.installable as { failed: string[] }).failed)
-              : [],
-          }
-        : null,
   };
+  // `installable` field intentionally dropped under change:
+  // eliminate-electron-runtime-install — the runtime install-list flow
+  // is gone, so /api/health no longer exposes the field.
 }
 
 /** Run all doctor checks. Wraps the body in try/catch so the renderer
@@ -299,7 +291,9 @@ async function runDoctorInner(): Promise<DoctorReport> {
   // Offline packages bundle check removed under change:
   // eliminate-electron-runtime-install.
 
-  // ── Server starter / installable list (from health JSON) ────
+  // ── Server starter (from health JSON) ──────────────────
+  // Installable-list row removed under change:
+  // eliminate-electron-runtime-install (Phase 6.3).
   const probe = await probeServer();
   if (probe.running) {
     checks.push({
@@ -308,23 +302,36 @@ async function runDoctorInner(): Promise<DoctorReport> {
       status: probe.starter ? "ok" : "warning",
       message: probe.starter ?? "Unknown (old server?)",
     });
-    if (probe.installable) {
-      const failCount = probe.installable.failed.length;
-      checks.push({
-        name: "Installable list",
-        section: "server",
-        status: failCount > 0 ? "error" : "ok",
-        message:
-          `${probe.installable.installed}/${probe.installable.total} installed` +
-          (failCount > 0 ? `, ${failCount} failed: ${probe.installable.failed.join(", ")}` : ""),
-        fixable: failCount > 0,
-      });
-    }
   }
 
   // ── Server launch sanity test (only when server is not running) ──
   if (!probe.running) {
     await runServerLaunchTest(checks, { hasBundledServer, bundledServerCli, bundledNode });
+  }
+
+  // ── Legacy `~/.pi-dashboard/` advisory ───────────────────────
+  // Under R3 nothing reads or writes this directory. Surface a
+  // single warning row so the user knows it's safe to delete.
+  // See change: eliminate-electron-runtime-install (Phase 7).
+  try {
+    const { detectLegacyManagedDir } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/legacy-managed-dir.js"
+    );
+    const legacy = detectLegacyManagedDir();
+    if (legacy.present) {
+      checks.push({
+        name: "Legacy install directory",
+        section: "diagnostics",
+        status: "warning",
+        message: `Legacy directory at ${legacy.path} — no longer used. Safe to delete manually.`,
+        detail: `${legacy.pkgCount} packages, ~${legacy.sizeMb} MB.`,
+        suggestion:
+          "This directory is left over from a previous version. Nothing reads or writes it under the immutable-bundle architecture. " +
+          `Delete it manually (e.g. \`rm -rf ${legacy.path}\`) to reclaim disk space.`,
+      });
+    }
+  } catch {
+    /* advisory only — never block doctor output */
   }
 
   // ── Stamp section + suggestion ───────────────────────────────

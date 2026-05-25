@@ -428,124 +428,23 @@ Results populate `PluginStatus.requirements` + flat `missingRequirements: string
 
 **Settings consolidation.** Plugin-contributed `settings-section` claims render only under owning plugin row in Settings ▸ Plugins. Legacy `claim.tab` manifest field preserved for back-compat manifests; `SettingsPanel` no longer consumes it. See change: add-plugin-activation-ui (settings-consolidation).
 
-### Bootstrap & First Run
+### Bootstrap & First Run (R3, immutable bundle)
 
-The dashboard has three install paths that all converge on the shared
-`bootstrapInstall` in `packages/shared/src/bootstrap-install.ts`:
+pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.
 
-1. **Electron wizard** (first-run in the desktop app) —
-   `packages/electron/src/lib/dependency-installer.ts installStandalone`
-   wraps the shared installer with Electron-specific concerns
-   (bundled Node + `npm-cli.js`, offline npm cacache bundle extracted
-   from `resourcesPath/offline-packages/`, bundled-extension activation
-   into pi's git cache). The registry-install loop itself is the shared
-   function.
+- **Electron** — reads server resources from `<resourcesPath>/server/node_modules/` (immutable, read-only). Updates land via electron-updater whole-app replacement. See [electron-immutable-bundle.md](./electron-immutable-bundle.md) and [electron-bootstrap-flow.md](./electron-bootstrap-flow.md) for the 6-state startup machine.
+- **Standalone (`npm i -g @blackbelt-technology/pi-agent-dashboard`)** — npm resolves pi/openspec/tsx at install time via regular `dependencies`. Server binds port 8000 immediately; `cli.ts runForeground` logs `[bootstrap] ready (pi resolved via <source>)` after a single `ToolRegistry.resolve("pi")` call. Failure throws hard citing corrupted `node_modules/`.
+- **Bridge** — pi loads the bridge extension; bridge auto-starts the server. pi-core update path remains via `pi-core-routes.ts` (writable target).
 
-2. **`pi-dashboard` CLI first-run** (degraded-mode) — when
-   `pi-dashboard` (or `pi-dashboard start`) launches and
-   `ToolRegistry.resolve("pi")` fails, `cli.ts runDegradedModeBootstrap`
-   flips `bootstrapState.status` to `"installing"`, kicks off
-   `bootstrapInstall({ packages: ["@earendil-works/pi-coding-agent", "@fission-ai/openspec", "tsx"] })`
-   asynchronously, and returns immediately so the server's
-   `fastify.listen` remains responsive. The UI renders `BootstrapBanner`
-   above the main layout. `session-api.ts gateOrEnqueue` queues
-   `POST /api/session/spawn` requests while installing; the
-   `server.ts` subscribe hook flushes the queue on transition to
-   `"ready"`. On success, `registerBridgeExtension(findBundledExtension())`
-   auto-wires the bridge so no manual step is required.
+`launchSource` (returned by `/api/health`) is `"electron" | "standalone" | "bridge"`, derived from `DASHBOARD_STARTER`. Client uses it via `useLaunchSource()` to hide pi-core update UI on Electron (immutable bundle has no writable target).
 
-3. **`pi-dashboard upgrade-pi` CLI subcommand** — runs
-   `bootstrapInstall({ packages: ["@earendil-works/pi-coding-agent"] })`
-   either directly (when no dashboard is listening) or via
-   `POST /api/bootstrap/upgrade-pi` (when one is). The REST path flips
-   state through the existing broadcast hook so open dashboard tabs
-   see the progress; on completion, `/reload` is broadcast to all
-   connected bridges, matching the pi-core-update session-reload
-   pattern.
+Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `readCurrentPiVersion`, `computeCompatibility`) survive as pure helpers. The pinned range is `minimum: "0.70.0"`, `recommended: "0.70.0"`, `maximum: null` (lockstep — one supported pi means no conditional code paths in the bridge).
 
-Compatibility skew is checked on every ready transition via
-`updateBootstrapCompatibility` which reads `piCompatibility` from
-`packages/server/package.json` and populates `bootstrapState.compatibility`
-with `upgradeRecommended` / `upgradeDashboard` flags consumed by
-`BootstrapBanner`. Versions below `minimum` set a blocking `error`
-message that `session-api gateOrEnqueue` translates to 503 responses.
+#### Legacy `~/.pi-dashboard/` advisory
 
-The pinned range is `minimum: "0.70.0"`, `recommended: "0.70.0"`,
-`maximum: null` — deliberately in lockstep. The dashboard does NOT carry
-backward-compatibility shims for older pi releases; one supported pi
-means no conditional code paths in the bridge and no dual-import
-fallbacks (e.g. `@sinclair/typebox` vs `typebox`). Bumping `recommended`
-in a future change SHOULD be matched by an equal bump to `minimum` and a
-lockstep bump of the offline-bundled pi version in
-`packages/electron/offline-packages.json`.
+Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at runtime. R3 leaves that directory untouched. `detectLegacyManagedDir({ homedir })` in `packages/shared/src/legacy-managed-dir.ts` returns `{present, path, pkgCount, sizeMb}`. Doctor surfaces a warning-severity row "Legacy install directory" with a `rm -rf <path>` suggestion. Server `cli.ts` logs the path once at startup after the `[bootstrap] ready` line. Repo-lint `no-managed-dir-reference.test.ts` blocks any new write into the legacy directory from `packages/electron/src/lib/`, `packages/server/src/`, or `packages/shared/src/` outside the explicit allowlist.
 
-The CLI also surfaces skew on stderr at startup: `cli.ts::logCompatibilityWarning` emits a three-line red block on below-minimum (including the exact `pi-dashboard upgrade-pi` remediation command) and a single advisory line on below-recommended. Silent when in range. This is in addition to the browser banner and the 503 gating, so terminal-only users (headless servers, CI) don't miss the signal. Note: `readCurrentPiVersion` uses `fs.realpathSync` on the registry-resolved bin path so the common npm-global symlink layout (`~/.nvm/.../bin/pi` → `../lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js`) resolves to the real `package.json` — without this, `compatibility.current` was silently `undefined` in every response.
-
-#### Post-install repair (centralized hook)
-
-On every `bootstrapState` transition from `"installing"` to `"ready"`,
-`server.ts`'s subscribe callback runs a one-shot repair phase via the
-exported helpers `makeBootstrapTransitionHandler` (gating) and
-`runPostInstallRepair` (the work):
-
-1. **Full `ToolRegistry.rescan()` (no arg)** — every cached `Resolution`
-   is dropped so the next `resolve(<tool>)` call re-runs the entire
-   strategy chain against the post-install filesystem. Restores the
-   literal contract from `unified-bootstrap-install` task 4.3 ("registry
-   rescan") that was previously narrowed to `rescan("pi")` and left
-   `openspec` / `tsx` cached as `not-found` forever.
-
-2. **Force-refresh OpenSpec for every known directory** — iterates
-   `directoryService.knownDirectories()` and for each cwd calls
-   `refreshOpenSpec(cwd)` (bypasses the mtime gate per the
-   `fix-openspec-mtime-gate-toctou` design's escape-hatch contract).
-   Compares the returned `OpenSpecData` against the prior cache; emits
-   `openspec_update` to all browsers when the prior was empty or the
-   payload differs. Per-cwd failures are isolated via try/catch so one
-   cwd cannot block the others. Concurrency is bounded by the existing
-   `OpenSpecPollConfig.maxConcurrentSpawns` semaphore inside
-   `directory-service.ts` (default 4).
-
-3. **Force-refresh pi-resources for every known directory** — same
-   iteration; silent on failure (matches
-   `directory-service.ts::schedulePiResourcesTick`).
-
-The hook fires once per transition, fire-and-forget so the subscribe
-callback returns synchronously. Because all three install entry points
-(`runDegradedModeBootstrap`, REST `triggerUpgradePi`, REST
-`triggerRetry`) flip the same state, the centralized hook covers every
-caller — the local `registry.rescan("pi")` block in `cli.ts` was
-removed as part of this change.
-
-Without this hook, the OpenSpec session-card buttons (`P/D/T/S`
-letters, attach combo, refresh) stayed hidden after a fresh first-run
-install until either the user manually reloaded or up to 30 s elapsed
-— and even then the mtime gate could decline to re-poll if no file
-actually changed since boot.
-
-See changes: `unified-bootstrap-install`, `pi-zero-seventy-compat`, `warn-pi-version-skew-in-cli`, `fix-openspec-buttons-after-bootstrap-install`.
-
-#### Managed Node runtime
-
-Electron resources ship bundled Node under `resources/node/` (Windows: `node.exe` + `npm.cmd` + `npx.cmd` at root; Unix: `bin/node` + `bin/npm` + `bin/npx`). `installManagedNode` (`packages/shared/src/bootstrap-install.ts`) `fs.cp`-copies bundle into `<managedDir>/node/` (default `~/.pi-dashboard/node/`), writes `.version` marker for idempotency. `installStandalone` calls it BEFORE first `bootstrapInstall` so npm shims exist when registry install runs; Doctor calls it unconditionally on every launch as a self-repair step. ToolRegistry `node` + `npm` strategy chains prefer `<managedDir>/node/` ahead of system PATH; `prependManagedNodeToPath(env, managedDir)` (`packages/shared/src/platform/managed-node-path.ts`) injects same dir at HEAD of every spawned child's `PATH` (pi-session, pi-core-updater, headless RPC, server-launcher) so `npm.cmd`/`npx.cmd` resolve without `where npm` returning empty on Windows. Standalone CLI / dev / builds without `resources/node/`: bundled source absent, both helpers no-op, resolver falls through to system PATH. See change: embed-managed-node-runtime.
-
-#### Legacy pi detection & cleanup
-
-Pi renamed `@mariozechner/pi-coding-agent` → `@earendil-works/pi-coding-agent` at v0.74. Old scope ships only up to v0.73.x; new scope's `bin/pi` symlink collides with legacy install on `npm install -g` (EEXIST), producing silent "no spawning" failures when both exist.
-
-`packages/server/src/legacy-pi-cleanup.ts` scans 3 locations: npm-global (`npm root -g` → `<root>/@mariozechner/pi-coding-agent`), npx-cache (`~/.npm/_npx/*/node_modules/@mariozechner/pi-coding-agent`, all hashed entries), managed (`~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent`). Detection cost: one `npm root -g` (~50ms) + `fs.statSync` per candidate. Read-only.
-
-Startup scan: `server.ts` calls `detectLegacyPiInstalls()` once at boot, writes result to `bootstrapState.legacyPiInstalls`. Broadcast via `bootstrap_status_update` WS.
-
-REST: `GET /api/bootstrap/legacy-pi` force-refreshes detection. `POST /api/bootstrap/legacy-pi/cleanup` removes all detected installs, re-scans, returns `{results, remaining}`. Both auth-gated.
-
-UI: `BootstrapBanner` renders amber "Remove legacy pi (N)" sub-banner when `legacyPiInstalls.length > 0` AND `status === "ready"`. Takes precedence over upgrade-recommended hint (legacy install blocks `upgrade-pi`). Wired via `useBootstrapStatus().cleanupLegacyPi()`.
-
-Cleanup actions: npm-global removed via `npm uninstall -g @mariozechner/pi-coding-agent --no-fund --no-audit` so bin symlinks unwound; npx-cache + managed via `fs.rmSync({recursive, force})`. Per-install try/catch — one failure does not abort siblings.
-
-Idempotent: empty pre-scan short-circuits the POST without invoking npm; missing path under `fs.rmSync({force:true})` returns `removed: true`. Tests in `packages/server/src/__tests__/legacy-pi-cleanup.test.ts` (12 cases) cover pure helpers, fs-backed detection under HOME-tempdir isolation, and removal idempotency.
-
-See change: legacy-pi-cleanup.
+See change: eliminate-electron-runtime-install.
 
 ### Force Kill Escalation
 The Stop button supports two-click escalation for stuck sessions:
@@ -869,7 +768,7 @@ Package operations use pi's `DefaultPackageManager` API on the server, serialize
 
 **Pi Core Version Check (separate from extension management):**
 - `GET /api/pi-core/versions[?refresh=true]` — returns `PiCoreStatus` with all discovered pi ecosystem CLI packages (pi itself, pi-dashboard, pi-model-proxy, bare `pi-*` and scoped `@x/pi-*`), their installed version, latest npm-registry version, `updateAvailable` flag, and `installSource` (`"global"` via `npm list -g --depth=0 --json` vs `"managed"` in `~/.pi-dashboard/node_modules/`). Cached 5 min.
-- `POST /api/pi-core/update` with `{ packages?: string[] }` — updates the listed packages, or all packages with `updateAvailable` when omitted. Runs `npm update -g <pkg>` (global) or `npm update <pkg>` in `~/.pi-dashboard/` (managed). Shares the `PackageManagerWrapper.runExclusive()` busy-lock with extension operations — returns 409 on contention.
+- `POST` to the pi-core update endpoint with `{ packages?: string[] }` — updates the listed packages, or all packages with `updateAvailable` when omitted. Runs `npm update -g <pkg>` (global) or `npm update <pkg>` against a managed install when present. Shares the `PackageManagerWrapper.runExclusive()` busy-lock with extension operations — returns 409 on contention. **Standalone + bridge arms only**; Electron hides this UI under R3 because the bundle is read-only (immutable; updates land via electron-updater whole-app replacement).
 
 Why a separate system? Pi's `DefaultPackageManager` only manages packages listed in `settings.json packages[]` (extensions/skills/prompts/themes). The pi CLI binary itself and the dashboard server package are installed directly via `npm -g` (or into `~/.pi-dashboard/` in the Electron case) and are invisible to pi's manager. `PiCoreChecker` + `PiCoreUpdater` (`pi-core-checker.ts` + `pi-core-updater.ts`) fill that gap.
 
@@ -879,7 +778,7 @@ Core update progress delivered via typed `pi_core_update_progress` / `pi_core_up
 
 - Settings tab renders single `<UnifiedPackagesSection>`.
 - Three sub-groups in priority order: Core → Recommended → Other.
-- **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via `/api/pi-core/update`. No Uninstall.
+- **Core**: strict whitelist from `pi-core-checker.ts#CORE_PACKAGE_NAMES`. Update via the pi-core update endpoint. No Uninstall. Hidden when `launchSource === "electron"` (immutable bundle).
 - **Recommended Extensions**: rows where `isRecommended` true on `/api/packages/installed` response (server-side cross-reference against `RECOMMENDED_EXTENSIONS` manifest).
 - **Other Packages**: every remaining installed row.
 - Each package classified into exactly one group. Core wins over Recommended wins over Other (dedupe).
@@ -1723,33 +1622,6 @@ Settings → General → **Tools** renders one row per registered tool: status b
 
 See change: `consolidate-tool-resolution`.
 
-### Testing the bootstrap state space
-
-Resolution behavior intersects with HOME, platform, install layout, and pi's `settings.json` state across ~1000 combinations. Rather than hope CI on three runners plus manual QA cover all of them, the dashboard ships an in-memory harness at `packages/shared/src/__tests__/bootstrap/` that models the full cube:
-
-```
-  3 platforms  (win32, darwin, linux)
-× 5 dash-locations  (electron, npm-g, dev, managed, absent)
-× 6 pi-states  (absent, present-no-ext, present-stale-ext, present-valid, malformed, appimage-tmp)
-× 4 settings-states  (missing, empty, valid, malformed)
-× 3 env-states  (normal, spaces-unicode, home-drift)
-= 1080 cells
-```
-
-Each cell is **either** a registered test (writing a trail snapshot via `snapshotTrail`) **or** an explicit skip with a documented reason (in `scenarios-skipped.ts`). `cube.test.ts` fails CI when any cell is neither — a forcing function so that adding a new platform, a new install mechanic, or a new pi-state silently never happens.
-
-The harness is memfs-backed (no real fs, no subprocesses, no network) and runs in ~2 seconds via `npm run test:bootstrap`. The primary assertion is a normalized trail snapshot that captures strategy order, failure reasons, and `toArgv` output — which catches most bootstrap regressions before CI even reaches a real OS.
-
-Key locked-in invariants (from current snapshots):
-
-- Unix pi chain: `override → managed-bin → where` (no bare-import, no npm-g — a real limitation for GUI-launched minimal-PATH scenarios).
-- Win32 pi chain: 5-level fallback including the no-cmd-flash `.cmd` probe and `node.exe` prepend for `.js` targets.
-- Override strategy is first in every chain; invalid overrides fall through with `invalid: ...` reason.
-- Path normalization cross-OS via `<HOME>` / `<NPM_ROOT>` placeholders — snapshots stable on macOS and Linux CI.
-- **Windows bug captured**: `npm i -g pi-dashboard` + no pi → pi unresolved. Trail snapshot locks in the current broken state; `unified-bootstrap-install` will update it when the fix lands.
-
-See change: `bootstrap-resolution-harness`. Full walkthrough in `packages/shared/src/__tests__/bootstrap/README.md`.
-
 ## Path Handling (`platform/paths.ts`)
 
 Filesystem paths are OS-aware, and the dashboard touches them in three user-visible places: pin-directory storage (server), session-grouping (client), and the path picker UI (client). All three go through a single module — `packages/shared/src/platform/paths.ts` — rather than inventing their own logic.
@@ -1896,7 +1768,7 @@ The Electron app's first-launch flow has three branches (escape-hatch only):
                      install
 ```
 
-The `auto-skip-wizard-with-install` branch was the source of Defect 1 in change `fix-electron-windows-installer-and-server-bootstrap`. Pre-fix, this branch wrote `mode.json` as power-user but **skipped `installStandalone()`**, leaving `~/.pi-dashboard/node_modules/` empty. The bundled server's runtime then fell back to the user's system pi for the TS loader, which on machines with `pi-coding-agent@0.71.x` ships jiti 2.6.5 — a version that misnormalizes triple-slash file:// URLs on Windows and crashes the server child with `MODULE_NOT_FOUND`.
+**Historical note** (pre-R3 only; superseded by `eliminate-electron-runtime-install`): the pre-R3 auto-skip-wizard branch wrote `mode.json` as power-user but skipped the managed install step, leaving `~/.pi-dashboard/node_modules/` empty. The bundled server's runtime then fell back to the user's system pi for the TS loader, which on machines with `pi-coding-agent@0.71.x` ships jiti 2.6.5 — misnormalizes triple-slash file:// URLs on Windows, crashes server child with `MODULE_NOT_FOUND`. Under R3, the runtime install pyramid is eliminated entirely: pi/openspec/tsx ship inside the immutable bundle, no system-pi fallback path exists.
 
 The fix:
 

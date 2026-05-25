@@ -66,25 +66,24 @@ Cross-refs:
 
 ## How do I install pi-dashboard without Electron?
 
-Direct npm install. Zero prerequisites beyond Node.
+Direct npm install. pi/openspec/tsx come in as regular npm dependencies.
 
 Commands:
 ```bash
 npm install -g @blackbelt-technology/pi-agent-dashboard
-pi-dashboard
+pi-dashboard start
 ```
 
 - Server binds `:8000`. Open `http://localhost:8000`.
-- First launch bootstraps pi + openspec into `~/.pi-dashboard/`. ~30s on broadband.
-- Sessions return `503 bootstrap-in-progress` until install completes. `useBootstrapStatus` drives UI banner.
-- Offline: bootstrap state → `failed`. Settings + docs still serve. Session spawn stays 503.
+- No first-run install delay. pi/openspec/tsx ship as regular deps of `@blackbelt-technology/pi-dashboard-server`; npm pulls them in at install time.
+- `cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful resolve.
+- Resolution failure throws hard with `corrupted node_modules` hint. Reinstall to recover.
 - Requires Node.js ≥ 22.18.0. `npm` on PATH.
-- Seeding skipped when `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent/package.json` already present, or when `DASHBOARD_STARTER=Electron`.
 
 Cross-refs:
 - docs/service-bootstrap.md — "Standalone npm install"
-- packages/server/src/cli.ts — `maybeSeedDefaultInstallableList`
-- packages/shared/src/installable-list.ts — `defaultInstallableList`
+- packages/server/src/cli.ts — `runForeground`
+- packages/shared/src/tool-registry/ — `ToolRegistry.resolve("pi")`
 
 ## How do I install from source for development?
 
@@ -1779,25 +1778,23 @@ Cross-refs:
 
 Check banner in folder card (shows code, hint, preflight reasons, stderr tail). Open Settings → General → Recent Spawn Failures for history. Raw log at `~/.pi/dashboard/sessions/spawn-failures.log`. Fetch last N via `GET /api/spawn-failures?limit=N`.
 
-## Why do I see 'Legacy @mariozechner/pi-coding-agent detected' and what should I do?
+## What happens to my old `~/.pi-dashboard/` directory after upgrading?
 
-Pi renamed `@mariozechner/pi-coding-agent` → `@earendil-works/pi-coding-agent` at v0.74. Old scope publishes only up to v0.73.x. Both installed = new scope's `bin/pi` symlink collides with legacy on `npm install -g` (EEXIST). Silent symptom: sessions stop spawning.
+Left untouched. Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at runtime. R3 ships them as regular npm deps inside the app bundle; the legacy dir is no longer read or written.
 
-Fix: click "Remove legacy pi (N)" button in the amber banner above the main shell. Calls `POST /api/bootstrap/legacy-pi/cleanup`. Removal actions:
-- npm-global: `npm uninstall -g @mariozechner/pi-coding-agent --no-fund --no-audit` (unwinds bin symlinks).
-- npx-cache: `fs.rmSync({recursive,force})` on `~/.npm/_npx/*/node_modules/@mariozechner/pi-coding-agent`.
-- managed: `fs.rmSync({recursive,force})` on `~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent`.
+Detection: `detectLegacyManagedDir({ homedir })` in `packages/shared/src/legacy-managed-dir.ts` returns `{present, path, pkgCount, sizeMb}`. Doctor surfaces a warning-severity advisory "Legacy install directory". Server CLI logs the path once at startup.
 
-Idempotent. Re-clicking after success is a no-op. Per-install failures isolated — one permission error does not abort siblings; remaining installs surface in next banner refresh.
+Safe to delete manually:
+```bash
+rm -rf ~/.pi-dashboard
+```
 
-Detection runs at server startup + on `GET /api/bootstrap/legacy-pi`. Banner takes precedence over upgrade-recommended hint since legacy install blocks `pi-dashboard upgrade-pi`.
-
-See change: legacy-pi-cleanup.
+Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting the dir removes all of it.
 
 Cross-refs:
-- docs/architecture.md — Bootstrap & First Run → Legacy pi detection & cleanup
-- packages/server/src/legacy-pi-cleanup.ts
-- packages/server/src/routes/bootstrap-routes.ts (`/api/bootstrap/legacy-pi*`)
+- docs/electron-immutable-bundle.md
+- packages/shared/src/legacy-managed-dir.ts
+- packages/electron/src/lib/doctor.ts (advisory wiring)
 
 ## Why does `pi-dashboard start` fail with ERR_MODULE_NOT_FOUND in a dev checkout?
 

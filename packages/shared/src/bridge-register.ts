@@ -43,6 +43,23 @@ export interface FindExtensionDeps {
   resolvePackage?: () => string | null;
 }
 
+/**
+ * Read `name` from `<dir>/package.json`. Returns null on any error
+ * (missing file, unreadable, invalid JSON, missing name field).
+ * Used for identity-based dedup in `registerBridgeExtension`.
+ */
+function readPackageName(dir: string): string | null {
+  try {
+    const pkgPath = path.join(dir, "package.json");
+    if (!fs.existsSync(pkgPath)) return null;
+    const raw = fs.readFileSync(pkgPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.name === "string" ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
 function defaultResolvePackage(): string | null {
   try {
     const req = createRequire(import.meta.url);
@@ -133,12 +150,28 @@ export function registerBridgeExtension(
   // Already registered?
   if (packages.includes(extensionPath)) return;
 
-  // Non-destructive cleanup: only remove broken dashboard paths
+  // Compute the identity (package.json#name) of the new entry. We use it
+  // to dedupe across install layouts (dev / .app / npm-global / legacy
+  // managed dir) that all register the same extension under different
+  // absolute paths.
+  const newIdentity = readPackageName(extensionPath);
+
+  // Non-destructive cleanup: drop stale dashboard paths AND drop any
+  // local entry with the same package.json#name as the new one
+  // (most-recently-asserted path wins). npm:-scheme entries pass through
+  // untouched.
   const cleaned = packages.filter((p) => {
     if (typeof p !== "string") return true;
     const isLocalPath = p.startsWith("/") || /^[a-zA-Z]:[/\\]/.test(p);
     if (!isLocalPath) return true;
-    // Only consider dashboard-related paths for cleanup
+
+    // Identity dedup: same package name as the incoming entry?
+    if (newIdentity) {
+      const existingIdentity = readPackageName(p);
+      if (existingIdentity && existingIdentity === newIdentity) return false;
+    }
+
+    // Only consider dashboard-related paths for path-based cleanup
     // Normalize: lowercase + collapse spaces/hyphens so "PI Dashboard" matches "pi-dashboard"
     const normalized = p.toLowerCase().replace(/[\s_-]/g, "");
     if (!normalized.includes("pidashboard") && !normalized.includes("piagentdashboard")) return true;

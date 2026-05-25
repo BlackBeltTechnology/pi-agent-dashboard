@@ -4,7 +4,7 @@
 
 PI Dashboard has two independent startup chains leading to same server process. Each chain MUST resolve tool paths (pi, openspec, node, tsx, bridge extension) to launch server + spawn pi sessions. Doc describes both chains, tool resolution problem, target architecture.
 
-**Phase C update** (`simplify-electron-bootstrap-derived-state`): Chain 1 now uses `selectLaunchSource()` instead of `mode.json` branching. `installable.json` is the single source of truth for required-vs-optional packages. See `docs/electron-bootstrap-flow.md` for the V2 state machine.
+**R3 update** (`eliminate-electron-runtime-install`): Electron is launcher only. Runtime install eliminated. pi/openspec/tsx ship as regular npm dependencies inside the .app and load read-only from `<resourcesPath>/server/node_modules/`. `selectLaunchSource()` resolves to `attach | devMonorepo | bundled` (3 strategies). See [electron-bootstrap-flow.md](./electron-bootstrap-flow.md) for the 6-state startup machine. See [electron-immutable-bundle.md](./electron-immutable-bundle.md) for the immutable-bundle invariant.
 
 ## Startup Chains
 
@@ -14,29 +14,21 @@ PI Dashboard has two independent startup chains leading to same server process. 
 │                                                                          │
 │  /Applications/PI Dashboard.app                                          │
 │    │                                                                     │
-│    ├─ main.ts: pre-wizard health check                                   │
-│    │    └─ isDashboardRunning(port) → server already running? → connect  │
+│    ├─ main.ts: checking-server-health                                    │
+│    │    └─ isDashboardRunning(port) → attach when up                     │
 │    │                                                                     │
-│    ├─ main.ts: smart detection (if first run)                            │
-│    │    ├─ detectPi() ─────────┐                                         │
-│    │    ├─ detectBridgeExt() ──┤ whichSync() uses login shell            │
-│    │    ├─ detectOpenSpec() ───┘ fallback on macOS/Linux                 │
-│    │    │                                                                │
-│    │    ├─ pi + bridge found → auto-skip wizard                          │
-│    │    ├─ pi found, no bridge → wizard at bridge-install step           │
-│    │    └─ nothing found → full wizard                                   │
+│    ├─ main.ts: wizard-welcome (first-run only)                           │
+│    │    └─ ~/.pi/dashboard/first-run-done marker skips on relaunch       │
 │    │                                                                     │
-│    ├─ selectLaunchSource() (Phase C V2 default):                        │
-│    │    attach → devMonorepo → piExtension → npmGlobal → extracted      │
-│    │    extracted path: needsExtraction() + extractBundle() +            │
-│    │    seed ~/.pi/dashboard/installable.json from bundled defaults     │
+│    ├─ selectLaunchSource(): attach | devMonorepo | bundled               │
+│    │    bundled = <resourcesPath>/server/node_modules/                   │
+│    │    pi/openspec/tsx are regular npm deps (read-only at runtime)      │
 │    │                                                                     │
-│    ├─ spawnFromSource() stamps DASHBOARD_STARTER=Electron               │
+│    ├─ spawnFromSource() stamps DASHBOARD_STARTER=Electron                │
 │    │    setSpawnedPid(pid) for lifecycle ownership                       │
 │    │                                                                     │
-│    ├─ server reads ~/.pi/dashboard/installable.json                     │
-│    │    required packages: install or abort; optional: log and continue │
-│    │    file absent: no-op (Bridge/Standalone parity preserved)         │
+│    ├─ server boots: no runtime install, no bootstrap state               │
+│    │    legacy ~/.pi-dashboard/ untouched (advisory only)                │
 │    │                                                                     │
 │    └─ BrowserWindow → http://localhost:8000                              │
 │                                                                          │
@@ -124,32 +116,24 @@ serverCli:     System (pi-dashboard CLI) → Bundled → Managed
 
 Install: `npm install -g @blackbelt-technology/pi-agent-dashboard`. No pre-install of pi required.
 
-`jiti` ships as direct dep of `@blackbelt-technology/pi-dashboard-server`. Bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves jiti from own `node_modules/jiti` via `argv[1]` walk-up. Re-execs `node --import <jiti-url> cli.ts <args>`.
+pi/openspec/tsx ship as regular `dependencies` of `@blackbelt-technology/pi-dashboard-server`. npm resolves them at install time. No first-run install delay. No background install. Server starts ready.
 
-First launch: `cli.ts maybeSeedDefaultInstallableList()` writes `~/.pi/dashboard/installable.json` with pi + openspec (`kind: "npm"`, `required: true`) when:
-- `~/.pi/dashboard/installable.json` absent, AND
-- `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent/package.json` absent, AND
-- `DASHBOARD_STARTER !== "Electron"`.
+`jiti` is a direct dep of `@blackbelt-technology/pi-dashboard-server`. Bin wrapper `packages/server/bin/pi-dashboard.mjs` resolves jiti from own `node_modules/jiti` via `argv[1]` walk-up. Re-execs `node --import <jiti-url> cli.ts <args>`.
 
-Electron starter skipped — wizard owns its own seeding via `selectLaunchSource()` extracted path.
+`cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful pi resolve via `ToolRegistry`. Failure throws hard with `corrupted node_modules` hint.
 
-Server binds port 8000 immediately. `bootstrapInstallFromList` runs in background, installs into `~/.pi-dashboard/`. Web UI degraded-mode while installing. Session-spawn endpoints return 503 until ready. Banner driven by `useBootstrapStatus`.
+### Electron arm (immutable bundle)
 
-Offline first run: bootstrap transitions `installing` → `failed`. UI remains. Settings + docs reachable. Sessions stay 503 until network restored + retry.
-
-Re-seed semantic: delete `installable.json` → next `pi-dashboard` launch re-seeds. Idempotent against current state, not against history.
-
-### Standalone mode
-
-Prefers app's copies:
+All runtime deps under `<resourcesPath>/server/node_modules/`. Read-only at runtime.
 
 ```
-pi, openspec:  Managed (~/.pi-dashboard/) → Bundled → System PATH
-node:          Bundled (Electron resources) → System PATH
-tsx:           Managed → Bundled → System PATH
-bridge:        Bundled (Electron resources) → System → Dev
-serverCli:     Bundled → Managed → System
+pi, openspec, tsx: Bundled (regular npm deps of pi-dashboard-server)
+node:              Bundled (<resourcesPath>/node/bin/node)
+bridge:            Bundled (<resourcesPath>/server/node_modules/.../packages/extension)
+serverCli:         Bundled (<resourcesPath>/server/node_modules/.../packages/server/src/cli.ts)
 ```
+
+Update path: electron-updater whole-app replacement. No in-app npm install. Legacy `~/.pi-dashboard/` left untouched; `detectLegacyManagedDir` surfaces Doctor advisory only.
 
 ## Target Architecture: Persisted Tool Paths
 

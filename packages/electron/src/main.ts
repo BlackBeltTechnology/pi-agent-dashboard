@@ -328,20 +328,32 @@ function isFirstRun(): boolean {
 }
 
 /**
- * Show the one-step welcome window. Resolves when the user clicks
- * `[Launch dashboard]` in the renderer (which calls `wizardApi.completeWizard`).
+ * Show the one-step welcome window. Opens the slim wizard.html (single
+ * step: welcome message + [Launch dashboard] CTA + Advanced disclosure
+ * with remote-connect probe). Resolves when the user closes the wizard
+ * window (either by clicking [Launch dashboard] which calls
+ * `wizard:complete` then `window.close()`, or by closing manually).
  *
- * Currently a no-op: the dedicated welcome renderer is delivered by Phase 6.1
- * (wizard.html rewrite). For now we auto-complete the first-run on launch —
- * the user observes only the splash and the loading page. The marker is
- * written immediately so subsequent launches behave identically.
+ * `writeFirstRunMarker` is called inside the wizard renderer via the
+ * preload `wizard:complete` IPC. As a defensive fallback, we also write
+ * the marker here if it's still absent after the window closes — this
+ * keeps subsequent launches stable even if the user dismisses the
+ * window via the OS chrome.
  */
 async function showWelcomeStep(): Promise<void> {
-  log("wizard-welcome: writing first-run marker (Phase 6.1 will add UI)");
+  log("wizard-welcome: opening welcome window");
   try {
-    writeFirstRunMarker();
+    const { openWizardWindow } = await import("./lib/wizard-window.js");
+    await openWizardWindow();
   } catch (err: any) {
-    log(`wizard-welcome: marker write failed: ${err?.message || err}`);
+    log(`wizard-welcome: failed to open wizard window: ${err?.message || err}`);
+  }
+  // Defensive: ensure the marker is written even if the renderer never
+  // called wizard:complete (e.g. user closed via OS chrome).
+  try {
+    if (!existsSync(getFirstRunMarkerPath())) writeFirstRunMarker();
+  } catch (err: any) {
+    log(`wizard-welcome: marker write fallback failed: ${err?.message || err}`);
   }
 }
 

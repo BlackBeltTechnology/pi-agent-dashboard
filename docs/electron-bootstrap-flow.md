@@ -1,133 +1,77 @@
 # Electron Bootstrap Flow
 
-Doc covers state machine from `app.whenReady()` to dashboard window open.
-Updated for Phase C of `simplify-electron-bootstrap-derived-state`: `selectLaunchSource()` replaces `isFirstRun` + `mode.json` branching.
+Doc covers Electron startup state machine from `app.whenReady()` to dashboard window.
 
-## Slice 1 — LaunchSource V2 main path (default, Phase C)
+Architecture: Electron is launcher only. Runtime install eliminated. Server resources read-only at `<resourcesPath>/server/node_modules/`. Updates ship via electron-updater whole-app replacement. See [electron-immutable-bundle.md](./electron-immutable-bundle.md).
 
-`LAUNCH_SOURCE_V2=false` reverts to the legacy path (see Slice 5).
-
-```mermaid
-flowchart TD
-    Start([app.whenReady]) --> Splash[show splash]
-    Splash --> SLS[selectLaunchSource]
-    SLS -->|running on :8000| Attach[source: attach]
-    SLS -->|devMonorepo probe ok| Dev[source: devMonorepo]
-    SLS -->|piExtension probe ok<br/>listPiPackages on settings.packages[]| Ext[source: piExtension]
-    SLS -->|npmGlobal probe ok| Npm[source: npmGlobal]
-    SLS -->|fallback| Extracted[source: extracted]
-
-    Attach --> OpenMain[open main window]
-    Dev --> Spawn[spawnFromSource<br/>DASHBOARD_STARTER=Electron<br/>store PID via setSpawnedPid]
-    Ext --> Spawn
-    Npm --> Spawn
-    Extracted --> NeedsExtract{needsExtraction?}
-    NeedsExtract -->|yes| MigrateExtract[migrateConfigs +<br/>extractBundle +<br/>seed installable.json]
-    MigrateExtract --> Spawn
-    NeedsExtract -->|no| HealthCheck{extractedSourceIsHealthy<br/>cliPath exists +<br/>jiti reachable?}
-    HealthCheck -->|yes| Spawn
-    HealthCheck -->|no| MigrateExtract
-    Spawn --> SetupScreen{kind=extracted<br/>AND didExtract?}
-    SetupScreen -->|yes| WizardWindow[open wizard window<br/>shows bootstrap progress]
-    WizardWindow --> OpenMain
-    SetupScreen -->|no| OpenMain
-    OpenMain --> Tray[create tray + start updaters]
-```
-
-## Slice 2 — Bundle extraction internals
+## State machine (6 states, 3 triggers, 3 end states)
 
 ```mermaid
 flowchart TD
-    Trigger{trigger:<br/>first launch OR<br/>version mismatch OR<br/>manual POST /api/electron/reextract}
-    Trigger --> Scan[migrateConfigs:<br/>scan ~/.pi-dashboard/ top-level<br/>match *config*, mode.json,<br/>recommended-wizard.json, api-key.json]
-    Scan --> Move[move matched → ~/.pi/dashboard/migrate/timestamp/]
-    Move --> SelWipe[selective wipe ~/.pi-dashboard/<br/>preserve SURVIVE_EXTRACT_DIRS:<br/>node/ node-pending/ node-old/]
-    SelWipe --> Extract[cpSync process.resourcesPath → ~/.pi-dashboard/]
-    Extract --> Marker[write .version marker]
-    Marker --> Seed[seed ~/.pi/dashboard/installable.json<br/>from installable-defaults.json<br/>idempotent: only when absent]
+    Start([app.whenReady]) --> Check[checking-server-health]
+    Check -->|server up :8000| Attach((attach))
+    Check -->|server down, first run| Welcome[wizard-welcome]
+    Check -->|server down, not first run| Spawn[launch-server]
+    Welcome -->|user clicks Launch| Spawn
+    Spawn --> Wait[health-wait]
+    Wait -->|health ok| Done((done))
+    Wait -->|deadline / child exit| Err((loading-page-error))
 ```
 
-## Slice 3 — Server lifecycle ownership
+## States
 
-```mermaid
-stateDiagram-v2
-    [*] --> Spawned: spawnFromSource() → setSpawnedPid(pid)
-    Spawned --> Attached: kind=attach (server already running)
-    Spawned --> Running: server ready on :port
-    Running --> ShutdownCheck: Electron quit
-    Attached --> NoStop: starter≠Electron OR pid≠storedPid
-    ShutdownCheck --> Stop: health.starter=Electron AND health.pid=storedPid
-    ShutdownCheck --> NoStop: starter=Bridge OR Standalone OR pid mismatch
-    Stop --> [*]: POST /api/shutdown
-    NoStop --> [*]: leave server running
-```
+| State | Purpose |
+|---|---|
+| `checking-server-health` | Probe `GET /api/health` on configured port. 3 s deadline. |
+| `wizard-welcome` | First-run only. Single welcome card + `[Launch dashboard]`. Marker `~/.pi/dashboard/first-run-done`. |
+| `launch-server` | `selectLaunchSource()` → `spawnFromSource()`. Stamps `DASHBOARD_STARTER=Electron`. `setSpawnedPid(pid)`. |
+| `health-wait` | Poll `/api/health` until 200. Deadline `SERVER_READY_DEADLINE_MS = 15000`. |
+| `attach` (end) | Server already running. Open main window, no spawn. |
+| `done` (end) | Server up, owned by this Electron. Open main window. |
+| `loading-page-error` (end) | Spawn failed or deadline elapsed. Open `loading.html` with `[Start server]` + `[Open Doctor]` + server-log tail. |
 
-## Slice 4 — installable.json bootstrap (server side)
+## Triggers
 
-```mermaid
-flowchart TD
-    Boot([server cli.ts boot]) --> Read[read ~/.pi/dashboard/installable.json]
-    Read --> Absent{file present?}
-    Absent -->|no| Skip[log bootstrap.installable.skipped<br/>transition to ready immediately]
-    Absent -->|yes| Classify[classify each package:<br/>installed+version satisfies → ok<br/>missing/wrong version → install]
-    Classify --> Loop[per-package install loop<br/>emit bootstrap-state events]
-    Loop --> ReqFail{required package failed?}
-    ReqFail -->|yes| Abort[abort with structured error]
-    ReqFail -->|no| Ready[transition bootstrap.status=ready]
-    Skip --> Ready
-```
+| Trigger | Source |
+|---|---|
+| `boot` | `app.whenReady` |
+| `health-check-result` | `isDashboardRunning(port)` result |
+| `server-spawn-result` | `spawnFromSource` resolve / reject |
 
-## Slice 5 — Legacy path (LAUNCH_SOURCE_V2=false only)
+## launchSource resolution (3 strategies)
 
-Kept for escape-hatch debugging. Removed in a follow-up change.
+`selectLaunchSource()` in `packages/electron/src/lib/launch-source.ts`:
 
-```mermaid
-flowchart TD
-    Start([app.whenReady, LAUNCH_SOURCE_V2=false]) --> Probe{server up on :8000?}
-    Probe -->|yes + isFirstRun| AutoMode[writeModeFile power-user]
-    AutoMode --> Ensure[→ ensureServer]
-    Probe -->|no| FR{isFirstRun?}
-    FR -->|no| Ensure
-    FR -->|yes| Det[detectPi + detectBridgeExtension]
-    Det --> Dec{decideStartupAction}
-    Dec -->|pi+bridge| AutoInstall[auto-write mode.json<br/>runPowerUserManagedInstall]
-    Dec -->|pi only| Wizard[openWizardWindow bridge-install]
-    Dec -->|none| WizardFull[openWizardWindow full]
-    AutoInstall --> Ensure
-    Wizard --> Ensure
-    WizardFull --> Ensure
-    Ensure --> Open([open main window])
-```
+1. `attach` — `isDashboardRunning(port)` returns running.
+2. `devMonorepo` — `!app.isPackaged AND existsSync(cwd/packages/server/src/cli.ts)`.
+3. `bundled` — fallback. `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`. `BundledServerMissingError` when missing.
 
-## End-states (V2)
+Override: `DASHBOARD_PREFER_SOURCE=attach|bundled|devMonorepo`. Pre-R3 kinds (`piExtension`, `npmGlobal`, `extracted`) rejected with warning.
 
-| # | State | Trigger |
-|---|---|---|
-| E1 | Dashboard ready, no extraction | source=attach/devMonorepo/piExtension/npmGlobal |
-| E2 | Dashboard ready, extraction ran | source=extracted + didExtract=true + bootstrap ok |
-| E3 | Dashboard ready, extraction skipped | source=extracted + version marker matches |
-| E4 | Launch source unavailable | DASHBOARD_PREFER_SOURCE pinned + probe failed → dialog + quit |
-| E5 | Server unreachable fallback | main window opens with reconnect-loop banner |
+## Node binary resolution (2 strategies)
+
+`pickNodeForServer()` in `packages/electron/src/lib/pick-node.ts`:
+
+1. `bundled` — `<resourcesPath>/node/bin/node` (POSIX) / `<resourcesPath>/node/node.exe` (Win).
+2. `execpath-fallback` — `process.execPath` + `ELECTRON_RUN_AS_NODE=1`. Corrupted-install signal, not normal mode.
 
 ## DASHBOARD_STARTER ownership
 
 | Setter | Value |
 |---|---|
-| `packages/extension/src/server-launcher.ts` (bridge auto-spawn) | `"Bridge"` |
-| `packages/server/src/cli.ts` direct invocation | `"Standalone"` (default when env unset) |
-| `packages/electron/src/lib/launch-source.ts` (any non-attach kind) | `"Electron"` |
+| `packages/extension/src/server-launcher.ts` | `Bridge` |
+| `packages/server/src/cli.ts` direct invocation | `Standalone` |
+| `packages/electron/src/lib/launch-source.ts` (non-attach) | `Electron` |
 
-`/api/health` exposes both `starter` and `pid`. `decideShutdownOnQuit` uses both fields for ownership.
+`/api/health` returns `launchSource: "electron" | "standalone" | "bridge"`. `decideShutdownOnQuit` stops server only when `health.launchSource === "electron" AND health.pid === storedSpawnedPid`.
 
 ## Invariants
 
 | Invariant | Source |
 |---|---|
-| Extraction preserves node/, node-pending/, node-old/ across version bump | `SURVIVE_EXTRACT_DIRS` in bundle-extract.ts |
-| installable.json seeding is idempotent | existence check before write in buildExtractedSource |
-| Bridge never seeds installable.json | no write path in extension or server bootstrap |
-| Electron stops server only when starter=Electron AND pid matches | `decideShutdownOnQuit` pure helper |
-| Legacy path gated by LAUNCH_SOURCE_V2=false | `isLaunchSourceV2Enabled` defaults to true in Phase C |
-| Extracted source health-checks jiti reachability before spawn; re-extract on miss | `extractedSourceIsHealthy` in launch-source.ts |
-| Launch-source diagnostics dual-write to `~/.pi/dashboard/server.log` | `logLaunchSource` + `appendDashboardLog` in launch-source.ts (change: fix-electron-cold-launch-probe-cascade) |
-| extractBundle wipe runs real-fs (Partial<ExtractFs> in buildExtractedSource) | `buildFs` real-fs defaults for `rmSync`/`readdirSync`/`statSync`/`mkdirSync`; clears stale symlinks before `cpSync` (change: fix-electron-cold-launch-probe-cascade) |
+| App bundle read-only at runtime | electron-updater replaces whole `.app` |
+| No `npm install` runs after build | `bundle-server.mjs` Phase 1 GO/NO-GO guard |
+| Legacy `~/.pi-dashboard/` untouched | `detectLegacyManagedDir()` surfaces Doctor advisory only |
+| Electron stops server only when it owns it | `decideShutdownOnQuit` pure helper |
+| First-run wizard skipped after marker write | `~/.pi/dashboard/first-run-done` |
+| Bundled-server missing → `BundledServerMissingError` | corrupted-install signal |

@@ -145,8 +145,6 @@ See [docs/architecture.md](docs/architecture.md) for full details.
 npm install          # Install dependencies
 npm test             # Run all tests (vitest)
 npm run test:watch   # Watch mode
-npm run test:bootstrap       # Run the bootstrap resolution harness only
-npm run test:bootstrap:watch # Bootstrap harness in watch mode
 npm run build        # Build web client (Vite)
 npm run dev          # Start Vite dev server
 npm run reload       # Reload all connected pi sessions
@@ -351,13 +349,8 @@ This section lists only the **architectural backbone** — the files agents touc
 | `src/shared/tool-registry/types.ts` | `ToolDefinition`, `Strategy`, `Resolution`, error classes |
 | `src/shared/tool-registry/index.ts` | Barrel export + `getDefaultRegistry()` singleton accessor |
 | `src/server/routes/tool-routes.ts` | REST routes for `/api/tools*` (list, rescan, override, diagnostics) |
-| `packages/shared/src/bootstrap-install.ts` | Shared bootstrap installer for pi/openspec/tsx into `~/.pi-dashboard/` |
-| `packages/server/src/bootstrap-state.ts` | In-memory bootstrap state store (status/progress/error/version/compatibility) |
-| `packages/server/src/routes/bootstrap-routes.ts` | REST routes: bootstrap status, upgrade-pi, retry |
-| `packages/server/src/bootstrap-queue.ts` | In-memory ticket queue, flushes on bootstrap-state ready transition |
-| `packages/server/src/pi-version-skew.ts` | Pi compatibility range reader + comparator + bootstrap compatibility writer |
-| `packages/client/src/hooks/useBootstrapStatus.ts` | Client hook for bootstrap state (fetch + WS subscribe) |
-| `packages/client/src/components/BootstrapBanner.tsx` | Banner above MobileShell for installing/failed/upgrade states |
+| `packages/server/src/pi-version-skew.ts` | Pure pi version compatibility helpers (`readPiCompatibility`, `computeCompatibility`) |
+| `packages/shared/src/legacy-managed-dir.ts` | `detectLegacyManagedDir({homedir?})` returns `{present, path, pkgCount, sizeMb}`; surface for Doctor advisory + server CLI startup log |
 | `src/client/lib/tools-api.ts` | Client-side fetch helpers for `/api/tools*` |
 | `src/client/components/ToolsSection.tsx` | Settings → General → Tools section (per-tool status/source/override UI) |
 | `src/server/npm-search-proxy.ts` | Cached proxy for npm registry search (`keywords:pi-package`) and README |
@@ -385,7 +378,6 @@ This section lists only the **architectural backbone** — the files agents touc
 | `src/shared/platform/node-spawn.ts` | Sole source of `node --import <loader> <entry>` argv construction |
 | `src/shared/__tests__/no-raw-node-import.test.ts` | Repo-lint: forbid raw `--import`/`--loader` argv outside `node-spawn.ts` |
 | `src/shared/__tests__/no-direct-process-kill.test.ts` | Repo-lint: forbid `process.kill(` outside `platform/` |
-| `src/shared/__tests__/bootstrap/` | In-memory bootstrap resolution harness (memfs-backed); 1080-cell scenario cube |
 | `src/server/editor-registry.ts` | Detects available native editors (running processes + CLI) |
 | `src/server/editor-manager.ts` | Lifecycle manager for code-server child processes |
 | `src/server/editor-proxy.ts` | Reverse proxy for `/editor/:id/*` to code-server instances |
@@ -461,19 +453,16 @@ This section lists only the **architectural backbone** — the files agents touc
 | `.pi/skills/browser-visual-debug/SKILL.md` | Skill: visual debugging with a real browser via pi-agent-browser |
 | `.pi/skills/browser-visual-debug/references/` | Dashboard recipes, responsive presets, agent-browser cheatsheet |
 | `.pi/skills/browser-visual-debug/scripts/detect-dashboard.sh` | Auto-detect dashboard URL, mode, Vite dev server status |
-| `packages/electron/src/main.ts` | Electron main: single-instance, wizard, server launch, loading page, tray |
+| `packages/electron/src/main.ts` | Electron main: 6-state startup machine (check-health → attach \| wizard → spawn → health-wait → done \| loading-page-error); single-instance, tray |
 | `packages/electron/src/lib/link-handling.ts` | Pure `isSameOriginUrl` + OAuth-aware `decideWillNavigate` for external-link guard |
 | `packages/client/src/components/MarkdownContent.tsx` | ReactMarkdown renderer (chat/thinking/READMEs/previews); external-link hardening + KaTeX math + `pi-asset:` image scheme |
 | `packages/client/src/lib/SessionAssetsContext.tsx` | Per-session image-asset registry context resolving `pi-asset:<hash>` srcs in `MarkdownContent` |
 | `packages/extension/src/markdown-image-inliner.ts` | Bridge helper rewriting assistant `![alt](path)` → `![alt](pi-asset:<hash>)` (SHA-256/16, MIME allowlist, 5 MB/img + 20 MB/msg caps) |
 | `packages/client/src/__tests__/no-bare-external-anchor.test.ts` | Repo-lint: forbid bare `<a href="http(s)://">` without `target="_blank"` |
-| `packages/electron/src/lib/pick-node.ts` | Pure `pickNodeForServer` — prefer system Node when version-safe, else bundled |
+| `packages/electron/src/lib/pick-node.ts` | `pickNodeForServer` — 2 strategies: bundled → execpath-fallback (corrupted-install signal) |
 | `packages/electron/src/lib/ensure-windows-path.ts` | `ensureWindowsSystemPath` — prepend System32/npm/Git dirs on Windows; no-op on POSIX |
-| `packages/electron/src/lib/server-lifecycle.ts` | Health check → server spawn; `setSpawnedPid` + `decideShutdownOnQuit` for V2 ownership rule |
-| `packages/electron/src/lib/launch-source.ts` | `selectLaunchSource()` resolver: attach→devMonorepo→piExtension→npmGlobal→extracted; `spawnFromSource` |
-| `packages/electron/src/lib/bundle-extract.ts` | `needsExtraction`, `migrateConfigs`, `extractBundle` with survive-extract whitelist for `~/.pi-dashboard/` |
-| `packages/shared/src/installable-list.ts` | `InstallablePackage`/`InstallableList` types; `readInstallableList`, `writeInstallableList`, `mergeInstallableList` |
-| `packages/server/src/bootstrap-install-from-list.ts` | Per-package reconcile loop reading `~/.pi/dashboard/installable.json`; no-op when file absent |
+| `packages/electron/src/lib/server-lifecycle.ts` | Thin `selectLaunchSource + spawnFromSource` shim; `setSpawnedPid` + `decideShutdownOnQuit` ownership rule |
+| `packages/electron/src/lib/launch-source.ts` | `selectLaunchSource()` resolver — 3 strategies: attach \| devMonorepo \| bundled; `spawnFromSource` |
 | `packages/shared/src/bridge-register.ts` | Shared bridge registration: `findBundledExtension(baseDir)` + `registerBridgeExtension(path)`; non-destructive cleanup, AppImage guard. Used by server startup and Electron wizard. |
 | `packages/shared/src/pi-package-resolver.ts` | Resolves pi `packages[]` (npm/git/https/abs/rel) to install dir + entry path. Tier-2 fallback for plugin peer imports across npm/git/local installs. See change: add-shared-pi-package-resolver. |
 | `packages/electron/src/lib/doctor.ts` | Doctor diagnostic: checks all binaries, versions, server status, offers setup |
@@ -487,23 +476,15 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/client/src/components/DiagnosticsSection.tsx` | Settings → Diagnostics — fetch, sections, suggestions, copy-to-clipboard with textarea fallback |
 | `packages/electron/src/lib/app-menu.ts` | App menu with About dialog and Doctor on all platforms |
 | `packages/electron/src/lib/tray.ts` | System tray with platform-specific icons |
-| `packages/electron/src/lib/dependency-installer.ts` | Async npm install of pi/openspec/tsx into `~/.pi-dashboard/` (Windows-hardened) |
-| `packages/electron/src/lib/dependency-detector.ts` | Detects pi/openspec/Node on PATH and managed install (AppImage + Win-ext guards) |
+| `packages/electron/src/lib/dependency-detector.ts` | Detects pi/openspec/Node on PATH (AppImage + Win-ext guards) |
 | `packages/electron/src/lib/bundled-node.ts` | Resolves bundled Node.js/npm paths in Electron resources |
-| `packages/electron/src/lib/wizard-window.ts` | First-run setup wizard window with preload bridge |
+| `packages/electron/src/lib/wizard-window.ts` | Single-window factory for the slim welcome wizard |
+| `packages/electron/src/renderer/wizard.html` | 179-LOC welcome card + `[Launch dashboard]` CTA + Advanced disclosure |
 | `packages/electron/forge.config.ts` | Electron Forge config: DMG/DEB/AppImage/NSIS makers; arch-tagged DMG; macOS 10.15 floor |
 | `packages/electron/scripts/build-installer.sh` | Build script: native + Docker cross-platform; `--mac-both` arm64+x64 sequence |
 | `packages/electron/scripts/docker-make.sh` | Docker entrypoint: bundles server, native deps, runs Forge make |
 | `packages/electron/scripts/Dockerfile.build` | Docker image for cross-platform builds (node:22-bookworm-slim) |
-| `packages/electron/scripts/bundle-server.mjs` | Bundles dashboard server + workspace deps into `resources/server/` (Node-native ESM) |
-| `packages/electron/offline-packages.json` | Pinned versions of pi/openspec/tsx for offline npm cacache |
-| `packages/electron/scripts/bundle-offline-packages.sh` | Build-time script: pack pinned versions into cacache tarball with SHA-256 |
-| `packages/electron/resources/offline-packages/manifest.json` | Offline-cache manifest consumed at runtime by `dependency-installer.ts` |
-| `packages/electron/resources/offline-packages/npm-cache.tar.gz` | gzipped npm cacache for first-run offline install |
-| `packages/electron/src/lib/offline-packages.ts` | Pure offline-cache helpers (parse, resolve, verify SHA-256, extract) |
-| `packages/electron/scripts/bundle-recommended-extensions.sh` | Opt-in: clone bundled-extension ids with SPDX allowlist + 15MB budget |
-| `packages/electron/src/lib/dependency-installer.ts` → `installBundledExtensions` | First-run activation of pre-bundled extensions into pi git cache |
-| `packages/electron/src/lib/wizard-badge.ts` | Pure `classifyProgressBadge(output)` (`bundled`/`system`/null) |
+| `packages/electron/scripts/bundle-server.mjs` | Bundles server + workspace deps into `resources/server/`. Runs `npm install --omit=dev`. Phase 1 GO/NO-GO guard asserts node-pty prebuild triples |
 | `packages/shared/src/recommended-extensions.ts` → `BUNDLED_EXTENSION_IDS` | Single source of truth for bundled extension ids in Electron installer |
 | `packages/electron/scripts/test-server-launch.sh` | Docker-based test for server launch on clean Linux |
 | `packages/electron/scripts/test-electron-install.sh` | Full e2e Docker test: install, wizard, server launch, health check |
