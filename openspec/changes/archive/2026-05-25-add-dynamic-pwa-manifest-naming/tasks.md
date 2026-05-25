@@ -35,16 +35,16 @@
 
 ## 5. Documentation
 
-- [ ] 5.1 Update `AGENTS.md` "Key Files" with one row for `packages/server/src/routes/manifest-route.ts`
-- [ ] 5.2 Update `docs/file-index-server.md` (or relevant split) with detailed row + this change reference (delegate to subagent per caveman-style protocol)
-- [ ] 5.3 Add FAQ entry to `docs/faq.md`: "Why do all my PWA installs have the same name?" (delegate to subagent)
-- [ ] 5.4 Note in CHANGELOG `[Unreleased]` under **Added**: dynamic PWA manifest naming with hostname default + config override
+- [x] 5.1 Update `AGENTS.md` "Key Files" with one row for `packages/server/src/routes/manifest-route.ts`
+- [x] 5.2 Update `docs/file-index-server.md` (or relevant split) with detailed row + this change reference (delegated to subagent; also appended note to `docs/file-index-shared.md` for `config.ts`)
+- [x] 5.3 Add FAQ entry to `docs/faq.md`: "Why do all my PWA installs have the same name?" (delegated to subagent)
+- [x] 5.4 Note in CHANGELOG `[Unreleased]` under **Added**: dynamic PWA manifest naming with hostname default + config override
 
 ## 6. Spec sync
 
 - [x] 6.1 Validate change with `openspec validate add-dynamic-pwa-manifest-naming`
 - [x] 6.2 Confirm `pwa-manifest` delta MODIFIES the "Web app manifest" requirement (not ADDED)
-- [ ] 6.3 Sync specs after implementation lands (`openspec-sync-specs` skill) or rely on archive
+- [x] 6.3 Sync specs at archive time (this archive run)
 
 ## 7. Manual verification
 
