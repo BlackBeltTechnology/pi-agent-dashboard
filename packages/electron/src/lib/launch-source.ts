@@ -24,7 +24,7 @@ import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { getBundledNodePath } from "./bundled-node.js";
+import { getBundledNodeDir } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
@@ -292,8 +292,13 @@ export async function spawnFromSource(
 ): Promise<SpawnResult> {
   const logFile = opts?.logFile ?? path.join(os.homedir(), ".pi", "dashboard", "server.log");
 
-  const bundledNode = getBundledNodePath();
-  const bundledNodeDir = bundledNode ? path.dirname(path.dirname(bundledNode)) : null;
+  // Use getBundledNodeDir() — never path.dirname(path.dirname(getBundledNodePath())).
+  // The dirname-chain pattern is POSIX-only (<res>/node/bin/node → <res>/node)
+  // and silently resolves to <res> on Windows where the layout is one segment
+  // shallower (<res>/node/node.exe), making pickNodeForServer fall back to
+  // execpath-fallback with ELECTRON_RUN_AS_NODE=1. See change:
+  // fix-electron-launch-source-bundled-node-dir.
+  const bundledNodeDir = getBundledNodeDir();
   const pick = pickNodeForServer({
     bundledNodeDir,
     processExecPath: process.execPath,

@@ -10,15 +10,28 @@
   - null resourcesPath → null result
   - missing pkg dir → null
   - present pkg with version + string bin → returns shape
-  - present pkg with object bin → picks the entry matching pkgName (e.g. `pi-coding-agent → { pi: "./dist/cli.js" }`)
+  - present pkg with object bin → picks the entry matching pkgName (e.g. `@earendil-works/pi-coding-agent → { pi: "./dist/cli.js" }`)
+  - scoped package name (e.g. `@earendil-works/pi-coding-agent`) resolves to `node_modules/@earendil-works/pi-coding-agent/` (verifies the helper handles the slash in scoped names without joining literally)
   - malformed package.json → null (no throw)
+
+## 1b. Fix `probeServer()` field name (sibling task)
+
+- [ ] 1b.1 In `packages/electron/src/lib/doctor.ts:121` (inside `probeServer()`), change `starter: typeof health.starter === "string" ? health.starter : null,` to read `launchSource` instead. Pattern:
+  ```ts
+  starter: typeof health.launchSource === "string"
+    ? health.launchSource
+    : (typeof health.starter === "string" ? health.starter : null),  // legacy fallback
+  ```
+  The legacy fallback covers a user attaching to an actually-old server (pre-eliminate-electron-runtime-install). Drop the fallback in a follow-up release.
+- [ ] 1b.2 Unit test: stub `fetch` returning `{ launchSource: "electron", … }`; assert Doctor's `Server starter` row reports `electron` with status `ok` (not `Unknown (old server?)`).
+- [ ] 1b.3 Unit test legacy path: stub `fetch` returning `{ starter: "standalone" }` (no `launchSource`); assert `Server starter` is `standalone` (fallback fires).
 
 ## 2. Wire bundle-aware lookups into Doctor
 
 - [ ] 2.1 Extend `runSharedChecks(opts)` signature with `resourcesPath?: string | null`. Default null. Document in jsdoc.
 - [ ] 2.2 In the `TypeScript loader` check (line ~556), prepend two lookups via `findBundledPackage(resourcesPath, "jiti")` and `findBundledPackage(resourcesPath, "tsx")`. On hit, return `{status: "ok", message: "jiti v<ver> (bundled) at <path>"}`. Existing managed-dir + PATH probes stay as fallbacks.
-- [ ] 2.3 In the `pi CLI` check, prepend `findBundledPackage(resourcesPath, "pi-coding-agent")`. On hit, return `{status: "ok", message: "pi (bundled) at <binPath>"}`.
-- [ ] 2.4 In the `openspec CLI` check, prepend `findBundledPackage(resourcesPath, "openspec")`. On hit, return `{status: "ok"}`.
+- [ ] 2.3 In the `pi CLI` check, prepend `findBundledPackage(resourcesPath, "@earendil-works/pi-coding-agent")` then fallback to legacy `"pi-coding-agent"` (unscoped) for builds that still ship that. On hit, return `{status: "ok", message: "pi (bundled) at <binPath>"}`. Note: the entry script is `dist/cli.js`, not a `bin` map field — inspect `package.json#bin.pi` first (it's there), then fall back to `dist/cli.js` if `bin` is absent.
+- [ ] 2.4 In the `openspec CLI` check, prepend `findBundledPackage(resourcesPath, "@fission-ai/openspec")` then fallback to legacy `"openspec"`. On hit, return `{status: "ok"}`.
 - [ ] 2.5 Update `packages/electron/src/lib/doctor.ts`: where it calls `runSharedChecks(...)`, pass `resourcesPath: process.resourcesPath`. Where the standalone server calls (if it does), pass `null` explicitly.
 
 ## 3. Remediation message audit

@@ -461,7 +461,7 @@ This section lists only the **architectural backbone** — the files agents touc
 | `packages/extension/src/markdown-image-inliner.ts` | Bridge helper rewriting assistant `![alt](path)` → `![alt](pi-asset:<hash>)` (SHA-256/16, MIME allowlist, 5 MB/img + 20 MB/msg caps) |
 | `packages/client/src/__tests__/no-bare-external-anchor.test.ts` | Repo-lint: forbid bare `<a href="http(s)://">` without `target="_blank"` |
 | `packages/electron/src/lib/pick-node.ts` | `pickNodeForServer` — 2 strategies: bundled → execpath-fallback (corrupted-install signal) |
-| `packages/electron/src/lib/ensure-windows-path.ts` | `ensureWindowsSystemPath` — prepend System32/npm/Git dirs on Windows; no-op on POSIX |
+| `packages/electron/src/lib/ensure-windows-path.ts` | Re-export shim of shared `ensureWindowsSystemPath` (prepends System32/Wbem/PowerShell/OpenSSH/WindowsApps on Win; no-op on POSIX) |
 | `packages/electron/src/lib/server-lifecycle.ts` | Thin `selectLaunchSource + spawnFromSource` shim; `setSpawnedPid` + `decideShutdownOnQuit` ownership rule |
 | `packages/electron/src/lib/launch-source.ts` | `selectLaunchSource()` resolver — 3 strategies: attach \| devMonorepo \| bundled; `spawnFromSource` |
 | `packages/shared/src/bridge-register.ts` | Shared bridge registration: `findBundledExtension(baseDir)` + `registerBridgeExtension(path)`; non-destructive cleanup, AppImage guard. Used by server startup and Electron wizard. |

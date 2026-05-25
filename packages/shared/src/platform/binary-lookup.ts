@@ -4,6 +4,7 @@
  * with a single configurable resolver.
  */
 import { execSync, spawnSync, buildSafeArgv } from "./exec.js";
+import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
 import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
@@ -442,8 +443,16 @@ export class ToolResolver {
   /**
    * Build a spawn environment with managed bin, node bin, extra dirs,
    * and common user bin dirs prepended to PATH.
+   *
+   * On Windows, additionally guarantees canonical system directories
+   * (System32, Wbem, PowerShell, WindowsApps) are present via
+   * `ensureWindowsSystemPath`. See change:
+   * fix-windows-path-system32-missing.
    */
-  buildSpawnEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  buildSpawnEnv(
+    base: NodeJS.ProcessEnv = process.env,
+    opts: { platform?: NodeJS.Platform; exists?: (p: string) => boolean } = {},
+  ): NodeJS.ProcessEnv {
     // Strip Electron-specific vars so spawned child processes (pi sessions,
     // npm installs) don't accidentally run as Electron-node mode.
     const ELECTRON_VARS_TO_STRIP = new Set([
@@ -487,8 +496,10 @@ export class ToolResolver {
       }
     }
 
-    if (parts.length === 0) return base;
-    return { ...base, PATH: `${parts.join(path.delimiter)}${path.delimiter}${currentPath}` };
+    const out = parts.length === 0
+      ? base
+      : { ...base, PATH: `${parts.join(path.delimiter)}${path.delimiter}${currentPath}` };
+    return ensureWindowsSystemPath(out, opts);
   }
 }
 

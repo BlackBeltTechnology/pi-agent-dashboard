@@ -36,6 +36,12 @@
       "name": "Electrun execution",
       "color": "#a855f7",
       "order": 5
+    },
+    {
+      "id": "context-render",
+      "name": "Context Render",
+      "color": "#3b82f6",
+      "order": 6
     }
   ],
   "assignments": {
@@ -115,7 +121,7 @@
     "fix-flows-anthropic-bridge-resolution": "separate-functions-to-plugins",
     "harvest-bootstrap-survivor-fixes": "ui",
     "fix-electron-auto-update-pipeline": "electrun-execution",
-    "fix-electron-server-launch-node-bin": "ui",
+    "fix-electron-server-launch-node-bin": "electrun-execution",
     "fix-slash-dispatch-delivery": "ui",
     "add-wizard-launch-progress-log": "electrun-execution",
     "fix-doctor-bundle-aware-probes": "electrun-execution",
@@ -131,6 +137,16 @@
     "add-ask-user-input-multiline-paste": "ui",
     "fix-stale-bundled-server-cache": "electrun-execution",
     "skip-affected-bundled-node": "electrun-execution",
-    "fix-publish-tsx-missing": "electrun-execution"
+    "fix-publish-tsx-missing": "electrun-execution",
+    "add-package-health-cleanup": "electrun-execution",
+    "fix-darwin-dmg-maker-macos-alias": "electrun-execution",
+    "wire-tool-renderer-slot": "context-render",
+    "add-context-mode-plugin": "context-render",
+    "add-bundle-manual-launch-scripts": "electrun-execution",
+    "fix-wizard-occluded-by-splash": "electrun-execution",
+    "auto-launch-first-run-skip-welcome": "electrun-execution",
+    "electron-attach-ownership-fixes": "electrun-execution",
+    "fix-windows-path-system32-missing": "electrun-execution",
+    "replace-wmic-with-powershell": "electrun-execution"
   }
 }
