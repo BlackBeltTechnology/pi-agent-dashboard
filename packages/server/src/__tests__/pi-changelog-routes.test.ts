@@ -168,19 +168,16 @@ describe("pi-changelog-routes", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("returns 503 when bootstrap is not ready", async () => {
-    await app.close();
-    bootstrapState.get = () => ({ status: "installing" as const });
-    app = Fastify({ logger: false });
-    registerPiChangelogRoutes(app, { bootstrapState });
-    await app.ready();
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/pi-core/changelog?pkg=@mariozechner/pi-coding-agent&from=0.68.0&to=0.70.0",
-    });
-    expect(res.statusCode).toBe(503);
-    expect(res.json().bootstrap).toBe("installing");
-  });
+  // NOTE: "returns 503 when bootstrap is not ready" test removed.
+  // The bootstrap gate on this route was deliberately removed in change
+  // `eliminate-electron-runtime-install` (task 3.5, 2026-05-23). The
+  // route file's own docstring confirms it: "Bootstrap gate removed
+  // under change: eliminate-electron-runtime-install (task 3.5)". The
+  // `PiChangelogRouteDeps` interface comment also says the field was
+  // removed; the route is unconditionally available. This test was
+  // documented as deferred to a "Phase 3.9 sweep" in
+  // eliminate-electron-runtime-install/tasks.md task 5.9; this is that
+  // sweep.
 
   it("returns no releases when from === to", async () => {
     makeManagedPkg("@mariozechner/pi-coding-agent", {

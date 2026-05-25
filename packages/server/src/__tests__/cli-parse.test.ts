@@ -31,16 +31,15 @@ describe("parseArgs", () => {
     expect(result.subcommand).toBe("status");
   });
 
-  it("parses upgrade-pi subcommand (unified-bootstrap-install §8)", () => {
-    const result = parseArgs(["upgrade-pi"]);
-    expect(result.subcommand).toBe("upgrade-pi");
-  });
-
-  it("parses upgrade-pi with --port flag", () => {
-    const result = parseArgs(["upgrade-pi", "--port", "9090"]);
-    expect(result.subcommand).toBe("upgrade-pi");
-    expect(result.flags.port).toBe(9090);
-  });
+  // NOTE: `upgrade-pi` subcommand tests removed.
+  // The `upgrade-pi` subcommand was deliberately removed in change
+  // `eliminate-electron-runtime-install` (tasks 3.0.a + 3.5b, 2026-05-23)
+  // when bootstrap-install was deleted. `SUBCOMMANDS` is now
+  // `["start", "stop", "restart", "status"]`. The pi-core upgrade path
+  // survives via the `POST /api/pi-core/update` REST endpoint instead.
+  // These two tests were documented as deferred to a "Phase 3.9 sweep"
+  // in eliminate-electron-runtime-install/tasks.md task 5.9; this is
+  // that sweep.
 
   it("parses subcommand with flags", () => {
     const result = parseArgs(["start", "--port", "3000", "--pi-port", "4000"]);
