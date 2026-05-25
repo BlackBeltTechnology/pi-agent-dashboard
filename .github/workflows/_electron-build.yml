@@ -218,73 +218,28 @@ jobs:
       - name: Build client
         run: npm run build
 
-      # ── Bundle first-party recommended extensions ───────────────────────────
-      # Runs BEFORE bundle-server so resources/bundled-extensions/ is present
-      # when forge packagerConfig.extraResource is evaluated. Opt-in via env.
-      # Split per-OS: bash for POSIX, pwsh for Windows. The .mjs script is
-      # OS-agnostic; only the tee+step-summary plumbing differs by shell.
-      - name: Bundle first-party recommended extensions (POSIX)
-        if: matrix.platform != 'win32'
-        shell: bash
-        env:
-          BUNDLE_RECOMMENDED_EXTENSIONS: "1"
-        run: |
-          node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs | tee bundle-extensions.log
-          {
-            echo "### Bundled recommended extensions (${{ matrix.platform }}/${{ matrix.arch }})";
-            echo '```';
-            cat bundle-extensions.log;
-            echo '```';
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Bundle first-party recommended extensions (Windows)
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        env:
-          BUNDLE_RECOMMENDED_EXTENSIONS: "1"
-        run: |
-          node --import tsx/esm packages/electron/scripts/bundle-recommended-extensions.mjs | Tee-Object -FilePath bundle-extensions.log
-          "### Bundled recommended extensions (${{ matrix.platform }}/${{ matrix.arch }})" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          Get-Content bundle-extensions.log | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-
-      # ── Bundle offline npm cache ────────────────────────────────────────────
-      # Per-platform cacache that makes first-run install work fully offline.
-      # Runs BEFORE bundle-server so the resource is present when
-      # electron-forge evaluates extraResource. Opt-in via env.
-      - name: Bundle offline npm cache (POSIX)
-        if: matrix.platform != 'win32'
-        shell: bash
-        env:
-          BUNDLE_OFFLINE_PACKAGES: "1"
-        run: |
-          node packages/electron/scripts/bundle-offline-packages.mjs \
-            --platform=${{ matrix.platform }}-${{ matrix.arch }} \
-            | tee bundle-offline.log
-          SIZE=$(du -h packages/electron/resources/offline-packages/npm-cache.tar.gz | cut -f1)
-          {
-            echo "### Offline npm cache (${{ matrix.platform }}/${{ matrix.arch }})";
-            echo "- tarball: $SIZE";
-            echo '```';
-            cat bundle-offline.log;
-            echo '```';
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Bundle offline npm cache (Windows)
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        env:
-          BUNDLE_OFFLINE_PACKAGES: "1"
-        run: |
-          node packages/electron/scripts/bundle-offline-packages.mjs --platform=${{ matrix.platform }}-${{ matrix.arch }} | Tee-Object -FilePath bundle-offline.log
-          $size = (Get-Item packages/electron/resources/offline-packages/npm-cache.tar.gz).Length
-          $sizeH = if ($size -gt 1MB) { "{0:N1}M" -f ($size / 1MB) } else { "{0:N0}K" -f ($size / 1KB) }
-          "### Offline npm cache (${{ matrix.platform }}/${{ matrix.arch }})" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          "- tarball: $sizeH" | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          Get-Content bundle-offline.log | Add-Content -Path $env:GITHUB_STEP_SUMMARY
-          '```' | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+      # ---------------------------------------------------------------------
+      # Vestigial bundle steps removed.
+      #
+      # The previous "Bundle first-party recommended extensions" and
+      # "Bundle offline npm cache" steps invoked
+      # packages/electron/scripts/bundle-recommended-extensions.mjs and
+      # bundle-offline-packages.mjs respectively. Both scripts were deleted
+      # in commit d3fe2163 ("feat(eliminate-electron-runtime-install):
+      # Phase 2 + Phase 3 + Phase 5 partial", 2026-05-23) along with the
+      # entire dependency-installer / offline-packages machinery they fed.
+      # Under the immutable-bundle architecture the bundled server is
+      # produced solely by bundle-server.mjs and there is no separate
+      # recommended-extensions resource or offline cache tarball.
+      #
+      # The downstream "Smoke assertion — offline bundle resources present"
+      # step has been removed for the same reason — it asserted a resource
+      # path (resources/offline-packages/) that no longer exists.
+      #
+      # See change: eliminate-electron-runtime-install (deletion) and
+      # change: add-ci-electron-on-demand-build (workflow cleanup that
+      # re-aligned _electron-build.yml with the post-deletion reality).
+      # ---------------------------------------------------------------------
 
       - name: Bundle dashboard server
         # Node-native (.mjs) — no shell, no MSYS path translation, runs
@@ -314,14 +269,6 @@ jobs:
           Copy-Item -Recurse "temp-node-x64/node-$version-win-x64/node_modules" "$outDir/"
           Remove-Item -Recurse -Force temp-node-x64, node-x64.zip
           Write-Host "Bundled x64 Node.js for Windows ARM64 (runs via WoW64 emulation)"
-
-      - name: Smoke assertion — offline bundle resources present
-        # Gate before `forge make` so a missing bundle fails loudly rather
-        # than producing a silently broken release artifact. Node-native
-        # check so it runs identically on every OS without bash. See
-        # change: eliminate-bash-on-windows-runners.
-        run: |
-          node -e "const fs=require('node:fs');const path=require('node:path');const dir=path.join('packages','electron','resources','offline-packages');const m=path.join(dir,'manifest.json');const t=path.join(dir,'npm-cache.tar.gz');if(!fs.existsSync(m)||!fs.existsSync(t)){console.error('::error::Offline bundle missing at '+dir+' (manifest='+m+', tarball='+t+')');try{console.error(fs.readdirSync(dir).join('\n'))}catch{}process.exit(1)}console.log('✓ offline bundle present:');for(const f of fs.readdirSync(dir)){const s=fs.statSync(path.join(dir,f));console.log('  '+f+' ('+s.size+' bytes)')}"
 
       - name: Patch AppImage maker script (Linux x64)
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
