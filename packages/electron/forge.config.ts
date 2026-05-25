@@ -3,6 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { deriveWindowsBuildVersion } from "./src/lib/build-version.js";
+
 // fileURLToPath handles Windows drive-letter paths correctly (new URL().pathname gives /C:/... which is invalid)
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,10 +20,25 @@ const pkgVersion: string = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, "package.json"), "utf8"),
 ).version;
 
+// Windows PE VERSIONINFO requires MAJOR.MINOR.BUILD[.REVISION] integers;
+// SemVer prereleases like "0.5.3-ci.20260525-141712.feat.abc" (produced by
+// ci-electron.yml's slug step) are rejected by @electron/packager's
+// resedit. Derive a 4-integer buildVersion from the SemVer triple +
+// GITHUB_RUN_NUMBER. macOS CFBundleVersion accepts arbitrary integers, so
+// this stays compatible across platforms. `appVersion` is left to default
+// to pkgVersion so users still see the full SemVer in `app.getVersion()`
+// / About dialog / macOS CFBundleShortVersionString.
+// See change: fix-electron-windows-version-format.
+const buildVersion = deriveWindowsBuildVersion(
+  pkgVersion,
+  process.env.GITHUB_RUN_NUMBER,
+);
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: "PI-Dashboard",
+    buildVersion,
     executableName: "pi-dashboard",
     icon: path.resolve(__dirname, "resources/icon"),
     appBundleId: "com.blackbelt-technology.pi-dashboard",
