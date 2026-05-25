@@ -26,6 +26,21 @@ describe("detectSessionSource", () => {
     expect(detectSessionSource(undefined, sessionFile)).toBe("dashboard");
   });
 
+  it("should return 'tui' (not 'dashboard') when a TUI is attached, even if .meta.json says dashboard", () => {
+    // Defends against event-wiring's pendingDashboardSpawns by-cwd matcher
+    // mis-tagging a CLI pi launched in the same cwd as a dashboard Spawn.
+    const sessionFile = path.join(tmpDir, "test.jsonl");
+    writeSessionMeta(sessionFile, { source: "dashboard" });
+    expect(detectSessionSource(true, sessionFile)).toBe("tui");
+  });
+
+  it("should return 'tmux' when TUI is attached inside tmux, even if .meta.json says dashboard", () => {
+    process.env.TMUX = "/tmp/tmux/default";
+    const sessionFile = path.join(tmpDir, "test.jsonl");
+    writeSessionMeta(sessionFile, { source: "dashboard" });
+    expect(detectSessionSource(true, sessionFile)).toBe("tmux");
+  });
+
   it("should return 'zed' when ZED_TERM is set and hasUI is false", () => {
     process.env.ZED_TERM = "1";
     expect(detectSessionSource(false)).toBe("zed");

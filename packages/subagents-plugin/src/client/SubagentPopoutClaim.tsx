@@ -36,10 +36,10 @@ export function SubagentPopoutClaim({ params, session, onBack }: SubagentPopoutC
   const sessionId = params.sessionId ?? "";
   const agentId = params.agentId ?? "";
   const send = usePluginSend();
-  // `SubagentStateSnapshot` is the runtime's structural minimum (`{ id: string }`);
-  // the producer-defined `SubagentState` is the canonical full shape. Downcast
-  // through `unknown` since the snapshot type does not include the plugin's
-  // typed fields (`type`/`description`/`status`/...).
+  // Downcast the runtime's structural `SubagentStateSnapshot` map back to this
+  // plugin's concrete `SubagentState`. The two don't share an index signature,
+  // so TS requires the cast to route through `unknown`. The shell upcasts the
+  // matching map at the closure boundary in App.tsx.
   const subagents = useSessionSubagents(sessionId) as unknown as ReadonlyMap<string, SubagentState>;
   const connectionStatus = useShellConnectionStatus();
 

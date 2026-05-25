@@ -95,9 +95,12 @@ describe("MinimalChatView", () => {
         <MinimalChatView title="a" status="running" entries={[]} mode="inline" />,
       );
       const root = container.firstElementChild as HTMLElement;
-      // Inline mode uses a STABLE height (`h-[60vh]`, not `max-h-[60vh]`) so
-      // the popover doesn't reflow as messages stream in. See MinimalChatView.tsx:330.
+      // Inline mode now uses a STABLE `h-[60vh]` (not `max-h-[60vh]`) so the
+      // container doesn't bounce as content streams in. The body's
+      // `flex-1 min-h-0 overflow-y-auto` provides the scroll surface.
+      // See change: fix-flows-plugin-polish (stable inline height).
       expect(root.className).toContain("h-[60vh]");
+      expect(root.className).not.toContain("max-h-[60vh]");
     }
     cleanup();
     {
