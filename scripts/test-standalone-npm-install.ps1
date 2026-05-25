@@ -7,13 +7,19 @@
     1. npm pack every publishable workspace
     2. install them into an isolated temp HOME with no pi installed
     3. spawn pi-dashboard headless via node_modules\.bin\pi-dashboard.cmd
-    4. poll /api/bootstrap/status until status transitions to "ready"
+    4. poll /api/health until ok=true (or fail after 60s)
     5. assert the web UI is reachable
     6. tear down
 
   Mirrors the bash script's six-phase contract, [smoke] log prefixes,
-  -Port / -Keep flags, and 240s deadline so CI logs are cross-grep-able
+  -Port / -Keep flags, and 60s deadline so CI logs are cross-grep-able
   across platforms.
+
+  Probe rationale: after eliminate-electron-runtime-install (commit
+  d3fe2163) the dashboard no longer installs pi lazily after server
+  start — there is no "bootstrap" reconcile phase to wait for. The
+  server is either listening on its port or it isn't, so a plain
+  /api/health probe is the right readiness signal.
 
   Locks down three Windows-only spawn bugs fixed in 0f2d08aa:
     1. shouldUrlWrapEntry mis-wrapping jiti entries with file:///C:/…
@@ -106,13 +112,10 @@ try {
     -RedirectStandardError $ServerErr
   Write-Host "[smoke] server pid: $($server.Id)"
 
-  # Poll /api/bootstrap/status for up to 240s. Clean install of pi + openspec
-  # from npm on CI runners regularly approaches 120s; 240s gives headroom
-  # without making genuine failures hang the job.
-  $deadline = (Get-Date).AddSeconds(240)
-  $lastState = ""
+  # Poll /api/health for up to 60s. See header rationale.
+  $deadline = (Get-Date).AddSeconds(60)
   $ready = $false
-  $url = "http://localhost:$Port/api/bootstrap/status"
+  $url = "http://localhost:$Port/api/health"
 
   while ((Get-Date) -lt $deadline) {
     if ($server.HasExited) {
@@ -125,47 +128,22 @@ try {
       exit 1
     }
 
-    $state = $null
     try {
       $resp = Invoke-RestMethod -Uri $url -TimeoutSec 5
-      if ($null -ne $resp -and $null -ne $resp.status) {
-        $state = [string]$resp.status
-      } else {
-        $state = "parse-error"
-      }
-    } catch {
-      # Server not yet listening / connection refused — retry after sleep.
-      $state = $null
-    }
-
-    if ($null -ne $state) {
-      if ($state -ne $lastState) {
-        Write-Host "[smoke] bootstrap.status = $state"
-        $lastState = $state
-      }
-      if ($state -eq "ready") {
-        Write-Host "[smoke] OK bootstrap ready"
+      if ($null -ne $resp -and $resp.ok -eq $true) {
+        Write-Host "[smoke] OK server healthy (mode=$($resp.mode), uptime=$($resp.uptime)s)"
         $ready = $true
         break
       }
-      if ($state -eq "failed") {
-        Write-Host "[smoke] FAIL: bootstrap failed."
-        $errMsg = if ($resp.error -and $resp.error.message) { [string]$resp.error.message } else { "(no error.message in bootstrap status)" }
-        Write-Host "[smoke] bootstrap.error.message = $errMsg"
-        Write-Host "---- server.log (last 100 lines) ----"
-        if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
-        Write-Host "---- server.err.log (last 100 lines) ----"
-        if (Test-Path $ServerErr) { Get-Content -Tail 100 $ServerErr | ForEach-Object { Write-Host $_ } }
-        Write-Host "--------------------------------------"
-        exit 1
-      }
+    } catch {
+      # Server not yet listening / connection refused — retry after sleep.
     }
 
     Start-Sleep -Seconds 2
   }
 
   if (-not $ready) {
-    Write-Host "[smoke] FAIL: bootstrap did not become ready within 240s (last: $lastState)"
+    Write-Host "[smoke] FAIL: /api/health did not return ok=true within 60s"
     Write-Host "---- server.log (last 100 lines) ----"
     if (Test-Path $ServerLog) { Get-Content -Tail 100 $ServerLog | ForEach-Object { Write-Host $_ } }
     Write-Host "---- server.err.log (last 100 lines) ----"

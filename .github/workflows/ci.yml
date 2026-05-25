@@ -71,20 +71,6 @@ jobs:
       - run: npm ci --engine-strict=false
       - run: npm run build
       - name: Run standalone install smoke
-        # DISABLED 2026-05-25 — same gap that affects the Windows smoke:
-        # `scripts/test-standalone-npm-install.sh` was deleted by commit
-        # d3fe2163 ("feat(eliminate-electron-runtime-install): Phase 2 +
-        # Phase 3 + Phase 5 partial", 2026-05-23) and the
-        # `/api/bootstrap/status` endpoint it polled was also removed
-        # in the same change. The matching .ps1 used by
-        # standalone-install-smoke-windows still references the missing
-        # endpoint and consequently times out at 240s with
-        # `bootstrap.status = parse-error`.
-        #
-        # Re-enable when the standalone-install smoke flow is repointed
-        # at `/api/health` (or a restored bootstrap-status endpoint).
-        # Tracked as part of the `enable-standalone-npm-install` change.
-        if: false
         run: bash scripts/test-standalone-npm-install.sh --port 18000
 
   # Windows counterpart of standalone-install-smoke-linux. Locks down the
