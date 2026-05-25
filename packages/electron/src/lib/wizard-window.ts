@@ -32,6 +32,11 @@ export function openWizardWindow(startStep?: string): Promise<void> {
       height: 520,
       resizable: false,
       titleBarStyle: "hiddenInset",
+      // No-flash pattern: construct hidden, show on 'ready-to-show'. Also
+      // guarantees focus is claimed over any lingering sibling window (e.g.
+      // the alwaysOnTop splash) on Windows where show:true does NOT steal
+      // focus from an alwaysOnTop sibling. See change: fix-wizard-occluded-by-splash.
+      show: false,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -46,6 +51,14 @@ export function openWizardWindow(startStep?: string): Promise<void> {
       wizardHtml = path.join((process as any).resourcesPath, "renderer", "wizard.html");
     }
     wizardWindow.loadFile(wizardHtml, startStep ? { query: { start: startStep } } : undefined);
+
+    wizardWindow.once("ready-to-show", () => {
+      // Pair show + focus so the wizard claims the foreground even if the
+      // splash window is still in the process of closing or otherwise sits
+      // at the top of the z-order. See change: fix-wizard-occluded-by-splash.
+      wizardWindow?.show();
+      wizardWindow?.focus();
+    });
 
     wizardWindow.on("closed", () => {
       wizardWindow = null;

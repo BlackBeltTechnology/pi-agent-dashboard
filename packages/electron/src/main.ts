@@ -417,10 +417,18 @@ async function main(): Promise<void> {
 
     // ── State: wizard-welcome (first launch only) ────────────────────────────
     if (isFirstRun()) {
-      updateSplashStatus("Preparing first launch…");
       // Best-effort bundled bridge registration; non-fatal.
       try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
+      // Close splash BEFORE opening the wizard. The splash is alwaysOnTop;
+      // leaving it visible occludes the wizard on Windows (no [Launch dashboard]
+      // CTA reachable) and freezes the startup machine waiting for the wizard's
+      // 'closed' event that can never fire. See change: fix-wizard-occluded-by-splash.
+      closeSplash();
       await showWelcomeStep();
+      // Re-open splash for subsequent status updates between wizard-close and
+      // main-window-open. Without this, updateSplashStatus calls below are
+      // silent no-ops and the user sees no progress feedback.
+      showSplash();
     }
 
     // ── State: launch-server ─────────────────────────────────────────────────
