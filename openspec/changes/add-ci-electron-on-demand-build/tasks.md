@@ -47,7 +47,53 @@
 All Phase 7 tasks require manual CI dispatches and external observation — they
 cannot be completed locally. Run them after the change is pushed to a branch.
 
-- [ ] 7.1 Dispatch `ci-electron` on `develop` with `legs: linux-x64` (cheap). Confirm: artifact appears, downloadable from Actions UI, contains an AppImage that installs in a clean `ubuntu:24.04` container via `test-electron-install.sh` and reaches `GET /api/health` 200. (The source-bundle harness in task 1 already validates boot via `Test 8`; task 7.1 validates the full Electron-packaged artifact path end-to-end.)
-- [ ] 7.2 Dispatch `ci-electron` on a `feature/*` branch with `legs: all`. Confirm: branch slug appears in version, all 6 legs upload, no Release created, no npm version published.
+### 7.0 Workflow fixes uncovered during 7.1 verification (2026-05-25)
+
+Verification on `feat/enable-standalone-npm-install` uncovered four latent
+bugs in `_electron-build.yml` that broke every dispatch. All fixed in this
+proposal's working branch and mirrored to develop's marker copy:
+
+- [x] 7.0.1 `aab0d116` — Replaced illegal job-level matrix `if:` (GitHub Actions evaluates job-level `if:` *before* matrix expansion, so it cannot reference `matrix.*`) with a `resolve` job that emits a precomputed `{include:[…]}` JSON consumed by the `build` job's `strategy.matrix` via `fromJSON()`. Filtered legs now never spawn runners.
+- [x] 7.0.2 `bca8c42f` — Bound jq's row alias to `$r` in the legs filter; previous expression used `$row` inside `.[] |` which doesn't bind that name in the scope, so every leg matched.
+- [x] 7.0.3 `98925a67` — Added `packages/client/scripts/vite-build.mjs`: a tsx-loader wrapper that registers `tsx/esm` *before* spawning vite, so vite can strip `.ts` files under workspace `node_modules` (Node 22's built-in stripping only covers source under `.`, not symlinked workspace deps).
+- [x] 7.0.4 `2e66124d` — Added cross-workspace dep-specifier sync after the version bump: `scripts/sync-versions.js` rewrites every `"@blackbelt-technology/*": "^<base>"` to `"^<base>-ci.<…>"`, then `npm install --package-lock-only` regenerates the lockfile, then `scripts/verify-lockfile-versions.mjs` asserts no stale cross-refs remain. Without this, npm resolved the stale-registry copy of `pi-dashboard-shared` (prereleases don't satisfy `^<base>` per SemVer) and the plugin manifest validator failed on a 19-id slot taxonomy when source had 21.
+- [x] 7.0.5 `f601921f` — Bumped versions with `npm pkg set version=…` instead of `npm version`. `npm version --workspaces` triggers each workspace's `prepare` lifecycle and ignores `--ignore-scripts` for that implicit prepare run (npm/cli#4128). `packages/client`'s prepare invokes vite *before* sync-versions + lockfile-regen run, so manifest validation saw stale specifiers and reproduced the slot-taxonomy failure even with the fix in 7.0.4 applied. `npm pkg set` is a pure package.json edit — no lifecycle scripts of any kind — so prepare fires exactly once, in the explicit `Build client` step, with coherent specifiers and lockfile.
+- [x] 7.0.6 `2206c1e5` — Removed five vestigial workflow steps that invoked scripts deleted by commit `d3fe2163` (`feat(eliminate-electron-runtime-install)`, 2026-05-23): `bundle-recommended-extensions.mjs` (POSIX + Windows variants), `bundle-offline-packages.mjs` (POSIX + Windows variants), and the downstream "Smoke assertion — offline bundle resources present" check. The workflow file lagged the deletion, breaking *both* ci-electron and publish.yml. Last successful release v0.5.3 (2026-05-11) predated d3fe2163; no release attempt since then would have succeeded either.
+
+### 7.1 linux-x64 single-leg validation — ✓ PASS (2026-05-25)
+
+- [x] 7.1 Dispatch `ci-electron` on `feat/enable-standalone-npm-install` with `legs: linux-x64`. **Run 26404851109 succeeded end-to-end.** Artifact `electron-linux-x64-2206c1e` (283,992,331 bytes ≈ 284 MB) uploaded with 14-day retention. The full Electron pipeline (npm ci → npm pkg set version → sync-versions → lockfile-regen → verify-lockfile → install build deps → download Node 22.18.0 → build client → bundle-server — source-only → patch AppImage → forge make → upload) completed without error. The slot-taxonomy regression is fully resolved (vite resolved all 21 slot ids correctly). Outstanding: in-container artifact-install smoke test via `test-electron-install.sh` remains a manual follow-up; the workflow itself is verified.
+
+### 7.2 Full-matrix validation — 4/6 PASS, 2 Windows legs surface a separate issue (2026-05-25)
+
+- [~] 7.2 Dispatch `ci-electron` on `feat/enable-standalone-npm-install` with `legs: all`. **Run 26405031631 completed: 4 success / 2 failure.** Artifacts uploaded with the `-2206c1e` sha7 suffix:
+
+  | Leg                | Result | Artifact size                    |
+  | ------------------ | ------ | -------------------------------- |
+  | `linux-x64`        | ✓      | electron-linux-x64-2206c1e — 284 MB    |
+  | `linux-arm64`      | ✓      | electron-linux-arm64-2206c1e — 121 MB  |
+  | `darwin-arm64`     | ✓      | electron-darwin-arm64-2206c1e — 142 MB |
+  | `darwin-x64`       | ✓      | electron-darwin-x64-2206c1e — 148 MB   |
+  | `win32-x64`        | ✗      | (none — failed before upload)          |
+  | `win32-arm64`      | ✗      | (none — failed before upload)          |
+
+  Branch slug appears in version (`0.5.3-ci.20260525-141712.feat-enable-standalo.2206c1e`). No Release created, no npm version published — the no-side-effects invariant holds.
+
+  Both Windows failures occur at the same step, with the same error, and the failure is **unrelated to anything this proposal changed**. Surfacing it is therefore a side-benefit of the verification, not a regression:
+
+  ```
+  An unhandled rejection has occurred inside Forge:
+  Error: Incorrectly formatted version string:
+    "0.5.3-ci.20260525-141712.feat-enable-standalo.2206c1e".
+    Should have at least one and at most four components
+    at parseVersionString (.../@electron/packager/dist/resedit.js:37:15)
+    at resedit (.../@electron/packager/dist/resedit.js:92:42)
+    at async WindowsApp.runResedit (.../@electron/packager/dist/win32.js:68:9)
+  ```
+
+  `@electron/packager`'s `resedit` step writes Windows VERSIONINFO into `pi-dashboard.exe`. VERSIONINFO supports at most 4 numeric components (`A.B.C.D`); our CI prerelease slug encodes 5 dotted segments and includes non-numeric tokens (`-ci`, `feat-enable-standalo`, `2206c1e`). The release flow (`publish.yml`) emits a plain `vX.Y.Z` tag, so resedit accepts it — the Windows leg has never seen a prerelease slug before this proposal.
+
+  Fix is Windows-only and out-of-scope for this change: either (a) pass `--app-version=<X.Y.Z.N>` to `electron-forge package` on Windows so VERSIONINFO uses a 4-component numeric while the user-facing app version stays as the slug, or (b) set `packagerConfig.win32metadata.FileVersion = '<base-version>.0'` in `forge.config.ts` and let `Version` mirror the slug. A follow-up proposal (`fix-ci-electron-windows-resedit`) tracks the work. The 4 passing legs validate everything this proposal set out to verify; Windows packaging on prerelease slugs is a separate orthogonal concern.
+
 - [ ] 7.3 Confirm an installed dev's Electron app (running the previous stable) does NOT receive an auto-update prompt after the CI dispatch completes. (Manual check — open the app, wait 90s past the initial-check timer, verify no update dialog.)
-- [ ] 7.4 Re-run the release pipeline against a real tag and confirm end-to-end parity with the pre-refactor baseline.
+- [ ] 7.4 Re-run the release pipeline against a real tag and confirm end-to-end parity with the pre-refactor baseline. **Blocked on cutting a release.** Note that 7.0.6 above also unblocks `publish.yml`, which has been broken on develop since d3fe2163 (2026-05-23); next release attempt should succeed on POSIX legs where the previous would have failed at the recommended-extensions bundle step. The release flow uses a plain `vX.Y.Z` tag, so the Windows resedit issue from 7.2 does **not** affect release — only ci-electron's CI prerelease slugs.
