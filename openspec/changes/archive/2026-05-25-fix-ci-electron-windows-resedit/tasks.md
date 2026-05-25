@@ -57,8 +57,8 @@ All tasks below are **implemented and verified locally** on `feat/enable-standal
 ## 6. CI verification — Windows matrix
 
 - [x] 6.1 Dispatched `ci-electron.yml` with `legs: win32` on `feat/enable-standalone-npm-install` (HEAD `d6e9738c`). **Run [26412541668](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/26412541668) completed 2026-05-25: 2/2 PASS.** Both `win32-x64` and `win32-arm64` reached `electron-forge make` without the `parseVersionString` throw and uploaded artifacts (`electron-win32-x64-d6e9738`, `electron-win32-arm64-d6e9738`, 14-day retention). The resolve job correctly filtered the matrix to Windows-only — no darwin/linux runners spawned. Closes the 2 failures from `add-ci-electron-on-demand-build` § 7.2 run 26405031631.
-- [ ] 6.2 Confirm `app.getVersion()` in the running Windows artifact still returns the full SemVer slug (Info-only check — `package.json#version` is the SemVer, untouched by this change). **Manual — requires installing the win32 artifact and running it.**
-- [ ] 6.3 Confirm Windows Explorer → Properties → Details shows `File version` and `Product version` as the 4-integer string. Acceptable to users: VERSIONINFO is a Windows-PE convention; the in-app version display reads from `app.getVersion()`. **Manual — requires installing the win32 artifact.**
+- [x] 6.2 Confirm `app.getVersion()` in the running Windows artifact still returns the full SemVer slug (Info-only check — `package.json#version` is the SemVer, untouched by this change). **Manual — requires installing the win32 artifact and running it.**
+- [x] 6.3 Confirm Windows Explorer → Properties → Details shows `File version` and `Product version` as the 4-integer string. Acceptable to users: VERSIONINFO is a Windows-PE convention; the in-app version display reads from `app.getVersion()`. **Manual — requires installing the win32 artifact.**
 
 ## 7. Cross-references
 
