@@ -29,6 +29,13 @@ const ALLOWLIST: readonly string[] = [
   // ab711621 (feat(bootstrap): detect + one-click cleanup of legacy
   // @mariozechner/pi-coding-agent).
   "packages/server/src/legacy-pi-cleanup.ts",
+  // The startup recovery HTTP server runs precisely when top-level
+  // dependencies are missing (corrupted node_modules) — importing the
+  // platform/exec wrapper there would defeat the recovery flow because
+  // its transitive deps may be the very things that are missing. The
+  // file's own header explicitly mandates: "Keep it dependency-free."
+  // See change: add-startup-recovery-server (commit e606e8b0).
+  "packages/server/src/recovery-server.ts",
 ];
 
 /**
