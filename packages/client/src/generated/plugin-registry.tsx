@@ -6,6 +6,7 @@ import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffor
 import { BuiltInRolesSettings } from "../../../roles-plugin/src/index";
 import { SubagentsSettings, SubagentPopoutClaim } from "../../../subagents-plugin/src/client/index";
 import { FlowsAnthropicBridgeSettings } from "../../../flows-anthropic-bridge-plugin/src/client";
+import { DemoSettings, DemoToolRenderer } from "../../../demo-plugin/src/client";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -236,6 +237,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: FlowsAnthropicBridgeSettings },
     ],
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "3d7c3ba8563872faabdc7768eb52c1e9a98a2ab89a0d868f94583b7f74af0b73";
+export const PLUGIN_REGISTRY_HASH = "a10c17be81c0e2edb8c326a88df4fb1ac9b7a5e2a9112e3d9afba6bef4a45c23";

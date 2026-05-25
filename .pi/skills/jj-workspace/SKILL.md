@@ -94,6 +94,114 @@ jj resolve <file>                # mark resolved (or just edit and save)
 **Do not** run `git add` / `git commit` to resolve. jj tracks the conflict
 state through its own mechanism.
 
+## Reattaching a detached git HEAD
+
+In a colocated repo, jj routinely leaves `git HEAD` **detached** at the commit
+hash of `@-` even when that commit is the tip of a bookmark. `git status` shows
+`HEAD detached from <hash>`; IDEs and `git push` may complain. jj itself does
+not care — `@` is still tracked correctly — but downstream git tooling does.
+
+This is **not** a corruption. It happens whenever `@` is a working-copy commit
+above a bookmark, which is the normal jj layout.
+
+**Use the helper script** —
+`.pi/skills/jj-workspace/scripts/reattach-head.mjs` — do NOT call
+`git symbolic-ref` directly. The script enforces every precondition from
+"Risks" (below) and serializes cooperating agents via an atomic O_CREAT|O_EXCL
+advisory lock. Rolling your own is how `[fail]` modes happen.
+
+**Cross-platform**: the canonical implementation is the `.mjs` file. It runs
+under Node.js with built-ins only — macOS / Linux / Windows (PowerShell, cmd,
+Git Bash, WSL) all work identically. A `.sh` shim is provided for callers
+that prefer bash ergonomics; it simply `exec node`s the `.mjs`.
+
+```bash
+# 1. Find the bookmark name that points at @-'s commit:
+jj log -r '@-' --no-graph -T 'bookmarks ++ "\n"'
+
+# 2. Invoke the helper (replace <branch> verbatim). Pick whichever entry
+#    point matches your environment:
+node .pi/skills/jj-workspace/scripts/reattach-head.mjs <branch>   # any OS
+.pi/skills/jj-workspace/scripts/reattach-head.sh <branch>         # bash / Git Bash
+
+# 3. Verify (helper does this internally, but useful in tool output):
+git status              # should now show "On branch <branch>"
+jj status               # should be unchanged — @ still points at the same change
+```
+
+The helper exit codes are structured for LLM consumption:
+
+| Exit | Meaning | LLM next step |
+|------|---------|---------------|
+| 0    | success, HEAD attached | continue |
+| 1    | usage / not in colocated repo | fix the call |
+| 2    | branch ref does not exist | check `jj log` for the real bookmark name |
+| 3    | HEAD hash ≠ branch tip hash | use `jj new <branch>` or `jj edit <branch>` instead — do NOT force the ref |
+| 4    | jj op in flight (multiple op heads) | inspect `jj op log`, resolve, retry |
+| 5    | advisory lock held by another agent | wait + retry, or investigate stale lock |
+| 6    | post-condition failed (HEAD didn't attach) | report to user, hand off |
+| 7    | uncommitted changes + recent jj activity | escalate, do not reattach blindly |
+
+Rules:
+
+- ✅ `node reattach-head.mjs <branch>` — canonical, cross-platform, enforced
+  pre-flight + atomic locked op.
+- ✅ `reattach-head.sh <branch>` — bash shim around the `.mjs`; same contract.
+- ✅ `git symbolic-ref HEAD refs/heads/<branch>` — raw op, allowed only when
+  Node.js is unavailable (e.g. emergency recovery from an environment that
+  cannot run the helper) AND you have manually verified every precondition.
+- ❌ `git checkout <branch>` — touches tracked files, forbidden.
+- ❌ `git switch <branch>` — same problem as checkout, forbidden.
+
+If the bookmark tip is *not* at the same commit as HEAD, do not reattach with
+`symbolic-ref`. Instead, move `@` with `jj edit <bookmark>` or `jj new
+<bookmark>` and let jj re-emit HEAD itself.
+
+### Risks of `git symbolic-ref` — verify before you call it
+
+The op is safe **only when its preconditions hold**. Concrete failure modes:
+
+1. **Wrong-commit reattach.** If the bookmark moved between inspection and
+   reattach, HEAD now points at a commit that does not match the working copy.
+   jj reconciles on the next command and may silently move `@` or mark files
+   conflicted. **Mitigation**: immediately before the call, run
+   `[ "$(git rev-parse HEAD)" = "$(git rev-parse refs/heads/<branch>)" ]` and
+   abort if the hashes differ.
+
+2. **Concurrent jj op.** jj takes a lockfile on `.jj/repo/op_heads/` for its
+   own operations. `git symbolic-ref` bypasses that lock. If another jj
+   command runs simultaneously (another agent, IDE auto-snapshot, background
+   watcher), the HEAD update can be undone by jj's next export step.
+   Last-writer-wins. **Mitigation**: run `jj status` first to confirm no
+   pending op; never call `symbolic-ref` while a long-running jj op (rebase,
+   absorb, import) is in flight.
+
+3. **`HEAD@git` desync.** jj records its own `HEAD@git` marker in
+   `.jj/repo/store/`. `git symbolic-ref` only touches `.git/HEAD`. Next
+   `jj git import` (implicit in most jj commands) reconciles them — usually
+   fine, occasionally surfaces "git refs diverged" warnings. **Recovery**:
+   `jj op restore <op-id>` from `jj op log` rolls back.
+
+4. **No ref validation.** `git symbolic-ref` does not verify that
+   `refs/heads/<branch>` exists or that it points at the current commit. A
+   typo points HEAD at a phantom ref — `git status` then shows nothing
+   tracked. **Recovery**: re-run `symbolic-ref` with the correct name, or
+   `git update-ref HEAD <hash>` to detach again.
+
+5. **Multi-workspace bleed.** If `jj workspace add` has created sibling
+   workspaces, the colocated repo's `.git/HEAD` is **per-workspace** (each
+   workspace gets its own `.git/`), but the shared `.jj/repo/` is global.
+   Reattaching HEAD in workspace A does not affect workspace B's HEAD, but
+   it does affect what `jj git import` will see when run from A. Reason
+   about per-workspace state, not global.
+
+**Does not help parallel agents.** This op is a single-agent ergonomic fix.
+Two agents in the **same** workspace will still race on `.git/index`,
+working-copy snapshots, and the op log — unsafe regardless of HEAD attachment.
+For true parallelism use `jj workspace add <path>` so each agent has its own
+`@` and its own `.git/`; coordinate bookmark pushes via the
+`jj-workspace-fold-back` skill.
+
 ## Shipping work back to trunk
 
 When you're done in this workspace, invoke the `jj-workspace-fold-back`
