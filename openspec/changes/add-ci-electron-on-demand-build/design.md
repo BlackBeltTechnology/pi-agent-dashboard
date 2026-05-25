@@ -58,6 +58,18 @@ electron:
 
 ## Decision 3 — Bundle-server source-only mode
 
+> **⚠ Superseded by `fix-ci-electron-runnable-bundles` (2026-05-25).**
+>
+> The spike below validated that a source-only bundle is runnable *when an `npm install --omit=dev` step runs against it before launch*. The Linux container harness ran that install explicitly. **End users do not.** Post `eliminate-electron-runtime-install` (R3 dep lift), the runtime install path on user machines was deleted on purpose, so the implicit assumption "npm install runs later" no longer holds outside the harness.
+>
+> Net effect: CI-dispatched artefacts unzipped on a real desktop throw `BundledServerMissingError` because `resources/server/node_modules/` is absent. Documented user-visible symptom: Windows ZIP, `cli.ts` missing dialog.
+>
+> The corrected decision lives in `fix-ci-electron-runnable-bundles/proposal.md`: `ci-electron.yml` passes `source_only_bundle: false`, identical to the release flow. The spike + harness remain valid for the Docker cross-compile path (`docker-make.sh`) and as a structural probe; only the CI-workflow value flips.
+>
+> Section preserved below as historical record. Do not consult for current behaviour.
+>
+> ---
+
 `bundle-server.mjs --source-only` skips the host-side `npm install` during bundle, leaving workspace source dirs in place. The Linux runner then runs `npm install --omit=dev` in-container, which resolves third-party deps from npm and materialises `@blackbelt-technology/*` workspaces via the bundle's synthetic root `package.json` (`workspaces: ["packages/server", "packages/shared", "packages/extension", "packages/dashboard-plugin-runtime"]`). This removes the registry-availability dependency that `publish.yml` carries via `needs: [prepare, publish]`.
 
 **Spike result (2026-05-25):** verified end-to-end via `packages/electron/scripts/spike-source-only-bundle.sh` against `node:24-bookworm-slim`. **All checks PASS, including live HTTP health probe.**
