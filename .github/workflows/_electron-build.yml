@@ -142,10 +142,46 @@ jobs:
           echo "Electron dir: $ELECTRON_DIR"
           cd "$ELECTRON_DIR" && node install.js 2>&1 | tail -5
 
+      - name: Debug — workspace dep layout after npm ci
+        # Captures on-disk state before any version bump or build runs, so a
+        # future taxonomy-drift / nested-install / stale-resolve failure can
+        # be diagnosed from logs alone. Pure read-only; safe on every runner.
+        # See change: add-ci-electron-on-demand-build (post-fix diagnostics).
+        shell: bash
+        run: |
+          set +e
+          echo '── tracked dist files (should be empty) ──'
+          git ls-files | grep -E '/dist/' || echo '(none — clean)'
+          echo '── packages/shared/dist (untracked stale build, should not exist) ──'
+          ls -la packages/shared/dist/ 2>/dev/null || echo '(no dist — clean)'
+          echo '── all slot-types.js on disk (excl. nested transitive node_modules) ──'
+          find packages -name slot-types.js -not -path '*/node_modules/*/node_modules/*' 2>/dev/null || true
+          echo '── nested pi-dashboard-shared installs under workspace node_modules ──'
+          find packages -maxdepth 4 -path '*/node_modules/@blackbelt-technology/pi-dashboard-shared' 2>/dev/null || true
+          echo '── slot-types.ts in source (id count) ──'
+          grep -cE '^[[:space:]]+"[a-z-]+":[[:space:]]*\{$' packages/shared/src/dashboard-plugin/slot-types.ts || true
+          echo '── node resolution probe ──'
+          node -e "import('@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js').then(m => { const k = Object.keys(m.SLOT_DEFINITIONS); console.log('resolved slot count:', k.length); console.log(k.join(',')); }).catch(e => { console.log('resolve err:', e.message); });" || true
+          true
+
       - name: Set version from resolved ref
         # No `shell: bash` — single npm invocation works under cmd, pwsh,
         # and bash. Default Windows shell (cmd) handles it without MSYS.
-        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
+        #
+        # --ignore-scripts: `npm version --workspaces` runs each workspace's
+        # lifecycle scripts (version/postversion AND, on npm 10+, prepare).
+        # `packages/client`'s prepare runs vite, which loads the
+        # dashboard-plugin vite-plugin and validates plugin manifests against
+        # the slot taxonomy in @blackbelt-technology/pi-dashboard-shared.
+        # That validation MUST run AFTER sync-versions + lockfile-regen below,
+        # otherwise cross-workspace dep specifiers are still stuck at the
+        # pre-bump `^<base>` range (which a prerelease `<base>-ci.<...>` does
+        # not satisfy per SemVer) and npm may resolve a stale registry copy
+        # of pi-dashboard-shared, producing taxonomy drift. The explicit
+        # `Build client` step further down does the real vite build after
+        # specifiers + lockfile are coherent. See change:
+        # add-ci-electron-on-demand-build.
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root --ignore-scripts
 
       # The three steps below mirror publish.yml's prepare job. Without them,
       # cross-workspace dep specifiers stay at `^<base>` after the version bump
