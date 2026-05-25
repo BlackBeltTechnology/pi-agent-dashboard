@@ -4,6 +4,7 @@
   "version": "0.5.3",
   "private": true,
   "description": "Electron desktop app for pi-dashboard",
+  "author": "BlackBelt Technology <oss@blackbelt.hu>",
   "repository": {
     "type": "git",
     "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard"
