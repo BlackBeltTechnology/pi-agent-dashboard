@@ -41,6 +41,12 @@ const REUSABLE_WORKFLOW_PATH = path.join(
   "workflows",
   "_electron-build.yml",
 );
+const CI_ELECTRON_WORKFLOW_PATH = path.join(
+  REPO_ROOT,
+  ".github",
+  "workflows",
+  "ci-electron.yml",
+);
 
 /**
  * Extract the YAML body of a top-level job by name. Returns the lines
@@ -178,6 +184,26 @@ describe("_electron-build.yml — reusable workflow contract", () => {
     }
   });
 
+  it("contains a runnable-bundle assertion step (fix-ci-electron-runnable-bundles)", () => {
+    // Defence-in-depth gate: when `inputs.source_only_bundle == false`, the
+    // reusable workflow MUST verify that bundle-server.mjs produced a
+    // complete `resources/server/node_modules/@blackbelt-technology/
+    // pi-dashboard-server/src/cli.ts`. Without this, a regression in
+    // sync-versions.js or the bundle layout could silently ship a
+    // non-runnable artefact — the exact failure mode that motivated
+    // change fix-ci-electron-runnable-bundles. Match a permissive name
+    // regex so the step can be renamed without breaking the contract, as
+    // long as intent is preserved.
+    const stepNameRe = /^\s+-\s+name:\s*.*(runnable[-\s]bundle|cli\.ts.*exists).*/im;
+    if (!stepNameRe.test(reusableYaml)) {
+      throw new Error(
+        "_electron-build.yml is missing the runnable-bundle assertion step. " +
+          "Expected a step whose `name:` matches /runnable[- ]bundle|cli\\.ts.*exists/i. " +
+          "See change: fix-ci-electron-runnable-bundles.",
+      );
+    }
+  });
+
   it("contains no forbidden side-effect actions (npm publish, gh-release, tag push)", () => {
     // The reusable workflow MUST be a pure artifact producer. Publishing
     // remains the sole responsibility of publish.yml's `publish` +
@@ -280,6 +306,40 @@ function parseJobSteps(jobBlock: string): Array<{ run: string }> {
   if (current) steps.push(current);
   return steps;
 }
+
+describe("ci-electron.yml — runnable-bundle contract", () => {
+  // Pin the post-fix-ci-electron-runnable-bundles invariant: CI-dispatched
+  // Electron artefacts MUST ship with a complete `resources/server/
+  // node_modules/` tree so the unzipped installer is runnable on a user's
+  // desktop. The earlier value (`true`, from add-ci-electron-on-demand-build
+  // Decision 3) was invalidated by eliminate-electron-runtime-install's
+  // removal of every runtime install path. See change:
+  // fix-ci-electron-runnable-bundles.
+  const ciYaml = fs.readFileSync(CI_ELECTRON_WORKFLOW_PATH, "utf8");
+
+  it("build job passes `source_only_bundle: false` to the reusable workflow", () => {
+    // Match the key in any whitespace alignment, but the value MUST be
+    // the literal `false`. `true` would re-introduce the broken-on-unzip
+    // failure mode (BundledServerMissingError on cli.ts).
+    const m = ciYaml.match(/^\s+source_only_bundle:\s*(\S+)\s*$/m);
+    if (!m) {
+      throw new Error(
+        "ci-electron.yml does not pass `source_only_bundle:` to the reusable " +
+          "workflow. Expected `source_only_bundle: false`. See change: " +
+          "fix-ci-electron-runnable-bundles.",
+      );
+    }
+    if (m[1] !== "false") {
+      throw new Error(
+        `ci-electron.yml passes \`source_only_bundle: ${m[1]}\` — ` +
+          "expected `false`. Source-only bundles ship without " +
+          "`resources/server/node_modules/` and fail at launch with " +
+          "BundledServerMissingError. See change: fix-ci-electron-runnable-bundles.",
+      );
+    }
+    expect(m[1]).toBe("false");
+  });
+});
 
 describe("publish.yml — prepare job lockfile-regen contract", () => {
   const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");

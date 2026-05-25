@@ -88,12 +88,26 @@ jobs:
             echo "| Legs         | \`${{ inputs.legs }}\`       |"
             echo ""
             echo "Artifacts uploaded to this run page only \u2014 no registry side effects, no GitHub Release."
+            echo ""
+            echo "Artifacts are runnable installers, identical layout to release builds (only the version slug differs)."
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── build: delegate to the reusable workflow ────────────────────────────
-  # Same definition as publish.yml's electron job, parameterised. The
-  # `source_only_bundle: true` flag avoids the registry round-trip that
-  # release builds rely on (since the CI version was never published).
+  # Same definition as publish.yml's electron job, parameterised.
+  #
+  # `source_only_bundle: false` (since change fix-ci-electron-runnable-bundles,
+  # 2026-05-25): CI-dispatched artefacts now run the SAME bundle path as the
+  # release flow. `npm install --omit=dev` runs in-workflow; the synthetic
+  # workspace package.json resolves @blackbelt-technology/* cross-refs locally
+  # (via scripts/sync-versions.js lockstep + the bundle's workspaces: field),
+  # and external deps come from the registry. Result: the unzipped installer is
+  # runnable end-to-end on a user's desktop, with no "npm install runs later"
+  # assumption — that assumption was invalidated by change
+  # eliminate-electron-runtime-install when it removed every runtime install
+  # path. _electron-build.yml's assertion step gates this invariant per-leg.
+  #
+  # The earlier value (`true`) was set by change add-ci-electron-on-demand-build
+  # (design.md Decision 3, now annotated as superseded).
   build:
     needs: resolve
     uses: ./.github/workflows/_electron-build.yml
@@ -101,6 +115,6 @@ jobs:
       version:                 ${{ needs.resolve.outputs.version }}
       ref:                     ${{ github.sha }}
       legs:                    ${{ inputs.legs }}
-      source_only_bundle:      true
+      source_only_bundle:      false
       artifact_retention_days: 14
       artifact_name_suffix:    -${{ needs.resolve.outputs.sha7 }}

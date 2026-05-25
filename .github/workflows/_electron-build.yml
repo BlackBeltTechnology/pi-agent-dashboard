@@ -245,12 +245,39 @@ jobs:
         # Node-native (.mjs) — no shell, no MSYS path translation, runs
         # identically on Linux/macOS/Windows. See change:
         # eliminate-bash-on-windows-runners.
-        # The --source-only flag is gated by inputs.source_only_bundle:
-        # CI dev builds use it to skip host-side `npm install` so the
-        # bundled @blackbelt-technology/* deps resolve from local workspace
-        # source instead of the npm registry (which only has them after the
-        # release flow's `publish` job uploads).
+        #
+        # `--source-only` argv is appended ONLY when `inputs.source_only_bundle
+        # == true`. Since change fix-ci-electron-runnable-bundles, both active
+        # workflow callers (publish.yml + ci-electron.yml) pass `false`, so
+        # `npm install --omit=dev` runs in-workflow and the bundle ships
+        # complete with `resources/server/node_modules/`. The next step
+        # ("Assert runnable bundle") gates this invariant per-leg.
+        #
+        # The `source_only_bundle` input is retained as a workflow-level escape
+        # hatch for any future caller that needs to defer the install step to
+        # a downstream stage (e.g. Docker cross-compile via docker-make.sh,
+        # which still invokes bundle-server.mjs --source-only directly via its
+        # own script path — not via this workflow input). No active workflow
+        # caller passes `true` today.
         run: node packages/electron/scripts/bundle-server.mjs ${{ inputs.source_only_bundle && '--source-only' || '' }}
+
+      - name: Assert runnable bundle (cli.ts exists)
+        # Defence-in-depth gate: when `inputs.source_only_bundle == false`,
+        # `bundle-server.mjs` MUST have produced a complete bundle with
+        # `resources/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`
+        # materialised by the npm-workspaces resolver. Without this assertion,
+        # a regression in scripts/sync-versions.js or a future change to the
+        # bundle layout could silently ship a non-runnable artefact — the
+        # exact failure mode `fix-ci-electron-runnable-bundles` was created to
+        # close. The runtime-side selectLaunchSource throws
+        # `BundledServerMissingError` if cli.ts is absent at launch; this gate
+        # surfaces that failure at build time on every leg instead.
+        #
+        # Node-native (`node -e`) so the step runs identically on Linux/macOS/
+        # Windows. No `shell: bash` (Windows-reachable invariant pinned by
+        # packages/shared/src/__tests__/no-bash-on-windows.test.ts).
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-runnable-bundle.mjs
 
       - name: Use x64 Node.js for Windows arm64 bundled server
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
