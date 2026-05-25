@@ -4,6 +4,12 @@
   "private": true,
   "description": "Demo plugin — runtime fixture only. SHALL NOT ship in production builds.",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    }
+  },
   "pi-dashboard-plugin": {
     "id": "demo",
     "displayName": "Demo Plugin (fixture)",

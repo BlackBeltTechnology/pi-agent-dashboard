@@ -52,6 +52,7 @@
     "build": "npm run build --workspace=@blackbelt-technology/pi-dashboard-web",
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
+    "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
     "lint": "tsc --noEmit",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",

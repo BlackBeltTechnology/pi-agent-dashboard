@@ -37,6 +37,61 @@ interface PluginEntry {
   manifest: PluginManifest;
   packageDir: string;
   clientEntryPath?: string;
+  /**
+   * Package-name import specifier (e.g. `@scope/pkg`) when the plugin's
+   * `package.json#exports["."]` resolves to its manifest `client` entry.
+   * Preferred over a relative filesystem path for the generated import so
+   * the file is portable across machines (workspace symlink in dev, real
+   * install in published consumers). Falls back to `undefined` for plugins
+   * (e.g. fixtures) without a proper `exports` field, in which case the
+   * generator emits a relative path. See change: fix-windows-standalone-spawn.
+   */
+  packageImportSpecifier?: string;
+}
+
+/**
+ * Determine whether a plugin's `package.json#exports["."]` resolves to the
+ * same file as the manifest's `client` entry. When true, the generator can
+ * emit `import from "<packageName>"` instead of a relative filesystem path —
+ * letting npm-workspace symlinks (dev) and real installs (consumer) resolve
+ * to the right source without depending on filesystem topology between the
+ * generated file and the plugin source.
+ */
+function resolvePackageImportSpecifier(
+  packageDir: string,
+  manifestClient: string | undefined,
+): string | undefined {
+  if (!manifestClient) return undefined;
+  const pkgJsonPath = path.join(packageDir, "package.json");
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+  } catch {
+    return undefined;
+  }
+  const name = typeof raw.name === "string" ? raw.name : undefined;
+  if (!name) return undefined;
+  const exportsField = raw.exports;
+  if (!exportsField || typeof exportsField !== "object") return undefined;
+  const rootExport = (exportsField as Record<string, unknown>)["."];
+  if (!rootExport) return undefined;
+
+  let target: string | undefined;
+  if (typeof rootExport === "string") target = rootExport;
+  else if (typeof rootExport === "object") {
+    const r = rootExport as Record<string, unknown>;
+    target = (typeof r.default === "string" && r.default)
+      || (typeof r.import === "string" && r.import)
+      || (typeof r.types === "string" && r.types)
+      || undefined;
+  }
+  if (!target) return undefined;
+
+  const resolvedTarget = path.resolve(packageDir, target);
+  const resolvedManifest = path.resolve(packageDir, manifestClient);
+  if (resolvedTarget !== resolvedManifest) return undefined;
+
+  return name;
 }
 
 function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
@@ -51,6 +106,7 @@ function loadPluginEntries(repoRoot: string, isProd: boolean): PluginEntry[] {
       manifest: p.manifest,
       packageDir: p.packageDir,
       clientEntryPath: p.clientEntryPath,
+      packageImportSpecifier: resolvePackageImportSpecifier(p.packageDir, p.manifest.client),
     }));
 }
 
@@ -133,17 +189,31 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
 
   // Named imports per claim component / predicate / shouldRender (deduped).
   for (const entry of entries) {
-    // Strip .ts/.tsx extension so tsc (without allowImportingTsExtensions) accepts the generated file.
-    // Vite resolves the path either way via configured extensions.
+    // Resolve the import specifier with a two-tier chain so the generated
+    // file is portable across machines AND across npm-install topologies:
     //
-    // Emit a path RELATIVE to the generated file's directory rather than an
-    // absolute one. Absolute paths leak the local checkout root into the
-    // committed file (`/Users/foo/...`, `/home/bar/...`) and break any other
-    // checkout that imports the committed copy (vite fails import-analysis
-    // because the foreign absolute path doesn't exist). The relative form is
-    // checkout-agnostic. See change: fix-windows-standalone-spawn (collateral).
-    const rel = path.relative(generatedDir, entry.clientEntryPath!).replace(/\\/g, "/");
-    const importPath = (rel.startsWith(".") ? rel : `./${rel}`).replace(/\.(tsx?|jsx?)$/, "");
+    //   1. PREFERRED — plugin's package-name (`@scope/plugin`), available when
+    //      `package.json#exports["."]` matches the manifest `client` entry.
+    //      Resolves via npm-workspace symlink in dev and via real install
+    //      under a standalone-installed dashboard. No filesystem topology
+    //      assumptions; survives the dashboard being installed in any
+    //      `node_modules` layout.
+    //
+    //   2. FALLBACK — path RELATIVE to the generated file's directory, for
+    //      plugins (e.g. fixtures) without a proper `exports` field. Still
+    //      checkout-agnostic; just less robust than package-name imports
+    //      under unusual install layouts.
+    //
+    // Both are stripped of `.ts/.tsx` so tsc (without allowImportingTsExtensions)
+    // accepts the generated file; Vite resolves either form via configured
+    // extensions. See change: fix-windows-standalone-spawn (collateral).
+    let importPath: string;
+    if (entry.packageImportSpecifier) {
+      importPath = entry.packageImportSpecifier;
+    } else {
+      const rel = path.relative(generatedDir, entry.clientEntryPath!).replace(/\\/g, "/");
+      importPath = (rel.startsWith(".") ? rel : `./${rel}`).replace(/\.(tsx?|jsx?)$/, "");
+    }
     const namedRefs = [
       ...new Set(
         entry.manifest.claims
@@ -235,6 +305,14 @@ function hashContent(content: string): string {
 }
 
 let lastHash = "";
+
+/**
+ * Standalone-callable wrapper around `regenerate` for non-Vite consumers
+ * (e.g. `scripts/generate-plugin-registry.mjs` invoked from prelint/prebuild).
+ */
+export function regeneratePluginRegistry(repoRoot: string, isProd: boolean): { changed: boolean; content: string } {
+  return regenerate(repoRoot, isProd);
+}
 
 function regenerate(repoRoot: string, isProd: boolean): { changed: boolean; content: string } {
   const entries = loadPluginEntries(repoRoot, isProd);
