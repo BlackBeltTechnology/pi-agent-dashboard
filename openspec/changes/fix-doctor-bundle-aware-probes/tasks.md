@@ -1,0 +1,40 @@
+# Tasks
+
+## 1. Shared bundle-probe helper
+
+- [ ] 1.1 Add `packages/shared/src/bundle-package-lookup.ts` exporting pure helper `findBundledPackage(resourcesPath: string | null, pkgName: string): { packageJsonPath: string; version: string | null; binPath?: string } | null`.
+  - Returns `null` when `resourcesPath` is null (standalone arm) or when the package directory does not exist.
+  - Reads `package.json#version` and `package.json#bin` (handles both string and object forms).
+  - Resolves `bin` to an absolute path; verifies it exists before returning.
+- [ ] 1.2 Unit tests in `packages/shared/src/__tests__/bundle-package-lookup.test.ts`:
+  - null resourcesPath → null result
+  - missing pkg dir → null
+  - present pkg with version + string bin → returns shape
+  - present pkg with object bin → picks the entry matching pkgName (e.g. `pi-coding-agent → { pi: "./dist/cli.js" }`)
+  - malformed package.json → null (no throw)
+
+## 2. Wire bundle-aware lookups into Doctor
+
+- [ ] 2.1 Extend `runSharedChecks(opts)` signature with `resourcesPath?: string | null`. Default null. Document in jsdoc.
+- [ ] 2.2 In the `TypeScript loader` check (line ~556), prepend two lookups via `findBundledPackage(resourcesPath, "jiti")` and `findBundledPackage(resourcesPath, "tsx")`. On hit, return `{status: "ok", message: "jiti v<ver> (bundled) at <path>"}`. Existing managed-dir + PATH probes stay as fallbacks.
+- [ ] 2.3 In the `pi CLI` check, prepend `findBundledPackage(resourcesPath, "pi-coding-agent")`. On hit, return `{status: "ok", message: "pi (bundled) at <binPath>"}`.
+- [ ] 2.4 In the `openspec CLI` check, prepend `findBundledPackage(resourcesPath, "openspec")`. On hit, return `{status: "ok"}`.
+- [ ] 2.5 Update `packages/electron/src/lib/doctor.ts`: where it calls `runSharedChecks(...)`, pass `resourcesPath: process.resourcesPath`. Where the standalone server calls (if it does), pass `null` explicitly.
+
+## 3. Remediation message audit
+
+- [ ] 3.1 In `packages/shared/src/doctor-core.ts` SUGGESTIONS map, change the "TypeScript loader" / "pi CLI" / "openspec CLI" remediation text. When `resourcesPath` is set AND the binary is missing from the bundle, the message SHALL say: "Bundled <name> missing from `<expected-path>`. This indicates a corrupted Electron install; reinstall from the official Releases page." (Not "run the setup wizard" — the setup wizard cannot repair a missing bundled dep post `eliminate-electron-runtime-install`.)
+- [ ] 3.2 When `resourcesPath` is null (standalone arm), keep the existing "run the setup wizard" text — that arm still has a writable target.
+
+## 4. Tests
+
+- [ ] 4.1 Integration test in `packages/shared/src/__tests__/doctor-core-bundle-probes.test.ts`: stub a fake `resourcesPath` with a synthetic `server/node_modules/{jiti,pi-coding-agent,openspec}/package.json` tree, run `runSharedChecks`, assert all three sections report ✅ with `(bundled)` in the message.
+- [ ] 4.2 Negative integration test: stub `resourcesPath` with the dir present but the `jiti/pi-coding-agent/openspec` subdirs missing. Assert the corrupted-install remediation text appears, NOT the setup-wizard text.
+- [ ] 4.3 Standalone-arm test: pass `resourcesPath: null`. Assert behaviour is identical to today (existing managed-dir + PATH probes).
+
+## 5. Validate
+
+- [ ] 5.1 Run `npm test`, all green.
+- [ ] 5.2 Manual smoke on Windows VM (the spike artifact): open Doctor, confirm three formerly-failing rows turn ✅ with `(bundled)` annotations.
+- [ ] 5.3 Manual smoke on macOS Electron build: open Doctor, confirm same (and confirm the message reads `at /Applications/PI Dashboard.app/Contents/Resources/server/...`).
+- [ ] 5.4 Manual smoke on standalone (`npm i -g`) install: open Doctor (via `/api/doctor` REST or however the standalone surface exposes it). Confirm behaviour unchanged.
