@@ -23,7 +23,7 @@
  * test). The regex must continue to match so a future refactor
  * doesn't silently drop the Windows override.
  *
- * See change: fix-electron-windows-version-format.
+ * See change: fix-ci-electron-windows-resedit.
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";

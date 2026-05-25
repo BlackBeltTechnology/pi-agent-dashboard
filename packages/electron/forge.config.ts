@@ -39,7 +39,7 @@ const pkgVersion: string = JSON.parse(
 // because the ci-electron matrix builds Windows artifacts only on
 // windows-latest runners; cross-builds are not used for win32.
 //
-// See change: fix-electron-windows-version-format.
+// See change: fix-ci-electron-windows-resedit.
 const buildVersion = deriveWindowsBuildVersion(
   pkgVersion,
   process.env.GITHUB_RUN_NUMBER,

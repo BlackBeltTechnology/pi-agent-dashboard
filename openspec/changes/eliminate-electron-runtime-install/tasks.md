@@ -124,7 +124,7 @@ Phases 3 and 4 may interleave; all others are strictly ordered.
   - [x] `installable-list.ts`
   - [x] `managed-package-whitelist.ts`
   - [x] `bootstrap-install.ts`
-  - [x] `scripts/test-standalone-npm-install.sh`
+  - [x] `scripts/test-standalone-npm-install.sh` — **deleted on 2026-05-23 (d3fe2163), recreated on 2026-05-25 (72166780) at post-bootstrap shape.** The new shape probes `/api/health` for `ok=true` with a 60s deadline (vs. the deleted bootstrap-polling loop on the removed `/api/bootstrap/status`). `.github/workflows/ci.yml`'s standalone-install-smoke job (Linux) re-enabled at the same commit. Companion `scripts/test-standalone-npm-install.ps1` rewired in the same commit; deadline 240s → 60s (no async install to wait for).
   - [~] `recommended-extensions.ts` — **NOT deleted** (proposal listed it but it powers the surviving Recommended Extensions UI sub-group; only `BUNDLED_EXTENSION_IDS` constant becomes dead under Electron, which Phase 5 cleans up). Retained for `RECOMMENDED_EXTENSIONS` manifest used by client + server routes.
 - [x] 3.8 Regression tests deleted (2026-05-23):
   - [x] `managed-package-whitelist-parity.test.ts`, `installable-list.test.ts`, `no-installable-list-in-bridge.test.ts`, `bootstrap-install-resolve-npm.test.ts`, `install-managed-node.test.ts`, `bootstrap-install-cmd-shim.test.ts`.
@@ -247,6 +247,17 @@ All Phase 8 docs work delegated to Explore subagent on 2026-05-25, completed in 
   - [ ] Promote `## [Unreleased]` CHANGELOG entry to versioned section
   - [ ] Tag + push (CI publishes to npm + GitHub Releases)
 - [ ] 9.13 Monitor first 48h post-release — issue tracker, telemetry, dashboard discord/forum if applicable.
+
+## 9b. Post-implementation follow-ups (2026-05-25)
+
+Work uncovered between d3fe2163 landing and the next QA dispatch. Tracked here because each item back-fills a gap left by the Phase 3 deletions / topology shift, but none of them warrant a standalone proposal.
+
+- [x] 9b.1 `scripts/test-standalone-npm-install.sh` recreated (commit 72166780, 2026-05-25) at the post-bootstrap shape — see Phase 3.7 entry. Probes `/api/health` for `ok=true` with a 60s deadline (down from 240s; no async install to wait for).
+- [x] 9b.2 `scripts/test-standalone-npm-install.ps1` rewired in the same commit; bootstrap-status polling loop removed; deadline 240s → 60s.
+- [x] 9b.3 `.github/workflows/ci.yml` standalone-install-smoke-linux job re-enabled (was `if: false` while the harness was broken between d3fe2163 and 72166780). Vestigial TODO comment block removed.
+- [x] 9b.4 `packages/shared/src/__tests__/no-direct-child-process.test.ts` allowlist amended (commit 19b31806) to cover `packages/server/src/recovery-server.ts`. The startup recovery HTTP server (introduced by commit e606e8b0 `feat(add-startup-recovery-server)`, 2026-05-24) deliberately imports `node:child_process` directly because importing the platform/exec wrapper would defeat the recovery flow (its transitive deps may be the very things that are missing). Same architectural-exception class as the already-allowlisted `packages/server/src/legacy-pi-cleanup.ts`. Surfaced by PR CI run 26406642427.
+- [x] 9b.5 Plugin-registry portable import resolution (commit 0b10b7cf) — two-tier chain in `packages/dashboard-plugin-runtime/src/vite-plugin/index.ts`: tier 1 uses each plugin's package name (when `package.json#exports["."]` matches the manifest `client` entry); tier 2 falls back to a path relative to the generated `plugin-registry.tsx`. Both forms are checkout-agnostic, so the generated registry is portable across npm-install topologies — specifically across the dev workspace symlink, the bundled Electron `resources/server/node_modules/`, AND the `npm i -g` standalone install (the topology this proposal's standalone arm depends on). All 7 active plugins resolve via tier 1 today; tier 2 is the safety net. Companion: `scripts/generate-plugin-registry.mjs` CLI for off-Vite regeneration, and `packages/demo-plugin/package.json` gains `exports["."]` so the fixture exercises tier 1 too.
+- [x] 9b.6 Cleanup of d3fe2163 residue (commit 45730a79) — stale workflow steps and TODO blocks pointing at deleted bootstrap scripts. Reference: see commit body.
 
 ## 10. Archive
 

@@ -15,7 +15,7 @@
  * `appVersion` are kept for macOS / app.getVersion() / CFBundle*
  * strings.
  *
- * See change: fix-electron-windows-version-format (this proposal).
+ * See change: fix-ci-electron-windows-resedit (this proposal).
  */
 import { describe, it, expect } from "vitest";
 
