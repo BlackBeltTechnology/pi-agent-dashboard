@@ -181,6 +181,38 @@ writeFileSync(
   JSON.stringify(bundlePkg, null, 2) + "\n",
 );
 
+// ── ship manual-launch helpers ────────────────────────────────────────
+// Three self-locating scripts at the server-bundle root that boot the
+// bundled dashboard server without the Electron wrapper and without a
+// system Node install. See packages/electron/scripts/server-launch-helpers/
+// README.md. Used by testers and CI smoke. Argv shape matches
+// packages/shared/src/platform/node-spawn.ts::buildNodeImportArgvParts.
+// See change: add-bundle-manual-launch-scripts.
+const LAUNCH_HELPERS_DIR = path.join(
+  ELECTRON_DIR,
+  "scripts",
+  "server-launch-helpers",
+);
+const LAUNCH_HELPER_FILES = [
+  "start-server.cmd",
+  "start-server.ps1",
+  "start-server.sh",
+  "README.md",
+];
+for (const name of LAUNCH_HELPER_FILES) {
+  const src = path.join(LAUNCH_HELPERS_DIR, name);
+  const dst = path.join(SERVER_BUNDLE, name);
+  cpSync(src, dst);
+  // Preserve executable bit on the .sh helper. Some host filesystems
+  // (notably Docker bind-mounts from macOS) strip the bit during cpSync.
+  if (name.endsWith(".sh") && process.platform !== "win32") {
+    try { chmodSync(dst, 0o755); } catch { /* best-effort */ }
+  }
+}
+console.log(
+  `  Bundled ${LAUNCH_HELPER_FILES.length} launch helper(s) into server bundle root`,
+);
+
 // ── source-only short-circuit ────────────────────────────────────────────
 // Strip dev-only files early — must run BEFORE the source-only
 // short-circuit so Docker cross-builds also benefit. Two reasons:

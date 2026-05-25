@@ -24,19 +24,27 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-const root = path.join(
+const serverBundle = path.join(
   "packages",
   "electron",
   "resources",
   "server",
+);
+const pidaPkg = path.join(
+  serverBundle,
   "node_modules",
   "@blackbelt-technology",
   "pi-dashboard-server",
 );
 
 const required = [
-  path.join(root, "src", "cli.ts"),
-  path.join(root, "package.json"),
+  // Core runnable invariant — change fix-ci-electron-runnable-bundles
+  path.join(pidaPkg, "src", "cli.ts"),
+  path.join(pidaPkg, "package.json"),
+  // Manual-launch helpers — change add-bundle-manual-launch-scripts
+  path.join(serverBundle, "start-server.cmd"),
+  path.join(serverBundle, "start-server.ps1"),
+  path.join(serverBundle, "start-server.sh"),
 ];
 
 const missing = required.filter((p) => !existsSync(p));
@@ -44,7 +52,9 @@ const missing = required.filter((p) => !existsSync(p));
 if (missing.length > 0) {
   console.error("\u2717 Runnable-bundle assertion failed. Missing paths:");
   for (const p of missing) console.error("  - " + p);
-  console.error("See change: fix-ci-electron-runnable-bundles.");
+  console.error(
+    "See changes: fix-ci-electron-runnable-bundles, add-bundle-manual-launch-scripts.",
+  );
   process.exit(1);
 }
 
