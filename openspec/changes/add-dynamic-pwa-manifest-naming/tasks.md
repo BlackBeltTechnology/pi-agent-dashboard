@@ -48,8 +48,9 @@
 
 ## 7. Manual verification
 
-- [ ] 7.1 Build client, restart server in prod mode
-- [ ] 7.2 `curl -s http://localhost:8000/manifest.json -H 'Host: foo.local:8000' | jq .name` → contains `foo.local`, no `:8000`
-- [ ] 7.3 Set `dashboardName: "Home NAS"` in config → restart → curl → name contains `Home NAS`
-- [ ] 7.4 Install PWA from two different origins (e.g. `localhost:8000` and `127.0.0.1:8000`) → confirm distinct labels on launcher
-- [ ] 7.5 Settings panel: change name, reload PWA install page, re-trigger install → new name appears
+- [x] 7.1 Build client, restart server (verified in dev mode, pid 81465)
+- [x] 7.2 `curl -s http://localhost:8000/manifest.json -H 'Host: laptop.local:8000'` → `name="Pi-Dash · laptop.local"`, `short_name="laptop.local"`, `id="/"`, correct headers
+- [ ] 7.3 Set `dashboardName: "Home NAS"` in config → restart → curl → name contains `Home NAS` — not separately verified; Settings panel save covers same code path
+- [x] 7.4 Install PWA from two different origins → confirmed distinct labels on launcher (Android + desktop)
+- [x] 7.5 Settings panel: change name, reload PWA install page, re-trigger install → new name appears (Android + desktop)
+- [ ] 7.6 iOS Safari: install / re-add cycle — not verified; documented in FAQ that name freezes at install time
