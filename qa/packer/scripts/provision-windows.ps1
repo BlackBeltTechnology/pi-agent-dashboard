@@ -1,32 +1,54 @@
 # Windows provisioning: nvm-windows, Node.js LTS, Git, VS Build Tools
 $ErrorActionPreference = "Stop"
 
+# After a Chocolatey install, the *current* PowerShell session's PATH is
+# stale: Choco updates the system Path in the registry, but the running
+# process keeps the snapshot it inherited at launch. Worse, the new
+# entries often use env-var indirections (e.g. %NVM_HOME%, %NVM_SYMLINK%)
+# whose underlying variables ALSO need to be re-imported — just rebuilding
+# $env:Path leaves those unexpanded and PATH-lookup fails.
+#
+# This helper re-imports the COMPLETE Machine + User env block into the
+# current Process scope so subsequent commands see the same environment
+# a freshly-spawned shell would. Idempotent; safe to call repeatedly.
+function Update-Environment {
+    foreach ($scope in 'Machine', 'User') {
+        $vars = [System.Environment]::GetEnvironmentVariables($scope)
+        foreach ($key in $vars.Keys) {
+            if ($key -ieq 'Path') { continue }  # PATH handled specially below
+            [System.Environment]::SetEnvironmentVariable($key, $vars[$key], 'Process')
+        }
+    }
+    # PATH is the concatenation of Machine + User PATHs. Re-set on Process
+    # AFTER importing the env vars above so any %VAR% references inside
+    # PATH expand correctly.
+    $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath    = [System.Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = "$machinePath;$userPath"
+}
+
 Write-Host "=== Installing Chocolatey ==="
 if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
     Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    # Refresh PATH
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    Update-Environment
 }
 Write-Host "Chocolatey: $(choco --version)"
 
 Write-Host "=== Installing Git ==="
 choco install git -y --no-progress
-# Refresh PATH after git install
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+Update-Environment
 Write-Host "Git: $(git --version)"
 
 Write-Host "=== Installing nvm-windows ==="
 choco install nvm -y --no-progress
-# Refresh PATH after nvm install
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+Update-Environment
 
 Write-Host "=== Installing Node.js LTS ==="
 nvm install lts
 nvm use lts
-# Refresh PATH after node install
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+Update-Environment
 Write-Host "Node: $(node --version)"
 Write-Host "npm: $(npm --version)"
 
