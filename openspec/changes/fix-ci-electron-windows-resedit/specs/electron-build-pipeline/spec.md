@@ -43,6 +43,30 @@ Result format: matches `^\d+\.\d+\.\d+\.\d+$` for all inputs.
 - **THEN** the return value SHALL equal `package.json#version` at package time (full SemVer slug, e.g. `0.5.3-ci.20260525-141712.feat-enable-standalo.2206c1e`)
 - **AND** the 4-integer VERSIONINFO override SHALL be visible only in Windows Explorer → Properties → Details, not in the running app
 
+### Requirement: VERSIONINFO `LegalCopyright` and Info.plist `NSHumanReadableCopyright` carry a BlackBelt-branded string
+
+`forge.config.ts` SHALL set `packagerConfig.appCopyright` to a non-empty string containing the token `BlackBelt Technology`. The field is universal (not Windows-gated): `@electron/packager` maps it to Windows VERSIONINFO `LegalCopyright` AND macOS Info.plist `NSHumanReadableCopyright`. Without the override, both platforms inherit the Electron framework's default (`"Copyright (C) 2015 GitHub, Inc."`), which is visible in Windows Explorer → Properties → Details → Copyright and macOS Finder → Get Info.
+
+The year SHALL be a fixed integer (not `new Date().getFullYear()`) so builds are deterministic.
+
+#### Scenario: Windows artifact Copyright field shows BlackBelt branding
+
+- **WHEN** the user opens `pi-dashboard.exe` Properties → Details on Windows
+- **THEN** the `Copyright` row SHALL begin with `Copyright © <year> BlackBelt Technology`
+- **AND** SHALL NOT contain `GitHub, Inc.`
+
+#### Scenario: macOS artifact Get Info shows BlackBelt branding
+
+- **WHEN** the user opens `PI-Dashboard.app` Get Info on macOS
+- **THEN** the `Copyright` row SHALL contain `BlackBelt Technology`
+- **AND** SHALL NOT contain `GitHub, Inc.`
+
+#### Scenario: textual pin catches removal of `appCopyright`
+
+- **WHEN** a future change removes or renames `packagerConfig.appCopyright` in `forge.config.ts`
+- **THEN** the textual-pin test under `packages/electron/src/__tests__/forge-config-windows-version.test.ts` SHALL fail
+- **AND** the failure message SHALL include the regex `/appCopyright\s*:\s*["']Copyright\s+\u00a9\s+\d{4}\s+BlackBelt Technology["']/`
+
 ### Requirement: `packages/electron/package.json` declares `author`
 
 `packages/electron/package.json` SHALL declare a non-empty `author` field. `@electron/packager` rejects Windows packaging with `Author is required to package an application for Windows` when this field is missing.

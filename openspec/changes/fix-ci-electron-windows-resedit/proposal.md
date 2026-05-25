@@ -34,6 +34,7 @@ The release flow (`publish.yml`) emits a plain `vX.Y.Z` tag, so production build
 - Add `packages/electron/src/__tests__/forge-config-windows-version.test.ts`: textual pin over `forge.config.ts` to prevent silent regressions (import path, helper signature, `isWindowsBuildHost` predicate, unconditional `buildVersion`, conditional `appVersion`, explanatory comment).
 - Add `packages/electron/src/lib/__tests__/build-version.test.ts`: 9 cases covering plain releases, ci-electron prerelease slugs, missing/empty/non-integer run numbers, malformed pkgVersion, multi-digit components, and the invariant that output always matches `^\d+\.\d+\.\d+\.\d+$`.
 - Add the `author` field to `packages/electron/package.json` (required by `@electron/packager`; surfaced as a separate failure mode on a clean re-run after the version fix).
+- Set `packagerConfig.appCopyright = "Copyright © 2026 BlackBelt Technology"`. Without this override, `@electron/packager` copies the Electron framework's default string (`"Copyright (C) 2015 GitHub, Inc."`) into Windows VERSIONINFO `LegalCopyright` (Explorer → Properties → Details → Copyright) AND macOS `NSHumanReadableCopyright` (Info.plist). The field is universal — not Windows-gated — because both platforms inherit the wrong default. Year is hardcoded to match `LICENSE`; avoids non-deterministic builds from `new Date().getFullYear()`.
 
 ## Capabilities
 
@@ -43,11 +44,11 @@ The release flow (`publish.yml`) emits a plain `vX.Y.Z` tag, so production build
 
 ### Modified Capabilities
 
-- `electron-build-pipeline`: add a requirement that the Windows VERSIONINFO override SHALL be derived from a 4-integer build version when the slug is not a plain release tag, AND that the override is scoped to Windows build hosts so it does not leak into darwin/linux artifacts.
+- `electron-build-pipeline`: add (a) a requirement that the Windows VERSIONINFO override SHALL be derived from a 4-integer build version when the slug is not a plain release tag, AND that the override is scoped to Windows build hosts so it does not leak into darwin/linux artifacts; (b) a requirement that `packagerConfig.appCopyright` SHALL be set to a BlackBelt-branded string so the produced Windows `.exe` `LegalCopyright` and macOS `NSHumanReadableCopyright` do not carry the Electron framework default (`"Copyright (C) 2015 GitHub, Inc."`).
 
 ## Impact
 
-- **Code**: `packages/electron/src/lib/build-version.ts` (new, ~50 LOC, pure), `packages/electron/forge.config.ts` (modified — adds import, declares `buildVersion` + `isWindowsBuildHost`, plugs both into `packagerConfig`), `packages/electron/package.json` (add `author` field).
+- **Code**: `packages/electron/src/lib/build-version.ts` (new, ~50 LOC, pure), `packages/electron/forge.config.ts` (modified — adds import, declares `buildVersion` + `isWindowsBuildHost`, plugs both into `packagerConfig`, sets `appCopyright`), `packages/electron/package.json` (add `author` field).
 - **Tests**: `packages/electron/src/lib/__tests__/build-version.test.ts` (9 cases, all green), `packages/electron/src/__tests__/forge-config-windows-version.test.ts` (6 pins, all green).
 - **CI**: unblocks `ci-electron.yml` Windows legs (`win32-x64`, `win32-arm64`) on any branch with a prerelease slug. Was 2/6 failing on run 26405031631 before the fix.
 - **Release flow**: unaffected. `publish.yml` emits plain `vX.Y.Z` tags; `deriveWindowsBuildVersion("0.5.4", "<run>")` returns `0.5.4.<run>`, a valid 4-integer FileVersion that users never see (`app.getVersion()` returns the SemVer from `package.json#version`).

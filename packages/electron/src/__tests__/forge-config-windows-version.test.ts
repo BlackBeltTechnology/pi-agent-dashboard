@@ -78,4 +78,16 @@ describe("forge.config.ts Windows VERSIONINFO override", () => {
     expect(source).toMatch(/productVersion/i);
     expect(source).toMatch(/win32\.js|VERSIONINFO|parseVersionString/);
   });
+
+  it("sets appCopyright to a BlackBelt-branded string", () => {
+    // Without this override, @electron/packager copies the Electron
+    // framework's default "Copyright (C) 2015 GitHub, Inc." string into
+    // Windows VERSIONINFO `LegalCopyright` and macOS
+    // `NSHumanReadableCopyright`. The pin is a regex (year-tolerant) so a
+    // future year bump doesn't break the test, but the BlackBelt token
+    // must remain.
+    expect(source).toMatch(
+      /appCopyright\s*:\s*["']Copyright\s+\u00a9\s+\d{4}\s+BlackBelt Technology["']/,
+    );
+  });
 });

@@ -32,6 +32,7 @@ All tasks below are **implemented and verified locally** on `feat/enable-standal
   - Conditionally spread `...(isWindowsBuildHost ? { appVersion: buildVersion } : {})` so `ProductVersion` is also a 4-integer string on Windows, while darwin/linux artifacts keep the full SemVer in `CFBundleShortVersionString` / Info.plist.
 - [x] 3.6 Add explanatory comment block above the declarations citing `@electron/packager/dist/win32.js` lines (`productVersion: this.opts.appVersion` ← no override path; `fileVersion: this.opts.buildVersion || appVersion`).
 - [x] 3.7 Add `author` field to `packages/electron/package.json` (`@electron/packager` requires it; surfaces as a separate hard error after buildVersion was first fixed — caught in commit d6e9738c).
+- [x] 3.8 Set `packagerConfig.appCopyright = "Copyright © 2026 BlackBelt Technology"`. Universal (not Windows-gated) — maps to Windows `LegalCopyright` AND macOS `NSHumanReadableCopyright`. Without it, the produced `.exe` Properties → Details → Copyright shows `"Copyright (C) 2015 GitHub, Inc."` (Electron framework default). Surfaced by user inspection of artifacts from run 26412541668.
 
 ## 4. Textual pin test over `forge.config.ts`
 
@@ -43,11 +44,12 @@ All tasks below are **implemented and verified locally** on `feat/enable-standal
   - sets `packagerConfig.buildVersion` (shorthand, unconditional)
   - sets `packagerConfig.appVersion` only inside `...(isWindowsBuildHost ? { appVersion: buildVersion } : {})`
   - explanatory comment mentions `productVersion` AND one of `win32.js` / `VERSIONINFO` / `parseVersionString`
+  - `appCopyright` is set to a BlackBelt-branded string matching `/appCopyright\s*:\s*["']Copyright\s+\u00a9\s+\d{4}\s+BlackBelt Technology["']/` (year-tolerant regex; brand token mandatory)
 
 ## 5. Local verification
 
 - [x] 5.1 `vitest run packages/electron/src/lib/__tests__/build-version.test.ts` → 9/9 pass.
-- [x] 5.2 `vitest run packages/electron/src/__tests__/forge-config-windows-version.test.ts` → 6/6 pass.
+- [x] 5.2 `vitest run packages/electron/src/__tests__/forge-config-windows-version.test.ts` → 7/7 pass (was 6/6; +1 for the appCopyright pin).
 - [x] 5.3 `vitest run packages/electron/src/__tests__/forge-config-dmg-naming.test.ts` → 6/6 pass (DMG arch-tagging regex still matches; no regression from the new declarations sitting above the config object).
 - [x] 5.4 `vitest run packages/electron/src/__tests__/no-direct-platform-branch.test.ts` → 1/1 pass (no new platform branches introduced outside the existing allowed sites).
 - [x] 5.5 `tsx packages/electron/forge.config.ts` loads cleanly locally; `buildVersion = "0.5.3.0"` printed when `GITHUB_RUN_NUMBER` is unset.

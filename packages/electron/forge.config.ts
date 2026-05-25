@@ -56,6 +56,14 @@ const config: ForgeConfig = {
     // On darwin/linux this stays unset, so packager defaults to
     // pkgVersion (= full SemVer slug) for Info.plist visibility.
     ...(isWindowsBuildHost ? { appVersion: buildVersion } : {}),
+    // VERSIONINFO `LegalCopyright` (Windows) + `NSHumanReadableCopyright`
+    // (macOS Info.plist). Without this override, @electron/packager copies
+    // the Electron framework's default string ("Copyright (C) 2015 GitHub,
+    // Inc.") into the produced .exe / .app metadata. See packager
+    // dist/win32.js:51 (`this.opts.appCopyright || ...framework-default`).
+    // Year hardcoded to match LICENSE (avoids non-deterministic builds).
+    // See change: fix-ci-electron-windows-resedit.
+    appCopyright: "Copyright © 2026 BlackBelt Technology",
     executableName: "pi-dashboard",
     icon: path.resolve(__dirname, "resources/icon"),
     appBundleId: "com.blackbelt-technology.pi-dashboard",
