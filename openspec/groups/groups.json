@@ -30,6 +30,12 @@
       "name": "Separate functions to plugins",
       "color": "#ef4444",
       "order": 4
+    },
+    {
+      "id": "electrun-execution",
+      "name": "Electrun execution",
+      "color": "#a855f7",
+      "order": 5
     }
   ],
   "assignments": {
@@ -110,6 +116,21 @@
     "harvest-bootstrap-survivor-fixes": "ui",
     "fix-electron-auto-update-pipeline": "future",
     "fix-electron-server-launch-node-bin": "ui",
-    "fix-slash-dispatch-delivery": "ui"
+    "fix-slash-dispatch-delivery": "ui",
+    "add-wizard-launch-progress-log": "electrun-execution",
+    "fix-doctor-bundle-aware-probes": "electrun-execution",
+    "fix-doctor-windows-launch-test": "electrun-execution",
+    "tighten-process-list-ux": "ui",
+    "fix-ci-electron-runnable-bundles": "electrun-execution",
+    "add-ci-electron-on-demand-build": "electrun-execution",
+    "add-bundle-mode-marker": "electrun-execution",
+    "eliminate-electron-runtime-install": "electrun-execution",
+    "unify-tool-renderer-code-font-size": "ui",
+    "fix-dashboard-spawn-correlation-by-token": "ui",
+    "add-internal-monaco-editor-pane": "next-phase",
+    "add-ask-user-input-multiline-paste": "ui",
+    "fix-stale-bundled-server-cache": "electrun-execution",
+    "skip-affected-bundled-node": "electrun-execution",
+    "fix-publish-tsx-missing": "electrun-execution"
   }
 }

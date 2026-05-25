@@ -16,4 +16,4 @@
 ## 4. Verification
 
 - [x] 4.1 Run `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no regressions (none expected — dep-only change).
-- [ ] 4.2 After merge, manually re-run the failed `publish.yml` workflow (or wait for next release) and confirm all 6 matrix entries pass the Bundle step.
+- [x] 4.2 After merge, manually re-run the failed `publish.yml` workflow (or wait for next release) and confirm all 6 matrix entries pass the Bundle step.
