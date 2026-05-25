@@ -23,7 +23,7 @@ flowchart TD
 | State | Purpose |
 |---|---|
 | `checking-server-health` | Probe `GET /api/health` on configured port. 3 s deadline. |
-| `wizard-welcome` | First-run only. Single welcome card + `[Launch dashboard]`. Marker `~/.pi/dashboard/first-run-done`. |
+| `wizard-welcome` | First-run only. Single welcome card + `[Launch dashboard]`. Marker `~/.pi/dashboard/first-run-done`. Invariant: splash and wizard mutually exclusive. `closeSplash()` runs before `showWelcomeStep()`; `showSplash()` re-opens after wizard closes, before `launch-server` status update. Wizard window uses `show: false` + `ready-to-show` focus to avoid occlusion by splash `alwaysOnTop`. See change: fix-wizard-occluded-by-splash. |
 | `launch-server` | `selectLaunchSource()` → `spawnFromSource()`. Stamps `DASHBOARD_STARTER=Electron`. `setSpawnedPid(pid)`. |
 | `health-wait` | Poll `/api/health` until 200. Deadline `SERVER_READY_DEADLINE_MS = 15000`. |
 | `attach` (end) | Server already running. Open main window, no spawn. |
