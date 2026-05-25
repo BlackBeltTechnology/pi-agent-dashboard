@@ -86,10 +86,10 @@ jobs:
             FILTERED="$ALL"
           else
             FILTERED=$(echo "$ALL" | jq --arg legs "$LEGS" '
-              [ .[] | select(
-                  ($legs == .platform) or
+              [ .[] | . as $r | select(
+                  ($legs == $r.platform) or
                   ( ($legs | split(",") | map(gsub("^\\s+|\\s+$";"")))
-                    | index(.platform + "-" + .arch) )
+                    | index($r.platform + "-" + $r.arch) )
               ) ]
             ')
           fi
