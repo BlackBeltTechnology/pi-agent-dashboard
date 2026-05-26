@@ -309,6 +309,19 @@ export interface UiDataListMessage {
   items: unknown[];
 }
 
+/**
+ * Bridge → server: the bridge's 30 s VCS tick discovered
+ * `existsSync(ctx.cwd) === false` for the first time on a session whose
+ * cwd previously existed. Server responds by stamping `cwdMissing: true`
+ * on the matching `DashboardSession` and broadcasting `session_updated`.
+ * Idempotent on the server side — re-emitting is harmless.
+ * See change: add-worktree-lifecycle-actions.
+ */
+export interface CwdMissingMessage {
+  type: "cwd_missing";
+  sessionId: string;
+}
+
 // ── RPC keeper: bridge → server slash dispatch ──
 // See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
 //
@@ -393,6 +406,7 @@ export type ExtensionToServerMessage =
   | ExtUiDecoratorMessage
   | AssetRegisterMessage
   | DispatchExtensionCommandMessage
+  | CwdMissingMessage
   | QueueUpdateToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────

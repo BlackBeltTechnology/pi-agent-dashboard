@@ -37,6 +37,8 @@ import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/type
 import { useMobile } from "../hooks/useMobile.js";
 import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { SessionSubcard } from "./SessionSubcard.js";
+import { CwdGonePill } from "./CwdGonePill.js";
+import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 
 /**
@@ -134,6 +136,7 @@ export function GitInfo({ session }: { session: DashboardSession }) {
         </>
       )}
       <WorktreePill session={session} />
+      <CwdGonePill session={session} />
     </div>
   );
 }
@@ -318,6 +321,7 @@ export function SessionCard({
   now,
   showGitInfo,
   isHidden,
+  allSessions,
   onHide,
   onUnhide,
   contextUsage,
@@ -347,6 +351,10 @@ export function SessionCard({
   now: number;
   showGitInfo: boolean;
   isHidden: boolean;
+  /** Full session list — forwarded into WorktreeActionsMenu / CloseWorktreeDialog
+   *  so the dialog can render active-session names. Optional; safe default `[]`.
+   *  See change: add-worktree-lifecycle-actions. */
+  allSessions?: DashboardSession[];
   onHide: (id: string) => void;
   onUnhide: (id: string) => void;
   contextUsage?: ContextUsageInfo;
@@ -656,18 +664,18 @@ export function SessionCard({
             {(!isAlive || isHidden) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
-                disabled={session.resuming}
+                disabled={session.resuming || session.cwdMissing === true}
                 className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Resume session (continue same session)"
+                title={session.cwdMissing ? "session's directory no longer exists" : "Resume session (continue same session)"}
               >
                 <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />Resume
               </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
-              disabled={session.resuming}
+              disabled={session.resuming || session.cwdMissing === true}
               className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Fork session (new session from this point)"
+              title={session.cwdMissing ? "session's directory no longer exists" : "Fork session (new session from this point)"}
             >
               <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />Fork
             </button>
@@ -748,7 +756,12 @@ export function SessionCard({
           flows-plugin's FlowActivityBadgeClaim and jj-plugin's badge
           render here via the session-card-badge slot consumer that
           WorkspaceSubcard hosts internally. */}
-      <WorkspaceSubcard session={session} showGitInfo={showGitInfo} />
+      <WorkspaceSubcard
+        session={session}
+        showGitInfo={showGitInfo}
+        allSessions={allSessions ?? []}
+        onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
+      />
 
       {/* PROCESS subcard */}
       {processes && processes.length > 0 && onKillProcess && (
@@ -781,7 +794,7 @@ export function SessionCard({
  * Hidden when both showGitInfo is false AND no plugin claims session-card-badge.
  * See change: redesign-session-card-subcards (D4).
  */
-function WorkspaceSubcard({ session, showGitInfo }: { session: DashboardSession; showGitInfo: boolean }) {
+function WorkspaceSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void }) {
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
   const hasActions = useSlotHasClaimsForSession("workspace-action-bar", session);
   // Worktree sessions need their own GitInfo line even in multi-session
@@ -789,12 +802,14 @@ function WorkspaceSubcard({ session, showGitInfo }: { session: DashboardSession;
   // worktree session is on a different branch and carries the
   // <WorktreePill> identity marker. See change: add-worktree-spawn-dialog.
   const renderGitInfo = showGitInfo || !!session.gitWorktree;
-  if (!renderGitInfo && !hasBadge && !hasActions) return null;
+  const hasWorktreeActions = !!session.gitWorktree;
+  if (!renderGitInfo && !hasBadge && !hasActions && !hasWorktreeActions) return null;
   return (
     <SessionSubcard title="WORKSPACE">
       {renderGitInfo ? <GitInfo session={session} /> : null}
       {hasBadge ? <SessionCardBadgeSlot session={session} /> : null}
       {hasActions ? <WorkspaceActionBarSlot session={session} /> : null}
+      {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
     </SessionSubcard>
   );
 }

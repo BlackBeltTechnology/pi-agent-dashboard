@@ -619,6 +619,12 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
               onOpenWorktreeDialog={onSpawnSession ? () => setWorktreeDialogCwd(group.cwd) : undefined}
+              brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended").length}
+              onCleanUpBroken={onHideSession ? () => {
+                for (const s of group.sessions) {
+                  if (s.cwdMissing === true && s.status === "ended") onHideSession(s.id);
+                }
+              } : undefined}
             />
           </div>
           {/* Plugin slot: sidebar-folder-section (additive, coexists with FolderOpenSpecSection) */}

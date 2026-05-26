@@ -453,6 +453,10 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   registry.register(binaryDef("git", deps));
   registry.register(binaryDef("jj", deps));
   registry.register(binaryDef("zrok", deps));
+  // GitHub CLI — used by the worktree-lifecycle `pr` endpoint.
+  // Optional; if missing the endpoint returns code `gh_not_found`.
+  // See change: add-worktree-lifecycle-actions.
+  registry.register(binaryDef("gh", deps));
 
   // Platform-conditional process-inspection utilities. These are only
   // called by `packages/shared/src/platform/process.ts` on their native

@@ -1,0 +1,227 @@
+/**
+ * Inline action menu rendered inside the WORKSPACE subcard for sessions
+ * with `session.gitWorktree`. Four actions:
+ *   - Push           → POST /api/git/worktree/push
+ *   - Open / View PR → POST /api/git/worktree/pr  (or link to existing PR)
+ *   - Merge          → opens MergeConfirmDialog
+ *   - Close worktree → opens CloseWorktreeDialog
+ *
+ * On mobile (`useMobile() === true`) collapses to a single `⋯` button
+ * opening an inline action sheet listing the same four actions.
+ *
+ * See change: add-worktree-lifecycle-actions.
+ */
+import React, { useEffect, useState } from "react";
+import { Icon } from "@mdi/react";
+import {
+  mdiArrowUpBoldOutline,
+  mdiSourcePull,
+  mdiSourceMerge,
+  mdiCloseBoxOutline,
+  mdiDotsHorizontal,
+} from "@mdi/js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { pushWorktreeBranch, createWorktreePR } from "../lib/git-api.js";
+import { fetchTool } from "../lib/tools-api.js";
+import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
+import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
+import { useMobile } from "../hooks/useMobile.js";
+
+/**
+ * Module-level cache of `gh` availability — one fetch per page load,
+ * shared across every WorktreeActionsMenu instance. `undefined` = pending,
+ * `true` / `false` = resolved. See change: add-worktree-lifecycle-actions.
+ */
+let ghAvailableCache: boolean | undefined;
+let ghAvailablePromise: Promise<boolean> | undefined;
+/** Test-only: clear the module-level cache. */
+export function __resetGhAvailableCache(): void {
+  ghAvailableCache = undefined;
+  ghAvailablePromise = undefined;
+}
+function probeGhAvailable(): Promise<boolean> {
+  if (ghAvailableCache !== undefined) return Promise.resolve(ghAvailableCache);
+  if (ghAvailablePromise) return ghAvailablePromise;
+  ghAvailablePromise = fetchTool("gh")
+    .then((r) => {
+      ghAvailableCache = r.ok === true;
+      return ghAvailableCache;
+    })
+    .catch(() => {
+      ghAvailableCache = false;
+      return false;
+    });
+  return ghAvailablePromise;
+}
+
+interface Props {
+  session: DashboardSession;
+  /** Live session list — used by the close dialog to render active-session names. */
+  allSessions: DashboardSession[];
+  onShutdownSession: (sessionId: string) => void;
+}
+
+interface ToastMsg {
+  level: "info" | "error" | "success";
+  text: string;
+}
+
+export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }: Props) {
+  const [busy, setBusy] = useState<null | "push" | "pr">(null);
+  const [toast, setToast] = useState<ToastMsg | null>(null);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [ghAvailable, setGhAvailable] = useState<boolean | undefined>(ghAvailableCache);
+  const isMobile = useMobile();
+
+  useEffect(() => {
+    if (ghAvailable !== undefined) return;
+    let cancelled = false;
+    probeGhAvailable().then((v) => { if (!cancelled) setGhAvailable(v); });
+    return () => { cancelled = true; };
+  }, [ghAvailable]);
+
+  if (!session.gitWorktree) return null;
+
+  // PR button visibility:
+  //   - If session already has a PR (`gitPrNumber` set), always show the
+  //     "View PR" link (just opens the URL — doesn't need gh).
+  //   - Otherwise only show "Open PR" when `gh` is resolvable.
+  const showPrButton = session.gitPrNumber != null || ghAvailable === true;
+
+  const onPush = async () => {
+    setBusy("push");
+    setToast(null);
+    const result = await pushWorktreeBranch({ cwd: session.cwd });
+    setBusy(null);
+    if (result.ok) setToast({ level: "success", text: "Pushed." });
+    else setToast({ level: "error", text: `push failed: ${result.code}` });
+  };
+
+  const onOpenPr = async () => {
+    if (session.gitPrUrl) {
+      window.open(session.gitPrUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+    setBusy("pr");
+    setToast(null);
+    const result = await createWorktreePR({ cwd: session.cwd });
+    setBusy(null);
+    if (result.ok && result.data?.url) {
+      window.open(result.data.url, "_blank", "noopener,noreferrer");
+      setToast({ level: "success", text: "PR opened." });
+    } else if (!result.ok) {
+      setToast({ level: "error", text: `PR failed: ${result.code}` });
+    }
+  };
+
+  const buttons: Array<{
+    key: string;
+    label: string;
+    icon: string;
+    onClick: () => void;
+    title: string;
+    disabled?: boolean;
+    danger?: boolean;
+  }> = [
+    {
+      key: "push",
+      label: "Push",
+      icon: mdiArrowUpBoldOutline,
+      onClick: onPush,
+      title: "Push branch to origin",
+      disabled: busy !== null,
+    },
+    ...(showPrButton ? [{
+      key: "pr",
+      label: session.gitPrNumber != null ? `View PR #${session.gitPrNumber}` : "Open PR",
+      icon: mdiSourcePull,
+      onClick: onOpenPr,
+      title: session.gitPrNumber != null ? `Open PR #${session.gitPrNumber} in browser` : "Open a pull request via gh",
+      disabled: busy !== null,
+    }] : []),
+    {
+      key: "merge",
+      label: "Merge",
+      icon: mdiSourceMerge,
+      onClick: () => setMergeOpen(true),
+      title: "Merge this branch into its base",
+    },
+    {
+      key: "close",
+      label: "Close",
+      icon: mdiCloseBoxOutline,
+      onClick: () => setCloseOpen(true),
+      title: "Close (remove) this worktree",
+      danger: true,
+    },
+  ];
+
+  const renderButton = (b: (typeof buttons)[number]) => (
+    <button
+      key={b.key}
+      type="button"
+      onClick={b.onClick}
+      disabled={b.disabled}
+      title={b.title}
+      data-testid={`worktree-action-${b.key}`}
+      className={`inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] disabled:opacity-50 ${b.danger ? "hover:text-red-400 hover:border-red-500/50" : "hover:text-[var(--text-primary)]"}`}
+    >
+      <Icon path={b.icon} size={0.45} className="inline mr-0.5" />
+      {b.label}
+    </button>
+  );
+
+  return (
+    <div data-testid="worktree-actions-menu" className="flex items-center gap-1 text-[10px] flex-wrap">
+      {isMobile ? (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setSheetOpen((s) => !s)}
+            title="Worktree actions"
+            data-testid="worktree-actions-mobile-trigger"
+            className="inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <Icon path={mdiDotsHorizontal} size={0.5} />
+          </button>
+          {sheetOpen && (
+            <div
+              data-testid="worktree-actions-mobile-sheet"
+              className="absolute top-full right-0 mt-1 z-50 flex flex-col gap-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px]"
+            >
+              {buttons.map(renderButton)}
+            </div>
+          )}
+        </div>
+      ) : (
+        buttons.map(renderButton)
+      )}
+
+      {toast && (
+        <span
+          data-testid="worktree-actions-toast"
+          className={`text-[10px] ${toast.level === "error" ? "text-red-400" : toast.level === "success" ? "text-green-400" : "text-[var(--text-muted)]"}`}
+        >
+          {toast.text}
+        </span>
+      )}
+
+      {closeOpen && (
+        <CloseWorktreeDialog
+          cwd={session.cwd}
+          allSessions={allSessions}
+          onShutdownSession={onShutdownSession}
+          onClose={() => setCloseOpen(false)}
+        />
+      )}
+      {mergeOpen && (
+        <MergeConfirmDialog
+          cwd={session.cwd}
+          onClose={() => setMergeOpen(false)}
+        />
+      )}
+    </div>
+  );
+}

@@ -45,7 +45,13 @@ export function preflightSpawn(
   // 1. cwd exists
   const cwdExists = existsSync(cwd);
   if (!cwdExists) {
-    reasons.push({ code: "DIR_MISSING", message: `Directory does not exist: ${cwd}` });
+    // Emit BOTH the legacy `DIR_MISSING` code (existing clients) and the
+    // new `cwd_missing` code (introduced in change:
+    // add-worktree-lifecycle-actions). One release of overlap; subsequent
+    // release drops `DIR_MISSING`.
+    const msg = `Directory does not exist: ${cwd}`;
+    reasons.push({ code: "DIR_MISSING", message: msg });
+    reasons.push({ code: "cwd_missing", message: msg });
     // No point checking isDirectory / writable if it doesn't exist.
   } else {
     // 2. cwd is a directory

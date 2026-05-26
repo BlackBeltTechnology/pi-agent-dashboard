@@ -592,7 +592,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? []);
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
-  registerGitRoutes(fastify, { networkGuard });
+  registerGitRoutes(fastify, { networkGuard, sessionManager, browserGateway });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerOpenSpecRoutes(fastify, {
     sessionManager,

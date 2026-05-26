@@ -2,6 +2,7 @@
  * Model and thinking-level change detection.
  * Sends model_update only when values actually change.
  */
+import { existsSync } from "node:fs";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
 import { gatherGitInfo, gatherJjInfo } from "./vcs-info.js";
@@ -82,6 +83,30 @@ export function resetReconnectCaches(bc: BridgeContext): void {
   bc.lastGitBranch = undefined;
   bc.lastGitPrNumber = undefined;
   bc.lastGitWorktreeJson = undefined;
+}
+
+/**
+ * Emit `cwd_missing` the first time `existsSync(cwd)` flips to false.
+ * Debounced via `bc.lastCwdMissing` — once we've reported missing, the
+ * tick is a no-op forever (we never reset to false on rediscovery; see
+ * the BridgeContext doc-comment for the rationale).
+ *
+ * Pure with respect to `bc` aside from caching the flag; the only side
+ * effect is `connection.send`. See change: add-worktree-lifecycle-actions.
+ */
+export function sendCwdMissingIfChanged(
+  bc: BridgeContext,
+  cwd: string,
+  exists: (p: string) => boolean = existsSync,
+): void {
+  if (bc.lastCwdMissing === true) return;
+  if (!cwd) return;
+  if (exists(cwd)) return;
+  bc.lastCwdMissing = true;
+  bc.connection.send({
+    type: "cwd_missing",
+    sessionId: bc.sessionId,
+  });
 }
 
 /**

@@ -13,7 +13,9 @@ import {
   mdiAlertCircleOutline,
   mdiCircleSmall,
   mdiSourceBranchPlus,
+  mdiBroom,
 } from "@mdi/js";
+import { ConfirmDialog } from "@blackbelt-technology/pi-dashboard-client-utils/ConfirmDialog";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 
@@ -31,6 +33,14 @@ interface Props {
    * See change: add-worktree-spawn-dialog.
    */
   isGitRepo?: boolean;
+  /**
+   * Number of ended sessions in this folder whose `cwdMissing === true`.
+   * Drives the visibility + label of the `Clean up broken (N)` button.
+   * 0 / undefined hides the button. See change: add-worktree-lifecycle-actions.
+   */
+  brokenSessionCount?: number;
+  /** Called when the user confirms cleaning up. Fires hide for each broken session. */
+  onCleanUpBroken?: () => void;
   onSpawnSession: () => void;
   onOpenTerminals: () => void;
   onOpenEditor: () => void;
@@ -53,6 +63,8 @@ export function FolderActionBar({
   nativeEditors,
   spawningDisabled,
   isGitRepo,
+  brokenSessionCount,
+  onCleanUpBroken,
   onSpawnSession,
   onOpenTerminals,
   onOpenEditor,
@@ -69,6 +81,8 @@ export function FolderActionBar({
   // networkGuard already enforces access for the REST endpoint.
   // See change: add-worktree-spawn-dialog.
   const showWorktreeButton = isGitRepo === true && !!onOpenWorktreeDialog;
+  const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
+  const [confirmCleanUpOpen, setConfirmCleanUpOpen] = React.useState(false);
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -160,6 +174,27 @@ export function FolderActionBar({
           </span>
         </button>
       ))}
+
+      {showCleanUp && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setConfirmCleanUpOpen(true); }}
+          data-testid="folder-cleanup-broken-btn"
+          className="text-[10px] px-1.5 py-0.5 rounded border border-red-500/40 text-red-300 hover:bg-red-500/10"
+          title={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists`}
+        >
+          <span className="inline-flex items-center gap-0.5">
+            <Icon path={mdiBroom} size={0.5} /> Clean up broken ({brokenSessionCount})
+          </span>
+        </button>
+      )}
+      {confirmCleanUpOpen && (
+        <ConfirmDialog
+          message={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists?`}
+          confirmLabel="Hide"
+          onConfirm={() => { setConfirmCleanUpOpen(false); onCleanUpBroken?.(); }}
+          onCancel={() => setConfirmCleanUpOpen(false)}
+        />
+      )}
 
       {/* Pi Resources — right-aligned */}
       <button

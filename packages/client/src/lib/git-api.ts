@@ -142,3 +142,63 @@ export async function createWorktree(params: {
     ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
   };
 }
+
+// ── Worktree lifecycle endpoints ─────────────────────────────────────────
+// See change: add-worktree-lifecycle-actions.
+
+export interface LifecycleSuccess<T = unknown> { ok: true; data?: T; }
+export interface LifecycleFailure { ok: false; code: string; error: string; stderr?: string; data?: { sessionIds?: string[] }; }
+export type LifecycleResult<T = unknown> = LifecycleSuccess<T> | LifecycleFailure;
+
+async function postLifecycle<T = unknown>(
+  path: string,
+  body: Record<string, unknown>,
+): Promise<LifecycleResult<T>> {
+  const res = await fetch(`${getApiBase()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (json.success) return { ok: true, data: json.data as T };
+  return {
+    ok: false,
+    code: json.code ?? "git_failed",
+    error: json.error ?? "operation failed",
+    ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
+    ...(json.data ? { data: json.data } : {}),
+  };
+}
+
+/** POST /api/git/worktree/remove */
+export async function removeWorktree(params: { cwd: string; force?: boolean }): Promise<LifecycleResult<{ removed: true }>> {
+  return postLifecycle("/api/git/worktree/remove", params);
+}
+
+/** POST /api/git/worktree/merge */
+export async function mergeWorktree(params: { cwd: string; deleteBranch?: boolean }): Promise<LifecycleResult<{ mergeSha: string; branchDeleted: boolean }>> {
+  return postLifecycle("/api/git/worktree/merge", params);
+}
+
+/** POST /api/git/worktree/push */
+export async function pushWorktreeBranch(params: { cwd: string; setUpstream?: boolean }): Promise<LifecycleResult<undefined>> {
+  return postLifecycle("/api/git/worktree/push", params);
+}
+
+/** POST /api/git/worktree/pr */
+export async function createWorktreePR(params: { cwd: string; title?: string; body?: string }): Promise<LifecycleResult<{ url: string; pushed: boolean }>> {
+  return postLifecycle("/api/git/worktree/pr", params);
+}
+
+/** GET /api/git/worktree/diff-stat */
+export async function fetchWorktreeDiffStat(cwd: string): Promise<LifecycleResult<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }>> {
+  const res = await fetch(`${getApiBase()}/api/git/worktree/diff-stat?cwd=${encodeURIComponent(cwd)}`);
+  const json = await res.json();
+  if (json.success) return { ok: true, data: json.data };
+  return {
+    ok: false,
+    code: json.code ?? "git_failed",
+    error: json.error ?? "diff-stat failed",
+    ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
+  };
+}

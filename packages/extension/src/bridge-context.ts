@@ -37,6 +37,15 @@ export interface BridgeContext {
   lastJjStateJson: string | undefined;
   lastSessionName: string | undefined;
   /**
+   * `true` once the bridge's VCS tick has observed `existsSync(cwd) === false`
+   * and sent the `cwd_missing` notification. Debounce flag so subsequent
+   * ticks don't re-emit. We deliberately never clear it back to `false` even
+   * if the cwd reappears (recreated dir is almost certainly a different
+   * project) — the bridge process typically dies shortly after cwd loss
+   * anyway. See change: add-worktree-lifecycle-actions.
+   */
+  lastCwdMissing: boolean | undefined;
+  /**
    * `false` until the very first `sendStateSync` after the bridge
    * process boots; `true` for the rest of the process lifetime.
    * Drives `registerReason` on `session_register` so the server can

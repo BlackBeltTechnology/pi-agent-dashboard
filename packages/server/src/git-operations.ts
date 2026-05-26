@@ -471,6 +471,312 @@ function shellEscape(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
+// ── Worktree lifecycle (remove / merge / push / pr) ─────────────────────────
+// See change: add-worktree-lifecycle-actions.
+
+import {
+  mapRemoveStderr,
+  mapMergeStderr,
+  mapPushStderr,
+  mapPrStderr,
+  parsePrUrl,
+  parseShortstat,
+  type RemoveCode,
+  type MergeCode,
+  type PushCode,
+  type PrCode,
+} from "./git-worktree-lifecycle.js";
+
+export interface LifecycleSuccess<T = unknown> {
+  ok: true;
+  data?: T;
+}
+export interface LifecycleFailure<C extends string = string> {
+  ok: false;
+  code: C;
+  stderr?: string;
+}
+
+/**
+ * Resolve the main checkout (parent repo root) for any `cwd`. Returns
+ * `null` when the cwd isn't a git work tree.
+ */
+function resolveMainPath(cwd: string): string | null {
+  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
+  if (!commonDirRaw) return null;
+  const commonDirAbs = path.isAbsolute(commonDirRaw)
+    ? commonDirRaw
+    : path.resolve(cwd, commonDirRaw);
+  return path.dirname(commonDirAbs);
+}
+
+/**
+ * `git worktree remove [--force] <cwd>` invoked from the parent repo.
+ * Stderr is mapped to a stable code.
+ */
+export function removeWorktree(opts: {
+  cwd: string;
+  force?: boolean;
+}): LifecycleSuccess<{ removed: true }> | LifecycleFailure<RemoveCode> {
+  const { cwd, force } = opts;
+  const mainPath = resolveMainPath(cwd);
+  if (!mainPath) return { ok: false, code: "not_a_worktree" };
+  const args = ["git", "worktree", "remove"];
+  if (force) args.push("--force");
+  args.push(cwd);
+  try {
+    execSync(args.map(shellEscape).join(" "), {
+      cwd: mainPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return { ok: false, code: mapRemoveStderr(stderr), stderr };
+  }
+  return { ok: true, data: { removed: true } };
+}
+
+const BASE_FALLBACKS = ["develop", "main", "master"] as const;
+
+/**
+ * Resolve the base ref for a merge: prefer the explicit `gitWorktreeBase`,
+ * else first match in `develop|main|master` (local then `origin/`).
+ */
+export function resolveDefaultBase(
+  cwd: string,
+  hint?: string,
+): string | null {
+  if (hint && tryRun(`git rev-parse --verify ${shellEscape(hint)}`, cwd)) return hint;
+  for (const name of BASE_FALLBACKS) {
+    if (tryRun(`git rev-parse --verify refs/heads/${name}`, cwd)) return name;
+  }
+  for (const name of BASE_FALLBACKS) {
+    if (tryRun(`git rev-parse --verify refs/remotes/origin/${name}`, cwd)) {
+      return `origin/${name}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Merge the worktree's current branch into its base ref. Refuses when
+ * the main checkout is dirty; aborts the merge on conflict.
+ *
+ * Steps (all in `mainPath`):
+ *   1. `git status --porcelain` (empty => clean)
+ *   2. `git checkout <base>`
+ *   3. `git merge --no-ff <branch>`
+ *   4. Optional `git branch -d <branch>`
+ */
+export function mergeWorktree(opts: {
+  cwd: string;
+  baseHint?: string;
+  deleteBranch?: boolean;
+}): LifecycleSuccess<{ mergeSha: string; branchDeleted: boolean }> | LifecycleFailure<MergeCode | "dirty_main"> {
+  const { cwd, baseHint, deleteBranch } = opts;
+  const mainPath = resolveMainPath(cwd);
+  if (!mainPath) return { ok: false, code: "git_failed", stderr: "unable to resolve main checkout" };
+  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  if (!branch || branch === "HEAD") {
+    return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
+  }
+  const base = resolveDefaultBase(mainPath, baseHint);
+  if (!base) return { ok: false, code: "base_not_found" };
+
+  // 1. Main must be clean.
+  const porcelain = tryRun("git status --porcelain", mainPath);
+  if (porcelain && porcelain.length > 0) {
+    return { ok: false, code: "dirty_main" as any, stderr: porcelain };
+  }
+
+  // 2. Checkout base in main.
+  try {
+    execSync(`git checkout ${shellEscape(base)}`, {
+      cwd: mainPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return { ok: false, code: mapMergeStderr(stderr), stderr };
+  }
+
+  // 3. Merge --no-ff.
+  try {
+    execSync(`git merge --no-ff ${shellEscape(branch)}`, {
+      cwd: mainPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (err: any) {
+    // git writes conflict notices to BOTH stdout ("CONFLICT (content)...")
+    // AND stderr ("Automatic merge failed..."). Concatenate so the mapper
+    // sees all of it; empty strings are harmless.
+    const stderrRaw = [err?.stderr, err?.stdout, err?.message]
+      .map((v) => (v == null ? "" : String(v)))
+      .filter((s) => s.length > 0)
+      .join("\n");
+    const code = mapMergeStderr(stderrRaw);
+    if (code === "merge_conflict") {
+      // Best-effort abort to leave main on `base` in a clean state.
+      tryRun("git merge --abort", mainPath);
+    }
+    return { ok: false, code, stderr: stderrRaw };
+  }
+
+  const mergeSha = tryRun("git rev-parse --short HEAD", mainPath) ?? "";
+
+  let branchDeleted = false;
+  if (deleteBranch) {
+    try {
+      execSync(`git branch -d ${shellEscape(branch)}`, {
+        cwd: mainPath,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+        timeout: GIT_TIMEOUT,
+      });
+      branchDeleted = true;
+    } catch {
+      // Refuse to escalate to -D — the spec explicitly forbids it.
+      branchDeleted = false;
+    }
+  }
+
+  return { ok: true, data: { mergeSha, branchDeleted } };
+}
+
+/**
+ * Five-line `git diff --stat <base>..<branch>` plus shortstat numbers,
+ * for the merge confirm dialog.
+ */
+export function worktreeDiffStat(opts: {
+  cwd: string;
+  baseHint?: string;
+}): LifecycleSuccess<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }> | LifecycleFailure<MergeCode> {
+  const { cwd, baseHint } = opts;
+  const mainPath = resolveMainPath(cwd);
+  if (!mainPath) return { ok: false, code: "git_failed" };
+  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
+  const base = resolveDefaultBase(mainPath, baseHint);
+  if (!base) return { ok: false, code: "base_not_found" };
+  let stat: string;
+  try {
+    stat = execSync(
+      `git diff --stat ${shellEscape(base)}..${shellEscape(branch)}`,
+      { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: GIT_TIMEOUT },
+    );
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return { ok: false, code: mapMergeStderr(stderr), stderr };
+  }
+  const lines = stat.split("\n").filter((l) => l.length > 0);
+  const summary = lines.slice(0, 5).join("\n");
+  const shortstatLine = lines[lines.length - 1] ?? "";
+  const { filesChanged, insertions, deletions } = parseShortstat(shortstatLine);
+  return {
+    ok: true,
+    data: { summary, filesChanged, insertions, deletions, base, branch },
+  };
+}
+
+/**
+ * `git push [-u] origin <branch>` from the worktree.
+ */
+export function pushBranch(opts: {
+  cwd: string;
+  setUpstream?: boolean;
+}): LifecycleSuccess<{ pushed: true }> | LifecycleFailure<PushCode> {
+  const { cwd, setUpstream = true } = opts;
+  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  if (!branch || branch === "HEAD") {
+    return { ok: false, code: "git_failed", stderr: "detached HEAD" };
+  }
+  // Detect missing remote up-front for a clean error.
+  const remoteExists = tryRun("git remote get-url origin", cwd);
+  if (!remoteExists) return { ok: false, code: "no_remote" };
+  const args = ["git", "push"];
+  if (setUpstream) args.push("-u");
+  args.push("origin", branch);
+  try {
+    execSync(args.map(shellEscape).join(" "), {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return { ok: false, code: mapPushStderr(stderr), stderr };
+  }
+  return { ok: true, data: { pushed: true } };
+}
+
+/**
+ * Open a GitHub pull request via `gh pr create`. When the branch has
+ * no upstream, push first. Caller is expected to have resolved `gh`
+ * via the tool registry (we accept the path here).
+ */
+export function createPullRequest(opts: {
+  cwd: string;
+  ghPath: string;
+  title?: string;
+  body?: string;
+  baseHint?: string;
+}): LifecycleSuccess<{ url: string; pushed: boolean }> | LifecycleFailure<PrCode | PushCode | "pushed_but_pr_failed"> {
+  const { cwd, ghPath, title, body, baseHint } = opts;
+  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  if (!branch || branch === "HEAD") {
+    return { ok: false, code: "git_failed", stderr: "detached HEAD" };
+  }
+  const upstream = tryRun(`git rev-parse --abbrev-ref ${shellEscape(branch)}@{upstream}`, cwd);
+  let pushed = false;
+  if (!upstream) {
+    const pushResult = pushBranch({ cwd, setUpstream: true });
+    if (!pushResult.ok) return pushResult;
+    pushed = true;
+  }
+  const mainPath = resolveMainPath(cwd);
+  const base = resolveDefaultBase(mainPath ?? cwd, baseHint);
+  if (!base) return { ok: false, code: "base_not_found" };
+  // `gh` wants the bare base name (it strips `origin/` itself in older
+  // versions and complains in newer). Use the local short name.
+  const baseShort = base.replace(/^origin\//, "");
+  const args = [ghPath, "pr", "create", "--base", baseShort, "--head", branch];
+  if (title) args.push("--title", title);
+  if (body) args.push("--body", body);
+  // gh allows omitting title/body only with --fill or interactive; pass
+  // --fill when both are omitted so we don't deadlock on a prompt.
+  if (!title && !body) args.push("--fill");
+  let stdout: string;
+  try {
+    stdout = execSync(args.map(shellEscape).join(" "), {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+      env: { ...process.env, GH_PROMPT_DISABLED: "1" },
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    const code = mapPrStderr(stderr);
+    if (pushed) {
+      return { ok: false, code: "pushed_but_pr_failed", stderr };
+    }
+    return { ok: false, code, stderr };
+  }
+  const url = parsePrUrl(stdout);
+  if (!url) {
+    return { ok: false, code: "git_failed", stderr: stdout };
+  }
+  return { ok: true, data: { url, pushed } };
+}
+
 /** Pop the most recent stash. */
 export function stashPop(cwd: string): StashPopResult {
   // Check if there are stash entries

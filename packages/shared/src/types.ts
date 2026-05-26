@@ -121,6 +121,16 @@ export interface DashboardSession {
    * See change: add-worktree-spawn-dialog.
    */
   gitWorktreeBase?: string;
+  /**
+   * Server-managed flag set by any of three probe sites: (1) the bridge's
+   * 30 s VCS tick (`existsSync(cwd) === false`), (2) the server's session
+   * scanner re-probing ended sessions on boot, (3) the `worktree/remove`
+   * lifecycle endpoint optimistically stamping every session under the
+   * removed path. Purely computed — NEVER persisted to `.meta.json`. Older
+   * bridges never send this; clients SHALL treat `undefined` as "not
+   * missing". See change: add-worktree-lifecycle-actions.
+   */
+  cwdMissing?: boolean;
   openspecPhase?: OpenSpecPhase | null;
   openspecChange?: string | null;
   attachedProposal?: string | null;

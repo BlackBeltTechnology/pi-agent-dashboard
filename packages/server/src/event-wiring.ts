@@ -721,6 +721,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       browserGateway.broadcastSessionUpdated(sessionId, jjUpdates);
     }
 
+    if (msg.type === "cwd_missing") {
+      // Bridge detected `existsSync(cwd) === false`. Stamp + broadcast.
+      // Idempotent: re-emitting on a stamped session is harmless.
+      // See change: add-worktree-lifecycle-actions.
+      sessionManager.update(sessionId, { cwdMissing: true });
+      browserGateway.broadcastSessionUpdated(sessionId, { cwdMissing: true });
+    }
+
     if (msg.type === "files_list") {
       browserGateway.sendToSubscribers(sessionId, {
         type: "files_list",
