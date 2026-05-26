@@ -117,12 +117,14 @@ describe("GIT_RECIPES registry", () => {
     const keys = Object.keys(GIT_RECIPES).sort();
     expect(keys).toEqual([
       "GH_PR_NUMBER",
+      "GIT_COMMON_DIR",
       "GIT_CURRENT_BRANCH",
       "GIT_DIFF",
       "GIT_HEAD_SHA",
       "GIT_IS_REPO",
       "GIT_REMOTE_URL",
       "GIT_STATUS_PORCELAIN",
+      "GIT_TOPLEVEL",
     ]);
   });
 

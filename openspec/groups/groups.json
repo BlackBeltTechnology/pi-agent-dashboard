@@ -180,6 +180,7 @@
     "retire-rpc-keeper-when-dispatchcommand-available": "electrun-execution",
     "fix-doctor-stale-managed-install-check": "electrun-execution",
     "add-tunnel-diagnostic-checks": "electrun-execution",
-    "bump-pi-compat-to-0.75": "ui"
+    "bump-pi-compat-to-0.75": "ui",
+    "add-worktree-lifecycle-actions": "worktree"
   }
 }

@@ -656,6 +656,9 @@ Fold-back is **a skill, not a server route**. The dashboard's `JjFoldBackDialog`
 2. Changes are sent to the server only when values differ from last poll
 3. Server broadcasts updates to subscribed browsers
 
+### Git worktree convention (`.worktrees/`)
+Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
+
 ### Child Process Scanning
 1. Bridge scans child processes every 10s via `process-scanner.ts` (two-phase: capture new PGIDs during active bash calls, then check tracked PGIDs)
 2. Only processes running ≥30s are reported (filters out short-lived commands)

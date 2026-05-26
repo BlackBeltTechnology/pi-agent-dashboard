@@ -160,7 +160,15 @@ export function WorktreePill({ session }: { session: DashboardSession }) {
       title={title}
       className="inline-flex items-center px-1.5 py-px rounded-full text-[9px] uppercase tracking-wider border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)]"
     >
-      worktree
+      <span>worktree</span>
+      {wt.name && (
+        <>
+          <span className="mx-1 text-[var(--text-muted)] opacity-60">·</span>
+          <span data-testid="worktree-pill-name" className="normal-case tracking-normal text-[var(--text-secondary)]">
+            {wt.name}
+          </span>
+        </>
+      )}
     </span>
   );
 }
@@ -776,10 +784,15 @@ export function SessionCard({
 function WorkspaceSubcard({ session, showGitInfo }: { session: DashboardSession; showGitInfo: boolean }) {
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
   const hasActions = useSlotHasClaimsForSession("workspace-action-bar", session);
-  if (!showGitInfo && !hasBadge && !hasActions) return null;
+  // Worktree sessions need their own GitInfo line even in multi-session
+  // groups — the group header shows the main checkout's branch, but the
+  // worktree session is on a different branch and carries the
+  // <WorktreePill> identity marker. See change: add-worktree-spawn-dialog.
+  const renderGitInfo = showGitInfo || !!session.gitWorktree;
+  if (!renderGitInfo && !hasBadge && !hasActions) return null;
   return (
     <SessionSubcard title="WORKSPACE">
-      {showGitInfo ? <GitInfo session={session} /> : null}
+      {renderGitInfo ? <GitInfo session={session} /> : null}
       {hasBadge ? <SessionCardBadgeSlot session={session} /> : null}
       {hasActions ? <WorkspaceActionBarSlot session={session} /> : null}
     </SessionSubcard>

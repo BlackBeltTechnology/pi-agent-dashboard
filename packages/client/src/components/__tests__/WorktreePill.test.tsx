@@ -44,8 +44,23 @@ describe("WorktreePill (standalone)", () => {
     render(<WorktreePill session={session} />);
     const pill = screen.getByTestId("worktree-pill");
     expect(pill).toBeTruthy();
-    expect(pill.textContent).toBe("worktree");
+    // Pill text contains both the literal 'worktree' label and the
+    // worktree name (rendered as `worktree · <name>`).
+    expect(pill.textContent).toContain("worktree");
+    expect(screen.getByTestId("worktree-pill-name").textContent).toBe("feat-dark");
     expect(pill.getAttribute("title")).toBe("created from develop");
+  });
+
+  it("omits the name suffix when gitWorktree.name is empty", () => {
+    // Defensive: if a future bridge ever sends an empty name we still
+    // render the bare 'worktree' label rather than a dangling separator.
+    const session = mkSession({
+      gitWorktree: { mainPath: "/repo", name: "" },
+    });
+    render(<WorktreePill session={session} />);
+    const pill = screen.getByTestId("worktree-pill");
+    expect(pill.textContent).toBe("worktree");
+    expect(screen.queryByTestId("worktree-pill-name")).toBeNull();
   });
 
   it("renders the pill with generic 'git worktree' tooltip when base is absent", () => {
@@ -128,6 +143,51 @@ describe("SessionCard worktree pill — mobile vs desktop", () => {
       />,
     );
     expect(screen.getByTestId("worktree-pill")).toBeTruthy();
+  });
+
+  it("desktop SessionCard renders the pill for worktree sessions EVEN when showGitInfo=false (multi-session group)", () => {
+    // Regression: in multi-session folder groups SessionList passes
+    // showGitInfo=false; the WORKSPACE subcard previously skipped GitInfo
+    // entirely, hiding the worktree pill. Worktree sessions must still
+    // render their own GitInfo + pill because their branch differs from
+    // the group's main-checkout branch shown in GroupGitInfo.
+    const session = mkSession({
+      gitBranch: "feat/dark",
+      gitWorktree: { mainPath: "/repo", name: "feat-dark", base: "develop" },
+    });
+    render(
+      <SessionCard
+        session={session}
+        selectedId={undefined}
+        onSelect={() => {}}
+        now={Date.now()}
+        showGitInfo={false}
+        isHidden={false}
+        onHide={() => {}}
+        onUnhide={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("worktree-pill")).toBeTruthy();
+  });
+
+  it("desktop SessionCard with showGitInfo=false renders NO pill for plain-checkout sessions", () => {
+    // Inverse of the regression: non-worktree sessions in multi-session
+    // groups must remain pill-free (and the WORKSPACE subcard collapses
+    // entirely when no other claimant forces it open).
+    const session = mkSession({ gitBranch: "main", gitWorktree: undefined });
+    const { container } = render(
+      <SessionCard
+        session={session}
+        selectedId={undefined}
+        onSelect={() => {}}
+        now={Date.now()}
+        showGitInfo={false}
+        isHidden={false}
+        onHide={() => {}}
+        onUnhide={() => {}}
+      />,
+    );
+    expect(container.querySelector("[data-testid='worktree-pill']")).toBeNull();
   });
 
   it("mobile SessionCard does NOT render the pill (GitInfo is not invoked)", async () => {

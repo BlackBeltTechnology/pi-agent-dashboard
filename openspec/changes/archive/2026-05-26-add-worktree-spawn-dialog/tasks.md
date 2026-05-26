@@ -75,15 +75,15 @@
 
 ## 10. Documentation
 
-- [ ] 10.1 Add a row to `docs/file-index-server.md` for the new `git-worktree.ts` helper (caveman style, path-alphabetical)
-- [ ] 10.2 Add a row to `docs/file-index-client.md` for `WorktreeSpawnDialog.tsx` (caveman style)
-- [ ] 10.3 Update existing rows for `git-operations.ts` / `git-routes.ts` to mention the new endpoints (one-line append; do not pad)
-- [ ] 10.4 Update existing rows for `git-info.ts` / `session-grouping.ts` to mention worktree fields and precedence step 3
-- [ ] 10.5 Mention the new `.worktrees/` layout convention in `docs/architecture.md` (one short paragraph under git workflow / repo conventions)
+- [x] 10.1 Add a row to `docs/file-index-server.md` for the new `git-worktree.ts` helper (caveman style, path-alphabetical)
+- [x] 10.2 Add a row to `docs/file-index-client.md` for `WorktreeSpawnDialog.tsx` (caveman style)
+- [x] 10.3 Update existing rows for `git-operations.ts` / `git-routes.ts` to mention the new endpoints (one-line append; do not pad)
+- [x] 10.4 Update existing rows for `git-info.ts` / `session-grouping.ts` to mention worktree fields and precedence step 3
+- [x] 10.5 Mention the new `.worktrees/` layout convention in `docs/architecture.md` (one short paragraph under git workflow / repo conventions)
 
 ## 11. Validation
 
-- [ ] 11.1 Run `openspec validate --change add-worktree-spawn-dialog --strict`
-- [ ] 11.2 Run full test suite (`npm test`); ensure all new tests pass and no existing tests regress
-- [ ] 11.3 Manual smoke test on a real repo: open dialog, see main + any existing worktrees listed; create a new worktree from `develop`; confirm session card renders worktree pill; confirm session groups under parent pinned dir
-- [ ] 11.4 Cross-platform check: same smoke test on Windows (path separators in derived paths, exclude file)
+- [x] 11.1 Run `openspec validate --change add-worktree-spawn-dialog --strict`
+- [x] 11.2 Run full test suite (`npm test`); ensure all new tests pass and no existing tests regress
+- [x] 11.3 Manual smoke test on a real repo: open dialog, see main + any existing worktrees listed; create a new worktree from `develop`; confirm session card renders worktree pill; confirm session groups under parent pinned dir _(deferred to release-QA per user decision 2026-05-26; all automated tests green + openspec strict-valid)_
+- [x] 11.4 Cross-platform check: same smoke test on Windows (path separators in derived paths, exclude file) _(deferred to release-QA per user decision 2026-05-26; covered by existing `qa/` VM-based test infrastructure when release is cut)_
