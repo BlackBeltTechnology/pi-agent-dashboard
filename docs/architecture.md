@@ -635,6 +635,7 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 1. Bridge polls VCS info every 30s (`vcs-info.ts`, was `git-info.ts`): branch, remote URL, PR number, plus jj workspace state when `.jj/` is present.
 2. Git half (`gatherGitInfo`): unchanged — emits `git_info_update` only when branch/PR change.
 3. Jj half (`gatherJjInfo`): emits `jj_state_update` only when the serialized `JjState` changes. **Fast path**: a single `fs.existsSync("<cwd>/.jj")` check runs before any subprocess. Sessions outside a jj repo pay zero subprocess cost. The probe also short-circuits when the tool registry can't resolve `jj` (cached at module level after first miss).
+   - `jjState.workspaceRoot` carries parent repo root (cwd for default workspace; parent of `.shadow/<name>/` for `jj workspace add`-created workspace). Derives by reading `<cwd>/.jj/repo` (directory → default; file → contents resolve to shared storage). Canonicalizes via `realpath` before emit. `jj workspace root` subprocess fallback only. Enables sidebar collapse of workspace cards under parent folder group. See change: fix-jj-workspace-root-probe.
 4. Server forwards both update types via `session_updated` to subscribed browsers.
 
 #### Jujutsu workspaces

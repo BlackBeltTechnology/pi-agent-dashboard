@@ -9,9 +9,11 @@ The bridge's per-session 30 s cwd probe SHALL:
 - Run `jj st --no-pager` and `jj workspace list --no-pager` in parallel only when `.jj/` exists.
 - Update `Session.jjState` and broadcast via the existing `session_updated` message.
 
-The probe SHALL populate `JjState.workspaceRoot` with the **parent repo root** — the directory shared by every workspace of the repo (which equals the working-copy directory for the default workspace and is the parent of `.shadow/<name>/` for any `jj workspace add`-created workspace). The probe SHALL derive this value via the `jj root` primitive (or equivalent repo-root command), NOT via `jj workspace root` (which returns the current workspace's own working-copy directory and would defeat the workspace-aware grouping rule documented in the "Workspace sessions group under their parent repo" requirement).
+The probe SHALL populate `JjState.workspaceRoot` with the **parent repo root** — the directory shared by every workspace of the repo (which equals the working-copy directory for the default workspace and is the parent of `.shadow/<name>/` for any `jj workspace add`-created workspace). The probe SHALL derive this value by reading the `<cwd>/.jj/repo` filesystem entry: when it is a directory, cwd is the default workspace and `workspaceRoot` equals cwd; when it is a file containing a relative path to the shared storage `.jj/repo`, `workspaceRoot` equals the parent of the resolved storage directory. The probe SHALL NOT use `jj workspace root` (or its alias `jj root`) as the primary derivation, since both return the current workspace's own working-copy directory and would defeat the workspace-aware grouping rule documented in the "Workspace sessions group under their parent repo" requirement.
 
-If the repo-root primitive fails for any reason, the probe SHALL fall back to the workspace-root value and record the error in `JjState.lastError`. The probe SHALL NOT return `undefined` for `workspaceRoot` solely because the repo-root command is unavailable, since a non-empty `workspaceRoot` gates the badge and workspace-list UI.
+The probe SHALL canonicalize the derived `workspaceRoot` via the operating system's `realpath` before assigning it, so the value compares equal to canonicalized `cwd` values under symlinked filesystems (e.g. macOS `/tmp` → `/private/tmp`).
+
+If reading `.jj/repo` fails (corruption, permission, transient I/O), the probe SHALL fall back to `jj workspace root` and record the error in `JjState.lastError`. The probe SHALL NOT return `undefined` for `workspaceRoot` solely because the filesystem read failed, since a non-empty `workspaceRoot` gates the badge and workspace-list UI.
 
 #### Scenario: Non-jj cwd incurs no jj subprocess cost
 
@@ -36,10 +38,10 @@ If the repo-root primitive fails for any reason, the probe SHALL fall back to th
 - **THEN** `Session.jjState.workspaceRoot` SHALL equal `/repo` (the parent repo root, NOT the workspace's own cwd)
 - **AND** `Session.jjState.workspaceName` SHALL equal `"np-tp"`
 
-#### Scenario: Repo-root probe failure falls back gracefully
+#### Scenario: Repo-root derivation failure falls back gracefully
 
-- **GIVEN** a jj repo where the `jj root` invocation fails (timeout, exit code, or unavailable)
+- **GIVEN** a jj repo where the `.jj/repo` filesystem read fails (corruption, permission, transient I/O)
 - **WHEN** the bridge probe tick fires
-- **THEN** `Session.jjState.workspaceRoot` SHALL still be populated (falling back to the workspace-root value)
+- **THEN** `Session.jjState.workspaceRoot` SHALL still be populated (falling back to the `jj workspace root` subprocess value)
 - **AND** `Session.jjState.lastError` SHALL describe the underlying failure
 - **AND** the badge / workspace-list UI SHALL continue to render

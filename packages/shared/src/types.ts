@@ -21,7 +21,14 @@ export interface JjState {
    * created via `jj workspace add`.
    */
   workspaceName?: string;
-  /** Absolute path of the workspace root (== cwd for the active workspace). */
+  /**
+   * Absolute path of the **parent repo root** (== cwd for the default
+   * workspace; the parent directory of `.shadow/<name>/` for any
+   * `jj workspace add`-created workspace). Derived via `jj root`, NOT
+   * `jj workspace root` — the latter returns the current workspace's own
+   * cwd, which would defeat workspace-aware session grouping. See change:
+   * fix-jj-workspace-root-probe.
+   */
   workspaceRoot?: string;
   /** Bookmarks present on the workspace's `@-` (used by the badge / fold-back). */
   bookmarks?: string[];

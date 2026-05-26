@@ -9,7 +9,7 @@
  *
  * See changes: platform-command-executor, add-jj-workspace-plugin.
  */
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import * as jj from "@blackbelt-technology/pi-dashboard-shared/platform/jj.js";
@@ -169,11 +169,44 @@ export function gatherJjInfo(cwd: string): JjState | undefined {
   let workspaceRoot: string | undefined;
   let lastError: string | undefined;
 
-  const rootResult = jj.workspaceRoot({ cwd });
-  if (rootResult.ok) {
-    workspaceRoot = rootResult.value;
-  } else if (rootResult.error.kind !== "not-found") {
-    lastError = describeJjError(rootResult.error);
+  // Decision 1 (change: fix-jj-workspace-root-probe): derive the **parent
+  // repo root** by reading `<cwd>/.jj/repo` from the filesystem.
+  //
+  // - Directory entry → cwd is the original (default) workspace; the
+  //   parent repo root equals cwd.
+  // - File entry → contents are a relative path to the shared storage
+  //   `.jj/repo` directory; resolve and take its parent.
+  //
+  // Neither `jj workspace root` nor its alias `jj root` is suitable as
+  // the primary derivation — both return the CURRENT workspace's own cwd,
+  // which equals `cwd` for non-default workspaces and would silently
+  // defeat workspace-aware session grouping (see Decision 15 of
+  // add-jj-workspace-plugin; verified against jj 0.40).
+  //
+  // Fallback: on filesystem read error we fall back to `jj workspace root`
+  // so `workspaceRoot` is still populated (which the badge / workspace UI
+  // gates on) and record the failure in `lastError`.
+  try {
+    workspaceRoot = deriveJjRepoRoot(cwd);
+  } catch (err) {
+    lastError = err instanceof Error ? err.message : String(err);
+    const fallbackResult = jj.workspaceRoot({ cwd });
+    if (fallbackResult.ok) {
+      workspaceRoot = fallbackResult.value;
+    } else if (fallbackResult.error.kind !== "not-found") {
+      // Keep the original .jj/repo error in lastError — it's the more
+      // diagnostic of the two.
+    }
+  }
+
+  // Decision 4 (change: fix-jj-workspace-root-probe): canonicalize via
+  // realpath before emit. `pathKey` in the client does syntactic
+  // normalization only (no symlink resolution), so the macOS
+  // `/tmp` → `/private/tmp` symlink would silently break the group-key
+  // collapse if we emitted the un-canonical form. Mirrors the hardening
+  // git worktree applies to every cross-checkout path comparison.
+  if (workspaceRoot) {
+    workspaceRoot = canonicalizePathOrFallback(workspaceRoot);
   }
 
   // Workspace name: parse `jj workspace list` and match by working-copy
@@ -202,6 +235,66 @@ export function gatherJjInfo(cwd: string): JjState | undefined {
     workspaceRoot,
     lastError,
   };
+}
+
+/**
+ * Derive the **parent repo root** from `<cwd>/.jj/repo`.
+ *
+ * jj's on-disk layout (stable since workspace support landed):
+ * - In the **default** workspace, `<cwd>/.jj/repo/` is a directory
+ *   containing the actual repository storage. The parent repo root
+ *   equals `cwd`.
+ * - In a `jj workspace add`-created **non-default** workspace,
+ *   `<cwd>/.jj/repo` is a **file** whose contents are a relative path
+ *   (e.g. `../../../.jj/repo`) pointing at the shared storage's
+ *   `.jj/repo` directory. The parent of that resolved directory is the
+ *   parent repo root.
+ *
+ * Structural analog of git's `.git`-as-file in linked worktrees. Pure
+ * filesystem read — no subprocess.
+ *
+ * Throws on read errors so the caller can fall back to a subprocess.
+ * Callers MUST have already checked that `<cwd>/.jj/` exists (the
+ * probe's fast-path gate).
+ *
+ * See change: fix-jj-workspace-root-probe.
+ */
+export function deriveJjRepoRoot(cwd: string): string {
+  const repoPath = path.join(cwd, ".jj", "repo");
+  const stats = statSync(repoPath); // throws on missing
+  if (stats.isDirectory()) {
+    // Default workspace — cwd is the parent repo root.
+    return cwd;
+  }
+  // Non-default workspace — .jj/repo is a file pointing at the storage.
+  const raw = readFileSync(repoPath, "utf8").trim();
+  if (!raw) {
+    throw new Error(`.jj/repo is empty (expected relative path to storage)`);
+  }
+  // Contents are relative to <cwd>/.jj/ (the directory containing the file).
+  const storageRepoDir = path.resolve(path.join(cwd, ".jj"), raw);
+  // Storage `.jj/repo` directory → storage `.jj/` is its parent → storage
+  // working-copy dir (the parent repo root) is the grandparent.
+  return path.dirname(path.dirname(storageRepoDir));
+}
+
+/**
+ * Best-effort `fs.realpathSync.native` to resolve symlinks (e.g. macOS
+ * `/tmp` → `/private/tmp`). If the path no longer exists on disk (race
+ * with workspace removal) or the syscall fails for any other reason,
+ * fall back to the raw value rather than returning undefined — a
+ * non-canonical path is still more useful than no path.
+ *
+ * `realpathSync.native` is preferred over `realpathSync` because it uses
+ * the OS's native `realpath()` rather than the JS-shimmed implementation,
+ * matching what other tools (git, jj) emit when they canonicalize.
+ */
+function canonicalizePathOrFallback(p: string): string {
+  try {
+    return realpathSync.native(p);
+  } catch {
+    return p;
+  }
 }
 
 function describeJjError(

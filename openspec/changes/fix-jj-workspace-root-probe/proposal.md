@@ -46,9 +46,9 @@ output.
   `workspaceRoot` (already documented in Decision 15; this aligns
   implementation with spec).
 - **Affected code**:
-  - `packages/extension/src/vcs-info.ts` — probe derivation logic.
-  - `packages/shared/src/platform/jj.ts` — may add a primitive (`jj.repoRoot`
-    or equivalent) if needed.
+  - `packages/extension/src/vcs-info.ts` — probe derivation logic
+    (reads `<cwd>/.jj/repo` from the filesystem; `jj workspace root`
+    becomes a fallback-only subprocess).
 - **Backwards compatibility**: the `JjState.workspaceRoot` type stays
   identical. Existing consumers (session-grouping) immediately benefit
   without any signature change.

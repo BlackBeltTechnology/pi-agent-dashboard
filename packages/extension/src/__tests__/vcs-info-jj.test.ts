@@ -37,7 +37,53 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
   }),
 }));
 
-import { gatherJjInfo, _resetJjAvailableForTests } from "../vcs-info.js";
+import { gatherJjInfo, deriveJjRepoRoot, _resetJjAvailableForTests } from "../vcs-info.js";
+
+/** Make `<cwd>/.jj/repo` a directory (simulates default workspace). */
+function setupDefaultWorkspace(cwd: string): void {
+  fs.mkdirSync(path.join(cwd, ".jj", "repo"), { recursive: true });
+}
+
+/** Make `<cwd>/.jj/repo` a file with relative path to storage (simulates non-default workspace). */
+function setupNonDefaultWorkspace(cwd: string, relativeToStorage: string): void {
+  fs.mkdirSync(path.join(cwd, ".jj"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, ".jj", "repo"), relativeToStorage);
+}
+
+describe("deriveJjRepoRoot (pure filesystem read)", () => {
+  it("returns cwd when .jj/repo is a directory (default workspace)", () => {
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-derive-")),
+    );
+    setupDefaultWorkspace(tmp);
+    expect(deriveJjRepoRoot(tmp)).toBe(tmp);
+  });
+
+  it("returns parent repo root when .jj/repo is a file (non-default workspace)", () => {
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-derive-")),
+    );
+    // Set up: storage at <tmp>/.jj/repo, workspace at <tmp>/.shadow/np-tp.
+    fs.mkdirSync(path.join(tmp, ".jj", "repo"), { recursive: true });
+    const workspaceCwd = path.join(tmp, ".shadow", "np-tp");
+    setupNonDefaultWorkspace(workspaceCwd, "../../../.jj/repo");
+
+    expect(deriveJjRepoRoot(workspaceCwd)).toBe(tmp);
+  });
+
+  it("throws when .jj/repo does not exist", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-derive-"));
+    fs.mkdirSync(path.join(tmp, ".jj")); // .jj/ exists but .jj/repo does not
+    expect(() => deriveJjRepoRoot(tmp)).toThrow();
+  });
+
+  it("throws when .jj/repo file is empty", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-derive-"));
+    fs.mkdirSync(path.join(tmp, ".jj"));
+    fs.writeFileSync(path.join(tmp, ".jj", "repo"), "");
+    expect(() => deriveJjRepoRoot(tmp)).toThrow(/empty/);
+  });
+});
 
 describe("gatherJjInfo", () => {
   beforeEach(() => {
@@ -49,16 +95,16 @@ describe("gatherJjInfo", () => {
   it("returns undefined when .jj/ does not exist (no jj subprocess spawned)", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-"));
     expect(gatherJjInfo(tmp)).toBeUndefined();
-    // Crucial: NEITHER recipe was called.
     expect(workspaceRoot).not.toHaveBeenCalled();
     expect(workspaceList).not.toHaveBeenCalled();
   });
 
-  it("returns isJjRepo=true with workspace name when .jj/ exists and jj responds", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-"));
-    fs.mkdirSync(path.join(tmp, ".jj"));
+  it("default workspace: workspaceRoot equals cwd, no fallback subprocess", () => {
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-")),
+    );
+    setupDefaultWorkspace(tmp);
 
-    workspaceRoot.mockReturnValue({ ok: true, value: tmp });
     workspaceList.mockReturnValue({
       ok: true,
       value: "default: aaaa 1111 (no description set)\n",
@@ -69,16 +115,37 @@ describe("gatherJjInfo", () => {
     expect(state!.isJjRepo).toBe(true);
     expect(state!.workspaceRoot).toBe(tmp);
     expect(state!.workspaceName).toBe("default");
-    expect(state!.isColocated).toBe(false);
     expect(state!.lastError).toBeUndefined();
+    // Decision 1: filesystem-only derivation — no `jj workspace root` call.
+    expect(workspaceRoot).not.toHaveBeenCalled();
+  });
+
+  it("non-default workspace: workspaceRoot equals the parent repo root, NOT cwd (Decision 15 contract)", () => {
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-")),
+    );
+    fs.mkdirSync(path.join(tmp, ".jj", "repo"), { recursive: true });
+    const workspaceCwd = path.join(tmp, ".shadow", "np-tp");
+    setupNonDefaultWorkspace(workspaceCwd, "../../../.jj/repo");
+
+    workspaceList.mockReturnValue({
+      ok: true,
+      value: "default: aaaa 1111\nnp-tp: bbbb 2222\n",
+    });
+
+    const state = gatherJjInfo(workspaceCwd);
+    expect(state?.workspaceRoot).toBe(tmp);
+    expect(state?.workspaceRoot).not.toBe(workspaceCwd);
+    expect(workspaceRoot).not.toHaveBeenCalled();
   });
 
   it("flags isColocated=true when both .jj/ and .git/ exist", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-"));
-    fs.mkdirSync(path.join(tmp, ".jj"));
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-")),
+    );
+    setupDefaultWorkspace(tmp);
     fs.mkdirSync(path.join(tmp, ".git"));
 
-    workspaceRoot.mockReturnValue({ ok: true, value: tmp });
     workspaceList.mockReturnValue({
       ok: true,
       value: "default: aaaa 1111 (no description set)\n",
@@ -88,10 +155,11 @@ describe("gatherJjInfo", () => {
   });
 
   it("picks `default` workspace when multiple are listed", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-"));
-    fs.mkdirSync(path.join(tmp, ".jj"));
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-")),
+    );
+    setupDefaultWorkspace(tmp);
 
-    workspaceRoot.mockReturnValue({ ok: true, value: tmp });
     workspaceList.mockReturnValue({
       ok: true,
       value:
@@ -102,19 +170,24 @@ describe("gatherJjInfo", () => {
     expect(gatherJjInfo(tmp)?.workspaceName).toBe("default");
   });
 
-  it("surfaces lastError when workspaceRoot fails non-trivially", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-"));
-    fs.mkdirSync(path.join(tmp, ".jj"));
+  it("falls back to jj.workspaceRoot when .jj/repo read fails, records lastError", () => {
+    const tmp = fs.realpathSync.native(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vcs-info-jj-")),
+    );
+    fs.mkdirSync(path.join(tmp, ".jj")); // .jj/ exists, but .jj/repo does NOT
 
-    workspaceRoot.mockReturnValue({
-      ok: false,
-      error: { kind: "exit", code: 1, signal: null, stdout: "", stderr: "fatal: not in a workspace" },
+    // Subprocess fallback returns the (broken-but-non-empty) workspace cwd.
+    workspaceRoot.mockReturnValue({ ok: true, value: tmp });
+    workspaceList.mockReturnValue({
+      ok: true,
+      value: "default: aaaa 1111 (no description set)\n",
     });
-    workspaceList.mockReturnValue({ ok: true, value: "" });
 
     const state = gatherJjInfo(tmp);
     expect(state?.isJjRepo).toBe(true);
-    expect(state?.lastError).toContain("fatal");
+    expect(state?.workspaceRoot).toBe(tmp);
+    expect(state?.lastError).toBeTruthy();
+    expect(workspaceRoot).toHaveBeenCalledTimes(1);
   });
 });
 

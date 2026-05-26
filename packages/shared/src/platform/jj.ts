@@ -42,6 +42,14 @@ export const JJ_VERSION: Recipe<{}, string | undefined> = {
 /**
  * `jj workspace root` → absolute path of the current workspace's root.
  * Errors when cwd is not inside a jj repo.
+ *
+ * Note: for non-default workspaces (those created via `jj workspace add`),
+ * this returns the workspace's OWN cwd — NOT the parent repo root.
+ * `jj root` is documented as a shortcut for this command (verified jj
+ * 0.40), so neither subcommand is suitable for deriving the parent root.
+ * Callers that want the parent repo root MUST read `<cwd>/.jj/repo` from
+ * the filesystem instead — see `deriveJjRepoRoot` in
+ * `packages/extension/src/vcs-info.ts`. See change: fix-jj-workspace-root-probe.
  */
 export const JJ_WORKSPACE_ROOT: Recipe<WithCwd, string | undefined> = {
   argv: () => ["jj", "workspace", "root"],
