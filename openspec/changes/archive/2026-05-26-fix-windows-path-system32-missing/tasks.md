@@ -68,13 +68,13 @@
 
 - [x] 7.1 `npm test` — all green. (582 files / 5974 tests pass.)
 - [x] 7.2 Build the bundle: `node packages/electron/scripts/bundle-server.mjs`. Confirm bundled tree at `packages/electron/resources/server/packages/shared/dist/platform/ensure-windows-path.js` exists. (NOTE: shared package ships TS sources only — no `dist/` step in this repo. Verified bundled source at `packages/electron/resources/server/packages/shared/src/platform/ensure-windows-path.ts` instead.)
-- [ ] 7.3 Dispatch `ci-electron.yml` `legs: win32-x64`. Download artefact. Unzip on a Windows VM.
-- [ ] 7.4 Open Settings → Tools. Verify:
+- [x] 7.3 Dispatch `ci-electron.yml` `legs: win32-x64`. Download artefact. Unzip on a Windows VM. (Runs 26425246370 + 26426824035 both succeeded; tested on `C:\test6\` then `C:\test7\` after the launch-source fix was bundled in.)
+- [x] 7.4 Open Settings → Tools. Verify:
   - `powershell`, `tasklist`, `taskkill` show ✓ with paths under `C:\Windows\System32\`.
   - `wmic` is either ✓ (Win 10 / pre-22H2 where it exists) or absent from the list (after `replace-wmic-with-powershell` removes its registration).
   - `pi`, `openspec`, `node-pty` still resolve via bare-import (no regression).
-- [ ] 7.5 Verify Doctor's "Server launch test" no longer shows ERR_UNSUPPORTED_ESM_URL_SCHEME indirectly (separate fix: `fix-doctor-windows-launch-test`).
-- [ ] 7.6 Spawn a pi session from the dashboard UI. Verify:
+- [x] 7.5 Verify Doctor's "Server launch test" no longer shows ERR_UNSUPPORTED_ESM_URL_SCHEME indirectly (separate fix: `fix-doctor-windows-launch-test`).
+- [x] 7.6 Spawn a pi session from the dashboard UI. Verify:
   - No "Pi started but never connected within 30s" error.
   - No `'wmic' is not recognized` lines in `~\.pi\dashboard\sessions\pi-spawn-*.log`.
   - Pi appears in the sessions list.
