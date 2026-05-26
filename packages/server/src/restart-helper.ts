@@ -27,7 +27,22 @@ export interface RestartParams {
   extraArgs: string[];
   /** Override Node binary (defaults to process.execPath) */
   execPath?: string;
+  /**
+   * Whether the new server will boot in dev mode (jiti TS loader).
+   * Controls the health-poll deadline embedded in the orchestrator script:
+   * - prod: 15s (jiti not involved, server is up well under that)
+   * - dev:  60s (cold jiti boot of ~400 TS files can reach 25–60s)
+   * Mismatching this against the actual mode is harmless but defeats the
+   * point — a too-short deadline writes a spurious failure line to
+   * ~/.pi/dashboard/restart.log even though the new server is fine.
+   * See change: fix-mode-aware-server-ready-deadlines.
+   */
+  dev?: boolean;
 }
+
+/** Health-poll deadline (ms) for the post-spawn /api/health wait. */
+export const RESTART_HEALTH_DEADLINE_PROD_MS = 15_000;
+export const RESTART_HEALTH_DEADLINE_DEV_MS = 60_000;
 
 /**
  * Build the JS source (to run via `node -e`) that performs the restart
@@ -36,6 +51,10 @@ export interface RestartParams {
 export function buildOrchestratorScript(params: RestartParams): string {
   const execPath = params.execPath ?? process.execPath;
   const logPath = path.join(os.homedir(), ".pi", "dashboard", "restart.log");
+  const healthDeadlineMs = params.dev
+    ? RESTART_HEALTH_DEADLINE_DEV_MS
+    : RESTART_HEALTH_DEADLINE_PROD_MS;
+  const healthIterations = Math.floor(healthDeadlineMs / 500);
   // Same convention as `server-pid.ts`. Embedded as a JSON-stringified literal
   // so quoting/path-separator handling is correct on Windows.
   // See change: fix-restart-bridge-auto-start-race.
@@ -72,6 +91,8 @@ const EXEC = ${JSON.stringify(execPath)};
 const ARGS = ${JSON.stringify(spawnArgs)};
 const LOG_PATH = ${JSON.stringify(logPath)};
 const PID_PATH = ${JSON.stringify(pidPath)};
+const HEALTH_DEADLINE_MS = ${healthDeadlineMs};
+const HEALTH_ITERATIONS = ${healthIterations};
 
 function log(msg) {
   try {
@@ -150,15 +171,16 @@ async function killPriorDaemon() {
   const child = spawn(EXEC, ARGS, { detached: true, stdio: "ignore", env: process.env });
   child.unref();
 
-  // 3. Poll health (up to 10s)
-  for (let i = 0; i < 20; i++) {
+  // 3. Poll health (deadline mode-aware: 15s prod / 60s dev). See change:
+  //    fix-mode-aware-server-ready-deadlines.
+  for (let i = 0; i < HEALTH_ITERATIONS; i++) {
     await sleep(500);
     if (await healthOk()) {
       process.exit(0);
     }
   }
 
-  log("restart failed: new server did not respond to /api/health within 10s");
+  log("restart failed: new server did not respond to /api/health within " + (HEALTH_DEADLINE_MS / 1000) + "s");
   process.exit(1);
 })();
 `;

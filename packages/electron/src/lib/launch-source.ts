@@ -39,6 +39,27 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
   "bundled",
 ]);
 
+// ── Server-startup deadlines ─────────────────────────────────────────────────
+//
+// Mode-aware readiness deadline. The dev-monorepo path uses jiti to compile
+// ~400 TS files on cold start — measured cold boot on dev workstations can
+// reach 25–60s. The bundled path is pre-compiled and reliably ready well
+// under 15s; beyond that the failure is almost always terminal (port conflict,
+// missing loader, bad Node) and the loading page is the recovery surface.
+//
+// Re-exported from `server-lifecycle.ts` for back-compat with existing
+// imports/tests. See change: fix-mode-aware-server-ready-deadlines.
+export const SERVER_READY_DEADLINE_MS = 15_000;
+export const SERVER_READY_DEADLINE_DEV_MS = 60_000;
+
+/**
+ * Returns the readiness deadline for the given launch-source kind.
+ * Pure helper. `devMonorepo` → 60s; everything else (`bundled`, `attach`) → 15s.
+ */
+export function getServerReadyDeadlineMs(sourceKind: string): number {
+  return sourceKind === "devMonorepo" ? SERVER_READY_DEADLINE_DEV_MS : SERVER_READY_DEADLINE_MS;
+}
+
 // ── Error types ───────────────────────────────────────────────────────────────
 
 export class PinnedSourceUnavailableError extends Error {
@@ -334,7 +355,7 @@ export async function spawnFromSource(
       env,
       starter: "Electron",
       stdio: { logFile },
-      healthTimeoutMs: 15_000,
+      healthTimeoutMs: getServerReadyDeadlineMs(source.kind),
       port: config.port,
       detach: false,
       cwd: source.cwd,

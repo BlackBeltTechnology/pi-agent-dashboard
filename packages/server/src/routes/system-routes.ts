@@ -390,6 +390,7 @@ export function registerSystemRoutes(
         loader,
         port: config.port,
         extraArgs,
+        dev: useDev,
       });
 
       setTimeout(() => process.exit(0), 200);

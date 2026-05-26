@@ -6,6 +6,8 @@ import {
   buildServerSpawnOptions,
   buildServerStartupError,
   SERVER_READY_DEADLINE_MS,
+  SERVER_READY_DEADLINE_DEV_MS,
+  getServerReadyDeadlineMs,
 } from "../lib/server-lifecycle.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -118,6 +120,32 @@ describe("ensureServer fall-through invariant", () => {
 describe("SERVER_READY_DEADLINE_MS", () => {
   it("is 15000 (15 seconds) — see change tighten-electron-server-startup-deadline", () => {
     expect(SERVER_READY_DEADLINE_MS).toBe(15_000);
+  });
+
+  // See change: fix-mode-aware-server-ready-deadlines.
+  it("SERVER_READY_DEADLINE_DEV_MS is 60000 (60 seconds) for the dev-monorepo path", () => {
+    expect(SERVER_READY_DEADLINE_DEV_MS).toBe(60_000);
+  });
+
+  it("getServerReadyDeadlineMs returns the dev deadline for devMonorepo and the prod deadline otherwise", () => {
+    expect(getServerReadyDeadlineMs("devMonorepo")).toBe(SERVER_READY_DEADLINE_DEV_MS);
+    expect(getServerReadyDeadlineMs("bundled")).toBe(SERVER_READY_DEADLINE_MS);
+    expect(getServerReadyDeadlineMs("attach")).toBe(SERVER_READY_DEADLINE_MS);
+    // Unknown / future kinds fall through to the safer (shorter) prod deadline.
+    expect(getServerReadyDeadlineMs("")).toBe(SERVER_READY_DEADLINE_MS);
+  });
+
+  it("launch-source.ts passes a mode-aware healthTimeoutMs to launchDashboardServer (no raw 15_000 / 60_000 literals at the call site)", () => {
+    const src = readFileSync(
+      path.resolve(__dirname, "../lib/launch-source.ts"),
+      "utf-8",
+    );
+    // The healthTimeoutMs arg MUST go through the helper so the deadline
+    // tracks the launch-source kind. A raw `healthTimeoutMs: 15_000` (the
+    // pre-fix shape) would silently regress the dev path.
+    expect(src).toMatch(/healthTimeoutMs:\s*getServerReadyDeadlineMs\(/);
+    expect(src).not.toMatch(/healthTimeoutMs:\s*15_000/);
+    expect(src).not.toMatch(/healthTimeoutMs:\s*60_000/);
   });
 
   it("is referenced by every waitForReady call in server-lifecycle.ts", () => {

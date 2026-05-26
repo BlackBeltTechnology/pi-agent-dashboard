@@ -109,6 +109,35 @@ describe("buildOrchestratorScript", () => {
     expect(script).toMatch(/port: PORT/);
   });
 
+  // See change: fix-mode-aware-server-ready-deadlines.
+  describe("mode-aware health-poll deadline", () => {
+    it("embeds a 15000ms deadline (30 iterations) when dev is false / omitted", () => {
+      const script = buildOrchestratorScript(baseParams);
+      expect(script).toContain("const HEALTH_DEADLINE_MS = 15000");
+      expect(script).toContain("const HEALTH_ITERATIONS = 30");
+    });
+
+    it("embeds a 60000ms deadline (120 iterations) when dev: true", () => {
+      const script = buildOrchestratorScript({ ...baseParams, dev: true });
+      expect(script).toContain("const HEALTH_DEADLINE_MS = 60000");
+      expect(script).toContain("const HEALTH_ITERATIONS = 120");
+    });
+
+    it("failure-log message interpolates the deadline (no hard-coded '10s')", () => {
+      const script = buildOrchestratorScript(baseParams);
+      // The orchestrator computes the seconds value at runtime; the static
+      // text must not contain a stale literal.
+      expect(script).not.toContain("within 10s");
+      expect(script).toContain("(HEALTH_DEADLINE_MS / 1000)");
+    });
+
+    it("poll loop bound is HEALTH_ITERATIONS, not a literal 20", () => {
+      const script = buildOrchestratorScript(baseParams);
+      expect(script).toMatch(/for \(let i = 0; i < HEALTH_ITERATIONS;/);
+      expect(script).not.toMatch(/for \(let i = 0; i < 20;/);
+    });
+  });
+
   // See change: fix-restart-bridge-auto-start-race.
   describe("explicit kill of prior daemon", () => {
     it("references the dashboard.pid file path", () => {

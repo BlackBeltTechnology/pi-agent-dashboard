@@ -139,17 +139,16 @@ export function didWeStartServer(): boolean {
   return serverStartedByUs;
 }
 
-/**
- * Server-startup deadline used by both `launchViaCli` and `launchServer`.
- * History: 15s → 60s in `fix-electron-windows-installer-and-server-bootstrap`
- * to give `installStandalone()` + offline-cacache extraction headroom on first
- * launch. Tightened back to 15s in `tighten-electron-server-startup-deadline`
- * because beyond ~15s the failure is almost always terminal (port conflict,
- * missing loader, bad Node) and the interactive loading page (resources/
- * loading.html) is a strictly better surface than a frozen splash — it polls
- * indefinitely and exposes Start server / Doctor / log-tail controls.
- */
-export const SERVER_READY_DEADLINE_MS = 15_000;
+// Server-startup deadline constants + helper live in `launch-source.ts`
+// (canonical definition site — the actual `healthTimeoutMs` call lives there).
+// Re-exported here so existing callers / tests that import from
+// `server-lifecycle.ts` keep working. See change:
+// fix-mode-aware-server-ready-deadlines.
+export {
+  SERVER_READY_DEADLINE_MS,
+  SERVER_READY_DEADLINE_DEV_MS,
+  getServerReadyDeadlineMs,
+} from "./launch-source.js";
 
 /**
  * Construct a cause-aware server-startup failure message. Distinguishes
