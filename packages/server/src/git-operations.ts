@@ -561,6 +561,36 @@ export function resolveDefaultBase(
 }
 
 /**
+ * Resolve the PR base for `gh pr create`. Differs from `resolveDefaultBase`
+ * in two ways:
+ *   1. The hint MUST exist on `origin/` (`refs/remotes/origin/<hint>`).
+ *      `gh pr create` needs the base to be a remote branch — a local-only
+ *      hint (e.g. a feature branch the worktree forked from but that was
+ *      never pushed) is rejected here and the chain falls through to the
+ *      `develop|main|master` fallbacks on `origin/`.
+ *   2. Returns the bare branch name (no `origin/` prefix), since `gh` wants
+ *      `--base <name>` not `--base origin/<name>`.
+ *
+ * See change: add-worktree-lifecycle-actions.
+ */
+export function resolveRemoteBase(
+  cwd: string,
+  hint?: string,
+): string | null {
+  const stripOrigin = (n: string) => n.replace(/^origin\//, "");
+  const hintBare = hint ? stripOrigin(hint) : undefined;
+  if (hintBare && tryRun(`git rev-parse --verify refs/remotes/origin/${shellEscape(hintBare)}`, cwd)) {
+    return hintBare;
+  }
+  for (const name of BASE_FALLBACKS) {
+    if (tryRun(`git rev-parse --verify refs/remotes/origin/${name}`, cwd)) {
+      return name;
+    }
+  }
+  return null;
+}
+
+/**
  * Merge the worktree's current branch into its base ref. Refuses when
  * the main checkout is dirty; aborts the merge on conflict.
  *
@@ -742,17 +772,22 @@ export function createPullRequest(opts: {
     pushed = true;
   }
   const mainPath = resolveMainPath(cwd);
-  const base = resolveDefaultBase(mainPath ?? cwd, baseHint);
-  if (!base) return { ok: false, code: "base_not_found" };
-  // `gh` wants the bare base name (it strips `origin/` itself in older
-  // versions and complains in newer). Use the local short name.
-  const baseShort = base.replace(/^origin\//, "");
-  const args = [ghPath, "pr", "create", "--base", baseShort, "--head", branch];
-  if (title) args.push("--title", title);
-  if (body) args.push("--body", body);
-  // gh allows omitting title/body only with --fill or interactive; pass
-  // --fill when both are omitted so we don't deadlock on a prompt.
-  if (!title && !body) args.push("--fill");
+  // Resolve base AGAINST `origin/` because `gh pr create` needs a remote
+  // branch (it diffs origin/<base>..<head> to populate --fill or to
+  // validate the PR). Falls back to `origin/{develop,main,master}` when
+  // the session's `gitWorktreeBase` hint is a local-only branch.
+  const base = resolveRemoteBase(cwd, baseHint);
+  if (!base) return { ok: false, code: "base_not_found", stderr: `no base branch found on origin (tried hint=${baseHint ?? "<none>"} + ${BASE_FALLBACKS.join("|")})` };
+  const args = [ghPath, "pr", "create", "--base", base, "--head", branch];
+  // Derive an explicit title when none supplied. Using `--fill` requires
+  // the remote base ref to be locally up-to-date so gh can compute the
+  // diff; on freshly-pushed branches that's often not true and --fill
+  // explodes with "could not compute title or body defaults: failed to
+  // run git: fatal: ambiguous argument ...". Falling back to the latest
+  // commit subject (or branch name) side-steps the dependency on origin.
+  const resolvedTitle = title ?? deriveDefaultPrTitle(cwd, branch);
+  args.push("--title", resolvedTitle);
+  args.push("--body", body ?? "");
   let stdout: string;
   try {
     stdout = execSync(args.map(shellEscape).join(" "), {
@@ -763,7 +798,13 @@ export function createPullRequest(opts: {
       env: { ...process.env, GH_PROMPT_DISABLED: "1" },
     });
   } catch (err: any) {
-    const stderr = String(err?.stderr ?? err?.message ?? "");
+    // gh writes the error to BOTH stdout and stderr in many failure
+    // modes (e.g. "could not compute title or body defaults" lands on
+    // stdout). Concatenate so the mapper sees all of it.
+    const stderr = [err?.stderr, err?.stdout, err?.message]
+      .map((v) => (v == null ? "" : String(v)))
+      .filter((s) => s.length > 0)
+      .join("\n");
     const code = mapPrStderr(stderr);
     if (pushed) {
       return { ok: false, code: "pushed_but_pr_failed", stderr };
@@ -775,6 +816,17 @@ export function createPullRequest(opts: {
     return { ok: false, code: "git_failed", stderr: stdout };
   }
   return { ok: true, data: { url, pushed } };
+}
+
+/**
+ * Default PR title when the caller doesn't supply one. Prefers the
+ * latest commit subject on `branch`; falls back to the branch name.
+ * Trimmed and truncated to 72 chars (conventional PR title limit).
+ */
+function deriveDefaultPrTitle(cwd: string, branch: string): string {
+  const subject = tryRun(`git log -1 --format=%s ${shellEscape(branch)}`, cwd);
+  const candidate = (subject && subject.length > 0) ? subject : branch;
+  return candidate.slice(0, 72);
 }
 
 /** Pop the most recent stash. */

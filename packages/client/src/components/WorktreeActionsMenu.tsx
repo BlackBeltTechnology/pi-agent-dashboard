@@ -64,6 +64,27 @@ interface Props {
 interface ToastMsg {
   level: "info" | "error" | "success";
   text: string;
+  /** Optional captured stderr (gh / git output) rendered in a collapsible `<details>` block. */
+  stderr?: string;
+}
+
+/**
+ * Human-readable label for a stable error code returned by the server
+ * lifecycle endpoints. Falls back to the raw code when unknown.
+ * See change: add-worktree-lifecycle-actions.
+ */
+function labelForCode(code: string): string {
+  switch (code) {
+    case "no_remote":            return "no `origin` remote configured";
+    case "auth_failed":          return "git auth failed";
+    case "non_fast_forward":     return "remote has commits you don't have — pull first";
+    case "gh_not_found":         return "`gh` CLI not installed";
+    case "gh_not_authed":        return "`gh` not authenticated — run `gh auth login`";
+    case "pr_exists":            return "PR already exists for this branch";
+    case "base_not_found":       return "base branch not found on origin";
+    case "pushed_but_pr_failed": return "branch pushed, but `gh pr create` failed";
+    default:                     return code;
+  }
 }
 
 export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }: Props) {
@@ -96,7 +117,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
     const result = await pushWorktreeBranch({ cwd: session.cwd });
     setBusy(null);
     if (result.ok) setToast({ level: "success", text: "Pushed." });
-    else setToast({ level: "error", text: `push failed: ${result.code}` });
+    else setToast({ level: "error", text: `push failed: ${labelForCode(result.code)}`, stderr: result.stderr });
   };
 
   const onOpenPr = async () => {
@@ -112,7 +133,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       window.open(result.data.url, "_blank", "noopener,noreferrer");
       setToast({ level: "success", text: "PR opened." });
     } else if (!result.ok) {
-      setToast({ level: "error", text: `PR failed: ${result.code}` });
+      setToast({ level: "error", text: `PR failed: ${labelForCode(result.code)}`, stderr: result.stderr });
     }
   };
 
@@ -202,9 +223,21 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       {toast && (
         <span
           data-testid="worktree-actions-toast"
-          className={`text-[10px] ${toast.level === "error" ? "text-red-400" : toast.level === "success" ? "text-green-400" : "text-[var(--text-muted)]"}`}
+          className={`text-[10px] inline-flex items-center gap-1 ${toast.level === "error" ? "text-red-400" : toast.level === "success" ? "text-green-400" : "text-[var(--text-muted)]"}`}
         >
-          {toast.text}
+          <span>{toast.text}</span>
+          {toast.stderr && (
+            <details className="inline" data-testid="worktree-actions-toast-details">
+              <summary className="cursor-pointer text-[var(--text-muted)] underline decoration-dotted">details</summary>
+              <pre className="mt-1 text-[10px] bg-[var(--bg-tertiary)] p-2 rounded whitespace-pre-wrap max-w-md max-h-40 overflow-auto">{toast.stderr}</pre>
+            </details>
+          )}
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            title="dismiss"
+          >×</button>
         </span>
       )}
 

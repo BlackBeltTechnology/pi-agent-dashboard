@@ -20,6 +20,7 @@ import {
   pushBranch,
   removeWorktree,
   resolveDefaultBase,
+  resolveRemoteBase,
   worktreeDiffStat,
 } from "../git-operations.js";
 
@@ -82,6 +83,45 @@ describe("removeWorktree", () => {
     if (!a.ok || !b.ok) return;
     const result = removeWorktree({ cwd: a.path });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("resolveRemoteBase", () => {
+  let repo: string;
+  let bare: string;
+  beforeEach(() => {
+    repo = makeRepo();
+    bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-remote-")));
+    git("init --bare", bare);
+    git(`remote add origin ${bare}`, repo);
+    git(`push origin main`, repo);
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  });
+
+  it("returns the bare name when hint exists on origin", () => {
+    expect(resolveRemoteBase(repo, "main")).toBe("main");
+  });
+
+  it("strips origin/ prefix from a fully-qualified hint", () => {
+    expect(resolveRemoteBase(repo, "origin/main")).toBe("main");
+  });
+
+  it("falls back to origin/main when hint is a local-only branch", () => {
+    git("checkout -b feature/local-only", repo);
+    expect(resolveRemoteBase(repo, "feature/local-only")).toBe("main");
+  });
+
+  it("returns null when no fallback exists on origin and hint not on origin", () => {
+    // Push a non-fallback branch; remove main from origin so no fallback matches.
+    git("checkout -b feat", repo);
+    git("push origin feat", repo);
+    git("push origin --delete main", repo);
+    git("remote prune origin", repo);
+    // Hint that doesn't exist on origin: should fall through fallbacks and find nothing.
+    expect(resolveRemoteBase(repo, "never-pushed")).toBeNull();
   });
 });
 

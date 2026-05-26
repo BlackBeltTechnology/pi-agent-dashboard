@@ -106,6 +106,25 @@ describe("WorktreeActionsMenu — desktop", () => {
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId("worktree-actions-toast").textContent).toContain("Pushed");
   });
+
+  it("PR failure shows human-readable label + stderr in <details>", async () => {
+    const gitApi = await import("../../lib/git-api.js");
+    (gitApi.createWorktreePR as any).mockResolvedValueOnce({
+      ok: false,
+      code: "pushed_but_pr_failed",
+      error: "pushed_but_pr_failed",
+      stderr: "GraphQL: No commits between develop and feat/x",
+    });
+    renderMenu(makeSession());
+    await waitFor(() => expect(screen.getByTestId("worktree-action-pr")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("worktree-action-pr"));
+    await waitFor(() => expect(screen.getByTestId("worktree-actions-toast")).toBeTruthy());
+    const toast = screen.getByTestId("worktree-actions-toast");
+    // Human-readable label, NOT the raw code.
+    expect(toast.textContent).toContain("branch pushed, but `gh pr create` failed");
+    // stderr surfaced via the details disclosure.
+    expect(screen.getByTestId("worktree-actions-toast-details").textContent).toContain("No commits between develop");
+  });
 });
 
 describe("WorktreeActionsMenu — mobile", () => {
