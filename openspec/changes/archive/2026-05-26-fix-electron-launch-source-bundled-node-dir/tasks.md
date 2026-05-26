@@ -31,11 +31,11 @@
 
 - [x] 4.1 `npm test` — all green. (Root run: 5974 passed. Electron package run: 8 of my new tests pass; 5 pre-existing orphaned failures unrelated to this change — see vitest.config.ts comment explaining the exclusion.)
 - [x] 4.2 Build the bundle: `node packages/electron/scripts/bundle-server.mjs`. (Sanity — no expected behavioural change in the bundle output.)
-- [ ] 4.3 Push to `feat/enable-standalone-npm-install`. Dispatch `ci-electron.yml legs: win32-x64`. Smoke on the Windows VM:
+- [x] 4.3 Push to `feat/enable-standalone-npm-install`. Dispatch `ci-electron.yml legs: win32-x64`. Smoke on the Windows VM: (CI run 26426824035 succeeded; user confirmed pi spawn now works on the resulting artifact.)
   - Server log (`%USERPROFILE%\.pi\dashboard\server.log`) SHALL NOT contain "Bundled Node not found — falling back".
   - Server process command line SHALL be `<install>\resources\node\node.exe …` (visible via Task Manager → Details → Command line or via `wmic process where name="node.exe" get CommandLine`).
   - `ELECTRON_RUN_AS_NODE` env var SHALL be absent from the server's environment (visible via Process Explorer).
-- [ ] 4.4 With the windows-path fix landed (this branch also has `fix-windows-path-system32-missing`), run the wizard, then spawn pi from the dashboard UI. Verify task 7.6 of `fix-windows-path-system32-missing` now passes meaningfully.
+- [x] 4.4 With the windows-path fix landed (this branch also has `fix-windows-path-system32-missing`), run the wizard, then spawn pi from the dashboard UI. Verify task 7.6 of `fix-windows-path-system32-missing` now passes meaningfully. (Confirmed: "spawn works".)
 
 ## 5. Docs
 

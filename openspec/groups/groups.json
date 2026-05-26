@@ -147,6 +147,7 @@
     "auto-launch-first-run-skip-welcome": "electrun-execution",
     "electron-attach-ownership-fixes": "electrun-execution",
     "fix-windows-path-system32-missing": "electrun-execution",
-    "replace-wmic-with-powershell": "electrun-execution"
+    "replace-wmic-with-powershell": "electrun-execution",
+    "fix-electron-launch-source-bundled-node-dir": "electrun-execution"
   }
 }
