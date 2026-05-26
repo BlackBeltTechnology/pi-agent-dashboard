@@ -30,6 +30,38 @@ Surfaced during the spike for `fix-ci-electron-runnable-bundles` (CI run 2641625
 - **Remediation messages**: when a binary IS found in the bundle, no remediation text. When NOT found and the install is Electron, the message names the missing bundle path explicitly, not "run the setup wizard" (which would do nothing).
 - **`resourcesPath` plumbing**: the existing `runSharedChecks(opts)` signature gains an optional `resourcesPath: string | null`. `packages/electron/src/lib/doctor.ts` passes `process.resourcesPath` from the Electron context. The standalone server (no Electron) passes `null` and the bundle-aware probes simply skip — same code path stays valid in the npm-global install.
 
+## Extended scope (added 2026-05-26)
+
+A Doctor side-by-side comparison on the win32-x64 Electron build of commit `9b76139` (post-launch-source-fix) surfaced two more divergences from `fix-windows-path-system32-missing` task 7.4 follow-through:
+
+1. **Settings → Diagnostics shows fewer rows than the Electron Doctor window.** Settings (`/api/doctor` → `runSharedChecks`) reports 7 rows. The Electron Doctor window reports 13. The 6 missing rows are: `Electron <version>`, `Bundled Node.js`, `Bundled npm`, `Bundled Node runtime`, `Dashboard server code`, `Server starter`. All but `Electron <version>` are file-system / HTTP probes a server with `resourcesPath` can run directly.
+
+2. **System Node.js mislabel.** `runSharedChecks` calls `detectSystemNode()`, which does `where node`. On an Electron-launched server, `ToolResolver.buildSpawnEnv` prepends `<res>/node` to PATH (so the server can find Node for its own children). Result: `where node` returns `<res>/node/node.exe`, and the row is labelled "System Node.js" pointing at the bundled binary. The user sees an apparent contradiction ("System Node.js found" + "System Node.js not on PATH") between Settings and Doctor.
+
+### Extended what-changes
+
+- **Lift 5 rows into `runSharedChecks`** when `resourcesPath` is non-null:
+  - `Bundled Node.js` (probe `<res>/node/node.exe` on win32, `<res>/node/bin/node` on POSIX).
+  - `Bundled npm` (probe `<res>/node/node_modules/npm/bin/npm-cli.js`).
+  - `Bundled Node runtime` (one-line summary of the active runtime — mirror existing Electron-side check).
+  - `Dashboard server code` (resolve `<res>/server/...cli.ts` via the same logic used by `selectLaunchSource`).
+  - `Server starter` (fetch `/api/health` via `deps.fetchHealth?` injection; read `launchSource` with legacy `starter` fallback per task 1b).
+- **Electron-side `doctor.ts` shrinks**: drop those 5 checks (now redundant). Keep only the `Electron <version>` row, which the standalone arm has no equivalent for.
+- **Filter bundled-node from System Node**: in `runSharedChecks`, after `detectSystemNode()` returns `{ path }`, if `path` resolves under `<resourcesPath>/node/` (case-insensitive on win32), treat as `not-found-on-PATH` and emit the existing warning row. The new `Bundled Node.js` row carries the bundled-node info honestly.
+- **No protocol break for legacy servers**: an attached older server's `/api/health` lacks `launchSource`; the legacy fallback to `starter` covers it (already in task 1b).
+
+### Extended capabilities
+
+- `doctor-diagnostic`: ADDS a Requirement that `runSharedChecks` SHALL surface bundled-runtime rows (Node, npm, server-code, server-starter) when `resourcesPath` is provided, so the Settings ↔ Doctor surfaces are not divergent.
+- `doctor-diagnostic`: ADDS a Requirement that the `System Node.js` check SHALL NOT report a binary located under `<resourcesPath>/node/` as system Node — that's bundled Node leaking through PATH-injection.
+
+### Extended impact
+
+- Settings → Diagnostics now shows 12/13 rows (only `Electron <version>` Electron-only).
+- `System Node.js` row honestly reports system Node state (not found / found at a non-bundled path).
+- Electron-side `doctor.ts` becomes thinner (~70 LOC dropped, 1 LOC kept).
+- Standalone-arm impact: zero (no `resourcesPath` → lifted checks skip, same as before).
+
 ## Capabilities
 
 ### Modified Capabilities

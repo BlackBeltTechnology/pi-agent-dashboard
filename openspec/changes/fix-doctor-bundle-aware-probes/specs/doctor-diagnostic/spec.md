@@ -42,3 +42,51 @@ For standalone-arm callers (`resourcesPath == null`), the existing setup-wizard 
 #### Scenario: Standalone setup-wizard message preserved
 - **WHEN** a standalone-arm probe for `jiti` returns negative
 - **THEN** the remediation field SHALL contain the substring `setup wizard` (existing text unchanged)
+
+### Requirement: runSharedChecks surfaces bundled-runtime rows when resourcesPath set
+When `runSharedChecks` is invoked with a non-null `resourcesPath`, the returned check list SHALL include the following rows in addition to the existing shared checks: `Bundled Node.js`, `Bundled npm`, `Bundled Node runtime`, `Dashboard server code`, `Server starter`. These rows SHALL be omitted when `resourcesPath` is null (standalone arm). The intent is parity between the server-side `/api/doctor` surface (consumed by Settings → Diagnostics) and the Electron-side Doctor window for every check that can be performed without Electron-internal APIs.
+
+The Electron-side `packages/electron/src/lib/doctor.ts` SHALL stop emitting these five rows directly (they now come from shared) and SHALL retain only the `Electron <version>` row, which is the sole row that requires Electron-internal APIs.
+
+#### Scenario: Settings → Diagnostics shows bundled-Node row on Electron
+- **WHEN** the Electron-launched server serves `/api/doctor` AND `<resourcesPath>/node/node.exe` exists (or `/node/bin/node` on POSIX)
+- **THEN** the response SHALL contain a check named `Bundled Node.js` with status `ok`
+- **AND** the message SHALL include the version (`v22.18.0`) and the absolute path of the bundled Node binary
+
+#### Scenario: Settings → Diagnostics shows bundled npm row
+- **WHEN** the same conditions AND `<resourcesPath>/node/node_modules/npm/bin/npm-cli.js` exists
+- **THEN** the response SHALL contain a check named `Bundled npm` with status `ok` and a version from `npm-cli.js --version`
+
+#### Scenario: Settings → Diagnostics shows server-starter row
+- **WHEN** the server has been launched by Electron AND `/api/health` returns `{ launchSource: "electron", … }`
+- **THEN** the response SHALL contain a check named `Server starter` with status `ok` and a message identifying the starter as `electron`
+- **AND** the legacy `starter` field SHALL be honoured as a fallback for one minor version
+
+#### Scenario: Standalone arm does not emit bundled rows
+- **WHEN** `runSharedChecks` is invoked with `resourcesPath: null` (standalone npm-global install)
+- **THEN** the returned check list SHALL NOT contain any of `Bundled Node.js`, `Bundled npm`, `Bundled Node runtime`, `Dashboard server code`, `Server starter`
+
+#### Scenario: Electron-side doctor.ts no longer double-emits lifted rows
+- **WHEN** `packages/electron/src/lib/doctor.ts` composes the final check list (shared + Electron-only rows)
+- **THEN** the output SHALL contain each of `Bundled Node.js`, `Bundled npm`, `Bundled Node runtime`, `Dashboard server code`, `Server starter` exactly once
+- **AND** the source of each of those five rows SHALL be the shared check (no Electron-side duplicate emission)
+
+### Requirement: System Node check excludes bundled-node-dir leakage
+The `System Node.js` check in `runSharedChecks` SHALL classify a `detectSystemNode()` hit as `not-found-on-PATH` (warning row, existing text) when the returned path resolves under `<resourcesPath>/node/` (path-prefix match; case-insensitive on win32). This prevents the bundled Node — prepended to PATH by `ToolResolver.buildSpawnEnv` so the server can spawn its own children — from being misreported as a system installation.
+
+The new `Bundled Node.js` row (from the previous Requirement) carries the bundled-node information honestly; the `System Node.js` row reports the actual system-Node state.
+
+#### Scenario: Bundled Node on PATH not reported as System Node
+- **WHEN** `detectSystemNode()` returns `{ found: true, path: "<resourcesPath>/node/node.exe" }` AND `resourcesPath` is non-null
+- **THEN** the `System Node.js` check status SHALL be `warning`
+- **AND** the message SHALL be `Not found on PATH (bundled Node will be used)` (existing not-found text)
+- **AND** the detail SHALL note that a binary at the bundled path was filtered
+
+#### Scenario: Real system Node still reported when present
+- **WHEN** `detectSystemNode()` returns `{ found: true, path: "C:\\Program Files\\nodejs\\node.exe" }` (a non-bundled path)
+- **THEN** the `System Node.js` check status SHALL be `ok`
+- **AND** the message SHALL include the version and the system path
+
+#### Scenario: Standalone arm unaffected
+- **WHEN** `resourcesPath` is null
+- **THEN** the `System Node.js` check behaves as before this change (no filtering)
