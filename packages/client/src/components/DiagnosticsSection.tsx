@@ -28,6 +28,7 @@ const SECTION_ORDER: DoctorSection[] = [
   "runtime",
   "pi-tooling",
   "server",
+  "tunnel",
   "setup",
   "diagnostics",
 ];
@@ -35,6 +36,7 @@ const SECTION_LABEL: Record<DoctorSection, string> = {
   runtime: "Runtime",
   "pi-tooling": "PI Tooling",
   server: "Server",
+  tunnel: "Tunnel",
   setup: "Setup",
   diagnostics: "Diagnostics",
 };
