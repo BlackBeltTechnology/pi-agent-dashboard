@@ -57,7 +57,9 @@ chmod +x "$file"
 wget -q -c "$APPIMAGETOOL_URL" -O appimagetool
 chmod +x appimagetool
 
-# appimagetool may need --appimage-extract-and-run on systems without FUSE
-APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool ./squashfs-root/ "$INPUT_APPIMAGE"
+# appimagetool may need --appimage-extract-and-run on systems without FUSE.
+# Newer appimagetool builds also require ARCH=<uname-m> explicitly — they no
+# longer infer it from the AppDir contents and exit 1 with usage otherwise.
+APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$SYSTEM_ARCH" ./appimagetool ./squashfs-root/ "$INPUT_APPIMAGE"
 
 echo "patch-apprun: Done."

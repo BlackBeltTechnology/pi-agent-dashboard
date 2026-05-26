@@ -1,0 +1,13 @@
+diff --git a/node_modules/@pengx17/electron-forge-maker-appimage/dist/src/patch-apprun.js b/node_modules/@pengx17/electron-forge-maker-appimage/dist/src/patch-apprun.js
+index 5ade06d..ee69c18 100644
+--- a/node_modules/@pengx17/electron-forge-maker-appimage/dist/src/patch-apprun.js
++++ b/node_modules/@pengx17/electron-forge-maker-appimage/dist/src/patch-apprun.js
+@@ -19,7 +19,7 @@ const path_1 = __importDefault(require("path"));
+ const scriptPath = path_1.default.resolve(__dirname, "../../scripts/patch-apprun.sh");
+ function patchAppImage(appFileName) {
+     return __awaiter(this, void 0, void 0, function* () {
+-        (0, child_process_1.execSync)(`bash ${scriptPath} ${appFileName}`);
++        (0, child_process_1.execSync)(`bash ${scriptPath} ${appFileName}`, { stdio: 'inherit' });
+     });
+ }
+ exports.patchAppImage = patchAppImage;

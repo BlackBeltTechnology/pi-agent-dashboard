@@ -30,6 +30,7 @@
     ]
   },
   "files": [
+    "scripts/maybe-patch-package.cjs",
     "packages/server/src/",
     "packages/server/scripts/",
     "packages/server/package.json",
@@ -47,7 +48,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "node packages/server/scripts/fix-pty-permissions.cjs",
+    "postinstall": "node scripts/maybe-patch-package.cjs && node packages/server/scripts/fix-pty-permissions.cjs",
     "dev": "npm run dev --workspace=@blackbelt-technology/pi-dashboard-web",
     "build": "npm run build --workspace=@blackbelt-technology/pi-dashboard-web",
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
@@ -84,6 +85,7 @@
   },
   "devDependencies": {
     "jsdom": "^29.0.2",
+    "patch-package": "^8.0.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",
     "vitest": "^4.0.0"
