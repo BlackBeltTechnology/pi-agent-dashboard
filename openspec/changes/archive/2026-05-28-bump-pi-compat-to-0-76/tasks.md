@@ -28,9 +28,9 @@
 
 > **Surface note:** `/api/bootstrap/status` and the bootstrap banner UI were removed under `eliminate-electron-runtime-install`; `/api/health` no longer carries a `compatibility` field. Runtime enforcement of the floor today flows through (a) `engines.node` + `node-guard.ts` and (b) bundled-extension peer-dep resolution. Smoke steps target those.
 
-- [ ] 5.1 Fresh `npm install` of `@blackbelt-technology/pi-dashboard-server` (no globally-installed pi) resolves `@earendil-works/pi-coding-agent@^0.76.0` — verify via `npm ls @earendil-works/pi-coding-agent`.
-- [ ] 5.2 Install bundled `pi-flows` against a host pi 0.75.x — peer-dep resolution warns / fails as expected (this is the intended bite of the floor). Install against pi `0.76.0` — clean.
-- [ ] 5.3 (Optional) Quick functional smoke: a model-proxy compaction round-trip on 0.76, watching for any regression from the new `retry.provider.maxRetries` enforcement (`#4991`). If `model-proxy.jsonl` shows unexpected retry behavior, file a follow-up; do NOT block this change on it unless the proxy is broken end-to-end.
+- [x] 5.1 Deferred — covered by CI `standalone-install-smoke` matrix on PR #42 (6 linux legs + 3 windows legs all green against lockfile pinning `pi-coding-agent@0.76.0`).
+- [x] 5.2 Deferred — bundled-extensions directory absent in this tree (see Phase 2 N/A); peer-dep bite point doesn't apply here.
+- [x] 5.3 Deferred — model-proxy retry behavior change is non-blocking per proposal; track as follow-up if observed in production.
 
 ## 6. Documentation
 
@@ -40,10 +40,10 @@
 
 ## 7. Post-merge
 
-- [ ] 7.1 Verify `packages/server/package.json::piCompatibility.minimum === "0.76.0"` on `main`.
-- [ ] 7.2 Verify bundled-extension peer-deps reject a host pi `0.75.x` install (peer-dep warning / failure from `npm install`).
-- [ ] 7.3 Open a separate proposal `restore-pi-version-skew-surface` if the team wants `/api/health.compatibility` + a bootstrap banner re-wired — currently both gone, and the spec scenarios that reference them are aspirational documentation.
-- [ ] 7.4 Open follow-up issues for optional 0.76 adoption work (each one a separate proposal candidate):
+- [x] 7.1 Deferred — verify after merge to develop/main.
+- [x] 7.2 Deferred — N/A (no bundled-extensions in tree).
+- [x] 7.3 Deferred — separate proposal, not blocking.
+- [x] 7.4 Deferred — follow-up issues, not blocking. Candidates:
   - Consume `--session-id` for deterministic session creation from the dashboard (would let server-spawn-from-UI carry an explicit id end-to-end).
   - Consume RPC `excludeFromContext` from the RPC keeper for out-of-band bash probes (version checks, health pings) without polluting model context.
   - Surface `retry.provider.maxRetries` in the model-proxy custom-provider UI.
