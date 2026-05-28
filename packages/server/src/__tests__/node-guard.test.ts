@@ -6,12 +6,20 @@ describe("isAffectedNode", () => {
     expect(isAffectedNode("v22.0.0")).toBe(true);
   });
 
-  it("returns true for v22.17.999 (upper bound of 22.x affected)", () => {
+  it("returns true for v22.17.999 (well inside 22.x affected)", () => {
     expect(isAffectedNode("v22.17.999")).toBe(true);
   });
 
-  it("returns false for v22.18.0 (first 22.x fixed)", () => {
-    expect(isAffectedNode("v22.18.0")).toBe(false);
+  it("returns true for v22.18.0 (now refused after bump-pi-compat-to-0-75)", () => {
+    expect(isAffectedNode("v22.18.0")).toBe(true);
+  });
+
+  it("returns true for v22.18.999 (upper bound of 22.x affected)", () => {
+    expect(isAffectedNode("v22.18.999")).toBe(true);
+  });
+
+  it("returns false for v22.19.0 (first 22.x fixed; new floor)", () => {
+    expect(isAffectedNode("v22.19.0")).toBe(false);
   });
 
   it("returns false for v22.22.2 (current LTS)", () => {
@@ -47,8 +55,8 @@ describe("isAffectedNode", () => {
   });
 
   it("accepts versions without the v prefix", () => {
-    expect(isAffectedNode("22.17.0")).toBe(true);
-    expect(isAffectedNode("22.18.0")).toBe(false);
+    expect(isAffectedNode("22.18.0")).toBe(true);
+    expect(isAffectedNode("22.19.0")).toBe(false);
   });
 
   it("returns false for malformed input rather than throwing", () => {
@@ -72,7 +80,7 @@ describe("buildNodeUpgradeMessage", () => {
 
   it("names the minimum acceptable versions", () => {
     const msg = buildNodeUpgradeMessage("v22.17.1");
-    expect(msg).toMatch(/22\.18/);
+    expect(msg).toMatch(/22\.19/);
     expect(msg).toMatch(/24\.3/);
   });
 
