@@ -431,6 +431,93 @@ describe("FolderOpenSpecSection", () => {
   });
 });
 
+// --- Per-change ⥂2+ worktree button (change: openspec-worktree-spawn-button) ---
+
+describe("FolderOpenSpecSection — ⥂2+ per-change worktree button", () => {
+  it("renders ⥂2+ when isGitRepo + gitWorktreeEnabled + handler all set", () => {
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={true}
+        gitWorktreeEnabled={true}
+        onSpawnAttachedWorktree={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.getByTestId("spawn-attached-worktree-btn-feat-in-progress")).toBeTruthy();
+    expect(screen.getByTestId("spawn-attached-worktree-btn-feat-complete")).toBeTruthy();
+  });
+
+  it("hides ⥂2+ when isGitRepo is false", () => {
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={false}
+        gitWorktreeEnabled={true}
+        onSpawnAttachedWorktree={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("spawn-attached-worktree-btn-feat-in-progress")).toBeNull();
+  });
+
+  it("hides ⥂2+ when gitWorktreeEnabled is false", () => {
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={true}
+        gitWorktreeEnabled={false}
+        onSpawnAttachedWorktree={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("spawn-attached-worktree-btn-feat-in-progress")).toBeNull();
+  });
+
+  it("hides ⥂2+ when handler is undefined", () => {
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={true}
+        gitWorktreeEnabled={true}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("spawn-attached-worktree-btn-feat-in-progress")).toBeNull();
+  });
+
+  it("clicking ⥂2+ invokes handler with (cwd, changeName)", () => {
+    const onSpawnAttachedWorktree = vi.fn();
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={true}
+        gitWorktreeEnabled={true}
+        onSpawnAttachedWorktree={onSpawnAttachedWorktree}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("spawn-attached-worktree-btn-feat-in-progress"));
+    expect(onSpawnAttachedWorktree).toHaveBeenCalledOnce();
+    expect(onSpawnAttachedWorktree).toHaveBeenCalledWith("/project/foo", "feat-in-progress");
+  });
+
+  it("existing spawn-attached button is unaffected", () => {
+    render(
+      <FolderOpenSpecSection
+        {...defaultProps}
+        isGitRepo={true}
+        gitWorktreeEnabled={true}
+        onSpawnAttached={vi.fn()}
+        onSpawnAttachedWorktree={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.getByTestId("spawn-attached-btn-feat-in-progress")).toBeTruthy();
+    expect(screen.getByTestId("spawn-attached-worktree-btn-feat-in-progress")).toBeTruthy();
+  });
+});
+
 // ── Group integration tests (task 7.9) ──
 
 const testGroups: OpenSpecGroup[] = [

@@ -399,6 +399,10 @@ export default function App() {
   const lastCreatedTerminalIdRef = useRef<string | null>(null);
   const [editorStatuses, setEditorStatuses] = useState<Map<string, { id: string; status: EditorInstanceStatus }>>(new Map());
   const [editorAvailable, setEditorAvailable] = useState<boolean | undefined>(undefined);
+  // UI preference: show worktree spawn buttons. Fetched from /api/config on
+  // mount. Defaults to true while loading. See change:
+  // openspec-worktree-spawn-button.
+  const [gitWorktreeEnabled, setGitWorktreeEnabled] = useState<boolean>(true);
   const [discoveredServers, setDiscoveredServers] = useState<import("./components/ServerSelector.js").DiscoveredServerInfo[]>([]);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
@@ -508,6 +512,19 @@ export default function App() {
     fetch(`${apiBase}/api/editor/detect`)
       .then((r) => r.json())
       .then((d) => { if (d.success) setEditorAvailable(d.data.available); })
+      .catch(() => {});
+  }, []);
+
+  // Fetch the gitWorktreeEnabled preference on mount.
+  // See change: openspec-worktree-spawn-button.
+  useEffect(() => {
+    fetch(`${apiBase}/api/config`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && typeof d.data?.gitWorktreeEnabled === "boolean") {
+          setGitWorktreeEnabled(d.data.gitWorktreeEnabled);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -991,6 +1008,7 @@ export default function App() {
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       editorStatuses={editorStatuses}
       editorAvailable={editorAvailable}
+      gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
       retrySessionIds={retrySessionIds}
       spawnErrors={spawnErrors}

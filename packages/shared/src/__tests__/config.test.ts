@@ -559,3 +559,57 @@ describe("dashboardName", () => {
     expect(loadConfig().dashboardName).toBeUndefined();
   });
 });
+
+describe("loadConfig gitWorktreeEnabled", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-gwe-${Date.now()}-${Math.random()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("defaults to true when absent from config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    expect(loadConfig().gitWorktreeEnabled).toBe(true);
+  });
+
+  it("defaults to true when config file does not exist", () => {
+    expect(loadConfig().gitWorktreeEnabled).toBe(true);
+  });
+
+  it("round-trips explicit false", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ gitWorktreeEnabled: false }));
+    expect(loadConfig().gitWorktreeEnabled).toBe(false);
+  });
+
+  it("round-trips explicit true", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ gitWorktreeEnabled: true }));
+    expect(loadConfig().gitWorktreeEnabled).toBe(true);
+  });
+
+  it("falls back to default when non-boolean", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ gitWorktreeEnabled: "yes" }));
+    expect(loadConfig().gitWorktreeEnabled).toBe(true);
+  });
+
+  it("preserves sibling fields when only gitWorktreeEnabled is set", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ port: 1234, gitWorktreeEnabled: false, defaultModel: "gpt-4" }),
+    );
+    const c = loadConfig();
+    expect(c.gitWorktreeEnabled).toBe(false);
+    expect(c.port).toBe(1234);
+    expect(c.defaultModel).toBe("gpt-4");
+  });
+});

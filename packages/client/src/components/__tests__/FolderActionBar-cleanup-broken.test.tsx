@@ -20,6 +20,7 @@ function renderBar(over: Partial<React.ComponentProps<typeof FolderActionBar>> =
     onOpenEditor: () => {},
     onOpenNativeEditor: () => {},
     onOpenPiResources: () => {},
+    gitWorktreeEnabled: true,
     ...over,
   };
   return render(<FolderActionBar {...props} />);

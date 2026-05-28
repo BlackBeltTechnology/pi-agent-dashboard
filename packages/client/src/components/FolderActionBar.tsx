@@ -34,6 +34,13 @@ interface Props {
    */
   isGitRepo?: boolean;
   /**
+   * UI preference: globally enable worktree spawn buttons. When false,
+   * the `+Worktree` button hides regardless of git status. Required — the
+   * parent (SessionList) reads `config.gitWorktreeEnabled ?? true` and
+   * passes it explicitly. See change: openspec-worktree-spawn-button.
+   */
+  gitWorktreeEnabled: boolean;
+  /**
    * Number of ended sessions in this folder whose `cwdMissing === true`.
    * Drives the visibility + label of the `Clean up broken (N)` button.
    * 0 / undefined hides the button. See change: add-worktree-lifecycle-actions.
@@ -63,6 +70,7 @@ export function FolderActionBar({
   nativeEditors,
   spawningDisabled,
   isGitRepo,
+  gitWorktreeEnabled,
   brokenSessionCount,
   onCleanUpBroken,
   onSpawnSession,
@@ -80,7 +88,8 @@ export function FolderActionBar({
   // whether the browser came in via localhost or a tunnel. Server-side
   // networkGuard already enforces access for the REST endpoint.
   // See change: add-worktree-spawn-dialog.
-  const showWorktreeButton = isGitRepo === true && !!onOpenWorktreeDialog;
+  const showWorktreeButton =
+    isGitRepo === true && gitWorktreeEnabled && !!onOpenWorktreeDialog;
   const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
   const [confirmCleanUpOpen, setConfirmCleanUpOpen] = React.useState(false);
 

@@ -238,6 +238,13 @@ export interface DashboardConfig {
    */
   spawnRegisterTimeoutMs: number;
   /**
+   * UI preference: show worktree spawn buttons (folder `+Worktree` and the
+   * per-change `⑂+` on OpenSpec rows). Default `true`. Preference-only —
+   * does NOT disable the `/api/git/worktree*` REST endpoints.
+   * See change: openspec-worktree-spawn-button.
+   */
+  gitWorktreeEnabled: boolean;
+  /**
    * Per-plugin config namespaces. Reserved top-level key.
    * Each plugin's config lives at plugins.<id>.*
    * Plugin-shaped legacy top-level keys (e.g. openspec.*) stay at top-level
@@ -296,6 +303,7 @@ const DEFAULTS: DashboardConfig = {
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
   reattachPlacement: DEFAULT_REATTACH_PLACEMENT,
   spawnRegisterTimeoutMs: 30000,
+  gitWorktreeEnabled: true,
 };
 
 /**
@@ -582,6 +590,10 @@ export function loadConfig(): DashboardConfig {
         ? parsed.askUserPromptTimeoutSeconds
         : defaults.askUserPromptTimeoutSeconds,
       spawnRegisterTimeoutMs: clampSpawnRegisterTimeoutMs(parsed.spawnRegisterTimeoutMs),
+      gitWorktreeEnabled:
+        typeof parsed.gitWorktreeEnabled === "boolean"
+          ? parsed.gitWorktreeEnabled
+          : defaults.gitWorktreeEnabled,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
     };
 

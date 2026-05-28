@@ -30,6 +30,7 @@ function renderBar(overrides: Partial<React.ComponentProps<typeof FolderActionBa
     onOpenNativeEditor: () => {},
     onOpenPiResources: () => {},
     isGitRepo: true,
+    gitWorktreeEnabled: true,
     onOpenWorktreeDialog: () => {},
     ...overrides,
   };
@@ -64,6 +65,16 @@ describe("FolderActionBar +Worktree button — visibility gating", () => {
   it("hides the button when no onOpenWorktreeDialog handler is provided", () => {
     renderBar({ onOpenWorktreeDialog: undefined });
     expect(screen.queryByTestId("spawn-worktree-btn")).toBeNull();
+  });
+
+  it("hides the button when gitWorktreeEnabled=false even on a git repo with handler", () => {
+    renderBar({ gitWorktreeEnabled: false });
+    expect(screen.queryByTestId("spawn-worktree-btn")).toBeNull();
+  });
+
+  it("renders the button when gitWorktreeEnabled=true (explicit) on a git repo", () => {
+    renderBar({ gitWorktreeEnabled: true });
+    expect(screen.getByTestId("spawn-worktree-btn")).toBeTruthy();
   });
 
   it("click invokes onOpenWorktreeDialog and stops propagation", () => {

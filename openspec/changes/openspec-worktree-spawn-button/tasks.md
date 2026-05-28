@@ -1,22 +1,22 @@
 ## 1. Config flag
 
-- [ ] 1.1 Add `gitWorktreeEnabled?: boolean` to `DashboardConfig` in `packages/shared/src/config.ts`; default `true` in `defaultConfig`.
-- [ ] 1.2 Round-trip test: omitted-on-disk → reads as `true`; explicit `false` → persists; toggle via partial-merge `/api/config` write preserves siblings.
-- [ ] 1.3 Surface the field in `SettingsPanel.tsx` as a checkbox under the existing git/workspace section. Label: "Show worktree spawn buttons in folders and OpenSpec rows". Help text clarifies preference-only semantics.
+- [x] 1.1 Add `gitWorktreeEnabled?: boolean` to `DashboardConfig` in `packages/shared/src/config.ts`; default `true` in `defaultConfig`.
+- [x] 1.2 Round-trip test: omitted-on-disk → reads as `true`; explicit `false` → persists; toggle via partial-merge `/api/config` write preserves siblings.
+- [x] 1.3 Surface the field in `SettingsPanel.tsx` as a checkbox under the existing git/workspace section. Label: "Show worktree spawn buttons in folders and OpenSpec rows". Help text clarifies preference-only semantics.
 
 ## 2. FolderActionBar gating
 
-- [ ] 2.1 Add `gitWorktreeEnabled: boolean` prop to `FolderActionBar` (required, no default — parent owns the config read).
-- [ ] 2.2 Extend `showWorktreeButton`: `isGitRepo === true && gitWorktreeEnabled && !!onOpenWorktreeDialog`.
-- [ ] 2.3 Extend `FolderActionBar.test.tsx` "+Worktree visibility" suite with arms: flag=false hides button even when repo is git; flag=true keeps current behavior; flag default-on when prop omitted (call sites supply via config).
-- [ ] 2.4 Wire `config.gitWorktreeEnabled ?? true` from `SessionList.tsx` into every `<FolderActionBar>` instance.
+- [x] 2.1 Add `gitWorktreeEnabled: boolean` prop to `FolderActionBar` (required, no default — parent owns the config read).
+- [x] 2.2 Extend `showWorktreeButton`: `isGitRepo === true && gitWorktreeEnabled && !!onOpenWorktreeDialog`.
+- [x] 2.3 Extend `FolderActionBar.test.tsx` "+Worktree visibility" suite with arms: flag=false hides button even when repo is git; flag=true keeps current behavior; flag default-on when prop omitted (call sites supply via config).
+- [x] 2.4 Wire `config.gitWorktreeEnabled ?? true` from `SessionList.tsx` into every `<FolderActionBar>` instance.
 
 ## 3. WorktreeSpawnDialog prop extensions
 
-- [ ] 3.1 Add `initialBranch?: string` prop. Use as initial state of the new-branch input. When omitted, behavior unchanged.
-- [ ] 3.2 Add `attachProposal?: string` prop (carried through, never displayed inside the dialog).
-- [ ] 3.3 Extend `onSpawn` signature to `(worktreePath: string, opts?: { gitWorktreeBase?: string; attachProposal?: string }) => void`. Always include `attachProposal` in `opts` when prop was supplied; never invent one.
-- [ ] 3.4 Component tests in `WorktreeSpawnDialog.test.tsx`:
+- [x] 3.1 Add `initialBranch?: string` prop. Use as initial state of the new-branch input. When omitted, behavior unchanged.
+- [x] 3.2 Add `attachProposal?: string` prop (carried through, never displayed inside the dialog).
+- [x] 3.3 Extend `onSpawn` signature to `(worktreePath: string, opts?: { gitWorktreeBase?: string; attachProposal?: string }) => void`. Always include `attachProposal` in `opts` when prop was supplied; never invent one.
+- [x] 3.4 Component tests in `WorktreeSpawnDialog.test.tsx`:
   - `initialBranch="os/add-dark-mode"` renders that string in the branch input on first paint.
   - Submit flow with `attachProposal="add-dark-mode"` set → `onSpawn` called with `opts.attachProposal === "add-dark-mode"`.
   - Existing-worktree row click also forwards `attachProposal` when set.
@@ -24,10 +24,10 @@
 
 ## 4. FolderOpenSpecSection — per-change ⑂+ button
 
-- [ ] 4.1 Add `onSpawnAttachedWorktree?: (cwd: string, changeName: string) => void` prop. When undefined, button hides (parity with `onSpawnAttached`).
-- [ ] 4.2 Add `gitWorktreeEnabled?: boolean` + `isGitRepo?: boolean` props (both default falsy-friendly). Button shows only when `isGitRepo && gitWorktreeEnabled && onSpawnAttachedWorktree`.
-- [ ] 4.3 Render `<Icon path={mdiSourceBranchPlus} size={0.5} />` button immediately to the left of the existing `▶` spawn-attached button. `data-testid="spawn-attached-worktree-btn-${c.name}"`. Tooltip: "New worktree for this change".
-- [ ] 4.4 Tests in `FolderOpenSpecSection.test.tsx`:
+- [x] 4.1 Add `onSpawnAttachedWorktree?: (cwd: string, changeName: string) => void` prop. When undefined, button hides (parity with `onSpawnAttached`).
+- [x] 4.2 Add `gitWorktreeEnabled?: boolean` + `isGitRepo?: boolean` props (both default falsy-friendly). Button shows only when `isGitRepo && gitWorktreeEnabled && onSpawnAttachedWorktree`.
+- [x] 4.3 Render `<Icon path={mdiSourceBranchPlus} size={0.5} />` button immediately to the left of the existing `▶` spawn-attached button. `data-testid="spawn-attached-worktree-btn-${c.name}"`. Tooltip: "New worktree for this change".
+- [x] 4.4 Tests in `FolderOpenSpecSection.test.tsx`:
   - Button hidden when `isGitRepo` false even if flag on.
   - Button hidden when flag false even if repo is git.
   - Button hidden when handler undefined.
@@ -36,12 +36,12 @@
 
 ## 5. SessionList wiring
 
-- [ ] 5.1 Read `config.gitWorktreeEnabled ?? true` once at the top of `SessionList`. Pass to every `FolderActionBar` and `FolderOpenSpecSection` instance.
-- [ ] 5.2 New state `worktreeForChange: { cwd: string; changeName: string } | null`.
-- [ ] 5.3 Pass `onSpawnAttachedWorktree={(cwd, changeName) => setWorktreeForChange({ cwd, changeName })}` into `FolderOpenSpecSection`.
-- [ ] 5.4 Render `WorktreeSpawnDialog` instance with `initialBranch={"os/" + worktreeForChange.changeName}` and `attachProposal={worktreeForChange.changeName}` when `worktreeForChange` is set. Reuse existing dialog instance pattern (do not duplicate the folder `+Worktree` dialog state).
-- [ ] 5.5 Dialog's `onSpawn` calls `onSpawnSession?.(path, undefined, opts)`. `opts` now includes `attachProposal` — confirm the existing `spawn_session` ws sender (line ~1046 area) forwards every key in `opts`. If it cherry-picks, add `attachProposal` to the forwarded set.
-- [ ] 5.6 End-to-end-ish integration test (jsdom): click `⑂+` on a change row → dialog opens with `os/<name>` prefill → submit creates worktree (mock POST) → spawn ws call carries `attachProposal` + `gitWorktreeBase`.
+- [x] 5.1 Read `config.gitWorktreeEnabled ?? true` once at the top of `SessionList`. Pass to every `FolderActionBar` and `FolderOpenSpecSection` instance.
+- [x] 5.2 New state `worktreeForChange: { cwd: string; changeName: string } | null`.
+- [x] 5.3 Pass `onSpawnAttachedWorktree={(cwd, changeName) => setWorktreeForChange({ cwd, changeName })}` into `FolderOpenSpecSection`.
+- [x] 5.4 Render `WorktreeSpawnDialog` instance with `initialBranch={"os/" + worktreeForChange.changeName}` and `attachProposal={worktreeForChange.changeName}` when `worktreeForChange` is set. Reuse existing dialog instance pattern (do not duplicate the folder `+Worktree` dialog state).
+- [x] 5.5 Dialog's `onSpawn` calls `onSpawnSession?.(path, undefined, opts)`. `opts` now includes `attachProposal` — confirm the existing `spawn_session` ws sender (line ~1046 area) forwards every key in `opts`. If it cherry-picks, add `attachProposal` to the forwarded set.
+- [x] 5.6 End-to-end-ish integration test (jsdom): click `⑂+` on a change row → dialog opens with `os/<name>` prefill → submit creates worktree (mock POST) → spawn ws call carries `attachProposal` + `gitWorktreeBase`.
 
 ## 6. Orphan-path detection + cleanup
 
@@ -61,9 +61,9 @@
 
 ## 7. Docs
 
-- [ ] 6.1 Add `docs/file-index-client.md` rows (caveman style, delegated subagent) for the new prop contracts on `WorktreeSpawnDialog` and `FolderOpenSpecSection`.
-- [ ] 6.2 Add `docs/file-index-shared.md` (or relevant split) row noting `gitWorktreeEnabled` config field default + semantics.
-- [ ] 6.3 No `docs/architecture.md` change — no new dataflow.
+- [x] 6.1 Add `docs/file-index-client.md` rows (caveman style, delegated subagent) for the new prop contracts on `WorktreeSpawnDialog` and `FolderOpenSpecSection`.
+- [x] 6.2 Add `docs/file-index-shared.md` (or relevant split) row noting `gitWorktreeEnabled` config field default + semantics.
+- [x] 6.3 No `docs/architecture.md` change — no new dataflow.
 
 ## 8. Verification
 

@@ -15,6 +15,10 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WorktreeSpawnDialog } from "../WorktreeSpawnDialog.js";
+import {
+  dispatchBootstrapEvent,
+  __resetBootstrapBusForTests,
+} from "../../lib/worktree-bootstrap-bus.js";
 
 const {
   fetchGitHead,
@@ -451,6 +455,101 @@ describe("WorktreeSpawnDialog — orphan-path detection + cleanup", () => {
   });
 });
 
+describe("WorktreeSpawnDialog — initialBranch + attachProposal props", () => {
+  it("prefills the new-branch input from initialBranch on first paint", async () => {
+    defaultMocks();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        initialBranch="os/add-dark-mode"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    const input = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
+    expect(input.value).toBe("os/add-dark-mode");
+  });
+
+  it("forwards attachProposal through onSpawn opts on create-and-spawn", async () => {
+    defaultMocks();
+    createWorktree.mockResolvedValue({
+      ok: true,
+      path: "/repo/.worktrees/os-add-dark-mode",
+      branch: "os/add-dark-mode",
+      excludeAppended: true,
+    });
+    const onSpawn = vi.fn();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        initialBranch="os/add-dark-mode"
+        attachProposal="add-dark-mode"
+        onSpawn={onSpawn}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
+    expect(onSpawn).toHaveBeenCalledWith(
+      "/repo/.worktrees/os-add-dark-mode",
+      { gitWorktreeBase: "main", attachProposal: "add-dark-mode" },
+    );
+  });
+
+  it("existing-worktree row click forwards attachProposal when set", async () => {
+    defaultMocks({
+      worktrees: [
+        { path: "/repo", branch: "main", isMain: true },
+        { path: "/repo/.worktrees/feat-x", branch: "feat/x", isMain: false },
+      ],
+    });
+    const onSpawn = vi.fn();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-dark-mode"
+        onSpawn={onSpawn}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-row-main"));
+    fireEvent.click(
+      screen.getByTestId(`worktree-row-${encodeURIComponent("/repo/.worktrees/feat-x")}`),
+    );
+    expect(onSpawn).toHaveBeenCalledWith(
+      "/repo/.worktrees/feat-x",
+      { attachProposal: "add-dark-mode" },
+    );
+  });
+
+  it("omits attachProposal from opts when prop is unset (backward-compat)", async () => {
+    defaultMocks();
+    createWorktree.mockResolvedValue({
+      ok: true,
+      path: "/repo/.worktrees/feat-x",
+      branch: "feat/x",
+      excludeAppended: true,
+    });
+    const onSpawn = vi.fn();
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "feat/x" },
+    });
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
+    expect(onSpawn).toHaveBeenCalledWith(
+      "/repo/.worktrees/feat-x",
+      { gitWorktreeBase: "main" },
+    );
+    // explicit: no attachProposal key in opts
+    const opts = onSpawn.mock.calls[0]![1];
+    expect(opts.attachProposal).toBeUndefined();
+  });
+});
+
 describe("WorktreeSpawnDialog — dismissal", () => {
   it("Cancel button calls onCancel", async () => {
     defaultMocks();
@@ -477,11 +576,6 @@ describe("WorktreeSpawnDialog — dismissal", () => {
 // + the worktree-bootstrap bus. Bus interaction is exercised by routing
 // events through `dispatchBootstrapEvent` since the dialog subscribes to
 // the singleton bus directly.
-
-import {
-  dispatchBootstrapEvent,
-  __resetBootstrapBusForTests,
-} from "../../lib/worktree-bootstrap-bus.js";
 
 describe("WorktreeSpawnDialog — bootstrap probe + degraded button", () => {
   beforeEach(() => __resetBootstrapBusForTests());

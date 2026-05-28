@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline, mdiPlay, mdiPlus, mdiEyeOffOutline, mdiEyeOutline, mdiPlayCircleOutline, mdiSourceFork, mdiRobotOutline } from "@mdi/js";
+import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline, mdiPlay, mdiPlus, mdiEyeOffOutline, mdiEyeOutline, mdiPlayCircleOutline, mdiSourceFork, mdiRobotOutline, mdiSourceBranchPlus } from "@mdi/js";
 import {
   sourceIcons,
   deriveDotColor,
@@ -30,6 +30,18 @@ interface Props {
   onOpenSpecs?: () => void;
   onOpenArchive?: () => void;
   onSpawnAttached?: (cwd: string, changeName: string) => void;
+  /**
+   * Per-change `⥂2+` worktree-spawn handler. When set + `isGitRepo` +
+   * `gitWorktreeEnabled` all true, renders an extra button alongside
+   * `▶ spawn-attached` that calls `(cwd, changeName)` so the parent can
+   * open `WorktreeSpawnDialog` with `initialBranch="os/<name>"` and
+   * `attachProposal=<name>`. See change: openspec-worktree-spawn-button.
+   */
+  onSpawnAttachedWorktree?: (cwd: string, changeName: string) => void;
+  /** Whether the folder is a git repo. Required for the `⥂2+` button to render. */
+  isGitRepo?: boolean;
+  /** Global UI preference (default true). Hides the `⥂2+` button when false. */
+  gitWorktreeEnabled?: boolean;
   /** Hide a session (eye-off icon on linked-session pill). */
   onHideSession?: (sessionId: string) => void;
   /** Unhide a session (eye icon, shown when session.hidden). */
@@ -48,7 +60,7 @@ interface Props {
   selectedId?: string;
 }
 
-export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, sessions, onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnAttached, onHideSession, onUnhideSession, onResumeSession, groups: externalGroups, assignments: externalAssignments, selectedId }: Props) {
+export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, sessions, onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnAttached, onSpawnAttachedWorktree, isGitRepo, gitWorktreeEnabled, onHideSession, onUnhideSession, onResumeSession, groups: externalGroups, assignments: externalAssignments, selectedId }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [tasksOpenForChange, setTasksOpenForChange] = useState<string | null>(null);
   const [activePill, setActivePill] = useState<string | null>(null);
@@ -251,6 +263,17 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
             />
           )}
           <ArtifactLettersButton artifacts={c.artifacts} changeName={c.name} onReadArtifact={onReadArtifact} />
+          {isGitRepo && gitWorktreeEnabled && onSpawnAttachedWorktree && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onSpawnAttachedWorktree(cwd, c.name); }}
+              data-testid={`spawn-attached-worktree-btn-${c.name}`}
+              title="New worktree for this change"
+              className="text-[var(--text-muted)] hover:text-yellow-400"
+            >
+              <Icon path={mdiSourceBranchPlus} size={0.5} />
+            </button>
+          )}
           {onSpawnAttached && (
             <button
               type="button"

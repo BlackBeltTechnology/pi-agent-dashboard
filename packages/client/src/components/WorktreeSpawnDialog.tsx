@@ -37,6 +37,21 @@ interface Props {
   /** Cwd to scope the dialog to (folder header's path). */
   cwd: string;
   /**
+   * Optional initial value for the new-branch input. When omitted the
+   * input renders empty (current behavior). When supplied, prefills the
+   * branch name so the user can confirm or edit. The dialog never mutates
+   * the slug derivation — it just seeds the input.
+   * See change: openspec-worktree-spawn-button.
+   */
+  initialBranch?: string;
+  /**
+   * Optional change name to forward through `onSpawn.opts.attachProposal`.
+   * Never displayed inside the dialog — invisible carry-through so the
+   * parent's `spawn_session` call binds the new session to a proposal.
+   * See change: openspec-worktree-spawn-button.
+   */
+  attachProposal?: string;
+  /**
    * Called when the user chooses to spawn a pi session in a worktree path.
    * `gitWorktreeBase` is supplied when the dialog created a new worktree
    * (so the server can persist it to `.meta.json`); absent when the user

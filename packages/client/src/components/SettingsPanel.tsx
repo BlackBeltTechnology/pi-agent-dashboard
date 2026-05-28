@@ -101,6 +101,8 @@ interface Config {
   };
   /** Dashboard model proxy config. See change: add-dashboard-model-proxy. */
   modelProxy?: Record<string, any>;
+  /** UI preference: show worktree spawn buttons in folder + OpenSpec rows. Default true. See change: openspec-worktree-spawn-button. */
+  gitWorktreeEnabled?: boolean;
 }
 
 const DEFAULT_OPENSPEC_UI = {
@@ -193,6 +195,9 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
     }
     if (config.spawnRegisterTimeoutMs !== original.spawnRegisterTimeoutMs) {
       partial.spawnRegisterTimeoutMs = config.spawnRegisterTimeoutMs ?? 30000;
+    }
+    if ((config.gitWorktreeEnabled ?? true) !== (original.gitWorktreeEnabled ?? true)) {
+      partial.gitWorktreeEnabled = config.gitWorktreeEnabled ?? true;
     }
     // Tunnel diff (top-level enabled + nested watchdog)
     {
@@ -508,6 +513,16 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                   )}
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                     How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.
+                  </p>
+                </div>
+                <div>
+                  <ToggleField
+                    label="Show worktree spawn buttons in folders and OpenSpec rows"
+                    value={config.gitWorktreeEnabled ?? true}
+                    onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
+                  />
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    UI preference only. Hides the folder <code>+Worktree</code> button and the per-change <code>⥂2+</code> button on OpenSpec rows. The <code>/api/git/worktree*</code> REST endpoints stay reachable for tooling. Default on.
                   </p>
                 </div>
                 <div className="flex items-center justify-between">

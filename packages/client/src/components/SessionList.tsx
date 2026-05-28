@@ -140,6 +140,13 @@ interface Props {
   resumeErrors?: Map<string, string>;
   /** Dismiss a resume error for a session */
   onDismissResumeError?: (sessionId: string) => void;
+  /**
+   * UI preference: show worktree spawn buttons (folder `+Worktree` and
+   * per-change `⥂2+`). Defaults to `true` when undefined. App wires this
+   * from `/api/config.gitWorktreeEnabled`. See change:
+   * openspec-worktree-spawn-button.
+   */
+  gitWorktreeEnabled?: boolean;
 }
 
 // Re-export for backwards compatibility
@@ -168,7 +175,10 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+  // UI preference flag, default-on. Gates folder `+Worktree` and per-change
+  // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
+  const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
   const now = Date.now();
   const [, navigate] = useLocation();
   const { messages, showToast, dismissToast } = useToast();
@@ -262,6 +272,11 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // Worktree spawn dialog: when set, render the modal scoped to this cwd.
   // See change: add-worktree-spawn-dialog.
   const [worktreeDialogCwd, setWorktreeDialogCwd] = useState<string | null>(null);
+  // Per-change worktree spawn state. When set, render the dialog prefilled
+  // with `os/<changeName>` + `attachProposal=<changeName>`. Reuses the
+  // existing `WorktreeSpawnDialog` component to avoid duplicate state.
+  // See change: openspec-worktree-spawn-button.
+  const [worktreeForChange, setWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
 
   // Filter state - active-only defaults to ON
   // Single visibility toggle: `Show hidden`. The previous `Active only`
@@ -628,6 +643,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenEditor={() => onOpenEditor?.(group.cwd)}
               onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
+              gitWorktreeEnabled={gitWorktreeEnabled}
               onOpenWorktreeDialog={onSpawnSession ? () => setWorktreeDialogCwd(group.cwd) : undefined}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended").length}
               onCleanUpBroken={onHideSession ? () => {
@@ -652,6 +668,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
               onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
               onSpawnAttached={onSpawnSession ? (cwd, changeName) => onSpawnSession(cwd, changeName) : undefined}
+              onSpawnAttachedWorktree={onSpawnSession ? (cwd, changeName) => setWorktreeForChange({ cwd, changeName }) : undefined}
+              isGitRepo={group.sessions.some((s) => !!s.gitBranch)}
+              gitWorktreeEnabled={gitWorktreeEnabled}
               onHideSession={onHideSession ? handleHide : undefined}
               onUnhideSession={onUnhideSession ? handleUnhide : undefined}
               onResumeSession={onResume}
@@ -1060,7 +1079,19 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           onCancel={() => setWorktreeDialogCwd(null)}
           onSpawn={(path, opts) => {
             setWorktreeDialogCwd(null);
-            onSpawnSession?.(path, undefined, opts);
+            onSpawnSession?.(path, opts?.attachProposal, opts);
+          }}
+        />
+      )}
+      {worktreeForChange && (
+        <WorktreeSpawnDialog
+          cwd={worktreeForChange.cwd}
+          initialBranch={`os/${worktreeForChange.changeName}`}
+          attachProposal={worktreeForChange.changeName}
+          onCancel={() => setWorktreeForChange(null)}
+          onSpawn={(path, opts) => {
+            setWorktreeForChange(null);
+            onSpawnSession?.(path, opts?.attachProposal, opts);
           }}
         />
       )}
