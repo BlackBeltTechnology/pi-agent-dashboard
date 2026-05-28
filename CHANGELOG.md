@@ -13,6 +13,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 ### Added
 
 ### Changed
+- **Pi compatibility floor lifted to 0.75.0 (recommended 0.75.5).** Users on pi 0.74.x now see the red "below minimum" bootstrap banner with an upgrade hint at 0.75.5. The dashboard's declared Node engines floor rose to `>=22.19.0` (root + server) to mirror pi 0.75.0's own breaking-change Node bump. `node-guard.ts::isAffectedNode` now refuses to start on Node `v22.18.x` (previously accepted). Bundled-extension peer-deps (`pi-anthropic-messages`, `pi-flows`) bumped to `>=0.75.0` / `^0.75.0` in lockstep — they replace the deleted `offline-packages.json` as the dashboard's pin surface. A new repo-lint `bundled-node-meets-pi-floor.test.ts` asserts the bundled Node version (`BUNDLED_NODE_VERSION` in `_node-version.sh`) meets the Node floor required by `piCompatibility.minimum`. (change: `bump-pi-compat-to-0-75`)
 
 ### Fixed
 
