@@ -54,6 +54,7 @@ function makeHarness(initialState: Map<string, SessionState>) {
     setDiscoveredServers: noop,
     setSpawnErrors: noop,
     setResumeErrors: noop,
+    setDisplayPrefs: noop,
   };
 
   const deps: MessageHandlerDeps = {

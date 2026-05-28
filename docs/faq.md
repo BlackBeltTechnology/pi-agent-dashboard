@@ -1903,6 +1903,20 @@ Upgrade pi-flows. No dashboard-side change required.
 
 See change: fix-pi-flows-end-to-end.
 
+## How do I hide reasoning / token bar / tool output?
+
+Settings ▸ General ▸ Chat display. Toggles every chat-view element: thinking blocks, tool-call cards per kind, tool-result bodies, turn separators, debug tools, token-stats bar, context-usage bar.
+
+Per-session override: ⚙ View popover in chat toolbar. "Use global settings" reverts to global.
+
+Presets: `simple` / `standard` / `everything`. First-launch modal sets initial preset; Esc / Skip → `standard`.
+
+`ask_user` tool calls + inline ask-user dialogs never hide regardless of toggles.
+
+Full contract: [`chat-display-preferences.md`](./chat-display-preferences.md).
+
+See change: configurable-chat-display.
+
 ## Where is the Roles UI?
 
 Settings \u2192 General \u2192 Roles. Moved from model dropdown in dashboard 0.5.4.

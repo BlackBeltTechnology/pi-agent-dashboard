@@ -38,6 +38,7 @@ import { SessionActivityBar } from "./SessionActivityBar.js";
 import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { CwdGonePill } from "./CwdGonePill.js";
@@ -431,6 +432,7 @@ export function SessionCard({
   const canRename = session.status !== "ended" && !!onRename;
   const isAlive = session.status !== "ended";
   const isMobile = useMobile();
+  const prefs = useDisplayPrefs(session.id);
   const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying });
   // Suppress purple `card-input-pulse` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
@@ -509,11 +511,13 @@ export function SessionCard({
             );
           })()}
           <span className="flex-1" />
-          <ContextUsageBar
-            tokens={contextUsage?.tokens ?? null}
-            contextWindow={contextUsage?.contextWindow}
-            compact
-          />
+          {prefs.contextUsageBar && (
+            <ContextUsageBar
+              tokens={contextUsage?.tokens ?? null}
+              contextWindow={contextUsage?.contextWindow}
+              compact
+            />
+          )}
           {session.cost != null && session.cost > 0 && (
             <span className="text-[var(--text-tertiary)] flex-shrink-0">${session.cost.toFixed(2)}</span>
           )}
@@ -718,11 +722,13 @@ export function SessionCard({
       <div className="flex items-center mt-0.5 text-[11px] gap-2">
         <ActivityIndicator session={session} />
         <span className="flex-1" />
-        <ContextUsageBar
-          tokens={contextUsage?.tokens ?? null}
-          contextWindow={contextUsage?.contextWindow}
-          compact
-        />
+        {prefs.contextUsageBar && (
+          <ContextUsageBar
+            tokens={contextUsage?.tokens ?? null}
+            contextWindow={contextUsage?.contextWindow}
+            compact
+          />
+        )}
         {session.cost != null && session.cost > 0 && (
           <span className="text-[var(--text-tertiary)] flex-shrink-0">${session.cost.toFixed(2)}</span>
         )}

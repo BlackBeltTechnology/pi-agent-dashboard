@@ -16,6 +16,8 @@ import { RawEventCard } from "./RawEventCard.js";
 import { formatMessageTime } from "../lib/format.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
 import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../lib/group-tool-calls.js";
@@ -24,6 +26,8 @@ import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../lib/
 import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { ChatViewMenu } from "./ChatViewMenu.js";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 interface Props {
   sessionId?: string;
@@ -56,6 +60,14 @@ interface Props {
   // onCancelSteering / onCancelPending omitted: pi exposes no queue-mutation
   // API. Steering bubbles render display-only; cancellation requires upstream
   // pi support (tracked separately). See change: honest-mid-turn-queue-surface.
+  /**
+   * Send the per-session display-prefs override. Optional — omit when the
+   * menu should not render (e.g. archived/dataUnavailable views).
+   * See change: configurable-chat-display.
+   */
+  onSetDisplayPrefs?: (override: Partial<DisplayPrefs> | null) => void;
+  /** Current sparse override for the session, or `undefined`. */
+  displayPrefsOverride?: Partial<DisplayPrefs>;
 }
 
 function ImageAttachments({ images }: { images: ChatImage[] }) {
@@ -147,7 +159,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, queuedTexts, pendingSteering }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, queuedTexts, pendingSteering, onSetDisplayPrefs, displayPrefsOverride }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
   const programmaticScroll = useRef(false);
@@ -169,9 +181,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
     if (programmaticTimeout.current) clearTimeout(programmaticTimeout.current);
   }, []);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [showDebugTools] = useState(() => {
-    try { return localStorage.getItem("show-debug-tools") === "true"; } catch { return false; }
-  });
+  // Effective display prefs for this session (configurable-chat-display).
+  const prefs = useDisplayPrefs(sessionId);
+  const showDebugTools = prefs.debugTools;
   const prevSessionRef = useRef(sessionId);
   const isMobile = useMobile();
   const bubbleMax = isMobile ? "max-w-[95%]" : "max-w-[80%]";
@@ -290,7 +302,17 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   }), []);
 
   return (
-    <div className="flex-1 relative overflow-hidden">
+    <div className="flex-1 relative overflow-hidden flex flex-col">
+    {/* Top toolbar: per-session view menu (configurable-chat-display) */}
+    {sessionId && onSetDisplayPrefs && (
+      <div className="flex items-center justify-end px-2 py-1 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)]/50">
+        <ChatViewMenu
+          sessionId={sessionId}
+          send={(msg) => onSetDisplayPrefs(msg.override)}
+          currentOverride={displayPrefsOverride}
+        />
+      </div>
+    )}
     <div ref={scrollRef} onScroll={handleScroll} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {
         // Collapsed group of repeated tool calls
@@ -302,6 +324,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         const msg = item as import("../lib/event-reducer.js").ChatMessage;
 
         if (msg.role === "turnSeparator") {
+          if (!prefs.turnMetadata) return null;
           return <div key={msg.id} className="mx-4 my-2 border-t border-[var(--border-subtle)]" />;
         }
 
@@ -351,6 +374,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         }
 
         if (msg.role === "thinking") {
+          if (!prefs.reasoning) return null;
           return (
             <ThinkingBlock
               key={msg.id}
@@ -363,6 +387,10 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
 
         if (msg.role === "toolResult") {
           if (!showDebugTools && isDebugTool(msg.toolName ?? "")) return null;
+          // Gate by tool-kind preference. `ask_user` is non-hidable
+          // (toolCallPrefKey returns null → always render).
+          const kindKey = toolCallPrefKey(msg.toolName ?? "");
+          if (kindKey !== null && !prefs.toolCalls[kindKey]) return null;
           if (hiddenToolResultIds.has(msg.id)) return null;
           if (retriedErrorIds.has(msg.id)) {
             return (
@@ -392,6 +420,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               startedAt={msg.startedAt}
               duration={msg.duration}
               toolDetails={msg.toolDetails}
+              showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
               onAbort={msg.toolStatus === "running" ? onAbort : undefined}
               onForceKill={msg.toolStatus === "running" ? onForceKill : undefined}
             />
@@ -480,7 +509,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       })}
 
       {/* Streaming thinking */}
-      {state.streamingThinking && (
+      {state.streamingThinking && prefs.reasoning && (
         <ThinkingBlock
           content={state.streamingThinking}
           isStreaming

@@ -91,6 +91,34 @@ export function handleDetachProposal(
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
 }
 
+/**
+ * Browser → server: set or clear the per-session `displayPrefsOverride`.
+ * `override: null` removes the field from `.meta.json`.
+ * Broadcasts a `session_updated` so all browsers re-render with the new
+ * effective prefs.
+ * See change: configurable-chat-display.
+ */
+export function handleSetSessionDisplayPrefs(
+  msg: Extract<BrowserToServerMessage, { type: "setSessionDisplayPrefs" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { sessionManager, broadcast, metaPersistence } = ctx;
+  const session = sessionManager.get(msg.sessionId);
+  if (!session) return;
+
+  const override = msg.override;
+  // Update in-memory session so server.ts onChange + broadcast pick it up.
+  // Setting to `undefined` makes the field disappear on the next debounced
+  // .meta.json write; we also write synchronously below to belt-and-braces.
+  const updates = { displayPrefsOverride: override === null ? undefined : override };
+  sessionManager.update(msg.sessionId, updates);
+  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+
+  if (session.sessionFile && metaPersistence) {
+    metaPersistence.setDisplayPrefsOverride(session.sessionFile, override);
+  }
+}
+
 export function handleFetchContent(
   msg: Extract<BrowserToServerMessage, { type: "fetch_content" }>,
   ctx: BrowserHandlerContext,

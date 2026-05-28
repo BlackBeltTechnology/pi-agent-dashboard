@@ -141,6 +141,13 @@ export interface DashboardSession {
   openspecPhase?: OpenSpecPhase | null;
   openspecChange?: string | null;
   attachedProposal?: string | null;
+  /**
+   * Sparse per-session override for chat-view display preferences. Mirror
+   * of `SessionMeta.displayPrefsOverride`. Deep-merged onto the global
+   * `DisplayPrefs` on the client side via `mergeDisplayPrefs`.
+   * See change: configurable-chat-display.
+   */
+  displayPrefsOverride?: Partial<import("./display-prefs.js").DisplayPrefs>;
   contextTokens?: number | null;
   contextWindow?: number;
   sessionFile?: string;

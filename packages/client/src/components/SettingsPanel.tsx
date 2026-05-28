@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
+import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
+import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { Icon } from "@mdi/react";
 import { mdiArrowLeft, mdiContentSave, mdiAlert, mdiPlus, mdiDelete, mdiRestart, mdiUpdate, mdiCheckCircle, mdiCloseCircle, mdiPlay, mdiLoading } from "@mdi/js";
 import { testProvider, type TestProviderResult } from "../lib/providers-api.js";
@@ -608,6 +610,9 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                 </div>
               </Section>
 
+              {/* Configurable chat display (configurable-chat-display). */}
+              <DisplayPrefsSection />
+
               <Section title="Developer">
                 <ToggleField label="Dev Build on Reload" value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
               </Section>
@@ -918,6 +923,63 @@ function DebugToolsToggle() {
       value={visible}
       onChange={setVisible}
     />
+  );
+}
+
+// ── Display preferences (configurable-chat-display) ───────────────────────────────
+function DisplayPrefsSection() {
+  const { global } = useDisplayPrefsContext();
+  const prefs = global ?? DISPLAY_PRESETS.standard;
+
+  type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
+  type DisplayPrefsPatch = Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };
+  const patch = useCallback(async (partial: DisplayPrefsPatch) => {
+    try {
+      await fetch("/api/preferences/display", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(partial),
+        credentials: "include",
+      });
+      // The WS `display_prefs_updated` broadcast updates the store; no
+      // local optimistic write needed here (single source of truth).
+    } catch { /* swallow; UI recovers on next broadcast */ }
+  }, []);
+
+  const resetToDefaults = useCallback(() => {
+    void patch(DISPLAY_PRESETS.standard);
+  }, [patch]);
+
+  return (
+    <Section title="Chat display">
+      <p className="text-xs text-[var(--text-tertiary)] mb-2">
+        Hide chat elements you don’t need. Per-session overrides live in the
+        chat view’s “View” popover.
+      </p>
+      <ToggleField label="Token stats bar" value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} />
+      <ToggleField label="Context usage bar" value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} />
+      <ToggleField label="Reasoning blocks" value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} />
+      <ToggleField label="Tool result bodies" value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
+      <ToggleField label="Turn metadata separators" value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
+      <ToggleField label="Debug events" value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />
+      <div className="pt-2">
+        <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">Tool calls — show these types</h3>
+        <ToggleField label="Read" value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} />
+        <ToggleField label="Bash" value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} />
+        <ToggleField label="Edit / Write" value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} />
+        <ToggleField label="Agent" value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} />
+        <ToggleField label="Other" value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} />
+      </div>
+      <div className="pt-2">
+        <button
+          type="button"
+          onClick={resetToDefaults}
+          className="text-xs text-blue-400 hover:text-blue-300 underline"
+        >
+          Reset to defaults
+        </button>
+      </div>
+    </Section>
   );
 }
 

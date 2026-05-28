@@ -96,6 +96,26 @@ describe("meta-persistence", () => {
     mp.dispose();
   });
 
+  it("setDisplayPrefsOverride round-trips: set then null clears the field", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("prefs");
+    // Seed an existing meta so we can verify other fields survive.
+    mp.save(sf, { source: "dashboard", name: "keepme" });
+    mp.flushAll();
+
+    mp.setDisplayPrefsOverride(sf, { reasoning: false, toolCalls: { bash: false } });
+    const after = readSessionMeta(sf);
+    expect(after?.displayPrefsOverride?.reasoning).toBe(false);
+    expect(after?.displayPrefsOverride?.toolCalls?.bash).toBe(false);
+    expect(after?.name).toBe("keepme");
+
+    mp.setDisplayPrefsOverride(sf, null);
+    const cleared = readSessionMeta(sf);
+    expect(cleared?.displayPrefsOverride).toBeUndefined();
+    expect(cleared?.name).toBe("keepme");
+    mp.dispose();
+  });
+
   it("should dispose without writing", () => {
     const mp = createMetaPersistence();
     const sf = sessionFile("a");

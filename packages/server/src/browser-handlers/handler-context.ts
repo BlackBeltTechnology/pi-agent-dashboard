@@ -13,6 +13,7 @@ import type { PreferencesStore } from "../preferences-store.js";
 import type { DirectoryService } from "../directory-service.js";
 import type { TerminalManager } from "../terminal-manager.js";
 import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
+import type { MetaPersistence } from "../meta-persistence.js";
 import type { PendingResumeRegistry } from "../pending-resume-registry.js";
 import type { PendingAttachRegistry } from "../pending-attach-registry.js";
 import type { PendingWorktreeBaseRegistry } from "../pending-worktree-base-registry.js";
@@ -27,6 +28,13 @@ export interface BrowserHandlerContext {
   pendingForkRegistry?: PendingForkRegistry;
   sessionOrderManager?: SessionOrderManager;
   preferencesStore?: PreferencesStore;
+  /**
+   * Optional meta-persistence handle. Required for handlers that write
+   * synchronously to a session's `.meta.json` outside the debounced
+   * onChange path (currently: `setSessionDisplayPrefs`).
+   * See change: configurable-chat-display.
+   */
+  metaPersistence?: MetaPersistence;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;

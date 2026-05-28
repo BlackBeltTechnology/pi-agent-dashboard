@@ -71,6 +71,7 @@ import { createEditorPidRegistry } from "./editor-pid-registry.js";
 import { registerEditorRoutes } from "./routes/editor-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
+import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
@@ -204,6 +205,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       source: session.source,
       name: session.name,
       attachedProposal: session.attachedProposal,
+      displayPrefsOverride: session.displayPrefsOverride,
       hidden: session.hidden,
       cwd: session.cwd,
       status: session.status,
@@ -464,7 +466,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   const editorPidRegistry = createEditorPidRegistry({ editorManager });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
 
   // Resolve package version once at startup
   const __require = createRequire(import.meta.url);
@@ -802,6 +804,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPluginConfigRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  // Global chat-display preferences (configurable-chat-display).
+  registerPreferencesDisplayRoutes(fastify, {
+    preferencesStore,
+    networkGuard,
+    broadcast: (msg) => browserGateway.broadcastToAll(msg),
   });
   registerPluginActivationRoutes(fastify, {
     networkGuard,

@@ -67,7 +67,7 @@ import type { TerminalManager } from "./terminal-manager.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
-import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleFetchContent, handleListSessions } from "./browser-handlers/session-meta-handler.js";
+import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs } from "./browser-handlers/session-meta-handler.js";
 import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
 import { handlePinDirectory, handleUnpinDirectory, handleReorderPinnedDirs, handleReorderSessions, handleOpenSpecRefresh, handleOpenSpecBulkArchive, handleExtensionUiResponse, handlePiGatewayForward, handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleSetWorkspaceCollapsed, handleAddFolderToWorkspace, handleRemoveFolderFromWorkspace, handleReorderWorkspaceFolders, handleReorderWorkspaces } from "./browser-handlers/directory-handler.js";
 
@@ -140,6 +140,7 @@ export function createBrowserGateway(
   pendingResumeIntents?: import("./pending-resume-intent-registry.js").PendingResumeIntentRegistry,
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations,
   pendingWorktreeBaseRegistry?: import("./pending-worktree-base-registry.js").PendingWorktreeBaseRegistry,
+  metaPersistence?: import("./meta-persistence.js").MetaPersistence,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -338,6 +339,7 @@ export function createBrowserGateway(
         const ctx: BrowserHandlerContext = {
           ws, sessionManager, eventStore, piGateway,
           pendingForkRegistry, sessionOrderManager, preferencesStore,
+          metaPersistence,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
@@ -429,6 +431,9 @@ export function createBrowserGateway(
             break;
           case "detach_proposal":
             handleDetachProposal(msg, ctx);
+            break;
+          case "setSessionDisplayPrefs":
+            handleSetSessionDisplayPrefs(msg, ctx);
             break;
           case "fetch_content":
             handleFetchContent(msg, ctx);

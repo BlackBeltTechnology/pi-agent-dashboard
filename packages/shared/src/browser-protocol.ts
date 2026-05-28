@@ -21,6 +21,29 @@ import type {
 } from "./types.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type { EditorInstanceStatus } from "./editor-types.js";
+import type { DisplayPrefs } from "./display-prefs.js";
+
+// ── Configurable chat display ───────────────────────────────────────
+// See change: configurable-chat-display.
+
+/**
+ * Server → browser: broadcast on every successful PATCH of global
+ * display preferences. Browsers update their store and re-render.
+ */
+export interface DisplayPrefsUpdatedMessage {
+  type: "display_prefs_updated";
+  prefs: DisplayPrefs;
+}
+
+/**
+ * Browser → server: write the sparse per-session override.
+ * `override: null` clears the field from `.meta.json`.
+ */
+export interface SetSessionDisplayPrefsBrowserMessage {
+  type: "setSessionDisplayPrefs";
+  sessionId: string;
+  override: Partial<DisplayPrefs> | null;
+}
 
 // ── Server → Browser ────────────────────────────────────────────────
 
@@ -646,6 +669,7 @@ export type ServerToBrowserMessage =
   | BrowserExtUiDecoratorMessage
   | BrowserAssetRegisterMessage
   | PluginIntentsMessage
+  | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
@@ -1189,7 +1213,8 @@ export type BrowserToServerMessage =
   | RemoveFollowupEntryFromBrowserMessage
   | PromoteFollowupEntryFromBrowserMessage
   | WorktreeBootstrapSubscribeMessage
-  | WorktreeBootstrapUnsubscribeMessage;
+  | WorktreeBootstrapUnsubscribeMessage
+  | SetSessionDisplayPrefsBrowserMessage;
 
 /**
  * Browser registers interest in worktree-bootstrap events for a given
@@ -1209,3 +1234,4 @@ export interface WorktreeBootstrapUnsubscribeMessage {
   type: "worktree_bootstrap_unsubscribe";
   requestId: string;
 }
+

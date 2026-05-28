@@ -85,6 +85,7 @@ function sessionFromMeta(
     hidden: meta.hidden ?? false,
     firstMessage: meta.firstMessage,
     attachedProposal: meta.attachedProposal,
+    displayPrefsOverride: meta.displayPrefsOverride,
     // Restore unread bit from .meta.json so it survives server restart.
     // See change: session-card-unread-stripes.
     unread: meta.unread,

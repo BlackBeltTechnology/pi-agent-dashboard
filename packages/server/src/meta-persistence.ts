@@ -3,13 +3,22 @@
  * Each session gets its own debounce timer — updating session A
  * does not trigger a write for session B.
  */
-import { type SessionMeta, metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { type SessionMeta, metaPath, readSessionMeta, writeSessionMeta, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 const DEBOUNCE_MS = 1000;
 
 export interface MetaPersistence {
   /** Schedule a debounced write of the session's `.meta.json`. */
   save(sessionFile: string, meta: SessionMeta): void;
+  /**
+   * Synchronously set (or, when `override === null`, delete) the
+   * per-session `displayPrefsOverride` field in `.meta.json`. Performs
+   * read-modify-write via `mergeSessionMeta`, bypassing the debounce
+   * queue so callers see the change reflected immediately on disk.
+   * See change: configurable-chat-display.
+   */
+  setDisplayPrefsOverride(sessionFile: string, override: Partial<DisplayPrefs> | null): void;
   /** Flush all pending writes immediately. */
   flushAll(): void;
   /** Stop all debounce timers. */
@@ -35,6 +44,17 @@ export function createMetaPersistence(): MetaPersistence {
   }
 
   return {
+    setDisplayPrefsOverride(sessionFile: string, override: Partial<DisplayPrefs> | null): void {
+      const existing = readSessionMeta(sessionFile) ?? {};
+      if (override === null) {
+        // Remove the field so the session falls back to pure global prefs.
+        const { displayPrefsOverride: _drop, ...rest } = existing;
+        writeSessionMeta(sessionFile, rest);
+      } else {
+        mergeSessionMeta(sessionFile, { displayPrefsOverride: override });
+      }
+    },
+
     save(sessionFile: string, meta: SessionMeta): void {
       const existing = pending.get(sessionFile);
       if (existing) {

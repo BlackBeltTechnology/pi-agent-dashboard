@@ -9,6 +9,8 @@ import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import type { ToolContext } from "./tool-renderers/index.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 interface Props {
   group: ToolCallGroup;
@@ -31,6 +33,15 @@ function getSummary(toolName: string, args?: Record<string, unknown>): string {
 export function CollapsedToolGroup({ group, toolContext }: Props) {
   const [expanded, setExpanded] = useState(false);
   const isMobile = useMobile();
+  const prefs = useDisplayPrefs();
+  // Filter members by tool-kind toggle; `ask_user` is never gated.
+  // Hide the entire group only if every member is gated off.
+  // See change: configurable-chat-display.
+  const visibleMessages = group.messages.filter((m) => {
+    const key = toolCallPrefKey(m.toolName ?? "");
+    return key === null || prefs.toolCalls[key];
+  });
+  if (visibleMessages.length === 0) return null;
   const lastMsg = group.messages[group.messages.length - 1];
   const firstArgs = group.messages[0]?.args;
 
@@ -47,7 +58,7 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
         </span>
         <span className="truncate">{getSummary(group.toolName, firstArgs)}</span>
         <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-[10px] font-medium">
-          ×{group.messages.length}
+          ×{visibleMessages.length}
         </span>
         <span className="ml-auto text-[var(--text-muted)] inline-flex">
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
@@ -55,7 +66,7 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
       </button>
       {expanded && (
         <div className="mt-1 space-y-0.5">
-          {group.messages.map((msg) => (
+          {visibleMessages.map((msg) => (
             <ToolCallStep
               key={msg.id}
               toolName={msg.toolName ?? "unknown"}
@@ -67,6 +78,7 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
               context={toolContext}
               startedAt={msg.startedAt}
               duration={msg.duration}
+              showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
             />
           ))}
         </div>

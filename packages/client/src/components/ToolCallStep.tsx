@@ -20,6 +20,14 @@ interface Props {
   startedAt?: number;
   duration?: number;
   toolDetails?: Record<string, unknown>;
+  /**
+   * When `false`, the tool-result body is omitted but the header (name +
+   * status + elapsed) still renders. Defaults to `true` for back-compat.
+   * Used by `ChatView` to honour `displayPrefs.toolResults`.
+   * `ask_user` is never gated by callers — they always pass `true`.
+   * See change: configurable-chat-display.
+   */
+  showResultBody?: boolean;
   onAbort?: () => void;
   onForceKill?: () => void;
 }
@@ -50,7 +58,7 @@ const statusIcons: Record<string, ReactNode> = {
   error: <Icon path={mdiAlertCircle} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, onAbort, onForceKill }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, onAbort, onForceKill }: Props) {
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
@@ -113,7 +121,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
         </span>
       </button>
-      {expanded && (
+      {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>
             <Renderer

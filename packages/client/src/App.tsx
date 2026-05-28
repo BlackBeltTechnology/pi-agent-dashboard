@@ -92,6 +92,8 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import type { ContextUsageInfo } from "./components/SessionList.js";
 import { ApiContext, deriveApiBase, VITE_API_URL, setGlobalApiBase } from "./lib/api-context.js";
+import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
+import { FirstLaunchDisplayModal } from "./components/FirstLaunchDisplayModal.js";
 import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
 import { PluginContextProvider, applyPluginConfigUpdate, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 // Stable empty references for plugin context's session-state primitives.
@@ -404,6 +406,12 @@ export default function App() {
   // openspec-worktree-spawn-button.
   const [gitWorktreeEnabled, setGitWorktreeEnabled] = useState<boolean>(true);
   const [discoveredServers, setDiscoveredServers] = useState<import("./components/ServerSelector.js").DiscoveredServerInfo[]>([]);
+  // Global chat-display preferences. `undefined` until the initial GET
+  // /api/preferences/display response lands. When the server returns
+  // `displayPrefs: undefined` the FirstLaunchDisplayModal opens.
+  // See change: configurable-chat-display.
+  const [displayPrefs, setDisplayPrefs] = useState<import("@blackbelt-technology/pi-dashboard-shared/display-prefs.js").DisplayPrefs | undefined>(undefined);
+  const [displayPrefsLoaded, setDisplayPrefsLoaded] = useState(false);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
   // After overlay-url-routing: shell overlays are URL-driven via the
@@ -499,7 +507,7 @@ export default function App() {
   };
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef },
   );
 
@@ -527,6 +535,41 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Fetch global chat-display prefs once on mount, then run the legacy
+  // `show-debug-tools` localStorage migration (idempotent). The reply may
+  // carry `displayPrefs: undefined`, in which case the FirstLaunchDisplay
+  // Modal opens. See change: configurable-chat-display.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${apiBase}/api/preferences/display`, { credentials: "include" });
+        if (!r.ok) return;
+        const body = await r.json() as { displayPrefs?: import("@blackbelt-technology/pi-dashboard-shared/display-prefs.js").DisplayPrefs };
+        if (cancelled) return;
+        setDisplayPrefs(body.displayPrefs);
+      } catch { /* ignore */ }
+      finally {
+        if (!cancelled) setDisplayPrefsLoaded(true);
+      }
+      // Legacy `show-debug-tools` migration. Runs once per browser; the key
+      // is removed on first PATCH so subsequent renders no-op.
+      try {
+        const legacy = localStorage.getItem("show-debug-tools");
+        if (legacy !== null) {
+          await fetch(`${apiBase}/api/preferences/display`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ debugTools: legacy === "true" }),
+            credentials: "include",
+          });
+          localStorage.removeItem("show-debug-tools");
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiBase]);
 
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
@@ -1148,7 +1191,13 @@ export default function App() {
           )}
         </div>
       )}
-      {!isMobile && (
+      {!isMobile && (() => {
+        // Effective tokenStatsBar = override ?? global ?? true (default visible
+        // while prefs load). See change: configurable-chat-display.
+        const override = selectedSession?.displayPrefsOverride?.tokenStatsBar;
+        if (override !== undefined) return override;
+        return displayPrefs?.tokenStatsBar ?? true;
+      })() && (
         <TokenStatsBar
           turnStats={selectedState.turnStats}
           contextUsage={selectedState.contextUsage}
@@ -1208,7 +1257,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} displayPrefsOverride={selectedSession?.displayPrefsOverride} onSetDisplayPrefs={selectedId ? (override) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override }) : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — picks
@@ -1419,8 +1468,17 @@ export default function App() {
   // Without it, a render-time ReferenceError in any chrome component blanks
   // the entire window. See change:
   // fix-session-card-icon-import-and-shell-boundary.
+  // Memoize the session-override lookup so consumer `useDisplayPrefs`
+  // re-runs only when the relevant session's override actually changes.
+  const displayPrefsContextValue = useMemo(() => ({
+    global: displayPrefs,
+    getSessionOverride: (sessionId: string | undefined) =>
+      sessionId ? sessions.get(sessionId)?.displayPrefsOverride : undefined,
+  }), [displayPrefs, sessions]);
+
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
+      <DisplayPrefsProvider value={displayPrefsContextValue}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}
@@ -1453,6 +1511,7 @@ export default function App() {
         </ErrorBoundary>
       </ShellSessionsProvider>
       </PluginContextProvider>
+      </DisplayPrefsProvider>
     </ApiContext.Provider>
   );
 
@@ -1476,6 +1535,15 @@ export default function App() {
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
         <SpawnErrorToastHost />
+        {/* First-launch chat-display preset picker. Opens once when the
+            server reports `displayPrefs: undefined`. See change:
+            configurable-chat-display. */}
+        {displayPrefsLoaded && displayPrefs === undefined && (
+          <FirstLaunchDisplayModal
+            apiBase={apiBase}
+            onClose={() => { /* PATCH inside the modal triggers display_prefs_updated which seeds the store; no extra work needed. */ }}
+          />
+        )}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {

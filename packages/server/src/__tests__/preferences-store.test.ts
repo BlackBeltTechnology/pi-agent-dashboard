@@ -370,4 +370,53 @@ describe("preferences-store", () => {
       store.dispose();
     });
   });
+
+  describe("displayPrefs (configurable-chat-display)", () => {
+    it("returns undefined when never seeded", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()).toBeUndefined();
+      store.dispose();
+    });
+
+    it("setDisplayPrefs seeds and persists round-trip", () => {
+      const store = createPreferencesStore(filePath);
+      const merged = store.setDisplayPrefs({ debugTools: true, toolCalls: { bash: true } });
+      expect(merged.debugTools).toBe(true);
+      expect(merged.toolCalls.bash).toBe(true);
+      store.flush();
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(data.displayPrefs.debugTools).toBe(true);
+      expect(data.displayPrefs.toolCalls.bash).toBe(true);
+      store.dispose();
+    });
+
+    it("PATCH-style merge preserves existing fields and deep-merges toolCalls", () => {
+      const store = createPreferencesStore(filePath);
+      store.setDisplayPrefs({
+        tokenStatsBar: true,
+        contextUsageBar: true,
+        reasoning: false,
+        toolResults: true,
+        turnMetadata: true,
+        debugTools: false,
+        toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+      });
+      const merged = store.setDisplayPrefs({ debugTools: true, toolCalls: { bash: false } });
+      expect(merged.debugTools).toBe(true);
+      expect(merged.tokenStatsBar).toBe(true); // preserved
+      expect(merged.toolCalls.bash).toBe(false); // merged
+      expect(merged.toolCalls.read).toBe(true); // preserved
+      store.dispose();
+    });
+
+    it("reloads displayPrefs from disk on construction", () => {
+      const store1 = createPreferencesStore(filePath);
+      store1.setDisplayPrefs({ debugTools: true });
+      store1.flush();
+      store1.dispose();
+      const store2 = createPreferencesStore(filePath);
+      expect(store2.getDisplayPrefs()?.debugTools).toBe(true);
+      store2.dispose();
+    });
+  });
 });

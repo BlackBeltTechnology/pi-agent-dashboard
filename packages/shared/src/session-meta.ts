@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { DisplayPrefs } from "./display-prefs.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -52,6 +53,14 @@ export interface SessionMeta {
    * See change: add-worktree-spawn-dialog.
    */
   gitWorktreeBase?: string;
+
+  /**
+   * Sparse per-session override for chat-view display preferences.
+   * Deep-merged onto the global `DisplayPrefs` from `preferences.json`.
+   * `undefined` (field absent) means "no override — use global".
+   * See change: configurable-chat-display.
+   */
+  displayPrefsOverride?: Partial<DisplayPrefs>;
 
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;

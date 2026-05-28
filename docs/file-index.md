@@ -23,6 +23,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 | File | Covers |
 |---|---|
 | [`faq.md`](./faq.md) | Recurring how-to questions. Answers point at README.md + docs/ sources. |
+| [`chat-display-preferences.md`](./chat-display-preferences.md) | `DisplayPrefs` storage, merge rule, transport, migration, first-launch. See change: configurable-chat-display. |
 
 ## Adding a new file
 

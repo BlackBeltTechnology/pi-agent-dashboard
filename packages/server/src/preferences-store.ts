@@ -14,6 +14,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { safeRealpathSync } from "./resolve-path.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
@@ -26,6 +27,12 @@ interface PreferencesData {
   sessionOrder: Record<string, string[]>;
   pinnedDirectories: string[];
   workspaces?: Workspace[];
+  /**
+   * Global chat-display preferences. `undefined` means "never seeded" —
+   * the first-launch modal SHALL prompt the user to choose a preset.
+   * See change: configurable-chat-display.
+   */
+  displayPrefs?: DisplayPrefs;
 }
 
 export interface PreferencesStore {
@@ -62,6 +69,16 @@ export interface PreferencesStore {
   reorderWorkspaceFolders(id: string, paths: string[]): boolean;
   /** Reorders workspaces. Rejected if `ids` doesn't equal current id set. */
   reorderWorkspaces(ids: string[]): boolean;
+  // ── configurable-chat-display ──────────────────────────────
+  /** Returns `undefined` when display prefs have never been seeded. */
+  getDisplayPrefs(): DisplayPrefs | undefined;
+  /**
+   * Deep-merges `partial` over current display prefs and persists.
+   * `toolCalls` is merged field-by-field. When no prefs exist yet,
+   * uses the values from `partial` for top-level fields and from
+   * `partial.toolCalls` (if any) for the nested record.
+   */
+  setDisplayPrefs(partial: Partial<DisplayPrefs>): DisplayPrefs;
   flush(): void;
   dispose(): void;
 }
@@ -124,6 +141,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
 
   const rawWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
   let workspaces: Workspace[] = rawWorkspaces.map(normalizeWorkspaceOnLoad);
+  let displayPrefs: DisplayPrefs | undefined = data.displayPrefs;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty =
     pinnedDirectories.length !== rawPinned.length ||
@@ -143,7 +161,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, workspaces } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, workspaces, displayPrefs } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -155,7 +173,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, workspaces } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, workspaces, displayPrefs } satisfies PreferencesData);
     }
   }
 
@@ -290,6 +308,34 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       ws.folders = canon;
       scheduleSave();
       return true;
+    },
+
+    getDisplayPrefs(): DisplayPrefs | undefined {
+      return displayPrefs ? { ...displayPrefs, toolCalls: { ...displayPrefs.toolCalls } } : undefined;
+    },
+
+    setDisplayPrefs(partial: Partial<DisplayPrefs>): DisplayPrefs {
+      const base: DisplayPrefs = displayPrefs ?? {
+        tokenStatsBar: false,
+        contextUsageBar: false,
+        reasoning: false,
+        toolResults: false,
+        turnMetadata: false,
+        debugTools: false,
+        toolCalls: { read: false, bash: false, edit: false, agent: false, generic: false },
+      };
+      const merged: DisplayPrefs = {
+        tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
+        contextUsageBar: partial.contextUsageBar ?? base.contextUsageBar,
+        reasoning: partial.reasoning ?? base.reasoning,
+        toolResults: partial.toolResults ?? base.toolResults,
+        turnMetadata: partial.turnMetadata ?? base.turnMetadata,
+        debugTools: partial.debugTools ?? base.debugTools,
+        toolCalls: { ...base.toolCalls, ...(partial.toolCalls ?? {}) },
+      };
+      displayPrefs = merged;
+      scheduleSave();
+      return { ...merged, toolCalls: { ...merged.toolCalls } };
     },
 
     reorderWorkspaces(ids: string[]): boolean {

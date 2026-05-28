@@ -6,6 +6,7 @@ import { useCallback } from "react";
 import { createInitialState, reduceEvent, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
 import type { DashboardSession, CommandInfo, FileEntry, OpenSpecData, OpenSpecGroup, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
@@ -65,6 +66,8 @@ export interface MessageHandlerSetters {
   setDiscoveredServers: React.Dispatch<React.SetStateAction<DiscoveredServerInfo[]>>;
   setSpawnErrors: React.Dispatch<React.SetStateAction<Map<string, SpawnErrorDetail>>>;
   setResumeErrors: React.Dispatch<React.SetStateAction<Map<string, string>>>;
+  /** Global chat-display prefs (configurable-chat-display). */
+  setDisplayPrefs: React.Dispatch<React.SetStateAction<DisplayPrefs | undefined>>;
 }
 
 export interface MessageHandlerDeps {
@@ -105,6 +108,7 @@ export function useMessageHandler(
     setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
+    setDisplayPrefs,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef } = deps;
 
@@ -680,6 +684,12 @@ export function useMessageHandler(
       case "pi_core_update_complete":
         // Dispatch to PiCore hooks via custom DOM event
         window.dispatchEvent(new CustomEvent("pi-core-event", { detail: msg }));
+        break;
+
+      case "display_prefs_updated":
+        // Global chat-display prefs were updated (by THIS or another tab).
+        // See change: configurable-chat-display.
+        setDisplayPrefs(msg.prefs);
         break;
 
       case "plugin_config_update":
