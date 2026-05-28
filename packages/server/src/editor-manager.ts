@@ -1,11 +1,19 @@
 /**
  * Server-side lifecycle manager for code-server child processes.
- * Spawns per-folder instances, tracks heartbeats, enforces idle timeout and max instances.
+ *
+ * Spawning is delegated to the editor keeper sidecar (see
+ * `editor-keeper/keeper-manager.ts`). `start(cwd)` is a 3-way resolution:
+ *   1. existing in-memory instance for cwd → return,
+ *   2. live keeper sidecar for cwd → reattach,
+ *   3. else spawn a fresh keeper.
+ *
+ * `editorId = sha256(cwd).slice(0,12)` and is stable across restarts so the
+ * `/editor/<id>/` proxy URL survives a dashboard restart.
+ *
+ * See: openspec/changes/add-editor-keeper-sidecar
  */
-import { spawn, type ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import { createServer as createNetServer, Socket as NetSocket } from "node:net";
-import { createHash, randomBytes } from "node:crypto";
+import { Socket as NetSocket, createServer as createNetServer } from "node:net";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -14,6 +22,11 @@ import type { EditorConfig } from "@blackbelt-technology/pi-dashboard-shared/con
 import { detectCodeServerBinary, resetDetectionCache } from "./editor-detection.js";
 import { buildSpawnEnv } from "./process-manager.js";
 import type { EditorPidRegistry } from "./editor-pid-registry.js";
+import {
+  createEditorKeeperManager,
+  editorIdFromCwd,
+  type EditorKeeperManager,
+} from "./editor-keeper/keeper-manager.js";
 
 export interface EditorInstanceInfo {
   id: string;
@@ -28,30 +41,36 @@ interface InternalInstance {
   cwd: string;
   port: number;
   status: EditorInstanceStatus;
-  process: ChildProcess | null;
   lastHeartbeat: number;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  childExitDispose: (() => void) | null;
 }
 
 export interface EditorManagerOptions {
   config: EditorConfig;
   detection: EditorDetectionResult;
   onStatusChange?: (cwd: string, id: string, status: EditorInstanceStatus) => void;
-  /** Override re-detection (for testing). When false, skip runtime re-detection. */
   allowRedetection?: boolean;
-  /** Optional persistent PID registry for orphan cleanup across restarts. */
+  /** Legacy persistent PID registry — retained for boot-time orphan sweep only. */
   pidRegistry?: EditorPidRegistry;
+  /** Override the keeper-manager (testing). */
+  keeperManager?: EditorKeeperManager;
 }
 
 export interface EditorManager {
   start(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo>;
-  stop(id: string): void;
+  stop(id: string): Promise<void>;
   heartbeat(id: string): void;
   setTheme(cwd: string, theme: "dark" | "light"): void;
   get(id: string): EditorInstanceInfo | undefined;
   getByFolder(cwd: string): EditorInstanceInfo | undefined;
   list(): EditorInstanceInfo[];
-  stopAll(): void;
+  /** Config-gated. No-op against keepers when `stopOnDashboardExit` is false. */
+  stopAll(): Promise<void>;
+  /** Tests only — unconditionally signal every keeper, bypassing the flag. */
+  forceStopAll(): Promise<void>;
+  /** Register an editor adopted from a surviving keeper sidecar on boot. */
+  adopt(info: { editorId: string; cwd: string; port: number }): EditorInstanceInfo;
 }
 
 /** Allocate a free port by binding to port 0. */
@@ -89,10 +108,6 @@ export async function waitForPort(port: number, timeoutMs = 15000, intervalMs = 
   return false;
 }
 
-function generateId(): string {
-  return "editor-" + randomBytes(6).toString("hex");
-}
-
 function folderHash(cwd: string): string {
   return createHash("sha256").update(cwd).digest("hex").slice(0, 12);
 }
@@ -100,18 +115,12 @@ function folderHash(cwd: string): string {
 const DEFAULT_DARK_THEME = "Default Dark Modern";
 const DEFAULT_LIGHT_THEME = "Default Light Modern";
 
-/**
- * Write VS Code settings.json with the correct color theme.
- * Disables autoDetectColorScheme (unreliable in iframes) and sets the theme
- * directly. VS Code's file watcher picks up changes while running.
- */
 function writeVscodeThemeSettings(dataDir: string, theme: "dark" | "light" = "dark"): void {
   const userDir = path.join(dataDir, "User");
   mkdirSync(userDir, { recursive: true });
 
   const settingsPath = path.join(userDir, "settings.json");
 
-  // Merge with existing settings to preserve user customizations
   let existing: Record<string, unknown> = {};
   try {
     if (existsSync(settingsPath)) {
@@ -124,7 +133,6 @@ function writeVscodeThemeSettings(dataDir: string, theme: "dark" | "light" = "da
 
   const settings = {
     ...existing,
-    // Disable auto-detect — it reads OS preference, not the dashboard's theme
     "window.autoDetectColorScheme": false,
     "workbench.preferredDarkColorTheme": darkTheme,
     "workbench.preferredLightColorTheme": lightTheme,
@@ -144,8 +152,12 @@ function toInfo(inst: InternalInstance): EditorInstanceInfo {
   };
 }
 
+/** Grace timer for a keeper that won't emit child_exit. */
+const STOP_FALLBACK_MS = 6000;
+
 export function createEditorManager(options: EditorManagerOptions): EditorManager {
-  const { config, detection, onStatusChange, allowRedetection = true, pidRegistry } = options;
+  const { config, detection, onStatusChange, allowRedetection = true } = options;
+  const keeperManager = options.keeperManager ?? createEditorKeeperManager();
   const instances = new Map<string, InternalInstance>();
   const cwdIndex = new Map<string, string>(); // cwd → id
   const idleTimeoutMs = (config.idleTimeoutMinutes ?? 10) * 60 * 1000;
@@ -157,39 +169,31 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
   }
 
   function clearIdleTimer(inst: InternalInstance) {
-    if (inst.idleTimer) {
-      clearTimeout(inst.idleTimer);
-      inst.idleTimer = null;
-    }
+    if (inst.idleTimer) { clearTimeout(inst.idleTimer); inst.idleTimer = null; }
   }
 
   function startIdleTimer(inst: InternalInstance) {
     clearIdleTimer(inst);
-    inst.idleTimer = setTimeout(() => {
-      stop(inst.id);
-    }, idleTimeoutMs);
+    inst.idleTimer = setTimeout(() => { void stop(inst.id); }, idleTimeoutMs);
   }
 
   function cleanup(id: string) {
     const inst = instances.get(id);
     if (!inst) return;
     clearIdleTimer(inst);
+    try { inst.childExitDispose?.(); } catch { /* ignore */ }
+    inst.childExitDispose = null;
     cwdIndex.delete(inst.cwd);
     instances.delete(id);
   }
 
-  function evictOldestIdle(): boolean {
+  async function evictOldestIdle(): Promise<boolean> {
     let oldest: InternalInstance | null = null;
     for (const inst of instances.values()) {
       if (inst.status !== "ready") continue;
-      if (!oldest || inst.lastHeartbeat < oldest.lastHeartbeat) {
-        oldest = inst;
-      }
+      if (!oldest || inst.lastHeartbeat < oldest.lastHeartbeat) oldest = inst;
     }
-    if (oldest) {
-      stop(oldest.id);
-      return true;
-    }
+    if (oldest) { await stop(oldest.id); return true; }
     return false;
   }
 
@@ -198,18 +202,59 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
     writeVscodeThemeSettings(dataDir, theme);
   }
 
+  function subscribeChildExit(inst: InternalInstance): void {
+    inst.childExitDispose = keeperManager.onChildExit(inst.id, () => {
+      if (inst.status !== "stopped") {
+        console.log(`[editor-manager] keeper child_exit for ${inst.cwd}`);
+        setStatus(inst, "stopped");
+      }
+      cleanup(inst.id);
+    });
+  }
+
+  function registerInternal(args: {
+    editorId: string;
+    cwd: string;
+    port: number;
+    initialStatus: EditorInstanceStatus;
+  }): InternalInstance {
+    const inst: InternalInstance = {
+      id: args.editorId,
+      cwd: args.cwd,
+      port: args.port,
+      status: args.initialStatus,
+      lastHeartbeat: Date.now(),
+      idleTimer: null,
+      childExitDispose: null,
+    };
+    instances.set(inst.id, inst);
+    cwdIndex.set(inst.cwd, inst.id);
+    return inst;
+  }
+
+  function adopt(info: { editorId: string; cwd: string; port: number }): EditorInstanceInfo {
+    const existing = instances.get(info.editorId);
+    if (existing) return toInfo(existing);
+    const inst = registerInternal({
+      editorId: info.editorId,
+      cwd: info.cwd,
+      port: info.port,
+      initialStatus: "ready",
+    });
+    setStatus(inst, "ready");
+    subscribeChildExit(inst);
+    startIdleTimer(inst);
+    return toInfo(inst);
+  }
+
   async function start(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo> {
-    // Return existing instance (wait if still starting)
+    // 1. In-memory hit
     const existingId = cwdIndex.get(cwd);
     if (existingId) {
       const inst = instances.get(existingId);
       if (inst) {
-        // Update theme settings — VS Code's file watcher picks up changes
-        if (theme) {
-          setTheme(cwd, theme);
-        }
+        if (theme) setTheme(cwd, theme);
         if (inst.status === "starting") {
-          // Wait for it to become ready
           const ready = await waitForPort(inst.port);
           if (ready && (inst.status as string) !== "stopped") {
             setStatus(inst, "ready");
@@ -222,7 +267,6 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
 
     if (!detection.available || !detection.binary) {
       if (allowRedetection) {
-        // Re-detect in case code-server was installed since last check
         resetDetectionCache();
         const fresh = detectCodeServerBinary(config);
         detection.available = fresh.available;
@@ -233,132 +277,110 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
       }
     }
 
-    // Enforce max instances
+    // Capacity check before any I/O.
     if (instances.size >= maxInstances) {
-      if (!evictOldestIdle()) {
+      if (!(await evictOldestIdle())) {
         throw new Error("max_instances_reached");
       }
     }
 
-    const id = generateId();
-    const port = await allocatePort();
-    const dataDir = path.join(os.homedir(), ".pi", "dashboard", "editors", folderHash(cwd));
+    const editorId = editorIdFromCwd(cwd);
+    const dataDir = path.join(os.homedir(), ".pi", "dashboard", "editors", editorId);
 
-    // Write VS Code settings with theme preferences before spawning
+    // 2. Reattach via keeper probe.
+    const probed = await keeperManager.probe(editorId).catch(() => ({ alive: false } as const));
+    if (probed.alive && typeof probed.port === "number") {
+      if (theme) setTheme(cwd, theme);
+      const inst = registerInternal({ editorId, cwd, port: probed.port, initialStatus: "ready" });
+      setStatus(inst, "ready");
+      subscribeChildExit(inst);
+      startIdleTimer(inst);
+      return toInfo(inst);
+    }
+
+    // 3. Fresh spawn via keeper.
+    const port = await allocatePort();
     writeVscodeThemeSettings(dataDir, theme ?? "dark");
 
-    const inst: InternalInstance = {
-      id,
-      cwd,
-      port,
-      status: "starting",
-      process: null,
-      lastHeartbeat: Date.now(),
-      idleTimer: null,
-    };
-
-    instances.set(id, inst);
-    cwdIndex.set(cwd, id);
+    const inst = registerInternal({ editorId, cwd, port, initialStatus: "starting" });
     setStatus(inst, "starting");
 
-    // Spawn code-server
-    const args = [
-      "--auth", "none",
-      "--bind-addr", `127.0.0.1:${port}`,
-      "--disable-telemetry",
-      "--disable-update-check",
-      "--user-data-dir", dataDir,
+    const spawnResult = await keeperManager.spawnKeeperFor({
       cwd,
-    ];
-
-    // Use buildSpawnEnv to ensure node and user bin dirs are on PATH
-    const child = spawn(detection.binary, args, {
-      stdio: "ignore",
-      detached: false,
+      port,
+      binary: detection.binary,
+      dataDir,
       env: buildSpawnEnv(),
     });
-
-    inst.process = child;
-
-    child.on("error", (err) => {
-      console.error(`[editor-manager] code-server error for ${cwd}:`, err.message);
+    if (!spawnResult.success) {
       setStatus(inst, "stopped");
-      pidRegistry?.remove(id);
-      cleanup(id);
-    });
+      cleanup(inst.id);
+      throw new Error(spawnResult.error ?? "keeper spawn failed");
+    }
 
-    child.on("exit", (code) => {
-      if (inst.status !== "stopped") {
-        console.log(`[editor-manager] code-server exited (code=${code}) for ${cwd}`);
-        setStatus(inst, "stopped");
-      }
-      pidRegistry?.remove(id);
-      cleanup(id);
-    });
-
-    // Wait for ready
-    const ready = await waitForPort(port);
+    // Wait until either the keeper's socket reports ready (status reply) OR
+    // the port accepts a TCP connection — whichever first, within 15 s.
+    const ready = await waitForKeeperReady(editorId, port);
     if (!ready) {
-      stop(id);
+      await stop(inst.id);
       throw new Error("code-server failed to start within timeout");
     }
 
     setStatus(inst, "ready");
-    if (pidRegistry && typeof child.pid === "number") {
-      pidRegistry.register({
-        id,
-        pid: child.pid,
-        port,
-        cwd,
-        dataDir,
-        spawnedAt: inst.lastHeartbeat,
-      });
-    }
+    subscribeChildExit(inst);
     startIdleTimer(inst);
     return toInfo(inst);
   }
 
-  function stop(id: string) {
+  async function waitForKeeperReady(editorId: string, port: number): Promise<boolean> {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      // Prefer the keeper socket probe (it answers as soon as code-server is up).
+      const p = await keeperManager.probe(editorId).catch(() => ({ alive: false } as const));
+      if (p.alive) return true;
+      const portUp = await waitForPort(port, 250, 100);
+      if (portUp) return true;
+    }
+    return false;
+  }
+
+  async function stop(id: string): Promise<void> {
     const inst = instances.get(id);
     if (!inst) return;
-
-    // Remove from persistent registry FIRST so a crash mid-stop
-    // leaves the registry consistent on the next boot.
-    pidRegistry?.remove(id);
 
     clearIdleTimer(inst);
     setStatus(inst, "stopped");
 
-    if (inst.process && !inst.process.killed) {
-      const pid = inst.process.pid;
-      if (pid != null) {
-        // Tree-kill the code-server subtree. On Windows this becomes
-        // `taskkill /F /T /PID` (async); on POSIX it's SIGTERM → 2s → SIGKILL
-        // of the process group. Fire-and-forget: `stop()` is synchronous
-        // by convention and callers don't await. See change:
-        // route-kill-paths-through-platform.
-        void killProcess(pid, { timeoutMs: 2000 }).catch(() => {
-          // Fallback to a direct pgroup SIGTERM if the platform helper
-          // couldn't complete (rare; mostly for already-dead processes).
-          try { killPidWithGroup(pid, "SIGTERM"); } catch { /* already dead */ }
-        });
-      } else {
-        // No PID yet (process hasn't started). Fall back to the raw
-        // ChildProcess.kill() which only signals the leaf.
-        try { inst.process.kill("SIGTERM"); } catch { /* already dead */ }
-      }
+    // Signal the keeper. If it dies cleanly, the child_exit listener calls
+    // cleanup. Fallback timer reaps the entry if the keeper is unreachable.
+    let cleanedUp = false;
+    const cleanupOnce = (): void => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      cleanup(id);
+    };
+
+    const fallback = setTimeout(cleanupOnce, STOP_FALLBACK_MS);
+
+    try {
+      await keeperManager.writeCommand(id, { cmd: "stop" });
+    } catch {
+      // Keeper unreachable — fall through to fallback or direct kill.
     }
 
-    cleanup(id);
+    // Replace the child_exit handler so cleanup fires once on either path.
+    try { inst.childExitDispose?.(); } catch { /* ignore */ }
+    inst.childExitDispose = keeperManager.onChildExit(id, () => {
+      clearTimeout(fallback);
+      cleanupOnce();
+    });
   }
 
   function heartbeat(id: string) {
     const inst = instances.get(id);
     if (!inst) return;
     inst.lastHeartbeat = Date.now();
-    if (inst.status === "ready") {
-      startIdleTimer(inst);
-    }
+    if (inst.status === "ready") startIdleTimer(inst);
   }
 
   function get(id: string): EditorInstanceInfo | undefined {
@@ -376,11 +398,64 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
     return Array.from(instances.values()).map(toInfo);
   }
 
-  function stopAll() {
-    for (const id of [...instances.keys()]) {
-      stop(id);
-    }
+  async function signalAllStop(): Promise<void> {
+    const ids = [...instances.keys()];
+    await Promise.allSettled(
+      ids.map(async (id) => {
+        try {
+          await keeperManager.writeCommand(id, { cmd: "stop" });
+        } catch { /* ignore */ }
+        // Wait up to 6 s for keeper's child_exit to fire cleanup, then force.
+        const inst = instances.get(id);
+        if (!inst) return;
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(() => { resolve(); }, STOP_FALLBACK_MS);
+          const dispose = keeperManager.onChildExit(id, () => {
+            clearTimeout(t);
+            try { dispose(); } catch { /* ignore */ }
+            resolve();
+          });
+          // dispose stored on inst so cleanup() can tear it down if it fires first
+          inst.childExitDispose = dispose;
+        });
+        cleanup(id);
+      }),
+    );
   }
 
-  return { start, stop, heartbeat, setTheme, get, getByFolder, list, stopAll };
+  async function stopAll(): Promise<void> {
+    // Config-gated. Default `false` → persistent editors survive dashboard
+    // exit. Only signal keepers when the user has opted into stop-on-exit.
+    if (!config.stopOnDashboardExit) {
+      // Local in-memory cleanup only; do NOT signal keepers.
+      for (const id of [...instances.keys()]) {
+        const inst = instances.get(id);
+        if (!inst) continue;
+        clearIdleTimer(inst);
+        try { inst.childExitDispose?.(); } catch { /* ignore */ }
+        inst.childExitDispose = null;
+        cwdIndex.delete(inst.cwd);
+        instances.delete(id);
+      }
+      return;
+    }
+    await signalAllStop();
+  }
+
+  async function forceStopAll(): Promise<void> {
+    await signalAllStop();
+  }
+
+  return {
+    start,
+    stop,
+    heartbeat,
+    setTheme,
+    get,
+    getByFolder,
+    list,
+    stopAll,
+    forceStopAll,
+    adopt,
+  };
 }

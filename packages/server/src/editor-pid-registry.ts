@@ -1,27 +1,32 @@
 /**
- * Persistent registry of spawned `code-server` editor instances.
+ * Editor PID registry — boot-time orphan reconciliation for code-server.
  *
- * Persists PIDs to ~/.pi/dashboard/editor-pids.json so that, after a non-graceful
- * dashboard shutdown (SIGKILL, crash, OOM, force-quit), the next server boot can
- * sweep and SIGTERM/SIGKILL orphan code-server processes that were reparented to
- * init/launchd.
+ * Two responsibilities, in order:
  *
- * Mirrors the persistence + boot-sweep pattern of `headless-pid-registry.ts` but
- * KILLS live orphans (not reclaim) — editor instances are dashboard-internal,
- * unreachable after restart, and the user expects a clean state.
+ *   1. `adoptOrphans()` — consult `editor-keeper.keeperManager.discoverExistingKeepers()`
+ *      and register live keepers in `editor-manager` so the dashboard
+ *      reattaches without spawning. Keepers own their per-editor sidecars
+ *      under `~/.pi/dashboard/editors/<editorId>.sock.pid` (POSIX) or
+ *      `pi-editor-<editorId>.pid` (Windows).
+ *
+ *   2. `cleanupOrphans()` — defensive cmdline sweep for pre-keeper installs
+ *      being upgraded: SIGTERM/SIGKILL any `code-server` process whose
+ *      `--user-data-dir` matches `~/.pi/dashboard/editors/` but for which
+ *      no sidecar exists. Runs AFTER adoption.
+ *
+ * See: openspec/changes/add-editor-keeper-sidecar (specs/editor-manager/spec.md)
  */
 import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process"; // ban:child_process-ok editor orphan sweep uses `ps`/`taskkill` probe for bounded wait; tracked tech debt for migration to platform/process Recipe
-import { readFileSync, existsSync } from "node:fs";
-import { readJsonFile, writeJsonFile } from "./json-store.js";
+import { execSync } from "node:child_process"; // ban:child_process-ok editor orphan sweep uses `ps`/`taskkill` probe; legacy parity with pre-keeper install
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
 import {
 	isProcessAlive as platformIsProcessAlive,
 	killPidWithGroup,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-
-const DEFAULT_PID_FILE = path.join(os.homedir(), ".pi", "dashboard", "editor-pids.json");
+import type { EditorManager } from "./editor-manager.js";
+import type { EditorKeeperManager } from "./editor-keeper/keeper-manager.js";
 
 /** Grace period between SIGTERM and SIGKILL escalation. */
 const SIGKILL_GRACE_MS = 1000;
@@ -29,33 +34,26 @@ const SIGKILL_GRACE_MS = 1000;
 /** Marker that uniquely identifies a dashboard-spawned code-server cmdline. */
 const DASHBOARD_DATA_DIR_MARKER = path.join(os.homedir(), ".pi", "dashboard", "editors") + path.sep;
 
-export interface PersistedEditorEntry {
-  id: string;
-  pid: number;
-  port: number;
-  cwd: string;
-  dataDir: string;
-  /** ISO 8601 timestamp */
-  spawnedAt: string;
-}
-
-interface EditorPidFileData {
-  entries: PersistedEditorEntry[];
-}
+const EDITORS_DIR = path.join(os.homedir(), ".pi", "dashboard", "editors");
 
 export interface EditorPidRegistry {
-  /** Record a newly-ready editor instance. */
-  register(entry: Omit<PersistedEditorEntry, "spawnedAt"> & { spawnedAt?: number | string }): void;
-  /** Remove an entry by editor id. */
-  remove(id: string): void;
-  /** Number of in-memory tracked entries (testing aid). */
+  /** Number of in-memory tracked entries (testing aid; always 0 in keeper mode). */
   size(): number;
-  /** Sweep persisted entries on server boot, killing verified orphans. */
+  /** Adopt surviving editor keepers; register them in `editor-manager`. */
+  adoptOrphans(): Promise<AdoptionSummary>;
+  /** Defensive sweep of pre-keeper code-server processes lacking a sidecar. */
   cleanupOrphans(): Promise<void>;
 }
 
+export interface AdoptionSummary {
+  adopted: Array<{ editorId: string; cwd: string; port: number }>;
+}
+
 export interface EditorPidRegistryOptions {
-  pidFilePath?: string;
+  /** Required for adoption to register editors. */
+  editorManager?: EditorManager;
+  /** Required for adoption. Defaults to a fresh `createEditorKeeperManager()`. */
+  keeperManager?: EditorKeeperManager;
   /** Override cmdline lookup (testing). */
   getCmdline?: (pid: number) => string | null;
   /** Override process-alive check (testing). */
@@ -64,6 +62,8 @@ export interface EditorPidRegistryOptions {
   kill?: (pid: number, signal: NodeJS.Signals) => boolean;
   /** Override grace ms between SIGTERM and SIGKILL (testing). */
   graceMs?: number;
+  /** List of editorIds known to have valid sidecars (testing). */
+  sidecarEditorIds?: () => Set<string>;
 }
 
 /** Default cross-platform process command-line lookup. */
@@ -72,7 +72,6 @@ function defaultGetCmdline(pid: number): string | null {
     if (process.platform === "linux") {
       const file = `/proc/${pid}/cmdline`;
       if (!existsSync(file)) return null;
-      // /proc cmdline is NUL-separated
       return readFileSync(file, "utf-8").replace(/\0/g, " ").trim();
     }
     if (process.platform === "darwin") {
@@ -84,76 +83,72 @@ function defaultGetCmdline(pid: number): string | null {
       const m = out.match(/CommandLine=(.*)/);
       return m ? m[1].trim() : null;
     }
-  } catch {
-    return null;
-  }
+  } catch { return null; }
   return null;
 }
 
-/** Route through platform/process.ts so lint enforcement and cross-platform
- * semantics (libuv signal 0 check, POSIX group kill) stay in one place. */
 function defaultIsProcessAlive(pid: number): boolean {
   return platformIsProcessAlive(pid);
 }
 
 function defaultKill(pid: number, signal: NodeJS.Signals): boolean {
-  try {
-    killPidWithGroup(pid, signal);
-    return true;
-  } catch {
-    return false;
-  }
+  try { killPidWithGroup(pid, signal); return true; } catch { return false; }
 }
 
 /** Verify that `cmdline` looks like a dashboard-spawned code-server. */
 export function isDashboardOwnedCodeServer(cmdline: string | null): boolean {
   if (!cmdline) return false;
-  // Must reference --user-data-dir under ~/.pi/dashboard/editors/
   return cmdline.includes("--user-data-dir") && cmdline.includes(DASHBOARD_DATA_DIR_MARKER);
 }
 
+function defaultSidecarEditorIds(): Set<string> {
+  const out = new Set<string>();
+  if (!existsSync(EDITORS_DIR)) return out;
+  let names: string[];
+  try { names = readdirSync(EDITORS_DIR); } catch { return out; }
+  const isWin = process.platform === "win32";
+  for (const n of names) {
+    const m = isWin ? n.match(/^pi-editor-([0-9a-f]{12})\.pid$/) : n.match(/^([0-9a-f]{12})\.sock\.pid$/);
+    if (m) out.add(m[1]);
+  }
+  return out;
+}
+
 export function createEditorPidRegistry(options: EditorPidRegistryOptions = {}): EditorPidRegistry {
-  const pidFilePath = options.pidFilePath ?? DEFAULT_PID_FILE;
+  const editorManager = options.editorManager;
+  const keeperManagerOpt = options.keeperManager;
   const getCmdline = options.getCmdline ?? defaultGetCmdline;
   const isAlive = options.isProcessAlive ?? defaultIsProcessAlive;
   const kill = options.kill ?? defaultKill;
   const graceMs = options.graceMs ?? SIGKILL_GRACE_MS;
-
-  // In-memory mirror of the file (id → entry).
-  const entries = new Map<string, PersistedEditorEntry>();
-
-  function persist(): void {
-    try {
-      const data: EditorPidFileData = { entries: [...entries.values()] };
-      writeJsonFile(pidFilePath, data);
-    } catch {
-      // Best-effort: persistence failures must not break editor lifecycle.
-    }
-  }
+  const sidecarIds = options.sidecarEditorIds ?? defaultSidecarEditorIds;
 
   return {
-    register(entry) {
-      const spawnedAt =
-        typeof entry.spawnedAt === "string"
-          ? entry.spawnedAt
-          : new Date(entry.spawnedAt ?? Date.now()).toISOString();
-      entries.set(entry.id, {
-        id: entry.id,
-        pid: entry.pid,
-        port: entry.port,
-        cwd: entry.cwd,
-        dataDir: entry.dataDir,
-        spawnedAt,
-      });
-      persist();
-    },
+    size() { return 0; },
 
-    remove(id) {
-      if (entries.delete(id)) persist();
-    },
+    async adoptOrphans(): Promise<AdoptionSummary> {
+      if (isUnsafeTestHomeScan()) return { adopted: [] };
+      if (!editorManager) return { adopted: [] };
 
-    size() {
-      return entries.size;
+      // Lazy import so `editor-pid-registry` doesn't pull in keeper-manager
+      // in tests that only exercise `cleanupOrphans` legacy paths.
+      let keeperManager = keeperManagerOpt;
+      if (!keeperManager) {
+        const mod = await import("./editor-keeper/keeper-manager.js");
+        keeperManager = mod.createEditorKeeperManager();
+      }
+
+      const adoptedRaw = await keeperManager.discoverExistingKeepers();
+      const adopted: AdoptionSummary["adopted"] = [];
+      for (const a of adoptedRaw) {
+        const info = editorManager.adopt({
+          editorId: a.editorId,
+          cwd: a.cwd,
+          port: a.port,
+        });
+        adopted.push({ editorId: info.id, cwd: info.cwd, port: info.port });
+      }
+      return { adopted };
     },
 
     async cleanupOrphans() {
@@ -161,39 +156,75 @@ export function createEditorPidRegistry(options: EditorPidRegistryOptions = {}):
         console.warn("[editor-pid-registry] cleanupOrphans() blocked: running under vitest with real HOME");
         return;
       }
-      const data = readJsonFile<EditorPidFileData>(pidFilePath, { entries: [] });
-      const persisted = Array.isArray(data?.entries) ? data.entries : [];
 
+      // Defensive sweep: scan running processes for dashboard-marker code-server
+      // that has no live sidecar. Pre-keeper installs being upgraded land here.
+      const known = sidecarIds();
+      const candidates = listDashboardCodeServerProcesses(getCmdline);
+      // Exclude any whose cmdline references a known sidecar editorId (12-hex).
+      const toKill = candidates.filter((c) => !hasKnownEditorId(c.cmdline, known));
+
+      if (toKill.length === 0) return;
+
+      for (const c of toKill) kill(c.pid, "SIGTERM");
+      await new Promise((r) => setTimeout(r, graceMs));
       let killed = 0;
-      const toKill: PersistedEditorEntry[] = [];
-
-      for (const entry of persisted) {
-        if (!isAlive(entry.pid)) continue;
-        const cmdline = getCmdline(entry.pid);
-        if (!isDashboardOwnedCodeServer(cmdline)) continue;
-        toKill.push(entry);
+      for (const c of toKill) {
+        if (isAlive(c.pid)) kill(c.pid, "SIGKILL");
+        killed++;
       }
-
-      for (const entry of toKill) {
-        kill(entry.pid, "SIGTERM");
-      }
-
-      if (toKill.length > 0) {
-        await new Promise((r) => setTimeout(r, graceMs));
-        for (const entry of toKill) {
-          if (isAlive(entry.pid)) {
-            kill(entry.pid, "SIGKILL");
-          }
-          killed++;
-        }
-      }
-
-      // Reset to whatever the new server has registered so far (initially nothing).
-      persist();
-
-      if (killed > 0) {
-        console.log(`[editor-pid-registry] cleaned ${killed} orphan${killed === 1 ? "" : "s"}`);
-      }
+      console.log(`[editor-pid-registry] swept ${killed} pre-keeper orphan${killed === 1 ? "" : "s"}`);
     },
   };
+}
+
+function hasKnownEditorId(cmdline: string, known: Set<string>): boolean {
+  // Look for a 12-hex token in the cmdline (the dataDir / editorId).
+  const match = cmdline.match(/[0-9a-f]{12}/g);
+  if (!match) return false;
+  for (const id of match) if (known.has(id)) return true;
+  return false;
+}
+
+function listDashboardCodeServerProcesses(
+  getCmdline: (pid: number) => string | null,
+): Array<{ pid: number; cmdline: string }> {
+  // Best-effort, platform-specific PID enumeration. Mirrors the existing
+  // pre-change cleanup approach (cmdline scan via `ps` / `/proc` / `wmic`).
+  const out: Array<{ pid: number; cmdline: string }> = [];
+  try {
+    if (process.platform === "linux") {
+      const procs = readdirSync("/proc").filter((n) => /^\d+$/.test(n));
+      for (const n of procs) {
+        const pid = Number.parseInt(n, 10);
+        const cmd = getCmdline(pid);
+        if (cmd && isDashboardOwnedCodeServer(cmd)) out.push({ pid, cmdline: cmd });
+      }
+      return out;
+    }
+    if (process.platform === "darwin") {
+      const raw = execSync("ps -axo pid=,command=", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+      for (const line of raw.split("\n")) {
+        const m = line.trim().match(/^(\d+)\s+(.+)$/);
+        if (!m) continue;
+        if (!isDashboardOwnedCodeServer(m[2])) continue;
+        out.push({ pid: Number.parseInt(m[1], 10), cmdline: m[2] });
+      }
+      return out;
+    }
+    if (process.platform === "win32") {
+      const raw = execSync("wmic process get ProcessId,CommandLine /format:csv", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+      for (const line of raw.split("\n").slice(1)) {
+        const parts = line.split(",");
+        if (parts.length < 3) continue;
+        const cmd = parts.slice(1, parts.length - 1).join(",").trim();
+        const pid = Number.parseInt((parts[parts.length - 1] || "").trim(), 10);
+        if (!Number.isFinite(pid) || !cmd) continue;
+        if (!isDashboardOwnedCodeServer(cmd)) continue;
+        out.push({ pid, cmdline: cmd });
+      }
+      return out;
+    }
+  } catch { /* fall through */ }
+  return out;
 }

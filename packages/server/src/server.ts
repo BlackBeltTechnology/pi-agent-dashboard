@@ -455,15 +455,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Create editor manager for code-server instances
   const editorDetection = detectCodeServerBinary(config.editor);
-  const editorPidRegistry = createEditorPidRegistry();
   const editorManager = createEditorManager({
     config: config.editor,
     detection: editorDetection,
-    pidRegistry: editorPidRegistry,
     onStatusChange: (cwd, id, status) => {
       browserGateway.broadcastToAll({ type: "editor_status", cwd, id, status });
     },
   });
+  const editorPidRegistry = createEditorPidRegistry({ editorManager });
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry);
 
@@ -1012,8 +1011,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         console.warn("[dashboard] keeper-manager wire-up failed (RPC dispatch disabled):", err);
       }
 
-      // Clean up orphan code-server processes from a previous server instance.
-      // Runs before fastify.listen, so no editor start request can race with the sweep.
+      // Editor lifecycle boot order:
+      //   1. Adopt surviving editor keepers (per-editor sidecars) → reattach.
+      //   2. Defensive cmdline sweep for pre-keeper installs (no sidecar).
+      // See change: add-editor-keeper-sidecar.
+      try {
+        const summary = await editorPidRegistry.adoptOrphans();
+        if (summary.adopted.length > 0) {
+          console.log(`[dashboard] adopted ${summary.adopted.length} editor${summary.adopted.length === 1 ? "" : "s"}`);
+          for (const a of summary.adopted) {
+            console.log(`[dashboard]   editor ${a.editorId} cwd=${a.cwd} port=${a.port}`);
+          }
+        }
+      } catch (err) {
+        console.warn("[dashboard] editor adoptOrphans failed:", err);
+      }
       await editorPidRegistry.cleanupOrphans();
 
       piGateway.start(config.piPort);
@@ -1297,8 +1309,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       for (const t of terminalManager.list()) {
         try { terminalManager.kill(t.id); } catch {}
       }
-      // Stop all code-server instances
-      editorManager.stopAll();
+      // Stop all code-server instances (config-gated; default no-op so
+      // keepers + tabs survive a dashboard restart).
+      try { await editorManager.stopAll(); } catch (err) { console.warn("[dashboard] editorManager.stopAll failed:", err); }
       // Close any pending OAuth callback servers
       try { const { closeAllCallbackServers } = await import("./oauth-callback-server.js"); await closeAllCallbackServers(); } catch {}
       // Close second port before main server

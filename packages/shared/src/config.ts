@@ -112,11 +112,20 @@ export interface EditorConfig {
   idleTimeoutMinutes: number;
   /** Maximum concurrent code-server instances (default: 3) */
   maxInstances: number;
+  /**
+   * When true, graceful dashboard shutdown (stop / restart / shutdown)
+   * sends `{"cmd":"stop"}` to every editor keeper and waits for them to
+   * exit. When false (default), keepers and their code-server children
+   * persist across dashboard restarts so editor tabs and dirty buffers
+   * survive. See change: add-editor-keeper-sidecar.
+   */
+  stopOnDashboardExit: boolean;
 }
 
 export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
   idleTimeoutMinutes: 10,
   maxInstances: 3,
+  stopOnDashboardExit: false,
 };
 
 export interface KnownServer {
@@ -375,8 +384,12 @@ function parseEditorConfig(raw: any): EditorConfig {
     ...(typeof raw.binary === "string" ? { binary: raw.binary } : {}),
     idleTimeoutMinutes: typeof raw.idleTimeoutMinutes === "number" ? raw.idleTimeoutMinutes : DEFAULT_EDITOR_CONFIG.idleTimeoutMinutes,
     maxInstances: typeof raw.maxInstances === "number" ? raw.maxInstances : DEFAULT_EDITOR_CONFIG.maxInstances,
+    stopOnDashboardExit: typeof raw.stopOnDashboardExit === "boolean" ? raw.stopOnDashboardExit : DEFAULT_EDITOR_CONFIG.stopOnDashboardExit,
   };
 }
+
+/** Exported for tests; same parser used by `parseConfig`. */
+export const parseEditorConfigForTest = parseEditorConfig;
 
 function clampNumber(raw: any, fallback: number, min: number, max: number): number {
   const n = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;

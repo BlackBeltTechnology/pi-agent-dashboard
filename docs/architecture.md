@@ -1488,6 +1488,30 @@ To recover, every spawn is recorded in `~/.pi/dashboard/editor-pids.json` (`edit
 
 The cmdline ownership check prevents killing unrelated `code-server` instances the user may run themselves. Cleanup completes before any `POST /api/editor/start` request can be served, so a new spawn for the same folder cannot race with a surviving orphan on the same `--user-data-dir` lockfile.
 
+### Editor keeper sidecar
+
+Supersedes the orphan-kill model above. code-server now survives dashboard restart; `/editor/<id>/` URL stays stable across restarts.
+
+Per-editor keeper (`packages/server/src/editor-keeper/keeper.cjs`) spawns detached, CJS-pure. Owns the code-server child, the UDS / named pipe, and the PID sidecar. Outlives the dashboard.
+
+Identity: `editorId = sha256(cwd).slice(0,12)`. Same cwd → same id across restarts. Same id → same `/editor/<id>/` URL.
+
+Files under `~/.pi/dashboard/editors/`:
+- POSIX: socket `<id>.sock`, PID sidecar `<id>.sock.pid`, log `keeper-<id>.log`.
+- Windows: pipe `\\.\pipe\pi-editor-<id>`, PID sidecar `pi-editor-<id>.pid`, log `keeper-<id>.log`.
+
+PID sidecar payload: `{editorId, keeperPid, childPid, port, cwd, dataDir, binary, spawnedAt}`.
+
+Protocol: JSON lines over the socket / pipe. Cmds: `heartbeat`, `getStatus`, `stop`. Events: `ack`, `status`, `child_exit`.
+
+Boot order in `server.start()`: `editorPidRegistry.adoptOrphans()` reattaches every live keeper via `editorManager.adopt(...)`; `editorPidRegistry.cleanupOrphans()` then sweeps pre-keeper installs (cmdline match on `--user-data-dir <~/.pi/dashboard/editors/...>` with no sidecar).
+
+`editorManager.start(cwd)` 3-way: in-memory hit → `keeperManager.probe(editorId)` adopt → `keeperManager.spawnKeeperFor(cwd)`.
+
+Shutdown: `stopAll()` gated by `editor.stopOnDashboardExit` (default `false`). Default → local map cleanup only; keepers + code-server children + browser tabs all survive. `true` → broadcasts `{cmd:"stop"}` to every keeper.
+
+Spec: [`openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md`](../openspec/changes/add-editor-keeper-sidecar/specs/editor-keeper-sidecar/spec.md).
+
 ### Configuration
 
 ```json

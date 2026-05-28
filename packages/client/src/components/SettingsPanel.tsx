@@ -91,6 +91,7 @@ interface Config {
     binary?: string;
     idleTimeoutMinutes?: number;
     maxInstances?: number;
+    stopOnDashboardExit?: boolean;
   };
   openspec?: {
     enabled?: boolean;
@@ -886,6 +887,17 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                     c.editor.maxInstances = v;
                   })}
                 />
+                <ToggleField
+                  label="Stop editors when dashboard exits"
+                  value={config.editor?.stopOnDashboardExit ?? false}
+                  onChange={(v) => update((c) => {
+                    if (!c.editor) c.editor = {};
+                    c.editor.stopOnDashboardExit = v;
+                  })}
+                />
+                <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                  Leave off to let tabs and dirty buffers survive a dashboard restart.
+                </p>
               </Section>
             </>
           )}

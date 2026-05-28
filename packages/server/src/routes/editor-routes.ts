@@ -52,7 +52,7 @@ export function registerEditorRoutes(
     { preHandler: networkGuard },
     async (request) => {
       const { id } = request.params;
-      editorManager.stop(id);
+      await editorManager.stop(id);
       return { success: true } satisfies ApiResponse;
     },
   );
