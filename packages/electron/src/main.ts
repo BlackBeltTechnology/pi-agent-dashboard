@@ -17,8 +17,22 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { decideWillNavigate } from "./lib/link-handling.js";
+import { resolveCdpActivation } from "./lib/resolve-cdp-activation.js";
 
 const __filename = fileURLToPath(import.meta.url);
+
+// Opt-in CDP debug surface (see change: ship-browser-skill-and-electron-cdp).
+// Must run BEFORE app.requestSingleInstanceLock() and BEFORE app.whenReady()
+// because Chromium reads `remote-debugging-port` during browser-process init.
+// Never appends the address-binding switch — Chromium's loopback default
+// (127.0.0.1) is what we want; promiscuous binding would be a remote RCE.
+const _cdp = resolveCdpActivation(process.argv, process.env);
+if (_cdp.enabled && _cdp.port !== undefined) {
+  app.commandLine.appendSwitch("remote-debugging-port", String(_cdp.port));
+  // Single-line warning on stderr so the activation is visible.
+  // eslint-disable-next-line no-console
+  console.error(`[debug-cdp] CDP listening on :${_cdp.port} \u2014 local automation is enabled`);
+}
 
 // Enable Wayland support on Linux (auto-detect X11 vs Wayland)
 if (process.platform === "linux" && !process.env.ELECTRON_OZONE_PLATFORM_HINT) {
@@ -364,7 +378,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    // If a second launch passes --debug-cdp but the first instance was started
+    // without it, CDP cannot be enabled retroactively (Chromium stands up the
+    // CDP server during browser-process init; no API to enable later).
+    // Surface the constraint as a one-line warning on the first instance's stderr.
+    // See change: ship-browser-skill-and-electron-cdp.
+    if (!_cdp.enabled && argv.some((a) => a === "--debug-cdp" || a.startsWith("--debug-cdp="))) {
+      // eslint-disable-next-line no-console
+      console.error(
+        "[debug-cdp] cannot enable CDP retroactively \u2014 fully quit the app and relaunch with --debug-cdp",
+      );
+    }
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();

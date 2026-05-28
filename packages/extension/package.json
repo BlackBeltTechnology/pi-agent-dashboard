@@ -16,12 +16,14 @@
       "src/bridge.ts"
     ],
     "skills": [
-      ".pi/skills/pi-dashboard"
+      ".pi/skills/pi-dashboard",
+      ".pi/skills/browser"
     ]
   },
   "files": [
     "src/",
-    ".pi/skills/pi-dashboard/"
+    ".pi/skills/pi-dashboard/",
+    ".pi/skills/browser/"
   ],
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",

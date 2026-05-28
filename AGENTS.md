@@ -451,9 +451,6 @@ This section lists only the **architectural backbone** — the files agents touc
 | `.pi/skills/code-review/references/` | Language guides + architecture/performance/security review references |
 | `.pi/skills/nano-banana-imagegen/SKILL.md` | Skill: AI image generation/editing via Google Gemini (nano-banana CLI) |
 | `.pi/skills/nano-banana-imagegen/references/` | Prompting guide, example prompts |
-| `.pi/skills/browser-visual-debug/SKILL.md` | Skill: visual debugging with a real browser via pi-agent-browser |
-| `.pi/skills/browser-visual-debug/references/` | Dashboard recipes, responsive presets, agent-browser cheatsheet |
-| `.pi/skills/browser-visual-debug/scripts/detect-dashboard.sh` | Auto-detect dashboard URL, mode, Vite dev server status |
 | `packages/electron/src/main.ts` | Electron main: 6-state startup machine (check-health → attach \| wizard → spawn → health-wait → done \| loading-page-error); single-instance, tray |
 | `packages/electron/src/lib/link-handling.ts` | Pure `isSameOriginUrl` + OAuth-aware `decideWillNavigate` for external-link guard |
 | `packages/client/src/components/MarkdownContent.tsx` | ReactMarkdown renderer (chat/thinking/READMEs/previews); external-link hardening + KaTeX math + `pi-asset:` image scheme |

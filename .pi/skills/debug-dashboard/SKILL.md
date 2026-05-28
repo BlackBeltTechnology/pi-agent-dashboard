@@ -1,6 +1,6 @@
 ---
 name: debug-dashboard
-description: Diagnose problems in the running pi-agent-dashboard system. Tail ~/.pi/dashboard/server.log, probe /api/health for mode + uptime, check bridge WebSocket connectivity, triage vitest failures via tee→grep, inspect known-issue FAQ entries (Electron Node bin selection, Fastify + bad-Node crashes, stale-port hangs, single-instance lock). Routes UI/visual issues to the browser-visual-debug skill. Use when the server seems hung, a pi session won't connect, tests fail mysteriously, the dashboard shows a blank page, restart loops, port conflicts, or any "why isn't X working" / "the dashboard is doing Y" question.
+description: Diagnose problems in the running pi-agent-dashboard system. Tail ~/.pi/dashboard/server.log, probe /api/health for mode + uptime, check bridge WebSocket connectivity, triage vitest failures via tee→grep, inspect known-issue FAQ entries (Electron Node bin selection, Fastify + bad-Node crashes, stale-port hangs, single-instance lock). Routes UI/visual issues to the browser skill. Use when the server seems hung, a pi session won't connect, tests fail mysteriously, the dashboard shows a blank page, restart loops, port conflicts, or any "why isn't X working" / "the dashboard is doing Y" question.
 ---
 
 # Debug Dashboard
@@ -24,7 +24,7 @@ System-level debugging for the running pi-agent-dashboard. Three layers:
                             ▼
    ┌─────────────────────────────────────────────────────────┐
    │  Layer 3 — Is the UI rendering?                         │
-   │            (use the browser-visual-debug skill)         │
+   │            (use the browser skill)                     │
    └─────────────────────────────────────────────────────────┘
 ```
 
@@ -73,7 +73,7 @@ Patterns + per-package vitest configs + watch mode are documented in [`reference
 
 ## When the UI is the problem
 
-This skill stops at "the server says X but the UI shows Y". For visual debugging — verifying layouts, screenshotting, hunting console errors, testing responsive breakpoints — switch to the **`browser-visual-debug`** skill. Quick pointer: see [`references/ui-debug.md`](references/ui-debug.md).
+This skill stops at "the server says X but the UI shows Y". For visual debugging — verifying layouts, screenshotting, hunting console errors, testing responsive breakpoints — switch to the **`browser`** skill (shipped by the dashboard bridge extension to every session). Quick pointer: see [`references/ui-debug.md`](references/ui-debug.md).
 
 ## Log file locations
 
@@ -102,7 +102,7 @@ The FAQ already documents most recurring symptoms (Electron Node bin, Fastify cr
 
 ## Related skills
 
-- `browser-visual-debug` — UI/visual issues, screenshots, console errors, responsive testing
+- `browser` — UI/visual issues, screenshots, console errors, responsive testing (Electron + web)
 - `implement` — back to implementing once the bug is identified
 - `pi-dashboard` — interact with the dashboard via REST (list sessions, send prompts, abort)
 - `ci-troubleshoot` — when the problem only shows up in CI

@@ -14,6 +14,7 @@
   "scripts": {
     "start": "electron-forge start",
     "start:dev": "ELECTRON_DEV=1 NODE_OPTIONS='--import tsx' electron src/main.ts",
+    "dev:cdp": "ELECTRON_DEV=1 NODE_OPTIONS='--import tsx' electron src/main.ts --debug-cdp",
     "make": "electron-forge make",
     "package": "electron-forge package",
     "icons": "electron-icon-builder --input=resources/icon.png --output=resources --flatten",

@@ -100,7 +100,7 @@ npm run build
 
 **Check browser devtools** → Network tab → look for failed `/api/health` or `/ws/browser` requests.
 
-For visual UI investigation use the **`browser-visual-debug`** skill.
+For visual UI investigation use the **`browser`** skill (shipped by the dashboard bridge extension).
 
 ## Restart misbehaviour
 
