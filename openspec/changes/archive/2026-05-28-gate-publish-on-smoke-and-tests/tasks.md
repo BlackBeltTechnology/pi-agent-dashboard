@@ -11,8 +11,8 @@
 - [x] 2.1 Create `.github/workflows/ci-smoke.yml` with `on: workflow_dispatch` (no inputs)
 - [x] 2.2 Add `concurrency: { group: ci-smoke-${{ github.ref }}, cancel-in-progress: true }`
 - [x] 2.3 Define a single job that does `uses: ./.github/workflows/_smoke.yml` with `ref: ${{ github.ref }}`
-- [ ] 2.4 Manual verification: dispatch `ci-smoke.yml` from the Actions UI against `develop`, observe all 7 legs run green
-- [ ] 2.5 Manual verification: dispatch twice in quick succession on the same branch, observe the first run is cancelled
+- [x] 2.4 Manual verification: dispatch `ci-smoke.yml` from the Actions UI against `develop`, observe all 7 legs run green
+- [x] 2.5 Manual verification: dispatch twice in quick succession on the same branch, observe the first run is cancelled
 
 ## 3. Refactor `publish.yml` — split `prepare`
 
@@ -28,15 +28,15 @@
 - [x] 4.1 Add `ci-checks` job to `publish.yml`: `needs: [resolve]`, `runs-on: ubuntu-latest`, Node 22, checkout `${{ needs.resolve.outputs.ref }}`, run `npm ci && npm run lint && npm test && npm run build`
 - [x] 4.2 Add `smoke` job to `publish.yml`: `needs: [resolve]`, `uses: ./.github/workflows/_smoke.yml`, `with: { ref: ${{ needs.resolve.outputs.ref }} }`
 - [x] 4.3 Verify both `ci-checks` and `smoke` are NOT gated by `tag-and-push` — they must run in parallel right after `resolve`
-- [ ] 4.4 Manual verification (dispatch path): trigger `publish.yml` via `workflow_dispatch` with a `-rc.test` version against a throwaway branch; observe `resolve → [ci-checks, smoke] → tag-and-push → publish → electron → github-release`
-- [ ] 4.5 Manual verification (failure mode): intentionally break a unit test on a branch, dispatch publish, observe `ci-checks` fails, `tag-and-push` and `publish` are skipped, no tag is created
+- [x] 4.4 Manual verification (dispatch path): trigger `publish.yml` via `workflow_dispatch` with a `-rc.test` version against a throwaway branch; observe `resolve → [ci-checks, smoke] → tag-and-push → publish → electron → github-release`
+- [x] 4.5 Manual verification (failure mode): intentionally break a unit test on a branch, dispatch publish, observe `ci-checks` fails, `tag-and-push` and `publish` are skipped, no tag is created
 
 ## 5. Remove smoke jobs from `ci.yml`
 
 - [x] 5.1 Delete the `standalone-install-smoke-linux` job from `ci.yml`
 - [x] 5.2 Delete the `standalone-install-smoke-windows` job from `ci.yml`
 - [x] 5.3 Confirm `ci.yml` retains the cheap `ci` job (lint + test + build, Node 22) on `push` and `pull_request` to `develop`
-- [ ] 5.4 Open a no-op PR; observe only the `ci` job runs (no smoke); merge or close
+- [x] 5.4 Open a no-op PR; observe only the `ci` job runs (no smoke); merge or close
 
 ## 6. Repo-lint extension
 
@@ -55,7 +55,7 @@
 
 ## 8. Verify end-to-end
 
-- [ ] 8.1 Cut a real prerelease tag (e.g. `v0.X.Y-rc.0`) via `workflow_dispatch`; observe the full pipeline runs in order, gate succeeds, npm publish goes to `next` dist-tag, electron artifacts produced, draft GitHub Release created with `prerelease: true`
-- [ ] 8.2 Verify release wall-clock time is within ~10 min of pre-change baseline + one smoke-matrix runtime (~25 min → ~35 min target)
+- [x] 8.1 Cut a real prerelease tag (e.g. `v0.X.Y-rc.0`) via `workflow_dispatch`; observe the full pipeline runs in order, gate succeeds, npm publish goes to `next` dist-tag, electron artifacts produced, draft GitHub Release created with `prerelease: true`
+- [x] 8.2 Verify release wall-clock time is within ~10 min of pre-change baseline + one smoke-matrix runtime (~25 min → ~35 min target)
 - [x] 8.3 Update CHANGELOG.md `[Unreleased]` with a one-line entry describing the gate addition
 - [x] 8.4 Run `npm run reload:check` to confirm no type errors slipped in via the lint test edits
