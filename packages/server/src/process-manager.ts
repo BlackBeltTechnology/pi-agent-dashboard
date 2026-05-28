@@ -15,7 +15,7 @@
  *
  * See change: consolidate-windows-spawn-and-platform-handlers.
  */
-import { existsSync, mkdirSync, openSync, closeSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
@@ -23,7 +23,6 @@ import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/co
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { mintSpawnToken } from "./spawn-token.js";
 import {
   createKeeperManager,
@@ -79,20 +78,6 @@ export function getKeeperManager(): KeeperManager {
   return keeperManager;
 }
 
-/**
- * Hook used by tests to override the `useRpcKeeper` flag read from config
- * without mutating `~/.pi/dashboard/config.json`. Returns `null` to defer
- * to the real config.
- */
-let useRpcKeeperOverride: boolean | null = null;
-export function _setUseRpcKeeperOverrideForTests(v: boolean | null): void {
-  useRpcKeeperOverride = v;
-}
-function shouldUseRpcKeeper(): boolean {
-  if (useRpcKeeperOverride !== null) return useRpcKeeperOverride;
-  try { return loadConfig().useRpcKeeper === true; } catch { return false; }
-}
-
 // ── Public API ─────────────────────────────────────────────────────────────
 
 export interface SessionOptions {
@@ -131,12 +116,13 @@ export interface SpawnResult {
    */
   spawnToken?: string;
   /**
-   * RPC keeper UDS / named-pipe path. Set ONLY when the keeper-mediated
-   * spawn path was taken (`useRpcKeeper: true`). Callers pass this to
-   * `headlessPidRegistry.register(..., { keeperPid, keeperSockPath })` so
-   * later `writeRpc` / `killBySessionId` calls can locate the keeper.
-   * In keeper mode `pid` IS the keeper PID, so `keeperPid` is implicit.
-   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
+   * RPC keeper UDS / named-pipe path. Set on every successful headless
+   * spawn (the keeper is the only spawn mechanism for `--mode rpc`).
+   * Callers pass this to `headlessPidRegistry.register(..., { keeperPid,
+   * keeperSockPath })` so later `writeRpc` / `killBySessionId` calls can
+   * locate the keeper. `pid` IS the keeper PID, so `keeperPid` is implicit.
+   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar,
+   * enable-rpc-keeper-by-default.
    */
   keeperSockPath?: string;
 }
@@ -443,55 +429,20 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
 }
 
 async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<SpawnResult> {
+  // Headless `--mode rpc` sessions are spawned through the RPC keeper sidecar
+  // on every platform. The keeper owns pi's stdin pipe (so pi survives
+  // dashboard server restarts) and exposes a per-session UDS / named pipe
+  // the server writes RPC `prompt` lines to (so typed extension slash commands
+  // like `/ctx-stats` dispatch in headless sessions).
+  // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (introduced keeper),
+  //             enable-rpc-keeper-by-default (made keeper the only path).
   const args = buildHeadlessArgs(options);
   const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
-
-  // RPC keeper sidecar path (feature-flagged). When enabled, both Unix and
-  // Windows go through the keeper (uniform durability across OSes). Pi is
-  // resolved here via the ToolRegistry and forwarded to the keeper as an
-  // absolute argv (env var `PI_KEEPER_PI_CMD`); the keeper no longer relies
-  // on bare PATH lookup. See change: fix-rpc-keeper-pi-resolution.
-  if (shouldUseRpcKeeper()) {
-    const piCmdForKeeper = resolvePiCommand();
-    if (!piCmdForKeeper) {
-      return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
-    }
-    return spawnHeadlessViaKeeper(cwd, env, args, piCmdForKeeper);
-  }
-
   const piCmd = resolvePiCommand();
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
-  const [bin, ...prefixArgs] = piCmd;
-
-  const platform = process.platform;
-  if (platform === "win32") {
-    return spawnHeadlessDetached(cwd, bin, prefixArgs, args, env);
-  }
-
-  // Unix: use the sh -c "tail -f /dev/null | pi" wrapper so pi's stdin is
-  // an internal pipe that survives GC. Pass through the detached-spawn
-  // primitive so all the libuv defaults (detached, stdio, windowsHide) are
-  // uniform. The wrapper is a domain-specific stdin-survival trick — it
-  // belongs here (process-manager), not inside the primitive.
-  const piLine = [shellEscape(bin), ...[...prefixArgs, ...args].map(shellEscape)].join(" ");
-  const r = await spawnDetached({
-    cmd: "sh",
-    args: ["-c", `tail -f /dev/null | ${piLine}`],
-    cwd,
-    env,
-  });
-  if (!r.ok) {
-    return { success: false, code: "SPAWN_ERRNO", message: `Failed to spawn headless (Unix): ${r.error}` };
-  }
-  return {
-    success: true,
-    dashboardSpawned: true,
-    message: `Pi session spawned headless (pid ${r.pid})`,
-    pid: r.pid,
-    process: r.process,
-  };
+  return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }
 
 /**
@@ -569,156 +520,8 @@ async function spawnHeadlessViaKeeper(
   };
 }
 
-/**
- * Windows headless spawn using the detached-spawn primitive.
- *
- * Key correctness fixes vs. the previous spawnHeadlessWindows:
- *   • detached: true            (via primitive) — excludes from libuv's
- *                                kill-on-close job; sessions survive
- *                                server restart.
- *   • shell: false              (via primitive) — sidesteps Node issue
- *                                #21825 and cmd.exe /d /s /c edge cases.
- *                                Requires pi to be [node.exe, cli.js],
- *                                NOT pi.cmd. If only pi.cmd is on PATH,
- *                                we surface an actionable error.
- *   • stdio[0] = "ignore"       — no parent-owned stdin pipe.
- *   • stdio[2] = logFd          — stderr to a persisted log file (not
- *                                a pipe that dies with the parent).
- *   • Crash window 300 ms       (was 1500 ms) — via waitForNoCrash.
- */
-async function spawnHeadlessDetached(
-  cwd: string,
-  bin: string,
-  prefixArgs: string[],
-  args: string[],
-  env: NodeJS.ProcessEnv,
-): Promise<SpawnResult> {
-  // Refuse to go through cmd.exe — the managed install must be present
-  // so resolvePiCommand returned [node.exe, cli.js]. If someone has
-  // only pi.cmd on PATH, point them at the wizard / managed install.
-  if (bin.toLowerCase().endsWith(".cmd") || bin.toLowerCase().endsWith(".bat")) {
-    return {
-      success: false,
-      code: "WIN_PI_CMD_ONLY",
-      message:
-        "Windows pi spawn requires node.exe + cli.js (managed install). " +
-        "Found only pi.cmd on PATH. Run the dashboard setup wizard or " +
-        "install pi via the dashboard's Packages view.",
-    };
-  }
-
-  // Prepare a per-session log file for stderr capture.
-  const logDir = path.join(os.homedir(), ".pi", "dashboard", "sessions");
-  try { mkdirSync(logDir, { recursive: true }); } catch { /* ignore */ }
-  const logPath = path.join(logDir, `pi-spawn-${Date.now()}-${Math.floor(Math.random() * 1e6)}.log`);
-
-  let logFd: number | undefined;
-  try {
-    logFd = openSync(logPath, "a");
-  } catch {
-    // If we can't open the log, proceed without stderr capture; still spawn.
-    logFd = undefined;
-  }
-
-  const cmdForLog = `${bin} ${[...prefixArgs, ...args].join(" ")}`;
-  console.error(`[spawn] Windows headless (detached): ${cmdForLog} (cwd=${cwd}, log=${logPath})`);
-
-  // CRITICAL: pi's `--mode rpc` listens for `process.stdin.on("end")`
-  // and calls shutdown() on EOF. With `stdio[0] = "ignore"`, stdin
-  // closes immediately and pi exits before resume completes. Use a
-  // parent-held pipe so pi's stdin stays open as long as the dashboard
-  // server is alive.
-  //
-  // Trade-off: when the dashboard server process dies, Windows closes
-  // the pipe handle, pi sees EOF, and shuts down. This is the opposite
-  // of the Unix `sh -c "tail -f /dev/null | pi"` wrapper (which keeps
-  // stdin open via an internal process-group pipe that survives
-  // parent death). On Windows we accept "pi dies with dashboard" as
-  // the cost of RPC mode working reliably. A future keeper-process
-  // approach could restore the durability invariant.
-  //
-  // detach: false — restores the behaviour of commit d331850 that was
-  // silently overridden by 5ab7956's universal `detached: true` invariant.
-  // On Windows, `detached: true` allocates a new console for the child
-  // unless all stdio slots are "ignore" (libuv `src/win/process.c` only
-  // sets CREATE_NO_WINDOW when no slot has UV_INHERIT_FD). With `stdin:
-  // "pipe"` we ALWAYS have UV_INHERIT_FD on stdio[0], so CREATE_NO_WINDOW
-  // can never fire, and `windowsHide: true` only applies SW_HIDE after
-  // allocation — producing brief console flashes on every session spawn.
-  // `detach: false` keeps the child inside the parent's Job Object (no
-  // new console needed — no flash). "pi dies with dashboard" invariant is
-  // unchanged: stdin-EOF on parent death already ties them together.
-  //
-  // See change: prep-for-develop-merge.
-  const r = await spawnDetached({
-    cmd: bin,
-    args: [...prefixArgs, ...args],
-    cwd,
-    env,
-    logFd,
-    stdinMode: "pipe",
-    detach: false,
-  });
-
-  // We don't need the parent's copy of the log fd; the child has its own.
-  if (logFd !== undefined) {
-    try { closeSync(logFd); } catch { /* ignore */ }
-  }
-
-  if (!r.ok || !r.process || !r.pid) {
-    return {
-      success: false,
-      code: "SPAWN_ERRNO",
-      logPath: logFd !== undefined ? logPath : undefined,
-      message: `Failed to spawn pi: ${r.error ?? "unknown error"}. Command: ${cmdForLog}`,
-    };
-  }
-
-  // Short crash-detection window so we return fast on the happy path
-  // but still catch immediate crashes (missing modules, config errors).
-  const gate = await waitForNoCrash({ child: r.process, windowMs: 300 });
-  if (!gate.ok) {
-    // Read last 4 KB of stderr log for diagnostic forwarding. See change: spawn-failure-diagnostics.
-    let stderrTail: string | undefined;
-    if (logFd !== undefined) {
-      stderrTail = readLogTail(logPath);
-    }
-    return {
-      success: false,
-      code: "PI_CRASHED",
-      logPath: logFd !== undefined ? logPath : undefined,
-      stderr: stderrTail,
-      message:
-        `Pi process exited immediately (code ${gate.exitCode}). ` +
-        `See ${logPath} for details.\nCommand: ${cmdForLog}`,
-    };
-  }
-
-  return {
-    success: true,
-    dashboardSpawned: true,
-    message: `Pi session spawned headless (pid ${r.pid})`,
-    pid: r.pid,
-    process: r.process,
-    logPath: logFd !== undefined ? logPath : undefined,
-  };
-}
-
-/**
- * Read last `maxBytes` bytes of `filePath`, stripping leading UTF-8 continuation bytes.
- * Returns `undefined` on any error or if file is empty.
- * See change: spawn-failure-diagnostics.
- */
-function readLogTail(filePath: string, maxBytes = 4096): string | undefined {
-  try {
-    const buf = readFileSync(filePath);
-    if (!buf.length) return undefined;
-    const slice = buf.length <= maxBytes ? buf : buf.slice(buf.length - maxBytes);
-    // Strip leading UTF-8 continuation bytes (0x80..0xBF)
-    let start = 0;
-    while (start < slice.length && (slice[start]! & 0xC0) === 0x80) start++;
-    return slice.slice(start).toString("utf-8");
-  } catch {
-    return undefined;
-  }
-}
+// Legacy `spawnHeadlessDetached` (Windows direct-stdin pipe) and
+// `readLogTail` removed 2026-05-28 by change `enable-rpc-keeper-by-default`.
+// All headless `--mode rpc` spawns now go through `spawnHeadlessViaKeeper`,
+// which owns pi's stdin via the per-session keeper sidecar and survives
+// dashboard server restarts uniformly across Unix and Windows.

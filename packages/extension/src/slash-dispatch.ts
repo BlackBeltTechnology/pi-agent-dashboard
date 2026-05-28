@@ -10,8 +10,9 @@
  *     the per-session RPC keeper UDS and emits the terminal command_feedback).
  *   - Path D: `pi.dispatchCommand` absent AND the bridge is NOT headless
  *     (tmux / wt) OR no `connection` was supplied → emit
- *     `command_feedback {status:"error"}` with a hint to enable
- *     `useRpcKeeper: true` for headless sessions.
+ *     `command_feedback {status:"error"}` with a hint explaining that
+ *     terminal-hosted sessions (tmux / Windows Terminal) own pi's stdin
+ *     themselves and therefore cannot accept dispatched extension commands.
  *     Note: pi.sendUserMessage() hardcodes expandPromptTemplates: false, which
  *     skips _tryExecuteExtensionCommand; extension commands sent this way
  *     become regular LLM messages. This is a pi limitation — the bridge has
@@ -123,16 +124,17 @@ export async function tryDispatchExtensionCommand(
   }
 
   // Path D: No dispatchCommand, not headless (tmux / wt) or no connection.
-  // Extension commands can only be dispatched through the RPC keeper, which
-  // is available for headless sessions (`pi --mode rpc`). For tmux/wt sessions
-  // there is no injection channel — the command becomes a regular LLM message.
-  // To enable extension command dispatch for headless sessions:
-  //   { "spawnStrategy": "headless", "useRpcKeeper": true }
-  // See change: fix-slash-dispatch-delivery.
+  // Dashboard-spawned headless sessions dispatch through the RPC keeper
+  // sidecar (always-on as of change `enable-rpc-keeper-by-default`). For
+  // tmux / Windows Terminal sessions the user's terminal owns pi's stdin,
+  // so the keeper cannot inject — the command becomes a regular LLM message
+  // unless the user upgrades to a pi version that exposes `pi.dispatchCommand`
+  // (Path B). See change: fix-slash-dispatch-delivery, enable-rpc-keeper-by-default.
   const RPC_KEEPER_HINT =
-    "Extension slash commands cannot be dispatched from the dashboard for " +
-    "non-headless (tmux/wt) sessions. If you're using headless mode, add " +
-    '"useRpcKeeper": true to your dashboard config (~/.pi/dashboard/config.json).';
+    "Extension slash commands cannot be dispatched from this session shape " +
+    "(typically tmux or Windows Terminal sessions, where the user's terminal " +
+    "owns pi's stdin). Dashboard-spawned headless sessions support slash " +
+    "commands natively.";
   emitFeedback(sink, sessionId, text, "error", RPC_KEEPER_HINT);
   return true;
 }

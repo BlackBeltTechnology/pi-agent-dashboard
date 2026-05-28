@@ -992,15 +992,14 @@ Pi 0.74 `ExtensionAPI` exposes no `dispatchCommand`. Bridge cannot reach `sessio
 
 Dashboard spawns three session types:
 
-- **Headless RPC** with `useRpcKeeper: true` in `~/.pi/dashboard/config.json` (default `false`): work. Server writes JSON-line to per-session keeper UDS (`~/.pi/dashboard/sessions/<sid>.rpc.sock` Unix; `\\.\pipe\pi-rpc-<sid>` Windows); keeper forwards to pi's stdin; pi's `--mode rpc` runs `session.prompt()` → dispatch.
-- **Headless RPC** with `useRpcKeeper: false`: surface `command_feedback {status:"error"}` stopgap ("requires pi 0.71+"). Default state.
-- **Tmux / Windows Terminal**: cannot work via dashboard chat regardless of flag. User's terminal owns pi's stdin; no UDS route exists. Use the pi TUI directly for slash commands in those sessions.
+- **Headless RPC (dashboard-spawned)**: works. Server writes JSON-line to per-session keeper UDS (`~/.pi/dashboard/sessions/<sid>.rpc.sock` Unix; `\\.\pipe\pi-rpc-<sid>` Windows). Keeper forwards to pi's stdin. pi `--mode rpc` runs `session.prompt()` → dispatch.
+- **Tmux / Windows Terminal**: cannot work via dashboard chat. User's terminal owns pi's stdin; no UDS route. Use pi TUI directly for slash commands.
 
 Three-way decision lives in `packages/extension/src/slash-dispatch.ts::tryDispatchExtensionCommand` (Path B → Path C → Path D).
 
 Activates the full Path B behavior automatically once upstream `pi.dispatchCommand` ships in pi 0.75+.
 
-See change: `add-rpc-stdin-dispatch-with-keeper-sidecar`. See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md` § "Path C".
+See change: `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`. See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md` § "Path C".
 
 ## Why does session resume fail with "RPC keeper exited within crash window (code 1)"?
 

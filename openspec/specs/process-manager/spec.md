@@ -1,44 +1,37 @@
 ## MODIFIED Requirements
 
 ### Requirement: Spawn pi session supports headless strategy
-The `spawnPiSession` function SHALL accept an optional `strategy` parameter (`"tmux" | "headless" | "wt" | "wsl-tmux"`). When `"headless"` AND the config flag `useRpcKeeper: true` is set, `spawnPiSession` SHALL spawn the keeper sidecar (see `rpc-keeper-sidecar` capability) instead of spawning pi directly. The keeper SHALL spawn pi as its own child.
-
-When `"headless"` AND `useRpcKeeper: false` (default during phase 1), `spawnPiSession` SHALL retain its existing behavior:
-- Unix: `sh -c 'tail -f /dev/null | pi --mode rpc'`
-- Windows: detached spawn with `stdio: ["pipe", logFd, logFd]`
+The `spawnPiSession` function SHALL accept an optional `strategy` parameter (`"tmux" | "headless" | "wt" | "wsl-tmux"`). When `"headless"`, `spawnPiSession` SHALL spawn the keeper sidecar (see `rpc-keeper-sidecar` capability) instead of spawning pi directly. The keeper SHALL spawn pi as its own child. The keeper path is unconditional — there is no flag to opt out.
 
 When the strategy is `"tmux"`, `"wt"`, or `"wsl-tmux"`, `spawnPiSession` SHALL retain existing behavior unchanged. These strategies do not use the keeper because pi's stdin is owned by the user's terminal, not by the dashboard.
 
 The `buildTmuxCommand` function SHALL continue to shell-escape `cwd` and `sessionFile` parameters using `shellEscape()`.
 
-#### Scenario: Headless spawn with keeper (useRpcKeeper: true)
-- **WHEN** `spawnPiSession(cwd, {strategy: "headless"})` is called AND config has `useRpcKeeper: true`
+#### Scenario: Headless spawn uses keeper
+- **WHEN** `spawnPiSession(cwd, {strategy: "headless"})` is called
 - **THEN** the server SHALL spawn the keeper process via `node <path>/keeper.cjs <sessionId>` (detached)
 - **AND** the keeper SHALL spawn `pi --mode rpc` as its child with `cwd` and `PI_DASHBOARD_SPAWNED=1` in env
 - **AND** the keeper SHALL listen on `<homedir>/.pi/dashboard/sessions/<sessionId>.rpc.sock` (Unix) or `\\.\pipe\pi-rpc-<sessionId>` (Windows)
+- **AND** no legacy `tail -f /dev/null` shell wrapper SHALL be invoked
+- **AND** no direct-stdin pipe from the dashboard server to pi SHALL be opened on Windows
 
-#### Scenario: Headless spawn without keeper (legacy default)
-- **WHEN** `spawnPiSession(cwd, {strategy: "headless"})` is called AND config has `useRpcKeeper: false` or unset
-- **THEN** the server SHALL spawn pi directly using the legacy mechanism (Unix `tail -f` wrapper or Windows piped stdin)
-- **AND** the keeper SHALL NOT be invoked
-
-#### Scenario: Tmux spawn unaffected by keeper flag
-- **WHEN** `spawnPiSession(cwd, {strategy: "tmux"})` is called regardless of `useRpcKeeper` flag value
+#### Scenario: Tmux spawn does not use keeper
+- **WHEN** `spawnPiSession(cwd, {strategy: "tmux"})` is called
 - **THEN** the existing tmux spawn behavior SHALL be used unchanged
 - **AND** no keeper SHALL be spawned for tmux sessions
 
-#### Scenario: Headless spawn fresh session (legacy path)
-- **WHEN** `spawnPiSession(cwd, { strategy: "headless" })` is called AND `useRpcKeeper` is unset
-- **THEN** it SHALL spawn `pi --mode rpc` with `cwd` set and `PI_DASHBOARD_SPAWNED=1` in env
-- **AND** return `{ success: true, message: "...", pid: <number> }`
+#### Scenario: Headless spawn fresh session
+- **WHEN** `spawnPiSession(cwd, { strategy: "headless" })` is called with no sessionFile
+- **THEN** the keeper SHALL spawn `pi --mode rpc` with `cwd` set and `PI_DASHBOARD_SPAWNED=1` in env
+- **AND** `spawnPiSession` SHALL return `{ success: true, message: "...", pid: <keeper PID> }`
 
 #### Scenario: Headless spawn with continue
 - **WHEN** `spawnPiSession(cwd, { strategy: "headless", sessionFile: "...", mode: "continue" })` is called
-- **THEN** it SHALL spawn `pi --mode rpc --session <sessionFile>`
+- **THEN** the keeper SHALL spawn `pi --mode rpc --session <sessionFile>`
 
 #### Scenario: Headless spawn with fork
 - **WHEN** `spawnPiSession(cwd, { strategy: "headless", sessionFile: "...", mode: "fork" })` is called
-- **THEN** it SHALL spawn `pi --mode rpc --fork <sessionFile>`
+- **THEN** the keeper SHALL spawn `pi --mode rpc --fork <sessionFile>`
 
 #### Scenario: Tmux spawn unchanged
 - **WHEN** `spawnPiSession(cwd, { strategy: "tmux" })` or `spawnPiSession(cwd)` is called

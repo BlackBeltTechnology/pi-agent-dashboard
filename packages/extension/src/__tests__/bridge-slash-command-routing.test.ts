@@ -92,20 +92,20 @@ describe("bridge slash command routing (regression contract)", () => {
     expect(evs.map((e) => e.status)).toEqual(["started", "completed"]);
   });
 
-  it("extension cmd, NO dispatchCommand, not headless → error feedback with rpc-keeper hint, no sendUserMessage", async () => {
+  it("extension cmd, NO dispatchCommand, not headless → error feedback with session-shape hint, no sendUserMessage", async () => {
     // Path D: extension commands cannot be dispatched for non-headless sessions.
-    // Emits error with hint to enable useRpcKeeper for headless mode.
-    // See change: fix-slash-dispatch-delivery.
+    // Emits error with hint explaining tmux / wt own pi's stdin.
+    // See change: fix-slash-dispatch-delivery, enable-rpc-keeper-by-default.
     const stub = makeStubPi({ withDispatch: false });
     const sink = await drive("/ctx-stats", stub);
 
     // sendUserMessage is NOT called — the command is handled (with error).
     expect(stub.sendUserMessage).not.toHaveBeenCalled();
 
-    // Error feedback emitted with rpc-keeper hint.
+    // Error feedback emitted with session-shape hint.
     const evs = feedbackEvents(sink, "/ctx-stats");
     expect(evs.map((e) => e.status)).toEqual(["error"]);
-    expect(evs[0].message).toContain("useRpcKeeper");
+    expect(evs[0].message).toContain("session shape");
   });
 
   it("extension cmd dispatch rejects → started+error with err.message, no sendUserMessage", async () => {
@@ -193,7 +193,7 @@ describe("bridge slash command routing (regression contract)", () => {
     const evs = feedbackEvents(sink, "/ctx-stats");
     expect(evs).toHaveLength(1);
     expect(evs[0].status).toBe("error");
-    expect(evs[0].message).toContain("useRpcKeeper");
+    expect(evs[0].message).toContain("session shape");
   });
 
   it("anti-regression: /ctx-stats does NOT reach sendUserMessage when dispatchCommand absent", async () => {
@@ -308,7 +308,7 @@ describe("tryDispatchExtensionCommand: Path B/C/D mutual exclusion", () => {
       .filter((m: any) => m?.event?.eventType === "command_feedback");
     expect(evs).toHaveLength(1);
     expect((evs[0] as any).event.data.status).toBe("error");
-    expect((evs[0] as any).event.data.message).toContain("useRpcKeeper");
+    expect((evs[0] as any).event.data.message).toContain("session shape");
   });
 
   it("Path D: no dispatchCommand + no connection → returns true with error feedback", async () => {

@@ -1180,11 +1180,11 @@ On Windows, `spawnDetached` uses `detached: true` which (via libuv's `src/win/pr
 
 ### RPC keeper sidecar
 
-Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Experimental, gated by `useRpcKeeper` config flag (default `false`). Resolves typed extension slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) in headless dashboard sessions despite pi 0.74 `ExtensionAPI` exposing no `dispatchCommand`.
+Introduced by change `add-rpc-stdin-dispatch-with-keeper-sidecar`. Default and only headless spawn path as of change `enable-rpc-keeper-by-default`. Resolves typed extension slash commands (`/ctx-stats`, `/curator`, `/agents`, `/flows:*`) in headless dashboard sessions despite pi 0.74 `ExtensionAPI` exposing no `dispatchCommand`.
 
 Per-session keeper process owns pi's stdin pipe. Server writes RPC lines to keeper via UDS (Unix) or named pipe (Windows). Keeper forwards verbatim to pi's stdin. Pi's `--mode rpc` reader runs `session.prompt(text, {expandPromptTemplates: true})` which dispatches slash commands.
 
-Keeper outlives dashboard server restarts. Replaces Unix `tail -f /dev/null | pi` wrapper. Brings Windows to durability parity (today Windows loses pi on server death).
+Keeper outlives dashboard server restarts. Replaced Unix `tail -f /dev/null | pi` wrapper and Windows direct-stdin pipe. Uniform durability across Unix and Windows.
 
 Three-process topology + dual-channel boundary:
 

@@ -238,17 +238,6 @@ export interface DashboardConfig {
    */
   spawnRegisterTimeoutMs: number;
   /**
-   * EXPERIMENTAL: when true, headless pi sessions are spawned through the
-   * RPC keeper sidecar instead of the legacy `sh -c "tail -f /dev/null | pi"`
-   * (Unix) or direct-pipe (Windows) paths. The keeper owns pi's stdin and
-   * exposes a per-session UDS / named pipe the server writes RPC `prompt`
-   * lines to. Enables typed extension slash commands (`/ctx-stats`,
-   * `/curator`, `/agents`, `/flows:*`) to dispatch in headless sessions
-   * against pi versions that do not yet expose `pi.dispatchCommand`.
-   * Default `false`. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
-   */
-  useRpcKeeper: boolean;
-  /**
    * Per-plugin config namespaces. Reserved top-level key.
    * Each plugin's config lives at plugins.<id>.*
    * Plugin-shaped legacy top-level keys (e.g. openspec.*) stay at top-level
@@ -307,7 +296,6 @@ const DEFAULTS: DashboardConfig = {
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
   reattachPlacement: DEFAULT_REATTACH_PLACEMENT,
   spawnRegisterTimeoutMs: 30000,
-  useRpcKeeper: false,
 };
 
 /**
@@ -594,7 +582,6 @@ export function loadConfig(): DashboardConfig {
         ? parsed.askUserPromptTimeoutSeconds
         : defaults.askUserPromptTimeoutSeconds,
       spawnRegisterTimeoutMs: clampSpawnRegisterTimeoutMs(parsed.spawnRegisterTimeoutMs),
-      useRpcKeeper: parsed.useRpcKeeper === true,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
     };
 

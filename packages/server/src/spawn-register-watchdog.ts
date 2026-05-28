@@ -87,10 +87,11 @@ export class SpawnRegisterWatchdog {
     entry.timer = setTimeout(() => this._fireEntry(entry), effectiveTimeout);
     // Always index by cwd so a `session_register` clears the watchdog even
     // when the bridge's reported pid differs from the spawner's pid (e.g.
-    // Unix headless wraps pi in `sh -c "tail -f /dev/null | pi …"`, so
-    // spawnResult.pid is the sh wrapper, not pi). Index by pid additionally
-    // for late-recovery lookup. Index by token (when provided) for
-    // strong-identity clearing. See change: spawn-correlation-token.
+    // headless `--mode rpc` spawn returns the RPC keeper PID, not pi's PID;
+    // pi's PID arrives later via `session_register`). Index by pid
+    // additionally for late-recovery lookup. Index by token (when provided)
+    // for strong-identity clearing. See change: spawn-correlation-token,
+    // enable-rpc-keeper-by-default.
     // Replace any prior entry for the same cwd/pid/token to avoid leaking timers.
     const priorCwd = this.byCwd.get(cwd);
     if (priorCwd) clearTimeout(priorCwd.timer);

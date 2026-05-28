@@ -106,9 +106,9 @@ Applies to headless dashboard sessions only (tmux / Windows Terminal cannot use 
 
 Flow: bridge emits `started`, sends `dispatch_extension_command {sessionId, command, requestId}` to server. Server's `dispatch-router.ts` writes `{"type":"prompt","message":"<command>","id":"<requestId>"}` to per-session keeper UDS via `headlessPidRegistry.writeRpc`. Keeper forwards to pi's stdin. Pi's `--mode rpc` calls `session.prompt(text, {expandPromptTemplates: true})` → `_tryExecuteExtensionCommand` runs handler. Server emits optimistic `command_feedback {completed}` on UDS write success, `{error}` on failure. Bridge MUST NOT emit a terminal event for Path C — server owns it.
 
-Gated by `useRpcKeeper: true` in `~/.pi/dashboard/config.json`. Default off (Phase 1). See `docs/architecture.md` § "RPC keeper sidecar" for the three-process topology + dual-channel boundary.
+Default headless dispatch path as of change `enable-rpc-keeper-by-default` (was opt-in via `useRpcKeeper` flag through v0.5.4). See `docs/architecture.md` § "RPC keeper sidecar" for three-process topology + dual-channel boundary.
 
-Cross-reference: design.md Decision 1; change `add-rpc-stdin-dispatch-with-keeper-sidecar`.
+Cross-reference: design.md Decision 1; change `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`.
 
 ### Decision 2: Extension-command detection rule
 

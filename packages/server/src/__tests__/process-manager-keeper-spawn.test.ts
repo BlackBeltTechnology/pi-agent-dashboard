@@ -1,16 +1,19 @@
 /**
- * Tests for the `useRpcKeeper: true` branch in `spawnHeadless` (Phase 5).
+ * Tests for `spawnHeadless` going through the RPC keeper sidecar.
  *
- * Drives `spawnPiSession({strategy: "headless"})` with the keeper-flag
- * override on, an injected fake KeeperManager, and verifies:
- *   - keeper branch fires (KeeperManager.spawnKeeperFor called, NOT pi resolved)
+ * As of change `enable-rpc-keeper-by-default`, the keeper is the only
+ * spawn path for `--mode rpc` sessions; the previous flag-on / flag-off
+ * matrix has collapsed to a single branch.
+ *
+ * Drives `spawnPiSession({strategy: "headless"})` with an injected fake
+ * KeeperManager and verifies:
+ *   - KeeperManager.spawnKeeperFor is called on every headless spawn
  *   - returned SpawnResult.pid is the keeper PID
  *   - env passed to the keeper includes `PI_DASHBOARD_SPAWN_TOKEN`
  *   - keeper failure surfaces as `PI_CRASHED` or `SPAWN_ERRNO`
- *   - flag OFF (default) → keeper is NOT used
  */
 import { EventEmitter } from "node:events";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -21,7 +24,6 @@ import {
   setKeeperManager,
   setResolver,
   resetResolver,
-  _setUseRpcKeeperOverrideForTests,
   spawnPiSession,
 } from "../process-manager.js";
 import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
@@ -92,13 +94,12 @@ beforeEach(() => {
 });
 afterEach(() => {
   setKeeperManager(null);
-  _setUseRpcKeeperOverrideForTests(null);
   resetResolver();
   rmSync(tmpCwd, { recursive: true, force: true });
 });
 
-describe("spawnHeadless (useRpcKeeper: true)", () => {
-  it("routes through KeeperManager when flag is on", async () => {
+describe("spawnHeadless (headless via keeper)", () => {
+  it("routes through KeeperManager on every headless spawn", async () => {
     const fakeChild = new FakeKeeperChild(11111);
     const { km, state } = makeFakeKeeperManager({
       spawnResult: {
@@ -109,7 +110,6 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
       },
     });
     setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(true);
 
     const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
 
@@ -155,7 +155,6 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
       },
     });
     setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(true);
 
     const sessionFile = "/tmp/sess-resume.jsonl";
     const result = await spawnPiSession(tmpCwd, {
@@ -184,7 +183,6 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
       spawnResult: { success: false, error: "EACCES on socket bind" },
     });
     setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(true);
 
     const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
     expect(result.success).toBe(false);
@@ -207,7 +205,6 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
       },
     });
     setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(true);
 
     const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
     expect(result.success).toBe(false);
@@ -223,7 +220,6 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
       spawnResult: { success: true, pid: 1, sockPath: "/fake/x.sock" },
     });
     setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(true);
 
     const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
     expect(result.success).toBe(false);
@@ -233,16 +229,4 @@ describe("spawnHeadless (useRpcKeeper: true)", () => {
     expect(state.spawnCalls).toEqual([]);
   });
 
-  it("does NOT route through KeeperManager when flag is off (default)", async () => {
-    const { km, state } = makeFakeKeeperManager({
-      spawnResult: { success: true, pid: 99999, sockPath: "/fake/x.sock" },
-    });
-    setKeeperManager(km);
-    _setUseRpcKeeperOverrideForTests(false);
-
-    // We don't care about the actual headless spawn result here — only that
-    // it does NOT call the fake KeeperManager.
-    await spawnPiSession(tmpCwd, { strategy: "headless" });
-    expect(state.spawnCalls).toEqual([]);
-  });
 });
