@@ -29,7 +29,7 @@ function resolveJjPath(): string | undefined {
   try {
     const reg = getDefaultRegistry();
     const res = reg.resolve("jj");
-    return res.ok ? res.path : undefined;
+    return res.ok ? (res.path ?? undefined) : undefined;
   } catch {
     return undefined;
   }
@@ -40,7 +40,7 @@ const gitPath = (() => {
   try {
     const reg = getDefaultRegistry();
     const res = reg.resolve("git");
-    return res.ok ? res.path : undefined;
+    return res.ok ? (res.path ?? undefined) : undefined;
   } catch {
     return undefined;
   }
