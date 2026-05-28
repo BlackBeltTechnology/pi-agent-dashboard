@@ -60,6 +60,19 @@ Run these in order. If any fails, **stop and report** — do not continue.
    ```
    Asserts critical runtime deps (`jiti`, pinned `node-pty`, etc.) are still declared in the publishable workspace `package.json` files. Failure means the next published tarball would be broken — STOP and fix the workspace before cutting.
 
+7. **Dispatch `ci-smoke.yml` against `develop`** (recommended; catches installer regressions BEFORE the tag exists)
+
+   The release pipeline (`publish.yml`) gates `publish` on a `release-gate` that runs the full 7-leg standalone-install-smoke matrix. If that gate fails on `workflow_dispatch`, `tag-and-push` is skipped — clean abort, no commit, no tag. But on a `git push --tags` cut, the tag already exists when the gate fires; failure leaves a dangling tag requiring `release-revoke`.
+
+   Operators SHOULD run the smoke matrix first against `develop`:
+
+   ```
+   gh workflow run ci-smoke.yml --ref develop
+   gh run watch  # or open the Actions UI
+   ```
+
+   All 7 legs must be green before cutting. If any leg fails, fix the regression on `develop` first — do NOT cut a tag that you know will fail the gate. Skip this step only when the change since the last release is provably installer-irrelevant (no lockfile, bundle-server, native dep, or preload-fastify touch). See change: gate-publish-on-smoke-and-tests.
+
 If any pre-flight step fails, stop and surface the exact error to the user.
 
 ## Step 1 — Read current state

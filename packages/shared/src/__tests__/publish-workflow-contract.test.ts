@@ -87,14 +87,13 @@ describe("publish.yml — electron job dependency-graph contract", () => {
   const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
   const electronBlock = extractJobBlock(yaml, "electron");
 
-  it("electron job's `needs:` includes both `prepare` and `publish`", () => {
-    // Accept either flow-list (`needs: [prepare, publish]`) or
-    // block-list:
-    //   needs:
-    //     - prepare
-    //     - publish
-    // (Currently flow-list — but the test should not lock the surface
-    // syntax, only the dependency contract.)
+  it("electron job's `needs:` includes both `resolve` and `publish`", () => {
+    // Accept either flow-list (`needs: [resolve, publish]`) or block-list.
+    // After change gate-publish-on-smoke-and-tests, the old monolithic
+    // `prepare` job is split into `resolve` + `tag-and-push`; the electron
+    // job depends on `resolve` (for version/tag outputs) and `publish` (for
+    // the registry-availability gate). The test should not lock the surface
+    // syntax, only the dependency contract.
     const flowMatch = electronBlock.match(/^\s{4}needs:\s*\[([^\]]*)\]/m);
     const blockMatch = electronBlock.match(
       /^\s{4}needs:\s*\n((?:\s{6}-\s+\S+\s*\n)+)/m,
@@ -113,13 +112,13 @@ describe("publish.yml — electron job dependency-graph contract", () => {
         .filter(Boolean);
     } else {
       throw new Error(
-        "electron job has no `needs:` key — must declare `needs: [prepare, publish]`. " +
-          "See change: publish-fix-macos. Job block was:\n" +
+        "electron job has no `needs:` key — must declare `needs: [resolve, publish]`. " +
+          "See changes: publish-fix-macos, gate-publish-on-smoke-and-tests. Job block was:\n" +
           electronBlock,
       );
     }
 
-    expect(names).toContain("prepare");
+    expect(names).toContain("resolve");
     expect(names).toContain("publish");
   });
 
@@ -341,17 +340,20 @@ describe("ci-electron.yml — runnable-bundle contract", () => {
   });
 });
 
-describe("publish.yml — prepare job lockfile-regen contract", () => {
+describe("publish.yml — tag-and-push job lockfile-regen contract", () => {
   const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
-  const prepareBlock = extractJobBlock(yaml, "prepare");
-  const prepareSteps = parseJobSteps(prepareBlock);
+  // After change gate-publish-on-smoke-and-tests, the bump/sync/regen/
+  // commit/tag/push steps moved from the monolithic `prepare` job into a
+  // new `tag-and-push` job that runs only on workflow_dispatch.
+  const tagAndPushBlock = extractJobBlock(yaml, "tag-and-push");
+  const tagAndPushSteps = parseJobSteps(tagAndPushBlock);
 
-  it("prepare job regenerates lockfile after version bump (fix-release-lockfile-drift)", () => {
-    const syncIdx = prepareSteps.findIndex((s) => /sync-versions\.js/.test(s.run || ""));
-    const regenIdx = prepareSteps.findIndex((s) =>
+  it("tag-and-push job regenerates lockfile after version bump (fix-release-lockfile-drift)", () => {
+    const syncIdx = tagAndPushSteps.findIndex((s) => /sync-versions\.js/.test(s.run || ""));
+    const regenIdx = tagAndPushSteps.findIndex((s) =>
       /npm install --package-lock-only/.test(s.run || ""),
     );
-    const commitIdx = prepareSteps.findIndex((s) =>
+    const commitIdx = tagAndPushSteps.findIndex((s) =>
       /git commit -m "chore\(release\)/.test(s.run || ""),
     );
     expect(syncIdx, "sync-versions.js step missing").toBeGreaterThanOrEqual(0);
@@ -365,28 +367,28 @@ describe("publish.yml — prepare job lockfile-regen contract", () => {
 
 describe("publish.yml — prerelease safety contract", () => {
   const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
-  const prepareBlock = extractJobBlock(yaml, "prepare");
+  // After change gate-publish-on-smoke-and-tests, the legacy `prepare` job
+  // is split into `resolve` (pure version resolution) + `tag-and-push`
+  // (commit/tag/push). The version-resolution outputs now live on `resolve`.
+  const resolveBlock = extractJobBlock(yaml, "resolve");
   const publishBlock = extractJobBlock(yaml, "publish");
   const ghReleaseBlock = extractJobBlock(yaml, "github-release");
 
-  it("prepare job's outputs block declares `is_prerelease`", () => {
-    // Match the `outputs:` block under `prepare`. Accept any whitespace
-    // alignment after the colon, but the key must be present and wired
-    // to a step output.
-    const m = prepareBlock.match(/^\s{4}outputs:\s*\n((?:\s{6}\S.*\n)+)/m);
+  it("resolve job's outputs block declares `is_prerelease`", () => {
+    const m = resolveBlock.match(/^\s{4}outputs:\s*\n((?:\s{6}\S.*\n)+)/m);
     if (!m) {
       throw new Error(
-        "prepare job has no `outputs:` block. Required to expose\n" +
-          "`is_prerelease` to downstream jobs. See change:\n" +
-          "eliminate-bash-on-windows-runners (D6).\n" +
-          "prepare block:\n" +
-          prepareBlock,
+        "resolve job has no `outputs:` block. Required to expose\n" +
+          "`is_prerelease` to downstream jobs. See changes:\n" +
+          "eliminate-bash-on-windows-runners (D6), gate-publish-on-smoke-and-tests.\n" +
+          "resolve block:\n" +
+          resolveBlock,
       );
     }
     const block = m[1];
     if (!/is_prerelease:\s*\$\{\{\s*steps\.[A-Za-z_]+\.outputs\.is_prerelease\s*\}\}/.test(block)) {
       throw new Error(
-        "prepare job's outputs block must declare `is_prerelease` wired to a\n" +
+        "resolve job's outputs block must declare `is_prerelease` wired to a\n" +
           "step output (e.g. `is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}`).\n" +
           "Without this, downstream `publish` and `github-release` jobs cannot\n" +
           "distinguish prereleases from stable versions. See change:\n" +
@@ -429,22 +431,142 @@ describe("publish.yml — prerelease safety contract", () => {
 
   it("github-release job sets prerelease from is_prerelease", () => {
     // softprops/action-gh-release accepts `prerelease: <bool>` in its
-    // `with:` block. The value MUST be derived from the prepare job's
+    // `with:` block. The value MUST be derived from the resolve job's
     // `is_prerelease` output (literal-string comparison required because
     // GitHub Actions stringifies job outputs).
     if (
-      !/prerelease:\s*\$\{\{\s*needs\.prepare\.outputs\.is_prerelease\s*==\s*['"]true['"]\s*\}\}/
+      !/prerelease:\s*\$\{\{\s*needs\.resolve\.outputs\.is_prerelease\s*==\s*['"]true['"]\s*\}\}/
         .test(ghReleaseBlock)
     ) {
       throw new Error(
         "github-release job's `softprops/action-gh-release` step must set\n" +
-          "`prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}`\n" +
+          "`prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}`\n" +
           "in its `with:` block. Otherwise rc tags surface as stable Releases.\n" +
-          "See change: eliminate-bash-on-windows-runners (D6).\n" +
+          "See changes: eliminate-bash-on-windows-runners (D6), gate-publish-on-smoke-and-tests.\n" +
           "github-release block was:\n" +
           ghReleaseBlock,
       );
     }
     expect(ghReleaseBlock).toMatch(/prerelease:.*is_prerelease.*true/);
+  });
+});
+
+// ── Release-gate contract (change: gate-publish-on-smoke-and-tests) ─────────
+// Pin the five-clause contract from spec requirement "Repo-lint pins the
+// release-gate contract":
+//   1. resolve job exists with `outputs.ref` declared.
+//   2. ci-checks job exists with needs: [resolve] and runs lint/test/build.
+//   3. smoke job exists with needs: [resolve] and is a `uses:` reference to
+//      _smoke.yml passing ref: ${{ needs.resolve.outputs.ref }}.
+//   4. tag-and-push job exists with `if: github.event_name == 'workflow_dispatch'`.
+//   5. publish.needs contains all of: resolve, ci-checks, smoke, tag-and-push.
+//
+// Each failure message names the offending job/field and cites this change
+// so a future contributor sees the rationale, not just the assertion.
+
+function parseNeeds(jobBlock: string): string[] {
+  const flow = jobBlock.match(/^\s{4}needs:\s*\[([^\]]*)\]/m);
+  if (flow) {
+    return flow[1].split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  const block = jobBlock.match(/^\s{4}needs:\s*\n((?:\s{6}-\s+\S+\s*\n)+)/m);
+  if (block) {
+    return block[1]
+      .split("\n")
+      .map((l) => l.replace(/^\s*-\s+/, "").trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+describe("publish.yml — release-gate contract (gate-publish-on-smoke-and-tests)", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const resolveBlock = extractJobBlock(yaml, "resolve");
+  const ciChecksBlock = extractJobBlock(yaml, "ci-checks");
+  const smokeBlock = extractJobBlock(yaml, "smoke");
+  const tagAndPushBlock = extractJobBlock(yaml, "tag-and-push");
+  const publishBlock = extractJobBlock(yaml, "publish");
+
+  it("clause 1: resolve job declares outputs.ref", () => {
+    const m = resolveBlock.match(/^\s{4}outputs:\s*\n((?:\s{6}\S.*\n)+)/m);
+    if (!m || !/^\s{6}ref:\s/m.test(m[1])) {
+      throw new Error(
+        "resolve job MUST declare `outputs.ref` so ci-checks and smoke can\n" +
+          "check out the same sha the release gate is testing. See change:\n" +
+          "gate-publish-on-smoke-and-tests (specs/ci-cd-pipeline clause 1).\n" +
+          "resolve block:\n" +
+          resolveBlock,
+      );
+    }
+  });
+
+  it("clause 2: ci-checks needs [resolve] and runs lint/test/build", () => {
+    const needs = parseNeeds(ciChecksBlock);
+    if (!needs.includes("resolve")) {
+      throw new Error(
+        "ci-checks job MUST `needs: [resolve]` (got " + JSON.stringify(needs) + "). " +
+          "See change: gate-publish-on-smoke-and-tests (clause 2).",
+      );
+    }
+    for (const cmd of ["npm run lint", "npm test", "npm run build"]) {
+      if (!ciChecksBlock.includes(cmd)) {
+        throw new Error(
+          "ci-checks job MUST run `" + cmd + "`. See change:\n" +
+            "gate-publish-on-smoke-and-tests (clause 2). Job block:\n" +
+            ciChecksBlock,
+        );
+      }
+    }
+  });
+
+  it("clause 3: smoke job uses _smoke.yml with ref from resolve", () => {
+    const needs = parseNeeds(smokeBlock);
+    if (!needs.includes("resolve")) {
+      throw new Error(
+        "smoke job MUST `needs: [resolve]` (got " + JSON.stringify(needs) + "). " +
+          "See change: gate-publish-on-smoke-and-tests (clause 3).",
+      );
+    }
+    if (!/^\s{4}uses:\s*\.\/\.github\/workflows\/_smoke\.yml\s*$/m.test(smokeBlock)) {
+      throw new Error(
+        "smoke job MUST be `uses: ./.github/workflows/_smoke.yml`. " +
+          "See change: gate-publish-on-smoke-and-tests (clause 3). Job block:\n" +
+          smokeBlock,
+      );
+    }
+    if (!/ref:\s*\$\{\{\s*needs\.resolve\.outputs\.ref\s*\}\}/.test(smokeBlock)) {
+      throw new Error(
+        "smoke job MUST pass `ref: ${{ needs.resolve.outputs.ref }}` to the " +
+          "reusable workflow. See change: gate-publish-on-smoke-and-tests (clause 3). " +
+          "Job block:\n" + smokeBlock,
+      );
+    }
+  });
+
+  it("clause 4: tag-and-push has `if: github.event_name == 'workflow_dispatch'`", () => {
+    if (
+      !/^\s{4}if:\s*github\.event_name\s*==\s*['"]workflow_dispatch['"]\s*$/m.test(tagAndPushBlock)
+    ) {
+      throw new Error(
+        "tag-and-push job MUST declare `if: github.event_name == 'workflow_dispatch'`. " +
+          "Without the guard, tag-push entry would attempt a second tag-and-commit " +
+          "on top of the human-pushed tag. See change: gate-publish-on-smoke-and-tests " +
+          "(clause 4). Job block:\n" + tagAndPushBlock,
+      );
+    }
+  });
+
+  it("clause 5: publish.needs contains [resolve, ci-checks, smoke, tag-and-push]", () => {
+    const needs = parseNeeds(publishBlock);
+    for (const required of ["resolve", "ci-checks", "smoke", "tag-and-push"]) {
+      if (!needs.includes(required)) {
+        throw new Error(
+          "publish job's `needs:` is missing `" + required + "` (got " +
+            JSON.stringify(needs) + "). The release gate requires every " +
+            "sub-job and the tag-and-push step to precede npm publish. " +
+            "See change: gate-publish-on-smoke-and-tests (clause 5).",
+        );
+      }
+    }
   });
 });

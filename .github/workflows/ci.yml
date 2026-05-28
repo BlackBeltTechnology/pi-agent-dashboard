@@ -1,5 +1,10 @@
 name: CI
 
+# Cheap PR safety net: lint + test + build on Node 22.
+# The standalone-install-smoke matrix moved to `_smoke.yml` (reusable),
+# triggered manually via `ci-smoke.yml` or automatically as the release
+# gate inside `publish.yml`. See change: gate-publish-on-smoke-and-tests.
+
 on:
   push:
     branches: [develop]
@@ -21,86 +26,3 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-
-  # Pack the workspace into tarballs, install into a clean HOME, launch
-  # pi-dashboard, assert bootstrap reaches ready. Guards against the v0.5.3
-  # regressions captured in docs/repro/. See change:
-  # enable-standalone-npm-install task 7.4.
-  standalone-install-smoke-linux:
-    name: standalone-install-smoke (${{ matrix.image }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: node:22-bookworm-slim
-            node-version: 22
-          - image: node:22-alpine
-            node-version: 22
-          - image: node:24-bookworm-slim
-            node-version: 24
-          - image: node:24-alpine
-            node-version: 24
-          - image: node:25-bookworm-slim
-            node-version: 25
-          - image: node:25-alpine
-            node-version: 25
-    container:
-      image: ${{ matrix.image }}
-    steps:
-      - name: Install base tooling (Debian/Ubuntu)
-        if: contains(matrix.image, 'bookworm') || contains(matrix.image, 'debian')
-        # bzip2 is required to extract phantomjs-prebuilt's .tar.bz2 at install
-        # time (pulled transitively via electron-icon-builder → icon-gen →
-        # svg2png). TODO: evict electron-icon-builder to drop deprecated
-        # phantomjs from the install graph.
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl bash procps bzip2
-      - name: Install base tooling (Alpine)
-        if: contains(matrix.image, 'alpine')
-        run: apk add --no-cache git ca-certificates curl bash procps bzip2
-      - uses: actions/checkout@v4
-      # actions/setup-node mounts the host runner's glibc Node into the
-      # container and prepends it to PATH. On Alpine (musl) that binary
-      # fails to exec with "required file not found". The node:<major>-*
-      # images already ship a matching Node, so skip setup-node on Alpine.
-      - uses: actions/setup-node@v4
-        if: "!contains(matrix.image, 'alpine')"
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci --engine-strict=false
-      - run: npm run build
-      - name: Run standalone install smoke
-        run: bash scripts/test-standalone-npm-install.sh --port 18000
-
-  # Windows counterpart of standalone-install-smoke-linux. Locks down the
-  # three Windows-only spawn bugs fixed in 0f2d08aa that escaped CI to a
-  # user-reported Windows 11 reproduction:
-  #   1. shouldUrlWrapEntry mis-wrapping jiti entries with file:///C:/…
-  #      (Node misnormalises triple-slash on the entry argv)
-  #   2. runNpmOnce spawn EFTYPE on npm.cmd (CVE-2024-27980 mitigation
-  #      requires shell:true for .cmd/.bat shims)
-  #   3. nodeScriptToArgv falling back to [resolvedPath] when
-  #      registry.resolve("node") fails — spawned cli.js without node.exe
-  #      prefix, EFTYPE
-  # Uses pwsh (pre-installed on windows-latest) per the repo-lint
-  # `no-bash-on-windows.test.ts`. See change: enable-standalone-npm-install
-  # task 7.4 sub-bullet 3.
-  standalone-install-smoke-windows:
-    name: standalone-install-smoke-windows (node ${{ matrix.node-version }})
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [22, 24, 25]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci --engine-strict=false
-      - run: npm run build
-      - name: Run standalone install smoke
-        shell: pwsh
-        run: ./scripts/test-standalone-npm-install.ps1 -Port 18000

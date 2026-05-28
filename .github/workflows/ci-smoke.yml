@@ -1,0 +1,28 @@
+name: CI Smoke (on-demand)
+
+# Manually-dispatched entry point for the standalone-install-smoke matrix.
+# Sibling of ci-electron.yml. Use it to validate installer-shaped changes
+# (lockfile bumps, bundle-server changes, native deps, preload-fastify)
+# against any branch without polluting PR feedback.
+#
+# Safety invariants (locked by repo-lint tests):
+#   - No `npm publish`
+#   - No GitHub Release
+#   - No tag push
+# The matrix definition lives in _smoke.yml; this file is a thin dispatch
+# shim only. See change: gate-publish-on-smoke-and-tests.
+
+on:
+  workflow_dispatch:
+
+# Re-dispatching on the same branch cancels the prior run. Different
+# branches run in parallel. See design.md Decision 2.
+concurrency:
+  group: ci-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    uses: ./.github/workflows/_smoke.yml
+    with:
+      ref: ${{ github.ref }}

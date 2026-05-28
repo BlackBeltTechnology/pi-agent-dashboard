@@ -2,15 +2,21 @@ name: Release
 
 # Two ways to fire this workflow:
 #
-#   1. Push a tag matching `v*`. The `prepare` job extracts the version
-#      from the tag, then publish + electron + github-release run.
+#   1. Push a tag matching `v*`. The `resolve` job extracts the version
+#      from the tag, the release-gate (`ci-checks` + `smoke`) runs,
+#      `tag-and-push` is SKIPPED (the tag is already present), then
+#      publish + electron + github-release run.
 #
 #   2. Click "Run workflow" in the GitHub Actions UI (workflow_dispatch)
-#      and type the version string (e.g. "0.4.1"). The `prepare` job
-#      bumps every workspace package.json, runs scripts/sync-versions.js,
-#      promotes [Unreleased] in CHANGELOG.md to a dated [vX.Y.Z] section,
-#      commits + tags + pushes the branch, then publish + electron +
-#      github-release run against the freshly-pushed tag.
+#      and type the version string (e.g. "0.4.1"). The `resolve` job
+#      resolves the version string, the release-gate runs against the
+#      branch HEAD sha, then `tag-and-push` bumps every workspace
+#      package.json, runs scripts/sync-versions.js, promotes [Unreleased]
+#      in CHANGELOG.md to a dated [vX.Y.Z] section, commits + tags +
+#      pushes the branch, then publish + electron + github-release run
+#      against the freshly-pushed tag.
+#
+# See change: gate-publish-on-smoke-and-tests.
 
 on:
   push:
@@ -24,25 +30,24 @@ on:
         required: true
 
 jobs:
-  # ── prepare: resolve version + (on dispatch) bump + tag + push ────────────
-  prepare:
+  # ── resolve: pure version resolution (no side effects) ────────────────────
+  # Splits the legacy monolithic `prepare` job. The bump/commit/tag/push
+  # steps moved to `tag-and-push` (runs only on workflow_dispatch). The
+  # `outputs.ref` is the sha the release-gate will test — `github.sha` on
+  # both paths (the tag's commit on tag-push, the branch HEAD on dispatch).
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write  # Used on workflow_dispatch (commit + tag + push).
+    timeout-minutes: 5
     outputs:
       version:       ${{ steps.resolve.outputs.version }}
       tag:           ${{ steps.resolve.outputs.tag }}
       is_prerelease: ${{ steps.resolve.outputs.is_prerelease }}
+      ref:           ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history so `git tag` can verify uniqueness against existing
-          # tags. On tag-push we land on the tag's commit; on dispatch we
-          # land on the branch the operator selected.
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve version
         id: resolve
@@ -75,23 +80,72 @@ jobs:
           echo "tag=$tag"                     >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
+  # ── release-gate: ci-checks (lint+test+build) ─────────────────────────────
+  # Mirrors `ci.yml`'s `ci` job, but runs at release time against the
+  # resolved ref. Fans out in parallel with `smoke`. See change:
+  # gate-publish-on-smoke-and-tests.
+  ci-checks:
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  # ── release-gate: smoke (standalone-install-smoke matrix) ─────────────────
+  # Calls the reusable `_smoke.yml` with the resolved ref. Fans out in
+  # parallel with `ci-checks`. See change: gate-publish-on-smoke-and-tests.
+  smoke:
+    needs: [resolve]
+    uses: ./.github/workflows/_smoke.yml
+    with:
+      ref: ${{ needs.resolve.outputs.ref }}
+
+  # ── tag-and-push: bump + commit + tag + push (dispatch only) ──────────────
+  # Runs ONLY on workflow_dispatch. On tag-push entry the tag is already
+  # present; this job is skipped and downstream `needs:` treat the skip as
+  # success. Runs AFTER the release-gate (`ci-checks` + `smoke`) so a
+  # failing gate leaves no commit, no tag, no npm artifact. See change:
+  # gate-publish-on-smoke-and-tests.
+  tag-and-push:
+    needs: [resolve, ci-checks, smoke]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Node.js
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
 
       - name: Install dependencies
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: npm ci
 
       - name: Bump workspace versions
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           npm version "$VERSION" \
@@ -101,12 +155,10 @@ jobs:
             --include-workspace-root
 
       - name: Sync inter-package dep specifiers
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: node scripts/sync-versions.js
 
       - name: Regenerate package-lock.json with bumped versions
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           # The workspace symlink graph changed (every package.json's
@@ -118,15 +170,13 @@ jobs:
           npm install --package-lock-only --no-audit --no-fund
 
       - name: Verify lockfile matches workspace versions
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: node scripts/verify-lockfile-versions.mjs
 
       - name: Promote CHANGELOG, commit, tag, push
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           today=$(date -u +%Y-%m-%d)
@@ -162,8 +212,12 @@ jobs:
           git push origin "v${VERSION}"
 
   # ── npm publish (OIDC / Trusted Publisher — no NPM_TOKEN secret) ──────────
+  # `needs:` includes the full release-gate (`ci-checks` + `smoke`) plus
+  # `tag-and-push`. On tag-push entry `tag-and-push` is skipped (not
+  # failed), which GitHub Actions treats as success for downstream
+  # `needs:`. See change: gate-publish-on-smoke-and-tests.
   publish:
-    needs: prepare
+    needs: [resolve, ci-checks, smoke, tag-and-push]
     runs-on: ubuntu-latest
     environment: npm-publish  # Matches npm Trusted Publisher config;
                               # acts as a required-reviewer gate if configured.
@@ -176,7 +230,7 @@ jobs:
           # Always check out the resolved tag so dispatch-cut releases
           # publish the freshly-bumped tree, not the branch tip we may
           # have moved past.
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -191,7 +245,7 @@ jobs:
       - run: npm ci
 
       - name: Set version from resolved tag
-        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
+        run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
 
       - name: Sync inter-package dep specifiers to bumped version
         run: node scripts/sync-versions.js
@@ -241,8 +295,8 @@ jobs:
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
             "@blackbelt-technology/pi-agent-dashboard"
           )
-          VERSION="${{ needs.prepare.outputs.version }}"
-          PRERELEASE="${{ needs.prepare.outputs.is_prerelease }}"
+          VERSION="${{ needs.resolve.outputs.version }}"
+          PRERELEASE="${{ needs.resolve.outputs.is_prerelease }}"
           # Prereleases publish to the `next` dist-tag so consumers running
           # plain `npm install <pkg>` keep getting the last stable release.
           # Stable releases use the default `latest` dist-tag (no override).
@@ -266,7 +320,7 @@ jobs:
           exit $FAIL
 
   # ── Electron builds (parallel) ────────────────────────────────
-  # MUST `needs: [prepare, publish]` — the bundled server's `npm install`
+  # MUST `needs: [resolve, publish]` — the bundled server's `npm install`
   # in `bundle-server.mjs` resolves `@blackbelt-technology/*` sub-packages
   # from the public npm registry, which only have the just-bumped version
   # available after `publish` finishes uploading. Gating on `publish`
@@ -274,20 +328,20 @@ jobs:
   # publish-fix-macos. Locked by
   # `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
   electron:
-    needs: [prepare, publish]
+    needs: [resolve, publish]
     # All matrix/steps moved to .github/workflows/_electron-build.yml so the
     # same definition serves both this release flow AND the on-demand CI
     # workflow (.github/workflows/ci-electron.yml). See change:
     # add-ci-electron-on-demand-build.
     #
-    # CRITICAL: do NOT remove `needs: [prepare, publish]` — the registry-
+    # CRITICAL: do NOT remove `needs: [resolve, publish]` — the registry-
     # availability gate is still required for release builds (the bundled
-    # server’s `npm install` resolves @blackbelt-technology/* from npm).
+    # server's `npm install` resolves @blackbelt-technology/* from npm).
     # See packages/shared/src/__tests__/publish-workflow-contract.test.ts.
     uses: ./.github/workflows/_electron-build.yml
     with:
-      version: ${{ needs.prepare.outputs.version }}
-      ref:     ${{ needs.prepare.outputs.tag }}
+      version: ${{ needs.resolve.outputs.version }}
+      ref:     ${{ needs.resolve.outputs.tag }}
       legs:                    all
       source_only_bundle:      false
       artifact_retention_days: 90
@@ -295,14 +349,14 @@ jobs:
   # ── GitHub Release (waits for all builds) ─────────────────────
   github-release:
     if: ${{ always() && needs.electron.result == 'success' }}
-    needs: [prepare, publish, electron]
+    needs: [resolve, publish, electron]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.prepare.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - uses: actions/download-artifact@v4
 
@@ -311,7 +365,7 @@ jobs:
         shell: bash
         run: |
           set -u
-          version="${{ needs.prepare.outputs.version }}"
+          version="${{ needs.resolve.outputs.version }}"
           echo "Extracting notes for version: ${version}"
           if [ ! -f CHANGELOG.md ]; then
             echo "::warning::CHANGELOG.md not found — using fallback body"
@@ -362,7 +416,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.prepare.outputs.tag }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
           files: electron-*/**/*
           body_path: release-notes.md
           generate_release_notes: ${{ steps.notes.outputs.fallback == 'true' }}
@@ -374,4 +428,4 @@ jobs:
           # correctly. The literal-string comparison is required because
           # Actions stringifies job outputs. See change:
           # eliminate-bash-on-windows-runners (D6).
-          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+          prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
