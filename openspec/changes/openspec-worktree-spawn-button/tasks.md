@@ -67,9 +67,9 @@
 
 ## 8. Verification
 
-- [ ] 8.1 `npm test` all green.
-- [ ] 8.2 Manual: in dev mode, toggle the setting in Settings UI, confirm `+Worktree` and `⑂+` show/hide together.
-- [ ] 8.3 Manual: create a worktree via the per-change button, verify resulting session has both `gitWorktree` set AND `attachedProposal` resolved.
-- [ ] 8.4 Manual: confirm old session-card path (folder `+Worktree` without attachment) still works — i.e. omitting `attachProposal` is fully backward-compat.
+- [x] 8.1 `npm test` all green.
+- [x] 8.2 Manual: in dev mode, toggle the setting in Settings UI, confirm `+Worktree` and `⑂+` show/hide together.
+- [x] 8.3 Manual: create a worktree via the per-change button, verify resulting session has both `gitWorktree` set AND `attachedProposal` resolved.
+- [x] 8.4 Manual: confirm old session-card path (folder `+Worktree` without attachment) still works — i.e. omitting `attachProposal` is fully backward-compat.
 - [ ] 8.5 Manual orphan-recovery: reproduce the bug (create dir manually at `.worktrees/<name>` with 1-2 stray files), open dialog, type branch name matching the orphan — verify inline warning + Clean-up button appears, click cleans up, submit succeeds.
 - [ ] 8.6 Manual refuse-arm: orphan dir contains a `.git` file — verify Clean-up refuses with `looks_like_worktree` and surfaces a manual-fix hint.
