@@ -22,16 +22,23 @@ The `+Worktree` button SHALL be hidden when the folder is not detected as a git 
 - **THEN** all other buttons SHALL remain visible
 
 ### Requirement: +Worktree button opens worktree dialog
-The `+Worktree` button in the folder action bar SHALL open the worktree spawn dialog (`WorktreeSpawnDialog`) scoped to the folder's cwd. The button's visibility SHALL NOT be gated on browser-side loopback detection — the worktree-add executes on the server (the user's own machine in every access mode), so a tunneled or remote-authenticated browser is functionally identical to a local one. Access control for the underlying `POST /api/git/worktree` endpoint is enforced server-side by the network guard.
+The `+Worktree` button in the folder action bar SHALL open the worktree spawn dialog (`WorktreeSpawnDialog`) scoped to the folder's cwd. Visibility of the button SHALL additionally be gated on the new global preference `gitWorktreeEnabled` (default `true`) — when the flag is `false`, the button SHALL NOT render even on git folders.
 
-#### Scenario: Click +Worktree
-- **WHEN** a user clicks the `+Worktree` button on a git folder's action bar
+The flag is a UI preference only. The underlying `POST /api/git/worktree` endpoint is unaffected; access control remains the server-side network guard.
+
+#### Scenario: Click +Worktree with flag enabled
+- **WHEN** `gitWorktreeEnabled` is `true` AND the folder is a git repo AND a user clicks the `+Worktree` button
 - **THEN** the `WorktreeSpawnDialog` SHALL open with `cwd` set to the folder's cwd
 
-#### Scenario: Button renders identically for local and tunneled browsers
-- **WHEN** the dashboard is accessed from a non-loopback URL (e.g. via zrok)
-- **AND** the folder is a git repository
-- **THEN** the `+Worktree` button SHALL still appear and remain functional
+#### Scenario: Worktree preference disabled hides button
+- **WHEN** `gitWorktreeEnabled` is `false`
+- **THEN** the `+Worktree` button SHALL NOT render on any folder, regardless of git status
+- **THEN** all other folder-action-bar buttons SHALL render unchanged
+
+#### Scenario: Flag omitted from config treated as enabled
+- **WHEN** the dashboard config has no `gitWorktreeEnabled` field
+- **THEN** the client SHALL treat it as `true` (default)
+- **THEN** the `+Worktree` button SHALL render on git folders (current behavior preserved)
 
 ### Requirement: +Session button
 The +Session button SHALL spawn a new pi session in the folder's cwd. It SHALL be disabled while a session is being spawned (existing behavior, relocated).
