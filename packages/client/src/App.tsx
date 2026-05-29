@@ -1192,7 +1192,7 @@ export default function App() {
                 openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
                 onSendPrompt={(text, images) => wrappedHandleSend(text, images)}
                 onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
-                onBulkArchive={handleBulkArchive}
+                onBulkArchive={selectedCwd ? () => handleBulkArchive(selectedCwd) : undefined}
                 allSessions={Array.from(sessions.values())}
                 showGitInfo={true}
                 openspecConfig={openspecConfig}
