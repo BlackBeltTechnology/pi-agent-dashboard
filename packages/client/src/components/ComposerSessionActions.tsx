@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Icon } from "@mdi/react";
 import {
   mdiCompassOutline,
@@ -8,11 +8,9 @@ import {
   mdiFormatListChecks,
   mdiChevronRight,
   mdiFastForward,
-  mdiRefresh,
 } from "@mdi/js";
 import type { DashboardSession, OpenSpecChange, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
 import {
   SessionCardBadgeSlot,
@@ -20,16 +18,25 @@ import {
   useSlotHasClaimsForSession,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
-import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { TasksPopover } from "./TasksPopover.js";
+import { ExploreDialog } from "./ExploreDialog.js";
+import { DialogPortal } from "./DialogPortal.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 
 /**
- * ComposerSessionActions — a horizontal session-action strip rendered above
- * the composer textarea inside CommandInput.
+ * ComposerSessionActions — slim inline session-action row mounted inside
+ * the StatusBar (model-selector row), not inside CommandInput.
  *
- * Mirrors the same OpenSpec/Git/JJ action gating as the sidecard so users
- * don't lose context while typing. Surfaces the compact OpenSpec stepper.
+ * No stepper here (per user feedback: progress line lives only in sidecard).
+ * No box / header / per-group labels — pure flex row of buttons + plugin
+ * slot contributions, so it composes inside the existing 1-line StatusBar.
  *
- * See change: redesign-session-card-and-composer (7.x).
+ * Mirrors sidecard action gating: Explore disabled when attached, Archive
+ * disabled until COMPLETE, everything disabled while streaming (refresh
+ * exempted).
+ *
+ * See change: redesign-session-card-and-composer (7.x, refined per
+ * statusbar-inline feedback).
  */
 interface Props {
   session?: DashboardSession;
@@ -42,49 +49,53 @@ interface Props {
   onReadArtifact?: (changeName: string, artifactId: string) => void;
   onBulkArchive?: () => void;
   onRefresh?: () => void;
-  /** Full session list — forwarded into WorktreeActionsMenu. Optional. */
   allSessions?: DashboardSession[];
   onShutdownSession?: (sessionId: string) => void;
   showGitInfo?: boolean;
 }
 
-function StripButton({
-  label,
+function IconButton({
   icon,
+  label,
   onClick,
   disabled,
   title,
   testId,
-  variant,
 }: {
-  label?: string;
   icon: string;
+  label?: string;
   onClick: () => void;
   disabled?: boolean;
   title?: string;
   testId?: string;
-  variant?: "neutral" | "primary" | "danger";
 }) {
-  const variantClass =
-    variant === "primary" ? "border-blue-500/40 text-blue-400 hover:border-blue-500/60"
-    : variant === "danger" ? "border-red-500/40 text-red-400 hover:border-red-500/60"
-    : "border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50";
   return (
     <button
       onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
       disabled={disabled}
       title={title ?? label}
       data-testid={testId}
-      className={`text-[10px] px-1.5 py-0.5 rounded border ${variantClass} disabled:opacity-40 disabled:cursor-not-allowed`}
+      className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
     >
-      <Icon path={icon} size={0.45} className="inline mr-0.5" />
-      {label}
+      <Icon path={icon} size={0.45} />
+      {label && <span>{label}</span>}
     </button>
   );
 }
 
 function Divider() {
-  return <span aria-hidden="true" className="inline-block h-3.5 w-px bg-[var(--border-secondary)] mx-1 flex-shrink-0" />;
+  return <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-0.5 flex-shrink-0" />;
+}
+
+function GroupLabel({ children, testId }: { children: React.ReactNode; testId?: string }) {
+  return (
+    <span
+      data-testid={testId}
+      className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-0.5 flex-shrink-0"
+    >
+      {children}
+    </span>
+  );
 }
 
 export function ComposerSessionActions({
@@ -93,23 +104,18 @@ export function ComposerSessionActions({
   openspecHasDir,
   openspecPending,
   onSendPrompt,
-  onAttach,
-  onDetach,
-  onReadArtifact,
-  onBulkArchive,
-  onRefresh,
+  showGitInfo,
   allSessions,
   onShutdownSession,
-  showGitInfo,
 }: Props) {
-  // Hooks must run unconditionally — rules-of-hooks. Use a dummy session
-  // when none is selected; the entire strip returns null below.
+  // Hooks must run unconditionally.
   const safeSession = session ?? (undefined as unknown as DashboardSession);
-  // Git/JJ predicates (mirror sidecard) — hooks always called.
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", safeSession);
   const hasJjActions = useSlotHasClaimsForSession("workspace-action-bar", safeSession);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
 
-  // 7.5: parent gate — strip renders nothing when no session selected.
   if (!session) return null;
 
   const attached = session.attachedProposal ?? null;
@@ -117,146 +123,147 @@ export function ComposerSessionActions({
   const changeState = change ? deriveChangeState(change) : null;
   const streaming = session.status === "streaming";
   const isEnded = session.status === "ended";
-  const hasAnyChanges = (changes?.length ?? 0) > 0;
 
-  // 7.4: OpenSpec group hidden when cwd is not OpenSpec-applicable.
-  const showOpenSpec = openspecHasDir !== false || openspecPending === true;
-
+  const showOpenSpec = !isEnded && (openspecHasDir !== false || openspecPending === true);
   const showJj = hasBadge || hasJjActions;
-  const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree; // worktree-actions only for now
+  const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree;
 
   const tips = buildOpenSpecTooltips({ attached, state: changeState, streaming });
+
+  // Nothing to render? Bail early so we don't add an empty group to StatusBar.
+  if (!showOpenSpec && !showJj && !showGit) return null;
 
   return (
     <div
       data-testid="composer-session-actions"
-      className="mt-2 px-2 py-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] flex flex-col gap-1.5"
+      className="flex items-center gap-1 flex-wrap"
     >
-      {/* Strip header: gradient dot + label + refresh */}
-      <div className="flex items-center gap-1.5 text-[9px] uppercase tracking-wider text-[var(--text-muted)]">
-        <span
-          aria-hidden="true"
-          className="inline-block w-1.5 h-1.5 rounded-full"
-          style={{
-            backgroundImage: "linear-gradient(135deg, var(--accent-blue), var(--accent-purple), var(--accent-orange))",
-          }}
-        />
-        <span>session actions · <span className="text-[var(--text-secondary)] normal-case tracking-normal">{getSessionDisplayName(session)}</span></span>
-        <span className="flex-1" />
-        {onRefresh && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRefresh(); }}
-            title="Refresh"
-            data-testid="composer-refresh-btn"
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] p-0.5"
+      {showOpenSpec && (
+        <>
+          <GroupLabel testId="composer-openspec-group-label">OpenSpec</GroupLabel>
+          <IconButton
+            icon={mdiCompassOutline}
+            label="Explore"
+            onClick={() => setExploreOpen(true)}
+            disabled={!!attached || streaming}
+            title={streaming ? "Session is streaming" : tips.explore}
+            testId="composer-explore-btn"
+          />
+          {attached && changeState === ChangeState.PLANNING && (
+            <>
+              <IconButton
+                icon={mdiChevronRight}
+                label="Continue"
+                onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
+                disabled={streaming}
+                testId="composer-continue-btn"
+              />
+              <IconButton
+                icon={mdiFastForward}
+                label="FF"
+                onClick={() => onSendPrompt?.(`/skill:openspec-ff-change ${attached}`)}
+                disabled={streaming}
+                testId="composer-ff-btn"
+              />
+            </>
+          )}
+          {attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
+            <IconButton
+              icon={mdiPlayCircleOutline}
+              label="Apply"
+              onClick={() => onSendPrompt?.(`/skill:openspec-apply-change ${attached}`)}
+              disabled={streaming}
+              testId="composer-apply-btn"
+            />
+          )}
+          {attached && changeState === ChangeState.COMPLETE && (
+            <IconButton
+              icon={mdiCheckCircleOutline}
+              label="Verify"
+              onClick={() => onSendPrompt?.(`/skill:openspec-verify-change ${attached}`)}
+              disabled={streaming}
+              testId="composer-verify-btn"
+            />
+          )}
+          {attached && change && change.totalTasks > 0 && (
+            <IconButton
+              icon={mdiFormatListChecks}
+              label={`Tasks ${change.completedTasks}/${change.totalTasks}`}
+              onClick={() => setTasksOpen(true)}
+              disabled={streaming}
+              testId="composer-tasks-btn"
+            />
+          )}
+          <IconButton
+            icon={mdiArchiveOutline}
+            label="Archive"
+            onClick={() => setArchiveConfirm(true)}
+            disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
+            title={tips.archive}
+            testId="composer-archive-btn"
+          />
+        </>
+      )}
+
+      {showGit && (
+        <>
+          <Divider />
+          <GroupLabel testId="composer-git-group-label">Git</GroupLabel>
+          <span
+            data-testid="composer-git-group"
+            className="inline-flex items-center gap-1 flex-wrap"
           >
-            <Icon path={mdiRefresh} size={0.5} />
-          </button>
-        )}
-      </div>
-
-      {/* Action row — flex-wrap so groups fall onto a second line on narrow widths. */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {/* OpenSpec group */}
-        {showOpenSpec && !isEnded && (
-          <>
-            <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1" data-testid="composer-openspec-group-label">OPENSPEC</span>
-            {/* Compact stepper — only meaningful when attached, but render
-                the empty/all-todo stepper anyway as a visual cue. */}
-            <OpenSpecStepper
-              variant="compact"
-              change={change}
-              attached={attached}
-              hasAnyChanges={hasAnyChanges}
-            />
-            <StripButton
-              icon={mdiCompassOutline}
-              label="Explore"
-              onClick={() => { /* defer to sidecard's dialog wiring; strip is action-trigger only */ }}
-              disabled={!!attached || streaming}
-              title={streaming ? "Session is streaming" : tips.explore}
-              testId="composer-explore-btn"
-            />
-            {attached && changeState === ChangeState.PLANNING && (
-              <>
-                <StripButton
-                  icon={mdiChevronRight}
-                  label="Continue"
-                  onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
-                  disabled={streaming}
-                  testId="composer-continue-btn"
-                />
-                <StripButton
-                  icon={mdiFastForward}
-                  label="FF"
-                  onClick={() => onSendPrompt?.(`/skill:openspec-ff-change ${attached}`)}
-                  disabled={streaming}
-                  testId="composer-ff-btn"
-                />
-              </>
-            )}
-            {attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
-              <StripButton
-                icon={mdiPlayCircleOutline}
-                label="Apply"
-                onClick={() => onSendPrompt?.(`/skill:openspec-apply-change ${attached}`)}
-                disabled={streaming}
-                variant="primary"
-                testId="composer-apply-btn"
-              />
-            )}
-            {attached && changeState === ChangeState.COMPLETE && (
-              <StripButton
-                icon={mdiCheckCircleOutline}
-                label="Verify"
-                onClick={() => onSendPrompt?.(`/skill:openspec-verify-change ${attached}`)}
-                disabled={streaming}
-                testId="composer-verify-btn"
-              />
-            )}
-            {attached && change && change.totalTasks > 0 && (
-              <StripButton
-                icon={mdiFormatListChecks}
-                label={`Tasks ${change.completedTasks}/${change.totalTasks}`}
-                onClick={() => { /* tasks popover lives on sidecard */ }}
-                disabled={streaming}
-                testId="composer-tasks-btn"
-              />
-            )}
-            <StripButton
-              icon={mdiArchiveOutline}
-              label="Archive"
-              onClick={() => attached && onSendPrompt?.(`/skill:openspec-archive-change ${attached}`)}
-              disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
-              title={tips.archive}
-              testId="composer-archive-btn"
-            />
-          </>
-        )}
-
-        {/* Git group — render worktree menu when applicable. */}
-        {showGit && (
-          <>
-            <Divider />
-            <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1" data-testid="composer-git-group-label">GIT</span>
             <WorktreeActionsMenu
               session={session}
               allSessions={allSessions ?? []}
               onShutdownSession={onShutdownSession ?? (() => { /* unwired */ })}
             />
-          </>
-        )}
+          </span>
+        </>
+      )}
 
-        {/* JJ group — plugin claims. */}
-        {showJj && (
-          <>
-            <Divider />
-            <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-1" data-testid="composer-jj-group-label">JJ</span>
-            {hasBadge && <SessionCardBadgeSlot session={session} />}
-            {hasJjActions && <WorkspaceActionBarSlot session={session} />}
-          </>
-        )}
-      </div>
+      {showJj && (
+        <>
+          <Divider />
+          <GroupLabel testId="composer-jj-group-label">JJ</GroupLabel>
+          {hasBadge && <SessionCardBadgeSlot session={session} />}
+          {hasJjActions && <WorkspaceActionBarSlot session={session} />}
+        </>
+      )}
+
+      {tasksOpen && attached && (
+        <TasksPopover
+          cwd={session.cwd}
+          change={attached}
+          onClose={() => setTasksOpen(false)}
+        />
+      )}
+      {exploreOpen && (
+        <DialogPortal>
+          <ExploreDialog
+            changeName={attached ?? ""}
+            onSend={(text, images) => {
+              const prefix = attached ? `/skill:openspec-explore ${attached}\n` : `/skill:openspec-explore\n`;
+              onSendPrompt?.(`${prefix}${text}`, images);
+              setExploreOpen(false);
+            }}
+            onClose={() => setExploreOpen(false)}
+          />
+        </DialogPortal>
+      )}
+      {archiveConfirm && attached && (
+        <DialogPortal>
+          <ConfirmDialog
+            message={`Archive "${attached}"?`}
+            confirmLabel="Archive"
+            onConfirm={() => {
+              onSendPrompt?.(`/skill:openspec-archive-change ${attached}`);
+              setArchiveConfirm(false);
+            }}
+            onCancel={() => setArchiveConfirm(false)}
+          />
+        </DialogPortal>
+      )}
     </div>
   );
 }

@@ -39,7 +39,7 @@ describe("ComposerSessionActions", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("renders strip header + OpenSpec group when no proposal attached", () => {
+  it("renders OpenSpec group label + buttons when no proposal attached", () => {
     render(
       <ComposerSessionActions
         session={makeSession()}
@@ -49,9 +49,7 @@ describe("ComposerSessionActions", () => {
     );
     expect(screen.getByTestId("composer-session-actions")).toBeTruthy();
     expect(screen.getByTestId("composer-openspec-group-label")).toBeTruthy();
-    // Explore is enabled when nothing attached
     expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(false);
-    // Archive disabled because nothing attached
     expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -82,7 +80,7 @@ describe("ComposerSessionActions", () => {
   });
 
   it("OpenSpec group hidden when openspecHasDir is false and not pending", () => {
-    render(
+    const { container } = render(
       <ComposerSessionActions
         session={makeSession()}
         changes={[]}
@@ -91,6 +89,8 @@ describe("ComposerSessionActions", () => {
       />,
     );
     expect(screen.queryByTestId("composer-openspec-group-label")).toBeNull();
+    expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 
   it("fires onSendPrompt with /skill:openspec-apply-change <name> when Apply clicked", () => {
@@ -107,27 +107,21 @@ describe("ComposerSessionActions", () => {
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-apply-change add-auth");
   });
 
-  it("streaming session disables every action button but keeps refresh enabled", () => {
-    const onRefresh = vi.fn();
+  it("streaming session disables every action button", () => {
+    // Refresh button moved to StatusBar `leading` slot — lives in App.tsx now.
     render(
       <ComposerSessionActions
         session={makeSession({ status: "streaming", attachedProposal: "add-auth" })}
         changes={[implementingChange()]}
         openspecHasDir={true}
-        onRefresh={onRefresh}
       />,
     );
     expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("composer-apply-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
-    // Refresh button (in the header) remains enabled.
-    const refresh = screen.getByTestId("composer-refresh-btn") as HTMLButtonElement;
-    expect(refresh.disabled).toBe(false);
-    fireEvent.click(refresh);
-    expect(onRefresh).toHaveBeenCalled();
   });
 
-  it("renders Git group only when session has gitWorktree", () => {
+  it("renders Git group label + worktree menu when session has gitWorktree", () => {
     render(
       <ComposerSessionActions
         session={makeSession({ gitWorktree: { mainPath: "/main", name: "feat-x" } })}
@@ -137,6 +131,7 @@ describe("ComposerSessionActions", () => {
       />,
     );
     expect(screen.getByTestId("composer-git-group-label")).toBeTruthy();
+    expect(screen.getByTestId("composer-git-group")).toBeTruthy();
   });
 
   it("does not render Git group when no worktree", () => {
@@ -149,5 +144,6 @@ describe("ComposerSessionActions", () => {
       />,
     );
     expect(screen.queryByTestId("composer-git-group-label")).toBeNull();
+    expect(screen.queryByTestId("composer-git-group")).toBeNull();
   });
 });

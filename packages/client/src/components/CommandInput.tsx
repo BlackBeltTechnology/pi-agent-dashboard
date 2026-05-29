@@ -1,10 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose } from "@mdi/js";
-import type { CommandInfo, ImageContent, FileEntry, DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, ImageContent, FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
-import { ComposerSessionActions } from "./ComposerSessionActions.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -50,23 +49,6 @@ interface Props {
   images?: ImageContent[];
   /** Parent callback for every images-array change (controlled mode). */
   onImagesChange?: (next: ImageContent[]) => void;
-  /** Currently-selected session (used by ComposerSessionActions strip).
-   *  Strip is hidden when undefined. See change: redesign-session-card-and-composer (9.x). */
-  session?: DashboardSession;
-  /** OpenSpec changes for the session's cwd (forwarded to strip). */
-  openspecChanges?: OpenSpecChange[];
-  openspecHasDir?: boolean;
-  openspecPending?: boolean;
-  onAttachProposal?: (changeName: string) => void;
-  onDetachProposal?: () => void;
-  onReadArtifact?: (changeName: string, artifactId: string) => void;
-  onBulkArchive?: () => void;
-  /** Full session list (forwarded to WorktreeActionsMenu inside strip). */
-  allSessions?: DashboardSession[];
-  onShutdownSession?: (sessionId: string) => void;
-  showGitInfo?: boolean;
-  /** Refresh OpenSpec data callback. */
-  onRefreshOpenspec?: () => void;
 }
 
 const sourceIcons: Record<string, ReactNode> = {
@@ -102,7 +84,7 @@ function extractAtQuery(text: string): string | null {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, session, openspecChanges, openspecHasDir, openspecPending, onAttachProposal, onDetachProposal, onReadArtifact, onBulkArchive, allSessions, onShutdownSession, showGitInfo, onRefreshOpenspec }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange }: Props) {
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
   // Merge server commands with built-in commands, avoiding duplicates
@@ -406,30 +388,8 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // component (useImagePaste / ImagePreviewStrip) so the OpenSpec
   // Explore dialog can reuse the exact same behavior.
 
-  // ComposerSessionActions strip — between model/level row and textarea.
-  // No-op when no session selected (strip returns null). See change:
-  // redesign-session-card-and-composer (9.x).
-  const composerStrip = session ? (
-    <ComposerSessionActions
-      session={session}
-      changes={openspecChanges}
-      openspecHasDir={openspecHasDir}
-      openspecPending={openspecPending}
-      onSendPrompt={(text, images) => onSend(text, images)}
-      onAttach={onAttachProposal}
-      onDetach={onDetachProposal}
-      onReadArtifact={onReadArtifact}
-      onBulkArchive={onBulkArchive}
-      onRefresh={onRefreshOpenspec}
-      allSessions={allSessions}
-      onShutdownSession={onShutdownSession}
-      showGitInfo={showGitInfo}
-    />
-  ) : null;
-
   return (
     <div className="border-t border-[var(--border-primary)] p-3 relative">
-      {composerStrip}
       {/* Autocomplete dropdown */}
       {dropdownMode === "command" && (
         <div className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto shadow-lg z-10">

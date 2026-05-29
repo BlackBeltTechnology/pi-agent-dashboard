@@ -990,39 +990,7 @@ describe("CommandInput — steering delivery mode keyboard shortcuts", () => {
   });
 });
 
-describe("ComposerSessionActions strip mounting", () => {
-  it("does not render the strip when no session prop is provided", () => {
-    const { queryByTestId } = render(
-      <CommandInput commands={[]} onSend={vi.fn()} />,
-    );
-    expect(queryByTestId("composer-session-actions")).toBeNull();
-  });
-
-  it("renders the strip above the textarea when a session is provided", () => {
-    const session = {
-      id: "s1",
-      name: "test",
-      cwd: "/repo",
-      source: "pi",
-      status: "active",
-      startedAt: Date.now(),
-    } as any;
-    const { container, getByTestId, getByPlaceholderText } = render(
-      <CommandInput
-        commands={[]}
-        onSend={vi.fn()}
-        session={session}
-        openspecChanges={[]}
-        openspecHasDir={true}
-      />,
-    );
-    const strip = getByTestId("composer-session-actions");
-    const textarea = getByPlaceholderText(/Message,/);
-    // Strip must appear before the textarea in document order so it sits
-    // visually above the input.
-    const pos = strip.compareDocumentPosition(textarea);
-    // Node.DOCUMENT_POSITION_FOLLOWING === 4
-    expect(pos & 4).toBeTruthy();
-    expect(container).toBeTruthy();
-  });
-});
+// ComposerSessionActions no longer mounts inside CommandInput; it lives in
+// StatusBar via the `actions` slot. See StatusBar.test.tsx for the new
+// regression test. Original strip-mount tests removed.
+// See change: redesign-session-card-and-composer (statusbar-inline).

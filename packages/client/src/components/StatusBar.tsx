@@ -1,4 +1,4 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiLoading, mdiFlash } from "@mdi/js";
 import { ModelSelector } from "./ModelSelector.js";
@@ -31,6 +31,23 @@ interface Props {
   onPresetSave?: (presetName: string) => void;
   /** @deprecated — moved to BuiltInRolesSettings; ignored here. */
   onPresetDelete?: (presetName: string) => void;
+
+  /**
+   * Inline session-action slot rendered between the thinking-level selector
+   * and the working-status label. Used by App.tsx to mount
+   * <ComposerSessionActions> so OpenSpec / Git / JJ actions live inline
+   * with the model bar instead of as a separate strip above the textarea.
+   * See change: redesign-session-card-and-composer (statusbar-inline).
+   */
+  actions?: ReactNode;
+
+  /**
+   * Inline slot rendered BEFORE the ModelSelector (left edge of the bar).
+   * Used by App.tsx for the OpenSpec refresh button — placed there per
+   * user feedback ("refresh button before the model selector").
+   * See change: redesign-session-card-and-composer (refresh-before-model).
+   */
+  leading?: ReactNode;
 }
 
 export function StatusBar({
@@ -42,6 +59,8 @@ export function StatusBar({
   streamingText,
   onSelectModel,
   onSelectThinkingLevel,
+  actions,
+  leading,
 }: Props) {
   let statusLabel: string | null = null;
   let statusIcon = mdiLoading;
@@ -64,9 +83,21 @@ export function StatusBar({
       className="flex items-center justify-between px-4 py-1 border-t border-[var(--border-primary)] text-xs"
       data-testid="status-bar"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap min-w-0">
+        {leading && (
+          <>
+            {leading}
+            <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] flex-shrink-0" />
+          </>
+        )}
         <ModelSelector current={model} models={models} onSelect={onSelectModel} />
         <ThinkingLevelSelector current={thinkingLevel} onSelect={onSelectThinkingLevel} />
+        {actions && (
+          <>
+            <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-1 flex-shrink-0" />
+            {actions}
+          </>
+        )}
       </div>
 
       {statusLabel && (
