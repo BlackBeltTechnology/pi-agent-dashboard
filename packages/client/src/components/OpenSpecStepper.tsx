@@ -225,11 +225,15 @@ function StepperNode({
 
   const clickable = !!onClick && state !== "disabled";
   const Wrapper = clickable ? "button" : "div";
+  // Hover feedback applies ONLY to the inner node circle (via `group-hover`)
+  // so the opaque-base background never goes semi-transparent and the
+  // connecting line can't bleed through. Previous `hover:opacity-80` on the
+  // wrapper hit the node too — visible green line inside circle on hover.
   return (
     <Wrapper
       type={clickable ? "button" : undefined as any}
       onClick={clickable ? (e: React.MouseEvent) => { e.stopPropagation(); onClick!(); } : undefined}
-      className={`flex-1 min-w-0 flex flex-col items-center gap-1 relative bg-transparent border-0 p-0 ${clickable ? "cursor-pointer hover:opacity-80" : ""}`}
+      className={`group flex-1 min-w-0 flex flex-col items-center gap-1 relative bg-transparent border-0 p-0 ${clickable ? "cursor-pointer" : ""}`}
       data-testid={`stepper-node-${node.id}`}
       data-state={state}
       data-clickable={clickable ? "true" : undefined}
@@ -247,7 +251,7 @@ function StepperNode({
         />
       )}
       <span
-        className={`openspec-stepper-node-base inline-flex items-center justify-center rounded-full border-2 relative z-[2] ${colorClass} ${state === "current" ? "openspec-stepper-node-current" : ""}`}
+        className={`openspec-stepper-node-base inline-flex items-center justify-center rounded-full border-2 relative z-[2] ${colorClass} ${state === "current" ? "openspec-stepper-node-current" : ""} ${clickable ? "group-hover:scale-110 transition-transform" : ""}`}
         style={{ width: nodeSize, height: nodeSize, fontSize: isCompact ? 8 : 10, ...tintStyle }}
       >
         {renderContent()}

@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import React, { useState } from "react";
 import { Icon } from "@mdi/react";
 import {
   mdiCompassOutline,
@@ -12,7 +11,6 @@ import {
   mdiLinkOff,
   mdiPlus,
   mdiPaperclip,
-  mdiDotsHorizontal,
   mdiFormatListChecks,
 } from "@mdi/js";
 import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -105,40 +103,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   const [newChangeOpen, setNewChangeOpen] = useState(false);
   const [attachPickerOpen, setAttachPickerOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
-  const [overflowOpen, setOverflowOpen] = useState(false);
-  const overflowBtnRef = useRef<HTMLButtonElement>(null);
-  const overflowMenuRef = useRef<HTMLDivElement>(null);
-  const [overflowPos, setOverflowPos] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (!overflowOpen) return;
-    // Position menu under button (right-aligned), in viewport coords for fixed positioning.
-    const btn = overflowBtnRef.current;
-    if (btn) {
-      const r = btn.getBoundingClientRect();
-      // Approx menu width 160; clamp to viewport.
-      const menuWidth = 160;
-      const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, r.right - menuWidth));
-      setOverflowPos({ top: r.bottom + 4, left });
-    }
-    const onDoc = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        overflowBtnRef.current?.contains(target) ||
-        overflowMenuRef.current?.contains(target)
-      ) return;
-      setOverflowOpen(false);
-    };
-    const onScroll = () => setOverflowOpen(false);
-    document.addEventListener("mousedown", onDoc);
-    window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [overflowOpen]);
+  // Overflow-menu plumbing removed — the only item ever rendered there was
+  // Archive anyway, which is now a plain button. See change:
+  // redesign-session-card-and-composer (cleanup-pass).
 
   const attached = session.attachedProposal;
   const isEnded = session.status === "ended";
@@ -223,18 +190,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
               {wf("explore") && (
                 <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" variant="info" />
               )}
-              {wf("archive") && (
-                <ActionButton
-                  label="Archive"
-                  icon={mdiArchiveOutline}
-                  onClick={() => { /* no-op when disabled */ }}
-                  testId="archive-disabled-btn"
-                  disabled
-                  title={actionsDisabledGlobal ? "Session is streaming" : "Attach a change to archive"}
-                  variant="accent"
-                />
-              )}
-              {bulkArchiveButton}
+              {/* Archive + Bulk Archive intentionally hidden in the unattached
+                  branch — they're meaningless without an attached proposal.
+                  See change: redesign-session-card-and-composer (cleanup-pass). */}
             </>
           )}
         </div>
@@ -373,27 +331,21 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
               />
             )}
             {/* close Verify-only branch */}
-            {change.artifacts.length > 0 && hasParseableTasks && (
-              <ActionButton
-                label={`Tasks ${change.completedTasks}/${change.totalTasks}`}
-                icon={mdiFormatListChecks}
-                onClick={() => setTasksOpen(true)}
-                testId="tasks-btn"
-                disabled={actionsDisabled}
-                variant="info"
-              />
-            )}
+            {/* Standalone Tasks button removed — the stepper's Tasks node is
+                clickable and opens the same TasksPopover. Redundant button
+                deleted per user feedback. See change:
+                redesign-session-card-and-composer (cleanup-pass). */}
+            {/* Archive anyway promoted from single-item overflow menu to a
+                plain button. A menu with one item is meaningless. */}
             {showArchiveAnyway && (
-              <button
-                ref={overflowBtnRef}
-                onClick={(e) => { e.stopPropagation(); setOverflowOpen((v) => !v); }}
+              <ActionButton
+                label="Archive anyway"
+                icon={mdiArchiveArrowUp}
+                onClick={() => setArchiveAnywayConfirm(true)}
+                testId="archive-anyway-btn"
                 disabled={actionsDisabled}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                data-testid="overflow-btn"
-                aria-label="More actions"
-              >
-                <Icon path={mdiDotsHorizontal} size={0.5} />
-              </button>
+                variant="accent"
+              />
             )}
           </div>
         );
@@ -439,27 +391,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           onClose={() => setTasksOpen(false)}
         />
       )}
-      {overflowOpen && overflowPos && typeof document !== "undefined" && createPortal(
-        <div
-          ref={overflowMenuRef}
-          className="fixed z-50 min-w-[160px] bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded shadow-lg"
-          style={{ top: overflowPos.top, left: overflowPos.left }}
-          data-testid="overflow-menu"
-        >
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setOverflowOpen(false);
-              setArchiveAnywayConfirm(true);
-            }}
-            className="block w-full text-left text-[11px] px-2 py-1.5 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-blue-400"
-            data-testid="archive-anyway-btn"
-          >
-            <Icon path={mdiArchiveArrowUp} size={0.4} className="inline mr-0.5" />Archive anyway
-          </button>
-        </div>,
-        document.body,
-      )}
+      {/* Overflow portal removed — Archive anyway promoted to inline button. */}
     </div>
   );
 }
