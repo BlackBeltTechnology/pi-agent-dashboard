@@ -30,12 +30,14 @@ function makeMsg(id: string, command: string): ChatMessage {
   return {
     id,
     role: "toolResult",
+    content: "",
+    timestamp: 0,
     toolName: "bash",
     toolCallId: id,
     args: { command },
     toolStatus: "complete",
     result: "",
-  } as ChatMessage;
+  };
 }
 
 describe("CollapsedToolGroup", () => {
