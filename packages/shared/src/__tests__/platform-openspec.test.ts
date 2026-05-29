@@ -78,6 +78,7 @@ describe("OPENSPEC_RECIPES registry", () => {
   it("enumerates all exported recipes", () => {
     expect(Object.keys(OPENSPEC_RECIPES).sort()).toEqual([
       "OPENSPEC_ARCHIVE_COMPLETED",
+      "OPENSPEC_CONFIG_LIST",
       "OPENSPEC_LIST",
       "OPENSPEC_STATUS",
     ]);

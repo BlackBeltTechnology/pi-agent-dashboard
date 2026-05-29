@@ -504,6 +504,32 @@ export interface OpenSpecGroupsFile {
   assignments: Record<string, string>;
 }
 
+/**
+ * Global OpenSpec workflow configuration — the user's enabled commands
+ * and delivery preferences. Returned by `openspec config list --json`.
+ *
+ * `workflows` is the single source of truth for which actions render.
+ * `delivery` decides the prompt prefix (skills vs commands).
+ * See change: redesign-session-card-and-composer (config-driven-workflow).
+ */
+export interface OpenSpecConfig {
+  profile: "core" | "expanded" | "custom";
+  delivery: "skills" | "commands" | "both";
+  workflows: string[];
+}
+
+/** Default config used as fallback when fetch fails or hasn't arrived yet.
+ *  Assumes the full expanded set so no UI disappears unexpectedly. */
+export const DEFAULT_OPENSPEC_CONFIG: OpenSpecConfig = {
+  profile: "custom",
+  delivery: "both",
+  workflows: [
+    "explore", "propose", "new", "continue", "ff",
+    "apply", "verify", "sync", "archive",
+    "bulk-archive", "onboard",
+  ],
+};
+
 /** Lifecycle state of an OpenSpec change, derived from artifacts + task status */
 export enum ChangeState {
   PLANNING = "PLANNING",

@@ -40,6 +40,7 @@ import { StatusBar } from "./components/StatusBar.js";
 import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { Icon } from "@mdi/react";
 import { mdiRefresh } from "@mdi/js";
+import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
 import { LandingPage } from "./components/LandingPage.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
@@ -716,6 +717,9 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // Per-cwd OpenSpec workflow config — drives which action buttons render.
+  // See change: redesign-session-card-and-composer (config-driven-workflow).
+  const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
   const folderTitleCwd = folderEditorCwd ?? folderTermCwd
     ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
     ?? readmeCwd ?? piResourcesCwd ?? null;
@@ -1191,6 +1195,7 @@ export default function App() {
                 onBulkArchive={handleBulkArchive}
                 allSessions={Array.from(sessions.values())}
                 showGitInfo={true}
+                openspecConfig={openspecConfig}
               />
             ) : undefined}
             onSelectModel={(modelStr) => {

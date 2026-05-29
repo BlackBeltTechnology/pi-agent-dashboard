@@ -24,6 +24,7 @@ import type { DetectedEditor } from "../lib/editor-api.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import type { OpenSpecData, OpenSpecChange, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
@@ -416,6 +417,10 @@ export function SessionCard({
   // Suppress purple `card-input-pulse` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
+  // OpenSpec workflow config gates which action buttons render in the
+  // OPENSPEC subcard. See change: redesign-session-card-and-composer
+  // (config-driven-workflow).
+  const openspecConfig = useOpenSpecConfig(session.cwd);
   // Source-icon text color mirrors the dot's status color so the icon
   // doubles as a status indicator. See `deriveIconStatusColor` for ended /
   // arbitrary-bg-token defenses.
@@ -751,6 +756,8 @@ export function SessionCard({
             onBulkArchive={onBulkArchive}
             groups={openspecGroups}
             assignments={openspecAssignments}
+            openspecConfig={openspecConfig}
+            /* See change: redesign-session-card-and-composer (config-driven-workflow). */
           />
         </SessionSubcard>
       )}

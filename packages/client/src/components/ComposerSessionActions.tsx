@@ -9,8 +9,8 @@ import {
   mdiChevronRight,
   mdiFastForward,
 } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecArtifact, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecChange, OpenSpecArtifact, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
 import { deriveStepperState } from "./OpenSpecStepper.js";
 import {
@@ -53,6 +53,12 @@ interface Props {
   allSessions?: DashboardSession[];
   onShutdownSession?: (sessionId: string) => void;
   showGitInfo?: boolean;
+  /**
+   * OpenSpec workflow config — gates which buttons render.
+   * Defaults to the full expanded set when unset / fetch-pending.
+   * See change: redesign-session-card-and-composer (config-driven-workflow).
+   */
+  openspecConfig?: OpenSpecConfig;
 }
 
 /**
@@ -176,7 +182,10 @@ export function ComposerSessionActions({
   showGitInfo,
   allSessions,
   onShutdownSession,
+  openspecConfig,
 }: Props) {
+  const cfg = openspecConfig ?? DEFAULT_OPENSPEC_CONFIG;
+  const wf = (name: string) => cfg.workflows.includes(name);
   // Hooks must run unconditionally.
   const safeSession = session ?? (undefined as unknown as DashboardSession);
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", safeSession);
@@ -225,15 +234,17 @@ export function ComposerSessionActions({
       {showOpenSpec && (
         <>
           <GroupLabel testId="composer-openspec-group-label">OpenSpec</GroupLabel>
-          <IconButton
-            icon={mdiCompassOutline}
-            label="Explore"
-            onClick={() => setExploreOpen(true)}
-            disabled={!!attached || streaming}
-            title={streaming ? "Session is streaming" : tips.explore}
-            testId="composer-explore-btn"
-            variant="info"
-          />
+          {wf("explore") && (
+            <IconButton
+              icon={mdiCompassOutline}
+              label="Explore"
+              onClick={() => setExploreOpen(true)}
+              disabled={!!attached || streaming}
+              title={streaming ? "Session is streaming" : tips.explore}
+              testId="composer-explore-btn"
+              variant="info"
+            />
+          )}
           {/* Artifact chips (P/D/S/T) — replace the standalone PDST button.
               Colours mirror the stepper-node states (green=done, orange=current,
               dim=todo). Click opens the artifact / tasks popover. */}
@@ -275,25 +286,29 @@ export function ComposerSessionActions({
           )}
           {attached && changeState === ChangeState.PLANNING && (
             <>
-              <IconButton
-                icon={mdiChevronRight}
-                label="Continue"
-                onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
-                disabled={streaming}
-                testId="composer-continue-btn"
-                variant="neutral"
-              />
-              <IconButton
-                icon={mdiFastForward}
-                label="FF"
-                onClick={() => onSendPrompt?.(`/skill:openspec-ff-change ${attached}`)}
-                disabled={streaming}
-                testId="composer-ff-btn"
-                variant="neutral"
-              />
+              {wf("continue") && (
+                <IconButton
+                  icon={mdiChevronRight}
+                  label="Continue"
+                  onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
+                  disabled={streaming}
+                  testId="composer-continue-btn"
+                  variant="neutral"
+                />
+              )}
+              {wf("ff") && (
+                <IconButton
+                  icon={mdiFastForward}
+                  label="FF"
+                  onClick={() => onSendPrompt?.(`/skill:openspec-ff-change ${attached}`)}
+                  disabled={streaming}
+                  testId="composer-ff-btn"
+                  variant="neutral"
+                />
+              )}
             </>
           )}
-          {attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
+          {wf("apply") && attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
             <IconButton
               icon={mdiPlayCircleOutline}
               label="Apply"
@@ -303,7 +318,7 @@ export function ComposerSessionActions({
               variant="primary"
             />
           )}
-          {attached && changeState === ChangeState.COMPLETE && (
+          {wf("verify") && attached && changeState === ChangeState.COMPLETE && (
             <IconButton
               icon={mdiCheckCircleOutline}
               label="Verify"
@@ -313,15 +328,17 @@ export function ComposerSessionActions({
               variant="success"
             />
           )}
-          <IconButton
-            icon={mdiArchiveOutline}
-            label="Archive"
-            onClick={() => setArchiveConfirm(true)}
-            disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
-            title={tips.archive}
-            testId="composer-archive-btn"
-            variant="accent"
-          />
+          {wf("archive") && (
+            <IconButton
+              icon={mdiArchiveOutline}
+              label="Archive"
+              onClick={() => setArchiveConfirm(true)}
+              disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
+              title={tips.archive}
+              testId="composer-archive-btn"
+              variant="accent"
+            />
+          )}
         </>
       )}
 

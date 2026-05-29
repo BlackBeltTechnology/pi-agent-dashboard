@@ -5,7 +5,8 @@ import type { FastifyInstance } from "fastify";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
 import type { DirectoryService } from "../directory-service.js";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { configListOr } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import type { NetworkGuard } from "./route-deps.js";
 import { scanOpenSpecArchive } from "../openspec-archive.js";
 import {
@@ -33,6 +34,40 @@ export function registerOpenSpecRoutes(
   },
 ) {
   const { sessionManager, preferencesStore, directoryService, networkGuard, onOpenSpecChanged } = deps;
+
+  // OpenSpec workflow config endpoint — returns the user's enabled
+  // workflow commands so the client can render only the buttons /
+  // stepper nodes whose backing command is enabled.
+  // See change: redesign-session-card-and-composer (config-driven-workflow).
+  const configCache = new Map<string, { ts: number; data: OpenSpecConfig }>();
+  const CONFIG_TTL_MS = 30_000;
+
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/openspec/config",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.query.cwd;
+      if (!cwd) {
+        reply.code(400);
+        return { success: false, error: "Missing cwd" } satisfies ApiResponse;
+      }
+      const now = Date.now();
+      const cached = configCache.get(cwd);
+      if (cached && now - cached.ts < CONFIG_TTL_MS) {
+        return { success: true, data: cached.data } satisfies ApiResponse;
+      }
+      const raw = configListOr({ cwd }, null) as Partial<OpenSpecConfig> | null;
+      // Defensive normalisation: missing fields fall back to safe defaults
+      // so the client always receives a well-formed OpenSpecConfig shape.
+      const data: OpenSpecConfig = {
+        profile: (raw?.profile as OpenSpecConfig["profile"]) ?? "custom",
+        delivery: (raw?.delivery as OpenSpecConfig["delivery"]) ?? "both",
+        workflows: Array.isArray(raw?.workflows) ? (raw!.workflows as string[]) : [],
+      };
+      configCache.set(cwd, { ts: now, data });
+      return { success: true, data } satisfies ApiResponse;
+    },
+  );
 
   // OpenSpec archive listing endpoint
   fastify.get<{ Querystring: { cwd?: string } }>(

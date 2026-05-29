@@ -54,10 +54,22 @@ export const OPENSPEC_ARCHIVE_COMPLETED: Recipe<WithCwd, string> = {
   timeout: 30_000,
 };
 
+/**
+ * `openspec config list --json` — returns the global workflow config
+ * (profile / delivery / enabled workflow commands) for the calling user.
+ * See change: redesign-session-card-and-composer (config-driven-workflow).
+ */
+export const OPENSPEC_CONFIG_LIST: Recipe<WithCwd, unknown | null> = {
+  argv: () => ["openspec", "config", "list", "--json"],
+  parse: parseJsonOrNull,
+  timeout: OPENSPEC_TIMEOUT,
+};
+
 export const OPENSPEC_RECIPES = {
   OPENSPEC_LIST,
   OPENSPEC_STATUS,
   OPENSPEC_ARCHIVE_COMPLETED,
+  OPENSPEC_CONFIG_LIST,
 } as const;
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -75,6 +87,15 @@ export function status(input: WithCwd & { change: string }): Result<unknown | nu
 /** Run `openspec archive --completed`. Returns raw stdout on success. */
 export function archiveCompleted(input: WithCwd): Result<string> {
   return run(OPENSPEC_ARCHIVE_COMPLETED, input, { cwd: input.cwd });
+}
+
+/** Run `openspec config list --json`. Returns parsed JSON or null. */
+export function configList(input: WithCwd): Result<unknown | null> {
+  return run(OPENSPEC_CONFIG_LIST, input, { cwd: input.cwd });
+}
+
+export function configListOr(input: WithCwd, fallback: unknown | null = null): unknown | null {
+  return unwrap(configList(input), fallback);
 }
 
 // ── Best-effort variants (mirror the pattern established in git.ts) ─────────

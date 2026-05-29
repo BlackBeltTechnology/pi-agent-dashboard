@@ -15,8 +15,8 @@ import {
   mdiDotsHorizontal,
   mdiFormatListChecks,
 } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ExploreDialog } from "./ExploreDialog.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DialogPortal } from "./DialogPortal.js";
@@ -68,9 +68,17 @@ interface Props {
   groups?: OpenSpecGroup[];
   /** Group assignments map. */
   assignments?: Record<string, string>;
+  /**
+   * OpenSpec workflow config — used to gate which action buttons render.
+   * Defaults to the full expanded set so missing config doesn't hide UI.
+   * See change: redesign-session-card-and-composer (config-driven-workflow).
+   */
+  openspecConfig?: OpenSpecConfig;
 }
 
-export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments }: Props) {
+export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig }: Props) {
+  const cfg = openspecConfig ?? DEFAULT_OPENSPEC_CONFIG;
+  const wf = (name: string) => cfg.workflows.includes(name);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiveAnywayConfirm, setArchiveAnywayConfirm] = useState(false);
@@ -119,7 +127,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   const hasCompletedChanges = changes.some((c) => c.status === "complete");
   const actionsDisabledGlobal = session.status === "streaming";
 
-  const bulkArchiveButton = hasCompletedChanges && onBulkArchive ? (
+  const bulkArchiveButton = hasCompletedChanges && onBulkArchive && wf("bulk-archive") ? (
     <ActionButton
       label="Bulk Archive"
       icon={mdiArchiveArrowUp}
@@ -191,16 +199,22 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           </button>
           {!isEnded && (
             <>
-              <ActionButton label="Change" icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" />
-              <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" />
-              <ActionButton
-                label="Archive"
-                icon={mdiArchiveOutline}
-                onClick={() => { /* no-op when disabled */ }}
-                testId="archive-disabled-btn"
-                disabled
-                title={actionsDisabledGlobal ? "Session is streaming" : "Attach a change to archive"}
-              />
+              {(wf("new") || wf("propose")) && (
+                <ActionButton label="Change" icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" />
+              )}
+              {wf("explore") && (
+                <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" />
+              )}
+              {wf("archive") && (
+                <ActionButton
+                  label="Archive"
+                  icon={mdiArchiveOutline}
+                  onClick={() => { /* no-op when disabled */ }}
+                  testId="archive-disabled-btn"
+                  disabled
+                  title={actionsDisabledGlobal ? "Session is streaming" : "Attach a change to archive"}
+                />
+              )}
               {bulkArchiveButton}
             </>
           )}
@@ -305,34 +319,38 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         const archiveEnabled = !actionsDisabled && state === ChangeState.COMPLETE;
         return (
           <div className="flex items-center gap-1 flex-wrap">
-            <ActionButton
-              label="Explore"
-              icon={mdiCompassOutline}
-              onClick={() => setExploreOpen(true)}
-              testId="explore-btn"
-              disabled={true /* attached path always disables Explore */}
-              title={actionsDisabled ? "Session is streaming" : tips.explore}
-            />
+            {wf("explore") && (
+              <ActionButton
+                label="Explore"
+                icon={mdiCompassOutline}
+                onClick={() => setExploreOpen(true)}
+                testId="explore-btn"
+                disabled={true /* attached path always disables Explore */}
+                title={actionsDisabled ? "Session is streaming" : tips.explore}
+              />
+            )}
             {state === ChangeState.PLANNING && (
               <>
-                <ActionButton label="Continue" icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} />
-                <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} />
+                {wf("continue") && <ActionButton label="Continue" icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} />}
+                {wf("ff") && <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} />}
               </>
             )}
-            {(state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
+            {wf("apply") && (state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
               <ActionButton label="Apply" icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} />
             )}
-            {state === ChangeState.COMPLETE && (
+            {wf("verify") && state === ChangeState.COMPLETE && (
               <ActionButton label="Verify" icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} />
             )}
-            <ActionButton
-              label="Archive"
-              icon={mdiArchiveOutline}
-              onClick={() => setArchiveConfirm(true)}
-              testId="archive-btn"
-              disabled={!archiveEnabled}
-              title={tips.archive}
-            />
+            {wf("archive") && (
+              <ActionButton
+                label="Archive"
+                icon={mdiArchiveOutline}
+                onClick={() => setArchiveConfirm(true)}
+                testId="archive-btn"
+                disabled={!archiveEnabled}
+                title={tips.archive}
+              />
+            )}
             {/* close Verify-only branch */}
             {change.artifacts.length > 0 && hasParseableTasks && (
               <ActionButton
