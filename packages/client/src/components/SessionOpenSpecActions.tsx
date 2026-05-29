@@ -30,14 +30,32 @@ import { StatePill } from "./StatePill.js";
 import { TasksPopover } from "./TasksPopover.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 
-function ActionButton({ label, icon, onClick, testId, disabled, title }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; title?: string }) {
+/**
+ * Semantic palette — kept in sync with ComposerSessionActions so sidecard
+ * and composer surfaces look identical. See change:
+ * redesign-session-card-and-composer (sidecard-color-buttons).
+ */
+type BtnVariant = "primary" | "success" | "info" | "warn" | "accent" | "danger" | "neutral";
+
+const SIDECARD_VARIANT_CLASSES: Record<BtnVariant, string> = {
+  primary: "text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70",
+  success: "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70",
+  info:    "text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70",
+  warn:    "text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70",
+  accent:  "text-purple-400 border-purple-500/40 bg-purple-500/5 hover:text-purple-300 hover:border-purple-500/70",
+  danger:  "text-red-400 border-red-500/40 bg-red-500/5 hover:text-red-300 hover:border-red-500/70",
+  neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50",
+};
+
+function ActionButton({ label, icon, onClick, testId, disabled, title, variant = "neutral" }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; title?: string; variant?: BtnVariant }) {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
       disabled={disabled}
       title={title}
-      className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[var(--text-secondary)] disabled:hover:border-[var(--border-secondary)]"
       data-testid={testId}
+      data-variant={variant}
+      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}`}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
     </button>
@@ -200,10 +218,10 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           {!isEnded && (
             <>
               {(wf("new") || wf("propose")) && (
-                <ActionButton label="Change" icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" />
+                <ActionButton label="Change" icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" variant="primary" />
               )}
               {wf("explore") && (
-                <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" />
+                <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" variant="info" />
               )}
               {wf("archive") && (
                 <ActionButton
@@ -213,6 +231,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                   testId="archive-disabled-btn"
                   disabled
                   title={actionsDisabledGlobal ? "Session is streaming" : "Attach a change to archive"}
+                  variant="accent"
                 />
               )}
               {bulkArchiveButton}
@@ -327,19 +346,20 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 testId="explore-btn"
                 disabled={true /* attached path always disables Explore */}
                 title={actionsDisabled ? "Session is streaming" : tips.explore}
+                variant="info"
               />
             )}
             {state === ChangeState.PLANNING && (
               <>
-                {wf("continue") && <ActionButton label="Continue" icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} />}
-                {wf("ff") && <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} />}
+                {wf("continue") && <ActionButton label="Continue" icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
+                {wf("ff") && <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
               </>
             )}
             {wf("apply") && (state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
-              <ActionButton label="Apply" icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} />
+              <ActionButton label="Apply" icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} variant="primary" />
             )}
             {wf("verify") && state === ChangeState.COMPLETE && (
-              <ActionButton label="Verify" icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} />
+              <ActionButton label="Verify" icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} variant="success" />
             )}
             {wf("archive") && (
               <ActionButton
@@ -349,6 +369,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 testId="archive-btn"
                 disabled={!archiveEnabled}
                 title={tips.archive}
+                variant="accent"
               />
             )}
             {/* close Verify-only branch */}
@@ -359,6 +380,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 onClick={() => setTasksOpen(true)}
                 testId="tasks-btn"
                 disabled={actionsDisabled}
+                variant="info"
               />
             )}
             {showArchiveAnyway && (
