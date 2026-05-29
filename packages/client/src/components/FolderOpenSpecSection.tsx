@@ -477,7 +477,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
         {onOpenArchive && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenArchive(); }}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
+            className="text-[10px] px-1.5 py-0.5 rounded border text-purple-400 border-purple-500/40 bg-purple-500/5 hover:text-purple-300 hover:border-purple-500/70"
             data-testid="folder-archive-btn"
           >
             <Icon path={mdiArchiveOutline} size={0.4} className="inline mr-0.5" />Archive
@@ -486,7 +486,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
         {onOpenSpecs && (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenSpecs(); }}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
+            className="text-[10px] px-1.5 py-0.5 rounded border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70"
             data-testid="folder-specs-btn"
           >
             <Icon path={mdiFileDocumentOutline} size={0.4} className="inline mr-0.5" />Specs

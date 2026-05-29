@@ -91,8 +91,10 @@ export function FolderActionBar({
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
         disabled={spawningDisabled}
         data-testid="spawn-session-btn"
-        className={`text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] ${
-          spawningDisabled ? "opacity-50 cursor-not-allowed" : "hover:text-green-400 hover:border-green-500/50"
+        className={`text-[10px] px-1.5 py-0.5 rounded border ${
+          spawningDisabled
+            ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
+            : "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70"
         }`}
         title="New pi session"
       >
@@ -106,7 +108,7 @@ export function FolderActionBar({
         <button
           onClick={(e) => { e.stopPropagation(); onOpenWorktreeDialog!(); }}
           data-testid="spawn-worktree-btn"
-          className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-yellow-400 hover:border-yellow-500/50"
+          className="text-[10px] px-1.5 py-0.5 rounded border text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70"
           title="New pi session in a git worktree"
         >
           <span className="inline-flex items-center gap-0.5">
@@ -118,7 +120,7 @@ export function FolderActionBar({
       {/* Terminals(N) */}
       <button
         onClick={(e) => { e.stopPropagation(); onOpenTerminals(); }}
-        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-cyan-400 hover:border-cyan-500/50"
+        className="text-[10px] px-1.5 py-0.5 rounded border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70"
         title="Open terminals view"
       >
         <span className="inline-flex items-center gap-0.5">
@@ -130,14 +132,14 @@ export function FolderActionBar({
       {/* Editor */}
       <button
         onClick={(e) => { e.stopPropagation(); onOpenEditor(); }}
-        className={`text-[10px] px-1.5 py-0.5 rounded border text-[var(--text-secondary)] ${
+        className={`text-[10px] px-1.5 py-0.5 rounded border ${
           editorStatus?.status === "ready"
-            ? "border-green-500/50 text-green-400"
+            ? "border-green-500/50 text-green-400 bg-green-500/5"
             : editorStatus?.status === "starting"
-            ? "border-blue-500/50 text-blue-400"
+            ? "border-blue-500/50 text-blue-400 bg-blue-500/5"
             : editorAvailable === false
-            ? "border-yellow-500/50"
-            : "border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50"
+            ? "border-yellow-500/50 text-[var(--text-secondary)]"
+            : "text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
         }`}
         title={editorAvailable === false ? "code-server not found — click to see install guide" : editorStatus?.status === "ready" ? "Editor running — click to open" : editorStatus?.status === "starting" ? "Editor starting..." : "Open VS Code editor"}
       >
