@@ -100,9 +100,18 @@ interface StepperProps {
   attached: string | null;
   /** Whether the cwd has any OpenSpecChanges (drives Explore done-state). */
   hasAnyChanges?: boolean;
+  /**
+   * Click handler for artifact nodes (Proposal, Design, Specs) and Tasks.
+   * When provided, the corresponding nodes become buttons that open the
+   * artifact preview (or task list). See change:
+   * redesign-session-card-and-composer (stepper-click-to-open).
+   */
+  onReadArtifact?: (changeName: string, artifactId: string) => void;
+  /** Optional Tasks-node click — opens the TasksPopover. */
+  onOpenTasks?: () => void;
 }
 
-export function OpenSpecStepper({ variant = "sidebar", change, attached, hasAnyChanges = false }: StepperProps) {
+export function OpenSpecStepper({ variant = "sidebar", change, attached, hasAnyChanges = false, onReadArtifact, onOpenTasks }: StepperProps) {
   const artifacts = change?.artifacts ?? [];
   const completedTasks = change?.completedTasks ?? 0;
   const totalTasks = change?.totalTasks ?? 0;
@@ -133,6 +142,16 @@ export function OpenSpecStepper({ variant = "sidebar", change, attached, hasAnyC
         const lineActive = prev && (prev === "done" || prev === "current") && (state === "done" || state === "current");
         const isFirst = idx === 0;
 
+        // Click handlers — only artifact + tasks nodes are interactive.
+        let onClick: (() => void) | undefined;
+        if (change?.name) {
+          if (node.id === "proposal" || node.id === "design" || node.id === "specs") {
+            onClick = onReadArtifact ? () => onReadArtifact(change.name, node.id) : undefined;
+          } else if (node.id === "tasks") {
+            onClick = onOpenTasks;
+          }
+        }
+
         return (
           <StepperNode
             key={node.id}
@@ -142,6 +161,7 @@ export function OpenSpecStepper({ variant = "sidebar", change, attached, hasAnyC
             variant={variant}
             isFirst={isFirst}
             lineActive={!!lineActive}
+            onClick={onClick}
             taskSub={node.id === "tasks" && totalTasks > 0 ? `${completedTasks}/${totalTasks}` : undefined}
           />
         );
@@ -157,6 +177,7 @@ function StepperNode({
   variant,
   isFirst,
   lineActive,
+  onClick,
   taskSub,
 }: {
   node: NodeDef;
@@ -165,6 +186,7 @@ function StepperNode({
   variant: "sidebar" | "compact";
   isFirst: boolean;
   lineActive: boolean;
+  onClick?: () => void;
   taskSub?: string;
 }) {
   const isCompact = variant === "compact";
@@ -201,11 +223,16 @@ function StepperNode({
     return null;
   };
 
+  const clickable = !!onClick && state !== "disabled";
+  const Wrapper = clickable ? "button" : "div";
   return (
-    <div
-      className="flex-1 min-w-0 flex flex-col items-center gap-1 relative"
+    <Wrapper
+      type={clickable ? "button" : undefined as any}
+      onClick={clickable ? (e: React.MouseEvent) => { e.stopPropagation(); onClick!(); } : undefined}
+      className={`flex-1 min-w-0 flex flex-col items-center gap-1 relative bg-transparent border-0 p-0 ${clickable ? "cursor-pointer hover:opacity-80" : ""}`}
       data-testid={`stepper-node-${node.id}`}
       data-state={state}
+      data-clickable={clickable ? "true" : undefined}
       title={isCompact ? node.label : undefined}
     >
       {/* Connecting line from previous node — drawn behind the circle */}
@@ -244,6 +271,6 @@ function StepperNode({
           )}
         </>
       )}
-    </div>
+    </Wrapper>
   );
 }

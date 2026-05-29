@@ -9,9 +9,10 @@ import {
   mdiChevronRight,
   mdiFastForward,
 } from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecChange, OpenSpecArtifact, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
+import { deriveStepperState } from "./OpenSpecStepper.js";
 import {
   SessionCardBadgeSlot,
   WorkspaceActionBarSlot,
@@ -54,6 +55,28 @@ interface Props {
   showGitInfo?: boolean;
 }
 
+/**
+ * Semantic color palette taken from the mockup:
+ *   primary (blue)   = fork / apply
+ *   success (green)  = verify / merge / done states
+ *   info    (cyan)   = explore / tasks
+ *   warn    (orange) = push / open PR / current states
+ *   accent  (purple) = archive
+ *   danger  (red)    = close / destructive
+ *   neutral          = refresh / continue / FF / todo states
+ */
+type BtnVariant = "primary" | "success" | "info" | "warn" | "accent" | "danger" | "neutral";
+
+const VARIANT_CLASSES: Record<BtnVariant, string> = {
+  primary: "text-blue-400 border-blue-500/40 hover:border-blue-500/70 hover:text-blue-300 bg-blue-500/5",
+  success: "text-green-400 border-green-500/40 hover:border-green-500/70 hover:text-green-300 bg-green-500/5",
+  info:    "text-cyan-400 border-cyan-500/40 hover:border-cyan-500/70 hover:text-cyan-300 bg-cyan-500/5",
+  warn:    "text-orange-400 border-orange-500/40 hover:border-orange-500/70 hover:text-orange-300 bg-orange-500/5",
+  accent:  "text-purple-400 border-purple-500/40 hover:border-purple-500/70 hover:text-purple-300 bg-purple-500/5",
+  danger:  "text-red-400 border-red-500/40 hover:border-red-500/70 hover:text-red-300 bg-red-500/5",
+  neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50",
+};
+
 function IconButton({
   icon,
   label,
@@ -61,6 +84,7 @@ function IconButton({
   disabled,
   title,
   testId,
+  variant = "neutral",
 }: {
   icon: string;
   label?: string;
@@ -68,6 +92,7 @@ function IconButton({
   disabled?: boolean;
   title?: string;
   testId?: string;
+  variant?: BtnVariant;
 }) {
   return (
     <button
@@ -75,10 +100,53 @@ function IconButton({
       disabled={disabled}
       title={title ?? label}
       data-testid={testId}
-      className="inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed"
+      data-variant={variant}
+      className={`inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed ${VARIANT_CLASSES[variant]}`}
     >
       <Icon path={icon} size={0.45} />
       {label && <span>{label}</span>}
+    </button>
+  );
+}
+
+/**
+ * Inline artifact chip: P / D / S / T. Replaces the per-stepper-node
+ * progress dots inside the composer (which has no stepper). Colour follows
+ * the workflow state (green=done, orange=current/ready, dim=todo); click
+ * opens the artifact or, for T, the tasks popover.
+ */
+function ArtifactChip({
+  letter,
+  state,
+  onClick,
+  disabled,
+  title,
+  testId,
+  sub,
+}: {
+  letter: string;
+  state: "done" | "current" | "todo";
+  onClick?: () => void;
+  disabled?: boolean;
+  title: string;
+  testId: string;
+  sub?: string;
+}) {
+  const cls =
+    state === "done"    ? "text-green-400 border-green-500/50 bg-green-500/8"
+    : state === "current" ? "text-orange-400 border-orange-500/50 bg-orange-500/8"
+    : "text-[var(--text-muted)] border-[var(--border-secondary)]";
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); if (!disabled && onClick) onClick(); }}
+      disabled={disabled || !onClick}
+      title={title}
+      data-testid={testId}
+      data-state={state}
+      className={`inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}
+    >
+      <span>{letter}</span>
+      {sub && <span className="text-[8px] font-normal opacity-80">{sub}</span>}
     </button>
   );
 }
@@ -104,6 +172,7 @@ export function ComposerSessionActions({
   openspecHasDir,
   openspecPending,
   onSendPrompt,
+  onReadArtifact,
   showGitInfo,
   allSessions,
   onShutdownSession,
@@ -130,6 +199,21 @@ export function ComposerSessionActions({
 
   const tips = buildOpenSpecTooltips({ attached, state: changeState, streaming });
 
+  // Derive per-artifact-chip state via the shared stepper state derivation so
+  // composer chips and sidecard stepper stay in sync.
+  const stepperStates = deriveStepperState({
+    attached,
+    artifacts: change?.artifacts ?? [],
+    completedTasks: change?.completedTasks ?? 0,
+    totalTasks: change?.totalTasks ?? 0,
+    changeState,
+    hasAnyChanges: (changes?.length ?? 0) > 0,
+  });
+  const artifactChipState = (id: "proposal" | "design" | "specs" | "tasks"): "done" | "current" | "todo" => {
+    const s = stepperStates[id];
+    return s === "done" || s === "current" ? s : "todo";
+  };
+
   // Nothing to render? Bail early so we don't add an empty group to StatusBar.
   if (!showOpenSpec && !showJj && !showGit) return null;
 
@@ -148,7 +232,47 @@ export function ComposerSessionActions({
             disabled={!!attached || streaming}
             title={streaming ? "Session is streaming" : tips.explore}
             testId="composer-explore-btn"
+            variant="info"
           />
+          {/* Artifact chips (P/D/S/T) — replace the standalone PDST button.
+              Colours mirror the stepper-node states (green=done, orange=current,
+              dim=todo). Click opens the artifact / tasks popover. */}
+          {attached && change && (
+            <>
+              <ArtifactChip
+                letter="P"
+                state={artifactChipState("proposal")}
+                title="Open proposal.md"
+                testId="composer-artifact-p"
+                onClick={onReadArtifact ? () => onReadArtifact(change.name, "proposal") : undefined}
+              />
+              <ArtifactChip
+                letter="D"
+                state={artifactChipState("design")}
+                title="Open design.md"
+                testId="composer-artifact-d"
+                onClick={onReadArtifact ? () => onReadArtifact(change.name, "design") : undefined}
+              />
+              <ArtifactChip
+                letter="S"
+                state={artifactChipState("specs")}
+                title="Open specs"
+                testId="composer-artifact-s"
+                onClick={onReadArtifact ? () => onReadArtifact(change.name, "specs") : undefined}
+              />
+              {change.totalTasks > 0 && (
+                <ArtifactChip
+                  letter="T"
+                  sub={`${change.completedTasks}/${change.totalTasks}`}
+                  state={artifactChipState("tasks")}
+                  title="Open task list"
+                  testId="composer-artifact-t"
+                  onClick={() => setTasksOpen(true)}
+                  disabled={streaming}
+                />
+              )}
+            </>
+          )}
           {attached && changeState === ChangeState.PLANNING && (
             <>
               <IconButton
@@ -157,6 +281,7 @@ export function ComposerSessionActions({
                 onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
                 disabled={streaming}
                 testId="composer-continue-btn"
+                variant="neutral"
               />
               <IconButton
                 icon={mdiFastForward}
@@ -164,6 +289,7 @@ export function ComposerSessionActions({
                 onClick={() => onSendPrompt?.(`/skill:openspec-ff-change ${attached}`)}
                 disabled={streaming}
                 testId="composer-ff-btn"
+                variant="neutral"
               />
             </>
           )}
@@ -174,6 +300,7 @@ export function ComposerSessionActions({
               onClick={() => onSendPrompt?.(`/skill:openspec-apply-change ${attached}`)}
               disabled={streaming}
               testId="composer-apply-btn"
+              variant="primary"
             />
           )}
           {attached && changeState === ChangeState.COMPLETE && (
@@ -183,15 +310,7 @@ export function ComposerSessionActions({
               onClick={() => onSendPrompt?.(`/skill:openspec-verify-change ${attached}`)}
               disabled={streaming}
               testId="composer-verify-btn"
-            />
-          )}
-          {attached && change && change.totalTasks > 0 && (
-            <IconButton
-              icon={mdiFormatListChecks}
-              label={`Tasks ${change.completedTasks}/${change.totalTasks}`}
-              onClick={() => setTasksOpen(true)}
-              disabled={streaming}
-              testId="composer-tasks-btn"
+              variant="success"
             />
           )}
           <IconButton
@@ -201,6 +320,7 @@ export function ComposerSessionActions({
             disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
             title={tips.archive}
             testId="composer-archive-btn"
+            variant="accent"
           />
         </>
       )}

@@ -168,9 +168,10 @@ describe("SessionOpenSpecActions", () => {
     expect(screen.queryByTestId("new-change-btn")).toBeNull();
   });
 
-  // --- PDST single button ---
+  // --- Stepper-node click replaces the PDST button ---
+  // See change: redesign-session-card-and-composer (stepper-click-to-open).
 
-  it("shows PDST as a single button in attached state", () => {
+  it("PDST button removed in attached state — stepper nodes carry that role", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "add-auth" })}
@@ -178,9 +179,11 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    const btn = screen.getByTestId("artifact-letters-btn");
-    expect(btn.tagName).toBe("BUTTON");
-    expect(btn.textContent).toBe("PD");
+    expect(screen.queryByTestId("artifact-letters-btn")).toBeNull();
+    // The stepper P/D/S nodes render in place.
+    expect(screen.getByTestId("stepper-node-proposal")).toBeTruthy();
+    expect(screen.getByTestId("stepper-node-design")).toBeTruthy();
+    expect(screen.getByTestId("stepper-node-specs")).toBeTruthy();
   });
 
   // --- PLANNING state: Continue, FF, disabled Explore + Archive ---
@@ -360,9 +363,9 @@ describe("SessionOpenSpecActions", () => {
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
   });
 
-  // --- PDST button calls onReadArtifact ---
+  // --- Stepper Proposal-node click calls onReadArtifact ---
 
-  it("calls onReadArtifact with proposal when PDST button clicked", () => {
+  it("calls onReadArtifact with proposal when the stepper Proposal node is clicked", () => {
     const onReadArtifact = vi.fn();
     render(
       <SessionOpenSpecActions
@@ -372,7 +375,7 @@ describe("SessionOpenSpecActions", () => {
         onReadArtifact={onReadArtifact}
       />,
     );
-    fireEvent.click(screen.getByTestId("artifact-letters-btn"));
+    fireEvent.click(screen.getByTestId("stepper-node-proposal"));
     expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
   });
 

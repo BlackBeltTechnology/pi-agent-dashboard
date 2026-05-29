@@ -20,7 +20,9 @@ import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboa
 import { ExploreDialog } from "./ExploreDialog.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DialogPortal } from "./DialogPortal.js";
-import { ArtifactLettersButton } from "./openspec-helpers.js";
+// ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
+// and replace the standalone letters button. See change:
+// redesign-session-card-and-composer (stepper-click-to-open).
 import { NewChangeDialog } from "./NewChangeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
 import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
@@ -285,10 +287,17 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <StatePill state={state} />
         <ActionButton label="Detach" icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
         <span className="flex-1" />
-        <ArtifactLettersButton artifacts={change.artifacts} changeName={change.name} onReadArtifact={onReadArtifact} />
       </div>
-      {/* OpenSpec stepper — see change: redesign-session-card-and-composer (4.3). */}
-      <OpenSpecStepper variant="sidebar" change={change} attached={attached} hasAnyChanges={stepperHasAnyChanges} />
+      {/* OpenSpec stepper — nodes are clickable for artifact + tasks open.
+          See change: redesign-session-card-and-composer (stepper-click-to-open). */}
+      <OpenSpecStepper
+        variant="sidebar"
+        change={change}
+        attached={attached}
+        hasAnyChanges={stepperHasAnyChanges}
+        onReadArtifact={onReadArtifact}
+        onOpenTasks={hasParseableTasks ? () => setTasksOpen(true) : undefined}
+      />
       {/* Line 2: action buttons driven by ChangeState */}
       {!isEnded && (() => {
         const actionsDisabled = session.status === "streaming";
