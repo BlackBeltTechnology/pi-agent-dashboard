@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>SessionCard redesign — v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+<style>
+  /* === Dashboard palette — mirrors packages/client/src/index.css === */
+  :root {
+    /* Backgrounds */
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --bg-selected: #1e1e1e;
+    --bg-code: #1a1a1a;
+    --bg-overlay: rgba(0,0,0,0.6);
+    /* Text */
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --text-faint: #3a3a3a;
+    /* Borders */
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --border-subtle: rgba(255,255,255,0.06);
+    /* Accents (theme-stable) */
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-purple: #a855f7;
+    --accent-orange: #f97316;
+    --accent-primary: #3b82f6;
+    --link: #60a5fa;
+    --link-hover: #93bbfd;
+    --shadow-card: rgba(0,0,0,0.4);
+    /* Local semantic aliases used by the mockup */
+    --blue: var(--link);
+    --green: #4ade80;
+    --orange: #fb923c;
+    --purple: #a78bfa;
+    --pink: #f472b6;
+    --cyan: #22d3ee;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    /* Selected-card accent ring — softer iridescent. */
+    --neon-rim-alpha: 0.45;
+    --neon-glow-alpha: 0.10;
+    --neon-glow-blur: 8px;
+    --neon-glow-opacity: 0.42;
+    --neon-bg-tint: rgba(96,165,250,0.025);
+  }
+
+  /* ============================================================
+     PROFILE: SOLARIZED  (Ethan Schoonover)
+     ============================================================ */
+  [data-palette="solarized"] {
+    --bg-primary: #002b36;
+    --bg-secondary: #073642;
+    --bg-tertiary: #0a3f4b;
+    --bg-surface: #114e5b;
+    --bg-hover: rgba(238,232,213,0.06);
+    --bg-selected: #0a3f4b;
+    --bg-code: #073642;
+    --text-primary: #fdf6e3;
+    --text-secondary: #eee8d5;
+    --text-tertiary: #93a1a1;
+    --text-muted: #657b83;
+    --text-faint: #586e75;
+    --border-primary: #073642;
+    --border-secondary: #1c4a55;
+    --border-subtle: rgba(238,232,213,0.06);
+    --accent-blue:   #268bd2;
+    --accent-green:  #859900;
+    --accent-yellow: #b58900;
+    --accent-red:    #dc322f;
+    --accent-purple: #6c71c4;
+    --accent-orange: #cb4b16;
+    --accent-primary:#268bd2;
+    --link:          #268bd2;
+    --link-hover:    #2aa198;
+    --blue:   #268bd2;
+    --green:  #859900;
+    --orange: #cb4b16;
+    --purple: #6c71c4;
+    --pink:   #d33682;
+    --cyan:   #2aa198;
+    --red:    #dc322f;
+    --yellow: #b58900;
+  }
+  [data-palette="solarized"][data-theme="light"] {
+    --bg-primary: #fdf6e3;
+    --bg-secondary: #eee8d5;
+    --bg-tertiary: #f5efdc;
+    --bg-surface: #e6dec2;
+    --bg-hover: rgba(0,43,54,0.05);
+    --bg-selected: #eee8d5;
+    --bg-code: #eee8d5;
+    --text-primary: #002b36;
+    --text-secondary: #073642;
+    --text-tertiary: #586e75;
+    --text-muted: #93a1a1;
+    --text-faint: #c5beaa;
+    --border-primary: #d8d2bb;
+    --border-secondary: #c1bba4;
+    --border-subtle: rgba(0,43,54,0.07);
+    --link: #268bd2;
+    --link-hover: #1a6ba8;
+  }
+
+  /* ============================================================
+     PROFILE: NORD  (Arctic, north-bluish)
+     ============================================================ */
+  [data-palette="nord"] {
+    --bg-primary: #2e3440;
+    --bg-secondary: #3b4252;
+    --bg-tertiary: #434c5e;
+    --bg-surface: #4c566a;
+    --bg-hover: rgba(236,239,244,0.06);
+    --bg-selected: #434c5e;
+    --bg-code: #3b4252;
+    --text-primary: #eceff4;
+    --text-secondary: #d8dee9;
+    --text-tertiary: #a3aab8;
+    --text-muted: #6e7689;
+    --text-faint: #4c566a;
+    --border-primary: #3b4252;
+    --border-secondary: #4c566a;
+    --border-subtle: rgba(236,239,244,0.07);
+    --accent-blue:   #88c0d0;
+    --accent-green:  #a3be8c;
+    --accent-yellow: #ebcb8b;
+    --accent-red:    #bf616a;
+    --accent-purple: #b48ead;
+    --accent-orange: #d08770;
+    --accent-primary:#88c0d0;
+    --link:          #88c0d0;
+    --link-hover:    #8fbcbb;
+    --blue:   #81a1c1;
+    --green:  #a3be8c;
+    --orange: #d08770;
+    --purple: #b48ead;
+    --pink:   #b48ead;
+    --cyan:   #88c0d0;
+    --red:    #bf616a;
+    --yellow: #ebcb8b;
+  }
+  [data-palette="nord"][data-theme="light"] {
+    --bg-primary: #eceff4;
+    --bg-secondary: #e5e9f0;
+    --bg-tertiary: #d8dee9;
+    --bg-surface: #c8cfdc;
+    --bg-hover: rgba(46,52,64,0.04);
+    --bg-selected: #d8dee9;
+    --bg-code: #e5e9f0;
+    --text-primary: #2e3440;
+    --text-secondary: #3b4252;
+    --text-tertiary: #4c566a;
+    --text-muted: #7b8493;
+    --text-faint: #c8cfdc;
+    --border-primary: #c8cfdc;
+    --border-secondary: #b1bcc8;
+    --border-subtle: rgba(46,52,64,0.06);
+    --link: #5e81ac;
+    --link-hover: #4c6e94;
+    --blue: #5e81ac;
+    --orange: #d08770;
+    --green: #4c8051;
+    --red: #a13c44;
+    --purple: #8e6c8c;
+    --cyan: #4d8a92;
+    --yellow: #a17905;
+  }
+
+  /* ============================================================
+     PROFILE: HIGH-CONTRAST  (max legibility, vivid accents)
+     ============================================================ */
+  [data-palette="hicontrast"] {
+    --bg-primary: #000000;
+    --bg-secondary: #0a0a0a;
+    --bg-tertiary: #141414;
+    --bg-surface: #1f1f1f;
+    --bg-hover: rgba(255,255,255,0.10);
+    --bg-selected: #1f1f1f;
+    --bg-code: #0a0a0a;
+    --text-primary: #ffffff;
+    --text-secondary: #f0f0f0;
+    --text-tertiary: #c8c8c8;
+    --text-muted: #909090;
+    --text-faint: #5a5a5a;
+    --border-primary: #4a4a4a;
+    --border-secondary: #6a6a6a;
+    --border-subtle: rgba(255,255,255,0.18);
+    --accent-blue:   #5fa8ff;
+    --accent-green:  #4ade80;
+    --accent-yellow: #facc15;
+    --accent-red:    #ff5757;
+    --accent-purple: #c084fc;
+    --accent-orange: #fb923c;
+    --accent-primary:#5fa8ff;
+    --link:          #7cb8ff;
+    --link-hover:    #a8d0ff;
+    --blue:   #7cb8ff;
+    --green:  #4ade80;
+    --orange: #fb923c;
+    --purple: #c084fc;
+    --pink:   #f472b6;
+    --cyan:   #22d3ee;
+    --red:    #ff7575;
+    --yellow: #facc15;
+  }
+  [data-palette="hicontrast"][data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f2f2f2;
+    --bg-surface: #e0e0e0;
+    --bg-hover: rgba(0,0,0,0.08);
+    --bg-selected: #ebebeb;
+    --bg-code: #f5f5f5;
+    --text-primary: #000000;
+    --text-secondary: #1a1a1a;
+    --text-tertiary: #404040;
+    --text-muted: #707070;
+    --text-faint: #b0b0b0;
+    --border-primary: #707070;
+    --border-secondary: #909090;
+    --border-subtle: rgba(0,0,0,0.20);
+    --link: #0033a8;
+    --link-hover: #001f6b;
+    --blue: #0033a8;
+    --green: #006428;
+    --orange: #b34a00;
+    --purple: #5a189a;
+    --red: #a30015;
+    --yellow: #946800;
+    --cyan: #006d77;
+  }
+
+  [data-theme="light"] {
+    /* Backgrounds */
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-tertiary: #f0f0f0;
+    --bg-surface: #e0e0e0;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-selected: #e8e8e8;
+    --bg-code: #f5f5f5;
+    --bg-overlay: rgba(0,0,0,0.3);
+    /* Text */
+    --text-primary: #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary: #777777;
+    --text-muted: #aaaaaa;
+    --text-faint: #d0d0d0;
+    /* Borders */
+    --border-primary: #e0e0e0;
+    --border-secondary: #cccccc;
+    --border-subtle: rgba(0,0,0,0.06);
+    /* Accents */
+    --accent-primary: #2563eb;
+    --link: #2563eb;
+    --link-hover: #1d4ed8;
+    --shadow-card: rgba(0,0,0,0.08);
+    /* Light-mode semantic tints — darker variants for contrast */
+    --blue: #2563eb;
+    --green: #16a34a;
+    --orange: #ea580c;
+    --purple: #7c3aed;
+    --pink: #db2777;
+    --cyan: #0891b2;
+    --red: #dc2626;
+    --yellow: #ca8a04;
+    /* Light theme: bumped just enough to stay visible against #fff. */
+    --neon-rim-alpha: 0.50;
+    --neon-glow-alpha: 0.18;
+    --neon-glow-blur: 11px;
+    --neon-glow-opacity: 0.52;
+    --neon-bg-tint: rgba(37,99,235,0.035);
+  }
+  * { box-sizing: border-box; }
+  html, body { transition: background-color .2s ease, color .2s ease; }
+  body {
+    margin: 0; padding: 28px;
+    background: var(--bg-primary); color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 13px; line-height: 1.4;
+  }
+
+  /* === theme toggle === */
+  .theme-toolbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    padding: 8px 12px;
+    border-radius: 10px;
+    margin: 0 0 22px;
+    flex-wrap: wrap;
+  }
+  .theme-toolbar .group { display: inline-flex; align-items: center; gap: 6px; }
+  .theme-toolbar .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--text-muted);
+  }
+  .theme-toolbar .switcher {
+    display: inline-flex; gap: 2px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 2px;
+  }
+  .theme-toolbar .switcher button {
+    border: 0; background: transparent;
+    color: var(--text-tertiary);
+    font-size: 11px; padding: 4px 10px; border-radius: 6px;
+    cursor: pointer; font-family: inherit;
+  }
+  .theme-toolbar .switcher button.active {
+    background: var(--bg-surface); color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--border-secondary);
+  }
+  .theme-toolbar .switcher button:hover:not(.active) { color: var(--text-secondary); }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 32px 0 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .1em; }
+  p.lead { color: var(--text-tertiary); margin: 0 0 22px; max-width: 800px; }
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  .pane-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--text-muted); margin: 0 0 10px;
+  }
+
+  /* === card === */
+  .card {
+    position: relative;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    border-radius: 14px;
+    padding: 10px 12px 10px 8px;
+    box-shadow: 0 4px 10px var(--shadow-card);
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  /* === selected card: subtle animated multicolor neon === */
+  .card.selected {
+    border-color: transparent;
+    background: var(--neon-bg-tint);
+    isolation: isolate;
+  }
+  /* Iridescent 4-stop accent ring — blue / purple / pink / cyan, mid alpha, 11 s rotation. */
+  .card.selected::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 15px;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--neon-angle, 0deg),
+      rgb(59 130 246 / var(--neon-rim-alpha)),
+      rgb(139 92 246 / var(--neon-rim-alpha)),
+      rgb(236 72 153 / var(--neon-rim-alpha)),
+      rgb(34 211 238 / var(--neon-rim-alpha)),
+      rgb(59 130 246 / var(--neon-rim-alpha))
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+    animation: neon-rotate 13s linear infinite;
+  }
+  .card.selected::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 17px;
+    background: conic-gradient(
+      from var(--neon-angle, 0deg),
+      rgb(59 130 246 / var(--neon-glow-alpha)),
+      rgb(139 92 246 / var(--neon-glow-alpha)),
+      rgb(236 72 153 / var(--neon-glow-alpha)),
+      rgb(34 211 238 / var(--neon-glow-alpha)),
+      rgb(59 130 246 / var(--neon-glow-alpha))
+    );
+    filter: blur(var(--neon-glow-blur));
+    opacity: var(--neon-glow-opacity);
+    pointer-events: none;
+    z-index: 0;
+    animation: neon-rotate 13s linear infinite;
+  }
+  @property --neon-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+  @keyframes neon-rotate { to { --neon-angle: 360deg; } }
+  @supports not (background: conic-gradient(from 0deg, red, blue)) {
+    .card.selected::before { background: rgba(96,165,250,.5); animation: none; }
+    .card.selected::after { animation: neon-breathe 6s ease-in-out infinite; }
+  }
+  @keyframes neon-breathe {
+    0%,100% { opacity: .35; }
+    50% { opacity: .65; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card.selected::before, .card.selected::after { animation: none; }
+  }
+  .card.selected > * { position: relative; z-index: 2; }
+
+  /* left gutter */
+  .gutter { position: relative; width: 18px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding-top: 6px; }
+  .gutter .rail {
+    position: absolute; left: 50%; top: 26px; bottom: 6px;
+    transform: translateX(-50%); width: 5px; border-radius: 999px;
+    background: var(--green); opacity: .85;
+  }
+  .gutter .chip {
+    position: relative; z-index: 1; width: 16px; height: 16px;
+    border-radius: 999px; background: var(--bg-tertiary);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--green); font-size: 11px;
+  }
+
+  .body { flex: 1; min-width: 0; }
+
+  /* === title row === */
+  .title-row { display: flex; align-items: center; gap: 8px; }
+  .title { font-size: 14px; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta-icon {
+    background: transparent; border: 0; color: var(--text-muted);
+    cursor: pointer; padding: 2px 3px; border-radius: 4px; font-size: 12px;
+  }
+  .meta-icon:hover { color: var(--text-secondary); background: var(--bg-hover); }
+  .meta-icon.danger:hover { color: var(--red); background: rgba(248,113,113,.08); }
+  .age { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  /* model line */
+  .model-line {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 3px; font-size: 11px; color: var(--text-tertiary);
+  }
+  .model-line .model { color: var(--text-tertiary); }
+
+  /* activity line */
+  .activity-row {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 3px; font-size: 11px;
+  }
+  .activity { color: var(--text-tertiary); }
+  .activity.thinking { color: var(--green); }
+  .activity.waiting { color: var(--purple); }
+  .ctx-bar { width: 90px; height: 4px; background: var(--bg-primary); border-radius: 999px; overflow: hidden; flex-shrink: 0; }
+  .ctx-bar > div { height: 100%; background: linear-gradient(90deg, var(--green), var(--yellow)); }
+  .cost { color: var(--text-tertiary); font-variant-numeric: tabular-nums; font-size: 11px; }
+
+  /* === buttons (semantic palette) === */
+  .btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; padding: 3px 7px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    color: var(--text-secondary);
+    transition: border-color .12s ease, color .12s ease, background .12s ease;
+  }
+  .btn:hover { color: var(--text-primary); border-color: var(--border-primary); background: var(--bg-hover); }
+  .btn.icon-only { padding: 3px 5px; }
+  .btn.disabled, .btn:disabled { opacity: .35; cursor: not-allowed; pointer-events: none; }
+
+  .btn.primary { color: var(--blue); border-color: rgba(96,165,250,.4); background: rgba(96,165,250,.07); }
+  .btn.primary:hover { color: #93c5fd; border-color: rgba(96,165,250,.7); background: rgba(96,165,250,.13); }
+
+  .btn.success { color: var(--green); border-color: rgba(74,222,128,.4); background: rgba(74,222,128,.07); }
+  .btn.success:hover { color: #86efac; border-color: rgba(74,222,128,.7); background: rgba(74,222,128,.13); }
+
+  .btn.warn { color: var(--orange); border-color: rgba(251,146,60,.4); background: rgba(251,146,60,.07); }
+  .btn.warn:hover { color: #fdba74; border-color: rgba(251,146,60,.7); background: rgba(251,146,60,.13); }
+
+  .btn.info { color: var(--cyan); border-color: rgba(34,211,238,.35); background: rgba(34,211,238,.06); }
+  .btn.info:hover { color: #67e8f9; border-color: rgba(34,211,238,.65); background: rgba(34,211,238,.12); }
+
+  .btn.accent { color: var(--purple); border-color: rgba(167,139,250,.4); background: rgba(167,139,250,.07); }
+  .btn.accent:hover { color: #c4b5fd; border-color: rgba(167,139,250,.7); background: rgba(167,139,250,.13); }
+
+  .btn.danger { color: var(--red); border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.06); }
+  .btn.danger:hover { color: #fca5a5; border-color: rgba(248,113,113,.65); background: rgba(248,113,113,.13); }
+
+  .btn.neutral { color: var(--text-tertiary); border-color: var(--border-subtle); background: transparent; }
+  .btn.neutral:hover { color: var(--text-primary); border-color: var(--border-primary); background: var(--bg-hover); }
+
+  /* === subcard === */
+  .subcard {
+    margin-top: 10px; position: relative;
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 14px 12px 12px;
+    background: rgba(255,255,255,.012);
+  }
+  .subcard-title {
+    position: absolute; top: -7px; left: 12px;
+    background: var(--bg-tertiary); padding: 0 6px;
+    font-size: 9px; color: var(--text-muted);
+    letter-spacing: .12em; font-weight: 600;
+  }
+  .card.selected .subcard-title { background: linear-gradient(90deg, var(--bg-tertiary), var(--bg-tertiary)); }
+
+  /* attached line */
+  .attached-line {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; margin-bottom: 10px;
+  }
+  .paperclip { color: var(--text-muted); }
+  .attached-name { color: var(--blue); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .state-pill {
+    display: inline-flex; align-items: center;
+    font-size: 9px; letter-spacing: .08em; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .state-planning { background: rgba(96,165,250,.13); color: var(--blue); border: 1px solid rgba(96,165,250,.4); }
+  .state-ready { background: rgba(74,222,128,.13); color: var(--green); border: 1px solid rgba(74,222,128,.4); }
+  .state-implementing { background: rgba(251,146,60,.13); color: var(--orange); border: 1px solid rgba(251,146,60,.45); }
+  .state-complete { background: rgba(74,222,128,.18); color: var(--green); border: 1px solid rgba(74,222,128,.5); }
+
+  /* === stepper (artifact pipeline) === */
+  .stepper { display: flex; align-items: stretch; gap: 0; margin: 2px 4px 8px; }
+  .step {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 4px; position: relative; min-width: 0;
+  }
+  .step .node {
+    width: 22px; height: 22px; border-radius: 999px;
+    /* Two-layer background — opaque base prevents the progress line
+       from bleeding through the node interior. */
+    background:
+      linear-gradient(var(--bg-tertiary), var(--bg-tertiary));
+    background-color: var(--bg-tertiary);
+    border: 2px solid var(--border-secondary);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: var(--text-muted);
+    z-index: 2; position: relative;
+    transition: all .15s ease;
+  }
+  .step.done .node {
+    background:
+      linear-gradient(rgba(74,222,128,.18), rgba(74,222,128,.18)),
+      var(--bg-tertiary);
+    border-color: var(--green); color: var(--green);
+  }
+  .step.current .node {
+    background:
+      linear-gradient(rgba(251,146,60,.18), rgba(251,146,60,.18)),
+      var(--bg-tertiary);
+    border-color: var(--orange); color: var(--orange);
+    box-shadow: 0 0 0 3px rgba(251,146,60,.18);
+    animation: pulse-current 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse-current {
+    0%,100% { box-shadow: 0 0 0 3px rgba(251,146,60,.18); }
+    50% { box-shadow: 0 0 0 5px rgba(251,146,60,.30); }
+  }
+  .step.todo .node {
+    background:
+      linear-gradient(var(--bg-primary), var(--bg-primary)),
+      var(--bg-tertiary);
+  }
+  .step.disabled { opacity: .4; }
+  .step .label {
+    font-size: 9px; letter-spacing: .04em;
+    color: var(--text-tertiary); text-align: center;
+    text-transform: uppercase; line-height: 1.1; max-width: 60px;
+  }
+  .step.current .label { color: var(--orange); font-weight: 600; }
+  .step.done .label { color: var(--green); }
+  .step .sub { font-size: 9px; color: var(--text-muted); text-align: center; }
+  /* connecting lines */
+  .step::before {
+    content: ""; position: absolute;
+    left: -50%; right: 50%; top: 10px; height: 2px;
+    background: var(--border-secondary); z-index: 0;
+  }
+  .step:first-child::before { display: none; }
+  .step.done::before, .step.current::before { background: var(--green); }
+
+  /* worktree pill */
+  .branch-line {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; color: var(--text-tertiary); margin-top: 8px;
+  }
+  .branch-line a { color: var(--blue); text-decoration: none; }
+  .worktree-pill {
+    font-size: 8px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-muted); border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary); border-radius: 999px; padding: 1px 6px;
+  }
+  .jj-pill {
+    font-size: 9px; color: var(--purple);
+    background: rgba(167,139,250,.1);
+    border: 1px solid rgba(167,139,250,.35);
+    border-radius: 4px; padding: 1px 6px;
+  }
+
+  /* action row (group of buttons inside subcard) */
+  .actions {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 4px;
+  }
+
+  /* === composer (chat view) === */
+  .composer-wrap {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid var(--border-subtle);
+  }
+  .composer-model-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--text-tertiary);
+    padding: 4px 6px;
+  }
+  .composer-model-row .chev { color: var(--text-muted); }
+  .level-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; color: var(--text-tertiary);
+    padding: 1px 6px; border-radius: 4px; background: var(--bg-tertiary);
+  }
+
+  /* the NEW cloned action strip above the textarea */
+  .composer-actions {
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .composer-actions .strip-title {
+    font-size: 9px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--text-muted); display: flex; align-items: center; gap: 6px;
+  }
+  .composer-actions .strip-title .dot {
+    width: 6px; height: 6px; border-radius: 999px;
+    background: linear-gradient(135deg, var(--blue), var(--purple), var(--pink));
+  }
+  .composer-stepper { transform: scale(.92); transform-origin: left center; margin: 0; }
+  .composer-actions-row {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .group-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--text-muted); margin-right: 2px;
+  }
+  .group-divider { width: 1px; height: 14px; background: var(--border-secondary); margin: 0 4px; flex-shrink: 0; }
+
+  .textarea {
+    margin-top: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 12px 48px 12px 14px;
+    color: var(--text-muted);
+    font-size: 13px;
+    position: relative;
+    min-height: 48px;
+  }
+  .send-btn {
+    position: absolute; right: 10px; bottom: 8px;
+    width: 30px; height: 26px;
+    border-radius: 6px; background: rgba(96,165,250,.18);
+    border: 1px solid rgba(96,165,250,.4);
+    color: var(--blue); display: inline-flex;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+
+  /* legend */
+  .legend {
+    margin: 0 0 22px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: linear-gradient(90deg, rgba(167,139,250,.06), rgba(96,165,250,.05), rgba(74,222,128,.05));
+    border: 1px solid rgba(167,139,250,.18);
+    font-size: 11px; color: var(--text-tertiary); line-height: 1.6;
+  }
+  .legend strong { color: var(--text-secondary); }
+  .kbd {
+    font-family: ui-monospace, "SF Mono", monospace;
+    background: var(--bg-tertiary); padding: 1px 4px;
+    border-radius: 3px; color: var(--text-secondary); font-size: 10px;
+  }
+  .legend-row { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+
+  /* MDI icon helpers */
+  .mdi { font-size: 13px; line-height: 1; vertical-align: -2px; }
+  .btn .mdi { font-size: 12px; margin-right: 2px; vertical-align: -1px; }
+  .btn.icon-only .mdi { margin: 0; font-size: 13px; vertical-align: -2px; }
+  .meta-icon .mdi { font-size: 13px; }
+  .step .node .mdi { font-size: 12px; }
+  .activity .mdi { font-size: 12px; margin-right: 2px; vertical-align: -1px; }
+  .attached-line .mdi { font-size: 12px; vertical-align: -2px; }
+  .branch-line .mdi { font-size: 11px; vertical-align: -1px; margin-right: 2px; }
+  .theme-toolbar .switcher .mdi { font-size: 11px; margin-right: 3px; vertical-align: -1px; }
+  .gutter .chip .mdi { font-size: 11px; }
+  .send-btn .mdi { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="theme-toolbar">
+  <div class="group">
+    <span class="label" style="color: var(--text-secondary); font-weight: 600"><i class="mdi mdi-palette"></i> Profile</span>
+    <div class="switcher" id="palette-switcher">
+      <button data-palette-set="default" class="active"><i class="mdi mdi-circle"></i> Default</button>
+      <button data-palette-set="solarized"><i class="mdi mdi-circle" style="color:#b58900"></i> Solarized</button>
+      <button data-palette-set="nord"><i class="mdi mdi-circle" style="color:#88c0d0"></i> Nord</button>
+      <button data-palette-set="hicontrast"><i class="mdi mdi-circle-outline"></i> High-contrast</button>
+    </div>
+  </div>
+  <div class="group">
+    <span class="label" style="color: var(--text-secondary); font-weight: 600"><i class="mdi mdi-brightness-6"></i> Mode</span>
+    <div class="switcher" id="theme-switcher">
+      <button data-theme-set="light"><i class="mdi mdi-weather-sunny"></i> Light</button>
+      <button data-theme-set="system"><i class="mdi mdi-theme-light-dark"></i> System</button>
+      <button data-theme-set="dark" class="active"><i class="mdi mdi-weather-night"></i> Dark</button>
+    </div>
+  </div>
+  <span style="flex:1"></span>
+  <span class="label" style="color: var(--text-tertiary)">Profile × Mode — <code style="color: var(--text-secondary); font-size: 10px">[data-palette]</code> × <code style="color: var(--text-secondary); font-size: 10px">[data-theme]</code></span>
+</div>
+
+<h1>SessionCard redesign — v2</h1>
+<p class="lead">Actions stay where they live today; only the <strong>design</strong> changes. The old <code style="color:var(--text-secondary)">WORKSPACE</code> subcard is split into <strong>GIT</strong> (branch / PR / worktree / Push / Open PR / Merge / Close) and <strong>JJ</strong> (jj pill / Add workspace / Fold back / Forget) so the two VCSs stop mixing. Other additions: pills+lines stepper inside OPENSPEC, colour-coded buttons, animated multicolour neon border on the selected card, and a cloned action strip directly above the prompt textarea so you don't lose context while typing.</p>
+
+<div class="legend">
+  <strong>Palette</strong> &nbsp;
+  <span class="legend-row"><span class="btn success"><i class="mdi mdi-play-circle-outline"></i> Resume</span> success — resume / verify / merge</span>
+  <span class="legend-row"><span class="btn primary"><i class="mdi mdi-source-fork"></i> Fork</span> primary — fork / apply</span>
+  <span class="legend-row"><span class="btn info"><i class="mdi mdi-compass-outline"></i> Explore</span> info — explore / tasks</span>
+  <span class="legend-row"><span class="btn warn"><i class="mdi mdi-arrow-up-bold-outline"></i> Push</span> warn — push / open PR</span>
+  <span class="legend-row"><span class="btn accent"><i class="mdi mdi-archive-outline"></i> Archive</span> accent — archive</span>
+  <span class="legend-row"><span class="btn danger"><i class="mdi mdi-close-box-outline"></i> Close</span> danger — close / destructive</span>
+  <span class="legend-row"><span class="btn neutral icon-only"><i class="mdi mdi-refresh"></i></span> neutral icon — refresh / rename / hide</span>
+  <br><br>
+  <strong>Gating</strong> &nbsp;
+  <span class="kbd">Explore</span> enabled only when <em>no proposal attached</em>;
+  <span class="kbd">Archive</span> enabled only when <em>a proposal is attached</em>.
+  <br>
+  <strong>Animation</strong> &nbsp; selected card: 8 s multicolour conic-gradient rim + soft blurred glow, honours <span class="kbd">prefers-reduced-motion</span>. Current-step node has a slow 2.4 s halo pulse.
+</div>
+
+<div class="layout">
+
+  <!-- ============ LEFT: SESSION CARDS (sidebar) ============ -->
+  <div>
+    <div class="pane-title">Sidebar — session cards</div>
+
+    <!-- Card A: No proposal -->
+    <div class="card">
+      <div class="gutter"><span class="rail" style="background: var(--purple)"></span><span class="chip" style="color: var(--purple)"><i class="mdi mdi-robot-outline"></i></span></div>
+      <div class="body">
+        <div class="title-row">
+          <span class="title">pi-agent-dashboard</span>
+          <button class="meta-icon" title="Rename"><i class="mdi mdi-pencil-outline"></i></button>
+          <span class="age">1m</span>
+          <button class="meta-icon" title="Hide"><i class="mdi mdi-eye-off-outline"></i></button>
+          <button class="meta-icon danger" title="Exit"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="model-line">
+          <span class="model">anthropic/claude-opus-4-7 (medium)</span>
+          <span style="flex:1"></span>
+          <button class="btn primary"><i class="mdi mdi-source-fork"></i> Fork</button>
+        </div>
+        <div class="activity-row">
+          <span class="activity waiting"><i class="mdi mdi-comment-question-outline"></i> Waiting for input</span>
+          <span style="flex:1"></span>
+          <span class="ctx-bar"><div style="width:40%"></div></span>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">OPENSPEC</span>
+          <div class="attached-line" style="color:var(--text-muted)">
+            <span class="paperclip"><i class="mdi mdi-paperclip"></i></span> No change attached
+            <span style="flex:1"></span>
+            <button class="btn neutral icon-only" title="Refresh"><i class="mdi mdi-refresh"></i></button>
+          </div>
+          <div class="stepper">
+            <div class="step todo"><span class="node"><i class="mdi mdi-compass-outline"></i></span><span class="label">Explore</span></div>
+            <div class="step todo"><span class="node">P</span><span class="label">Proposal</span></div>
+            <div class="step todo"><span class="node">D</span><span class="label">Design</span></div>
+            <div class="step todo"><span class="node">S</span><span class="label">Specs</span></div>
+            <div class="step todo"><span class="node">T</span><span class="label">Tasks</span></div>
+            <div class="step todo"><span class="node"><i class="mdi mdi-send"></i></span><span class="label">Apply</span></div>
+            <div class="step todo disabled"><span class="node"><i class="mdi mdi-archive-outline"></i></span><span class="label">Archive</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn info"><i class="mdi mdi-compass-outline"></i> Explore</button>
+            <button class="btn primary"><i class="mdi mdi-plus"></i> New change</button>
+            <button class="btn accent disabled" title="Attach a change first"><i class="mdi mdi-archive-outline"></i> Archive</button>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">GIT</span>
+          <div class="branch-line"><i class="mdi mdi-source-branch"></i> <a href="#">develop</a></div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">JJ</span>
+          <div class="branch-line"><span class="jj-pill">jj:default</span></div>
+          <div class="actions">
+            <button class="btn accent"><i class="mdi mdi-folder-plus-outline"></i> Add workspace</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card B: implementing — SELECTED with neon -->
+    <div class="card selected">
+      <div class="gutter"><span class="rail"></span><span class="chip"><i class="mdi mdi-robot-outline"></i></span></div>
+      <div class="body">
+        <div class="title-row">
+          <span class="title">show-full-tool-call-args</span>
+          <button class="meta-icon" title="Rename"><i class="mdi mdi-pencil-outline"></i></button>
+          <span class="age">9m</span>
+          <button class="meta-icon" title="Hide"><i class="mdi mdi-eye-off-outline"></i></button>
+          <button class="meta-icon danger" title="Exit"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="model-line">
+          <span class="model">anthropic/claude-opus-4-7 (medium)</span>
+          <span style="flex:1"></span>
+          <button class="btn primary"><i class="mdi mdi-source-fork"></i> Fork</button>
+        </div>
+        <div class="activity-row">
+          <span class="activity thinking"><i class="mdi mdi-flash"></i> Thinking…</span>
+          <span style="flex:1"></span>
+          <span class="ctx-bar"><div style="width:62%"></div></span>
+          <span class="cost">$0.42</span>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">OPENSPEC</span>
+          <div class="attached-line">
+            <span class="paperclip"><i class="mdi mdi-paperclip"></i></span>
+            <span class="attached-name">show-full-tool-call-args</span>
+            <span class="state-pill state-implementing">IMPLEMENTING</span>
+            <button class="btn neutral" title="Detach"><i class="mdi mdi-link-off"></i> Detach</button>
+            <span style="flex:1"></span>
+            <button class="btn neutral icon-only" title="Refresh"><i class="mdi mdi-refresh"></i></button>
+          </div>
+          <div class="stepper">
+            <div class="step done"><span class="node"><i class="mdi mdi-check"></i></span><span class="label">Explore</span></div>
+            <div class="step done"><span class="node">P</span><span class="label">Proposal</span></div>
+            <div class="step done"><span class="node">D</span><span class="label">Design</span></div>
+            <div class="step todo"><span class="node">S</span><span class="label">Specs</span></div>
+            <div class="step current"><span class="node">T</span><span class="label">Tasks</span><span class="sub">4/12</span></div>
+            <div class="step todo"><span class="node"><i class="mdi mdi-send"></i></span><span class="label">Apply</span></div>
+            <div class="step todo"><span class="node"><i class="mdi mdi-archive-outline"></i></span><span class="label">Archive</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn info disabled" title="Detach to start a new explore"><i class="mdi mdi-compass-outline"></i> Explore</button>
+            <button class="btn primary"><i class="mdi mdi-play-circle-outline"></i> Apply</button>
+            <button class="btn info"><i class="mdi mdi-format-list-checks"></i> Tasks 4/12</button>
+            <button class="btn accent"><i class="mdi mdi-archive-outline"></i> Archive</button>
+            <button class="btn neutral icon-only"><i class="mdi mdi-dots-horizontal"></i></button>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">GIT</span>
+          <div class="branch-line">
+            <i class="mdi mdi-source-branch"></i> <a href="#">show-full-tool-call-args</a> · #142 ·
+            <span class="worktree-pill">worktree · show-full-tool-call-args</span>
+          </div>
+          <div class="actions">
+            <button class="btn warn"><i class="mdi mdi-arrow-up-bold-outline"></i> Push</button>
+            <button class="btn warn"><i class="mdi mdi-source-pull"></i> Open PR</button>
+            <button class="btn success"><i class="mdi mdi-source-merge"></i> Merge</button>
+            <button class="btn danger"><i class="mdi mdi-close-box-outline"></i> Close</button>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">JJ</span>
+          <div class="branch-line"><span class="jj-pill">jj:show-full-tool-call-args</span></div>
+          <div class="actions">
+            <button class="btn accent"><i class="mdi mdi-folder-plus-outline"></i> Add workspace</button>
+            <button class="btn success"><i class="mdi mdi-call-merge"></i> Fold back</button>
+            <button class="btn neutral"><i class="mdi mdi-delete-outline"></i> Forget</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card C: complete -->
+    <div class="card">
+      <div class="gutter"><span class="rail" style="background: var(--green)"></span><span class="chip"><i class="mdi mdi-robot-outline"></i></span></div>
+      <div class="body">
+        <div class="title-row">
+          <span class="title">add-bundle-mode-marker</span>
+          <button class="meta-icon" title="Rename"><i class="mdi mdi-pencil-outline"></i></button>
+          <span class="age">2h</span>
+          <button class="meta-icon" title="Hide"><i class="mdi mdi-eye-off-outline"></i></button>
+          <button class="meta-icon danger" title="Exit"><i class="mdi mdi-close"></i></button>
+        </div>
+        <div class="model-line">
+          <span class="model">anthropic/claude-sonnet-4 (high)</span>
+          <span style="flex:1"></span>
+          <button class="btn success"><i class="mdi mdi-play-circle-outline"></i> Resume</button>
+          <button class="btn primary"><i class="mdi mdi-source-fork"></i> Fork</button>
+        </div>
+        <div class="activity-row">
+          <span class="activity">Idle</span>
+          <span style="flex:1"></span>
+          <span class="ctx-bar"><div style="width:78%"></div></span>
+          <span class="cost">$1.10</span>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">OPENSPEC</span>
+          <div class="attached-line">
+            <span class="paperclip"><i class="mdi mdi-paperclip"></i></span>
+            <span class="attached-name">add-bundle-mode-marker</span>
+            <span class="state-pill state-complete">COMPLETE</span>
+            <button class="btn neutral" title="Detach"><i class="mdi mdi-link-off"></i> Detach</button>
+            <span style="flex:1"></span>
+            <button class="btn neutral icon-only" title="Refresh"><i class="mdi mdi-refresh"></i></button>
+          </div>
+          <div class="stepper">
+            <div class="step done"><span class="node"><i class="mdi mdi-check"></i></span><span class="label">Explore</span></div>
+            <div class="step done"><span class="node">P</span><span class="label">Proposal</span></div>
+            <div class="step done"><span class="node">D</span><span class="label">Design</span></div>
+            <div class="step done"><span class="node">S</span><span class="label">Specs</span></div>
+            <div class="step done"><span class="node">T</span><span class="label">Tasks</span><span class="sub">12/12</span></div>
+            <div class="step done"><span class="node"><i class="mdi mdi-send"></i></span><span class="label">Apply</span></div>
+            <div class="step current"><span class="node"><i class="mdi mdi-archive-outline"></i></span><span class="label">Archive</span></div>
+          </div>
+          <div class="actions">
+            <button class="btn info disabled"><i class="mdi mdi-compass-outline"></i> Explore</button>
+            <button class="btn success"><i class="mdi mdi-check-circle-outline"></i> Verify</button>
+            <button class="btn info"><i class="mdi mdi-format-list-checks"></i> Tasks 12/12</button>
+            <button class="btn accent"><i class="mdi mdi-archive-outline"></i> Archive</button>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">GIT</span>
+          <div class="branch-line">
+            <i class="mdi mdi-source-branch"></i> <a href="#">feature/add-bundle-mode-marker</a> · #189 ·
+            <span class="worktree-pill">worktree · add-bundle-mode-marker</span>
+          </div>
+          <div class="actions">
+            <button class="btn warn"><i class="mdi mdi-arrow-up-bold-outline"></i> Push</button>
+            <button class="btn warn"><i class="mdi mdi-source-pull"></i> Open PR</button>
+            <button class="btn success"><i class="mdi mdi-source-merge"></i> Merge</button>
+            <button class="btn danger"><i class="mdi mdi-close-box-outline"></i> Close</button>
+          </div>
+        </div>
+
+        <div class="subcard">
+          <span class="subcard-title">JJ</span>
+          <div class="branch-line"><span class="jj-pill">jj:add-bundle-mode-marker</span></div>
+          <div class="actions">
+            <button class="btn success"><i class="mdi mdi-call-merge"></i> Fold back</button>
+            <button class="btn neutral"><i class="mdi mdi-delete-outline"></i> Forget</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT: COMPOSER (chat view) ============ -->
+  <div>
+    <div class="pane-title">Chat view — cloned action strip above prompt</div>
+
+    <!-- placeholder for the chat transcript area -->
+    <div style="height: 180px; border: 1px dashed var(--border-subtle); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 11px; margin-bottom: 14px">
+      (chat transcript — unchanged)
+    </div>
+
+    <div class="composer-wrap">
+      <!-- existing model/level row (unchanged) -->
+      <div class="composer-model-row">
+        <span>anthropic/claude-opus-4-7 <span class="chev"><i class="mdi mdi-chevron-down"></i></span></span>
+        <span class="level-chip"><i class="mdi mdi-lightbulb-outline"></i> medium</span>
+        <span style="flex:1"></span>
+        <span style="font-size: 10px; color: var(--text-muted)">⌥⏎ to send · ⇧⏎ newline</span>
+      </div>
+
+      <!-- NEW cloned action strip -->
+      <div class="composer-actions">
+        <div class="strip-title">
+          <span class="dot"></span>
+          <span>session actions · show-full-tool-call-args</span>
+          <span style="flex:1"></span>
+          <button class="btn neutral icon-only" title="Refresh"><i class="mdi mdi-refresh"></i></button>
+        </div>
+
+        <!-- mini stepper (compact) -->
+        <div class="stepper composer-stepper">
+          <div class="step done"><span class="node"><i class="mdi mdi-check"></i></span><span class="label">Explore</span></div>
+          <div class="step done"><span class="node">P</span><span class="label">Proposal</span></div>
+          <div class="step done"><span class="node">D</span><span class="label">Design</span></div>
+          <div class="step todo"><span class="node">S</span><span class="label">Specs</span></div>
+          <div class="step current"><span class="node">T</span><span class="label">Tasks</span><span class="sub">4/12</span></div>
+          <div class="step todo"><span class="node"><i class="mdi mdi-send"></i></span><span class="label">Apply</span></div>
+          <div class="step todo"><span class="node"><i class="mdi mdi-archive-outline"></i></span><span class="label">Archive</span></div>
+        </div>
+
+        <div class="composer-actions-row">
+          <span class="group-label">OpenSpec</span>
+          <button class="btn info disabled" title="Detach to start a new explore"><i class="mdi mdi-compass-outline"></i> Explore</button>
+          <button class="btn primary"><i class="mdi mdi-play-circle-outline"></i> Apply</button>
+          <button class="btn info"><i class="mdi mdi-format-list-checks"></i> Tasks 4/12</button>
+          <button class="btn accent"><i class="mdi mdi-archive-outline"></i> Archive</button>
+          <button class="btn neutral icon-only"><i class="mdi mdi-dots-horizontal"></i></button>
+
+          <span class="group-divider"></span>
+
+          <span class="group-label">Git</span>
+          <button class="btn warn"><i class="mdi mdi-arrow-up-bold-outline"></i> Push</button>
+          <button class="btn warn"><i class="mdi mdi-source-pull"></i> Open PR</button>
+          <button class="btn success"><i class="mdi mdi-source-merge"></i> Merge</button>
+          <button class="btn danger"><i class="mdi mdi-close-box-outline"></i> Close</button>
+
+          <span class="group-divider"></span>
+
+          <span class="group-label">JJ</span>
+          <span class="jj-pill">jj:show-full-tool-call-args</span>
+          <button class="btn accent"><i class="mdi mdi-folder-plus-outline"></i> Add workspace</button>
+          <button class="btn success"><i class="mdi mdi-call-merge"></i> Fold back</button>
+        </div>
+      </div>
+
+      <!-- existing textarea (unchanged) -->
+      <div class="textarea">
+        Message, /command, !shell, or @file…
+        <span class="send-btn"><i class="mdi mdi-send"></i></span>
+      </div>
+    </div>
+
+    <div class="pane-title" style="margin-top: 28px">No-proposal state</div>
+    <div class="composer-wrap">
+      <div class="composer-model-row">
+        <span>anthropic/claude-opus-4-7 <span class="chev"><i class="mdi mdi-chevron-down"></i></span></span>
+        <span class="level-chip"><i class="mdi mdi-lightbulb-outline"></i> medium</span>
+        <span style="flex:1"></span>
+        <span style="font-size: 10px; color: var(--text-muted)">⌥⏎ to send · ⇧⏎ newline</span>
+      </div>
+      <div class="composer-actions">
+        <div class="strip-title">
+          <span class="dot"></span>
+          <span>session actions · pi-agent-dashboard</span>
+          <span style="flex:1"></span>
+          <button class="btn neutral icon-only" title="Refresh"><i class="mdi mdi-refresh"></i></button>
+        </div>
+        <div class="stepper composer-stepper">
+          <div class="step todo"><span class="node"><i class="mdi mdi-compass-outline"></i></span><span class="label">Explore</span></div>
+          <div class="step todo"><span class="node">P</span><span class="label">Proposal</span></div>
+          <div class="step todo"><span class="node">D</span><span class="label">Design</span></div>
+          <div class="step todo"><span class="node">S</span><span class="label">Specs</span></div>
+          <div class="step todo"><span class="node">T</span><span class="label">Tasks</span></div>
+          <div class="step todo"><span class="node"><i class="mdi mdi-send"></i></span><span class="label">Apply</span></div>
+          <div class="step todo disabled"><span class="node"><i class="mdi mdi-archive-outline"></i></span><span class="label">Archive</span></div>
+        </div>
+        <div class="composer-actions-row">
+          <span class="group-label">OpenSpec</span>
+          <button class="btn info"><i class="mdi mdi-compass-outline"></i> Explore</button>
+          <button class="btn primary"><i class="mdi mdi-plus"></i> New change</button>
+          <button class="btn accent disabled" title="Attach a change first"><i class="mdi mdi-archive-outline"></i> Archive</button>
+          <span class="group-divider"></span>
+          <span class="group-label">Git</span>
+          <span style="font-size:10px;color:var(--text-tertiary)"><i class="mdi mdi-source-branch"></i> develop</span>
+
+          <span class="group-divider"></span>
+
+          <span class="group-label">JJ</span>
+          <span class="jj-pill">jj:default</span>
+          <button class="btn accent"><i class="mdi mdi-folder-plus-outline"></i> Add workspace</button>
+        </div>
+      </div>
+      <div class="textarea">
+        Message, /command, !shell, or @file…
+        <span class="send-btn"><i class="mdi mdi-send"></i></span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  (function() {
+    const root = document.documentElement;
+    const themeSw = document.getElementById('theme-switcher');
+    const palSw = document.getElementById('palette-switcher');
+    const mql = window.matchMedia('(prefers-color-scheme: light)');
+    let theme = localStorage.getItem('mockup-theme') || 'dark';
+    let palette = localStorage.getItem('mockup-palette') || 'default';
+    function apply() {
+      // theme (light/system/dark)
+      let effective = theme;
+      if (theme === 'system') effective = mql.matches ? 'light' : 'dark';
+      if (effective === 'light') root.setAttribute('data-theme', 'light');
+      else root.removeAttribute('data-theme');
+      // palette profile
+      if (palette === 'default') root.removeAttribute('data-palette');
+      else root.setAttribute('data-palette', palette);
+      // active markers
+      themeSw.querySelectorAll('button').forEach(b => {
+        b.classList.toggle('active', b.dataset.themeSet === theme);
+      });
+      palSw.querySelectorAll('button').forEach(b => {
+        b.classList.toggle('active', b.dataset.paletteSet === palette);
+      });
+      localStorage.setItem('mockup-theme', theme);
+      localStorage.setItem('mockup-palette', palette);
+    }
+    themeSw.addEventListener('click', (e) => {
+      const t = e.target.closest('button');
+      if (!t) return;
+      theme = t.dataset.themeSet;
+      apply();
+    });
+    palSw.addEventListener('click', (e) => {
+      const t = e.target.closest('button');
+      if (!t) return;
+      palette = t.dataset.paletteSet;
+      apply();
+    });
+    mql.addEventListener('change', () => { if (theme === 'system') apply(); });
+    apply();
+  })();
+</script>
+</body>
+</html>

@@ -24,3 +24,4 @@ packages/electron/out
 packages/electron/.vite
 site/.astro/
 *.tsbuildinfo
+.worktrees/
