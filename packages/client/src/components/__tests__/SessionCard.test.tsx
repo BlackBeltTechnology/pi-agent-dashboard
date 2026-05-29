@@ -425,7 +425,7 @@ describe("GroupGitInfo", () => {
 // ── Subcard structure (redesign-session-card-subcards) ────────────────────────
 
 describe("SessionCard subcard structure", () => {
-  it("renders OPENSPEC, WORKSPACE, PROCESS subcard titles in order when populated", () => {
+  it("renders OPENSPEC, GIT, PROCESS subcard titles in order when populated", () => {
     const session = makeSession({ gitBranch: "feature/test" });
     const changes = [{ name: "feat-a", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: [] }];
     const { container } = render(
@@ -449,8 +449,11 @@ describe("SessionCard subcard structure", () => {
     // MEMORY and FLOWS are intentionally absent (no plugin contributes in this
     // test — the plugin registry is not populated). See change:
     // add-flows-subcard for the new FLOWS subcard's wiring.
-    const filtered = titles.filter((t) => t && /^(OPENSPEC|WORKSPACE|PROCESS|FLOWS|MEMORY)$/.test(t));
-    expect(filtered).toEqual(["OPENSPEC", "WORKSPACE", "PROCESS"]);
+    // WORKSPACE was split into GIT + JJ in change
+    // redesign-session-card-and-composer. JJ is absent here because no plugin
+    // claims session-card-badge or workspace-action-bar in this test.
+    const filtered = titles.filter((t) => t && /^(OPENSPEC|GIT|JJ|WORKSPACE|PROCESS|FLOWS|MEMORY)$/.test(t));
+    expect(filtered).toEqual(["OPENSPEC", "GIT", "PROCESS"]);
   });
 
   it("hides FLOWS subcard when no plugin claims session-card-flows", () => {

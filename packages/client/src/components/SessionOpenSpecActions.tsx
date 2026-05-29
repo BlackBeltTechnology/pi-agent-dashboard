@@ -26,18 +26,32 @@ import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDia
 import { GroupedAttachDialog } from "./GroupedAttachDialog.js";
 import { StatePill } from "./StatePill.js";
 import { TasksPopover } from "./TasksPopover.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
 
-function ActionButton({ label, icon, onClick, testId, disabled }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean }) {
+function ActionButton({ label, icon, onClick, testId, disabled, title }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; title?: string }) {
   return (
     <button
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
       disabled={disabled}
+      title={title}
       className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-[var(--text-secondary)] disabled:hover:border-[var(--border-secondary)]"
       data-testid={testId}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
     </button>
   );
+}
+
+// Exported helper so ComposerSessionActions can reuse a single source of truth
+// for OpenSpec action gating + tooltips.
+export function buildOpenSpecTooltips(args: { attached: string | null; state: ChangeState | null; streaming: boolean }): { explore?: string; archive?: string } {
+  const { attached, state, streaming } = args;
+  const explore = attached ? "Detach proposal to explore freely" : undefined;
+  let archive: string | undefined;
+  if (streaming) archive = "Session is streaming";
+  else if (!attached) archive = "Attach a change to archive";
+  else if (state !== ChangeState.COMPLETE) archive = "Complete tasks first";
+  return { explore, archive };
 }
 
 interface Props {
@@ -177,6 +191,14 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             <>
               <ActionButton label="Change" icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" />
               <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" />
+              <ActionButton
+                label="Archive"
+                icon={mdiArchiveOutline}
+                onClick={() => { /* no-op when disabled */ }}
+                testId="archive-disabled-btn"
+                disabled
+                title={actionsDisabledGlobal ? "Session is streaming" : "Attach a change to archive"}
+              />
               {bulkArchiveButton}
             </>
           )}
@@ -254,6 +276,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     state === ChangeState.IMPLEMENTING && change.isComplete === true && allArtifactsDone;
   const uncheckedCount = Math.max(0, change.totalTasks - change.completedTasks);
 
+  const stepperHasAnyChanges = changes.length > 0;
   return (
     <div className="mt-1 space-y-1" data-testid="session-openspec-actions">
       {/* Line 1: badge + state pill + detach + artifact letters right-aligned */}
@@ -264,12 +287,23 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <span className="flex-1" />
         <ArtifactLettersButton artifacts={change.artifacts} changeName={change.name} onReadArtifact={onReadArtifact} />
       </div>
+      {/* OpenSpec stepper — see change: redesign-session-card-and-composer (4.3). */}
+      <OpenSpecStepper variant="sidebar" change={change} attached={attached} hasAnyChanges={stepperHasAnyChanges} />
       {/* Line 2: action buttons driven by ChangeState */}
       {!isEnded && (() => {
         const actionsDisabled = session.status === "streaming";
+        const tips = buildOpenSpecTooltips({ attached, state, streaming: actionsDisabled });
+        const archiveEnabled = !actionsDisabled && state === ChangeState.COMPLETE;
         return (
           <div className="flex items-center gap-1 flex-wrap">
-            <ActionButton label="Explore" icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-btn" disabled={actionsDisabled} />
+            <ActionButton
+              label="Explore"
+              icon={mdiCompassOutline}
+              onClick={() => setExploreOpen(true)}
+              testId="explore-btn"
+              disabled={true /* attached path always disables Explore */}
+              title={actionsDisabled ? "Session is streaming" : tips.explore}
+            />
             {state === ChangeState.PLANNING && (
               <>
                 <ActionButton label="Continue" icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} />
@@ -280,11 +314,17 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
               <ActionButton label="Apply" icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} />
             )}
             {state === ChangeState.COMPLETE && (
-              <>
-                <ActionButton label="Verify" icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} />
-                <ActionButton label="Archive" icon={mdiArchiveOutline} onClick={() => setArchiveConfirm(true)} testId="archive-btn" disabled={actionsDisabled} />
-              </>
+              <ActionButton label="Verify" icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} />
             )}
+            <ActionButton
+              label="Archive"
+              icon={mdiArchiveOutline}
+              onClick={() => setArchiveConfirm(true)}
+              testId="archive-btn"
+              disabled={!archiveEnabled}
+              title={tips.archive}
+            />
+            {/* close Verify-only branch */}
             {change.artifacts.length > 0 && hasParseableTasks && (
               <ActionButton
                 label={`Tasks ${change.completedTasks}/${change.totalTasks}`}

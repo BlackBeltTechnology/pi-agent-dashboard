@@ -1230,6 +1230,19 @@ export default function App() {
             history={selectedHistory}
             images={selectedImages}
             onImagesChange={setImagesForSelected}
+            /* Composer session-actions strip props. See change:
+               redesign-session-card-and-composer (9.x). */
+            session={selectedSession}
+            openspecChanges={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
+            openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
+            openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
+            onAttachProposal={selectedId ? (changeName) => handleAttachProposal(selectedId, changeName) : undefined}
+            onDetachProposal={selectedId ? () => handleDetachProposal(selectedId) : undefined}
+            onReadArtifact={selectedCwd ? (changeName, artifactId) => handleReadArtifact(selectedCwd, changeName, artifactId) : undefined}
+            onBulkArchive={handleBulkArchive}
+            onRefreshOpenspec={selectedCwd ? () => handleOpenSpecRefresh(selectedCwd) : undefined}
+            allSessions={Array.from(sessions.values())}
+            showGitInfo={true}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
           {selectedSession && <ContentInlineFooterSlot session={selectedSession} />}

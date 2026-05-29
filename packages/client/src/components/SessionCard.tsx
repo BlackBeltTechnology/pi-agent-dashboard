@@ -540,8 +540,11 @@ export function SessionCard({
       data-session-id={session.id}
       onClick={() => onSelect(session.id)}
       className={`px-2 py-2 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 ${
-        isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+        isSelected
+          ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
+          : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
       } ${isHidden ? "opacity-40" : ""} ${getCardPulseClass(session, hasWidgetBarPrompt)}`}
+      data-testid="session-card-desktop"
     >
       <div className="flex gap-1.5">
       {/* Left gutter: a status-tinted capsule rail with a circular icon chip
@@ -752,16 +755,16 @@ export function SessionCard({
         </SessionSubcard>
       )}
 
-      {/* WORKSPACE subcard — git info + plugin badge contributions.
-          flows-plugin's FlowActivityBadgeClaim and jj-plugin's badge
-          render here via the session-card-badge slot consumer that
-          WorkspaceSubcard hosts internally. */}
-      <WorkspaceSubcard
+      {/* GIT + JJ subcards — split from the old WORKSPACE subcard so the
+          two version-control concepts no longer share a host container.
+          See change: redesign-session-card-and-composer (5.1–5.3). */}
+      <GitSubcard
         session={session}
         showGitInfo={showGitInfo}
         allSessions={allSessions ?? []}
         onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
       />
+      <JjSubcard session={session} />
 
       {/* PROCESS subcard */}
       {processes && processes.length > 0 && onKillProcess && (
@@ -790,26 +793,37 @@ export function SessionCard({
 }
 
 /**
- * WORKSPACE subcard — git/jj info plus plugin badge contributions.
- * Hidden when both showGitInfo is false AND no plugin claims session-card-badge.
- * See change: redesign-session-card-subcards (D4).
+ * GIT subcard — git branch / PR / worktree pill + worktree actions menu.
+ * Strictly git-scoped: never considers plugin slot claims.
+ * See change: redesign-session-card-and-composer (5.1).
  */
-function WorkspaceSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void }) {
-  const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
-  const hasActions = useSlotHasClaimsForSession("workspace-action-bar", session);
+function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void }) {
   // Worktree sessions need their own GitInfo line even in multi-session
-  // groups — the group header shows the main checkout's branch, but the
-  // worktree session is on a different branch and carries the
-  // <WorktreePill> identity marker. See change: add-worktree-spawn-dialog.
+  // groups (parent group header shows the main checkout's branch).
   const renderGitInfo = showGitInfo || !!session.gitWorktree;
   const hasWorktreeActions = !!session.gitWorktree;
-  if (!renderGitInfo && !hasBadge && !hasActions && !hasWorktreeActions) return null;
+  if (!renderGitInfo && !hasWorktreeActions) return null;
   return (
-    <SessionSubcard title="WORKSPACE">
+    <SessionSubcard title="GIT">
       {renderGitInfo ? <GitInfo session={session} /> : null}
+      {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
+    </SessionSubcard>
+  );
+}
+
+/**
+ * JJ subcard — jj-plugin badge + workspace-action-bar slot contributions.
+ * Strictly plugin-scoped: never considers git state.
+ * See change: redesign-session-card-and-composer (5.1).
+ */
+function JjSubcard({ session }: { session: DashboardSession }) {
+  const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
+  const hasActions = useSlotHasClaimsForSession("workspace-action-bar", session);
+  if (!hasBadge && !hasActions) return null;
+  return (
+    <SessionSubcard title="JJ">
       {hasBadge ? <SessionCardBadgeSlot session={session} /> : null}
       {hasActions ? <WorkspaceActionBarSlot session={session} /> : null}
-      {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
     </SessionSubcard>
   );
 }

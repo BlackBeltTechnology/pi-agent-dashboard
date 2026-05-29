@@ -38,6 +38,14 @@
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.4);
+
+  /* Selected-card iridescent ring alphas.
+     See change: redesign-session-card-and-composer (1.1). */
+  --neon-rim-alpha: 0.45;
+  --neon-glow-alpha: 0.10;
+  --neon-glow-blur: 8px;
+  --neon-glow-opacity: 0.42;
+  --neon-bg-tint: rgba(96, 165, 250, 0.025);
 }
 
 [data-theme="light"] {
@@ -70,6 +78,14 @@
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08);
+
+  /* Light-theme override of the iridescent ring alphas.
+     See change: redesign-session-card-and-composer (1.1). */
+  --neon-rim-alpha: 0.50;
+  --neon-glow-alpha: 0.18;
+  --neon-glow-blur: 11px;
+  --neon-glow-opacity: 0.52;
+  --neon-bg-tint: rgba(37, 99, 235, 0.035);
 }
 
 html, body {
@@ -293,4 +309,103 @@ mark.markdown-search-highlight-active {
 }
 .flow-edge-animated {
   animation: flow-edge-dash 0.8s linear infinite;
+}
+
+/* ── Selected-card iridescent ring ────────────────────────────
+   See change: redesign-session-card-and-composer (1.1–1.5).
+   Mounted via `.card-selected-ring` class on the desktop card root
+   when isSelected === true. Coexists with the static blue fallback
+   border + the existing pulse classes (card-working-pulse, etc.). */
+@property --neon-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes neon-rotate { to { --neon-angle: 360deg; } }
+
+.card-selected-ring {
+  position: relative;
+  isolation: isolate;
+}
+.card-selected-ring > * { position: relative; z-index: 2; }
+.card-selected-ring::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--neon-angle, 0deg),
+    rgb(59 130 246 / var(--neon-rim-alpha)),
+    rgb(139 92 246 / var(--neon-rim-alpha)),
+    rgb(236 72 153 / var(--neon-rim-alpha)),
+    rgb(34 211 238 / var(--neon-rim-alpha)),
+    rgb(59 130 246 / var(--neon-rim-alpha))
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+  animation: neon-rotate 13s linear infinite;
+}
+.card-selected-ring::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--neon-angle, 0deg),
+    rgb(59 130 246 / var(--neon-glow-alpha)),
+    rgb(139 92 246 / var(--neon-glow-alpha)),
+    rgb(236 72 153 / var(--neon-glow-alpha)),
+    rgb(34 211 238 / var(--neon-glow-alpha)),
+    rgb(59 130 246 / var(--neon-glow-alpha))
+  );
+  filter: blur(var(--neon-glow-blur));
+  opacity: var(--neon-glow-opacity);
+  pointer-events: none;
+  z-index: 0;
+  animation: neon-rotate 13s linear infinite;
+}
+
+@keyframes neon-breathe {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.65; }
+}
+@supports not (background: conic-gradient(from 0deg, red, blue)) {
+  .card-selected-ring::before {
+    background: rgba(96, 165, 250, 0.5);
+    animation: none;
+  }
+  .card-selected-ring::after {
+    animation: neon-breathe 6s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-selected-ring::before,
+  .card-selected-ring::after { animation: none; }
+}
+
+/* ── OpenSpec stepper node opaque base ────────────────────────
+   See change: redesign-session-card-and-composer (1.6).
+   Two-layer background — the inner linear-gradient tint stacks
+   over an opaque var(--bg-tertiary) base so the connecting line
+   between nodes can never bleed through the node interior. */
+.openspec-stepper-node-base {
+  background:
+    linear-gradient(var(--bg-tertiary), var(--bg-tertiary)),
+    var(--bg-tertiary);
+  background-color: var(--bg-tertiary);
+}
+@keyframes openspec-stepper-pulse-current {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18); }
+  50%      { box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.30); }
+}
+.openspec-stepper-node-current {
+  animation: openspec-stepper-pulse-current 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .openspec-stepper-node-current { animation: none; }
 }

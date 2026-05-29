@@ -183,9 +183,12 @@ describe("SessionOpenSpecActions", () => {
     expect(btn.textContent).toBe("PD");
   });
 
-  // --- PLANNING state: Continue, FF, Explore ---
+  // --- PLANNING state: Continue, FF, disabled Explore + Archive ---
+  // See change: redesign-session-card-and-composer (4.1 + 4.2).
+  // Explore is always-rendered-but-disabled when attached. Archive is
+  // always-rendered-but-disabled when state !== COMPLETE.
 
-  it("shows Explore, Continue, FF for PLANNING state", () => {
+  it("shows disabled Explore, Continue, FF, disabled Archive for PLANNING state", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "add-auth", status: "active" })}
@@ -195,18 +198,21 @@ describe("SessionOpenSpecActions", () => {
     );
     expect(screen.getByTestId("attached-badge").textContent).toContain("add-auth");
     expect(screen.getByTestId("explore-btn")).toBeTruthy();
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("continue-btn")).toBeTruthy();
     expect(screen.getByTestId("ff-btn")).toBeTruthy();
+    expect(screen.getByTestId("archive-btn")).toBeTruthy();
+    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("archive-btn").getAttribute("title")).toBe("Complete tasks first");
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
     expect(screen.queryByTestId("read-btn")).toBeNull();
     expect(screen.queryByTestId("apply-btn")).toBeNull();
     expect(screen.queryByTestId("verify-btn")).toBeNull();
-    expect(screen.queryByTestId("archive-btn")).toBeNull();
   });
 
   // --- READY state: Apply, Explore, Read ---
 
-  it("shows Explore, Apply for READY state", () => {
+  it("shows disabled Explore, Apply, disabled Archive for READY state", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "ready-change", status: "active" })}
@@ -214,19 +220,18 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    expect(screen.getByTestId("explore-btn")).toBeTruthy();
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("apply-btn")).toBeTruthy();
+    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("read-btn")).toBeNull();
     expect(screen.queryByTestId("continue-btn")).toBeNull();
     expect(screen.queryByTestId("ff-btn")).toBeNull();
     expect(screen.queryByTestId("verify-btn")).toBeNull();
-    expect(screen.queryByTestId("archive-btn")).toBeNull();
   });
 
   // --- IMPLEMENTING state: Apply, Explore, Read ---
 
-  it("shows Explore, Apply for IMPLEMENTING state", () => {
+  it("shows disabled Explore, Apply, disabled Archive for IMPLEMENTING state", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "impl-change", status: "active" })}
@@ -234,19 +239,18 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    expect(screen.getByTestId("explore-btn")).toBeTruthy();
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("apply-btn")).toBeTruthy();
+    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("read-btn")).toBeNull();
     expect(screen.queryByTestId("continue-btn")).toBeNull();
     expect(screen.queryByTestId("ff-btn")).toBeNull();
     expect(screen.queryByTestId("verify-btn")).toBeNull();
-    expect(screen.queryByTestId("archive-btn")).toBeNull();
   });
 
   // --- COMPLETE state: Verify, Archive, Explore, Read ---
 
-  it("shows Explore, Verify, Archive for COMPLETE state", () => {
+  it("shows disabled Explore, Verify, enabled Archive for COMPLETE state", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "fix-bug", status: "active" })}
@@ -254,9 +258,10 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    expect(screen.getByTestId("explore-btn")).toBeTruthy();
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("verify-btn")).toBeTruthy();
     expect(screen.getByTestId("archive-btn")).toBeTruthy();
+    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
     expect(screen.queryByTestId("read-btn")).toBeNull();
     expect(screen.queryByTestId("continue-btn")).toBeNull();
@@ -373,7 +378,7 @@ describe("SessionOpenSpecActions", () => {
 
   // --- Disabled when not active ---
 
-  it("enables action buttons when session is idle", () => {
+  it("keeps Explore disabled (attached) but enables other buttons when session is idle", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
@@ -381,7 +386,8 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(false);
+    // Explore stays disabled because a proposal is attached (4.1).
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId("ff-btn") as HTMLButtonElement).disabled).toBe(false);
   });
@@ -398,7 +404,7 @@ describe("SessionOpenSpecActions", () => {
     expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("enables action buttons when session is active", () => {
+  it("keeps Explore disabled (attached) but enables Continue when session is active", () => {
     render(
       <SessionOpenSpecActions
         session={makeSession({ attachedProposal: "add-auth", status: "active" })}
@@ -406,7 +412,7 @@ describe("SessionOpenSpecActions", () => {
         {...defaultProps}
       />,
     );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(false);
   });
 
