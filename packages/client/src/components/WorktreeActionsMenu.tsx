@@ -59,6 +59,13 @@ interface Props {
   /** Live session list — used by the close dialog to render active-session names. */
   allSessions: DashboardSession[];
   onShutdownSession: (sessionId: string) => void;
+  /**
+   * External disable signal. When true, every action button renders
+   * disabled regardless of internal `busy` state. Used by the composer
+   * strip to gate all actions while the session is streaming.
+   * See change: redesign-session-card-and-composer (statusbar-disable-on-streaming).
+   */
+  disabled?: boolean;
 }
 
 interface ToastMsg {
@@ -87,7 +94,7 @@ function labelForCode(code: string): string {
   }
 }
 
-export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }: Props) {
+export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, disabled: externalDisabled }: Props) {
   const [busy, setBusy] = useState<null | "push" | "pr">(null);
   const [toast, setToast] = useState<ToastMsg | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -137,6 +144,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
     }
   };
 
+  type BtnVariant = "warn" | "success" | "danger" | "neutral";
   const buttons: Array<{
     key: string;
     label: string;
@@ -144,7 +152,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
     onClick: () => void;
     title: string;
     disabled?: boolean;
-    danger?: boolean;
+    variant: BtnVariant;
   }> = [
     {
       key: "push",
@@ -153,6 +161,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       onClick: onPush,
       title: "Push branch to origin",
       disabled: busy !== null,
+      variant: "warn",
     },
     ...(showPrButton ? [{
       key: "pr",
@@ -161,6 +170,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       onClick: onOpenPr,
       title: session.gitPrNumber != null ? `Open PR #${session.gitPrNumber} in browser` : "Open a pull request via gh",
       disabled: busy !== null,
+      variant: "warn" as const,
     }] : []),
     {
       key: "merge",
@@ -168,6 +178,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       icon: mdiSourceMerge,
       onClick: () => setMergeOpen(true),
       title: "Merge this branch into its base",
+      variant: "success",
     },
     {
       key: "close",
@@ -175,19 +186,30 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession }:
       icon: mdiCloseBoxOutline,
       onClick: () => setCloseOpen(true),
       title: "Close (remove) this worktree",
-      danger: true,
+      variant: "danger",
     },
   ];
+
+  // Palette mirrors ComposerSessionActions — keep both surfaces visually
+  // consistent. See change: redesign-session-card-and-composer
+  // (statusbar-color-vcs-buttons).
+  const variantClasses: Record<BtnVariant, string> = {
+    warn:    "text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70",
+    success: "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70",
+    danger:  "text-red-400 border-red-500/40 bg-red-500/5 hover:text-red-300 hover:border-red-500/70",
+    neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)]",
+  };
 
   const renderButton = (b: (typeof buttons)[number]) => (
     <button
       key={b.key}
       type="button"
       onClick={b.onClick}
-      disabled={b.disabled}
-      title={b.title}
+      disabled={b.disabled || externalDisabled}
+      title={externalDisabled ? "Session is streaming" : b.title}
       data-testid={`worktree-action-${b.key}`}
-      className={`inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] disabled:opacity-50 ${b.danger ? "hover:text-red-400 hover:border-red-500/50" : "hover:text-[var(--text-primary)]"}`}
+      data-variant={b.variant}
+      className={`inline-flex items-center px-1.5 py-[1px] rounded border disabled:opacity-50 disabled:cursor-not-allowed ${variantClasses[b.variant]}`}
     >
       <Icon path={b.icon} size={0.45} className="inline mr-0.5" />
       {b.label}
