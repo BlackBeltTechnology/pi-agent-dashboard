@@ -196,6 +196,38 @@ describe("ToolCallStep", () => {
     });
   });
 
+  it("renders the full bash command in collapsed summary (no slice)", () => {
+    const longCommand =
+      "test -e openspec/changes/archive/2026-05-28-bump-pi-compat-to-0-75/proposal.md";
+    const { container } = renderStep({
+      toolName: "bash",
+      toolCallId: "tc-bash-long",
+      args: { command: longCommand },
+      status: "complete",
+    });
+    const button = container.querySelector("button")!;
+    expect(button.textContent).toContain(longCommand);
+    expect(button.getAttribute("title")).toBe(`$ ${longCommand}`);
+    // Visible truncation handled by CSS class on the summary span
+    const summarySpan = button.querySelector("span.truncate");
+    expect(summarySpan).not.toBeNull();
+    expect(summarySpan!.textContent).toBe(`$ ${longCommand}`);
+  });
+
+  it("renders the full Agent description in collapsed summary (no slice)", () => {
+    const longDesc =
+      "Investigate the entire src/server directory for legacy reconnect logic and propose a rewrite";
+    const { container } = renderStep({
+      toolName: "Agent",
+      toolCallId: "tc-agent-long",
+      args: { subagent_type: "Explore", description: longDesc },
+      status: "running",
+    });
+    const button = container.querySelector("button")!;
+    expect(button.textContent).toContain(longDesc);
+    expect(button.getAttribute("title")).toBe(`Explore: ${longDesc}`);
+  });
+
   it("opens lightbox when clicking a tool result image", () => {
     const { container } = renderStep({
       toolName: "read",

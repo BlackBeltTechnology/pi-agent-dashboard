@@ -26,16 +26,16 @@ interface Props {
 
 const toolSummaries: Record<string, (args?: Record<string, unknown>) => string> = {
   read: (args) => `Read ${args?.path ?? "file"}`,
-  bash: (args) => `$ ${String(args?.command ?? "").slice(0, 60)}`,
+  bash: (args) => `$ ${String(args?.command ?? "")}`,
   edit: (args) => `Edit ${args?.path ?? "file"}`,
   write: (args) => `Write ${args?.path ?? "file"}`,
   grep: (args) => `Grep ${args?.pattern ?? ""}`,
   find: (args) => `Find ${args?.glob ?? ""}`,
   ls: (args) => `ls ${args?.path ?? "."}`,
-  ask_user: (args) => `${String(args?.title ?? "ask_user").slice(0, 80)}`,
-  Agent: (args) => `${args?.subagent_type ?? "Agent"}: ${String(args?.description ?? "").slice(0, 60)}`,
-  get_subagent_result: (args) => `Get result: ${String(args?.agent_id ?? "").slice(0, 30)}`,
-  steer_subagent: (args) => `Steer: ${String(args?.agent_id ?? "").slice(0, 30)}`,
+  ask_user: (args) => `${String(args?.title ?? "ask_user")}`,
+  Agent: (args) => `${args?.subagent_type ?? "Agent"}: ${String(args?.description ?? "")}`,
+  get_subagent_result: (args) => `Get result: ${String(args?.agent_id ?? "")}`,
+  steer_subagent: (args) => `Steer: ${String(args?.agent_id ?? "")}`,
 };
 
 function getSummary(toolName: string, args?: Record<string, unknown>): string {
@@ -69,6 +69,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
     <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}>
       <button
         onClick={() => setExpanded(!expanded)}
+        title={getSummary(toolName, args)}
         className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
       >
         <span className={`inline-flex ${

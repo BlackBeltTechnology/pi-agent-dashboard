@@ -16,7 +16,7 @@ interface Props {
 }
 
 const toolSummaries: Record<string, (args?: Record<string, unknown>) => string> = {
-  bash: (args) => `$ ${String(args?.command ?? "").slice(0, 50)}`,
+  bash: (args) => `$ ${String(args?.command ?? "")}`,
   read: (args) => `Read ${args?.path ?? "file"}`,
   edit: (args) => `Edit ${args?.path ?? "file"}`,
   write: (args) => `Write ${args?.path ?? "file"}`,
@@ -38,6 +38,7 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
     <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}>
       <button
         onClick={() => setExpanded(!expanded)}
+        title={getSummary(group.toolName, firstArgs)}
         className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
         data-testid="collapsed-group"
       >
