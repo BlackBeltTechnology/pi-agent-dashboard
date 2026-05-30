@@ -58,6 +58,7 @@ import { FileDiffView } from "./components/FileDiffView.js";
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
+import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { useEditors } from "./lib/use-editors.js";
 import { useContentViews } from "./hooks/useContentViews.js";
@@ -873,6 +874,26 @@ export default function App() {
     return ids;
   }, [sessionStates]);
 
+  // Per-session map of unresolved `bash` toolCalls, consumed by the
+  // SessionActivityBar inside each session card's PROCESS subcard.
+  // See change: redesign-process-list-activity-bar.
+  const inflightBashMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof selectInflightBashTools>>();
+    for (const [id, state] of sessionStates) {
+      const tools = selectInflightBashTools(state);
+      if (tools.length > 0) map.set(id, tools);
+    }
+    return map;
+  }, [sessionStates]);
+
+  // Activity-bar stop button. Phase 1 maps every per-toolCall abort to the
+  // session-level abort wire message (only abort path that exists today).
+  // toolCallId is accepted for forward-compat; Phase 2 may add a per-toolCall
+  // abort. See change: redesign-process-list-activity-bar (Q2 path b).
+  const handleAbortTool = useCallback((sessionId: string, _toolCallId: string) => {
+    send({ type: "abort", sessionId });
+  }, [send]);
+
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
@@ -941,6 +962,8 @@ export default function App() {
       onCollapseSidebar={sidebar.toggleCollapse}
       commandsMap={sessionCommands}
       onKillProcess={handleKillProcess}
+      inflightBashMap={inflightBashMap}
+      onAbortTool={handleAbortTool}
       onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/terminals`)}
       onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
       editorStatuses={editorStatuses}

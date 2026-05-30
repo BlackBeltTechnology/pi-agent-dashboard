@@ -347,6 +347,57 @@ describe("SessionCard", () => {
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
+  // ── mobile PROCESS subcard ─────────────────────────────────────────────────────────
+  // See change: redesign-process-list-activity-bar (task 4).
+
+  it("mobile: activity bar full-width rows; drawer collapses to a chip", async () => {
+    const { useMobile } = await import("../../hooks/useMobile.js");
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const session = makeSession();
+    const proc = { pid: 1, pgid: 1, command: "vitest --watch", elapsedMs: 60_000 } as any;
+    const bashTool = { toolCallId: "tc-1", command: "npm test", startedAt: Date.now() - 5000 };
+    const { getByTestId } = render(
+      <SessionCard
+        session={session}
+        {...defaultProps}
+        processes={[proc]}
+        onKillProcess={() => {}}
+        inflightBashTools={[bashTool]}
+        onAbortTool={() => {}}
+      />,
+    );
+    expect(getByTestId("session-activity-bar")).toBeTruthy();
+    const chip = getByTestId("background-drawer-chip");
+    expect(chip.textContent).toContain("1");
+
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it("mobile: tapping chip opens sheet with full process list", async () => {
+    const { useMobile } = await import("../../hooks/useMobile.js");
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    const session = makeSession();
+    const proc = { pid: 1, pgid: 1, command: "vitest --watch", elapsedMs: 60_000 } as any;
+    const { getByTestId, queryByTestId } = render(
+      <SessionCard
+        session={session}
+        {...defaultProps}
+        processes={[proc]}
+        onKillProcess={() => {}}
+        inflightBashTools={[]}
+        onAbortTool={() => {}}
+      />,
+    );
+    expect(queryByTestId("background-drawer-sheet")).toBeNull();
+    fireEvent.click(getByTestId("background-drawer-chip"));
+    const sheet = getByTestId("background-drawer-sheet");
+    expect(sheet.textContent).toContain("vitest --watch");
+
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
   it("does NOT render mobile-card-attached-chip when attachedProposal is null/undefined", async () => {
     const { useMobile } = await import("../../hooks/useMobile.js");
     (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
@@ -473,6 +524,137 @@ describe("SessionCard subcard structure", () => {
       />,
     );
     expect(screen.queryByText("PROCESS")).toBeNull();
+  });
+
+  // ── PROCESS subcard four-state matrix ──────────────────────────────────
+  // See change: redesign-process-list-activity-bar (Mermaid state machine).
+  // States: Hidden / ActiveOnly / OrphansOnly / Both.
+  describe("PROCESS subcard composition (redesign-process-list-activity-bar)", () => {
+    const proc = { pid: 123, pgid: 123, command: "vitest --watch", elapsedMs: 60_000 } as any;
+    const bashTool = { toolCallId: "tc-1", command: "npm test", startedAt: Date.now() - 5000 };
+
+    it("Hidden: empty activity + empty drawer → no PROCESS subcard", () => {
+      const session = makeSession();
+      render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(screen.queryByText("PROCESS")).toBeNull();
+    });
+
+    it("ActiveOnly: activity bar visible, drawer absent", () => {
+      const session = makeSession();
+      const { queryByTestId } = render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[]}
+          onKillProcess={() => {}}
+          inflightBashTools={[bashTool]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(screen.getByText("PROCESS")).toBeTruthy();
+      expect(queryByTestId("session-activity-bar")).toBeTruthy();
+      expect(queryByTestId("background-drawer")).toBeNull();
+      expect(queryByTestId("background-drawer-summary")).toBeNull();
+    });
+
+    it("OrphansOnly: drawer visible AND expanded by default (pure-orphan)", () => {
+      const session = makeSession();
+      const { getByTestId, queryByTestId } = render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(screen.getByText("PROCESS")).toBeTruthy();
+      expect(queryByTestId("session-activity-bar")).toBeNull();
+      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("Both: activity bar visible AND drawer collapsed by default", () => {
+      const session = makeSession();
+      const { getByTestId } = render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[bashTool]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(screen.getByText("PROCESS")).toBeTruthy();
+      expect(getByTestId("session-activity-bar")).toBeTruthy();
+      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("user toggle persists across activity-bar transitions", () => {
+      const session = makeSession();
+      // Start in OrphansOnly (drawer default = expanded), user collapses it.
+      const { getByTestId, rerender } = render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(getByTestId("background-drawer-summary"));
+      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
+      // Activity bar gains a tool, then loses it — drawer must remember
+      // the user's collapse.
+      rerender(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[bashTool]}
+          onAbortTool={() => {}}
+        />,
+      );
+      rerender(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("activity bar stop button invokes onAbortTool with toolCallId", () => {
+      const onAbortTool = vi.fn();
+      const session = makeSession();
+      const { getByTestId } = render(
+        <SessionCard
+          session={session}
+          {...defaultProps}
+          inflightBashTools={[bashTool]}
+          onAbortTool={onAbortTool}
+        />,
+      );
+      fireEvent.click(getByTestId("session-activity-stop"));
+      expect(onAbortTool).toHaveBeenCalledWith("tc-1");
+    });
   });
 
   it("hides MEMORY subcard when no plugin claims session-card-memory", () => {

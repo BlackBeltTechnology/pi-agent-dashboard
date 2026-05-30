@@ -1,4 +1,4 @@
-import React, { useState, useEffect, type ReactNode } from "react";
+import React, { useState, useEffect, useCallback, type ReactNode } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { Icon } from "@mdi/react";
 import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiConsoleLine } from "@mdi/js";
@@ -34,6 +34,8 @@ import { InlineRenameInput } from "./InlineRenameInput.js";
 // jj-plugin components (JjWorkspaceBadge, JjActionBar, JjInitAffordance)
 // are rendered the same way per change wire-plugin-registry-into-shell.
 import { ProcessList, type ProcessEntry } from "./ProcessList.js";
+import { SessionActivityBar } from "./SessionActivityBar.js";
+import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -343,6 +345,8 @@ export function SessionCard({
   commands,
   processes,
   onKillProcess,
+  inflightBashTools,
+  onAbortTool,
   hasError,
   isRetrying,
 }: {
@@ -400,6 +404,20 @@ export function SessionCard({
   commands?: CommandInfo[];
   processes?: ProcessEntry[];
   onKillProcess?: (pgid: number) => void;
+  /**
+   * Unresolved `bash` toolCalls for this session, surfaced by
+   * `selectInflightBashTools` over the client-side event reducer.
+   * Drives the SessionActivityBar inside the PROCESS subcard.
+   * See change: redesign-process-list-activity-bar.
+   */
+  inflightBashTools?: InflightBashTool[];
+  /**
+   * Invoked when the activity bar's stop button is clicked. Receives the
+   * toolCallId for forward-compat; Phase 1 maps every invocation to the
+   * session-level abort because no per-toolCall abort message exists yet
+   * (design.md Q2 path b). See change: redesign-process-list-activity-bar.
+   */
+  onAbortTool?: (toolCallId: string) => void;
   hasError?: boolean;
   /** True iff a synthesized provider retry is in flight (retryState set, no error yet). */
   isRetrying?: boolean;
@@ -532,10 +550,15 @@ export function SessionCard({
             }
           />
         ) : null}
-        {/* Active child processes (mobile compact) */}
-        {processes && processes.length > 0 && onKillProcess && (
-          <ProcessList processes={processes} onKill={onKillProcess} compact />
-        )}
+        {/* PROCESS subcard (mobile compact) — activity bar + drawer.
+            See change: redesign-process-list-activity-bar. */}
+        <MobileProcessSubcard
+          activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
+          processes={processes ?? EMPTY_PROCESSES}
+          onKill={onKillProcess}
+          onAbortTool={onAbortTool}
+          now={now}
+        />
       </li>
     );
   }
@@ -773,12 +796,17 @@ export function SessionCard({
       />
       <JjSubcard session={session} />
 
-      {/* PROCESS subcard */}
-      {processes && processes.length > 0 && onKillProcess && (
-        <SessionSubcard title="PROCESS">
-          <ProcessList processes={processes} onKill={onKillProcess} />
-        </SessionSubcard>
-      )}
+      {/* PROCESS subcard — activity bar (in-flight bash toolCalls) +
+          background processes drawer. Subcard hides only when BOTH the
+          activity bar's inflight list and the drawer's process list are
+          empty. See change: redesign-process-list-activity-bar. */}
+      <ProcessSubcard
+        activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
+        processes={processes ?? EMPTY_PROCESSES}
+        onKill={onKillProcess}
+        onAbortTool={onAbortTool}
+        now={now}
+      />
 
       {/* FLOWS subcard — plugin slot only.
           Populated by flows-plugin's SessionFlowActionsClaim via the
@@ -796,6 +824,120 @@ export function SessionCard({
       </div>{/* end card content */}
       </div>{/* end flex row */}
     </li>
+  );
+}
+
+// Module-level stable empty references for default-prop normalization — avoid
+// allocating new arrays on every render so React.memo / useMemo equality
+// downstream doesn't churn. See change: redesign-process-list-activity-bar.
+const EMPTY_BASH_TOOLS: readonly InflightBashTool[] = [];
+const EMPTY_PROCESSES: readonly ProcessEntry[] = [];
+
+/**
+ * useDrawerExpansion — owns the per-session drawer toggle override.
+ *
+ * Contextual default: `expanded` when the activity bar is empty AND the
+ * drawer is non-empty ("pure-orphan" state — only signal in the card).
+ * User toggles flip an explicit override that wins over the default and
+ * persists for the lifetime of this component instance (one session card).
+ *
+ * See change: redesign-process-list-activity-bar (Decision 4).
+ */
+function useDrawerExpansion(activityEmpty: boolean, drawerNonEmpty: boolean) {
+  const [override, setOverride] = useState<boolean | null>(null);
+  const contextualDefault = activityEmpty && drawerNonEmpty;
+  const expanded = override ?? contextualDefault;
+  const onToggle = useCallback(() => {
+    setOverride((prev) => !(prev ?? contextualDefault));
+  }, [contextualDefault]);
+  return { expanded, onToggle };
+}
+
+interface ProcessSubcardProps {
+  activity: readonly InflightBashTool[];
+  processes: readonly ProcessEntry[];
+  onKill?: (pgid: number) => void;
+  onAbortTool?: (toolCallId: string) => void;
+  now: number;
+}
+
+/**
+ * Desktop PROCESS subcard — stacks SessionActivityBar above the
+ * BackgroundProcessesDrawer (ProcessList). Subcard hides only when BOTH
+ * surfaces have nothing to render.
+ */
+function ProcessSubcard({ activity, processes, onKill, onAbortTool, now }: ProcessSubcardProps) {
+  const hasActivity = activity.length > 0;
+  const hasProcesses = processes.length > 0;
+  const { expanded, onToggle } = useDrawerExpansion(!hasActivity, hasProcesses);
+  if (!hasActivity && !hasProcesses) return null;
+  return (
+    <SessionSubcard title="PROCESS">
+      {hasActivity && onAbortTool ? (
+        <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} />
+      ) : null}
+      {hasProcesses && onKill ? (
+        <ProcessList
+          processes={[...processes]}
+          onKill={onKill}
+          expanded={expanded}
+          onToggle={onToggle}
+        />
+      ) : null}
+    </SessionSubcard>
+  );
+}
+
+/**
+ * Mobile PROCESS subcard — compact activity rows + drawer-as-chip.
+ * Tapping the chip opens a sheet (modal overlay) with the full drawer.
+ *
+ * Implementation note: chip + sheet are inline rather than a separate
+ * file because the surface is small and tied to this card's state.
+ */
+function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now }: ProcessSubcardProps) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const hasActivity = activity.length > 0;
+  const hasProcesses = processes.length > 0;
+  if (!hasActivity && !hasProcesses) return null;
+  return (
+    <>
+      {hasActivity && onAbortTool && (
+        <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} compact />
+      )}
+      {hasProcesses && onKill && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
+          className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
+          data-testid="background-drawer-chip"
+          aria-label={`${processes.length} background processes — tap to view`}
+        >
+          ⚠ {processes.length}
+        </button>
+      )}
+      {sheetOpen && hasProcesses && onKill && (
+        <div
+          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end justify-center z-[60]"
+          onClick={(e) => { e.stopPropagation(); setSheetOpen(false); }}
+          data-testid="background-drawer-sheet"
+        >
+          <div
+            className="bg-[var(--bg-secondary)] rounded-t-lg p-4 w-full max-w-lg border-t border-[var(--border-secondary)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">Background processes</h3>
+            <ProcessList
+              processes={[...processes]}
+              onKill={onKill}
+              expanded={true}
+              onToggle={() => { /* always expanded in the sheet */ }}
+              compact
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

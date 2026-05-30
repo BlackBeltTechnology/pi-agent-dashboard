@@ -74,6 +74,12 @@ export interface ToolCallState {
   args?: Record<string, unknown>;
   status: "running" | "complete" | "error";
   result?: string;
+  /**
+   * Epoch ms when `tool_execution_start` fired. Used by the session
+   * activity bar to compute elapsed time for in-flight bash tools.
+   * See change: redesign-process-list-activity-bar.
+   */
+  startedAt?: number;
 }
 
 export interface TurnStat {
@@ -1111,6 +1117,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         toolName,
         args,
         status: "running",
+        startedAt: event.timestamp,
       });
       next.currentTool = toolName;
 

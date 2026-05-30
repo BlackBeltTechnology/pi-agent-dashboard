@@ -109,6 +109,16 @@ interface Props {
   commandsMap?: Map<string, CommandInfo[]>;
 
   onKillProcess?: (sessionId: string, pgid: number) => void;
+  /**
+   * Per-session in-flight bash toolCalls for the SessionActivityBar.
+   * See change: redesign-process-list-activity-bar.
+   */
+  inflightBashMap?: Map<string, import("../hooks/useInflightBashTools.js").InflightBashTool[]>;
+  /**
+   * Stop-button handler for the SessionActivityBar. The toolCallId is
+   * accepted for forward-compat; Phase 1 maps to the session-level abort.
+   */
+  onAbortTool?: (sessionId: string, toolCallId: string) => void;
   onOpenSpecs?: (cwd: string) => void;
   onOpenArchive?: (cwd: string) => void;
   onViewReadme?: (cwd: string) => void;
@@ -158,7 +168,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError }: Props) {
   const now = Date.now();
   const [, navigate] = useLocation();
   const { messages, showToast, dismissToast } = useToast();
@@ -803,6 +813,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                         commands={commandsMap?.get(session.id)}
                         processes={session.processes}
                         onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
+                        inflightBashTools={inflightBashMap?.get(session.id)}
+                        onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
                         hasError={errorSessionIds?.has(session.id)}
                         isRetrying={retrySessionIds?.has(session.id)}
                       />
