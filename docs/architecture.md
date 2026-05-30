@@ -1208,11 +1208,11 @@ Protocol: line-framed JSON, fire-and-forget. Server writes `{"type":"prompt","me
 Dual-channel boundary explicit:
 - **Bridge WS** owns: send_prompt non-slash, abort, model switch, thinking-level, compaction, rename, events, flow control.
 - **Server → keeper UDS** owns: extension slash dispatch only.
-- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload.
+- **headlessPidRegistry kill** owns: kill-by-pid for shutdown / force-kill / reload. `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL) — uniform with `handleForceKill`. See change: `fix-keeper-kill-escalation`.
 
 Bridge cannot reach `session.prompt` from inside pi 0.74. Server can (owns spawn + keeper). Routing slash dispatch through the channel that has the capability is correct given the constraint.
 
-Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Tmux / Windows-Terminal sessions retain the existing `command_feedback {error}` stopgap (terminal owns pi's stdin, no UDS route).
+Lifecycle: pi exits → keeper exits 0, unlinks socket + pid sidecar. Keeper crashes → pi reads EOF on stdin → exits. Force-kill → server kills pi PID first, schedules 200 ms keeper-fallback SIGTERM. Keeper `shutdown()` SIGKILLs `piChild` before `process.exit` (defence in depth) — closes orphan-pi gap when pi event loop hung (CPU loop / non-cancellable native call) and stdin EOF never observed. See change: `fix-keeper-kill-escalation`. Tmux / Windows-Terminal sessions retain the existing `command_feedback {error}` stopgap (terminal owns pi's stdin, no UDS route).
 
 ### Server Log Hygiene
 

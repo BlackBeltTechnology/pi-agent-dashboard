@@ -1032,6 +1032,24 @@ Diagnostic: tail `~/.pi/dashboard/sessions/keeper-<sessionId>.log`. `spawn pi EN
 
 See change: `fix-rpc-keeper-pi-resolution`.
 
+## Session stuck after Stop or Shutdown — how to recover?
+
+Symptom: Stop / abort / Shutdown clicked. Card stays "running". `ps` shows pi PID alive. Server restart clears it.
+
+Root cause (pre-fix): `headlessPidRegistry.killBySessionId` sent SIGTERM only. Hung pi (CPU loop, non-cancellable native call) ignored SIGTERM. Keeper `shutdown()` did not SIGKILL its `piChild` before `process.exit()` — hung pi reparented to init/launchd.
+
+Fix (change: `fix-keeper-kill-escalation`): `killBySessionId` escalates pi via shared `killProcess(pid, { timeoutMs: 2000 })` ladder (SIGTERM → 2 s → SIGKILL). Keeper `shutdown()` SIGKILLs `piChild` before exit. Defence in depth from both ends.
+
+Recovery order:
+1. Stop / abort — cooperative `pi.abort()` via bridge WS. No escalation.
+2. Shutdown menu — sends bridge `pi.shutdown()` then `killBySessionId`. Hung pi dies within ~2 s.
+3. Force Kill (red ✕) — same ladder, plus `handleForceKill` also kills `session.pid` directly. Identical timing to Shutdown for hung pi.
+4. Server restart — last resort. Should not be needed post-fix.
+
+Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression.
+
+See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
+
 ## Why does Windows session spawning fail with 'spawn npm ENOENT'?
 
 Electron wizard only — old build before commit `29af651`. Windows `npm` is actually `npm.cmd` (batch wrapper). `child_process.spawn("npm", ...)` without `.cmd` extension fails on Windows.
