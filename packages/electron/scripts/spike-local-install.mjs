@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 
 // Resolve pi-coding-agent from npm -g root (global install, scoped package).
 const npmGlobalRoot = execSync("npm root -g", { encoding: "utf8" }).trim();
-const piPkgDir = join(npmGlobalRoot, "@mariozechner", "pi-coding-agent");
+const piPkgDir = join(npmGlobalRoot, "@earendil-works", "pi-coding-agent");
 console.log("pi-coding-agent dir:", piPkgDir);
 const piRequire = createRequire(join(piPkgDir, "package.json"));
 // Resolve pi's internal files via its own require root so transitive imports work.

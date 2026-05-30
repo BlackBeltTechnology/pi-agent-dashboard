@@ -41,6 +41,9 @@ const PI_MIN_TO_NODE_FLOOR: Record<string, { major: number; minor: number }> = {
   "0.73.0": { major: 22, minor: 18 },
   "0.74.0": { major: 22, minor: 18 },
   "0.75.0": { major: 22, minor: 19 },
+  "0.76.0": { major: 22, minor: 19 },
+  "0.77.0": { major: 22, minor: 19 },
+  "0.78.0": { major: 22, minor: 19 },
 };
 
 function parseSemver(v: string): [number, number, number] | null {
