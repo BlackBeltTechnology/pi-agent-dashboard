@@ -23,6 +23,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec-change-watcher.js";
 import { discoverSessionsForCwd } from "./session-discovery.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { scanPiResources } from "./pi-resource-scanner.js";
@@ -225,6 +226,13 @@ export interface DirectoryServiceOptions {
    * See change: add-openspec-change-grouping.
    */
   enrichOpenSpecData?: (cwd: string, data: OpenSpecData) => Promise<OpenSpecData> | OpenSpecData;
+  /**
+   * Optional override for the per-cwd OpenSpec change watcher. When omitted,
+   * a real `fs.watch`-backed watcher is constructed. Tests may inject a
+   * stub to avoid touching the real filesystem.
+   * See change: fix-openspec-taskcheck-delay.
+   */
+  changeWatcher?: OpenSpecChangeWatcher;
 }
 
 export function createDirectoryService(
@@ -235,6 +243,16 @@ export function createDirectoryService(
 ): DirectoryService {
   let cfg: OpenSpecPollConfig = { ...DEFAULT_OPENSPEC_POLL, ...(initialConfig ?? {}) };
   const enrichOpenSpecData = options.enrichOpenSpecData;
+
+  // Per-cwd `fs.watch` on `openspec/changes/`. On a relevant file event
+  // (debounced 300 ms) fans into `pollOne(cwd, false)` so the existing
+  // mtime-gate + semaphore + broadcast dedup do their job. Periodic poll
+  // remains as the fallback for missed events (network FS, EMFILE, etc.).
+  // See change: fix-openspec-taskcheck-delay.
+  const changeWatcher: OpenSpecChangeWatcher = options.changeWatcher ?? createOpenSpecChangeWatcher({
+    onChange: (cwd) => { void onWatcherFired(cwd); },
+  });
+  const attachedWatcherCwds = new Set<string>();
 
   const caches = new Map<string, DirCache>();
   const piResourcesCache = new Map<string, PiResourcesResult>();
@@ -493,6 +511,54 @@ export function createDirectoryService(
     }
   }
 
+  /**
+   * Called from `OpenSpecChangeWatcher` when a relevant artifact under
+   * `<cwd>/openspec/changes/` is touched. Runs the gated poll and (when the
+   * resulting data differs from the cached snapshot) invokes the broadcast
+   * callback installed by `startPolling`. Errors are swallowed — the next
+   * periodic tick covers correctness.
+   * See change: fix-openspec-taskcheck-delay.
+   */
+  async function onWatcherFired(cwd: string): Promise<void> {
+    if (cfg.enabled === false) return;
+    try {
+      const prev = caches.get(cwd)?.data;
+      const prevJson = prev ? JSON.stringify(prev) : undefined;
+      const next = await pollDirectoryGated(cwd);
+      const nextJson = JSON.stringify(next);
+      if (nextJson !== prevJson) onChangeCallback?.(cwd, next);
+    } catch (err) {
+      console.error(`[openspec-watcher] poll failed for ${cwd}:`, err);
+    }
+  }
+
+  /**
+   * Ensure `changeWatcher` is attached to every currently-known cwd and
+   * detached from every cwd that is no longer known. Cheap (set diff over
+   * typically < 10 cwds); called at the start of each periodic tick and
+   * from `onDirectoryAdded`.
+   * See change: fix-openspec-taskcheck-delay.
+   */
+  function reconcileWatchers(): void {
+    const known = new Set(computeKnownDirectories());
+    for (const cwd of known) {
+      if (!attachedWatcherCwds.has(cwd)) {
+        // Only mark as attached when fs.watch actually succeeded; failed
+        // attaches (ENOENT for missing openspec/changes/, EMFILE, etc.)
+        // remain eligible for retry on the next tick, so a cwd that gains
+        // openspec/changes/ later lights up within one poll interval.
+        // See change: fix-openspec-taskcheck-delay.
+        if (changeWatcher.attach(cwd)) attachedWatcherCwds.add(cwd);
+      }
+    }
+    for (const cwd of Array.from(attachedWatcherCwds)) {
+      if (!known.has(cwd)) {
+        changeWatcher.detach(cwd);
+        attachedWatcherCwds.delete(cwd);
+      }
+    }
+  }
+
   async function pollDirectoryGated(cwd: string): Promise<OpenSpecData> {
     // Master gate: when `openspec.enabled` is false, never spawn a CLI for the
     // periodic poll path either. See change: auto-hide-empty-session-subcards.
@@ -524,6 +590,11 @@ export function createDirectoryService(
     // No CLI spawns. See change: auto-hide-empty-session-subcards.
     if (cfg.enabled === false) return;
     openspecTickInFlight = true;
+    // Reconcile watcher attachments at the top of every tick. Catches
+    // newly-known cwds (e.g. session_register) and forgotten ones (unpin /
+    // last session ended) without needing explicit lifecycle hooks.
+    // See change: fix-openspec-taskcheck-delay.
+    try { reconcileWatchers(); } catch (err) { console.warn("[openspec-watcher] reconcile failed:", err); }
     const tickStart = Date.now();
     let spawnsBefore = 0;
     let spawnsAfter = 0;
@@ -622,6 +693,10 @@ export function createDirectoryService(
     stopPolling() {
       stopTimers();
       onChangeCallback = null;
+      // Tear down every per-cwd fs.watch so the process can exit cleanly.
+      // See change: fix-openspec-taskcheck-delay.
+      try { changeWatcher.detachAll(); } catch { /* best-effort */ }
+      attachedWatcherCwds.clear();
     },
 
     reconfigurePolling(newCfg: OpenSpecPollConfig) {
@@ -661,6 +736,14 @@ export function createDirectoryService(
         discoverSessions(cwd),
         pollDirectoryGated(cwd),
       ]);
+      // Attach the per-cwd fs.watch immediately so subsequent edits to
+      // tasks.md / proposal.md / design.md / specs/**/*.md trigger a
+      // sub-second refresh. Mark only on success; failed attaches (missing
+      // openspec/changes/) get retried by `reconcileWatchers` on the next
+      // poll tick. See change: fix-openspec-taskcheck-delay.
+      if (!attachedWatcherCwds.has(cwd)) {
+        if (changeWatcher.attach(cwd)) attachedWatcherCwds.add(cwd);
+      }
       return { sessions, openspecData };
     },
   };
