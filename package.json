@@ -73,7 +73,7 @@
     "screenshots": "npm --prefix site run screenshots"
   },
   "engines": {
-    "node": ">=22.19.0 <25"
+    "node": ">=22.19.0 <26"
   },
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-extension": "^0.5.4",

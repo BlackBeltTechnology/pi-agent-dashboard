@@ -37,7 +37,7 @@ Out of scope:
 
 ### Added Capabilities
 
-- **`server-startup-node-version-guard`** (post-archive addition, see tasks §9): Server SHALL refuse to start when running Node falls outside `package.json#engines.node` (`>=22.19.0 <25`). Moves the worktree-spawn `npm ci` EBADENGINE failure from "first spawn" to "server start" with an actionable message naming the engines range and three install paths (nvm / bundled / brew). CI standalone-install-smoke matrices SHALL track the predicate (no Node major it refuses).
+- **`server-startup-node-version-guard`** (post-archive addition, see tasks §9): Server SHALL refuse to start when running Node falls outside `package.json#engines.node` (`>=22.19.0 <26`). Single actionable startup-time error replacing the deeper failure (e.g. confusing EBADENGINE during worktree-spawn `npm ci` if engines are below floor). CI standalone-install-smoke matrices include every Node major in the range (today: 22, 24, 25).
 
 ## Impact
 

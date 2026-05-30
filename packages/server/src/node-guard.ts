@@ -30,22 +30,24 @@ export function isAffectedNode(version: string): boolean {
 
 /**
  * Returns true when Node is OUTSIDE the engines cap declared in
- * `package.json#engines.node` (`>=22.19.0 <25`). Covers two cases the
- * Fastify-bug guard doesn't:
+ * `package.json#engines.node` (`>=22.19.0 <26`). Covers:
  *
- *   - Too old: major 22 with minor < 19 (overlap with isAffectedNode — both
- *     catch this; the engines guard is the canonical answer).
- *   - Too new: major >= 25. Even though Node 25 fixes the Fastify bug, the
- *     dashboard's engines field caps at <25 because subprocess `npm ci`
- *     (worktree bootstrap) refuses with EBADENGINE on out-of-range Node.
- *     Running the server on Node 25 makes the worktree-spawn dialog throw
- *     `bootstrap_failed: node engine mismatch`. Refusing at startup
- *     surfaces the same error early, with an actionable message.
+ *   - Too old: major < 22, OR major 22 with minor < 19 (overlaps with
+ *     isAffectedNode on the 22.x edge — both catch the below-floor case;
+ *     the engines guard names the floor explicitly).
+ *   - Too new: major >= 26 (speculative cap; future Node 26 work is its
+ *     own change).
  *
- *   - Catches major < 22 too — anything below the floor is unsupported.
+ * History: cap was briefly `<25` in change `openspec-worktree-spawn-button`
+ * commit 63a8d531, on the theory that subprocess `npm ci` (worktree-spawn
+ * bootstrap) would EBADENGINE on Node 25 under the old `engines.node <25`.
+ * CI smoke matrices had been running Node 25 cleanly the whole time
+ * (because they pass `--engine-strict=false`); the dev-reported
+ * EBADENGINE was almost certainly an nvm subprocess-PATH artifact, not a
+ * real engines failure. Bumping engines to `<26` removes the npm-side
+ * trigger at the source and restores Node 25 as a first-class target.
  *
- * Keep this in lockstep with the engines field; if the cap ever bumps to
- * `<26`, drop the 25 check here.
+ * Keep this in lockstep with `package.json#engines.node`.
  *
  * See change: openspec-worktree-spawn-button.
  */
@@ -56,7 +58,7 @@ export function isOutOfEnginesRange(version: string): boolean {
   const minor = Number(m[2]);
   if (major < 22) return true;
   if (major === 22 && minor < 19) return true;
-  if (major >= 25) return true;
+  if (major >= 26) return true;
   return false;
 }
 
@@ -65,11 +67,10 @@ export function buildEnginesRangeMessage(version: string): string {
     ``,
     `❌  pi-dashboard cannot start on Node ${version}.`,
     ``,
-    `    Required: >=22.19.0 <25 (see package.json#engines.node).`,
+    `    Required: >=22.19.0 <26 (see package.json#engines.node).`,
     ``,
-    `    The worktree-spawn dialog shells out to \`npm ci\` which refuses`,
-    `    with EBADENGINE on Node versions outside this range; running the`,
-    `    server on an out-of-range Node makes that path silently fail.`,
+    `    Below the floor: npm refuses with EBADENGINE and pi 0.75+ assumes`,
+    `    22.19 APIs. At/above the cap: untested; raise the cap when ready.`,
     ``,
     `    Fix:`,
     `      nvm:    nvm install 24 && nvm use 24`,

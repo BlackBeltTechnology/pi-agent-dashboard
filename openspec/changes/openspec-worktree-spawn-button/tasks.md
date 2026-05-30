@@ -67,15 +67,15 @@
 
 ## 9. Node engines-range startup guard (post-archive addition)
 
-Moves the worktree-spawn EBADENGINE failure from "first spawn attempt" to "server start" with an actionable message. Mirrors `package.json#engines.node` (`>=22.19.0 <25`). Added after the original archive in commit `63a8d531`; spec synced retroactively into `specs/server-startup-node-version-guard/spec.md`.
+Single actionable startup-time error mirroring `package.json#engines.node` (`>=22.19.0 <26`). Added after the original archive in commit `63a8d531`; cap subsequently bumped from `<25` to `<26` to restore Node 25 support (CI matrix had been running it cleanly all along; the dev-reported EBADENGINE was an nvm subprocess-PATH artifact, not a real engines failure).
 
-- [x] 9.1 Add `isOutOfEnginesRange(version: string): boolean` pure predicate in `packages/server/src/node-guard.ts` returning `true` for major `<22`, major `22` with minor `<19`, or major `>=25`.
-- [x] 9.2 Add `buildEnginesRangeMessage(version)` containing three remediation hints (nvm / bundled `$HOME/.pi-dashboard/node/bin` PATH prepend / brew) and the substring `Required: >=22.19.0 <25`.
+- [x] 9.1 Add `isOutOfEnginesRange(version: string): boolean` pure predicate in `packages/server/src/node-guard.ts` returning `true` for major `<22`, major `22` with minor `<19`, or major `>=26`.
+- [x] 9.2 Add `buildEnginesRangeMessage(version)` containing three remediation hints (nvm / bundled `$HOME/.pi-dashboard/node/bin` PATH prepend / brew) and the substring `Required: >=22.19.0 <26`.
 - [x] 9.3 Extend `assertNodeVersionSupported()` to call `isOutOfEnginesRange` after the existing `isAffectedNode` check; on hit, write message to stderr and `process.exit(1)`.
 - [x] 9.4 Allowlist `packages/server/src/node-guard.ts` in `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` (advisory help-text only, no read/write of `~/.pi-dashboard/`). Rationale comment cites this change.
-- [x] 9.5 Drop Node 25 from both `.github/workflows/ci.yml` matrices: `standalone-install-smoke-linux` (remove `node:25-bookworm-slim` and `node:25-alpine`) and `standalone-install-smoke-windows` (`node-version: [22, 24]`). Add comment pointing at `node-guard.ts::isOutOfEnginesRange`.
-- [x] 9.6 Tests in `packages/server/src/__tests__/node-guard.test.ts`: predicate covers each arm (major <22, 22.18 / 22.19 boundary, 24.x, 25.0); `buildEnginesRangeMessage` includes the three remediation substrings + `>=22.19.0 <25`.
-- [ ] 9.7 Lockstep audit: if `package.json#engines.node` is changed in a follow-up PR, the `>=25` arm of `isOutOfEnginesRange` and the CI matrices MUST move with it. Called out in `proposal.md` Impact.
+- [x] 9.5 Bump `package.json#engines.node` from `>=22.19.0 <25` to `>=22.19.0 <26`. Restores Node 25 in `.github/workflows/ci.yml` `standalone-install-smoke-linux` (`node:25-bookworm-slim` + `node:25-alpine`) and `standalone-install-smoke-windows` (`node-version: [22, 24, 25]`).
+- [x] 9.6 Tests in `packages/server/src/__tests__/node-guard.test.ts`: predicate covers each arm (major <22, 22.18 / 22.19 boundary, 24.x, 25.x allowed, 26.0 refused); `buildEnginesRangeMessage` includes the three remediation substrings + `>=22.19.0 <26`.
+- [ ] 9.7 Lockstep audit: if `package.json#engines.node` is changed in a follow-up PR, the upper arm of `isOutOfEnginesRange` and the CI matrices MUST move with it. Called out in `proposal.md` Impact.
 
 ## 8. Verification
 

@@ -114,21 +114,24 @@ describe("isOutOfEnginesRange", () => {
     expect(isOutOfEnginesRange("v22.19.0")).toBe(false);
   });
 
-  it("returns false for v22.22.x, v23.x, v24.x within range", () => {
+  it("returns false for v22.22.x, v23.x, v24.x, v25.x within range", () => {
     expect(isOutOfEnginesRange("v22.22.2")).toBe(false);
     expect(isOutOfEnginesRange("v23.5.0")).toBe(false);
     expect(isOutOfEnginesRange("v24.15.0")).toBe(false);
+    expect(isOutOfEnginesRange("v25.0.0")).toBe(false);
+    expect(isOutOfEnginesRange("v25.9.0")).toBe(false);
   });
 
-  it("returns true for v25.x and above (engines cap)", () => {
-    expect(isOutOfEnginesRange("v25.0.0")).toBe(true);
-    expect(isOutOfEnginesRange("v25.8.1")).toBe(true);
+  it("returns true for v26.x and above (engines cap)", () => {
     expect(isOutOfEnginesRange("v26.0.0")).toBe(true);
+    expect(isOutOfEnginesRange("v26.8.1")).toBe(true);
+    expect(isOutOfEnginesRange("v27.0.0")).toBe(true);
   });
 
   it("accepts versions without the v prefix", () => {
-    expect(isOutOfEnginesRange("25.0.0")).toBe(true);
+    expect(isOutOfEnginesRange("26.0.0")).toBe(true);
     expect(isOutOfEnginesRange("22.19.0")).toBe(false);
+    expect(isOutOfEnginesRange("25.0.0")).toBe(false);
   });
 
   it("returns false for malformed input rather than throwing", () => {
@@ -140,21 +143,21 @@ describe("isOutOfEnginesRange", () => {
 
 describe("buildEnginesRangeMessage", () => {
   it("interpolates the running version", () => {
-    expect(buildEnginesRangeMessage("v25.8.1")).toContain("v25.8.1");
+    expect(buildEnginesRangeMessage("v26.0.0")).toContain("v26.0.0");
   });
 
   it("names the engines range", () => {
-    expect(buildEnginesRangeMessage("v25.8.1")).toMatch(/>=22\.19\.0 <25/);
+    expect(buildEnginesRangeMessage("v26.0.0")).toMatch(/>=22\.19\.0 <26/);
   });
 
-  it("explains the worktree-bootstrap link", () => {
-    const msg = buildEnginesRangeMessage("v25.8.1");
-    expect(msg).toMatch(/npm ci/);
+  it("explains the EBADENGINE / floor link", () => {
+    const msg = buildEnginesRangeMessage("v26.0.0");
     expect(msg).toMatch(/EBADENGINE/);
+    expect(msg).toMatch(/floor/);
   });
 
   it("suggests bundled-node escape hatch", () => {
-    const msg = buildEnginesRangeMessage("v25.8.1");
+    const msg = buildEnginesRangeMessage("v26.0.0");
     expect(msg).toMatch(/\.pi-dashboard\/node\/bin/);
   });
 });

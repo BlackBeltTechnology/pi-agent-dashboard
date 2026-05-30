@@ -2,19 +2,27 @@
 
 ### Requirement: Refuse server start on Node outside engines range
 
-`packages/server/src/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <25`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
+`packages/server/src/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <26`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
 
-Rationale: the worktree-spawn dialog's bootstrap step shells out to `npm ci`, which refuses with `EBADENGINE` when Node falls outside the engines cap. Without this guard the server would boot on Node 25 and the first worktree spawn would silently die with `bootstrap_failed: node engine mismatch`, with no obvious link between the running Node version and the dialog error. Refusing at startup surfaces the same constraint early, with an actionable message.
+Rationale: the predicate gives a single, actionable startup-time error when the running Node falls outside the cap. The cap is permissive enough to cover Node 22.19+, 24, and 25 (the three lines CI smoke matrices test) while catching configurations that are genuinely out of support (below the pi 0.75 floor, or speculative future majors).
 
-Lockstep contract: the `<25` upper bound MUST track `package.json#engines.node`. If the cap ever bumps to `<26`, the `>=25` arm of `isOutOfEnginesRange` MUST be dropped in the same change.
+History: the cap was briefly `<25` in commit 63a8d531 on the theory that subprocess `npm ci` (worktree-spawn bootstrap) would EBADENGINE on Node 25. CI smoke matrices had been running Node 25 cleanly the whole time (because they pass `--engine-strict=false`); the dev-reported EBADENGINE was almost certainly an nvm subprocess-PATH artifact, not a real engines failure. Bumping engines to `<26` removes the npm-side trigger at the source and restores Node 25 as a first-class target.
 
-CI lockstep contract: the `.github/workflows/ci.yml` `standalone-install-smoke-linux` and `standalone-install-smoke-windows` matrices MUST NOT include Node major versions that this predicate refuses. When the cap moves, the matrices move with it.
+Lockstep contract: the upper bound MUST track `package.json#engines.node`. When the cap moves, the predicate moves with it.
 
-#### Scenario: Refuse Node 25 at startup
+CI lockstep contract: `.github/workflows/ci.yml` `standalone-install-smoke-linux` and `standalone-install-smoke-windows` matrices SHALL include every Node major in the engines range. Today that is `[22, 24, 25]`.
+
+#### Scenario: Refuse Node 26 at startup
+
+- **WHEN** the server entry point runs under `node v26.x.x` or newer
+- **THEN** `assertNodeVersionSupported()` SHALL write a message containing `❌  pi-dashboard cannot start on Node v26.` and `Required: >=22.19.0 <26` to stderr
+- **AND** SHALL call `process.exit(1)` before any Fastify route is registered
+
+#### Scenario: Allow Node 25
 
 - **WHEN** the server entry point runs under `node v25.x.x`
-- **THEN** `assertNodeVersionSupported()` SHALL write a message containing `❌  pi-dashboard cannot start on Node v25.` and `Required: >=22.19.0 <25` to stderr
-- **AND** SHALL call `process.exit(1)` before any Fastify route is registered
+- **THEN** `assertNodeVersionSupported()` SHALL return normally
+- **AND** the server SHALL proceed to start Fastify
 
 #### Scenario: Refuse Node below floor at startup
 
@@ -39,5 +47,5 @@ CI lockstep contract: the `.github/workflows/ci.yml` `standalone-install-smoke-l
 
 #### Scenario: Message lists three install paths
 
-- **WHEN** `buildEnginesRangeMessage("v25.0.0")` is called
+- **WHEN** `buildEnginesRangeMessage("v26.0.0")` is called
 - **THEN** the returned string SHALL contain the substrings `nvm install`, `PATH="$HOME/.pi-dashboard/node/bin`, and `brew install node`
