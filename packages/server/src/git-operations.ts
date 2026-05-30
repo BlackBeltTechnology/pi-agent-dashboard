@@ -7,6 +7,7 @@ import path from "node:path";
 import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   ensureWorktreeExcludeLine,
+  isOrphanWorktreePath,
   parsePorcelainWorktrees,
   slugifyBranch,
   type WorktreeEntry,
@@ -255,6 +256,14 @@ export interface AddWorktreeFailure {
   error: AddWorktreeError;
   message: string;
   stderr?: string;
+  /**
+   * Set on `path_exists` returns. `true` when the target path exists on
+   * disk but is NOT a registered worktree (likely orphan from a previous
+   * failed attempt); `false` when the path IS a registered worktree.
+   * Undefined for non-`path_exists` errors.
+   * See change: openspec-worktree-spawn-button.
+   */
+  orphanLikely?: boolean;
 }
 
 export interface AddWorktreeOptions {
@@ -316,10 +325,12 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
       try { return fs.readdirSync(worktreePath).length === 0; } catch { return false; }
     })();
     if (!isEmpty) {
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
       return {
         ok: false,
         error: "path_exists",
         message: `target path already exists and is not empty: ${worktreePath}`,
+        orphanLikely,
       };
     }
   }
@@ -351,7 +362,8 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
       return { ok: false, error: "base_not_found", message: `base ref not found: ${base}`, stderr };
     }
     if (/'.*' already exists/i.test(stderr)) {
-      return { ok: false, error: "path_exists", message: `target path already exists: ${worktreePath}`, stderr };
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      return { ok: false, error: "path_exists", message: `target path already exists: ${worktreePath}`, stderr, orphanLikely };
     }
     return { ok: false, error: "git_failed", message: "git worktree add failed", stderr };
   }
@@ -501,7 +513,7 @@ export interface LifecycleFailure<C extends string = string> {
  * Resolve the main checkout (parent repo root) for any `cwd`. Returns
  * `null` when the cwd isn't a git work tree.
  */
-function resolveMainPath(cwd: string): string | null {
+export function resolveMainPath(cwd: string): string | null {
   const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
   if (!commonDirRaw) return null;
   const commonDirAbs = path.isAbsolute(commonDirRaw)
@@ -848,4 +860,186 @@ export function stashPop(cwd: string): StashPopResult {
     }
     throw err;
   }
+}
+
+// ── orphan-path detection + cleanup (change: openspec-worktree-spawn-button) ──
+
+/**
+ * Internal helper: returns `true` when `worktreePath` exists on disk but
+ * is NOT a registered worktree of the repo at `cwd`. Used to populate the
+ * `orphanLikely` field on `addWorktree`'s `path_exists` error envelope.
+ *
+ * Returns `false` on any error (defensive — if we can't compute, don't
+ * promise the user a Clean-up affordance).
+ *
+ * See change: openspec-worktree-spawn-button.
+ */
+function computeOrphanLikely(cwd: string, worktreePath: string): boolean {
+  try {
+    const list = listWorktrees(cwd);
+    return isOrphanWorktreePath({
+      path: worktreePath,
+      worktreeList: list,
+      exists: (p) => fs.existsSync(p),
+    });
+  } catch {
+    return false;
+  }
+}
+
+export type OrphanCleanupError =
+  | "outside_repo"
+  | "not_a_directory"
+  | "not_orphan"
+  | "looks_like_worktree"
+  | "too_many_files"
+  | "file_too_large"
+  | "fs_failed";
+
+export interface OrphanCleanupSuccess {
+  ok: true;
+}
+
+export interface OrphanCleanupFailure {
+  ok: false;
+  error: OrphanCleanupError;
+  message: string;
+}
+
+export interface OrphanCleanupOptions {
+  /** Cwd of the parent repo (used to resolve repo root + worktree list). */
+  cwd: string;
+  /** Absolute path of the orphan directory to delete. */
+  path: string;
+  /** Maximum file count allowed in the orphan dir. Default 20. */
+  maxFiles?: number;
+  /** Maximum per-file size in bytes. Default 1 MB. */
+  maxFileSize?: number;
+}
+
+/**
+ * Conservatively delete an orphan worktree-path directory. This unblocks
+ * `addWorktree` when a previous failed attempt left a non-empty dir at
+ * the target path — git's worktree list doesn't know about it (so the
+ * dialog's existing-worktree list never shows it), but the fs-level
+ * collision check blocks creation.
+ *
+ * Refuses (with a stable error code) unless EVERY guard passes:
+ *  - `path` is inside `cwd` (anti-traversal)
+ *  - `path` exists and is a directory
+ *  - `path` is NOT in `git worktree list --porcelain` for `cwd`
+ *  - `path` does NOT contain a top-level `.git` entry (file or directory)
+ *  - file count is ≤ `maxFiles` (default 20)
+ *  - no file exceeds `maxFileSize` (default 1 MB)
+ *
+ * On pass: `fs.rmSync(path, {recursive: true, force: true})`.
+ *
+ * See change: openspec-worktree-spawn-button.
+ */
+export function orphanCleanup(
+  opts: OrphanCleanupOptions,
+): OrphanCleanupSuccess | OrphanCleanupFailure {
+  const { cwd } = opts;
+  const targetPath = opts.path;
+  const maxFiles = opts.maxFiles ?? 20;
+  const maxFileSize = opts.maxFileSize ?? 1_048_576; // 1 MB
+
+  // Resolve repo root via git common-dir (works from any worktree).
+  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
+  if (!commonDirRaw) {
+    return { ok: false, error: "outside_repo", message: "cwd is not inside a git repository" };
+  }
+  const commonDirAbs = path.isAbsolute(commonDirRaw)
+    ? commonDirRaw
+    : path.resolve(cwd, commonDirRaw);
+  const repoRoot = path.dirname(commonDirAbs);
+
+  // Anti-traversal: `targetPath` MUST be inside repoRoot. We resolve both
+  // and compare prefixes (with separator) to avoid `/repo` matching
+  // `/repository`.
+  const absTarget = path.resolve(targetPath);
+  const absRoot = path.resolve(repoRoot);
+  const rootWithSep = absRoot.endsWith(path.sep) ? absRoot : absRoot + path.sep;
+  if (absTarget !== absRoot && !absTarget.startsWith(rootWithSep)) {
+    return { ok: false, error: "outside_repo", message: `path is not inside repo root: ${absTarget}` };
+  }
+
+  // Path must exist and be a directory.
+  let stat;
+  try {
+    stat = fs.statSync(absTarget);
+  } catch {
+    return { ok: false, error: "not_a_directory", message: `path does not exist: ${absTarget}` };
+  }
+  if (!stat.isDirectory()) {
+    return { ok: false, error: "not_a_directory", message: `path is not a directory: ${absTarget}` };
+  }
+
+  // Must NOT be a registered worktree.
+  let isOrphan = false;
+  try {
+    const list = listWorktrees(cwd);
+    isOrphan = isOrphanWorktreePath({
+      path: absTarget,
+      worktreeList: list,
+      exists: () => true, // we already confirmed via statSync above
+    });
+  } catch {
+    return { ok: false, error: "fs_failed", message: "failed to list worktrees" };
+  }
+  if (!isOrphan) {
+    return { ok: false, error: "not_orphan", message: `path is a registered worktree: ${absTarget}` };
+  }
+
+  // Must NOT contain a top-level `.git` entry of any kind.
+  let topEntries: fs.Dirent[];
+  try {
+    topEntries = fs.readdirSync(absTarget, { withFileTypes: true });
+  } catch {
+    return { ok: false, error: "fs_failed", message: "failed to read directory" };
+  }
+  if (topEntries.some((e) => e.name === ".git")) {
+    return { ok: false, error: "looks_like_worktree", message: "directory contains a .git entry; refuse to delete" };
+  }
+
+  // Walk the tree: count files + check each file size. Bound by maxFiles.
+  // We do this recursively so a sneaky `subdir/big.bin` is also caught.
+  let fileCount = 0;
+  const stack: string[] = [absTarget];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return { ok: false, error: "fs_failed", message: `failed to read ${dir}` };
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      fileCount += 1;
+      if (fileCount > maxFiles) {
+        return { ok: false, error: "too_many_files", message: `directory contains more than ${maxFiles} files` };
+      }
+      try {
+        const fileStat = fs.statSync(full);
+        if (fileStat.size > maxFileSize) {
+          return { ok: false, error: "file_too_large", message: `file exceeds ${maxFileSize} bytes: ${full}` };
+        }
+      } catch {
+        return { ok: false, error: "fs_failed", message: `failed to stat ${full}` };
+      }
+    }
+  }
+
+  // All checks pass. Delete.
+  try {
+    fs.rmSync(absTarget, { recursive: true, force: true });
+  } catch (err: any) {
+    return { ok: false, error: "fs_failed", message: `rm failed: ${err?.message ?? String(err)}` };
+  }
+  return { ok: true };
 }

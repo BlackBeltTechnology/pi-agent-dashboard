@@ -1943,3 +1943,17 @@ Root cause:
 Stopgap: `.pi/skills/openspec-archive-change/SKILL.md` and `.pi/skills/openspec-bulk-archive-change/SKILL.md` carry guardrail: "Resolve `openspec/` strictly relative to CWD. Do NOT `find` the filesystem for SKILL.md, archive directories, or sibling `openspec/` trees — scoped to current working tree. In git/jj worktree, operate on worktree's own `openspec/changes/` (CWD already points there)." Edits local-only, gitignored, wiped by `openspec update`.
 
 Rule for agents: in worktree, treat CWD as openspec root. Never `find` for skill files. Use path from `<available_skills>` block.
+
+## Why does +Worktree dialog appear to do nothing for sibling worktrees of pi-agent-dashboard?
+
+Fresh worktree lacks `node_modules`. Repo's `.pi/settings.json` points bridge at `<cwd>/packages/extension/src/bridge.ts` (worktree-local TS path). Bridge imports fail at load. `register_session` never fires. Watchdog times out at 30 s. Failure persists to `~/.pi/dashboard/sessions/spawn-failures.log` as `REGISTER_TIMEOUT`.
+
+Pi-agent-dashboard-only. End users on npm-installed dashboard unaffected — their bridge loads from `~/.nvm/.../node_modules/@blackbelt-technology/pi-dashboard-extension` which always has deps.
+
+Fix (change: harden-worktree-spawn):
+- `POST /api/git/worktree` runs install step after `git worktree add` when `.pi/settings.json#packages[].source` resolves into repo. Picks `npm ci` / `pnpm install --frozen-lockfile` / `yarn install --frozen-lockfile` / `bun install --frozen-lockfile` by lockfile.
+- Existing-worktree rows probe `<path>/node_modules`. Missing → row renders `⚠ Install deps + Spawn →` instead of `Spawn →`. Click runs `POST /api/git/worktree/bootstrap` then spawns.
+- Install streams `worktree_bootstrap_progress` events via WS to originating browser. Tail shown in dialog. `worktree_bootstrap_done` → auto-spawn. `worktree_bootstrap_failed` → error inline.
+- Off-screen `spawn_error` events (cwd not pinned, not in any workspace, no session at that cwd) now produce app-level toast. Failures no longer silent.
+
+Manual recovery if auto-install fails: `cd <worktree>; npm ci`.

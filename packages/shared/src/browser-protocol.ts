@@ -461,6 +461,46 @@ export interface BootstrapStatusUpdateMessage {
  *
  * See change: unified-bootstrap-install.
  */
+/**
+ * Streamed during the +Worktree dialog's post-create dependency install
+ * step. Only sent to the browser that initiated the worktree-create or
+ * existing-row install, identified by `requestId`. Throttled to <= 4/sec
+ * per requestId, each event carrying the most recent <= 4 KB tail of
+ * combined stdout/stderr.
+ *
+ * Distinct from BootstrapStatusUpdateMessage / BootstrapTicketCompleteMessage
+ * which describe the dashboard's own pi-core install. See change:
+ * harden-worktree-spawn.
+ */
+export interface WorktreeBootstrapProgressMessage {
+  type: "worktree_bootstrap_progress";
+  requestId: string;
+  cwd: string;
+  /** Most recent <= 4 KB of combined stdout/stderr. */
+  line: string;
+}
+
+/** Emitted exactly once when the worktree install command exits 0. */
+export interface WorktreeBootstrapDoneMessage {
+  type: "worktree_bootstrap_done";
+  requestId: string;
+  cwd: string;
+  durationMs: number;
+}
+
+/** Emitted exactly once when the install command fails or fails to spawn. */
+export interface WorktreeBootstrapFailedMessage {
+  type: "worktree_bootstrap_failed";
+  requestId: string;
+  cwd: string;
+  /** Stable classifier: `install_nonzero_exit` | `spawn_error` | `no_lockfile`. */
+  code: string;
+  /** Short human hint when we recognized the failure family. */
+  message: string;
+  /** Last <= 4 KB of combined output. */
+  stderr: string;
+}
+
 export interface BootstrapTicketCompleteMessage {
   type: "bootstrap_ticket_complete";
   ticketId: string;
@@ -598,6 +638,9 @@ export type ServerToBrowserMessage =
   | ModelsRefreshedMessage
   | BootstrapStatusUpdateMessage
   | BootstrapTicketCompleteMessage
+  | WorktreeBootstrapProgressMessage
+  | WorktreeBootstrapDoneMessage
+  | WorktreeBootstrapFailedMessage
   | BrowserUiModulesListMessage
   | BrowserUiDataListMessage
   | BrowserExtUiDecoratorMessage
@@ -1144,4 +1187,25 @@ export type BrowserToServerMessage =
   | ClearFollowupEntriesFromBrowserMessage
   | EditFollowupEntryFromBrowserMessage
   | RemoveFollowupEntryFromBrowserMessage
-  | PromoteFollowupEntryFromBrowserMessage;
+  | PromoteFollowupEntryFromBrowserMessage
+  | WorktreeBootstrapSubscribeMessage
+  | WorktreeBootstrapUnsubscribeMessage;
+
+/**
+ * Browser registers interest in worktree-bootstrap events for a given
+ * `requestId` BEFORE issuing `POST /api/git/worktree` (or the
+ * existing-row install-then-spawn flow). Server stores the mapping
+ * requestId -> originating WebSocket and only delivers the matching
+ * `worktree_bootstrap_*` events to that connection. See change:
+ * harden-worktree-spawn.
+ */
+export interface WorktreeBootstrapSubscribeMessage {
+  type: "worktree_bootstrap_subscribe";
+  requestId: string;
+}
+
+/** Drops the subscription if the dialog is cancelled or completes. */
+export interface WorktreeBootstrapUnsubscribeMessage {
+  type: "worktree_bootstrap_unsubscribe";
+  requestId: string;
+}

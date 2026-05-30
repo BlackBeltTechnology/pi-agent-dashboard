@@ -8,6 +8,7 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { BrowserGateway } from "../browser-gateway.js";
 import {
   addWorktree,
+  orphanCleanup,
   checkoutBranch,
   createPullRequest,
   gitInit,
@@ -18,9 +19,13 @@ import {
   pushBranch,
   readHead,
   removeWorktree,
+  resolveMainPath,
   stashPop,
   worktreeDiffStat,
 } from "../git-operations.js";
+import { detectBootstrapRequirement, runBootstrap, type BootstrapProgress } from "../worktree-bootstrap.js";
+import { mapBootstrapStderrToHint } from "../worktree-bootstrap-errors.js";
+import type { WorktreeBootstrapRegistry } from "../worktree-bootstrap-registry.js";
 import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { safeRealpathSync } from "../resolve-path.js";
@@ -31,10 +36,17 @@ export interface GitRoutesDeps {
   /** Optional — worktree lifecycle endpoints need this to enumerate active sessions + broadcast cwdMissing. */
   sessionManager?: SessionManager;
   browserGateway?: BrowserGateway;
+  /**
+   * Optional — enables worktree-bootstrap progress streaming to the
+   * originating browser. When absent, the bootstrap step still runs but
+   * no progress / done / failed events are emitted (HTTP response carries
+   * the final result either way). See change: harden-worktree-spawn.
+   */
+  worktreeBootstrapRegistry?: WorktreeBootstrapRegistry;
 }
 
 export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps) {
-  const { networkGuard, sessionManager, browserGateway } = deps;
+  const { networkGuard, sessionManager, browserGateway, worktreeBootstrapRegistry } = deps;
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/git/branches",
     { preHandler: networkGuard },
@@ -141,8 +153,106 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     },
   );
 
+  // ── Bootstrap an existing worktree (change: harden-worktree-spawn) ──────
+  //
+  // Runs the install step against an EXISTING worktree path. Used by the
+  // dialog's "⚠ Install deps + Spawn →" variant on existing-worktree rows.
+  // Same progress/done/failed event protocol as POST /api/git/worktree.
+  fastify.post<{ Body: { cwd?: string; requestId?: string } }>(
+    "/api/git/worktree/bootstrap",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const validated = validateCwd(body.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (!isGitRepo(validated.cwd)) {
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      }
+      const repoRoot = resolveMainPath(validated.cwd);
+      const requirement = repoRoot ? detectBootstrapRequirement(repoRoot) : { required: false };
+      if (!requirement.required) {
+        return { success: true, data: { bootstrap: { ran: false, skippedReason: "not_required" } } } satisfies ApiResponse;
+      }
+      const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
+      const cwd = validated.cwd;
+      const sendIf = (msg: any) => {
+        if (requestId && worktreeBootstrapRegistry) worktreeBootstrapRegistry.send(requestId, msg);
+      };
+      const onProgress = (p: BootstrapProgress) => {
+        sendIf({ type: "worktree_bootstrap_progress", requestId: requestId ?? "", cwd, line: p.line });
+      };
+      const runResult = await runBootstrap(cwd, onProgress);
+      if (runResult.code === "no_lockfile") {
+        return { success: true, data: { bootstrap: { ran: false, skippedReason: "no_lockfile" } } } satisfies ApiResponse;
+      }
+      if (runResult.ok) {
+        sendIf({ type: "worktree_bootstrap_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
+        return { success: true, data: { bootstrap: { ran: true, durationMs: runResult.durationMs } } } satisfies ApiResponse;
+      }
+      const stderr = runResult.stderr ?? "";
+      const hint = mapBootstrapStderrToHint(stderr) ?? `install failed (${runResult.code ?? "unknown"})`;
+      sendIf({ type: "worktree_bootstrap_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "install_nonzero_exit", message: hint, stderr });
+      reply.code(500);
+      return { success: false, code: "bootstrap_failed", error: hint, stderr } satisfies ApiResponse;
+    },
+  );
+
+  // ── Bootstrap status probe (change: harden-worktree-spawn) ─────────────
+  //
+  // Drives the +Worktree dialog's per-row degraded-button UX. Decision
+  // tree per `git-operations-api` spec (Requirement: Bootstrap-status
+  // probe endpoint): detectBootstrapRequirement(repoRoot) →
+  // node_modules existence → lockfile staleness.
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/git/worktree/bootstrap-status",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd(request.query.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (!isGitRepo(validated.cwd)) {
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      }
+      const repoRoot = resolveMainPath(validated.cwd);
+      if (!repoRoot) {
+        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
+      }
+      const requirement = detectBootstrapRequirement(repoRoot);
+      if (!requirement.required) {
+        return { success: true, data: { needsBootstrap: false, reason: "not_required" } } satisfies ApiResponse;
+      }
+      // node_modules existence (exists AND non-empty).
+      const nm = `${validated.cwd}/node_modules`;
+      let nmHasEntries = false;
+      try {
+        const stat = fs.statSync(nm);
+        if (stat.isDirectory()) {
+          const entries = fs.readdirSync(nm);
+          nmHasEntries = entries.length > 0;
+        }
+      } catch { /* missing — falls through */ }
+      if (!nmHasEntries) {
+        return { success: true, data: { needsBootstrap: true, reason: "no_node_modules" } } satisfies ApiResponse;
+      }
+      // Lockfile staleness: package-lock.json mtime > node_modules/.package-lock.json mtime.
+      try {
+        const lockStat = fs.statSync(`${validated.cwd}/package-lock.json`);
+        const stampStat = fs.statSync(`${nm}/.package-lock.json`);
+        if (lockStat.mtimeMs > stampStat.mtimeMs) {
+          return { success: true, data: { needsBootstrap: true, reason: "stale_lockfile" } } satisfies ApiResponse;
+        }
+      } catch { /* either file missing — treat as ok, conservative */ }
+      return { success: true, data: { needsBootstrap: false, reason: "ok" } } satisfies ApiResponse;
+    },
+  );
+
   fastify.post<{
-    Body: { cwd?: string; base?: string; newBranch?: string; path?: string; force?: boolean };
+    Body: { cwd?: string; base?: string; newBranch?: string; path?: string; force?: boolean; requestId?: string };
   }>(
     "/api/git/worktree",
     { preHandler: networkGuard },
@@ -161,6 +271,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "newBranch required" } satisfies ApiResponse;
       }
+      const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
       const result = addWorktree({
         cwd: validated.cwd,
         base: body.base,
@@ -169,9 +280,6 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         force: body.force === true,
       });
       if (!result.ok) {
-        // 409 for state conflicts that the client should surface inline
-        // (branch already taken, path collision); 400 for input errors;
-        // 500 for unclassified git failures.
         const httpStatus =
           result.error === "branch_in_use" || result.error === "branch_exists" || result.error === "path_exists"
             ? 409
@@ -184,12 +292,94 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           code: result.error,
           error: result.message,
           ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(typeof result.orphanLikely === "boolean" ? { orphanLikely: result.orphanLikely } : {}),
         } satisfies ApiResponse;
       }
+
+      // ── Post-create bootstrap step (change: harden-worktree-spawn) ────────
+      //
+      // Gated by `.pi/settings.json#packages[].source` resolving into the
+      // parent repo. For most repos this is a no-op (bootstrap.ran=false).
+      const repoRoot = resolveMainPath(validated.cwd);
+      const requirement = repoRoot ? detectBootstrapRequirement(repoRoot) : { required: false };
+      let bootstrap: { ran: boolean; durationMs?: number; skippedReason?: string } = { ran: false, skippedReason: "not_required" };
+      if (requirement.required) {
+        const newWorktree = result.path;
+        const sendIf = (msg: any) => {
+          if (requestId && worktreeBootstrapRegistry) worktreeBootstrapRegistry.send(requestId, msg);
+        };
+        const onProgress = (p: BootstrapProgress) => {
+          sendIf({ type: "worktree_bootstrap_progress", requestId: requestId ?? "", cwd: newWorktree, line: p.line });
+        };
+        const runResult = await runBootstrap(newWorktree, onProgress);
+        if (runResult.code === "no_lockfile") {
+          bootstrap = { ran: false, skippedReason: "no_lockfile" };
+        } else if (runResult.ok) {
+          bootstrap = { ran: true, durationMs: runResult.durationMs };
+          sendIf({ type: "worktree_bootstrap_done", requestId: requestId ?? "", cwd: newWorktree, durationMs: runResult.durationMs });
+        } else {
+          const stderr = runResult.stderr ?? "";
+          const hint = mapBootstrapStderrToHint(stderr) ?? `install failed (${runResult.code ?? "unknown"})`;
+          sendIf({ type: "worktree_bootstrap_failed", requestId: requestId ?? "", cwd: newWorktree, code: runResult.code ?? "install_nonzero_exit", message: hint, stderr });
+          reply.code(500);
+          return {
+            success: false,
+            code: "bootstrap_failed",
+            error: hint,
+            stderr,
+          } satisfies ApiResponse;
+        }
+      }
+
       return {
         success: true,
-        data: { path: result.path, branch: result.branch, excludeAppended: result.excludeAppended },
+        data: { path: result.path, branch: result.branch, excludeAppended: result.excludeAppended, bootstrap },
       } satisfies ApiResponse;
+    },
+  );
+
+  // ── Orphan-path cleanup (change: openspec-worktree-spawn-button) ──────────────────
+  //
+  // Unblocks the worktree-spawn dialog when a previous failed attempt
+  // left an orphan directory at the target path. Conservative refuse
+  // rules — see `orphanCleanup` in `git-operations.ts`.
+  fastify.post<{ Body: { cwd?: string; path?: string } }>(
+    "/api/git/worktree/orphan-cleanup",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const validated = validateCwd(body.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (!body.path || typeof body.path !== "string") {
+        reply.code(400);
+        return { success: false, code: "cwd_invalid", error: "path required" } satisfies ApiResponse;
+      }
+      const result = orphanCleanup({ cwd: validated.cwd, path: body.path });
+      if (!result.ok) {
+        // 409 for state conflicts the client surfaces inline (registered
+        // worktree, looks-like-worktree, size/file caps); 400 for input
+        // errors (outside_repo, not_a_directory); 500 for unclassified fs
+        // failures.
+        const httpStatus =
+          result.error === "not_orphan" ||
+          result.error === "looks_like_worktree" ||
+          result.error === "too_many_files" ||
+          result.error === "file_too_large"
+            ? 409
+            : result.error === "outside_repo" || result.error === "not_a_directory"
+              ? 400
+              : 500;
+        reply.code(httpStatus);
+        return {
+          success: false,
+          code: result.error,
+          error: result.message,
+        } satisfies ApiResponse;
+      }
+      return { success: true } satisfies ApiResponse;
     },
   );
 

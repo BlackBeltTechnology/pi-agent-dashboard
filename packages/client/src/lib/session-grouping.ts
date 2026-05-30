@@ -38,7 +38,7 @@ export function inferPlatform(
  *
  * See change: platform-path-normalization.
  */
-function pathKey(p: string, platform: NodeJS.Platform): string {
+export function pathKey(p: string, platform: NodeJS.Platform): string {
   const normalized = normalizePath(p, platform);
   // Match samePath's folding: case-insensitive on win32/darwin,
   // case-sensitive on linux.

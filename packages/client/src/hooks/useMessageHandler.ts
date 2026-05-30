@@ -9,6 +9,9 @@ import { encodeFolderPath } from "../lib/folder-encoding.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
+import { dispatchBootstrapEvent } from "../lib/worktree-bootstrap-bus.js";
+import { isVisibleCwd } from "../lib/cwd-visibility.js";
+import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
 import type {
   ServerToBrowserMessage,
   SpawnFailureCode,
@@ -81,6 +84,16 @@ export interface MessageHandlerDeps {
    * `msg.requestId` matches, drop the entry). See change: spawn-correlation-token.
    */
   pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume" }>>;
+  /**
+   * Live snapshot of pinned dirs + workspaces + sessions for the
+   * `isVisibleCwd` check that gates the off-screen spawn_error toast.
+   * Optional for back-compat. See change: harden-worktree-spawn.
+   */
+  cwdVisibilityInputsRef?: React.MutableRefObject<{
+    pinnedDirectories: ReadonlyArray<string>;
+    workspaces: ReadonlyArray<{ folders: ReadonlyArray<string> }>;
+    sessions: ReadonlyArray<{ cwd: string }>;
+  }>;
 }
 
 export function useMessageHandler(
@@ -469,6 +482,19 @@ export function useMessageHandler(
           });
           return next;
         });
+        // Off-screen fallback (change: harden-worktree-spawn): when the
+        // cwd has no visible folder banner, push a global toast so the
+        // failure isn't silently dropped. The per-folder banner takes
+        // precedence when the cwd IS visible.
+        const visibilityInputs = deps.cwdVisibilityInputsRef?.current;
+        if (visibilityInputs && !isVisibleCwd(msg.cwd, visibilityInputs)) {
+          pushSpawnErrorToast({
+            cwd: msg.cwd,
+            code: msg.code ?? "SPAWN_ERROR",
+            message: msg.message,
+            requestId: undefined,
+          });
+        }
         break;
       }
 

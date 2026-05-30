@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRoute, useLocation, useSearchParams, Redirect, Switch, Route } from "wouter";
 import { useWebSocket } from "./hooks/useWebSocket.js";
+import { setBootstrapSender } from "./lib/worktree-bootstrap-bus.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
 import { SessionList } from "./components/SessionList.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
 import { MobileShell } from "./components/MobileShell.js";
+import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
@@ -264,6 +266,12 @@ function PiResourceFileRoute({
 export default function App() {
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
   const { send, onMessage, status } = useWebSocket(wsUrl);
+  // Worktree-bootstrap bus needs a way to send subscribe/unsubscribe
+  // messages over the same socket. See change: harden-worktree-spawn.
+  useEffect(() => {
+    setBootstrapSender(send);
+    return () => setBootstrapSender(null);
+  }, [send]);
   // Drives the slot-registry enable filter from /api/health.plugins[] +
   // plugin_config_update broadcasts. The returned `startedAt` is also
   // consumed inside the Plugins tab via this same hook re-call, so we don't
@@ -470,9 +478,24 @@ export default function App() {
     }
   }, []);
 
+  // Live snapshot of visible-cwd inputs for the off-screen spawn_error
+  // toast fallback. Updated every render so the latest pinned/workspace/
+  // session set drives the isVisibleCwd check inside useMessageHandler.
+  // See change: harden-worktree-spawn.
+  const cwdVisibilityInputsRef = useRef({
+    pinnedDirectories: [] as ReadonlyArray<string>,
+    workspaces: [] as ReadonlyArray<{ folders: ReadonlyArray<string> }>,
+    sessions: [] as ReadonlyArray<{ cwd: string }>,
+  });
+  cwdVisibilityInputsRef.current = {
+    pinnedDirectories,
+    workspaces,
+    sessions: Array.from(sessions.values()).map((s) => ({ cwd: s.cwd })),
+  };
+
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef },
   );
 
   useEffect(() => {
@@ -1411,6 +1434,7 @@ export default function App() {
           inFlightSwitch={inFlightSwitchKey !== null}
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
+        <SpawnErrorToastHost />
         <MobileShell
           depth={mobileDepth}
           onBack={() => {

@@ -90,6 +90,9 @@ export interface CreateWorktreeOk {
   path: string;
   branch: string;
   excludeAppended: boolean;
+  /** Present on servers that ran the worktree-bootstrap step. Older
+   * servers omit this; callers treat absent as `{ ran: false, skippedReason: "not_required" }`. */
+  bootstrap?: BootstrapInfo;
 }
 
 export interface CreateWorktreeError {
@@ -97,9 +100,22 @@ export interface CreateWorktreeError {
   code: string;
   error: string;
   stderr?: string;
+  /**
+   * Present when `code === "path_exists"`. `true` when the colliding
+   * path is NOT a registered worktree (likely orphan), `false` when it
+   * IS a registered worktree. Drives the dialog's inline `[Clean up]`
+   * button.
+   * See change: openspec-worktree-spawn-button.
+   */
+  orphanLikely?: boolean;
 }
 
 export type CreateWorktreeResult = CreateWorktreeOk | CreateWorktreeError;
+
+// Extend the success shape with the optional bootstrap field returned by
+// the new harden-worktree-spawn changes. Older servers omit it; dialog
+// code defaults to `{ ran: false, skippedReason: "not_required" }`.
+
 
 /** GET /api/git/head */
 export async function fetchGitHead(cwd: string): Promise<HeadInfo> {
@@ -118,13 +134,19 @@ export async function fetchWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 }
 
 /** POST /api/git/worktree. Returns a discriminated union so the caller can
- * branch on a stable error `code` without parsing strings. */
+ * branch on a stable error `code` without parsing strings.
+ *
+ * `requestId` is optional but recommended: when provided, the server
+ * streams worktree-bootstrap progress events tagged with the same id
+ * (see WorktreeBootstrapRegistry). See change: harden-worktree-spawn.
+ */
 export async function createWorktree(params: {
   cwd: string;
   base: string;
   newBranch: string;
   path?: string;
   force?: boolean;
+  requestId?: string;
 }): Promise<CreateWorktreeResult> {
   const res = await fetch(`${getApiBase()}/api/git/worktree`, {
     method: "POST",
@@ -133,13 +155,143 @@ export async function createWorktree(params: {
   });
   const json = await res.json();
   if (json.success) {
-    return { ok: true, ...(json.data as { path: string; branch: string; excludeAppended: boolean }) };
+    return { ok: true, ...(json.data as { path: string; branch: string; excludeAppended: boolean; bootstrap?: BootstrapInfo }) };
   }
   return {
     ok: false,
     code: json.code ?? "git_failed",
     error: json.error ?? "worktree create failed",
     ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
+    ...(typeof json.orphanLikely === "boolean" ? { orphanLikely: json.orphanLikely } : {}),
+  };
+}
+
+export interface BootstrapInfo {
+  ran: boolean;
+  durationMs?: number;
+  skippedReason?: string;
+}
+
+export type BootstrapStatusReason =
+  | "not_required"
+  | "ok"
+  | "no_node_modules"
+  | "stale_lockfile";
+
+export interface BootstrapStatus {
+  needsBootstrap: boolean;
+  reason: BootstrapStatusReason;
+}
+
+/** GET /api/git/worktree/bootstrap-status?cwd=<path> */
+export async function fetchWorktreeBootstrapStatus(cwd: string): Promise<BootstrapStatus> {
+  const res = await fetch(`${getApiBase()}/api/git/worktree/bootstrap-status?cwd=${encodeURIComponent(cwd)}`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? "failed to read bootstrap status");
+  return json.data as BootstrapStatus;
+}
+
+export interface BootstrapExistingOk {
+  ok: true;
+  bootstrap: BootstrapInfo;
+}
+
+export interface BootstrapExistingError {
+  ok: false;
+  code: string;
+  error: string;
+  stderr?: string;
+}
+
+export type BootstrapExistingResult = BootstrapExistingOk | BootstrapExistingError;
+
+/**
+ * POST /api/git/worktree/bootstrap — runs the install step against an
+ * EXISTING worktree path. Used by the dialog's "⚠ Install deps + Spawn
+ * →" variant. Progress events delivered via the requestId-tagged WS
+ * channel. See change: harden-worktree-spawn.
+ */
+export async function bootstrapExistingWorktree(params: { cwd: string; requestId?: string }): Promise<BootstrapExistingResult> {
+  const res = await fetch(`${getApiBase()}/api/git/worktree/bootstrap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (json.success) {
+    return { ok: true, bootstrap: (json.data?.bootstrap ?? { ran: false, skippedReason: "not_required" }) as BootstrapInfo };
+  }
+  return {
+    ok: false,
+    code: json.code ?? "bootstrap_failed",
+    error: json.error ?? "bootstrap failed",
+    ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
+  };
+}
+
+export interface OrphanCleanupOk {
+  ok: true;
+}
+
+export interface OrphanCleanupError {
+  ok: false;
+  code: string;
+  error: string;
+}
+
+export type OrphanCleanupResult = OrphanCleanupOk | OrphanCleanupError;
+
+/**
+ * GET /api/file/exists — lightweight path-existence probe (gated to
+ * cwd known to the session manager / pinned dirs). Returns `true` when
+ * the path exists, `false` on 404, `false` on any error (defensive).
+ *
+ * Used by WorktreeSpawnDialog to detect orphan-path collisions before
+ * submit. See change: openspec-worktree-spawn-button.
+ */
+export async function probePathExists(params: {
+  cwd: string;
+  path: string;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/file/exists?cwd=${encodeURIComponent(params.cwd)}&path=${encodeURIComponent(params.path)}`,
+      { signal: params.signal },
+    );
+    if (res.status === 404) return false;
+    if (!res.ok) return false;
+    const json = await res.json();
+    return json?.data?.exists === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POST /api/git/worktree/orphan-cleanup. Deletes a non-registered orphan
+ * directory at `path` (must be inside `cwd`, must not contain `.git`,
+ * bounded by file count + size).
+ *
+ * See change: openspec-worktree-spawn-button.
+ */
+export async function cleanupOrphanWorktreePath(params: {
+  cwd: string;
+  path: string;
+}): Promise<OrphanCleanupResult> {
+  const res = await fetch(`${getApiBase()}/api/git/worktree/orphan-cleanup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const json = await res.json();
+  if (json.success) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    code: json.code ?? "fs_failed",
+    error: json.error ?? "orphan cleanup failed",
   };
 }
 
