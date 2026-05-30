@@ -84,7 +84,7 @@ function createStubWatcher(): OpenSpecChangeWatcher & { fire(cwd: string): void;
   let onChangeCb: ((cwd: string) => void) | undefined;
   const attached = new Set<string>();
   return {
-    attach: (cwd) => { attached.add(cwd); },
+    attach: (cwd) => { const had = attached.has(cwd); attached.add(cwd); return !had; },
     detach: (cwd) => { attached.delete(cwd); },
     detachAll: () => { attached.clear(); },
     size: () => attached.size,
