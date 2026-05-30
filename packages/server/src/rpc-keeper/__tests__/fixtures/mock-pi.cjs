@@ -9,6 +9,11 @@
  *   MOCK_PI_MODE=normal (default) — read until EOF, log lines, exit 0
  *   MOCK_PI_MODE=crash             — exit non-zero immediately (tests
  *                                    keeper crash-detection window)
+ *   MOCK_PI_MODE=hung              — trap SIGTERM, ignore stdin EOF,
+ *                                    busy-loop until SIGKILL. Tests
+ *                                    keeper's piChild SIGKILL on shutdown.
+ *                                    Writes own PID to MOCK_PI_PID_FILE when set.
+ *                                    See change: fix-keeper-kill-escalation.
  *
  * CommonJS-pure, only Node built-ins.
  */
@@ -22,6 +27,22 @@ const logPath = process.env.MOCK_PI_LOG;
 if (mode === "crash") {
   process.stderr.write("[mock-pi] crash mode: exiting 1 immediately\n");
   process.exit(1);
+}
+
+if (mode === "hung") {
+  // Trap SIGTERM — ignore it. Ignore stdin EOF. Busy-loop forever.
+  // The keeper's piChild.kill("SIGKILL") in shutdown() is the only thing
+  // that can stop this process.
+  process.on("SIGTERM", () => { /* swallow */ });
+  process.stdin.on("end", () => { /* swallow EOF, don't exit */ });
+  process.stdin.on("error", () => { /* swallow */ });
+  process.stdin.resume();
+  if (process.env.MOCK_PI_PID_FILE) {
+    try { fs.writeFileSync(process.env.MOCK_PI_PID_FILE, String(process.pid)); } catch { /* ignore */ }
+  }
+  // Keep the event loop busy so we cannot be killed by a graceful exit path.
+  setInterval(() => { /* tick */ }, 100);
+  return;
 }
 
 if (!logPath) {

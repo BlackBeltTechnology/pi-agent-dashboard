@@ -6,7 +6,7 @@
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { EventEmitter } from "node:events";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
-import { killPidWithGroup, isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { killPidWithGroup, isProcessAlive, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import path from "node:path";
 import os from "node:os";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
@@ -158,12 +158,15 @@ export interface HeadlessPidRegistry {
    */
   getPid(sessionId: string): number | undefined;
   /**
-   * Send SIGTERM to the process linked to a session ID. Returns true if
-   * killed. In keeper mode kills pi first (so the keeper's auto-exit-on-
-   * pi-exit fires) and falls back to killing the keeper after a brief
-   * delay if it survives. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
+   * Terminate the process linked to a session ID with SIGTERM → 2 s →
+   * SIGKILL escalation via the shared `killProcess` ladder. Returns true
+   * if at least one kill targeted a live PID. In keeper mode kills pi
+   * first (so the keeper's auto-exit-on-pi-exit fires) and schedules a
+   * fallback SIGTERM to the keeper after a brief delay if it survives.
+   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar; escalation
+   * added in change: fix-keeper-kill-escalation.
    */
-  killBySessionId(sessionId: string): boolean;
+  killBySessionId(sessionId: string): Promise<boolean>;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -171,7 +174,7 @@ export interface HeadlessPidRegistry {
   /** Number of tracked entries (for testing). */
   size(): number;
   /** Clean up orphan processes from a previous server instance. */
-  cleanupOrphans(): void;
+  cleanupOrphans(): Promise<void>;
   /**
    * Connect to the keeper UDS for `sessionId` and write `line + \n`.
    * Returns false if no entry, no keeper for this session, or if the
@@ -342,45 +345,54 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       return entry.piPid ?? entry.pid;
     },
 
-    killBySessionId(sessionId: string): boolean {
+    async killBySessionId(sessionId: string): Promise<boolean> {
       const entry = findBySessionId(sessionId);
       if (!entry) return false;
 
-      // Keeper-mediated entry: kill pi first so the keeper's
-      // auto-exit-on-pi-exit handler fires; schedule a fallback SIGTERM
-      // to the keeper if it survives the brief grace window.
-      // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 6.4).
+      // Keeper-mediated entry: kill pi first (with SIGTERM → 2 s →
+      // SIGKILL escalation) so the keeper's auto-exit-on-pi-exit handler
+      // fires; schedule a fallback SIGTERM to the keeper if it survives
+      // the brief grace window.
+      // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 6.4);
+      // SIGKILL escalation added in change: fix-keeper-kill-escalation.
       if (entry.keeperPid !== undefined) {
         const piPid = entry.piPid;
         const keeperPid = entry.keeperPid;
         let killedSomething = false;
         if (piPid !== undefined) {
           try {
-            killPidWithGroup(piPid, "SIGTERM");
+            await killProcess(piPid, { timeoutMs: 2000 });
             killedSomething = true;
           } catch { /* pi may already be dead */ }
         }
         // Fallback: 200 ms grace for the keeper's auto-exit; SIGTERM if it
-        // survives. Fire-and-forget to keep killBySessionId synchronous.
+        // survives. Fire-and-forget — the keeper's own SIGTERM handler is
+        // reliable on the happy path, and Decision 3 of
+        // fix-keeper-kill-escalation has the keeper SIGKILL its piChild on
+        // shutdown, so registry-level SIGKILL escalation here is unneeded.
         setTimeout(() => {
           if (isProcessAlive(keeperPid)) {
             try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
           }
         }, 200).unref?.();
         // If pi was unknown (bridge never connected), fall through to
-        // killing the keeper directly so the spawn cleanup completes.
+        // killing the keeper directly with SIGKILL escalation so the
+        // spawn cleanup completes — we have no cleaner shutdown signal.
         if (!killedSomething) {
-          try { killPidWithGroup(keeperPid, "SIGTERM"); killedSomething = true; }
-          catch { /* ignore */ }
+          try {
+            await killProcess(keeperPid, { timeoutMs: 2000 });
+            killedSomething = true;
+          } catch { /* ignore */ }
         }
         entries.delete(entry.pid);
         persist();
         return killedSomething;
       }
 
-      // Non-keeper path (legacy): kill the spawn-time PID directly.
+      // Non-keeper path (legacy): kill the spawn-time PID directly with
+      // SIGTERM → 2 s → SIGKILL escalation (uniform with keeper path).
       try {
-        killPidWithGroup(entry.pid, "SIGTERM");
+        await killProcess(entry.pid, { timeoutMs: 2000 });
         entries.delete(entry.pid);
         persist();
         return true;
@@ -457,7 +469,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       }
     },
 
-    cleanupOrphans() {
+    async cleanupOrphans(): Promise<void> {
       if (isUnsafeTestHomeScan()) {
         console.warn("[headless-pid-registry] cleanupOrphans() blocked: running under vitest with real HOME");
         return;
@@ -475,9 +487,11 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         }
 
         if (age > MAX_ORPHAN_AGE_MS) {
-          // Very old orphan — kill (process group on Unix, direct on Windows)
+          // Very old orphan — escalate via SIGTERM → 2 s → SIGKILL ladder
+          // (uniform with killBySessionId after change:
+          // fix-keeper-kill-escalation).
           try {
-            killPidWithGroup(entry.pid, "SIGTERM");
+            await killProcess(entry.pid, { timeoutMs: 2000 });
           } catch {
             // Already dead
           }

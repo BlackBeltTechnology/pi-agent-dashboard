@@ -111,7 +111,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return result.error;
       }
       piGateway.sendToSession(id, { type: "shutdown", sessionId: id });
-      browserGateway.headlessPidRegistry.killBySessionId(id);
+      await browserGateway.headlessPidRegistry.killBySessionId(id);
       sessionManager.unregister(id);
       browserGateway.broadcastSessionRemoved(id);
       return { success: true } satisfies ApiResponse;

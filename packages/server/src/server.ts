@@ -1004,7 +1004,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     async start() {
       // Clean up orphan headless processes from a previous server instance
-      browserGateway.headlessPidRegistry.cleanupOrphans();
+      await browserGateway.headlessPidRegistry.cleanupOrphans();
 
       // Wire the singleton KeeperManager into the headless-pid registry so
       // `writeRpc` can forward `dispatch_extension_command` lines to the

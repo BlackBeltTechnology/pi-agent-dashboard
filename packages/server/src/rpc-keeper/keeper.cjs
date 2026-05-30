@@ -97,6 +97,18 @@ function shutdown(exitCode, reason) {
   if (!isWindows) unlinkQuiet(sockPath);
   unlinkQuiet(pidPath);
 
+  // Defence in depth: SIGKILL piChild before exiting. The implicit contract
+  // "pi reads stdin EOF on keeper exit and shuts down voluntarily" only
+  // holds for a healthy pi whose event loop ticks. A hung pi (CPU loop /
+  // non-cancellable native call) never observes EOF and gets reparented
+  // to init/launchd — leaving an orphan. Explicit SIGKILL closes the gap.
+  // See change: fix-keeper-kill-escalation (Decision 3).
+  try {
+    if (piChild && piChild.exitCode === null && piChild.signalCode === null) {
+      piChild.kill("SIGKILL");
+    }
+  } catch (_e) { /* ignore — pi may have died between guard and kill */ }
+
   // Don't wait on logFd close — process.exit will tear down fds.
   process.exit(exitCode);
 }

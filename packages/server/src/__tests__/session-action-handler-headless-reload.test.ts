@@ -57,7 +57,7 @@ function makeCtx(
     },
     headlessPidRegistry: {
       getPid: (sid: string) => pidBySession[sid],
-      killBySessionId: (sid: string) => {
+      killBySessionId: async (sid: string) => {
         killCalls.push(sid);
         // Simulate immediate removal from registry on kill
         pidBySession[sid] = undefined;

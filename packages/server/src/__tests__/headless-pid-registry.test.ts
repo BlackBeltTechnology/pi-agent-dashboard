@@ -75,42 +75,41 @@ describe("HeadlessPidRegistry", () => {
     expect(registry.getPid("unknown")).toBeUndefined();
   });
 
-  it("should kill process by session ID", () => {
+  it("should kill process by session ID", async () => {
+    // Uses dead PID 999999: killProcess probes via process.kill(pid, 0),
+    // sees ESRCH → isProcessAlive false → returns {ok:false} immediately
+    // without sending SIGTERM/SIGKILL. The registry wrapper still treats
+    // a non-throwing killProcess as "kill issued" and returns true.
+    // Signal-shape assertions live in headless-pid-registry-kill-escalation.test.ts.
+    // See change: fix-keeper-kill-escalation.
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     const proc = mockProcess();
-    registry.register(process.pid, "/projects/app", proc);
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-
+    registry.register(999999, "/projects/app", proc);
     registry.linkSession("session-1", "/projects/app");
-    const killed = registry.killBySessionId("session-1");
+    const killed = await registry.killBySessionId("session-1");
     expect(killed).toBe(true);
-    expect(killSpy).toHaveBeenCalledWith(-process.pid, "SIGTERM");
     expect(registry.size()).toBe(0);
-
-    killSpy.mockRestore();
   });
 
-  it("should return false when killing unknown session", () => {
+  it("should return false when killing unknown session", async () => {
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
-    const killed = registry.killBySessionId("unknown");
+    const killed = await registry.killBySessionId("unknown");
     expect(killed).toBe(false);
   });
 
-  it("should handle kill failure gracefully", () => {
+  it("should handle kill failure gracefully", async () => {
+    // killProcess catches internal throws and returns {ok:false} without
+    // re-throwing, so the registry wrapper's try/catch is a no-op here.
+    // Behavior contract: returns true when entry exists (kill was issued),
+    // false only when entry is missing. See change: fix-keeper-kill-escalation.
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     const proc = mockProcess();
     registry.register(999999, "/projects/app", proc);
     registry.linkSession("session-1", "/projects/app");
 
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
-      throw new Error("ESRCH");
-    });
-
-    const killed = registry.killBySessionId("session-1");
-    expect(killed).toBe(false);
+    const killed = await registry.killBySessionId("session-1");
+    expect(killed).toBe(true);
     expect(registry.size()).toBe(0);
-
-    killSpy.mockRestore();
   });
 
   it("should remove by PID", () => {
@@ -177,7 +176,7 @@ describe("HeadlessPidRegistry persistence", () => {
 });
 
 describe("HeadlessPidRegistry orphan cleanup", () => {
-  it("should reclaim alive processes from disk", () => {
+  it("should reclaim alive processes from disk", async () => {
     const dir = makeTempDir();
     const pidFile = join(dir, "pids.json");
 
@@ -187,13 +186,13 @@ describe("HeadlessPidRegistry orphan cleanup", () => {
     }));
 
     const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
-    registry.cleanupOrphans();
+    await registry.cleanupOrphans();
 
     expect(registry.size()).toBe(1);
     expect(registry.getPid("any")).toBeUndefined(); // not linked yet
   });
 
-  it("should remove dead processes from disk", () => {
+  it("should remove dead processes from disk", async () => {
     const dir = makeTempDir();
     const pidFile = join(dir, "pids.json");
 
@@ -203,14 +202,14 @@ describe("HeadlessPidRegistry orphan cleanup", () => {
     }));
 
     const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
-    registry.cleanupOrphans();
+    await registry.cleanupOrphans();
 
     expect(registry.size()).toBe(0);
     const data = JSON.parse(readFileSync(pidFile, "utf-8"));
     expect(data.entries).toHaveLength(0);
   });
 
-  it("should kill very old alive orphans (>7 days)", () => {
+  it("should kill very old alive orphans (>7 days)", async () => {
     const dir = makeTempDir();
     const pidFile = join(dir, "pids.json");
 
@@ -219,12 +218,25 @@ describe("HeadlessPidRegistry orphan cleanup", () => {
       entries: [{ pid: process.pid, cwd: "/projects/app", spawnedAt: oldDate }],
     }));
 
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    // killProcess flow: probe (signal 0, alive) → SIGTERM → poll (signal 0
+    // every 200 ms). We track whether SIGTERM has been sent; probes return
+    // alive until SIGTERM is sent, then dead — lets killProcess return
+    // {ok:true, forced:false} on the first post-SIGTERM poll (≤ 200 ms).
+    // See change: fix-keeper-kill-escalation.
+    let sigtermSent = false;
+    const killSpy = vi.spyOn(process, "kill").mockImplementation((_p, sig) => {
+      if (sig === 0) {
+        if (sigtermSent) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+        return true;
+      }
+      if (sig === "SIGTERM") sigtermSent = true;
+      return true;
+    });
     const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
-    registry.cleanupOrphans();
+    await registry.cleanupOrphans();
 
-    // Should have tried to kill the process group
-    expect(killSpy).toHaveBeenCalledWith(-process.pid, "SIGTERM");
+    // SIGTERM was sent on the positive PID (killProcess ladder, not group kill).
+    expect(killSpy).toHaveBeenCalledWith(process.pid, "SIGTERM");
     // Should NOT be reclaimed
     expect(registry.size()).toBe(0);
 
@@ -417,37 +429,33 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     expect(writer.writeRpcToSockPath).toHaveBeenCalledTimes(1);
   });
 
-  it("killBySessionId in keeper mode SIGTERMs pi first then keeper", () => {
+  it("killBySessionId in keeper mode escalates pi via killProcess", async () => {
+    // Uses dead PID 999999: killProcess returns {ok:false} immediately —
+    // keeps test fast. Signal-shape assertions for the SIGTERM→SIGKILL
+    // ladder live in headless-pid-registry-kill-escalation.test.ts.
+    // See change: fix-keeper-kill-escalation.
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
-    registry.register(process.pid, "/proj", mockProcess(), "tok", {
-      keeperPid: process.pid,
+    registry.register(999999, "/proj", mockProcess(), "tok", {
+      keeperPid: 999999,
       keeperSockPath: "/tmp/x.sock",
     });
-    // Bridge connect: piPid distinct from keeperPid.
-    registry.linkByToken("tok", "S_keep", process.pid);
-    // Now piPid === process.pid, keeperPid === process.pid (both alive).
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const ok = registry.killBySessionId("S_keep");
+    registry.linkByToken("tok", "S_keep", 999998);
+    const ok = await registry.killBySessionId("S_keep");
     expect(ok).toBe(true);
-    // pi killed first (process group on Unix).
-    expect(killSpy).toHaveBeenCalledWith(-process.pid, "SIGTERM");
     expect(registry.size()).toBe(0);
-    killSpy.mockRestore();
   });
 
-  it("killBySessionId keeper mode without pi link still kills keeper", () => {
+  it("killBySessionId keeper mode without pi link still kills keeper", async () => {
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
-    registry.register(process.pid, "/proj", mockProcess(), "tok", {
-      keeperPid: process.pid,
+    registry.register(999999, "/proj", mockProcess(), "tok", {
+      keeperPid: 999999,
       keeperSockPath: "/tmp/x.sock",
     });
     registry.linkByToken("tok", "S_keep");
-    // No piPid set (bridge never connected). Should still kill the keeper.
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
-    const ok = registry.killBySessionId("S_keep");
+    // No piPid set (bridge never connected). Keeper-fallback path:
+    // killProcess(keeperPid) directly. See change: fix-keeper-kill-escalation.
+    const ok = await registry.killBySessionId("S_keep");
     expect(ok).toBe(true);
-    expect(killSpy).toHaveBeenCalledWith(-process.pid, "SIGTERM");
-    killSpy.mockRestore();
   });
 
   it("cleanupKeeperOrphans no-op when no keeper writer", async () => {
@@ -491,7 +499,7 @@ describe("HeadlessPidRegistry: keeper mode", () => {
         keeperSockPath: "/tmp/abc.sock",
       }],
     }));
-    r2.cleanupOrphans();
+    await r2.cleanupOrphans();
     expect(r2.size()).toBe(1);
 
     // Bridge reattach: no spawnToken (omitted on reattach), sends pi's PID.

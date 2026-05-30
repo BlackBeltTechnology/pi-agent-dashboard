@@ -134,8 +134,9 @@ export async function handleHeadlessReload(
 
   emitCommandFeedback(ctx, msg.sessionId, "started");
 
-  // SIGTERM the old headless pi. No-op if already dead (idempotency guard).
-  headlessPidRegistry.killBySessionId(msg.sessionId);
+  // SIGTERM → 2 s → SIGKILL the old headless pi. No-op if already dead
+  // (idempotency guard). See change: fix-keeper-kill-escalation.
+  await headlessPidRegistry.killBySessionId(msg.sessionId);
 
   // Respawn with the same session file. The new pi process re-hydrates the
   // same sessionId, the bridge re-registers, and the server preserves
@@ -514,13 +515,15 @@ export async function handleSpawnSession(
   }
 }
 
-export function handleShutdown(
+export async function handleShutdown(
   msg: Extract<BrowserToServerMessage, { type: "shutdown" }>,
   ctx: BrowserHandlerContext,
-): void {
+): Promise<void> {
   const { sessionManager, piGateway, headlessPidRegistry, broadcast } = ctx;
   piGateway.sendToSession(msg.sessionId, { type: "shutdown", sessionId: msg.sessionId });
-  headlessPidRegistry.killBySessionId(msg.sessionId);
+  // Escalates SIGTERM → 2 s → SIGKILL via shared killProcess ladder.
+  // See change: fix-keeper-kill-escalation.
+  await headlessPidRegistry.killBySessionId(msg.sessionId);
   killHeadlessBySessionId(msg.sessionId);
   sessionManager.unregister(msg.sessionId);
   broadcast({ type: "session_removed", sessionId: msg.sessionId });
@@ -654,7 +657,8 @@ export async function handleForceKill(
   const killResult = await killProcess(pid, { timeoutMs: 2000 });
 
   // Also kill any headless-registered siblings (same session ID).
-  headlessPidRegistry.killBySessionId(msg.sessionId);
+  // See change: fix-keeper-kill-escalation (await for SIGKILL escalation).
+  await headlessPidRegistry.killBySessionId(msg.sessionId);
 
   const endedAt = Date.now();
   sessionManager.update(msg.sessionId, { status: "ended", endedAt });
