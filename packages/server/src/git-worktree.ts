@@ -126,3 +126,45 @@ export function ensureWorktreeExcludeLine(existing: string): {
     appended: true,
   };
 }
+
+// ── orphan-path detection (change: openspec-worktree-spawn-button §6) ──────
+
+/**
+ * Path comparator that tolerates platform-specific quirks (case-insensitive
+ * on macOS+Windows, separator normalization, trailing-slash normalization).
+ * Pure, no I/O.
+ */
+export function isSameWorktreePath(a: string, b: string): boolean {
+  const normalize = (p: string): string => {
+    if (!p) return "";
+    let normalized = p.replace(/\\/g, "/");
+    if (normalized.length > 1 && normalized.endsWith("/")) {
+      normalized = normalized.slice(0, -1);
+    }
+    if (process.platform === "darwin" || process.platform === "win32") { // platform-branch-ok: fs case-sensitivity is OS metadata, comparator is pure
+      return normalized.toLowerCase();
+    }
+    return normalized;
+  };
+  return normalize(a) === normalize(b);
+}
+
+/**
+ * Returns `true` when `path` exists on disk but is NOT present in the
+ * provided worktree list. Decoupled from filesystem I/O via `exists`
+ * injection — unit tests pass synthetic predicates; route callers wire it
+ * to `fs.existsSync`.
+ */
+export function isOrphanWorktreePath(args: {
+  path: string;
+  worktreeList: ReadonlyArray<{ path: string }>;
+  exists: (path: string) => boolean;
+}): boolean {
+  const { path: target, worktreeList, exists } = args;
+  if (!target) return false;
+  if (!exists(target)) return false;
+  for (const w of worktreeList) {
+    if (isSameWorktreePath(w.path, target)) return false;
+  }
+  return true;
+}

@@ -880,7 +880,7 @@ function computeOrphanLikely(cwd: string, worktreePath: string): boolean {
     return isOrphanWorktreePath({
       path: worktreePath,
       worktreeList: list,
-      exists: (p) => fs.existsSync(p),
+      exists: (p: string) => fs.existsSync(p),
     });
   } catch {
     return false;

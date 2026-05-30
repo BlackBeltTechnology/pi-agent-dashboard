@@ -223,8 +223,8 @@ export async function runBootstrap(
       setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* noop */ } }, 2000);
     }, timeoutMs);
 
-    child.stdout.on("data", (b: Buffer) => { appendToTail(b.toString("utf8")); scheduleEmit(); });
-    child.stderr.on("data", (b: Buffer) => { appendToTail(b.toString("utf8")); scheduleEmit(); });
+    child.stdout?.on("data", (b: Buffer) => { appendToTail(b.toString("utf8")); scheduleEmit(); });
+    child.stderr?.on("data", (b: Buffer) => { appendToTail(b.toString("utf8")); scheduleEmit(); });
 
     child.on("error", (err) => {
       if (settled) return;
