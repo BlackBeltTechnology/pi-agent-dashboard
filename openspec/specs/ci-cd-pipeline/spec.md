@@ -19,32 +19,34 @@ The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) th
 - **AND** `ci.yml` SHALL contain no such job definitions
 
 ### Requirement: Publish workflow on version tags
-The project SHALL have a GitHub Actions workflow (`.github/workflows/publish.yml`) that triggers when a tag matching `v*` is pushed (or via `workflow_dispatch` with a `version` input). The workflow's `publish` job SHALL be gated by a `release-gate` aggregate that runs lint+test+build AND the full standalone-install-smoke matrix; the `publish` job SHALL NOT execute if any gate sub-job fails. The workflow SHALL then invoke the reusable Electron build workflow `.github/workflows/_electron-build.yml` for the per-OS matrix (macOS arm64/x64, Linux x64/arm64, Windows x64/arm64). The reusable Electron workflow's matrix SHALL execute build orchestration via `.mjs` scripts (Node-native) for any logic that runs on more than one OS; SHALL NOT use `shell: bash` on any Windows-reachable step. The release flow SHALL retain `needs: [prepare, publish]` ordering on the electron job so the bundled server's npm install resolves the just-bumped `@blackbelt-technology/*` versions.
+The project SHALL have a GitHub Actions workflow (`.github/workflows/publish.yml`) that triggers when a tag matching `v*` is pushed (or via `workflow_dispatch` with a `version` input). The workflow's `publish` job SHALL be gated by the parallel `ci-checks` (lint+test+build) and `smoke` (full standalone-install-smoke matrix) jobs; the `publish` job SHALL NOT execute if either gate sub-job fails. The workflow SHALL then invoke the reusable Electron build workflow `.github/workflows/_electron-build.yml` for the per-OS matrix (macOS arm64/x64, Linux x64/arm64, Windows x64/arm64). The reusable Electron workflow's matrix SHALL execute build orchestration via `.mjs` scripts (Node-native) for any logic that runs on more than one OS; SHALL NOT use `shell: bash` on any Windows-reachable step. The release flow SHALL retain `needs: [resolve, publish]` ordering on the electron job so the bundled server's npm install resolves the just-bumped `@blackbelt-technology/*` versions.
 
-The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version resolution, no side effects), `release-gate` (parallel `ci-checks` + `smoke`), and `tag-and-push` (commit+tag+push, runs only on `workflow_dispatch`). The `tag-and-push` job SHALL have `if: github.event_name == 'workflow_dispatch'`; on tag-push entry it is skipped because the tag is already present.
+The legacy monolithic `prepare` job SHALL be split into `resolve` (pure version resolution, no side effects), parallel `ci-checks` + `smoke` gate jobs, and `tag-and-push` (commit+tag+push, runs only on `workflow_dispatch`). The `tag-and-push` job SHALL have `if: github.event_name == 'workflow_dispatch'`; on tag-push entry it is skipped because the tag is already present. Because GitHub Actions treats a skipped `needs:` as blocking by default, the `publish` job SHALL declare an explicit `if:` that requires `needs.ci-checks.result == 'success'` AND `needs.smoke.result == 'success'` AND `needs.tag-and-push.result` of either `success` (dispatch path) or `skipped` (tag-push path).
 
 #### Scenario: Version tag triggers publish
 - **WHEN** a tag matching `v*` (e.g., `v1.0.0`) is pushed
-- **THEN** the publish workflow SHALL run `resolve` → `release-gate` → `publish` → `electron` → `github-release`
+- **THEN** the publish workflow SHALL run `resolve` → (`ci-checks` ∥ `smoke`) → `publish` → `electron` → `github-release`
 - **AND** `tag-and-push` SHALL be skipped (the tag is already pushed)
-- **AND** the `publish` job SHALL invoke `npm publish --access public --provenance` only if every `release-gate` sub-job succeeded
+- **AND** the `publish` job's `if:` SHALL accept the skipped `tag-and-push` result
+- **AND** the `publish` job SHALL invoke `npm publish --access public --provenance` only if both `ci-checks` and `smoke` succeeded
 
 #### Scenario: Workflow dispatch triggers publish with bump
 - **WHEN** an operator triggers `publish.yml` via `workflow_dispatch` with a version input
-- **THEN** the publish workflow SHALL run `resolve` → `release-gate` → `tag-and-push` → `publish` → `electron` → `github-release`
+- **THEN** the publish workflow SHALL run `resolve` → (`ci-checks` ∥ `smoke`) → `tag-and-push` → `publish` → `electron` → `github-release`
 - **AND** `tag-and-push` SHALL bump every workspace `package.json`, run `scripts/sync-versions.js`, regenerate `package-lock.json`, promote `CHANGELOG.md` `[Unreleased]`, commit `chore(release): vX.Y.Z`, tag `vX.Y.Z`, and push branch + tag
-- **AND** `tag-and-push` SHALL only run if `release-gate` succeeded — a failing gate SHALL leave no commit, no tag, and no npm artifact
+- **AND** `tag-and-push` SHALL only run if `ci-checks` and `smoke` succeeded — a failing gate SHALL leave no commit, no tag, and no npm artifact
 
-#### Scenario: Publish uses NPM_TOKEN secret
+#### Scenario: Publish uses npm Trusted Publisher (OIDC)
 - **WHEN** the publish step runs
-- **THEN** it SHALL authenticate to npm using the `NPM_TOKEN` repository secret via the `NODE_AUTH_TOKEN` environment variable
+- **THEN** it SHALL authenticate to npm via OIDC token exchange (Trusted Publisher) using the workflow's `id-token: write` permission
+- **AND** no `NPM_TOKEN` repository secret SHALL be required or referenced via `NODE_AUTH_TOKEN`
 
 #### Scenario: Electron job consumes reusable workflow
 - **WHEN** the publish workflow reaches the electron build phase
-- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [prepare, publish]` (where `prepare` is now satisfied by the `resolve` + `tag-and-push` chain) and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90 }`
+- **THEN** it SHALL invoke `_electron-build.yml` via `uses:` with `needs: [resolve, publish]` and `with: { version: <resolved>, ref: <tag>, legs: all, source_only_bundle: false, artifact_retention_days: 90 }`
 
 #### Scenario: CI failure prevents publish
-- **WHEN** any sub-job of `release-gate` (lint, test, build, or any leg of the smoke matrix) fails during the publish workflow
+- **WHEN** any sub-job of the gate (`ci-checks` lint/test/build, or any leg of the `smoke` matrix) fails during the publish workflow
 - **THEN** the `publish` job SHALL NOT execute
 - **AND** on `workflow_dispatch` entry, `tag-and-push` SHALL NOT execute, leaving no dangling commit or tag
 
@@ -119,12 +121,12 @@ The repository SHALL contain an automated test (`packages/shared/src/__tests__/n
 - **THEN** its `shell: bash` steps are NOT flagged because they are unreachable on Windows by definition
 
 ### Requirement: Prerelease versions publish to `next` dist-tag with `prerelease: true` Release
-The `prepare` job in `.github/workflows/publish.yml` SHALL compute a boolean `is_prerelease` from the resolved version string (true iff the version matches the regex `^[0-9]+\.[0-9]+\.[0-9]+-`, indicating a SemVer prerelease segment) and expose it as a job output. The `publish` job SHALL pass `--tag next` to every `npm publish` invocation when `is_prerelease` is `"true"`, otherwise SHALL omit the flag (default `latest`). The `github-release` job SHALL pass the same `is_prerelease` value to `softprops/action-gh-release@v2`'s `prerelease` parameter.
+The `resolve` job in `.github/workflows/publish.yml` SHALL compute a boolean `is_prerelease` from the resolved version string (true iff the version matches the regex `^[0-9]+\.[0-9]+\.[0-9]+-`, indicating a SemVer prerelease segment) and expose it as a job output. The `publish` job SHALL pass `--tag next` to every `npm publish` invocation when `is_prerelease` is `"true"`, otherwise SHALL omit the flag (default `latest`). The `github-release` job SHALL pass the same `is_prerelease` value to `softprops/action-gh-release@v2`'s `prerelease` parameter.
 
 This requirement exists because today's workflow publishes every version under the `latest` dist-tag and creates every Release with `prerelease: false`. A version like `0.4.5-rc.1` would land on `latest`, immediately exposing the rc to every user running `npm install -g @blackbelt-technology/pi-agent-dashboard` — the opposite of what "release candidate" should mean. Symmetrically, GitHub Releases tooling that filters by prerelease state would not see the rc.
 
-#### Scenario: prepare job exposes is_prerelease output
-- **WHEN** the `prepare` job runs (tag-push or workflow_dispatch)
+#### Scenario: resolve job exposes is_prerelease output
+- **WHEN** the `resolve` job runs (tag-push or workflow_dispatch)
 - **THEN** its `outputs:` block SHALL declare `is_prerelease`
 - **AND** the value SHALL be the literal string `"true"` when the resolved version matches `^[0-9]+\.[0-9]+\.[0-9]+-` (e.g. `0.4.5-rc.1`, `1.0.0-alpha.0`)
 - **AND** the value SHALL be the literal string `"false"` for stable versions like `0.4.5` or `1.0.0`
@@ -152,10 +154,10 @@ This requirement exists because today's workflow publishes every version under t
 - **AND** the Release SHALL appear as a regular release
 
 ### Requirement: Prerelease wiring is asserted by the publish-workflow contract test
-The `packages/shared/src/__tests__/publish-workflow-contract.test.ts` test SHALL be extended to assert the three prerelease wiring sites that must stay in lockstep: the `prepare` job's `outputs.is_prerelease` declaration, the `publish` job's per-package npm publish loop conditioning `--tag next` on `is_prerelease == 'true'`, and the `github-release` job forwarding `is_prerelease` to the `prerelease` parameter of `softprops/action-gh-release@v2`. Failure messages SHALL cite change `eliminate-bash-on-windows-runners`.
+The `packages/shared/src/__tests__/publish-workflow-contract.test.ts` test SHALL be extended to assert the three prerelease wiring sites that must stay in lockstep: the `resolve` job's `outputs.is_prerelease` declaration, the `publish` job's per-package npm publish loop conditioning `--tag next` on `is_prerelease == 'true'`, and the `github-release` job forwarding `is_prerelease` to the `prerelease` parameter of `softprops/action-gh-release@v2`. Failure messages SHALL cite change `eliminate-bash-on-windows-runners`.
 
-#### Scenario: Test fails when prepare job lacks the is_prerelease output
-- **WHEN** a contributor edits `publish.yml` and removes the `is_prerelease` line from the `prepare` job's `outputs:` block
+#### Scenario: Test fails when resolve job lacks the is_prerelease output
+- **WHEN** a contributor edits `publish.yml` and removes the `is_prerelease` line from the `resolve` job's `outputs:` block
 - **THEN** `npm test` SHALL fail with a message that names the missing output and cites this change
 
 #### Scenario: Test fails when publish loop omits the prerelease conditional
@@ -171,21 +173,21 @@ The `packages/shared/src/__tests__/publish-workflow-contract.test.ts` test SHALL
 - **THEN** `npm test` SHALL pass without warnings related to the prerelease wiring
 
 ### Requirement: Release lockfile MUST mirror workspace versions
-The release-pipeline `prepare` job in `.github/workflows/publish.yml` SHALL regenerate `package-lock.json` immediately after bumping workspace versions and rewriting cross-ref specifiers, so that the tagged commit contains a lockfile in which every cross-ref specifier matches `^<current-root-version>` exactly. Without this, strict prerelease semver causes `npm ci` on consumers (and the publish job's own CI) to fall back to registry-published tarballs of workspace dependencies, masking the in-tree workspace via nested installs.
+The release-pipeline `tag-and-push` job in `.github/workflows/publish.yml` SHALL regenerate `package-lock.json` immediately after bumping workspace versions and rewriting cross-ref specifiers, so that the tagged commit contains a lockfile in which every cross-ref specifier matches `^<current-root-version>` exactly. Without this, strict prerelease semver causes `npm ci` on consumers (and the publish job's own CI) to fall back to registry-published tarballs of workspace dependencies, masking the in-tree workspace via nested installs.
 
-#### Scenario: prepare job runs lockfile regen between sync-versions and commit
-- **WHEN** the `prepare` job in `publish.yml` runs the `Bump versions and update CHANGELOG` step (or successor)
+#### Scenario: tag-and-push job runs lockfile regen between sync-versions and commit
+- **WHEN** the `tag-and-push` job in `publish.yml` runs the `Bump versions and update CHANGELOG` step (or successor)
 - **THEN** the job SHALL execute `npm install --package-lock-only --no-audit --no-fund` AFTER `node scripts/sync-versions.js` and BEFORE the `git commit -m "chore(release): ..."` step
 - **AND** the regenerated `package-lock.json` SHALL be staged by the existing `git add -A` step and included in the release commit
 
-#### Scenario: prepare job verifies lockfile after regen
-- **WHEN** the prepare job has regenerated the lockfile
+#### Scenario: tag-and-push job verifies lockfile after regen
+- **WHEN** the tag-and-push job has regenerated the lockfile
 - **THEN** the job SHALL execute `node scripts/verify-lockfile-versions.mjs` BEFORE the commit step
 - **AND** the script SHALL exit non-zero with a file:specifier:expected report if any cross-ref dep specifier in `package-lock.json` does not equal `^<root-version>`
 
 #### Scenario: Repo-lint enforces the step ordering
 - **WHEN** the test `publish-workflow-contract.test.ts` runs as part of `npm test`
-- **THEN** it SHALL parse `.github/workflows/publish.yml` and assert the `prepare` job's step list contains the lockfile-regen step in the position `sync-versions < regen < git commit`
+- **THEN** it SHALL parse `.github/workflows/publish.yml` and assert the `tag-and-push` job's step list contains the lockfile-regen step in the position `sync-versions < regen < git commit`
 - **AND** failure SHALL cite change `fix-release-lockfile-drift` in the assertion message
 
 #### Scenario: Local release-cut path documents the lockfile step
