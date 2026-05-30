@@ -290,11 +290,11 @@ packages/electron/
     ├── docker-make.sh       — Docker entrypoint: source-only bundle → npm install → native rebuild → forge make
     ├── download-node.sh     — Download + strip Node.js binary for bundling
     ├── test-server-launch.sh     — Quick Docker server launch test
-    ├── test-electron-install.sh   — Server-only Docker test (26 checks: deps, __dirname, spawn)
-    ├── test-electron-install-inner.sh — Inner script for server-only test
-    ├── test-deb-install.sh        — DEB install + Electron app Docker test (19 checks)
+    ├── test-electron-install.sh   — Bundled-server Docker test (layout, pi-floor, spawn, health, session)
+    ├── test-electron-install-inner.sh — Inner script for bundled-server test
+    ├── test-deb-install.sh        — DEB install + Electron app Docker test (xvfb headless)
     ├── test-deb-install-inner.sh  — Inner script for DEB test
-    ├── test-desktop-launch.sh     — Desktop-launch Docker test, minimal PATH (12 checks)
+    ├── test-desktop-launch.sh     — Desktop-launch Docker test, minimal PATH (no system node)
     ├── test-desktop-launch-inner.sh — Inner script for desktop-launch test
     └── Dockerfile.build           — node:22-bookworm-slim + build tools
 ```
@@ -319,9 +319,9 @@ npm run icons                              # Regenerate .icns/.ico from master P
 npm run start:dev                          # Dev mode (ELECTRON_DEV=1)
 
 # === Test (Docker) ===
-bash packages/electron/scripts/test-electron-install.sh  # Server-only: deps + launch + spawn (26 checks)
-bash packages/electron/scripts/test-deb-install.sh       # DEB install + Electron app (19 checks)
-bash packages/electron/scripts/test-desktop-launch.sh    # Desktop PATH, no system node (12 checks)
+bash packages/electron/scripts/test-electron-install.sh  # Bundled-server: layout + pi-floor + spawn + health + session
+bash packages/electron/scripts/test-deb-install.sh       # DEB install + Electron app under xvfb
+bash packages/electron/scripts/test-desktop-launch.sh    # Desktop PATH (no system node), Electron launch + session
 bash packages/electron/scripts/test-server-launch.sh     # Quick server launch test
 
 # === Debug ===
@@ -529,11 +529,13 @@ Three levels of Docker-based testing:
 
 | Test | Command | What tests |
 |------|---------|---------------|
-| Server-only | `test-electron-install.sh` | Bundle resources, deps, __dirname, server launch, session spawn (26 checks) |
-| DEB install | `test-deb-install.sh` | Full DEB install → Electron app → server → session spawn (19 checks) |
-| Desktop launch | `test-desktop-launch.sh` | Minimal PATH (no system node), wizard setup, Electron launch, session spawn (12 checks) |
+| Bundled server | `test-electron-install.sh` | Bundle layout (node, jiti, cli.ts, pi-coding-agent, node-pty prebuild), pi version meets `piCompatibility.minimum`, spawn via bundled node + jiti loader, `/api/health`, `/api/session/spawn`, clean shutdown |
+| DEB install | `test-deb-install.sh` | DEB layout, pi-floor check, xvfb-headless Electron launch, `/api/health`, sessions API, session spawn, clean shutdown |
+| Desktop launch | `test-desktop-launch.sh` | Minimal PATH (no system node), bundled node present, pi-floor check, Electron under `env -i PATH=$DESKTOP_PATH`, session spawn |
 
 Desktop-launch test catches bugs that only appear on real Linux desktops where Electron app started from `.desktop` file with minimal PATH.
+
+All three rewritten under change `bump-pi-compat-to-0-78` for the bundle-only flow (pre-R3 managed-dir extract + offline-cacache install + wizard runtime-install stages removed; pi/openspec/tsx now ship pre-installed in `resources/server/node_modules/`).
 
 ### Phase 20: Bridge Extension Bundling & Auto-Registration
 

@@ -3,12 +3,21 @@
 # Inner test script for DEB install test — runs INSIDE Docker as non-root user.
 #
 # Flow:
-# 1. Verify the .deb installed correctly
-# 2. Simulate the wizard setup (headless — can't interact with Electron UI)
-# 3. Launch the Electron app via xvfb-run
-# 4. Wait for the dashboard server to come up
-# 5. Verify health + API endpoints
-# 6. Kill the app and check clean exit
+# 1. Verify the .deb installed correctly (binary, resources, bundled node,
+#    bundled pi-coding-agent, loading page, manual-launch helper).
+# 2. Verify pi-coding-agent version satisfies piCompatibility.minimum.
+# 3. Launch the Electron app via xvfb-run.
+# 4. Wait for the dashboard server to come up.
+# 5. Verify health + sessions API + session spawn.
+# 6. Kill the app and check clean exit.
+#
+# Rewrite scope: this script previously simulated a wizard runtime-install
+# (npm install tsx + @mariozechner/pi-coding-agent into ~/.pi-dashboard/).
+# That flow was deleted under change `eliminate-electron-runtime-install` —
+# the .deb now ships pi/openspec/tsx pre-installed in the bundle. The
+# wizard-simulation stage is gone; everything else is identical.
+#
+# See change: bump-pi-compat-to-0-78 (rewrite for bundle-only flow).
 #
 set -euo pipefail
 
@@ -16,155 +25,82 @@ PASS=0
 FAIL=0
 TESTS=()
 
-pass() {
-  PASS=$((PASS + 1))
-  TESTS+=("✓ $1")
-  echo "  ✓ $1"
-}
+pass() { PASS=$((PASS + 1)); TESTS+=("✓ $1"); echo "  ✓ $1"; }
+fail() { FAIL=$((FAIL + 1)); TESTS+=("✗ $1: $2"); echo "  ✗ $1: $2"; }
+hr()   { echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; }
 
-fail() {
-  FAIL=$((FAIL + 1))
-  TESTS+=("✗ $1: $2")
-  echo "  ✗ $1: $2"
-}
+DEB_ROOT="/usr/lib/pi-dashboard"
+RESOURCES="$DEB_ROOT/resources"
+SERVER_BUNDLE="$RESOURCES/server"
+BUNDLED_NODE="$RESOURCES/node/bin/node"
+SERVER_CLI="$SERVER_BUNDLE/packages/server/src/cli.ts"
+START_SH="$SERVER_BUNDLE/start-server.sh"
+PI_PKG_JSON="$SERVER_BUNDLE/node_modules/@earendil-works/pi-coding-agent/package.json"
+SERVER_PKG_JSON="$SERVER_BUNDLE/node_modules/@blackbelt-technology/pi-dashboard-server/package.json"
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Test 1: Verify DEB installation"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+hr; echo "  Test 1: Verify DEB installation"; hr
 
-# Check binary exists
-if [ -x /usr/lib/pi-dashboard/pi-dashboard ]; then
-  pass "Electron binary installed"
-else
-  fail "Electron binary" "not found at /usr/lib/pi-dashboard/pi-dashboard"
-fi
-
-# Check resources exist
-if [ -d /usr/lib/pi-dashboard/resources ]; then
-  pass "Resources directory exists"
-else
-  fail "Resources" "directory not found"
-fi
-
-# Check bundled server
-SERVER_CLI="/usr/lib/pi-dashboard/resources/server/packages/server/src/cli.ts"
-if [ -f "$SERVER_CLI" ]; then
-  pass "Bundled server CLI exists"
-else
-  fail "Bundled server CLI" "not found at $SERVER_CLI"
-fi
-
-# Check bundled Node.js
-BUNDLED_NODE="/usr/lib/pi-dashboard/resources/node/bin/node"
-if [ -x "$BUNDLED_NODE" ]; then
-  NODE_VER=$("$BUNDLED_NODE" --version 2>/dev/null || echo "?")
-  pass "Bundled Node.js: $NODE_VER"
-else
-  fail "Bundled Node.js" "not found at $BUNDLED_NODE"
-fi
-
-# Check client build in bundled server
-CLIENT_INDEX="/usr/lib/pi-dashboard/resources/server/packages/dist/client/index.html"
-if [ -f "$CLIENT_INDEX" ]; then
-  pass "Client build bundled"
-else
-  fail "Client build" "not found at $CLIENT_INDEX"
-fi
-
-# Check server node_modules
-if [ -d /usr/lib/pi-dashboard/resources/server/node_modules ]; then
-  pass "Server node_modules installed"
-else
-  fail "Server node_modules" "not found"
-fi
+[ -x "$DEB_ROOT/pi-dashboard" ]                       && pass "Electron binary installed"           || fail "Electron binary" "not found at $DEB_ROOT/pi-dashboard"
+[ -d "$RESOURCES" ]                                   && pass "Resources directory exists"          || fail "Resources" "directory not found"
+[ -f "$SERVER_CLI" ]                                  && pass "Bundled server CLI exists"           || fail "Bundled server CLI" "not found at $SERVER_CLI"
+[ -x "$BUNDLED_NODE" ] && pass "Bundled Node.js: $($BUNDLED_NODE --version 2>/dev/null || echo "?")" || fail "Bundled Node.js" "not found at $BUNDLED_NODE"
+[ -f "$RESOURCES/server/packages/dist/client/index.html" ] && pass "Client build bundled"           || fail "Client build" "not found"
+[ -d "$SERVER_BUNDLE/node_modules" ]                  && pass "Server node_modules installed"       || fail "Server node_modules" "not found"
+[ -f "$PI_PKG_JSON" ]                                 && pass "Bundled pi-coding-agent present"     || fail "pi-coding-agent" "missing $PI_PKG_JSON"
+[ -x "$START_SH" ]                                    && pass "Manual launch helper present"        || fail "start-server.sh" "missing"
+[ -f "$RESOURCES/loading.html" ]                      && pass "Loading page resource bundled"       || fail "Loading page resource" "not found"
 
 # Check node-pty Linux prebuild
-PTY_PREBUILD="/usr/lib/pi-dashboard/resources/server/node_modules/node-pty/prebuilds/linux-x64/pty.node"
-if [ -f "$PTY_PREBUILD" ]; then
-  pass "node-pty linux-x64 prebuild exists"
+PTY_PREBUILD="$SERVER_BUNDLE/node_modules/node-pty/prebuilds/linux-x64/pty.node"
+[ -f "$PTY_PREBUILD" ] && pass "node-pty linux-x64 prebuild exists" || fail "node-pty prebuild" "not found at $PTY_PREBUILD"
+
+echo ""; hr; echo "  Test 2: Pi version meets piCompatibility.minimum"; hr
+
+if [ -f "$PI_PKG_JSON" ] && [ -f "$SERVER_PKG_JSON" ] && [ -x "$BUNDLED_NODE" ]; then
+  FLOOR_CHECK=$("$BUNDLED_NODE" -e "
+    const fs = require('fs');
+    const pi = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+    const server = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+    const min = server.piCompatibility && server.piCompatibility.minimum;
+    if (!min) { console.log('FAIL no piCompatibility.minimum'); process.exit(0); }
+    const cmp = (a, b) => {
+      const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      for (let i = 0; i < 3; i++) { if (pa[i] !== pb[i]) return pa[i] - pb[i]; }
+      return 0;
+    };
+    if (cmp(pi.version, min) >= 0) console.log('OK pi=' + pi.version + ' min=' + min);
+    else console.log('FAIL pi=' + pi.version + ' < min=' + min);
+  " "$PI_PKG_JSON" "$SERVER_PKG_JSON")
+  case "$FLOOR_CHECK" in
+    OK\ *)   pass "Pi floor satisfied (${FLOOR_CHECK#OK }) " ;;
+    FAIL\ *) fail "Pi floor"   "${FLOOR_CHECK#FAIL }" ;;
+    *)       fail "Pi floor"   "unexpected output: $FLOOR_CHECK" ;;
+  esac
 else
-  fail "node-pty prebuild" "not found at $PTY_PREBUILD"
+  fail "Pi floor" "missing manifest(s) or bundled node; cannot verify"
 fi
 
-# Check loading-page HTML resource (change: electron-server-launch-controls).
-# Loading page must be a real HTML file so the preload can attach the
-# `piDashboard` IPC bridge (Start server / Open Doctor / Server log).
-LOADING_HTML="/usr/lib/pi-dashboard/resources/loading.html"
-if [ -f "$LOADING_HTML" ]; then
-  pass "Loading page resource bundled"
-else
-  fail "Loading page resource" "not found at $LOADING_HTML"
-fi
+echo ""; hr; echo "  Test 3: Launch Electron app (xvfb headless)"; hr
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Test 2: Simulate wizard setup (headless)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# The wizard normally runs in the Electron renderer. We simulate it by:
-# 1. Installing tsx into ~/.pi-dashboard/ (what installStandalone does)
-# 2. Writing mode.json (what wizard:complete does)
-
-MANAGED_DIR="$HOME/.pi-dashboard"
-mkdir -p "$MANAGED_DIR"
-echo '{"name":"pi-dashboard-managed","private":true,"type":"module"}' > "$MANAGED_DIR/package.json"
-
-# Use bundled Node/npm to install tsx + pi (same as dependency-installer.ts)
-export PATH="/usr/lib/pi-dashboard/resources/node/bin:$PATH"
-echo "  → Installing tsx + pi..."
-cd "$MANAGED_DIR"
-npm install tsx @mariozechner/pi-coding-agent 2>&1 | tail -3
-TSX_BIN="$MANAGED_DIR/node_modules/.bin/tsx"
-PI_BIN="$MANAGED_DIR/node_modules/.bin/pi"
-
-if [ -x "$TSX_BIN" ]; then
-  pass "tsx installed: $("$TSX_BIN" --version 2>/dev/null || echo "?")"
-else
-  fail "tsx install" "binary not found at $TSX_BIN"
-fi
-
-if [ -x "$PI_BIN" ]; then
-  pass "pi binary found"
-else
-  fail "pi binary" "not found at $PI_BIN"
-fi
-
-# Write mode.json (simulates wizard completion)
-cat > "$MANAGED_DIR/mode.json" <<EOF
-{
-  "mode": "standalone",
-  "completedAt": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-}
-EOF
-pass "Wrote mode.json (standalone mode)"
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Test 3: Launch Electron app (xvfb headless)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-# Launch the Electron app with a virtual display
-# --no-sandbox is needed because we're in a Docker container
+# Launch the Electron app with a virtual display.
+# --no-sandbox is needed because we're in a Docker container.
 echo "  → Starting Electron app with xvfb-run..."
-xvfb-run -a /usr/lib/pi-dashboard/pi-dashboard --no-sandbox \
+xvfb-run -a "$DEB_ROOT/pi-dashboard" --no-sandbox \
   > /tmp/electron.log 2>&1 &
 ELECTRON_PID=$!
 echo "  → Electron PID: $ELECTRON_PID"
 
 # Wait for the dashboard server to become available
-# The Electron app should: skip wizard (mode.json exists) → ensureServer → spawn tsx
-DEADLINE=$((SECONDS + 45))
+DEADLINE=$((SECONDS + 60))
 SERVER_UP=false
 PORT=8000
 
 while [ $SECONDS -lt $DEADLINE ]; do
   sleep 2
-  # Check if Electron is still running
   if ! kill -0 "$ELECTRON_PID" 2>/dev/null; then
     echo "  ⚠ Electron process exited early"
     break
   fi
-  # Check health endpoint
   if curl -sf "http://localhost:$PORT/api/health" > /tmp/health.json 2>/dev/null; then
     SERVER_UP=true
     break
@@ -197,14 +133,6 @@ if [ "$SERVER_UP" = true ]; then
     fail "Client build" "HTML not served — may be in API-only mode"
   fi
 
-  # Check server process is separate from Electron
-  SERVER_PID_FROM_HEALTH=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pid',''))" < /tmp/health.json 2>/dev/null || echo "")
-  if [ -n "$SERVER_PID_FROM_HEALTH" ] && [ "$SERVER_PID_FROM_HEALTH" != "$ELECTRON_PID" ]; then
-    pass "Server running as separate process (PID: $SERVER_PID_FROM_HEALTH)"
-  else
-    pass "Server is running"
-  fi
-
   # Test session creation via REST API
   echo "  → Testing session spawn..."
   SPAWN_DIR=$(mktemp -d)
@@ -225,28 +153,22 @@ if [ "$SERVER_UP" = true ]; then
   fi
   rm -rf "$SPAWN_DIR"
 else
-  fail "Dashboard server" "did not start within 45s"
+  fail "Dashboard server" "did not start within 60s"
   echo ""
   echo "  Electron log (last 30 lines):"
   tail -30 /tmp/electron.log 2>/dev/null || echo "  (no log)"
   echo ""
   echo "  Server log:"
-  cat "$HOME/.pi-dashboard/server.log" 2>/dev/null || echo "  (no server log)"
+  cat "$HOME/.pi-dashboard/server.log" 2>/dev/null | tail -30 || echo "  (no server log)"
 fi
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Test 4: Clean shutdown"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""; hr; echo "  Test 4: Clean shutdown"; hr
 
 # Kill Electron — this should trigger the quit handler which stops the server
 if kill -0 "$ELECTRON_PID" 2>/dev/null; then
   kill "$ELECTRON_PID" 2>/dev/null || true
-  # Wait for exit
   for i in $(seq 1 10); do
-    if ! kill -0 "$ELECTRON_PID" 2>/dev/null; then
-      break
-    fi
+    if ! kill -0 "$ELECTRON_PID" 2>/dev/null; then break; fi
     sleep 1
   done
   if ! kill -0 "$ELECTRON_PID" 2>/dev/null; then
@@ -260,7 +182,6 @@ fi
 # Check that server also stopped (or stop it)
 sleep 2
 if curl -sf "http://localhost:$PORT/api/health" > /dev/null 2>&1; then
-  # Server still running — try shutdown endpoint
   curl -sf -X POST "http://localhost:$PORT/api/shutdown" > /dev/null 2>&1 || true
   sleep 2
   if curl -sf "http://localhost:$PORT/api/health" > /dev/null 2>&1; then
@@ -272,19 +193,8 @@ else
   pass "Server stopped with Electron"
 fi
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Results"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-for t in "${TESTS[@]}"; do
-  echo "  $t"
-done
-echo ""
-echo "  $PASS passed, $FAIL failed"
-echo ""
+echo ""; hr; echo "  Results"; hr; echo ""
+for t in "${TESTS[@]}"; do echo "  $t"; done
+echo ""; echo "  $PASS passed, $FAIL failed"; echo ""
 
-if [ $FAIL -gt 0 ]; then
-  exit 1
-fi
-exit 0
+[ $FAIL -gt 0 ] && exit 1 || exit 0

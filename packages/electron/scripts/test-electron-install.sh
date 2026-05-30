@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
 #
-# End-to-end test of the V2 LaunchSource bootstrap on clean Linux x64.
+# End-to-end test of the bundled-server launch on clean Linux x64.
 #
-# Mirrors the production path users see when they extract a Linux .deb / .AppImage
-# and the Electron app launches for the first time:
-#   1. extractBundle      — cpSync resources/server/ → ~/.pi-dashboard/
-#   2. swap-aside + install — installStandalone runs npm against the offline
-#                              cacache, populating ~/.pi-dashboard/node_modules/
-#                              with @mariozechner/pi-coding-agent (jiti).
-#   3. merge bundle back   — cpSync the swap-aside back so the bundle's
-#                              @blackbelt-technology/* survives npm pruning.
-#   4. spawn               — node --import <jiti-register> <cliPath>
-#   5. health              — curl /api/health expects starter:Electron.
+# Runs the same `start-server.sh` argv that real users see — the one shipped
+# inside `resources/server/` and the one the Electron main process uses.
+# Catches Linux-specific issues the host vitest smoke can't see: glibc-linked
+# native modules (node-pty), Linux npm reconciliation, non-root user perms.
 #
-# Complements packages/electron/src/lib/__tests__/launch-source.smoke.test.ts
-# (which runs on the dev's host). This script catches Linux-specific issues
-# the host smoke can't see: glibc-linked native modules (node-pty), Linux
-# npm reconciliation behavior, non-root user perms.
+# Bundle-only flow (post-`eliminate-electron-runtime-install`):
+#   - `bundle-server.mjs` produces `resources/server/` with pi/openspec/tsx
+#     pre-installed under `node_modules/`.
+#   - No `~/.pi-dashboard/` writes for install, no offline cacache.
+#   - Container runs `npm install --omit=dev` once to relink node-pty
+#     against this Ubuntu's glibc.
 #
 # Usage:
 #   bash packages/electron/scripts/test-electron-install.sh
-#   bash packages/electron/scripts/test-electron-install.sh --rebuild  # Force rebuild bundle
+#   bash packages/electron/scripts/test-electron-install.sh --rebuild
 #
-# See change: simplify-electron-bootstrap-derived-state (Phase C bring-up).
+# See change: bump-pi-compat-to-0-78 (rewrite for bundle-only flow).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,24 +30,18 @@ if [ "${1:-}" = "--rebuild" ]; then
   REBUILD=true
 fi
 
-IMAGE_NAME="pi-dashboard-bootstrap-v2-test"
+IMAGE_NAME="pi-dashboard-bundled-server-test"
 
 echo "════════════════════════════════════════════════════════"
-echo "  PI Dashboard — Bootstrap V2 Test (clean Ubuntu Docker)"
+echo "  PI Dashboard — Bundled Server Test (clean Ubuntu Docker)"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# ── Step 1: Ensure server source + offline cache are bundled ──────────────────
+# ── Step 1: Ensure server source is bundled ───────────────────────────────────
 
 if [ "$REBUILD" = true ] || [ ! -d "$ELECTRON_DIR/resources/server/packages/server/src" ]; then
   echo "→ Bundling server source (--source-only)..."
   node "$ELECTRON_DIR/scripts/bundle-server.mjs" --source-only
-  echo ""
-fi
-
-if [ ! -f "$ELECTRON_DIR/resources/offline-packages/manifest.json" ]; then
-  echo "→ Bundling offline-packages cacache (linux-x64)..."
-  node "$ELECTRON_DIR/scripts/bundle-offline-packages.mjs" --platform=linux-x64
   echo ""
 fi
 
@@ -66,9 +56,10 @@ FROM ubuntu:22.04
 # Minimal deps — simulates a clean desktop Linux install.
 # python3/make/g++ for any node-gyp fallback;
 # curl/ca-certificates/xz-utils for Node download.
+# procps for `ps aux` (used by session-spawn assertion in inner script).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      ca-certificates curl xz-utils python3 make g++ \
+      ca-certificates curl xz-utils python3 make g++ procps \
     && rm -rf /var/lib/apt/lists/*
 
 ENV APP_RESOURCES=/opt/pi-dashboard/resources
@@ -85,14 +76,18 @@ RUN mkdir -p /tmp/node-dl && \
     ln -sf ../lib/node_modules/npm/bin/npm-cli.js $APP_RESOURCES/node/bin/npm && \
     rm -rf /tmp/node-dl
 
-# Copy bundle. We deliberately copy package.json + package-lock + packages/
-# but NOT node_modules — npm install runs inside the image so the native
+# Copy bundle. We deliberately copy package.json + packages/ but NOT
+# node_modules — npm install runs inside the image so the native
 # modules (node-pty) link against this Ubuntu's glibc, not the host's.
-# This matches what packages/electron/scripts/docker-make.sh does for
-# the Linux build path.
+# `bundle-server.mjs --source-only` does NOT emit a package-lock.json;
+# `npm install --omit=dev` below resolves fresh against the registry,
+# which is what we want here (verifies the live-resolution path that
+# fresh `npm install` users see).
 COPY resources/server/package.json $APP_RESOURCES/server/package.json
-COPY resources/server/package-lock.json $APP_RESOURCES/server/package-lock.json
 COPY resources/server/packages $APP_RESOURCES/server/packages
+# Manual-launch helper shipped in the real bundle (also used by this test).
+COPY resources/server/start-server.sh $APP_RESOURCES/server/start-server.sh
+RUN chmod +x $APP_RESOURCES/server/start-server.sh
 
 ENV PATH="$APP_RESOURCES/node/bin:$PATH"
 RUN cd $APP_RESOURCES/server \
@@ -116,9 +111,6 @@ RUN cd $APP_RESOURCES/server/node_modules/@blackbelt-technology && \
       fi; \
     done
 
-# Offline cacache for the runtime-baseline install.
-COPY resources/offline-packages $APP_RESOURCES/offline-packages
-
 # Non-root user simulating a real desktop session.
 RUN useradd -m -s /bin/bash testuser
 USER testuser
@@ -134,7 +126,7 @@ echo ""
 
 # ── Step 3: Run the test ──────────────────────────────────────────────────────
 
-echo "→ Running V2 bootstrap test in Docker..."
+echo "→ Running bundled-server test in Docker..."
 echo ""
 
 EXIT_CODE=0
@@ -143,11 +135,11 @@ docker run --rm --platform linux/amd64 "$IMAGE_NAME" || EXIT_CODE=$?
 echo ""
 if [ $EXIT_CODE -eq 0 ]; then
   echo "════════════════════════════════════════════════════════"
-  echo "  ✓ Bootstrap V2 test passed"
+  echo "  ✓ Bundled-server test passed"
   echo "════════════════════════════════════════════════════════"
 else
   echo "════════════════════════════════════════════════════════"
-  echo "  ✗ Bootstrap V2 test failed (exit $EXIT_CODE)"
+  echo "  ✗ Bundled-server test failed (exit $EXIT_CODE)"
   echo "════════════════════════════════════════════════════════"
 fi
 
