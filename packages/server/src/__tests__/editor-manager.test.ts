@@ -65,6 +65,7 @@ describe("createEditorManager", () => {
       remove: () => calls.push("remove"),
       size: () => 0,
       cleanupOrphans: async () => {},
+      adoptOrphans: async () => ({ adopted: [] }),
     };
     const mgr = createEditorManager({ config: DEFAULT_CONFIG, detection: DETECTED, pidRegistry: stubRegistry });
     expect(mgr.list()).toEqual([]);
@@ -80,6 +81,7 @@ describe("createEditorManager", () => {
       remove: () => calls.push("remove"),
       size: () => 0,
       cleanupOrphans: async () => {},
+      adoptOrphans: async () => ({ adopted: [] }),
     };
     const mgr = createEditorManager({
       config: DEFAULT_CONFIG,

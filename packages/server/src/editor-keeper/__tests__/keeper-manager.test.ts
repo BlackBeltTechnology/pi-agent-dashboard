@@ -35,7 +35,7 @@ function makeFakeCreateConnection(o: FakeServerOpts = {}): typeof net.createConn
   return ((..._args: unknown[]) => {
     const sock = new EventEmitter() as net.Socket & EventEmitter;
     sock.setEncoding = vi.fn() as any;
-    sock.write = vi.fn(((line: string) => {
+    sock.write = vi.fn((line: string) => {
       // Parse the JSON line and reply if it's getStatus.
       try {
         const msg = JSON.parse(line.trim());
@@ -46,11 +46,11 @@ function makeFakeCreateConnection(o: FakeServerOpts = {}): typeof net.createConn
         }
       } catch { /* ignore */ }
       return true;
-    }) as any);
-    sock.end = vi.fn(((line: string, _enc: string, cb?: () => void) => {
+    }) as any;
+    sock.end = vi.fn((line: string, _enc: string, cb?: () => void) => {
       if (cb) setImmediate(cb);
       return sock;
-    }) as any);
+    }) as any;
     sock.destroy = vi.fn(() => sock) as any;
     if (o.refuse) {
       setImmediate(() => sock.emit("error", new Error("ECONNREFUSED")));

@@ -115,11 +115,11 @@ export interface EditorConfig {
   /**
    * When true, graceful dashboard shutdown (stop / restart / shutdown)
    * sends `{"cmd":"stop"}` to every editor keeper and waits for them to
-   * exit. When false (default), keepers and their code-server children
+   * exit. When false or omitted (default), keepers and their code-server children
    * persist across dashboard restarts so editor tabs and dirty buffers
    * survive. See change: add-editor-keeper-sidecar.
    */
-  stopOnDashboardExit: boolean;
+  stopOnDashboardExit?: boolean;
 }
 
 export const DEFAULT_EDITOR_CONFIG: EditorConfig = {
