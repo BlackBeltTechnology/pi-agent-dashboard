@@ -162,6 +162,11 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     "/api/git/worktree/bootstrap",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // `npm ci` for the monorepo can take 60+ s — well past Fastify's
+      // 10 s connectionTimeout. Disable the per-socket timeout so the
+      // response actually reaches the client. See change:
+      // openspec-worktree-spawn-button.
+      request.raw.socket?.setTimeout?.(0);
       const body = request.body ?? {};
       const validated = validateCwd(body.cwd);
       if (!validated.ok) {
@@ -257,6 +262,13 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     "/api/git/worktree",
     { preHandler: networkGuard },
     async (request, reply) => {
+      // Worktree creation triggers an inline `await runBootstrap` for
+      // repos where `.pi/settings.json` references the parent (e.g. the
+      // dashboard itself). `npm ci` easily blows past Fastify's 10 s
+      // connectionTimeout — disable the per-socket timeout so bootstrap
+      // can complete before the connection is reset. See change:
+      // openspec-worktree-spawn-button.
+      request.raw.socket?.setTimeout?.(0);
       const body = request.body ?? {};
       const validated = validateCwd(body.cwd);
       if (!validated.ok) {

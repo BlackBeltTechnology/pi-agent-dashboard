@@ -295,3 +295,44 @@ describe("POST /api/git/worktree/orphan-cleanup", () => {
     expect(res.json()).toMatchObject({ success: false, code: "cwd_invalid" });
   });
 });
+
+
+describe("worktree-create route — per-request timeout disable", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  beforeEach(async () => {
+    app = await makeApp();
+    repo = makeRepo();
+  });
+  afterEach(async () => {
+    rmSync(repo, { recursive: true, force: true });
+    await app.close();
+  });
+
+  // Regression: the bootstrap step (inline `await runBootstrap` for repos
+  // whose `.pi/settings.json` references the parent) can exceed Fastify's
+  // 10 s `connectionTimeout`. The route must disable the per-socket timeout
+  // so the response actually reaches the browser. See change:
+  // openspec-worktree-spawn-button.
+  it("invokes setTimeout(0) on the raw socket when POST /api/git/worktree handler runs", async () => {
+    // We can't directly observe the call inside the handler from outside,
+    // so we assert by source inspection: the production handler MUST contain
+    // the optional-chained setTimeout disable. Pinning here so refactors
+    // that drop the line are caught by CI rather than discovered in the UI.
+    const { readFileSync } = await import("node:fs");
+    const routesPath = new URL("../routes/git-routes.ts", import.meta.url);
+    const src = readFileSync(routesPath, "utf-8");
+    const occurrences = (src.match(/request\.raw\.socket\?\.setTimeout\?\.\(0\)/g) ?? []).length;
+    expect(occurrences).toBeGreaterThanOrEqual(2);
+  });
+
+  it("happy-path POST /api/git/worktree still succeeds (smoke after timeout-disable)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree`,
+      payload: { cwd: repo, base: "main", newBranch: "feat/timeout-smoke" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().success).toBe(true);
+  });
+});
