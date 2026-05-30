@@ -38,5 +38,5 @@
 ## 6. Validate + archive
 
 - [x] 6.1 `openspec validate fix-changed-files-desktop-route --strict` — verify clean.
-- [ ] 6.2 Commit. PR title: `fix(client): /session/:id/diff route now renders FileDiffView on desktop`. Body: link to this change folder.
-- [ ] 6.3 After merge, run `openspec archive fix-changed-files-desktop-route` (or use the openspec-archive-change skill).
+- [x] 6.2 Commit. PR title: `fix(client): /session/:id/diff route now renders FileDiffView on desktop`. Body: link to this change folder.
+- [x] 6.3 After merge, run `openspec archive fix-changed-files-desktop-route` (or use the openspec-archive-change skill).
