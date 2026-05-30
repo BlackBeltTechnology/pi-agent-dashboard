@@ -631,14 +631,17 @@ Cross-refs:
 
 ## Why didn't my PR run the install smoke matrix?
 
-As of change `gate-publish-on-smoke-and-tests`, `standalone-install-smoke-{linux,windows}` no longer runs on `push` / `pull_request`. PR runs only cheap `ci` job (lint + test + build, Node 22, ~3 min).
+Change `gate-publish-on-smoke-and-tests` removed `standalone-install-smoke-{linux,windows}` from `push` / `pull_request`.
+PR runs only `ci` job: lint + test + build, Node 22, ~3 min.
 
-Smoke matrix lives in reusable `.github/workflows/_smoke.yml` (7 legs: Linux × 6 [Node 22/24/25 × bookworm-slim/alpine] + Windows × 1 [Node 22]). Two consumers:
+Smoke matrix lives in reusable `.github/workflows/_smoke.yml`.
+7 legs: Linux × 6 (Node 22/24/25 × bookworm-slim/alpine) + Windows × 1 (Node 22).
+Two consumers:
 
-1. **`ci-smoke.yml`** — `workflow_dispatch` only. Run from Actions UI against any branch when change touches installer surface (lockfile, `scripts/bundle-*.mjs`, native deps, `preload-fastify.cjs`).
-2. **`publish.yml` release gate** — fans out `ci-checks` + `smoke` in parallel after `resolve`, BEFORE `tag-and-push`. Gate failure on `workflow_dispatch` aborts release cleanly: no commit, no tag, no npm artifact.
+1. **`ci-smoke.yml`** — `workflow_dispatch` only. Dispatch against any branch when change touches installer surface (lockfile, `scripts/bundle-*.mjs`, native deps, `preload-fastify.cjs`).
+2. **`publish.yml` release gate** — fans out `ci-checks` + `smoke` in parallel after `resolve`, before `tag-and-push`. Gate failure on `workflow_dispatch` aborts cleanly: no commit, no tag, no npm artifact.
 
-Operators SHOULD dispatch `ci-smoke.yml` against `develop` before cutting a tag.
+Operators dispatch `ci-smoke.yml` against `develop` before cutting tag.
 
 Cross-refs:
 - .github/workflows/_smoke.yml

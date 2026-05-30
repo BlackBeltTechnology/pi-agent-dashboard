@@ -66,7 +66,7 @@ Run these in order. If any fails, **stop and report** — do not continue.
 
    Operators SHOULD run the smoke matrix first against `develop`:
 
-   ```
+   ```bash
    gh workflow run ci-smoke.yml --ref develop
    gh run watch  # or open the Actions UI
    ```
