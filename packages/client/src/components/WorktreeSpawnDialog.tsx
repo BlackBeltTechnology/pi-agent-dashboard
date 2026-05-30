@@ -64,10 +64,6 @@ interface Props {
     opts?: { gitWorktreeBase?: string; attachProposal?: string },
   ) => void;
   onCancel: () => void;
-  /** Pre-fill the new-branch input. Used by the OpenSpec-worktree flow. */
-  initialBranch?: string;
-  /** Forwarded into the eventual spawn so pi auto-attaches the change. */
-  attachProposal?: string;
 }
 
 interface LoadedData {
