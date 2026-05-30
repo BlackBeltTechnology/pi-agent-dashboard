@@ -44,6 +44,8 @@ function makePrefs(): PreferencesStore {
     reorderWorkspaceFolders: () => false,
     reorderWorkspaces: () => false,
     flush: () => {},
+    getDisplayPrefs: () => undefined,
+    setDisplayPrefs: (p: any) => p,
     dispose: () => {},
   };
 }

@@ -14,7 +14,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { safeRealpathSync } from "./resolve-path.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
@@ -78,7 +78,7 @@ export interface PreferencesStore {
    * uses the values from `partial` for top-level fields and from
    * `partial.toolCalls` (if any) for the nested record.
    */
-  setDisplayPrefs(partial: Partial<DisplayPrefs>): DisplayPrefs;
+  setDisplayPrefs(partial: PartialDisplayPrefs): DisplayPrefs;
   flush(): void;
   dispose(): void;
 }
@@ -314,7 +314,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       return displayPrefs ? { ...displayPrefs, toolCalls: { ...displayPrefs.toolCalls } } : undefined;
     },
 
-    setDisplayPrefs(partial: Partial<DisplayPrefs>): DisplayPrefs {
+    setDisplayPrefs(partial: PartialDisplayPrefs): DisplayPrefs {
       const base: DisplayPrefs = displayPrefs ?? {
         tokenStatsBar: false,
         contextUsageBar: false,

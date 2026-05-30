@@ -11,13 +11,13 @@
  * See change: configurable-chat-display.
  */
 import React, { createContext, useContext } from "react";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 export interface DisplayPrefsContextValue {
   /** Global prefs, or `undefined` when never seeded (first-launch state). */
   global: DisplayPrefs | undefined;
   /** Resolve a session's sparse override (may be `undefined`). */
-  getSessionOverride: (sessionId: string | undefined) => Partial<DisplayPrefs> | undefined;
+  getSessionOverride: (sessionId: string | undefined) => PartialDisplayPrefs | undefined;
 }
 
 const DEFAULT: DisplayPrefsContextValue = {

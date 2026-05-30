@@ -16,7 +16,7 @@ import type { NetworkGuard } from "./route-deps.js";
 import type {
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 export function registerPreferencesDisplayRoutes(
   fastify: FastifyInstance,
@@ -36,7 +36,7 @@ export function registerPreferencesDisplayRoutes(
     },
   );
 
-  fastify.patch<{ Body: Partial<DisplayPrefs> }>(
+  fastify.patch<{ Body: PartialDisplayPrefs }>(
     "/api/preferences/display",
     { preHandler: networkGuard },
     async (request, reply) => {

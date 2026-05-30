@@ -147,7 +147,7 @@ export interface DashboardSession {
    * `DisplayPrefs` on the client side via `mergeDisplayPrefs`.
    * See change: configurable-chat-display.
    */
-  displayPrefsOverride?: Partial<import("./display-prefs.js").DisplayPrefs>;
+  displayPrefsOverride?: import("./display-prefs.js").PartialDisplayPrefs;
   contextTokens?: number | null;
   contextWindow?: number;
   sessionFile?: string;

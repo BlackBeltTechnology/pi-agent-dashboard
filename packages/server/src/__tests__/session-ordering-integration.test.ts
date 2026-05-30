@@ -26,6 +26,8 @@ function createMockPreferencesStore(): PreferencesStore {
     reorderWorkspaceFolders: vi.fn(() => false),
     reorderWorkspaces: vi.fn(() => false),
     flush: vi.fn(),
+    getDisplayPrefs: vi.fn(() => undefined),
+    setDisplayPrefs: vi.fn((p) => p as any),
     dispose: vi.fn(),
   };
 }

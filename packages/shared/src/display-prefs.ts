@@ -28,6 +28,16 @@ export interface DisplayPrefs {
   toolCalls: ToolCallPrefs;
 }
 
+/**
+ * Sparse override over `DisplayPrefs`. Every top-level field is optional,
+ * AND `toolCalls` is itself sparse (per-kind boolean may be omitted).
+ * Distinct from `Partial<DisplayPrefs>`, which would require `toolCalls`
+ * to be a full `ToolCallPrefs` whenever present.
+ */
+export type PartialDisplayPrefs = {
+  [K in keyof DisplayPrefs]?: K extends "toolCalls" ? Partial<ToolCallPrefs> : DisplayPrefs[K];
+};
+
 export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", DisplayPrefs> = {
   simple: {
     tokenStatsBar: false,
@@ -67,7 +77,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
  */
 export function mergeDisplayPrefs(
   global: DisplayPrefs,
-  override?: Partial<DisplayPrefs>,
+  override?: PartialDisplayPrefs,
 ): DisplayPrefs {
   if (!override) {
     return { ...global, toolCalls: { ...global.toolCalls } };

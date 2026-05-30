@@ -10,6 +10,7 @@ import { Icon } from "@mdi/react";
 import { mdiCog, mdiCircleSmall } from "@mdi/js";
 import {
   type DisplayPrefs,
+  type PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
@@ -24,14 +25,14 @@ interface Props {
   send: (msg: {
     type: "setSessionDisplayPrefs";
     sessionId: string;
-    override: Partial<DisplayPrefs> | null;
+    override: PartialDisplayPrefs | null;
   }) => void;
   /**
    * Current sparse override on the session (`session.displayPrefsOverride`).
    * Used to compute the deep-merged override on each toggle (so partial
    * fields accumulate rather than replacing each other).
    */
-  currentOverride: Partial<DisplayPrefs> | undefined;
+  currentOverride: PartialDisplayPrefs | undefined;
 }
 
 export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React.ReactElement {
@@ -55,7 +56,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   }, [open]);
 
   const patch = useCallback((delta: DisplayPrefsPatch) => {
-    const next: Partial<DisplayPrefs> = {
+    const next: PartialDisplayPrefs = {
       ...(currentOverride ?? {}),
       ...delta,
     };

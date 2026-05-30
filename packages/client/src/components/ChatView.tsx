@@ -27,7 +27,7 @@ import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ChatViewMenu } from "./ChatViewMenu.js";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 interface Props {
   sessionId?: string;
@@ -65,9 +65,9 @@ interface Props {
    * menu should not render (e.g. archived/dataUnavailable views).
    * See change: configurable-chat-display.
    */
-  onSetDisplayPrefs?: (override: Partial<DisplayPrefs> | null) => void;
+  onSetDisplayPrefs?: (override: PartialDisplayPrefs | null) => void;
   /** Current sparse override for the session, or `undefined`. */
-  displayPrefsOverride?: Partial<DisplayPrefs>;
+  displayPrefsOverride?: PartialDisplayPrefs;
 }
 
 function ImageAttachments({ images }: { images: ChatImage[] }) {

@@ -4,7 +4,7 @@
  * does not trigger a write for session B.
  */
 import { type SessionMeta, metaPath, readSessionMeta, writeSessionMeta, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 const DEBOUNCE_MS = 1000;
 
@@ -18,7 +18,7 @@ export interface MetaPersistence {
    * queue so callers see the change reflected immediately on disk.
    * See change: configurable-chat-display.
    */
-  setDisplayPrefsOverride(sessionFile: string, override: Partial<DisplayPrefs> | null): void;
+  setDisplayPrefsOverride(sessionFile: string, override: PartialDisplayPrefs | null): void;
   /** Flush all pending writes immediately. */
   flushAll(): void;
   /** Stop all debounce timers. */
@@ -44,7 +44,7 @@ export function createMetaPersistence(): MetaPersistence {
   }
 
   return {
-    setDisplayPrefsOverride(sessionFile: string, override: Partial<DisplayPrefs> | null): void {
+    setDisplayPrefsOverride(sessionFile: string, override: PartialDisplayPrefs | null): void {
       const existing = readSessionMeta(sessionFile) ?? {};
       if (override === null) {
         // Remove the field so the session falls back to pure global prefs.

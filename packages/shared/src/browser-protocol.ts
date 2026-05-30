@@ -21,7 +21,7 @@ import type {
 } from "./types.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type { EditorInstanceStatus } from "./editor-types.js";
-import type { DisplayPrefs } from "./display-prefs.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 
 // ── Configurable chat display ───────────────────────────────────────
 // See change: configurable-chat-display.
@@ -42,7 +42,7 @@ export interface DisplayPrefsUpdatedMessage {
 export interface SetSessionDisplayPrefsBrowserMessage {
   type: "setSessionDisplayPrefs";
   sessionId: string;
-  override: Partial<DisplayPrefs> | null;
+  override: PartialDisplayPrefs | null;
 }
 
 // ── Server → Browser ────────────────────────────────────────────────
