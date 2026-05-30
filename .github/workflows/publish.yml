@@ -213,11 +213,19 @@ jobs:
 
   # ── npm publish (OIDC / Trusted Publisher — no NPM_TOKEN secret) ──────────
   # `needs:` includes the full release-gate (`ci-checks` + `smoke`) plus
-  # `tag-and-push`. On tag-push entry `tag-and-push` is skipped (not
-  # failed), which GitHub Actions treats as success for downstream
-  # `needs:`. See change: gate-publish-on-smoke-and-tests.
+  # `tag-and-push`. On tag-push entry `tag-and-push` is skipped; GitHub
+  # Actions treats a skipped `needs:` as blocking unless the dependent
+  # job has an explicit `if:` that evaluates `needs.*.result`. The `if:`
+  # below allows `tag-and-push` to be either `success` (dispatch path)
+  # or `skipped` (tag-push path), while still requiring `ci-checks` and
+  # `smoke` to be green. See change: gate-publish-on-smoke-and-tests.
   publish:
     needs: [resolve, ci-checks, smoke, tag-and-push]
+    if: >-
+      ${{ !cancelled()
+      && needs.ci-checks.result == 'success'
+      && needs.smoke.result == 'success'
+      && (needs.tag-and-push.result == 'success' || needs.tag-and-push.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: npm-publish  # Matches npm Trusted Publisher config;
                               # acts as a required-reviewer gate if configured.

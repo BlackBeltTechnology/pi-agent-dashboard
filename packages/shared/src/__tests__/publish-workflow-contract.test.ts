@@ -569,4 +569,29 @@ describe("publish.yml — release-gate contract (gate-publish-on-smoke-and-tests
       }
     }
   });
+
+  it("clause 5b: publish has `if:` allowing skipped tag-and-push (tag-push path)", () => {
+    // tag-and-push is dispatch-only; on tag-push entry it is `skipped`,
+    // which GitHub Actions treats as blocking for downstream `needs:`
+    // unless the dependent job evaluates `needs.*.result` explicitly.
+    // publish MUST require ci-checks + smoke success AND treat
+    // tag-and-push `skipped` as acceptable, else the tag-push release
+    // path never reaches npm publish.
+    const requiredFragments = [
+      "needs.ci-checks.result == 'success'",
+      "needs.smoke.result == 'success'",
+      "needs.tag-and-push.result == 'success'",
+      "needs.tag-and-push.result == 'skipped'",
+    ];
+    for (const fragment of requiredFragments) {
+      if (!publishBlock.includes(fragment)) {
+        throw new Error(
+          "publish job's `if:` must contain `" + fragment + "` so the " +
+            "tag-push release path is not blocked by skipped tag-and-push. " +
+            "See change: gate-publish-on-smoke-and-tests (clause 5b). " +
+            "Job block:\n" + publishBlock,
+        );
+      }
+    }
+  });
 });
