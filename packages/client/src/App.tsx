@@ -73,6 +73,7 @@ import {
   buildSessionDiffUrl,
 } from "./lib/route-builders.js";
 import { goBackOrHome } from "./lib/history-back.js";
+import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
@@ -333,7 +334,7 @@ export default function App() {
     !!openspecPreviewMatch || !!archiveMatch || !!specsMatch ||
     !!readmeMatch || !!piResourcesMatch || !!diffMatch || pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
-  const selectedId = match ? params?.id : undefined;
+  const selectedId = deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams);
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
 
