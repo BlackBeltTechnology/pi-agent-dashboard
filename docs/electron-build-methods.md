@@ -14,7 +14,6 @@ Three ways to build the Electron app. Each suits a different scenario.
 | **Windows .zip** | ✅ if on Windows | ✅ via Docker | ✅ `windows-latest` |
 | **Windows portable .exe** | ✅ if on Windows | ✅ via Docker (7-Zip SFX) | ✅ `windows-latest` |
 | **node-pty native modules** | ✅ match host platform | ⚠️ cross-compiled — may mismatch target | ✅ always native match |
-| **Offline npm cache** | ⚙️ opt-in: `BUNDLE_OFFLINE_PACKAGES=1` | ⚙️ opt-in: `BUNDLE_OFFLINE_PACKAGES=1` | ✅ always on (`bundle-offline-packages.mjs`) |
 | **Bundled extensions** | ⚙️ opt-in: `BUNDLE_RECOMMENDED_EXTENSIONS=1` | ⚙️ opt-in: `BUNDLE_RECOMMENDED_EXTENSIONS=1` | ✅ always on (SPDX-checked, 15 MB budget) |
 | **Bundled Node.js** | ✅ (`download-node.sh`) | ✅ (downloaded for Windows target) | ✅ per-platform download |
 | **Code signing** | ❌ | ❌ | ✅ Authenticode (Windows) + notarization (macOS) |
@@ -77,7 +76,6 @@ Native runner matrix:
 | `windows-latest` (arm64 matrix entry) | `.zip` + portable |
 
 Steps always enabled on CI, opt-in locally:
-- `bundle-offline-packages.mjs` — packs `pi`/`openspec`/`tsx` into per-platform cacache tarball for offline first-run install. Enable locally: `BUNDLE_OFFLINE_PACKAGES=1 npm run electron:build`.
 - `bundle-recommended-extensions.mjs` — clones bundled extension IDs (SPDX allowlist + 15 MB budget). Enable locally: `BUNDLE_RECOMMENDED_EXTENSIONS=1 npm run electron:build`.
 - Code signing — Authenticode for Windows, notarization for macOS.
 - Upload artifacts to draft GitHub Release (notes from matching `## [<version>]` in `CHANGELOG.md`).
@@ -128,6 +126,5 @@ bash packages/electron/scripts/build-windows-zip.sh
 - `packages/electron/scripts/build-installer.sh` — main build script (orchestrates native + Docker)
 - `packages/electron/scripts/docker-make.sh` — Docker entrypoint (package + zip + portable)
 - `packages/electron/scripts/Dockerfile.build` — Node 22 Debian build image
-- `packages/electron/scripts/bundle-offline-packages.mjs` — offline cacache bundler (CI only)
 - `packages/electron/scripts/bundle-recommended-extensions.sh` — extension bundler (CI only)
 - `.github/workflows/publish.yml` — CI release workflow

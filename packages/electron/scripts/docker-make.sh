@@ -81,14 +81,11 @@ _install_linux_optional "@swc/core-linux-$ARCH-gnu"
 echo "→ Bundling dashboard server source..."
 node "$ELECTRON_DIR/scripts/bundle-server.mjs" --source-only
 
-# Bundle offline npm cache for first-run (opt-in via BUNDLE_OFFLINE_PACKAGES=1).
-# Runs BEFORE electron-forge package/make so the resource is picked up by extraResource.
-if [ "${BUNDLE_OFFLINE_PACKAGES:-0}" = "1" ]; then
-  echo "→ Bundling offline packages for $PLATFORM-$ARCH..."
-  node "$ELECTRON_DIR/scripts/bundle-offline-packages.mjs" --platform="$PLATFORM-$ARCH"
-else
-  echo "→ Skipping offline package bundle (BUNDLE_OFFLINE_PACKAGES!=1)"
-fi
+# Offline package bundling removed under `eliminate-electron-runtime-install`:
+# pi/openspec/tsx now ship as regular dependencies of the bundled server tree
+# (resolved by the `npm install --omit=dev` below) instead of via a separate
+# offline npm cache. The `BUNDLE_OFFLINE_PACKAGES=1` opt-in branch and its
+# companion `bundle-offline-packages.mjs` script are gone.
 
 # Install deps inside Docker to get correct native modules for the target platform
 echo "→ Installing server dependencies..."

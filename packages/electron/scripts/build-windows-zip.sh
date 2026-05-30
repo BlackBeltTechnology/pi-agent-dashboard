@@ -287,7 +287,6 @@ else
     -v "$PROJECT_DIR:/build" \
     -v /build/packages/electron/out \
     -w /build \
-    -e "BUNDLE_OFFLINE_PACKAGES=${BUNDLE_OFFLINE_PACKAGES:-0}" \
     -e "ZIP_ONLY=$ZIP_ONLY_FLAG" \
     "$DOCKER_IMAGE" \
     win32 "$ARCH" || RUN_RC=$?
