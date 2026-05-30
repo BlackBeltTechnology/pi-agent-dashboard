@@ -807,4 +807,13 @@ export interface ApiResponse<T = unknown> {
    * git error inline in dialogs. See change: add-worktree-spawn-dialog.
    */
   stderr?: string;
+  /**
+   * Set on `POST /api/git/worktree` responses whose `code === "path_exists"`.
+   * `true` when the colliding path exists on disk but is NOT a registered
+   * worktree (likely orphan from a previous failed attempt); `false` when
+   * the path IS a registered worktree. Undefined for non-`path_exists`
+   * errors. Drives the dialog's inline `[Clean up]` button.
+   * See change: openspec-worktree-spawn-button.
+   */
+  orphanLikely?: boolean;
 }

@@ -15,6 +15,8 @@ import {
   parsePorcelainWorktrees,
   resolveDefaultBase,
   ensureWorktreeExcludeLine,
+  isOrphanWorktreePath,
+  isSameWorktreePath,
 } from "../git-worktree.js";
 
 describe("slugifyBranch", () => {
@@ -289,3 +291,76 @@ describe("ensureWorktreeExcludeLine", () => {
     });
   });
 });
+describe("isSameWorktreePath", () => {
+  it("identical paths match", () => {
+    expect(isSameWorktreePath("/repo/.worktrees/a", "/repo/.worktrees/a")).toBe(true);
+  });
+
+  it("trailing slash normalized", () => {
+    expect(isSameWorktreePath("/repo/.worktrees/a/", "/repo/.worktrees/a")).toBe(true);
+  });
+
+  it("backslash vs forward slash treated equal", () => {
+    expect(isSameWorktreePath("C:\\repo\\wt", "C:/repo/wt")).toBe(true);
+  });
+
+  it("completely different paths do not match", () => {
+    expect(isSameWorktreePath("/repo/a", "/repo/b")).toBe(false);
+  });
+
+  it("empty strings handled gracefully", () => {
+    expect(isSameWorktreePath("", "")).toBe(true);
+    expect(isSameWorktreePath("", "/repo/a")).toBe(false);
+  });
+});
+
+describe("isOrphanWorktreePath", () => {
+  it("returns true when path exists but is NOT in worktree list (orphan)", () => {
+    expect(isOrphanWorktreePath({
+      path: "/repo/.worktrees/orphan",
+      worktreeList: [{ path: "/repo" }, { path: "/repo/.worktrees/wt-a" }],
+      exists: () => true,
+    })).toBe(true);
+  });
+
+  it("returns false when path matches a registered worktree", () => {
+    expect(isOrphanWorktreePath({
+      path: "/repo/.worktrees/wt-a",
+      worktreeList: [{ path: "/repo" }, { path: "/repo/.worktrees/wt-a" }],
+      exists: () => true,
+    })).toBe(false);
+  });
+
+  it("returns false when path does NOT exist on disk", () => {
+    expect(isOrphanWorktreePath({
+      path: "/repo/.worktrees/missing",
+      worktreeList: [{ path: "/repo" }],
+      exists: () => false,
+    })).toBe(false);
+  });
+
+  it("returns false on empty path argument", () => {
+    expect(isOrphanWorktreePath({
+      path: "",
+      worktreeList: [],
+      exists: () => true,
+    })).toBe(false);
+  });
+
+  it("normalizes trailing slash when comparing against worktree list", () => {
+    expect(isOrphanWorktreePath({
+      path: "/repo/.worktrees/wt-a/",
+      worktreeList: [{ path: "/repo/.worktrees/wt-a" }],
+      exists: () => true,
+    })).toBe(false);
+  });
+
+  it("empty worktree list with existing path always orphan", () => {
+    expect(isOrphanWorktreePath({
+      path: "/some/orphan",
+      worktreeList: [],
+      exists: () => true,
+    })).toBe(true);
+  });
+});
+

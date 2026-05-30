@@ -179,4 +179,119 @@ describe("POST /api/git/worktree", () => {
       rmSync(join(repo, ".worktrees"), { recursive: true, force: true });
     }
   });
+
+  it("path_exists envelope carries orphanLikely:true for non-registered orphan dir", async () => {
+    const collide = join(repo, ".worktrees", "feat-orphan");
+    execSync(`mkdir -p '${collide}' && echo hi > '${collide}/file.txt'`);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/git/worktree`,
+        payload: { cwd: repo, base: "main", newBranch: "feat/orphan" },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ success: false, code: "path_exists", orphanLikely: true });
+    } finally {
+      rmSync(join(repo, ".worktrees"), { recursive: true, force: true });
+    }
+  });
+});
+
+describe("POST /api/git/worktree/orphan-cleanup", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  beforeEach(async () => {
+    app = await makeApp();
+    repo = makeRepo();
+  });
+  afterEach(async () => {
+    rmSync(repo, { recursive: true, force: true });
+    await app.close();
+  });
+
+  it("happy path: 200 ok and removes the orphan dir", async () => {
+    const orphan = join(repo, ".worktrees", "orphan");
+    execSync(`mkdir -p '${orphan}' && echo hi > '${orphan}/tsconfig.json'`);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo, path: orphan },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ success: true });
+    expect(() => execSync(`ls '${orphan}'`, { stdio: "pipe" })).toThrow();
+  });
+
+  it("400 + outside_repo when path is outside cwd", async () => {
+    const elsewhere = mkdtempSync(join(tmpdir(), "orphan-outside-"));
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/git/worktree/orphan-cleanup`,
+        payload: { cwd: repo, path: elsewhere },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ success: false, code: "outside_repo" });
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it("400 + not_a_directory when path does not exist", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo, path: join(repo, ".worktrees", "never-existed") },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ success: false, code: "not_a_directory" });
+  });
+
+  it("409 + looks_like_worktree when dir contains a .git entry", async () => {
+    const dir = join(repo, ".worktrees", "fake-wt");
+    execSync(`mkdir -p '${dir}' && touch '${dir}/.git'`);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo, path: dir },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ success: false, code: "looks_like_worktree" });
+  });
+
+  it("409 + not_orphan when path IS a registered worktree", async () => {
+    git("worktree add .worktrees/real-wt -b real-wt", repo);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo, path: join(repo, ".worktrees", "real-wt") },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ success: false, code: "not_orphan" });
+  });
+
+  it("409 + too_many_files when dir exceeds 20 files", async () => {
+    const dir = join(repo, ".worktrees", "many");
+    execSync(`mkdir -p '${dir}'`);
+    for (let i = 0; i < 25; i++) {
+      writeFileSync(join(dir, `f${i}.txt`), "x");
+    }
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo, path: dir },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ success: false, code: "too_many_files" });
+  });
+
+  it("400 + cwd_invalid when path missing from body", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git/worktree/orphan-cleanup`,
+      payload: { cwd: repo },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ success: false, code: "cwd_invalid" });
+  });
 });

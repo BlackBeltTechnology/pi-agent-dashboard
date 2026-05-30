@@ -127,6 +127,47 @@ export function registerFileRoutes(
     },
   );
 
+  // Lightweight path-existence probe (change: openspec-worktree-spawn-button).
+  //
+  // Returns 200 when the absolute `path` query param exists on disk
+  // (file or directory), 404 otherwise. Used by WorktreeSpawnDialog to
+  // detect orphan-path collisions before submit. Gated on `cwd` being a
+  // known session or pinned directory to avoid arbitrary filesystem
+  // probes from an authenticated browser.
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/exists",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.query.cwd;
+      const probePath = request.query.path;
+      if (!cwd || !probePath) {
+        reply.code(400);
+        return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
+      }
+      const allSessions = sessionManager.listAll();
+      const knownCwds = new Set(allSessions.map((s) => s.cwd));
+      for (const dir of preferencesStore.getPinnedDirectories()) knownCwds.add(dir);
+      if (!knownCwds.has(cwd)) {
+        reply.code(403);
+        return { success: false, error: "unknown cwd" } satisfies ApiResponse;
+      }
+      // Anti-traversal: probePath MUST be inside cwd.
+      const resolved = path.resolve(probePath);
+      const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
+      if (resolved !== cwd && !resolved.startsWith(cwdWithSep)) {
+        reply.code(403);
+        return { success: false, error: "path outside cwd" } satisfies ApiResponse;
+      }
+      try {
+        await fs.access(resolved);
+        return { success: true, data: { exists: true } } satisfies ApiResponse;
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+    },
+  );
+
   // README endpoint — read README.md from a directory
   fastify.get<{ Querystring: { cwd?: string; check?: string } }>(
     "/api/readme",
