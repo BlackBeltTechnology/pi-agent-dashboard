@@ -35,6 +35,10 @@ Out of scope:
 - **`settings-panel`**: Adds a checkbox bound to `gitWorktreeEnabled`.
 - **`git-operations-api`**: Adds `POST /api/git/worktree/orphan-cleanup` endpoint (localhost-only, refuses dirs with `.git`, file-count cap, size cap). Adds `orphanLikely: boolean` field to `path_exists` error envelope from `POST /api/git/worktree`.
 
+### Added Capabilities
+
+- **`server-startup-node-version-guard`** (post-archive addition, see tasks §9): Server SHALL refuse to start when running Node falls outside `package.json#engines.node` (`>=22.19.0 <25`). Moves the worktree-spawn `npm ci` EBADENGINE failure from "first spawn" to "server start" with an actionable message naming the engines range and three install paths (nvm / bundled / brew). CI standalone-install-smoke matrices SHALL track the predicate (no Node major it refuses).
+
 ## Impact
 
 - **Modified files**:
@@ -47,6 +51,10 @@ Out of scope:
   - `packages/server/src/git-operations.ts` — new `orphanCleanup(path)` pure-ish helper + tighten `addWorktree` to populate `orphanLikely` on `path_exists`
   - `packages/server/src/routes/git-routes.ts` — register `POST /api/git/worktree/orphan-cleanup`
   - `packages/client/src/lib/git-api.ts` — new `cleanupOrphanWorktreePath(path)` fetch helper
+  - `packages/server/src/node-guard.ts` — new `isOutOfEnginesRange` predicate + `buildEnginesRangeMessage`; `assertNodeVersionSupported()` calls both guards (post-archive, see tasks §9)
+  - `packages/server/src/__tests__/node-guard.test.ts` — predicate + message tests
+  - `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` — allowlist `node-guard.ts` (advisory help-text only)
+  - `.github/workflows/ci.yml` — drop Node 25 from both standalone-install-smoke matrices (lockstep with `engines.node` cap)
 - **Protocol**: none — `spawn_session.attachProposal` and `spawn_session.gitWorktreeBase` already exist (see `packages/shared/src/browser-protocol.ts:865-887`). One new REST route added (see above).
 - **Persistence**: none beyond the new config field.
 - **Tests**:
