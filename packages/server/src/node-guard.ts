@@ -28,6 +28,57 @@ export function isAffectedNode(version: string): boolean {
   return false;
 }
 
+/**
+ * Returns true when Node is OUTSIDE the engines cap declared in
+ * `package.json#engines.node` (`>=22.19.0 <25`). Covers two cases the
+ * Fastify-bug guard doesn't:
+ *
+ *   - Too old: major 22 with minor < 19 (overlap with isAffectedNode — both
+ *     catch this; the engines guard is the canonical answer).
+ *   - Too new: major >= 25. Even though Node 25 fixes the Fastify bug, the
+ *     dashboard's engines field caps at <25 because subprocess `npm ci`
+ *     (worktree bootstrap) refuses with EBADENGINE on out-of-range Node.
+ *     Running the server on Node 25 makes the worktree-spawn dialog throw
+ *     `bootstrap_failed: node engine mismatch`. Refusing at startup
+ *     surfaces the same error early, with an actionable message.
+ *
+ *   - Catches major < 22 too — anything below the floor is unsupported.
+ *
+ * Keep this in lockstep with the engines field; if the cap ever bumps to
+ * `<26`, drop the 25 check here.
+ *
+ * See change: openspec-worktree-spawn-button.
+ */
+export function isOutOfEnginesRange(version: string): boolean {
+  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return false;
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  if (major < 22) return true;
+  if (major === 22 && minor < 19) return true;
+  if (major >= 25) return true;
+  return false;
+}
+
+export function buildEnginesRangeMessage(version: string): string {
+  return [
+    ``,
+    `❌  pi-dashboard cannot start on Node ${version}.`,
+    ``,
+    `    Required: >=22.19.0 <25 (see package.json#engines.node).`,
+    ``,
+    `    The worktree-spawn dialog shells out to \`npm ci\` which refuses`,
+    `    with EBADENGINE on Node versions outside this range; running the`,
+    `    server on an out-of-range Node makes that path silently fail.`,
+    ``,
+    `    Fix:`,
+    `      nvm:    nvm install 24 && nvm use 24`,
+    `      bundled: PATH="$HOME/.pi-dashboard/node/bin:$PATH" pi-dashboard start`,
+    `      brew:   brew install node@24`,
+    ``,
+  ].join("\n");
+}
+
 export function buildNodeUpgradeMessage(version: string): string {
   return [
     ``,
@@ -53,6 +104,10 @@ export function buildNodeUpgradeMessage(version: string): string {
 export function assertNodeVersionSupported(): void {
   if (isAffectedNode(process.version)) {
     console.error(buildNodeUpgradeMessage(process.version));
+    process.exit(1);
+  }
+  if (isOutOfEnginesRange(process.version)) {
+    console.error(buildEnginesRangeMessage(process.version));
     process.exit(1);
   }
 }
