@@ -41,10 +41,9 @@ jobs:
             node-version: 24
           - image: node:24-alpine
             node-version: 24
-          - image: node:25-bookworm-slim
-            node-version: 25
-          - image: node:25-alpine
-            node-version: 25
+          # Node 25 intentionally excluded: server refuses to start on >=25 per
+          # engines.node (>=22.19.0 <25). See change: openspec-worktree-spawn-button
+          # (packages/server/src/node-guard.ts::isOutOfEnginesRange).
     container:
       image: ${{ matrix.image }}
     steps:
@@ -92,7 +91,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22, 24, 25]
+        # Node 25 excluded — see linux matrix comment above.
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

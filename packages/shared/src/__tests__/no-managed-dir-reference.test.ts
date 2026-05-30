@@ -64,6 +64,9 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   "packages/server/src/changelog-fs.ts",
   // Server CLI: advisory log line wired to legacy-managed-dir detector.
   "packages/server/src/cli.ts",
+  // Node-version guard: advisory help-text only (suggests bundled PATH);
+  // no read/write. See change: openspec-worktree-spawn-button.
+  "packages/server/src/node-guard.ts",
   // Doctor route: shared-doctor MANAGED_DIR forwarder.
   "packages/server/src/routes/doctor-routes.ts",
   // Electron Doctor: advisory row text + MANAGED_DIR consumer for shared checks.
