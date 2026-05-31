@@ -130,6 +130,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
                 src={`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`}
                 alt={path}
                 className="max-w-full h-auto mx-auto"
+                onError={() => setError((prev) => prev ?? `Failed to load image: ${path}`)}
               />
             )}
             {!error && !isImage && content === null && (
