@@ -220,6 +220,8 @@ The `ToolCallStep` component SHALL default to expanded when the tool result cont
 
 The code/diff payload region of `ReadToolRenderer`, `WriteToolRenderer`, `EditToolRenderer`, `BashToolRenderer`, and `GenericToolRenderer` SHALL render at a single shared font-size of 12 px on both mobile and desktop. The shared size SHALL be applied via a single reusable utility class (`.text-code`) declared in `packages/client/src/index.css`. Non-payload chrome (filename labels, status text, action buttons, `AskUserToolRenderer` controls) is OUT OF SCOPE for this requirement and retains its existing sizing.
 
+When wrapping third-party components where the utility class cannot be reliably applied to the payload container (e.g. `RichDiff` wrapping `@git-diff-view/react`), an inline `style={{ fontSize: "12px" }}` MAY be used as a fallback to achieve the required font-size. The structural test (`tool-renderer-payload-fontsize.test.tsx`) accepts either `.text-code` on the payload root OR `style.fontSize === "12px"`.
+
 `DiffPanel` (the full-screen diff viewer) and markdown code blocks inside assistant prose (`MarkdownContent`) are explicitly OUT OF SCOPE and SHALL retain their existing font-sizes.
 
 #### Scenario: Read and Edit cards for the same file render at the same font-size
