@@ -17,7 +17,7 @@ describe("LinkifiedText", () => {
     const buttons = container.querySelectorAll("button");
     expect(anchors).toHaveLength(1);
     expect(anchors[0].getAttribute("href")).toBe("https://example.com/x");
-    expect(buttons.length).toBeGreaterThanOrEqual(1);
+    expect(buttons).toHaveLength(1);
     // Coverage: the rendered textContent equals the input verbatim, so
     // user-selecting and copying yields the original string (D8 spec).
     expect(container.textContent).toBe(text);

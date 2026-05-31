@@ -127,7 +127,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
             )}
             {!error && isImage && (
               <img
-                src={`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}&raw=1`}
+                src={`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`}
                 alt={path}
                 className="max-w-full h-auto mx-auto"
               />
