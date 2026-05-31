@@ -19,6 +19,7 @@ import type { PendingAttachRegistry } from "../pending-attach-registry.js";
 import type { PendingWorktreeBaseRegistry } from "../pending-worktree-base-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
 import type { PendingClientCorrelations } from "../pending-client-correlations.js";
+import type { ViewMessageStore } from "../view-message-store.js";
 
 export interface BrowserHandlerContext {
   ws: WebSocket;
@@ -82,4 +83,10 @@ export interface BrowserHandlerContext {
   markReplaying(ws: WebSocket, sessionId: string): void;
   /** Clear replay flag and send catch-up events */
   clearReplaying(ws: WebSocket, sessionId: string, lastReplayedSeq: number): void;
+  /**
+   * Per-session store for dashboard-local `/view` preview rows. Separate
+   * from pi's events.jsonl so the agent never observes them.
+   * See change: render-file-previews.
+   */
+  viewMessageStore?: ViewMessageStore;
 }

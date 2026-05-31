@@ -670,7 +670,8 @@ export type ServerToBrowserMessage =
   | BrowserAssetRegisterMessage
   | PluginIntentsMessage
   | DisplayPrefsUpdatedMessage
-  | QueueUpdateToBrowserMessage;
+  | QueueUpdateToBrowserMessage
+  | ViewMessagesUpdateMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
 
@@ -756,7 +757,25 @@ export interface QueueUpdateToBrowserMessage {
   followUp: string[];
 }
 
-
+/**
+ * Server → browser: full snapshot of a session's `/view` preview rows.
+ * Sent on subscribe (as a snapshot) and on every change (append). Each
+ * entry is a minimal ChatMessage shape with `view` set; the client merges
+ * them into its rendered chat by timestamp. View messages live in a
+ * separate server-side store, NEVER in pi's events.jsonl — the agent does
+ * not observe them. See change: render-file-previews.
+ */
+export interface ViewMessagesUpdateMessage {
+  type: "view_messages_update";
+  sessionId: string;
+  viewMessages: Array<{
+    id: string;
+    role: "user";
+    content: "";
+    timestamp: number;
+    view: import("./types.js").ViewTarget;
+  }>;
+}
 
 export interface RequestCommandsToBrowserMessage {
   type: "request_commands";
@@ -1154,6 +1173,19 @@ export interface UiManagementBrowserMessage {
   params?: Record<string, unknown>;
 }
 
+/**
+ * Browser → server: inject a `/view` preview row into the session. The
+ * server persists it in a per-session view-messages store (separate from
+ * pi's events.jsonl so the agent never observes it) and broadcasts the
+ * updated list via `view_messages_update`.
+ * See change: render-file-previews.
+ */
+export interface InjectViewMessageBrowserMessage {
+  type: "inject_view_message";
+  sessionId: string;
+  target: import("./types.js").ViewTarget;
+}
+
 export type BrowserToServerMessage =
   | SubscribeMessage
   | UnsubscribeMessage
@@ -1214,7 +1246,8 @@ export type BrowserToServerMessage =
   | PromoteFollowupEntryFromBrowserMessage
   | WorktreeBootstrapSubscribeMessage
   | WorktreeBootstrapUnsubscribeMessage
-  | SetSessionDisplayPrefsBrowserMessage;
+  | SetSessionDisplayPrefsBrowserMessage
+  | InjectViewMessageBrowserMessage;
 
 /**
  * Browser registers interest in worktree-bootstrap events for a given

@@ -19,6 +19,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog.js";
 // content-view, content-inline-footer, command-route). See change:
 // pluginize-flows-via-registry.
 import { MarkdownPreviewView } from "./components/MarkdownPreviewView.js";
+import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
 import { PiResourcesView } from "./components/PiResourcesView.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
@@ -305,6 +306,14 @@ export default function App() {
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [readmeMatch, readmeParams] = useRoute("/folder/:encodedCwd/readme");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
+  // `/view` overlay routes (change: render-file-previews).
+  const [fileViewMatch, fileViewParams] = useRoute("/folder/:encodedCwd/view");
+  const [urlViewMatch] = useRoute("/pi-view");
+  const [urlViewSearch] = useSearchParams();
+  const fileViewSearch = urlViewSearch; // useSearchParams is route-independent
+  const urlViewUrl = urlViewMatch ? urlViewSearch.get("url") : null;
+  const fileViewPath = fileViewMatch ? fileViewSearch.get("path") : null;
+  const fileViewCwd = fileViewMatch && fileViewParams ? decodeFolderPath(fileViewParams.encodedCwd) : null;
   const [diffMatch, diffParams] = useRoute("/session/:id/diff");
   // Subagent inspector popout route. See change: add-subagent-inspector §7.
   // Plugin-owned overlay routes (subagent popout, flow-agent popout, etc.)
@@ -332,7 +341,9 @@ export default function App() {
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!archiveMatch || !!specsMatch ||
-    !!readmeMatch || !!piResourcesMatch || !!diffMatch || pluginOverlayMatched;
+    !!readmeMatch || !!piResourcesMatch || !!diffMatch ||
+    !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
+    pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
   const selectedId = deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams);
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
@@ -355,6 +366,11 @@ export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
+  // Per-session dashboard-local `/view` preview rows. Lives separately from
+  // event-reducer state so the reducer never sees them. Merged with
+  // `state.messages` by timestamp when passing to ChatView.
+  // See change: render-file-previews.
+  const [viewMessagesMap, setViewMessagesMap] = useState<Map<string, import("./lib/event-reducer.js").ChatMessage[]>>(new Map());
   // Per-session chat-input drafts. Hydrated once from localStorage on mount,
   // then persisted (debounced) whenever the map changes.
   const [drafts, setDrafts] = useState<Map<string, string>>(() => readAllDrafts());
@@ -508,7 +524,7 @@ export default function App() {
   };
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef },
   );
 
@@ -666,9 +682,19 @@ export default function App() {
   // subscribes on mount via `usePluginSend({ type: "subscribe", ... })`.
   // See change: add-flow-agent-popout.
 
-  const selectedState = selectedId
+  const rawSelectedState = selectedId
     ? sessionStates.get(selectedId) ?? createInitialState()
     : createInitialState();
+  // Merge dashboard-local `/view` rows into the rendered chat by timestamp.
+  // View rows are stored separately so the event reducer never sees them.
+  // See change: render-file-previews.
+  const selectedState = useMemo(() => {
+    if (!selectedId) return rawSelectedState;
+    const views = viewMessagesMap.get(selectedId);
+    if (!views || views.length === 0) return rawSelectedState;
+    const merged = [...rawSelectedState.messages, ...views].sort((a, b) => a.timestamp - b.timestamp);
+    return { ...rawSelectedState, messages: merged };
+  }, [rawSelectedState, viewMessagesMap, selectedId]);
 
   // Per-session draft text + history recall for CommandInput.
   const selectedDraft = selectedId ? (drafts.get(selectedId) ?? "") : "";
@@ -1236,6 +1262,16 @@ export default function App() {
           openspecMap={openspecMap}
           onBack={goBack}
         />
+      ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+        <PreviewOverlayView
+          target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
+          onBack={goBack}
+        />
+      ) : urlViewMatch && urlViewUrl ? (
+        <PreviewOverlayView
+          target={{ kind: "url", url: urlViewUrl }}
+          onBack={goBack}
+        />
       ) : diffMatch && diffSessionId ? (
         <FileDiffView sessionId={diffSessionId} onBack={goBack} />
       ) : (
@@ -1368,6 +1404,12 @@ export default function App() {
             history={selectedHistory}
             images={selectedImages}
             onImagesChange={setImagesForSelected}
+            currentCwd={selectedSession?.cwd}
+            onViewLocal={(target) => {
+              if (!selectedId) return;
+              send({ type: "inject_view_message", sessionId: selectedId, target });
+            }}
+            sessionMessages={selectedState.messages}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
           {selectedSession && <ContentInlineFooterSlot session={selectedSession} />}
@@ -1598,6 +1640,16 @@ export default function App() {
                 openspecMap={openspecMap}
                 onBack={goBack}
               />
+            ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+              <PreviewOverlayView
+                target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
+                onBack={goBack}
+              />
+            ) : urlViewMatch && urlViewUrl ? (
+              <PreviewOverlayView
+                target={{ kind: "url", url: urlViewUrl }}
+                onBack={goBack}
+              />
             ) : folderTermCwd ? (
               <TerminalsView
                 cwd={folderTermCwd}
@@ -1697,6 +1749,16 @@ export default function App() {
               changeName={decodeURIComponent(openspecPreviewParams.changeName)}
               initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
               openspecMap={openspecMap}
+              onBack={goBack}
+            />
+          ) : fileViewMatch && fileViewCwd && fileViewPath && !selectedId ? (
+            <PreviewOverlayView
+              target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
+              onBack={goBack}
+            />
+          ) : urlViewMatch && urlViewUrl && !selectedId ? (
+            <PreviewOverlayView
+              target={{ kind: "url", url: urlViewUrl }}
               onBack={goBack}
             />
           ) : (

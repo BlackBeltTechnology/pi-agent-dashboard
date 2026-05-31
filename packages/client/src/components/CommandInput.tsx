@@ -1,9 +1,11 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose } from "@mdi/js";
-import type { CommandInfo, ImageContent, FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose, mdiWeb } from "@mdi/js";
+import type { CommandInfo, ImageContent, FileEntry, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ChatMessage } from "../lib/event-reducer.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
+import { extractRecentUrls } from "../lib/extract-urls.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -11,6 +13,44 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "reload", description: "Reload extensions, skills, prompts, and themes", source: "builtin" },
   { name: "new", description: "Start a new session", source: "builtin" },
 ];
+
+/**
+ * Dashboard-local slash commands. Intercepted by the composer before the
+ * send pipeline — NEVER round-trip through the bridge or reach pi. Merged
+ * into the `/`-autocomplete dropdown alongside `BUILTIN_COMMANDS`.
+ * See change: render-file-previews.
+ */
+export const DASHBOARD_LOCAL_COMMANDS: CommandInfo[] = [
+  { name: "view", description: "Preview a file or URL inline", source: "builtin" },
+];
+
+/**
+ * Parse `/view <arg>` text into a `ViewTarget`. Returns null if the text
+ * is not a well-formed view command (no arg, multi-token arg, or bare
+ * non-URL/non-@ token). Pure for testing.
+ * See change: render-file-previews.
+ */
+export function parseViewCommand(
+  text: string,
+  currentCwd: string | undefined,
+): ViewTarget | null {
+  const trimmed = text.trim();
+  if (trimmed !== "/view" && !trimmed.startsWith("/view ")) return null;
+  const rest = trimmed === "/view" ? "" : trimmed.slice("/view ".length).trim();
+  if (rest === "") return null;
+  // Reject multi-token args.
+  if (/\s/.test(rest)) return null;
+  if (rest.startsWith("@")) {
+    if (!currentCwd) return null;
+    const p = rest.slice(1);
+    if (!p) return null;
+    return { kind: "file", cwd: currentCwd, path: p };
+  }
+  if (/^https?:\/\//.test(rest)) {
+    return { kind: "url", url: rest };
+  }
+  return null;
+}
 
 interface Props {
   commands: CommandInfo[];
@@ -49,6 +89,26 @@ interface Props {
   images?: ImageContent[];
   /** Parent callback for every images-array change (controlled mode). */
   onImagesChange?: (next: ImageContent[]) => void;
+  /**
+   * Current session's cwd. Used to construct `{ kind: "file", cwd, path }`
+   * ViewTargets when the user submits `/view @<path>`. When undefined the
+   * `/view @<path>` form is a no-op (URL form still works).
+   * See change: render-file-previews.
+   */
+  currentCwd?: string;
+  /**
+   * Dashboard-local `/view` handler. When the user submits `/view <arg>`,
+   * the composer parses the arg and calls `onViewLocal(target)` instead of
+   * `onSend`. Never reaches the bridge.
+   * See change: render-file-previews.
+   */
+  onViewLocal?: (target: ViewTarget) => void;
+  /**
+   * Current session's messages — source for the `@`-autocomplete URL pool
+   * (via `extractRecentUrls`). Omit to disable URL surfacing.
+   * See change: render-file-previews.
+   */
+  sessionMessages?: ChatMessage[];
 }
 
 const sourceIcons: Record<string, ReactNode> = {
@@ -84,14 +144,15 @@ function extractAtQuery(text: string): string | null {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, sessionMessages }: Props) {
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
-  // Merge server commands with built-in commands, avoiding duplicates
+  // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
   const commands = useMemo(() => {
     const names = new Set(externalCommands.map((c) => c.name));
     const builtins = BUILTIN_COMMANDS.filter((c) => !names.has(c.name));
-    return [...builtins, ...externalCommands];
+    const dashLocal = DASHBOARD_LOCAL_COMMANDS.filter((c) => !names.has(c.name) && !builtins.some((b) => b.name === c.name));
+    return [...builtins, ...dashLocal, ...externalCommands];
   }, [externalCommands]);
   // Controlled when `draft` prop is provided, otherwise fall back to local state
   // (preserves backward-compat for callers/tests that don't pass `draft`).
@@ -174,17 +235,39 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     ? fileResults.files
     : [];
 
+  // URL pool from the current session's chat history (memoized over message
+  // list reference). Filtered by `atQuery` substring (URL or host).
+  // See change: render-file-previews.
+  const allUrls = useMemo(
+    () => (sessionMessages ? extractRecentUrls(sessionMessages) : []),
+    [sessionMessages],
+  );
+  const urlItems = useMemo(() => {
+    if (!isAtMode) return [];
+    const q = (atQuery ?? "").toLowerCase();
+    if (allUrls.length === 0) return [];
+    if (q === "") return allUrls;
+    return allUrls.filter((u) => {
+      if (u.toLowerCase().includes(q)) return true;
+      try {
+        return new URL(u).hostname.toLowerCase().includes(q);
+      } catch {
+        return false;
+      }
+    });
+  }, [isAtMode, atQuery, allUrls]);
+
   // Derive dropdown mode directly (no useEffect needed)
   // If user pressed Escape at the current text value, stay dismissed
   const isDismissed = dismissed === text;
   const dropdownMode: DropdownMode =
     isDismissed ? null
     : isCommand && filteredCommands.length > 0 ? "command"
-    : isAtMode && fileItems.length > 0 ? "file"
+    : isAtMode && (fileItems.length > 0 || urlItems.length > 0) ? "file"
     : null;
 
   const dropdownLength = dropdownMode === "command" ? filteredCommands.length
-    : dropdownMode === "file" ? fileItems.length
+    : dropdownMode === "file" ? (fileItems.length + urlItems.length)
     : 0;
 
   // Reset selectedIndex when dropdown mode or filter changes
@@ -233,17 +316,46 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     });
   };
 
+  // Insert a URL entry from the `@` dropdown. Replaces `@<query>` with the
+  // URL verbatim — no leading `@`. See change: render-file-previews.
+  const selectUrl = (url: string) => {
+    const query = atQuery ?? "";
+    const beforeAt = textBeforeCursor.slice(0, textBeforeCursor.length - query.length - 1); // remove `@<query>`
+    const afterCursor = text.slice(cursorPos);
+    const newText = `${beforeAt}${url} ${afterCursor}`;
+    setText(newText);
+    setDismissed(newText);
+    const newCursorPos = beforeAt.length + url.length + 1;
+    requestAnimationFrame(() => {
+      inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      inputRef.current?.focus();
+    });
+  };
+
   const handleSend = useCallback((delivery?: "steer" | "followUp") => {
-    if (text.trim()) {
-      onSend(text.trim(), pendingImages.length > 0 ? pendingImages : undefined, delivery);
-      clearImages();
-      setText("");
-      // Reset textarea height
-      if (inputRef.current) {
-        inputRef.current.style.height = "38px";
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // Dashboard-local `/view` interception. Parse the arg and dispatch to
+    // `onViewLocal`; NEVER call `onSend`. Empty/malformed `/view` is a no-op
+    // (draft preserved). See change: render-file-previews.
+    if (trimmed === "/view" || trimmed.startsWith("/view ")) {
+      const target = parseViewCommand(trimmed, currentCwd);
+      if (target && onViewLocal) {
+        onViewLocal(target);
+        clearImages();
+        setText("");
+        if (inputRef.current) inputRef.current.style.height = "38px";
       }
+      // No target → silent no-op (preserve draft).
+      return;
     }
-  }, [text, pendingImages, onSend, clearImages]);
+    onSend(trimmed, pendingImages.length > 0 ? pendingImages : undefined, delivery);
+    clearImages();
+    setText("");
+    if (inputRef.current) {
+      inputRef.current.style.height = "38px";
+    }
+  }, [text, pendingImages, onSend, clearImages, currentCwd, onViewLocal, setText]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -277,8 +389,14 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             const cmd = filteredCommands[selectedIndex];
             if (cmd) selectCommand(cmd);
           } else if (dropdownMode === "file") {
-            const file = fileItems[selectedIndex];
-            if (file) selectFile(file);
+            // Combined index: files first, URLs after.
+            if (selectedIndex < fileItems.length) {
+              const file = fileItems[selectedIndex];
+              if (file) selectFile(file);
+            } else {
+              const url = urlItems[selectedIndex - fileItems.length];
+              if (url) selectUrl(url);
+            }
           }
           return;
         }
@@ -430,6 +548,25 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
                   {name}{file.isDirectory ? "/" : ""}
                 </span>
                 <span className="text-[var(--text-tertiary)] truncate">{file.path}</span>
+              </button>
+            );
+          })}
+          {urlItems.map((url, i) => {
+            const idx = fileItems.length + i;
+            let host = url;
+            try { host = new URL(url).hostname; } catch { /* keep raw */ }
+            return (
+              <button
+                key={`url:${url}`}
+                data-dropdown-index={idx}
+                onClick={() => selectUrl(url)}
+                className={`w-full px-3 py-2 min-h-[44px] md:min-h-0 text-left text-sm flex items-center gap-2 ${
+                  idx === selectedIndex ? "bg-[var(--bg-tertiary)]" : "hover:bg-[var(--bg-hover)]"
+                }`}
+              >
+                <span className="inline-flex"><Icon path={mdiWeb} size={0.6} /></span>
+                <span className="font-mono text-cyan-400">{host}</span>
+                <span className="text-[var(--text-tertiary)] truncate">{url}</span>
               </button>
             );
           })}

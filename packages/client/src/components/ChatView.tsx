@@ -26,6 +26,7 @@ import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../lib/
 import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { PreviewCard } from "./PreviewCard.js";
 import { ChatViewMenu } from "./ChatViewMenu.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
@@ -322,6 +323,19 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         }
 
         const msg = item as import("../lib/event-reducer.js").ChatMessage;
+
+        // `/view` preview rows render as a `PreviewCard` regardless of role.
+        // Filtered out of the pi-bound message stream by the bridge so the
+        // agent never observes them. See change: render-file-previews.
+        if (msg.view) {
+          return (
+            <div key={msg.id} className="mt-4 mb-4 flex justify-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+              <div className={bubbleMax}>
+                <PreviewCard target={msg.view} />
+              </div>
+            </div>
+          );
+        }
 
         if (msg.role === "turnSeparator") {
           if (!prefs.turnMetadata) return null;

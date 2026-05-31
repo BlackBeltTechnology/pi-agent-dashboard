@@ -9,6 +9,20 @@ import type { NetworkGuard } from "./route-deps.js";
 import { listDirectories, createDirectory, classifyPaths, parseFlagsQuery } from "../browse.js";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { extToContentType } from "../lib/mime-types.js";
+
+// Lazy asciidoctor singleton. First call cost ~Opal init; the server is
+// long-running so we eat it once. See change: render-file-previews.
+let asciidoctorInstance: any | null = null;
+function getAsciidoctor(): any {
+  if (!asciidoctorInstance) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const factory = require("asciidoctor");
+    asciidoctorInstance = factory();
+  }
+  return asciidoctorInstance;
+}
 
 export function registerFileRoutes(
   fastify: FastifyInstance,
@@ -207,4 +221,155 @@ export function registerFileRoutes(
   fastify.get("/api/pinned-dirs", async () => {
     return { success: true, data: preferencesStore.getPinnedDirectories() } satisfies ApiResponse;
   });
+
+  // Binary-safe file streaming endpoint (change: render-file-previews).
+  // Streams the file bytes with `Content-Type` from extension, supports
+  // HTTP Range so `<video>` seek works. Same cwd-allowlist + anti-traversal
+  // gate as `/api/file`. Sets `Content-Disposition: inline` and a short
+  // private cache.
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/raw",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.query.cwd;
+      const relPath = request.query.path;
+      if (!cwd || !relPath) {
+        reply.code(400);
+        return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
+      }
+
+      const allSessions = sessionManager.listAll();
+      if (!allSessions.some((s) => s.cwd === cwd)) {
+        reply.code(403);
+        return { success: false, error: "unknown session path" } satisfies ApiResponse;
+      }
+
+      const resolved = path.resolve(cwd, relPath);
+      if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+        reply.code(403);
+        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+      }
+
+      let stat;
+      try {
+        stat = await fs.stat(resolved);
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+      if (!stat.isFile()) {
+        reply.code(404);
+        return { success: false, error: "not a file" } satisfies ApiResponse;
+      }
+
+      const ext = path.extname(resolved);
+      const contentType = extToContentType(ext);
+      const size = stat.size;
+
+      reply.header("Content-Type", contentType);
+      reply.header("Content-Disposition", "inline");
+      reply.header("Cache-Control", "private, max-age=60");
+      reply.header("Accept-Ranges", "bytes");
+
+      // Range support — required for video seek. Parse a single
+      // `bytes=start-end` range; reject multipart/syntax errors with 416.
+      const rangeHeader = request.headers.range;
+      if (rangeHeader && /^bytes=/.test(rangeHeader)) {
+        const spec = rangeHeader.slice("bytes=".length).trim();
+        const m = /^(\d*)-(\d*)$/.exec(spec);
+        if (!m) {
+          reply.code(416);
+          reply.header("Content-Range", `bytes */${size}`);
+          return reply.send();
+        }
+        const startStr = m[1];
+        const endStr = m[2];
+        let start: number;
+        let end: number;
+        if (startStr === "" && endStr === "") {
+          reply.code(416);
+          reply.header("Content-Range", `bytes */${size}`);
+          return reply.send();
+        } else if (startStr === "") {
+          // Suffix range: last N bytes
+          const suffix = parseInt(endStr, 10);
+          if (suffix <= 0) {
+            reply.code(416);
+            reply.header("Content-Range", `bytes */${size}`);
+            return reply.send();
+          }
+          start = Math.max(0, size - suffix);
+          end = size - 1;
+        } else {
+          start = parseInt(startStr, 10);
+          end = endStr === "" ? size - 1 : parseInt(endStr, 10);
+        }
+        if (start > end || start >= size || end >= size) {
+          reply.code(416);
+          reply.header("Content-Range", `bytes */${size}`);
+          return reply.send();
+        }
+        reply.code(206);
+        reply.header("Content-Range", `bytes ${start}-${end}/${size}`);
+        reply.header("Content-Length", String(end - start + 1));
+        return reply.send(createReadStream(resolved, { start, end }));
+      }
+
+      reply.header("Content-Length", String(size));
+      return reply.send(createReadStream(resolved));
+    },
+  );
+
+  // Server-side AsciiDoc rendering (change: render-file-previews).
+  // Runs `asciidoctor` in `safe: "secure"` mode so include directives /
+  // dangerous attributes are neutralized. Rejects non-`.adoc`/`.asciidoc`
+  // extensions with HTTP 400. Same anti-traversal gate as `/api/file/raw`.
+  fastify.get<{ Querystring: { cwd?: string; path?: string } }>(
+    "/api/file/render",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.query.cwd;
+      const relPath = request.query.path;
+      if (!cwd || !relPath) {
+        reply.code(400);
+        return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;
+      }
+
+      const ext = path.extname(relPath).toLowerCase();
+      if (ext !== ".adoc" && ext !== ".asciidoc") {
+        reply.code(400);
+        return { success: false, error: "renderer not supported for extension" } satisfies ApiResponse;
+      }
+
+      const allSessions = sessionManager.listAll();
+      if (!allSessions.some((s) => s.cwd === cwd)) {
+        reply.code(403);
+        return { success: false, error: "unknown session path" } satisfies ApiResponse;
+      }
+
+      const resolved = path.resolve(cwd, relPath);
+      if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+        reply.code(403);
+        return { success: false, error: "path outside working directory" } satisfies ApiResponse;
+      }
+
+      let source: string;
+      try {
+        source = await fs.readFile(resolved, "utf-8");
+      } catch {
+        reply.code(404);
+        return { success: false, error: "not found" } satisfies ApiResponse;
+      }
+
+      try {
+        const adoc = getAsciidoctor();
+        const html = adoc.convert(source, { safe: "secure", standalone: false });
+        return { success: true, data: { html: String(html) } } satisfies ApiResponse;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "render failed";
+        reply.code(500);
+        return { success: false, error: msg } satisfies ApiResponse;
+      }
+    },
+  );
 }

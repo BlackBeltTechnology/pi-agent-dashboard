@@ -7,3 +7,4 @@
  * Added by change: doctor-rich-output.
  */
 export * from "./doctor-core.js";
+export type { ViewTarget } from "./types.js";

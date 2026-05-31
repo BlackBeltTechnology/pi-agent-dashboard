@@ -824,3 +824,17 @@ export interface ApiResponse<T = unknown> {
    */
   orphanLikely?: boolean;
 }
+
+/**
+ * Target for a dashboard-local `/view` preview. Discriminated by `kind`.
+ * - `file`: a path inside a known session cwd (anti-traversal enforced by the
+ *   server when the file is served).
+ * - `url`: an absolute `http(s)://` URL (renderer dispatch picks YouTube
+ *   embed vs. fallback "open in new tab").
+ * Persisted on a `ChatMessage` as the optional `view` field. Filtered out
+ * of the pi-bound message stream by the bridge — view rows are a UI-only
+ * artifact and never reach the agent. See change: render-file-previews.
+ */
+export type ViewTarget =
+  | { kind: "file"; cwd: string; path: string }
+  | { kind: "url"; url: string };

@@ -2,6 +2,32 @@
 
 FAQ. How-to answers that already live in README.md + docs/. New entries here when same question recurs.
 
+## How to preview a PDF / video / AsciiDoc / YouTube link in the dashboard?
+
+Type `/view <target>` in the composer.
+
+- `/view @docs/spec.pdf` — file preview. `@`-autocompletes against session files. Renders inline as `<PreviewCard>` in chat.
+- `/view @clip.mp4` — video, native `<video controls>`, Range-supported seek.
+- `/view @notes.adoc` — server-rendered AsciiDoc (`asciidoctor` safe:"secure" mode).
+- `/view @README.md` — markdown via existing `<MarkdownContent>`.
+- `/view @page.html` — local .html in sandboxed iframe (no `allow-scripts`).
+- `/view @pic.png` — image, capped `max-h-[40vh]`.
+- `/view https://youtu.be/dQw4w9WgXcQ` — YouTube embed iframe.
+- `/view https://example.com/spec.pdf` — URL with PDF extension renders inline pdfjs viewer.
+
+Click `⤢` icon on card to expand to full-viewport overlay (`/folder/:cwd/view?path=` or `/pi-view?url=`).
+
+Agent never sees view rows. Stored in server-side `~/.pi/dashboard/view-messages/<sid>.json`, separate from pi's events.jsonl. Persists across reload + cross-device.
+
+`@`-dropdown in composer also surfaces URLs from current session's chat history (newest-first, 50-cap). Type `@youtu` to filter by host.
+
+Unknown extensions fall back to a Download / Open-in-new-tab link.
+
+Cross-refs:
+- openspec/changes/render-file-previews/
+- packages/client/src/components/PreviewCard.tsx
+- packages/server/src/routes/file-routes.ts
+
 ## How to build Windows electron zip + portable .exe?
 
 One command produces both artifacts.

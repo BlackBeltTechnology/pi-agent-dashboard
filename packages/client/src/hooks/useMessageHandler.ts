@@ -68,6 +68,13 @@ export interface MessageHandlerSetters {
   setResumeErrors: React.Dispatch<React.SetStateAction<Map<string, string>>>;
   /** Global chat-display prefs (configurable-chat-display). */
   setDisplayPrefs: React.Dispatch<React.SetStateAction<DisplayPrefs | undefined>>;
+  /**
+   * Per-session dashboard-local `/view` preview rows. Stored separately from
+   * the event-reducer state so the reducer never sees them. Merged into the
+   * rendered chat by timestamp at the App level.
+   * See change: render-file-previews.
+   */
+  setViewMessagesMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/event-reducer.js").ChatMessage[]>>>;
 }
 
 export interface MessageHandlerDeps {
@@ -108,7 +115,7 @@ export function useMessageHandler(
     setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs,
+    setDisplayPrefs, setViewMessagesMap,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef } = deps;
 
@@ -568,6 +575,17 @@ export function useMessageHandler(
           const updated = addInteractiveRequest(current, msg.requestId, msg.method, msg.params);
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
+          return next;
+        });
+        break;
+
+      case "view_messages_update":
+        // Full snapshot of `/view` preview rows for a session. Replace,
+        // not append. Merged into the rendered chat at the App level.
+        // See change: render-file-previews.
+        setViewMessagesMap((prev) => {
+          const next = new Map(prev);
+          next.set(msg.sessionId, msg.viewMessages.slice());
           return next;
         });
         break;

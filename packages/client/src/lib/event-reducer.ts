@@ -10,6 +10,7 @@ import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/t
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { USAGE_LIMIT_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/error-patterns.js";
 
 export interface ChatImage {
@@ -66,6 +67,13 @@ export interface ChatMessage {
    * See change: unify-status-banner-and-terminal-limit-stop.
    */
   retriedFrom?: string;
+  /**
+   * Dashboard-local `/view` preview target. When set, ChatView renders the
+   * message as a `PreviewCard` instead of the default bubble. Bridge filters
+   * `view`-bearing messages out of the pi-bound stream so the agent never
+   * observes them. See change: render-file-previews.
+   */
+  view?: ViewTarget;
 }
 
 export interface ToolCallState {
