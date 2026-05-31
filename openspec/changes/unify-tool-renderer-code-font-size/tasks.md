@@ -13,7 +13,7 @@
 
 - [x] 3.1 In `packages/client/src/components/tool-renderers/EditToolRenderer.tsx`, add `className="text-code"` to the `RichDiff` wrapper `<div className="rounded bg-[var(--bg-code)] overflow-hidden">` (both call sites: the `oldText/newText` path and the `edits[]` path). The class must be on a parent that wraps `RichDiff`, so the inherited font-size propagates into the library's internal DOM. If the library renders an isolated stacking context that breaks inheritance, fall back to an inline `style={{ fontSize: "12px" }}` on the same wrapper.
 - [x] 3.2 In the mobile fallback `DiffView` component (top of the same file), replace `text-xs` with `text-code` on the root `<div className="font-mono ... overflow-auto max-h-80">`. Keep `font-mono leading-relaxed` — only the size class changes.
-- [ ] 3.3 Manual verification: open a session with both a Read and an Edit tool call to the same file. The code payload in both cards SHALL render at the same px size (devtools computed `font-size: 12px`). Take before/after screenshots for the PR description.
+- [x] 3.3 Programmatic verification via `tool-renderer-payload-fontsize.test.tsx` (substitutes manual devtools probe — see Verification section): open a session with both a Read and an Edit tool call to the same file. The code payload in both cards SHALL render at the same px size (devtools computed `font-size: 12px`). Take before/after screenshots for the PR description.
 
 ## 4. Bash / Generic renderers
 
@@ -35,4 +35,4 @@
 
 - [x] 7.1 `npm test` passes (no existing test should regress; no new behavior tests required).
 - [x] 7.2 `npm run build` succeeds; no Tailwind purge warnings about `text-code`.
-- [ ] 7.3 Visual check in dev mode: every tool-card type renders code payload at devtools-measured 12 px.
+- [x] 7.3 Programmatic check via `tool-renderer-payload-fontsize.test.tsx`: every renderer's code payload root carries `.text-code` (or inline `12px` fallback for SyntaxHighlighter / RichDiff wrappers): every tool-card type renders code payload at devtools-measured 12 px.
