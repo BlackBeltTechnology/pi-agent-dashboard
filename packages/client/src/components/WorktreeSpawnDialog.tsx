@@ -77,6 +77,12 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   const [data, setData] = useState<LoadedData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState(initialBranch ?? "");
+  // Dirty-flag: flips on first user onChange of the branch input. Mount-
+  // time seeding from `initialBranch` does NOT flip the flag (no onChange
+  // fires for initial useState value). Used by the `attachProposal`
+  // reactive effect to decide whether to overwrite the field.
+  // See change: auto-fill-branch-from-proposal-in-worktree-dialog.
+  const [branchDirty, setBranchDirty] = useState(false);
   const [base, setBase] = useState("");
   const [pathOverride, setPathOverride] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -391,6 +397,21 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newBranch, base, pathOverride]);
 
+  // ── Reactive `attachProposal` effect ─────────────────────────────────
+  // When the parent re-renders with a changed `attachProposal`, update
+  // the branch input — unless the user has typed (branchDirty). When
+  // cleared (undefined/empty), revert to `initialBranch ?? ""`.
+  // See change: auto-fill-branch-from-proposal-in-worktree-dialog.
+  useEffect(() => {
+    if (branchDirty) return;
+    if (attachProposal && attachProposal.length > 0) {
+      setNewBranch("os/" + attachProposal);
+    } else {
+      setNewBranch(initialBranch ?? "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachProposal]);
+
   // ── orphan-path detection (debounced) ──────────────────────────────────
   // Watches `effectivePath`. When it exists on disk AND isn't in the
   // worktree list, set `orphanDetected = true` so the warning + Clean-up
@@ -509,7 +530,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             <input
               data-testid="worktree-new-branch-input"
               value={newBranch}
-              onChange={(e) => setNewBranch(e.target.value)}
+              onChange={(e) => { setNewBranch(e.target.value); setBranchDirty(true); }}
               placeholder="feat/dark-mode"
               className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono"
             />

@@ -550,6 +550,121 @@ describe("WorktreeSpawnDialog — initialBranch + attachProposal props", () => {
   });
 });
 
+describe("WorktreeSpawnDialog — reactive attachProposal", () => {
+  it("mount with attachProposal sets branch to os/<name> + path preview", async () => {
+    defaultMocks();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-foo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    const input = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
+    expect(input.value).toBe("os/add-foo");
+    const pathInput = screen.getByTestId("worktree-path-input") as HTMLInputElement;
+    expect(pathInput.value).toBe("/repo/.worktrees/os-add-foo");
+  });
+
+  it("attachProposal arriving after mount updates branch when pristine", async () => {
+    defaultMocks();
+    const { rerender } = render(
+      <WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    const input = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
+    expect(input.value).toBe("");
+    rerender(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-foo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("os/add-foo");
+  });
+
+  it("user-typed branch wins over later attachProposal change", async () => {
+    defaultMocks();
+    const { rerender } = render(
+      <WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "feature/x" },
+    });
+    rerender(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-foo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("feature/x");
+  });
+
+  it("attachProposal cleared while pristine reverts to initialBranch (empty)", async () => {
+    defaultMocks();
+    const { rerender } = render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-foo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("os/add-foo");
+    rerender(
+      <WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />,
+    );
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("");
+  });
+
+  it("attachProposal swap while dirty is ignored", async () => {
+    defaultMocks();
+    const { rerender } = render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-foo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "os/other" },
+    });
+    rerender(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        attachProposal="add-bar"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("os/other");
+  });
+
+  it("backward-compat: initialBranch alone unchanged when attachProposal omitted", async () => {
+    defaultMocks();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        initialBranch="os/preset"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    expect((screen.getByTestId("worktree-new-branch-input") as HTMLInputElement).value).toBe("os/preset");
+  });
+});
+
 describe("WorktreeSpawnDialog — dismissal", () => {
   it("Cancel button calls onCancel", async () => {
     defaultMocks();
