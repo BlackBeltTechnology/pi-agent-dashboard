@@ -1,16 +1,20 @@
 import React from "react";
-import AnsiImport from "ansi-to-react";
 import type { ToolRendererProps } from "./types.js";
+import { LinkifiedText } from "./LinkifiedText.js";
 
-// Handle CJS interop: ansi-to-react may resolve as {default: fn} in production builds
-const Ansi: React.ComponentType<{children: string}> =
-  typeof AnsiImport === "function"
-    ? AnsiImport
-    : typeof (AnsiImport as any)?.default === "function"
-      ? (AnsiImport as any).default
-      : (({ children }: { children: string }) => <>{children}</>) as any;
+// Strip ANSI escape sequences (CSI / SGR codes like \x1b[31m) so the
+// linkifier sees clean text. See change: linkify-tool-output. The previous
+// implementation rendered `result` through `ansi-to-react` to preserve
+// colours, but spec `agent-tool-rendering` requires linkification of file
+// references and URLs in the bash result block. Stripping the codes is the
+// simplest way to make both work; ANSI colour preservation is a follow-up.
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1B\[[0-9;]*[A-Za-z]/g;
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
 
-export function BashToolRenderer({ args, status, result }: ToolRendererProps) {
+export function BashToolRenderer({ args, status, result, context }: ToolRendererProps) {
   const command = args?.command as string | undefined;
   const timeout = args?.timeout as number | undefined;
 
@@ -29,7 +33,7 @@ export function BashToolRenderer({ args, status, result }: ToolRendererProps) {
       {result && (
         <div className="max-h-80 overflow-auto rounded bg-[var(--bg-code)] p-2">
           <pre className="whitespace-pre-wrap text-code font-mono">
-            <Ansi>{String(result)}</Ansi>
+            <LinkifiedText text={stripAnsi(String(result))} context={context} />
           </pre>
         </div>
       )}
