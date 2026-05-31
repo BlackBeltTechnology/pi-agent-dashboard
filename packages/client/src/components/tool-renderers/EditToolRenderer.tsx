@@ -12,7 +12,7 @@ function HomegrownDiff({ oldText, newText, filePath }: { oldText: string; newTex
   const lines = patch.split("\n");
 
   return (
-    <div className="font-mono text-xs leading-relaxed overflow-auto max-h-80">
+    <div className="font-mono text-code leading-relaxed overflow-auto max-h-80">
       {lines.map((line, i) => {
         let className = "text-[var(--text-tertiary)] px-2"; // default (header lines)
         if (line.startsWith("+++") || line.startsWith("---")) {
@@ -40,7 +40,7 @@ function UnifiedDiffView({ diff }: { diff: string }) {
   const lines = diff.split("\n");
 
   return (
-    <div className="font-mono text-xs leading-relaxed overflow-auto max-h-80">
+    <div className="font-mono text-code leading-relaxed overflow-auto max-h-80">
       {lines.map((line, i) => {
         let className = "text-[var(--text-tertiary)] px-2";
         if (line.startsWith("+++") || line.startsWith("---")) {
@@ -126,7 +126,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
     // Priority 1: toolDetails.diff (pre-computed from pi-hashline-edit)
     if (typeof toolDetails?.diff === "string" && toolDetails.diff.length > 0) {
       return (
-        <div className="rounded bg-[var(--bg-code)] overflow-hidden">
+        <div className="rounded bg-[var(--bg-code)] overflow-hidden text-code">
           <UnifiedDiffView diff={toolDetails.diff} />
         </div>
       );
@@ -135,7 +135,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
     // Priority 2: top-level oldText/newText (built-in edit format)
     if (typeof oldText === "string" && typeof newText === "string") {
       return (
-        <div className="rounded bg-[var(--bg-code)] overflow-hidden">
+        <div className="rounded bg-[var(--bg-code)] overflow-hidden text-code" style={{ fontSize: "12px" }}>
           {isMobile
             ? <HomegrownDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} />
             : <RichDiff oldText={oldText} newText={newText} filePath={filePath ?? "file"} maxHeight="20rem" />}
@@ -146,7 +146,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
     // Priority 3: edits[] with replace_text (hashline compat)
     if (textEdits && textEdits.length > 0) {
       return (
-        <div className="rounded bg-[var(--bg-code)] overflow-hidden">
+        <div className="rounded bg-[var(--bg-code)] overflow-hidden text-code" style={{ fontSize: "12px" }}>
           {textEdits.map((edit, i) => (
             <div key={i} className={i > 0 ? "border-t border-[var(--border-secondary)]" : ""}>
               {isMobile
@@ -172,7 +172,7 @@ export function EditToolRenderer({ args, status, result, toolDetails, context }:
     }
 
     // Fallback: show raw JSON args
-    return <pre className="text-xs text-[var(--text-secondary)]">{JSON.stringify(args, null, 2)}</pre>;
+    return <pre className="text-code text-[var(--text-secondary)]">{JSON.stringify(args, null, 2)}</pre>;
   };
 
   return (

@@ -28,7 +28,7 @@ export function BashToolRenderer({ args, status, result }: ToolRendererProps) {
 
       {result && (
         <div className="max-h-80 overflow-auto rounded bg-[var(--bg-code)] p-2">
-          <pre className="whitespace-pre-wrap text-xs font-mono">
+          <pre className="whitespace-pre-wrap text-code font-mono">
             <Ansi>{String(result)}</Ansi>
           </pre>
         </div>

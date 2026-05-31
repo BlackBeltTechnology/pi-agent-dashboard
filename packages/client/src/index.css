@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Shared font-size for code/diff payload inside tool-call renderers.
+   See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/
+   Bash/Generic payload at one size; non-payload chrome stays text-xs. */
+@utility text-code {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ── Theme Variables ─────────────────────────────────────────── */
 
 :root {

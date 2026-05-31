@@ -32,7 +32,7 @@ export function WriteToolRenderer({ args, status, result, context }: ToolRendere
               language={language}
               PreTag="div"
               showLineNumbers={true}
-              customStyle={{ margin: 0, padding: "0.5rem", fontSize: "0.7rem", background: 'var(--bg-code)' }}
+              customStyle={{ margin: 0, padding: "0.5rem", fontSize: "12px", background: 'var(--bg-code)' }}
             >
               {content}
             </SyntaxHighlighter>

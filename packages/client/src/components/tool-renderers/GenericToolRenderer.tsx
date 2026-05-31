@@ -5,11 +5,11 @@ import type { ToolRendererProps } from "./types.js";
 export function GenericToolRenderer({ args, result }: ToolRendererProps) {
   return (
     <div className="space-y-2">
-      <pre className="text-xs text-[var(--text-secondary)]">{JSON.stringify(args, null, 2)}</pre>
+      <pre className="text-code text-[var(--text-secondary)]">{JSON.stringify(args, null, 2)}</pre>
       {result && (
         <>
           <div className="text-[var(--text-tertiary)] font-medium text-xs">Output:</div>
-          <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)]">{result}</pre>
+          <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)]">{result}</pre>
         </>
       )}
     </div>
