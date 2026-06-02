@@ -568,6 +568,7 @@ export function SessionCard({
           onKill={onKillProcess}
           onAbortTool={onAbortTool}
           now={now}
+          onNavigateToSession={onSelect}
         />
       </li>
     );
@@ -820,6 +821,7 @@ export function SessionCard({
         now={now}
         collapsed={session.processDrawerCollapsed}
         onSetCollapsed={onSetProcessDrawerCollapsed}
+        onNavigateToSession={onSelect}
       />
 
       {/* FLOWS subcard — plugin slot only.
@@ -887,6 +889,8 @@ interface ProcessSubcardProps {
   collapsed?: boolean;
   /** Persist the user's collapse toggle server-side. */
   onSetCollapsed?: (collapsed: boolean) => void;
+  /** Focus/scroll to a referenced session (for `sub-session` rows). */
+  onNavigateToSession?: (sessionId: string) => void;
 }
 
 /**
@@ -894,7 +898,7 @@ interface ProcessSubcardProps {
  * BackgroundProcessesDrawer (ProcessList). Subcard hides only when BOTH
  * surfaces have nothing to render.
  */
-function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed }: ProcessSubcardProps) {
+function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession }: ProcessSubcardProps) {
   const hasActivity = activity.length > 0;
   const hasProcesses = processes.length > 0;
   const { expanded, onToggle } = useDrawerExpansion(collapsed, onSetCollapsed);
@@ -910,6 +914,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
           onKill={onKill}
           expanded={expanded}
           onToggle={onToggle}
+          onNavigateToSession={onNavigateToSession}
         />
       ) : null}
     </SessionSubcard>
@@ -923,7 +928,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
  * Implementation note: chip + sheet are inline rather than a separate
  * file because the surface is small and tied to this card's state.
  */
-function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now }: ProcessSubcardProps) {
+function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, onNavigateToSession }: ProcessSubcardProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const hasActivity = activity.length > 0;
   const hasProcesses = processes.length > 0;
@@ -961,6 +966,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now }:
               expanded={true}
               onToggle={() => { /* always expanded in the sheet */ }}
               compact
+              onNavigateToSession={onNavigateToSession}
             />
           </div>
         </div>

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { parseEtime, scanChildProcesses, captureChildPgids, scanTrackedProcesses, killProcessByPgid, scanWindowsProcesses, type SpawnSyncFn } from "../process-scanner.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { parseEtime, scanChildProcesses, captureChildPgids, scanTrackedProcesses, killProcessByPgid, scanWindowsProcesses, getOwnPgid, __resetOwnPgidCacheForTests, type SpawnSyncFn } from "../process-scanner.js";
 import type { SpawnSyncReturns } from "node:child_process";
 
 function mockResult(stdout: string, status = 0): SpawnSyncReturns<string> {
@@ -247,5 +247,61 @@ describe("Windows process scanning", () => {
     const tracked = new Set<number>();
     const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
     expect(result).toEqual([]);
+  });
+});
+
+describe("getOwnPgid (classify-process-list-entries)", () => {
+  beforeEach(() => __resetOwnPgidCacheForTests());
+
+  it("parses pi's own PGID from ps output", () => {
+    const mock: SpawnSyncFn = (cmd, args) => {
+      if (cmd === "ps" && args[0] === "-o" && args[1] === "pgid=" && args[2] === "-p" && args[3] === "40286") {
+        return mockResult("  40131\n");
+      }
+      return fail();
+    };
+    expect(getOwnPgid({ _spawnSync: mock, _pid: 40286, _platform: "darwin" })).toBe(40131);
+  });
+
+  it("caches after first resolution (no second ps call)", () => {
+    let calls = 0;
+    const mock: SpawnSyncFn = () => { calls++; return mockResult("  77\n"); };
+    expect(getOwnPgid({ _spawnSync: mock, _pid: 5, _platform: "linux" })).toBe(77);
+    expect(getOwnPgid({ _spawnSync: mock, _pid: 5, _platform: "linux" })).toBe(77);
+    expect(calls).toBe(1);
+  });
+
+  it("returns undefined on failure", () => {
+    expect(getOwnPgid({ _spawnSync: () => fail(), _pid: 5, _platform: "linux" })).toBeUndefined();
+  });
+
+  it("returns undefined on Windows without spawning", () => {
+    let calls = 0;
+    const mock: SpawnSyncFn = () => { calls++; return mockResult("  1\n"); };
+    expect(getOwnPgid({ _spawnSync: mock, _pid: 5, _platform: "win32" })).toBeUndefined();
+    expect(calls).toBe(0);
+  });
+});
+
+describe("pi own-PGID exclusion end-to-end (classify-process-list-entries)", () => {
+  it("refuses pi's own pgid at capture and keeps a different-pgid child", () => {
+    // pi pid=100 pgid=131. Two children: one shares pi's pgid (plumbing),
+    // one has its own pgid (user/subagent task).
+    const PI_PGID = 131;
+    const mock: SpawnSyncFn = (cmd, args) => {
+      // capture: children of 100 → 200 (shares pi pgid), 300 (own pgid)
+      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,ppid=") {
+        return mockResult(psChildOutput([[200, 100], [300, 100]]));
+      }
+      if (cmd === "ps" && args[0] === "-p" && args[1] === "200,300") {
+        return mockResult(`  ${PI_PGID}\n  300\n`);
+      }
+      return fail();
+    };
+    const tracked = new Set<number>();
+    const excluded = new Set<number>([PI_PGID]);
+    captureChildPgids(100, tracked, { _spawnSync: mock, excludedPgids: excluded });
+    expect(tracked.has(PI_PGID)).toBe(false);
+    expect(tracked.has(300)).toBe(true);
   });
 });

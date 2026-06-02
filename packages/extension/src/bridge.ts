@@ -35,7 +35,7 @@ import { activate as activateProviderRegister, onProviderChanged, reloadProvider
 import { activate as activateRoleManager } from "./role-manager.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { startMetricsMonitor, stopMetricsMonitor, collectMetrics } from "./process-metrics.js";
-import { scanChildProcesses } from "./process-scanner.js";
+import { scanChildProcesses, getOwnPgid } from "./process-scanner.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from "./bridge-context.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
@@ -202,6 +202,14 @@ function initBridge(pi: ExtensionAPI) {
   // bridge infrastructure never surfaces in the process list.
   // See change: tighten-process-list-ux.
   const selfSpawnedPgids = new Set<number>();
+  // Seed pi's OWN process-group id so pi-self + same-group plugin/MCP
+  // sidecars (context-mode bun, etc.) never enter `trackedPgids` or the
+  // process list. Cached one-shot `ps` lookup; no-op on Windows.
+  // See change: classify-process-list-entries.
+  {
+    const ownPgid = getOwnPgid();
+    if (ownPgid !== undefined) selfSpawnedPgids.add(ownPgid);
+  }
   let lastGitBranch: string | undefined;
   let lastGitPrNumber: number | undefined;
   let lastJjStateJson: string | undefined; // see change: add-jj-workspace-plugin

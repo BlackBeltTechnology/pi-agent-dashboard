@@ -295,7 +295,23 @@ export interface ProcessInfo {
   pgid: number;
   command: string;
   elapsedMs: number;
+  // Optional server-supplied classification. The bridge is not required to
+  // populate these; the server enriches each entry before forwarding.
+  // See change: classify-process-list-entries.
+  kind?: ProcessKind;
+  label?: string;
+  sessionRef?: string;
 }
+
+/**
+ * Classification of a scanned background process.
+ *  - `task`        generic user background task (label = command)
+ *  - `sub-session` nested `pi` whose pid matches a connected session
+ *  - `pi-worker`   headless `pi` not in the session registry
+ *  - `plugin`      pi-agent plugin/MCP sidecar (label = plugin name)
+ * See change: classify-process-list-entries.
+ */
+export type ProcessKind = "task" | "sub-session" | "pi-worker" | "plugin";
 
 export interface ProcessListMessage {
   type: "process_list";

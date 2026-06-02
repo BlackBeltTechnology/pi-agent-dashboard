@@ -863,7 +863,10 @@ export interface ForceKillResultMessage {
 export interface ProcessListUpdateMessage {
   type: "process_list_update";
   sessionId: string;
-  processes: Array<{ pid: number; pgid: number; command: string; elapsedMs: number }>;
+  // Server populates `kind` + `label` on every entry; `sessionRef` only for
+  // `kind: "sub-session"`. Fields optional for back-compat with older
+  // clients. See change: classify-process-list-entries.
+  processes: Array<{ pid: number; pgid: number; command: string; elapsedMs: number; kind?: import("./protocol.js").ProcessKind; label?: string; sessionRef?: string }>;
 }
 
 export interface ServersDiscoveredMessage {

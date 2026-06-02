@@ -200,3 +200,70 @@ describe("ProcessList drawer (redesign-process-list-activity-bar)", () => {
     expect(getByTestId("background-drawer-summary").textContent).not.toContain("processes");
   });
 });
+
+describe("ProcessList classification (classify-process-list-entries)", () => {
+  const noop = vi.fn();
+  const noopToggle = vi.fn();
+
+  function classified(partial: Partial<ProcessEntry> & { pid: number }): ProcessEntry {
+    return { pgid: partial.pid, command: "raw-command", elapsedMs: 60_000, ...partial };
+  }
+
+  it("renders the friendly label instead of the raw command", () => {
+    const procs = [classified({ pid: 1, kind: "task", label: "vitest --watch", command: "node /x/vitest.mjs --watch" })];
+    const { container } = render(
+      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
+    );
+    expect(container.textContent).toContain("vitest --watch");
+    expect(container.textContent).not.toContain("/x/vitest.mjs");
+  });
+
+  it("renders an icon (svg path) per row for each kind", () => {
+    const procs = [
+      classified({ pid: 1, kind: "plugin", label: "context-mode" }),
+      classified({ pid: 2, kind: "task", label: "node vite" }),
+    ];
+    const { container } = render(
+      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
+    );
+    // Each row carries a kind icon plus the kill icon → ≥ 3 svgs total
+    // (1 alert summary + 2 kind + 2 kill).
+    expect(container.querySelectorAll("svg").length).toBeGreaterThanOrEqual(5);
+    expect(container.textContent).toContain("context-mode");
+  });
+
+  it("sub-session row is a button that navigates to sessionRef on click", () => {
+    const onNavigate = vi.fn();
+    const procs = [classified({ pid: 1, kind: "sub-session", label: "build worker", sessionRef: "abc123" })];
+    const { getByText } = render(
+      <ProcessList
+        processes={procs}
+        onKill={noop}
+        expanded={true}
+        onToggle={noopToggle}
+        onNavigateToSession={onNavigate}
+      />,
+    );
+    const link = getByText("build worker");
+    expect(link.tagName).toBe("BUTTON");
+    fireEvent.click(link);
+    expect(onNavigate).toHaveBeenCalledWith("abc123");
+  });
+
+  it("sub-session label is a plain span when no navigate handler is provided", () => {
+    const procs = [classified({ pid: 1, kind: "sub-session", label: "worker", sessionRef: "abc123" })];
+    const { getByText } = render(
+      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
+    );
+    expect(getByText("worker").tagName).toBe("SPAN");
+  });
+
+  it("backward-compatible: no kind/label falls back to raw command + kill button", () => {
+    const procs = [classified({ pid: 7, command: "legacy-cmd --flag" })];
+    const { container } = render(
+      <ProcessList processes={procs} onKill={noop} expanded={true} onToggle={noopToggle} />,
+    );
+    expect(container.textContent).toContain("legacy-cmd --flag");
+    expect(container.querySelector(`[aria-label="${KILL_TOOLTIP}"]`)).toBeTruthy();
+  });
+});
