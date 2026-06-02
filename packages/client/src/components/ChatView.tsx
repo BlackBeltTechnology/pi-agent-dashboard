@@ -27,8 +27,6 @@ import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { PreviewCard } from "./PreviewCard.js";
-import { ChatViewMenu } from "./ChatViewMenu.js";
-import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 
 interface Props {
   sessionId?: string;
@@ -66,9 +64,7 @@ interface Props {
    * menu should not render (e.g. archived/dataUnavailable views).
    * See change: configurable-chat-display.
    */
-  onSetDisplayPrefs?: (override: PartialDisplayPrefs | null) => void;
   /** Current sparse override for the session, or `undefined`. */
-  displayPrefsOverride?: PartialDisplayPrefs;
 }
 
 function ImageAttachments({ images }: { images: ChatImage[] }) {
@@ -160,7 +156,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, queuedTexts, pendingSteering, onSetDisplayPrefs, displayPrefsOverride }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, queuedTexts, pendingSteering }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
   const programmaticScroll = useRef(false);
@@ -304,16 +300,6 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
 
   return (
     <div className="flex-1 relative overflow-hidden flex flex-col">
-    {/* Top toolbar: per-session view menu (configurable-chat-display) */}
-    {sessionId && onSetDisplayPrefs && (
-      <div className="flex items-center justify-end px-2 py-1 border-b border-[var(--border-subtle)] bg-[var(--bg-primary)]/50">
-        <ChatViewMenu
-          sessionId={sessionId}
-          send={(msg) => onSetDisplayPrefs(msg.override)}
-          currentOverride={displayPrefsOverride}
-        />
-      </div>
-    )}
     <div ref={scrollRef} onScroll={handleScroll} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {
         // Collapsed group of repeated tool calls

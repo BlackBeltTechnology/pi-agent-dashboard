@@ -12,6 +12,7 @@ import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
+import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { SessionBanner } from "./components/SessionBanner.js";
 import { ConfirmDialog } from "./components/ConfirmDialog.js";
 // Flow components are no longer imported by the shell. They render
@@ -1297,7 +1298,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} displayPrefsOverride={selectedSession?.displayPrefsOverride} onSetDisplayPrefs={selectedId ? (override) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override }) : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — picks
@@ -1335,7 +1336,16 @@ export default function App() {
             currentTool={selectedState.currentTool}
             streamingText={selectedState.streamingText || undefined}
             leading={selectedSession && selectedCwd ? (
-              <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
+              <>
+                <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
+                {selectedId && (
+                  <ChatViewMenu
+                    sessionId={selectedId}
+                    currentOverride={selectedSession?.displayPrefsOverride}
+                    send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
+                  />
+                )}
+              </>
             ) : undefined}
             actions={selectedSession ? (
               <ComposerSessionActions
