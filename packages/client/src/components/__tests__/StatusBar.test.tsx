@@ -54,7 +54,10 @@ describe("StatusBar display-prefs menu (relocate-view-menu-to-status-bar)", () =
     );
     const statusBar = screen.getByTestId("status-bar");
     const refresh = screen.getByTestId("status-refresh");
-    const viewButton = screen.getByTitle("View options");
+    // Exactly one View trigger must exist, and it must live in the status bar.
+    const viewButtons = screen.getAllByTitle("View options");
+    expect(viewButtons).toHaveLength(1);
+    const viewButton = viewButtons[0];
     const modelButton = screen.getByTestId("model-selector-button");
 
     expect(statusBar.contains(viewButton)).toBe(true);

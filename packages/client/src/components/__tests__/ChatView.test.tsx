@@ -49,6 +49,17 @@ function stateWithToolMessage(overrides: Partial<ChatMessage> = {}) {
 }
 
 describe("ChatView", () => {
+  it("does not render the display-prefs View menu (relocated to the StatusBar)", () => {
+    // The ⚙ View trigger moved out of ChatView into the composer StatusBar.
+    // Guards against a duplicate ChatViewMenu re-appearing here. See change:
+    // relocate-view-menu-to-status-bar.
+    const state = stateWithMessages([{ id: "1", role: "user", content: "hi" }]);
+    const { container } = render(
+      <ThemeProvider><ChatView sessionId="s1" state={state} toolContext={defaultToolContext} /></ThemeProvider>,
+    );
+    expect(container.querySelector('button[title="View options"]')).toBeNull();
+  });
+
   it("renders user message with copy buttons", () => {
     const state = stateWithMessages([
       { id: "1", role: "user", content: "Hello **world**" },
