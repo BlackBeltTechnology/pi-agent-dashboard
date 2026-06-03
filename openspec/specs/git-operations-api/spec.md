@@ -127,63 +127,34 @@ The server SHALL expose `POST /api/git/worktree` (localhost-only) creating a new
 
 The endpoint SHALL:
 1. Realpath-validate `cwd` and confirm it is inside a git repository.
-2. Derive `path` if absent: `<repo-root>/.worktrees/<slug(newBranch)>`. The repo root SHALL be `git rev-parse --show-toplevel` of `cwd` (so opening the dialog from inside a sibling worktree still resolves to the parent repo).
-3. Refuse with `path_exists` if the derived or supplied path already exists on disk (regardless of `force`, unless the existing path is empty).
+2. Derive `path` if absent: `<repo-root>/.worktrees/<slug(newBranch)>`. The repo root SHALL be `git rev-parse --show-toplevel` of `cwd`.
+3. Refuse with `path_exists` if the derived or supplied path already exists on disk and is not empty.
 4. Run `git worktree add -b <newBranch> <path> <base>` (or with `--force` when `force === true`).
-5. On success, append the line `.worktrees/` (with trailing slash, no leading slash) to `<repo-root>/.git/info/exclude` if and only if that exact line is not already present. SHALL NOT touch `.gitignore`. SHALL NOT fail the request if the exclude-write itself fails (log warning, continue).
+5. On success, append the line `.worktrees/` to `<repo-root>/.git/info/exclude` iff that exact line is not already present. SHALL NOT touch `.gitignore`. SHALL NOT fail the request if the exclude-write fails (log warning, continue).
 6. Return `{ path: string, branch: string }`.
 
-Error response shape: `{ success: false, error: <code>, message: <human>, stderr?: string }`. Stable codes:
-- `not_a_repo` — cwd not in a git repository
-- `cwd_invalid` — cwd missing or fails realpath
-- `branch_in_use` — newBranch already checked out elsewhere
-- `branch_exists` — newBranch already exists (when no `--force`)
-- `path_exists` — target path already exists and is not empty
-- `base_not_found` — base ref does not resolve
-- `git_failed` — any other git failure (preserve stderr)
+The endpoint SHALL NOT run any initialization or dependency-install step. Initialization is delegated to the gated, manually-triggered worktree-init hook (`GET /api/git/worktree/init-status` + `POST /api/git/worktree/init`). The previously embedded post-create bootstrap step is REMOVED.
+
+Error response shape: `{ success: false, error: <code>, message: <human>, stderr?: string }`. Stable codes: `not_a_repo`, `cwd_invalid`, `branch_in_use`, `branch_exists`, `path_exists`, `base_not_found`, `git_failed`.
 
 #### Scenario: Successful create with auto-derived path
 - **WHEN** `POST /api/git/worktree` is called with `{ cwd: "/repo", base: "develop", newBranch: "feat/dark-mode" }`
 - **THEN** the server SHALL derive path `/repo/.worktrees/feat-dark-mode`
 - **AND** run `git worktree add -b feat/dark-mode /repo/.worktrees/feat-dark-mode develop`
 - **AND** return `{ path: "/repo/.worktrees/feat-dark-mode", branch: "feat/dark-mode" }`
-- **AND** ensure `.worktrees/` is in `/repo/.git/info/exclude` (appending if absent)
+- **AND** SHALL NOT run any install/init step
 
-#### Scenario: Successful create with explicit path
-- **WHEN** the request includes `path: "/custom/place"`
-- **THEN** the server SHALL use the explicit path verbatim
-- **AND** SHALL NOT modify `.git/info/exclude` (the user is opting out of the convention)
-
-#### Scenario: Slug derivation
-- **WHEN** `newBranch` is `"feat/Dark Mode!"`
-- **THEN** the derived slug SHALL be `feat-dark-mode`
-- **AND** the derived path SHALL be `<repo-root>/.worktrees/feat-dark-mode`
-
-#### Scenario: Branch already checked out elsewhere
-- **WHEN** `newBranch` is already checked out in another worktree
-- **THEN** the response SHALL be `{ success: false, error: "branch_in_use", ... }`
-
-#### Scenario: Path collision
-- **WHEN** the derived or supplied path already exists and contains files
-- **THEN** the response SHALL be `{ success: false, error: "path_exists", ... }`
-- **AND** the server SHALL NOT run `git worktree add`
-
-#### Scenario: Base ref is a remote branch
-- **WHEN** `base` is `"origin/feature"`
-- **THEN** the server SHALL run `git worktree add -b <newBranch> <path> origin/feature`
-- **AND** the resulting worktree's `newBranch` SHALL track the remote branch by default
+#### Scenario: No auto-init on create
+- **WHEN** a worktree is created for a repo that declares a `worktreeInit` hook
+- **THEN** the create endpoint SHALL NOT execute the hook
+- **AND** the new worktree's init-status SHALL subsequently report `needsInit` per its gate
 
 #### Scenario: Idempotent exclude append
 - **WHEN** the worktree is created and `.git/info/exclude` already contains the line `.worktrees/`
 - **THEN** the server SHALL NOT append a duplicate line
 
-#### Scenario: Exclude write failure does not fail the request
-- **WHEN** `.git/info/exclude` is not writable but the worktree was created successfully
-- **THEN** the response SHALL be a success (with the new path)
-- **AND** the server SHALL log a warning containing the exclude-write failure
-
 #### Scenario: Localhost-only
-- **WHEN** the request originates from a non-loopback address and is not in the trusted bypass set
+- **WHEN** the request originates from a non-loopback address not in the trusted bypass set
 - **THEN** the response SHALL be the standard auth-block envelope
 
 ### Requirement: Four worktree-lifecycle endpoints registered
@@ -254,3 +225,79 @@ The `POST /api/git/worktree` endpoint SHALL extend its `path_exists` error envel
 #### Scenario: Registered-worktree collision sets orphanLikely false
 - **WHEN** the target path IS already a registered worktree
 - **THEN** the response body SHALL be `{ ok: false, code: "path_exists", orphanLikely: false, ... }`
+
+### Requirement: Worktree init-status endpoint
+
+The server SHALL expose `GET /api/git/worktree/init-status` (localhost-only) reporting whether a checkout needs initialization per its declared hook. Query/body carries `cwd`. The server SHALL validate `cwd`, resolve the repo root, and `readInitHook(repoRoot)`.
+
+- When no hook is declared, respond `{ success: true, data: { hasHook: false } }`.
+- When a hook is declared, evaluate the gate (using the cache) and respond `{ success: true, data: { hasHook: true, needsInit: boolean, trusted: boolean } }`.
+
+The endpoint replaces the removed `GET /api/git/worktree/bootstrap-status`.
+
+#### Scenario: No hook declared
+
+- **WHEN** `init-status` is requested for a checkout whose repo declares no `worktreeInit`
+- **THEN** the response SHALL be `{ success: true, data: { hasHook: false } }`
+
+#### Scenario: Hook present, gate says needs init
+
+- **WHEN** the gate exits `0` for the checkout
+- **THEN** the response SHALL include `{ hasHook: true, needsInit: true }`
+- **AND** SHALL include the current `trusted` flag for `repoRoot + hash(hook)`
+
+#### Scenario: Hook present, gate says no init
+
+- **WHEN** the gate exits non-zero for the checkout
+- **THEN** the response SHALL include `{ hasHook: true, needsInit: false }`
+
+#### Scenario: Localhost-only
+
+- **WHEN** the request originates from a non-loopback address not in the trusted bypass set
+- **THEN** the response SHALL be the standard auth-block envelope
+
+### Requirement: Worktree init endpoint
+
+The server SHALL expose `POST /api/git/worktree/init` (localhost-only) running the declared hook for a checkout. Request body carries `cwd`, optional `requestId` for progress streaming, and optional `confirmHash` to record trust.
+
+The endpoint SHALL:
+1. Validate `cwd`; `readInitHook(repoRoot)`. When no hook → `{ success: true, data: { ran: false, skippedReason: "no_hook" } }`.
+2. Compute `hash(hook)`. When `confirmHash` matches, `recordTrust(repoRoot, hash)` before proceeding.
+3. When `repoRoot + hash` is not trusted, respond `{ success: false, code: "init_untrusted", data: { hook } }` WITHOUT executing.
+4. When trusted, run the hook (script or detached agent), invalidate the gate cache for the checkout, stream `worktree_init_progress` to the requesting browser (when `requestId` + registry present), and respond with the run result.
+
+Stable codes: `init_untrusted`, `init_failed`, `no_hook`.
+
+#### Scenario: Untrusted run returns confirm payload
+
+- **WHEN** `POST /api/git/worktree/init` is called for an untrusted hook with no matching `confirmHash`
+- **THEN** the hook SHALL NOT execute
+- **AND** the response SHALL be `{ success: false, code: "init_untrusted", data: { hook } }`
+
+#### Scenario: Confirm then run
+
+- **WHEN** the request includes `confirmHash` equal to the current hook hash
+- **THEN** the server SHALL record trust
+- **AND** SHALL execute the hook
+- **AND** SHALL respond with the run result
+
+#### Scenario: Script hook success
+
+- **WHEN** a trusted `script` hook exits `0`
+- **THEN** the response SHALL be `{ success: true, data: { ran: true, durationMs } }`
+- **AND** the gate cache for the checkout SHALL be invalidated
+
+#### Scenario: Script hook failure surfaces stderr
+
+- **WHEN** a trusted `script` hook exits non-zero
+- **THEN** the response SHALL be `{ success: false, code: "init_failed", stderr }`
+
+#### Scenario: No hook declared
+
+- **WHEN** `init` is requested for a checkout whose repo declares no `worktreeInit`
+- **THEN** the response SHALL be `{ success: true, data: { ran: false, skippedReason: "no_hook" } }`
+
+#### Scenario: Localhost-only
+
+- **WHEN** the request originates from a non-loopback address not in the trusted bypass set
+- **THEN** the response SHALL be the standard auth-block envelope
