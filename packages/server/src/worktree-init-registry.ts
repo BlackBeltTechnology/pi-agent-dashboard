@@ -1,13 +1,13 @@
 /**
- * In-memory `requestId -> WebSocket` registry for worktree-bootstrap
- * progress events. Browser subscribes via `worktree_bootstrap_subscribe`
+ * In-memory `requestId -> WebSocket` registry for worktree-init
+ * progress events. Browser subscribes via `worktree_init_subscribe`
  * BEFORE issuing `POST /api/git/worktree` (or the existing-row
  * install-then-spawn flow). The HTTP handler looks up the WebSocket and
- * streams `worktree_bootstrap_*` events ONLY to that connection.
+ * streams `worktree_init_*` events ONLY to that connection.
  *
  * Subscriptions auto-expire after `ttlMs` and drop on WebSocket close.
  *
- * See change: harden-worktree-spawn.
+ * See change: generalize-worktree-init-hook.
  */
 import type { WebSocket } from "ws";
 import type {
@@ -21,7 +21,7 @@ interface Entry {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export interface WorktreeBootstrapRegistry {
+export interface WorktreeInitRegistry {
   subscribe(requestId: string, ws: WebSocket): void;
   unsubscribe(requestId: string): void;
   /** Send a message to the subscribed ws, returns true if delivered. */
@@ -30,10 +30,10 @@ export interface WorktreeBootstrapRegistry {
   dispose(): void;
 }
 
-export function createWorktreeBootstrapRegistry(options?: {
+export function createWorktreeInitRegistry(options?: {
   ttlMs?: number;
   sendTo?: (ws: WebSocket, msg: ServerToBrowserMessage) => void;
-}): WorktreeBootstrapRegistry {
+}): WorktreeInitRegistry {
   const ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   const sendTo = options?.sendTo ?? defaultSendTo;
   const map = new Map<string, Entry>();

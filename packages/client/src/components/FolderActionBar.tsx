@@ -16,6 +16,7 @@ import {
   mdiBroom,
 } from "@mdi/js";
 import { ConfirmDialog } from "@blackbelt-technology/pi-dashboard-client-utils/ConfirmDialog";
+import { WorktreeInitButton } from "./WorktreeInitButton.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 
@@ -125,6 +126,9 @@ export function FolderActionBar({
           </span>
         </button>
       )}
+
+      {/* Initialize (shown iff this checkout declares a hook + gate says needsInit) */}
+      <WorktreeInitButton cwd={cwd} />
 
       {/* Terminals(N) */}
       <button

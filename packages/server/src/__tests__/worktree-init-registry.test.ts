@@ -1,5 +1,5 @@
 /**
- * Tests for `createWorktreeBootstrapRegistry` — requestId -> ws lookup,
+ * Tests for `createWorktreeInitRegistry` — requestId -> ws lookup,
  * TTL expiry, drop-on-close, subscribe-replace semantics.
  *
  * Uses a minimal fake WebSocket (`once` + `readyState` + `send`).
@@ -7,7 +7,7 @@
  * See change: harden-worktree-spawn.
  */
 import { describe, it, expect, vi } from "vitest";
-import { createWorktreeBootstrapRegistry } from "../worktree-bootstrap-registry.js";
+import { createWorktreeInitRegistry } from "../worktree-init-registry.js";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -30,42 +30,42 @@ function fakeWs() {
   } as any;
 }
 
-describe("createWorktreeBootstrapRegistry", () => {
+describe("createWorktreeInitRegistry", () => {
   it("send delivers to subscribed ws", () => {
-    const reg = createWorktreeBootstrapRegistry();
+    const reg = createWorktreeInitRegistry();
     const ws = fakeWs();
     reg.subscribe("req-1", ws);
-    const ok = reg.send("req-1", { type: "worktree_bootstrap_done", requestId: "req-1", cwd: "/x", durationMs: 1 });
+    const ok = reg.send("req-1", { type: "worktree_init_done", requestId: "req-1", cwd: "/x", durationMs: 1 });
     expect(ok).toBe(true);
     expect(ws.send).toHaveBeenCalledTimes(1);
   });
 
   it("send returns false for unknown requestId", () => {
-    const reg = createWorktreeBootstrapRegistry();
-    const ok = reg.send("nope", { type: "worktree_bootstrap_done", requestId: "nope", cwd: "/x", durationMs: 1 });
+    const reg = createWorktreeInitRegistry();
+    const ok = reg.send("nope", { type: "worktree_init_done", requestId: "nope", cwd: "/x", durationMs: 1 });
     expect(ok).toBe(false);
   });
 
   it("unsubscribe drops the mapping", () => {
-    const reg = createWorktreeBootstrapRegistry();
+    const reg = createWorktreeInitRegistry();
     const ws = fakeWs();
     reg.subscribe("r", ws);
     reg.unsubscribe("r");
-    expect(reg.send("r", { type: "worktree_bootstrap_done", requestId: "r", cwd: "/x", durationMs: 0 })).toBe(false);
+    expect(reg.send("r", { type: "worktree_init_done", requestId: "r", cwd: "/x", durationMs: 0 })).toBe(false);
   });
 
   it("subscribe replaces a prior subscription for the same requestId", () => {
-    const reg = createWorktreeBootstrapRegistry();
+    const reg = createWorktreeInitRegistry();
     const wsA = fakeWs(); const wsB = fakeWs();
     reg.subscribe("r", wsA);
     reg.subscribe("r", wsB);
-    reg.send("r", { type: "worktree_bootstrap_done", requestId: "r", cwd: "/x", durationMs: 0 });
+    reg.send("r", { type: "worktree_init_done", requestId: "r", cwd: "/x", durationMs: 0 });
     expect(wsA.send).not.toHaveBeenCalled();
     expect(wsB.send).toHaveBeenCalledTimes(1);
   });
 
   it("drops all subscriptions held by a ws on close", () => {
-    const reg = createWorktreeBootstrapRegistry();
+    const reg = createWorktreeInitRegistry();
     const ws = fakeWs();
     reg.subscribe("a", ws);
     reg.subscribe("b", ws);
@@ -75,7 +75,7 @@ describe("createWorktreeBootstrapRegistry", () => {
   });
 
   it("TTL expires the subscription", async () => {
-    const reg = createWorktreeBootstrapRegistry({ ttlMs: 5 });
+    const reg = createWorktreeInitRegistry({ ttlMs: 5 });
     const ws = fakeWs();
     reg.subscribe("r", ws);
     await new Promise((r) => setTimeout(r, 20));
@@ -83,7 +83,7 @@ describe("createWorktreeBootstrapRegistry", () => {
   });
 
   it("dispose() clears all entries", () => {
-    const reg = createWorktreeBootstrapRegistry();
+    const reg = createWorktreeInitRegistry();
     reg.subscribe("a", fakeWs());
     reg.subscribe("b", fakeWs());
     reg.dispose();

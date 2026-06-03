@@ -15,10 +15,6 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WorktreeSpawnDialog } from "../WorktreeSpawnDialog.js";
-import {
-  dispatchBootstrapEvent,
-  __resetBootstrapBusForTests,
-} from "../../lib/worktree-bootstrap-bus.js";
 
 const {
   fetchGitHead,
@@ -27,8 +23,6 @@ const {
   createWorktree,
   probePathExists,
   cleanupOrphanWorktreePath,
-  fetchWorktreeBootstrapStatus,
-  bootstrapExistingWorktree,
 } = vi.hoisted(() => ({
   fetchGitHead: vi.fn(),
   fetchWorktrees: vi.fn(),
@@ -36,8 +30,6 @@ const {
   createWorktree: vi.fn(),
   probePathExists: vi.fn(),
   cleanupOrphanWorktreePath: vi.fn(),
-  fetchWorktreeBootstrapStatus: vi.fn(),
-  bootstrapExistingWorktree: vi.fn(),
 }));
 
 vi.mock("../../lib/git-api.js", async () => {
@@ -50,16 +42,7 @@ vi.mock("../../lib/git-api.js", async () => {
     createWorktree,
     probePathExists,
     cleanupOrphanWorktreePath,
-    fetchWorktreeBootstrapStatus,
-    bootstrapExistingWorktree,
   };
-});
-
-// Default the bootstrap-status probe to "not_required" so existing tests
-// see no change in behaviour; new tests override per case.
-beforeEach(() => {
-  fetchWorktreeBootstrapStatus.mockResolvedValue({ needsBootstrap: false, reason: "not_required" });
-  bootstrapExistingWorktree.mockResolvedValue({ ok: true, bootstrap: { ran: true, durationMs: 100 } });
 });
 
 afterEach(() => {
@@ -682,187 +665,5 @@ describe("WorktreeSpawnDialog — dismissal", () => {
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ── Bootstrap UX (change: harden-worktree-spawn) ────────────────────────
-// Per-row probe degrades the action button when node_modules is missing;
-// clicking the degraded variant routes through bootstrapExistingWorktree
-// + the worktree-bootstrap bus. Bus interaction is exercised by routing
-// events through `dispatchBootstrapEvent` since the dialog subscribes to
-// the singleton bus directly.
-
-describe("WorktreeSpawnDialog — bootstrap probe + degraded button", () => {
-  beforeEach(() => __resetBootstrapBusForTests());
-
-  it("healthy row keeps Spawn → button", async () => {
-    defaultMocks({
-      worktrees: [{ path: "/repo", branch: "main", isMain: true }],
-    });
-    fetchWorktreeBootstrapStatus.mockResolvedValue({ needsBootstrap: false, reason: "ok" });
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
-    await waitFor(() => screen.getByTestId("worktree-row-main"));
-    // Wait one micro-tick for probe resolution.
-    await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
-    // The row label should still be Spawn → (no ⚠ badge).
-    const row = screen.getByTestId("worktree-row-main");
-    expect(row.textContent).toMatch(/Spawn →/);
-    expect(row.textContent).not.toMatch(/Install deps/);
-  });
-
-  it("row with no_node_modules shows ⚠ Install deps + Spawn → badge", async () => {
-    defaultMocks({
-      worktrees: [
-        { path: "/repo", branch: "main", isMain: true },
-        { path: "/repo-sibling", branch: "feat/x", isMain: false },
-      ],
-    });
-    fetchWorktreeBootstrapStatus.mockImplementation(async (cwd: string) => {
-      if (cwd === "/repo-sibling") return { needsBootstrap: true, reason: "no_node_modules" };
-      return { needsBootstrap: false, reason: "ok" };
-    });
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
-    await waitFor(() => screen.getByTestId("worktree-row-main"));
-    await waitFor(() => {
-      const row = screen.getByTestId(`worktree-row-${encodeURIComponent("/repo-sibling")}`);
-      expect(row.textContent).toMatch(/Install deps/);
-    });
-  });
-
-  it("probe rejection falls back to Spawn → (fail-open)", async () => {
-    defaultMocks({ worktrees: [{ path: "/repo", branch: "main", isMain: true }] });
-    fetchWorktreeBootstrapStatus.mockRejectedValue(new Error("network"));
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
-    await waitFor(() => screen.getByTestId("worktree-row-main"));
-    await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
-    const row = screen.getByTestId("worktree-row-main");
-    expect(row.textContent).toMatch(/Spawn →/);
-    expect(row.textContent).not.toMatch(/Install deps/);
-  });
-});
-
-describe("WorktreeSpawnDialog — bootstrap-then-spawn (existing row)", () => {
-  beforeEach(() => __resetBootstrapBusForTests());
-
-  it("clicking ⚠ row triggers bootstrapExistingWorktree, awaits bus done, then onSpawn", async () => {
-    defaultMocks({
-      worktrees: [{ path: "/repo", branch: "main", isMain: true }],
-    });
-    fetchWorktreeBootstrapStatus.mockResolvedValue({ needsBootstrap: true, reason: "no_node_modules" });
-    let capturedRequestId: string | undefined;
-    bootstrapExistingWorktree.mockImplementation(async (params: { cwd: string; requestId?: string }) => {
-      capturedRequestId = params.requestId;
-      // Don't resolve immediately; the bus event drives the spawn.
-      return new Promise(() => {});
-    });
-    const onSpawn = vi.fn();
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
-    await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
-    // Click the degraded row.
-    fireEvent.click(screen.getByTestId("worktree-row-main"));
-    await waitFor(() => expect(bootstrapExistingWorktree).toHaveBeenCalled());
-    expect(capturedRequestId).toBeDefined();
-    // Progress arm visible.
-    await waitFor(() => screen.getByTestId("worktree-dialog-bootstrap-progress"));
-    // Simulate the bus delivering a done event for our requestId.
-    dispatchBootstrapEvent({
-      type: "worktree_bootstrap_done",
-      requestId: capturedRequestId!,
-      cwd: "/repo",
-      durationMs: 123,
-    });
-    await waitFor(() => expect(onSpawn).toHaveBeenCalledWith("/repo", undefined));
-  });
-
-  it("bootstrap_failed shows error + does NOT spawn", async () => {
-    defaultMocks({
-      worktrees: [{ path: "/repo", branch: "main", isMain: true }],
-    });
-    fetchWorktreeBootstrapStatus.mockResolvedValue({ needsBootstrap: true, reason: "no_node_modules" });
-    let capturedRequestId: string | undefined;
-    bootstrapExistingWorktree.mockImplementation(async (params: { cwd: string; requestId?: string }) => {
-      capturedRequestId = params.requestId;
-      return new Promise(() => {});
-    });
-    const onSpawn = vi.fn();
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
-    await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("worktree-row-main"));
-    await waitFor(() => expect(bootstrapExistingWorktree).toHaveBeenCalled());
-    dispatchBootstrapEvent({
-      type: "worktree_bootstrap_failed",
-      requestId: capturedRequestId!,
-      cwd: "/repo",
-      code: "install_nonzero_exit",
-      message: "lockfile drift",
-      stderr: "npm ERR! sync",
-    });
-    await waitFor(() => screen.getByTestId("worktree-dialog-bootstrap-error"));
-    expect(onSpawn).not.toHaveBeenCalled();
-  });
-
-  it("progress events render in the live-tail panel", async () => {
-    defaultMocks({ worktrees: [{ path: "/repo", branch: "main", isMain: true }] });
-    fetchWorktreeBootstrapStatus.mockResolvedValue({ needsBootstrap: true, reason: "no_node_modules" });
-    let capturedRequestId: string | undefined;
-    bootstrapExistingWorktree.mockImplementation(async (params: { cwd: string; requestId?: string }) => {
-      capturedRequestId = params.requestId;
-      return new Promise(() => {});
-    });
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
-    await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
-    fireEvent.click(screen.getByTestId("worktree-row-main"));
-    await waitFor(() => expect(bootstrapExistingWorktree).toHaveBeenCalled());
-    dispatchBootstrapEvent({
-      type: "worktree_bootstrap_progress",
-      requestId: capturedRequestId!,
-      cwd: "/repo",
-      line: "added 123 packages\n",
-    });
-    await waitFor(() => {
-      const tail = screen.getByTestId("worktree-dialog-bootstrap-tail");
-      expect(tail.textContent).toContain("added 123 packages");
-    });
-  });
-});
-
-describe("WorktreeSpawnDialog — Create + Spawn bootstrap integration", () => {
-  beforeEach(() => __resetBootstrapBusForTests());
-
-  it("Create + Spawn forwards requestId to createWorktree", async () => {
-    defaultMocks();
-    createWorktree.mockResolvedValue({
-      ok: true,
-      path: "/repo/.worktrees/feat-x",
-      branch: "feat/x",
-      excludeAppended: true,
-      bootstrap: { ran: false, skippedReason: "not_required" },
-    });
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
-    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), { target: { value: "feat/x" } });
-    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
-    await waitFor(() => expect(createWorktree).toHaveBeenCalled());
-    const call = createWorktree.mock.calls[0][0];
-    expect(typeof call.requestId).toBe("string");
-    expect(call.requestId.length).toBeGreaterThan(0);
-  });
-
-  it("bootstrap.ran=false response: spawn immediately, no progress surface", async () => {
-    defaultMocks();
-    createWorktree.mockResolvedValue({
-      ok: true,
-      path: "/repo/.worktrees/feat-x",
-      branch: "feat/x",
-      excludeAppended: true,
-      bootstrap: { ran: false, skippedReason: "not_required" },
-    });
-    const onSpawn = vi.fn();
-    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
-    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), { target: { value: "feat/x" } });
-    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
-    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
-    expect(onSpawn).toHaveBeenCalledWith("/repo/.worktrees/feat-x", { gitWorktreeBase: "main" });
   });
 });

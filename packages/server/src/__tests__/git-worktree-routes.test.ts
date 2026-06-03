@@ -309,12 +309,11 @@ describe("worktree-create route — per-request timeout disable", () => {
     await app.close();
   });
 
-  // Regression: the bootstrap step (inline `await runBootstrap` for repos
-  // whose `.pi/settings.json` references the parent) can exceed Fastify's
-  // 10 s `connectionTimeout`. The route must disable the per-socket timeout
-  // so the response actually reaches the browser. See change:
-  // openspec-worktree-spawn-button.
-  it("invokes setTimeout(0) on the raw socket when POST /api/git/worktree handler runs", async () => {
+  // Regression: the worktree-init run (script install / detached agent) can
+  // exceed Fastify's 10 s `connectionTimeout`. The POST /init handler must
+  // disable the per-socket timeout so the response reaches the browser.
+  // See change: generalize-worktree-init-hook.
+  it("invokes setTimeout(0) on the raw socket in the init handler", async () => {
     // We can't directly observe the call inside the handler from outside,
     // so we assert by source inspection: the production handler MUST contain
     // the optional-chained setTimeout disable. Pinning here so refactors
@@ -323,7 +322,7 @@ describe("worktree-create route — per-request timeout disable", () => {
     const routesPath = new URL("../routes/git-routes.ts", import.meta.url);
     const src = readFileSync(routesPath, "utf-8");
     const occurrences = (src.match(/request\.raw\.socket\?\.setTimeout\?\.\(0\)/g) ?? []).length;
-    expect(occurrences).toBeGreaterThanOrEqual(2);
+    expect(occurrences).toBeGreaterThanOrEqual(1);
   });
 
   it("happy-path POST /api/git/worktree still succeeds (smoke after timeout-disable)", async () => {

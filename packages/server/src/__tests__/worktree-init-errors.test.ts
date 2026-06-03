@@ -1,12 +1,12 @@
 /**
- * Table-driven tests for `mapBootstrapStderrToHint`. Each row asserts a
+ * Table-driven tests for `mapInitStderrToHint`. Each row asserts a
  * canonical hint short-string for a representative stderr fragment from a
  * real-world install failure.
  *
  * See change: harden-worktree-spawn.
  */
 import { describe, it, expect } from "vitest";
-import { mapBootstrapStderrToHint } from "../worktree-bootstrap-errors.js";
+import { mapInitStderrToHint } from "../worktree-init-errors.js";
 
 interface Case { name: string; stderr: string; hint: string; }
 
@@ -58,10 +58,10 @@ const cases: Case[] = [
   },
 ];
 
-describe("mapBootstrapStderrToHint", () => {
+describe("mapInitStderrToHint", () => {
   for (const c of cases) {
     it(`${c.name}`, () => {
-      const result = mapBootstrapStderrToHint(c.stderr);
+      const result = mapInitStderrToHint(c.stderr);
       if (c.hint === "") {
         expect(result).toBeNull();
       } else {

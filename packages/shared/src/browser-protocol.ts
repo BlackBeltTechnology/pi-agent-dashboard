@@ -504,30 +504,30 @@ export interface BootstrapStatusUpdateMessage {
  *
  * Distinct from BootstrapStatusUpdateMessage / BootstrapTicketCompleteMessage
  * which describe the dashboard's own pi-core install. See change:
- * harden-worktree-spawn.
+ * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
-export interface WorktreeBootstrapProgressMessage {
-  type: "worktree_bootstrap_progress";
+export interface WorktreeInitProgressMessage {
+  type: "worktree_init_progress";
   requestId: string;
   cwd: string;
   /** Most recent <= 4 KB of combined stdout/stderr. */
   line: string;
 }
 
-/** Emitted exactly once when the worktree install command exits 0. */
-export interface WorktreeBootstrapDoneMessage {
-  type: "worktree_bootstrap_done";
+/** Emitted exactly once when the worktree-init hook completes successfully. */
+export interface WorktreeInitDoneMessage {
+  type: "worktree_init_done";
   requestId: string;
   cwd: string;
   durationMs: number;
 }
 
-/** Emitted exactly once when the install command fails or fails to spawn. */
-export interface WorktreeBootstrapFailedMessage {
-  type: "worktree_bootstrap_failed";
+/** Emitted exactly once when the init hook fails or fails to spawn. */
+export interface WorktreeInitFailedMessage {
+  type: "worktree_init_failed";
   requestId: string;
   cwd: string;
-  /** Stable classifier: `install_nonzero_exit` | `spawn_error` | `no_lockfile`. */
+  /** Stable classifier: `script_nonzero_exit` | `spawn_error` | `agent_failed` | `agent_incomplete`. */
   code: string;
   /** Short human hint when we recognized the failure family. */
   message: string;
@@ -672,9 +672,9 @@ export type ServerToBrowserMessage =
   | ModelsRefreshedMessage
   | BootstrapStatusUpdateMessage
   | BootstrapTicketCompleteMessage
-  | WorktreeBootstrapProgressMessage
-  | WorktreeBootstrapDoneMessage
-  | WorktreeBootstrapFailedMessage
+  | WorktreeInitProgressMessage
+  | WorktreeInitDoneMessage
+  | WorktreeInitFailedMessage
   | BrowserUiModulesListMessage
   | BrowserUiDataListMessage
   | BrowserExtUiDecoratorMessage
@@ -1255,28 +1255,27 @@ export type BrowserToServerMessage =
   | EditFollowupEntryFromBrowserMessage
   | RemoveFollowupEntryFromBrowserMessage
   | PromoteFollowupEntryFromBrowserMessage
-  | WorktreeBootstrapSubscribeMessage
-  | WorktreeBootstrapUnsubscribeMessage
+  | WorktreeInitSubscribeMessage
+  | WorktreeInitUnsubscribeMessage
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
   | InjectViewMessageBrowserMessage;
 
 /**
- * Browser registers interest in worktree-bootstrap events for a given
- * `requestId` BEFORE issuing `POST /api/git/worktree` (or the
- * existing-row install-then-spawn flow). Server stores the mapping
- * requestId -> originating WebSocket and only delivers the matching
- * `worktree_bootstrap_*` events to that connection. See change:
- * harden-worktree-spawn.
+ * Browser registers interest in worktree-init events for a given
+ * `requestId` BEFORE issuing `POST /api/git/worktree/init`. Server stores
+ * the mapping requestId -> originating WebSocket and only delivers the
+ * matching `worktree_init_*` events to that connection. See change:
+ * generalize-worktree-init-hook (renamed from worktree_bootstrap_*).
  */
-export interface WorktreeBootstrapSubscribeMessage {
-  type: "worktree_bootstrap_subscribe";
+export interface WorktreeInitSubscribeMessage {
+  type: "worktree_init_subscribe";
   requestId: string;
 }
 
 /** Drops the subscription if the dialog is cancelled or completes. */
-export interface WorktreeBootstrapUnsubscribeMessage {
-  type: "worktree_bootstrap_unsubscribe";
+export interface WorktreeInitUnsubscribeMessage {
+  type: "worktree_init_unsubscribe";
   requestId: string;
 }
 

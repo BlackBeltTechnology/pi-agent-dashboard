@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRoute, useLocation, useSearchParams, Redirect, Switch, Route } from "wouter";
 import { useWebSocket } from "./hooks/useWebSocket.js";
-import { setBootstrapSender } from "./lib/worktree-bootstrap-bus.js";
+import { setInitSender } from "./lib/worktree-init-bus.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
 import { SessionList } from "./components/SessionList.js";
@@ -271,11 +271,11 @@ function PiResourceFileRoute({
 export default function App() {
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
   const { send, onMessage, status } = useWebSocket(wsUrl);
-  // Worktree-bootstrap bus needs a way to send subscribe/unsubscribe
-  // messages over the same socket. See change: harden-worktree-spawn.
+  // Worktree-init bus needs a way to send subscribe/unsubscribe
+  // messages over the same socket. See change: generalize-worktree-init-hook.
   useEffect(() => {
-    setBootstrapSender(send);
-    return () => setBootstrapSender(null);
+    setInitSender(send);
+    return () => setInitSender(null);
   }, [send]);
   // Drives the slot-registry enable filter from /api/health.plugins[] +
   // plugin_config_update broadcasts. The returned `startedAt` is also

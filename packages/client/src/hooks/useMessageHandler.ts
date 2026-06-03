@@ -10,7 +10,7 @@ import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/dis
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
-import { dispatchBootstrapEvent } from "../lib/worktree-bootstrap-bus.js";
+import { dispatchInitEvent } from "../lib/worktree-init-bus.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
 import type {
@@ -723,6 +723,15 @@ export function useMessageHandler(
       // removed under change: eliminate-electron-runtime-install (task 3.1).
       // pi-core update progress still flows via the surviving pi_core_event
       // dispatch below.
+
+      // Forward worktree-init streaming events to the process-singleton bus
+      // so the requestId-scoped WorktreeInitButton tail updates live.
+      // See change: generalize-worktree-init-hook.
+      case "worktree_init_progress":
+      case "worktree_init_done":
+      case "worktree_init_failed":
+        dispatchInitEvent(msg);
+        break;
 
       case "editor_status":
         setEditorStatuses((prev) => {

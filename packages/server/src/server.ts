@@ -20,7 +20,7 @@ import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.
 import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
 import { createPendingClientCorrelations } from "./pending-client-correlations.js";
-import { createWorktreeBootstrapRegistry } from "./worktree-bootstrap-registry.js";
+import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
 import { createPendingAttachRegistry } from "./pending-attach-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
@@ -178,10 +178,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // its placeholder by exact correlation. See change: spawn-correlation-token.
   const pendingClientCorrelations = createPendingClientCorrelations();
 
-  // Worktree-bootstrap progress registry: maps requestId -> originating ws
-  // so `worktree_bootstrap_*` events stream only to the dialog that
-  // initiated the install. See change: harden-worktree-spawn.
-  const worktreeBootstrapRegistry = createWorktreeBootstrapRegistry();
+  // Worktree-init progress registry: maps requestId -> originating ws
+  // so `worktree_init_*` events stream only to the dialog that
+  // initiated the run. See change: generalize-worktree-init-hook.
+  const worktreeInitRegistry = createWorktreeInitRegistry();
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanResult = scanAllSessions();
@@ -619,19 +619,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? []);
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
-  registerGitRoutes(fastify, { networkGuard, sessionManager, browserGateway, worktreeBootstrapRegistry });
+  registerGitRoutes(fastify, { networkGuard, sessionManager, browserGateway, worktreeInitRegistry });
 
-  // Browser channel for worktree-bootstrap event subscriptions. The
-  // dialog sends `worktree_bootstrap_subscribe { requestId }` over its
-  // existing ws BEFORE issuing POST /api/git/worktree so the server
-  // knows which ws to stream progress to. See change: harden-worktree-spawn.
-  browserGateway.registerHandler("worktree_bootstrap_subscribe", (msg, ws) => {
+  // Browser channel for worktree-init event subscriptions. The dialog
+  // sends `worktree_init_subscribe { requestId }` over its existing ws
+  // BEFORE issuing POST /api/git/worktree/init so the server knows which
+  // ws to stream progress to. See change: generalize-worktree-init-hook.
+  browserGateway.registerHandler("worktree_init_subscribe", (msg, ws) => {
     const requestId = typeof msg?.requestId === "string" ? msg.requestId : undefined;
-    if (requestId) worktreeBootstrapRegistry.subscribe(requestId, ws);
+    if (requestId) worktreeInitRegistry.subscribe(requestId, ws);
   });
-  browserGateway.registerHandler("worktree_bootstrap_unsubscribe", (msg) => {
+  browserGateway.registerHandler("worktree_init_unsubscribe", (msg) => {
     const requestId = typeof msg?.requestId === "string" ? msg.requestId : undefined;
-    if (requestId) worktreeBootstrapRegistry.unsubscribe(requestId);
+    if (requestId) worktreeInitRegistry.unsubscribe(requestId);
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerOpenSpecRoutes(fastify, {

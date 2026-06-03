@@ -90,9 +90,6 @@ export interface CreateWorktreeOk {
   path: string;
   branch: string;
   excludeAppended: boolean;
-  /** Present on servers that ran the worktree-bootstrap step. Older
-   * servers omit this; callers treat absent as `{ ran: false, skippedReason: "not_required" }`. */
-  bootstrap?: BootstrapInfo;
 }
 
 export interface CreateWorktreeError {
@@ -111,10 +108,6 @@ export interface CreateWorktreeError {
 }
 
 export type CreateWorktreeResult = CreateWorktreeOk | CreateWorktreeError;
-
-// Extend the success shape with the optional bootstrap field returned by
-// the new harden-worktree-spawn changes. Older servers omit it; dialog
-// code defaults to `{ ran: false, skippedReason: "not_required" }`.
 
 
 /** GET /api/git/head */
@@ -136,9 +129,9 @@ export async function fetchWorktrees(cwd: string): Promise<WorktreeEntry[]> {
 /** POST /api/git/worktree. Returns a discriminated union so the caller can
  * branch on a stable error `code` without parsing strings.
  *
- * `requestId` is optional but recommended: when provided, the server
- * streams worktree-bootstrap progress events tagged with the same id
- * (see WorktreeBootstrapRegistry). See change: harden-worktree-spawn.
+ * Worktree creation no longer runs any init step; initialization is a
+ * separate gated action (POST /api/git/worktree/init). See change:
+ * generalize-worktree-init-hook.
  */
 export async function createWorktree(params: {
   cwd: string;
@@ -146,7 +139,6 @@ export async function createWorktree(params: {
   newBranch: string;
   path?: string;
   force?: boolean;
-  requestId?: string;
 }): Promise<CreateWorktreeResult> {
   const res = await fetch(`${getApiBase()}/api/git/worktree`, {
     method: "POST",
@@ -155,7 +147,7 @@ export async function createWorktree(params: {
   });
   const json = await res.json();
   if (json.success) {
-    return { ok: true, ...(json.data as { path: string; branch: string; excludeAppended: boolean; bootstrap?: BootstrapInfo }) };
+    return { ok: true, ...(json.data as { path: string; branch: string; excludeAppended: boolean }) };
   }
   return {
     ok: false,
@@ -166,65 +158,84 @@ export async function createWorktree(params: {
   };
 }
 
-export interface BootstrapInfo {
+/** Hook definition mirrored from the server (`worktree-init.ts`). */
+export interface WorktreeInitHook {
+  gate: string;
+  run:
+    | { type: "script"; command: string }
+    | { type: "agent"; prompt: string; model?: string; settings?: unknown };
+}
+
+/** GET /api/git/worktree/init-status result. */
+export interface WorktreeInitStatus {
+  hasHook: boolean;
+  /** Present only when hasHook === true. */
+  needsInit?: boolean;
+  /** Present only when hasHook === true. */
+  trusted?: boolean;
+}
+
+/** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */
+export async function fetchWorktreeInitStatus(cwd: string): Promise<WorktreeInitStatus> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/git/worktree/init-status?cwd=${encodeURIComponent(cwd)}`);
+    const json = await res.json();
+    if (!json.success) return { hasHook: false };
+    return json.data as WorktreeInitStatus;
+  } catch {
+    return { hasHook: false };
+  }
+}
+
+export interface WorktreeInitRanOk {
+  ok: true;
   ran: boolean;
   durationMs?: number;
   skippedReason?: string;
 }
 
-export type BootstrapStatusReason =
-  | "not_required"
-  | "ok"
-  | "no_node_modules"
-  | "stale_lockfile";
-
-export interface BootstrapStatus {
-  needsBootstrap: boolean;
-  reason: BootstrapStatusReason;
-}
-
-/** GET /api/git/worktree/bootstrap-status?cwd=<path> */
-export async function fetchWorktreeBootstrapStatus(cwd: string): Promise<BootstrapStatus> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree/bootstrap-status?cwd=${encodeURIComponent(cwd)}`);
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error ?? "failed to read bootstrap status");
-  return json.data as BootstrapStatus;
-}
-
-export interface BootstrapExistingOk {
-  ok: true;
-  bootstrap: BootstrapInfo;
-}
-
-export interface BootstrapExistingError {
+/** Untrusted: server returned the hook def + hash awaiting confirmation. */
+export interface WorktreeInitUntrusted {
   ok: false;
+  untrusted: true;
+  hook: WorktreeInitHook;
+  hash: string;
+}
+
+export interface WorktreeInitError {
+  ok: false;
+  untrusted?: false;
   code: string;
   error: string;
   stderr?: string;
 }
 
-export type BootstrapExistingResult = BootstrapExistingOk | BootstrapExistingError;
+export type WorktreeInitResult = WorktreeInitRanOk | WorktreeInitUntrusted | WorktreeInitError;
 
 /**
- * POST /api/git/worktree/bootstrap — runs the install step against an
- * EXISTING worktree path. Used by the dialog's "⚠ Install deps + Spawn
- * →" variant. Progress events delivered via the requestId-tagged WS
- * channel. See change: harden-worktree-spawn.
+ * POST /api/git/worktree/init — runs the declared hook for a checkout.
+ * Without `confirmHash` an untrusted hook returns `untrusted` carrying the
+ * def + hash for the client to confirm; re-issue with `confirmHash: hash`.
+ * Progress events stream via the requestId-tagged WS channel.
+ * See change: generalize-worktree-init-hook.
  */
-export async function bootstrapExistingWorktree(params: { cwd: string; requestId?: string }): Promise<BootstrapExistingResult> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree/bootstrap`, {
+export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string }): Promise<WorktreeInitResult> {
+  const res = await fetch(`${getApiBase()}/api/git/worktree/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
   const json = await res.json();
   if (json.success) {
-    return { ok: true, bootstrap: (json.data?.bootstrap ?? { ran: false, skippedReason: "not_required" }) as BootstrapInfo };
+    return { ok: true, ran: json.data?.ran === true, durationMs: json.data?.durationMs, skippedReason: json.data?.skippedReason };
+  }
+  if (json.code === "init_untrusted") {
+    return { ok: false, untrusted: true, hook: json.data.hook as WorktreeInitHook, hash: json.data.hash as string };
   }
   return {
     ok: false,
-    code: json.code ?? "bootstrap_failed",
-    error: json.error ?? "bootstrap failed",
+    code: json.code ?? "init_failed",
+    error: json.error ?? "init failed",
     ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
   };
 }

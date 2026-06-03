@@ -1,9 +1,9 @@
 /**
- * Maps common bootstrap-step stderr fragments to short human hints.
+ * Maps common init-step stderr fragments to short human hints.
  *
  * Table-driven, ordered most-specific-first. Pure function, no I/O.
  *
- * See change: harden-worktree-spawn.
+ * See change: generalize-worktree-init-hook.
  */
 
 interface HintRule {
@@ -51,7 +51,7 @@ const RULES: HintRule[] = [
  * no rule matches. Caller decides whether to fall back to a generic
  * "install failed (exit N)" surface.
  */
-export function mapBootstrapStderrToHint(stderr: string): string | null {
+export function mapInitStderrToHint(stderr: string): string | null {
   if (!stderr) return null;
   for (const rule of RULES) {
     if (rule.match.test(stderr)) return rule.hint;

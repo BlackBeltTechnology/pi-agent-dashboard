@@ -1,10 +1,14 @@
 {
   "packages": [
     {
-      "source": "..",
+      "source": "/Users/robson/Project/pi-agent-dashboard",
       "extensions": [
         "+packages/extension/src/bridge.ts"
       ]
     }
-  ]
+  ],
+  "worktreeInit": {
+    "gate": "test ! -d node_modules",
+    "run": { "type": "script", "command": "npm ci" }
+  }
 }

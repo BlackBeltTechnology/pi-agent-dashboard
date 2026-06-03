@@ -23,9 +23,10 @@ import {
   stashPop,
   worktreeDiffStat,
 } from "../git-operations.js";
-import { detectBootstrapRequirement, runBootstrap, type BootstrapProgress } from "../worktree-bootstrap.js";
-import { mapBootstrapStderrToHint } from "../worktree-bootstrap-errors.js";
-import type { WorktreeBootstrapRegistry } from "../worktree-bootstrap-registry.js";
+import { readInitHook, evaluateGate, runInitHook, hookDefHash, type InitProgress, type WorktreeInitHook, type GateResult } from "../worktree-init.js";
+import { mapInitStderrToHint } from "../worktree-init-errors.js";
+import { isTrusted, recordTrust } from "../worktree-init-trust.js";
+import type { WorktreeInitRegistry } from "../worktree-init-registry.js";
 import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { safeRealpathSync } from "../resolve-path.js";
@@ -37,16 +38,32 @@ export interface GitRoutesDeps {
   sessionManager?: SessionManager;
   browserGateway?: BrowserGateway;
   /**
-   * Optional — enables worktree-bootstrap progress streaming to the
-   * originating browser. When absent, the bootstrap step still runs but
+   * Optional — enables worktree-init progress streaming to the
+   * originating browser. When absent, the init hook still runs but
    * no progress / done / failed events are emitted (HTTP response carries
-   * the final result either way). See change: harden-worktree-spawn.
+   * the final result either way). See change: generalize-worktree-init-hook.
    */
-  worktreeBootstrapRegistry?: WorktreeBootstrapRegistry;
+  worktreeInitRegistry?: WorktreeInitRegistry;
+}
+
+/**
+ * Per-resolved-checkout cache of the gate result, with a short TTL.
+ * Invalidated when a hook run starts/exits for that checkout.
+ * See change: generalize-worktree-init-hook.
+ */
+const GATE_CACHE_TTL_MS = 30 * 1000;
+const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>();
+function invalidateGateCache(checkoutPath: string) { gateCache.delete(checkoutPath); }
+async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook): Promise<GateResult> {
+  const hit = gateCache.get(checkoutPath);
+  if (hit && Date.now() - hit.evaluatedAt < GATE_CACHE_TTL_MS) return { needsInit: hit.needsInit };
+  const res = await evaluateGate(checkoutPath, hook);
+  gateCache.set(checkoutPath, { needsInit: res.needsInit, evaluatedAt: Date.now() });
+  return res;
 }
 
 export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps) {
-  const { networkGuard, sessionManager, browserGateway, worktreeBootstrapRegistry } = deps;
+  const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry } = deps;
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/git/branches",
     { preHandler: networkGuard },
@@ -153,66 +170,12 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     },
   );
 
-  // ── Bootstrap an existing worktree (change: harden-worktree-spawn) ──────
+  // ── Worktree init-status probe (change: generalize-worktree-init-hook) ──
   //
-  // Runs the install step against an EXISTING worktree path. Used by the
-  // dialog's "⚠ Install deps + Spawn →" variant on existing-worktree rows.
-  // Same progress/done/failed event protocol as POST /api/git/worktree.
-  fastify.post<{ Body: { cwd?: string; requestId?: string } }>(
-    "/api/git/worktree/bootstrap",
-    { preHandler: networkGuard },
-    async (request, reply) => {
-      // `npm ci` for the monorepo can take 60+ s — well past Fastify's
-      // 10 s connectionTimeout. Disable the per-socket timeout so the
-      // response actually reaches the client. See change:
-      // openspec-worktree-spawn-button.
-      request.raw.socket?.setTimeout?.(0);
-      const body = request.body ?? {};
-      const validated = validateCwd(body.cwd);
-      if (!validated.ok) {
-        reply.code(400);
-        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
-      }
-      if (!isGitRepo(validated.cwd)) {
-        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
-      }
-      const repoRoot = resolveMainPath(validated.cwd);
-      const requirement = repoRoot ? detectBootstrapRequirement(repoRoot) : { required: false };
-      if (!requirement.required) {
-        return { success: true, data: { bootstrap: { ran: false, skippedReason: "not_required" } } } satisfies ApiResponse;
-      }
-      const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
-      const cwd = validated.cwd;
-      const sendIf = (msg: any) => {
-        if (requestId && worktreeBootstrapRegistry) worktreeBootstrapRegistry.send(requestId, msg);
-      };
-      const onProgress = (p: BootstrapProgress) => {
-        sendIf({ type: "worktree_bootstrap_progress", requestId: requestId ?? "", cwd, line: p.line });
-      };
-      const runResult = await runBootstrap(cwd, onProgress);
-      if (runResult.code === "no_lockfile") {
-        return { success: true, data: { bootstrap: { ran: false, skippedReason: "no_lockfile" } } } satisfies ApiResponse;
-      }
-      if (runResult.ok) {
-        sendIf({ type: "worktree_bootstrap_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
-        return { success: true, data: { bootstrap: { ran: true, durationMs: runResult.durationMs } } } satisfies ApiResponse;
-      }
-      const stderr = runResult.stderr ?? "";
-      const hint = mapBootstrapStderrToHint(stderr) ?? `install failed (${runResult.code ?? "unknown"})`;
-      sendIf({ type: "worktree_bootstrap_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "install_nonzero_exit", message: hint, stderr });
-      reply.code(500);
-      return { success: false, code: "bootstrap_failed", error: hint, stderr } satisfies ApiResponse;
-    },
-  );
-
-  // ── Bootstrap status probe (change: harden-worktree-spawn) ─────────────
-  //
-  // Drives the +Worktree dialog's per-row degraded-button UX. Decision
-  // tree per `git-operations-api` spec (Requirement: Bootstrap-status
-  // probe endpoint): detectBootstrapRequirement(repoRoot) →
-  // node_modules existence → lockfile staleness.
+  // Reports whether a checkout needs initialization per its declared
+  // `.pi/settings.json#worktreeInit` hook. Gate eval is cached per checkout.
   fastify.get<{ Querystring: { cwd?: string } }>(
-    "/api/git/worktree/bootstrap-status",
+    "/api/git/worktree/init-status",
     { preHandler: networkGuard },
     async (request, reply) => {
       const validated = validateCwd(request.query.cwd);
@@ -227,48 +190,86 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       if (!repoRoot) {
         return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
       }
-      const requirement = detectBootstrapRequirement(repoRoot);
-      if (!requirement.required) {
-        return { success: true, data: { needsBootstrap: false, reason: "not_required" } } satisfies ApiResponse;
+      const hook = readInitHook(repoRoot);
+      if (!hook) {
+        return { success: true, data: { hasHook: false } } satisfies ApiResponse;
       }
-      // node_modules existence (exists AND non-empty).
-      const nm = `${validated.cwd}/node_modules`;
-      let nmHasEntries = false;
-      try {
-        const stat = fs.statSync(nm);
-        if (stat.isDirectory()) {
-          const entries = fs.readdirSync(nm);
-          nmHasEntries = entries.length > 0;
-        }
-      } catch { /* missing — falls through */ }
-      if (!nmHasEntries) {
-        return { success: true, data: { needsBootstrap: true, reason: "no_node_modules" } } satisfies ApiResponse;
+      const gate = await evaluateGateCached(validated.cwd, hook);
+      const trusted = isTrusted(repoRoot, hookDefHash(hook));
+      return { success: true, data: { hasHook: true, needsInit: gate.needsInit, trusted } } satisfies ApiResponse;
+    },
+  );
+
+  // ── Worktree init run (change: generalize-worktree-init-hook) ──────────
+  //
+  // Runs the declared hook for a checkout. TOFU-gated: an untrusted hook
+  // returns `init_untrusted` carrying the def for the client to confirm.
+  fastify.post<{ Body: { cwd?: string; requestId?: string; confirmHash?: string } }>(
+    "/api/git/worktree/init",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      // A `script` install or detached `agent` can take minutes — well past
+      // Fastify's 10 s connectionTimeout. Disable the per-socket timeout.
+      request.raw.socket?.setTimeout?.(0);
+      const body = request.body ?? {};
+      const validated = validateCwd(body.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      // Lockfile staleness: package-lock.json mtime > node_modules/.package-lock.json mtime.
-      try {
-        const lockStat = fs.statSync(`${validated.cwd}/package-lock.json`);
-        const stampStat = fs.statSync(`${nm}/.package-lock.json`);
-        if (lockStat.mtimeMs > stampStat.mtimeMs) {
-          return { success: true, data: { needsBootstrap: true, reason: "stale_lockfile" } } satisfies ApiResponse;
-        }
-      } catch { /* either file missing — treat as ok, conservative */ }
-      return { success: true, data: { needsBootstrap: false, reason: "ok" } } satisfies ApiResponse;
+      if (!isGitRepo(validated.cwd)) {
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      }
+      const repoRoot = resolveMainPath(validated.cwd);
+      if (!repoRoot) {
+        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
+      }
+      const hook = readInitHook(repoRoot);
+      if (!hook) {
+        return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
+      }
+      const hash = hookDefHash(hook);
+      if (typeof body.confirmHash === "string" && body.confirmHash === hash) {
+        recordTrust(repoRoot, hash);
+      }
+      if (!isTrusted(repoRoot, hash)) {
+        // Echo the hash so the client confirms with `confirmHash` without
+        // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
+        return { success: false, code: "init_untrusted", data: { hook, hash } } satisfies ApiResponse;
+      }
+      const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
+      const cwd = validated.cwd;
+      const sendIf = (msg: any) => {
+        if (requestId && worktreeInitRegistry) worktreeInitRegistry.send(requestId, msg);
+      };
+      const onProgress = (p: InitProgress) => {
+        sendIf({ type: "worktree_init_progress", requestId: requestId ?? "", cwd, line: p.line });
+      };
+      invalidateGateCache(cwd);
+      const runResult = await runInitHook(cwd, hook, onProgress);
+      invalidateGateCache(cwd);
+      if (runResult.ok) {
+        sendIf({ type: "worktree_init_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
+        return { success: true, data: { ran: true, durationMs: runResult.durationMs } } satisfies ApiResponse;
+      }
+      const stderr = runResult.stderr ?? "";
+      const hint = mapInitStderrToHint(stderr) ?? `init failed (${runResult.code ?? "unknown"})`;
+      sendIf({ type: "worktree_init_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "init_failed", message: hint, stderr });
+      reply.code(500);
+      return { success: false, code: "init_failed", error: hint, stderr } satisfies ApiResponse;
     },
   );
 
   fastify.post<{
-    Body: { cwd?: string; base?: string; newBranch?: string; path?: string; force?: boolean; requestId?: string };
+    Body: { cwd?: string; base?: string; newBranch?: string; path?: string; force?: boolean };
   }>(
     "/api/git/worktree",
     { preHandler: networkGuard },
     async (request, reply) => {
-      // Worktree creation triggers an inline `await runBootstrap` for
-      // repos where `.pi/settings.json` references the parent (e.g. the
-      // dashboard itself). `npm ci` easily blows past Fastify's 10 s
-      // connectionTimeout — disable the per-socket timeout so bootstrap
-      // can complete before the connection is reset. See change:
-      // openspec-worktree-spawn-button.
-      request.raw.socket?.setTimeout?.(0);
+      // Worktree creation no longer runs any inline init/install step.
+      // Initialization is delegated to the gated, manually-triggered
+      // worktree-init hook (GET /init-status + POST /init). See change:
+      // generalize-worktree-init-hook.
       const body = request.body ?? {};
       const validated = validateCwd(body.cwd);
       if (!validated.ok) {
@@ -283,7 +284,6 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "newBranch required" } satisfies ApiResponse;
       }
-      const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
       const result = addWorktree({
         cwd: validated.cwd,
         base: body.base,
@@ -308,44 +308,9 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         } satisfies ApiResponse;
       }
 
-      // ── Post-create bootstrap step (change: harden-worktree-spawn) ────────
-      //
-      // Gated by `.pi/settings.json#packages[].source` resolving into the
-      // parent repo. For most repos this is a no-op (bootstrap.ran=false).
-      const repoRoot = resolveMainPath(validated.cwd);
-      const requirement = repoRoot ? detectBootstrapRequirement(repoRoot) : { required: false };
-      let bootstrap: { ran: boolean; durationMs?: number; skippedReason?: string } = { ran: false, skippedReason: "not_required" };
-      if (requirement.required) {
-        const newWorktree = result.path;
-        const sendIf = (msg: any) => {
-          if (requestId && worktreeBootstrapRegistry) worktreeBootstrapRegistry.send(requestId, msg);
-        };
-        const onProgress = (p: BootstrapProgress) => {
-          sendIf({ type: "worktree_bootstrap_progress", requestId: requestId ?? "", cwd: newWorktree, line: p.line });
-        };
-        const runResult = await runBootstrap(newWorktree, onProgress);
-        if (runResult.code === "no_lockfile") {
-          bootstrap = { ran: false, skippedReason: "no_lockfile" };
-        } else if (runResult.ok) {
-          bootstrap = { ran: true, durationMs: runResult.durationMs };
-          sendIf({ type: "worktree_bootstrap_done", requestId: requestId ?? "", cwd: newWorktree, durationMs: runResult.durationMs });
-        } else {
-          const stderr = runResult.stderr ?? "";
-          const hint = mapBootstrapStderrToHint(stderr) ?? `install failed (${runResult.code ?? "unknown"})`;
-          sendIf({ type: "worktree_bootstrap_failed", requestId: requestId ?? "", cwd: newWorktree, code: runResult.code ?? "install_nonzero_exit", message: hint, stderr });
-          reply.code(500);
-          return {
-            success: false,
-            code: "bootstrap_failed",
-            error: hint,
-            stderr,
-          } satisfies ApiResponse;
-        }
-      }
-
       return {
         success: true,
-        data: { path: result.path, branch: result.branch, excludeAppended: result.excludeAppended, bootstrap },
+        data: { path: result.path, branch: result.branch, excludeAppended: result.excludeAppended },
       } satisfies ApiResponse;
     },
   );
