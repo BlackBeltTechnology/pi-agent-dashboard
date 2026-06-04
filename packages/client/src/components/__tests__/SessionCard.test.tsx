@@ -1032,7 +1032,7 @@ describe("SessionCard — +Session sibling-spawn button (session-card-plus-sessi
   const spawnProps = { ...defaultProps, onSpawnSibling: () => {} };
 
   it("2.1 renders for a live session (status !== ended)", () => {
-    const session = makeSession({ status: "running" });
+    const session = makeSession({ status: "streaming" });
     render(<SessionCard session={session} {...spawnProps} />);
     expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
   });
