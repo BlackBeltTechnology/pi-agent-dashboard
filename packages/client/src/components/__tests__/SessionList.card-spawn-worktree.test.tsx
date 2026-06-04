@@ -121,6 +121,14 @@ describe("SessionList — card +Worktree routing (session-card-plus-session-butt
     expect(branchInput.value).toBe("");
   });
 
+  it("8.3 empty-string proposal still opens plain dialog (branch empty)", async () => {
+    renderList(makeSession({ attachedProposal: "" }));
+    fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    const branchInput = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
+    expect(branchInput.value).toBe("");
+  });
+
   it("8.x card +Worktree button hidden when gitWorktreeEnabled=false", () => {
     renderList(makeSession(), false);
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
