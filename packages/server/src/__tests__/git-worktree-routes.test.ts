@@ -311,18 +311,20 @@ describe("worktree-create route — per-request timeout disable", () => {
 
   // Regression: the worktree-init run (script install / detached agent) can
   // exceed Fastify's 10 s `connectionTimeout`. The POST /init handler must
-  // disable the per-socket timeout so the response reaches the browser.
+  // disable the per-socket timeout so the response reaches the browser, and
+  // restore it on response finish so keep-alive sockets don't inherit ∞.
   // See change: generalize-worktree-init-hook.
-  it("invokes setTimeout(0) on the raw socket in the init handler", async () => {
+  it("disables then restores the per-socket timeout in the init handler", async () => {
     // We can't directly observe the call inside the handler from outside,
-    // so we assert by source inspection: the production handler MUST contain
-    // the optional-chained setTimeout disable. Pinning here so refactors
-    // that drop the line are caught by CI rather than discovered in the UI.
+    // so we assert by source inspection: the production handler MUST disable
+    // the socket timeout and register a restore on response finish. Pinning
+    // here so refactors that drop these are caught by CI, not in the UI.
     const { readFileSync } = await import("node:fs");
     const routesPath = new URL("../routes/git-routes.ts", import.meta.url);
     const src = readFileSync(routesPath, "utf-8");
-    const occurrences = (src.match(/request\.raw\.socket\?\.setTimeout\?\.\(0\)/g) ?? []).length;
-    expect(occurrences).toBeGreaterThanOrEqual(1);
+    expect(/socket\?\.setTimeout\?\.\(0\)/.test(src)).toBe(true);
+    expect(/reply\.raw\.once\("finish"/.test(src)).toBe(true);
+    expect(/socket\.setTimeout\(prevTimeout\)/.test(src)).toBe(true);
   });
 
   it("happy-path POST /api/git/worktree still succeeds (smoke after timeout-disable)", async () => {

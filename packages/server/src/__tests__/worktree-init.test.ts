@@ -115,6 +115,16 @@ describe("runInitHook script flavor", () => {
     expect(res.code).toBe("script_nonzero_exit");
     expect(res.stderr).toContain("boom");
   });
+
+  it("handles a synchronous spawn failure with the stable failure envelope", async () => {
+    const hook: WorktreeInitHook = { gate: "false", run: { type: "script", command: ":" } };
+    const res = await runInitHook(tmp, hook, () => {}, {
+      spawnFn: () => { throw new Error("spawn ENOENT"); },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.ran).toBe(true);
+    expect(res.code).toBe("spawn_error");
+  });
 });
 
 // ── runInitHook (agent) ───────────────────────────────────────────────────
@@ -141,6 +151,18 @@ describe("runInitHook agent flavor", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.code).toBe("agent_incomplete");
+  });
+
+  it("kills a hung agent after timeoutMs and reports failed", async () => {
+    const res = await runInitHook(tmp, agentHook, () => {}, {
+      resolvePiBin: () => "/fake/pi",
+      spawnFn: () => neverExitsChild(),
+      evaluateGateFn: async () => ({ needsInit: true }),
+      timeoutMs: 50,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.ran).toBe(true);
+    expect(res.code).toBe("agent_failed");
   });
 
   it("ran:false when the pi binary cannot be resolved", async () => {
@@ -178,5 +200,15 @@ function fakeChild(code: number): any {
   ee.kill = () => {};
   ee.unref = () => {};
   setImmediate(() => ee.emit("exit", code, null));
+  return ee;
+}
+
+/** Fake child that never exits on its own; emits exit only when killed. */
+function neverExitsChild(): any {
+  const ee: any = new EventEmitter();
+  ee.stdout = new EventEmitter();
+  ee.stderr = new EventEmitter();
+  ee.unref = () => {};
+  ee.kill = () => { setImmediate(() => ee.emit("exit", null, "SIGTERM")); };
   return ee;
 }

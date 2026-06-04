@@ -231,7 +231,8 @@ The `POST /api/git/worktree` endpoint SHALL extend its `path_exists` error envel
 The server SHALL expose `GET /api/git/worktree/init-status` (localhost-only) reporting whether a checkout needs initialization per its declared hook. Query/body carries `cwd`. The server SHALL validate `cwd`, resolve the repo root, and `readInitHook(repoRoot)`.
 
 - When no hook is declared, respond `{ success: true, data: { hasHook: false } }`.
-- When a hook is declared, evaluate the gate (using the cache) and respond `{ success: true, data: { hasHook: true, needsInit: boolean, trusted: boolean } }`.
+- When a hook is declared but NOT trusted, respond `{ success: true, data: { hasHook: true, trusted: false } }` WITHOUT evaluating the gate (the gate is repo-declared bash and SHALL NOT run before TOFU trust).
+- When a hook is declared AND trusted, evaluate the gate (using the cache) and respond `{ success: true, data: { hasHook: true, needsInit: boolean, trusted: true } }`.
 
 The endpoint replaces the removed `GET /api/git/worktree/bootstrap-status`.
 
@@ -240,11 +241,16 @@ The endpoint replaces the removed `GET /api/git/worktree/bootstrap-status`.
 - **WHEN** `init-status` is requested for a checkout whose repo declares no `worktreeInit`
 - **THEN** the response SHALL be `{ success: true, data: { hasHook: false } }`
 
-#### Scenario: Hook present, gate says needs init
+#### Scenario: Hook present but untrusted does not run the gate
 
-- **WHEN** the gate exits `0` for the checkout
-- **THEN** the response SHALL include `{ hasHook: true, needsInit: true }`
-- **AND** SHALL include the current `trusted` flag for `repoRoot + hash(hook)`
+- **WHEN** `init-status` is requested for a checkout whose hook is not yet trusted
+- **THEN** the server SHALL NOT spawn the gate
+- **AND** the response SHALL be `{ hasHook: true, trusted: false }` with no `needsInit`
+
+#### Scenario: Hook present + trusted, gate says needs init
+
+- **WHEN** the hook is trusted AND the gate exits `0` for the checkout
+- **THEN** the response SHALL include `{ hasHook: true, needsInit: true, trusted: true }`
 
 #### Scenario: Hook present, gate says no init
 

@@ -85,21 +85,30 @@ export function WorktreeInitButton({ cwd }: Props) {
     setError(null);
     setTail("");
     setPhase("running");
-    const res = await runWorktreeInit({ cwd, requestId, confirmHash });
-    if (res.ok) {
-      setPhase("idle");
-      void refetch();
-    } else if (res.untrusted) {
-      // Hold until the user confirms; pause the running phase.
-      setPhase("idle");
-      setConfirm({ hook: res.hook, hash: res.hash });
-    } else {
+    try {
+      const res = await runWorktreeInit({ cwd, requestId, confirmHash });
+      if (res.ok) {
+        setPhase("idle");
+        void refetch();
+      } else if (res.untrusted) {
+        // Hold until the user confirms; pause the running phase.
+        setPhase("idle");
+        setConfirm({ hook: res.hook, hash: res.hash });
+      } else {
+        setPhase("failed");
+        setError({ code: res.code, message: res.error, stderr: res.stderr });
+      }
+    } catch (err) {
+      // Network / JSON failure — surface it instead of staying stuck "running".
       setPhase("failed");
-      setError({ code: res.code, message: res.error, stderr: res.stderr });
+      setError({ code: "network_failure", message: err instanceof Error ? err.message : "init failed" });
     }
   }, [cwd, refetch]);
 
-  const showButton = !!status && status.hasHook === true && status.needsInit === true;
+  // Show when init is needed, OR when a hook exists but isn't trusted yet (the
+  // gate hasn't run server-side, so `needsInit` is unknown until the user
+  // confirms trust). See change: generalize-worktree-init-hook (#10).
+  const showButton = !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
   if (!showButton && phase !== "failed" && phase !== "running") return null;
 
   return (

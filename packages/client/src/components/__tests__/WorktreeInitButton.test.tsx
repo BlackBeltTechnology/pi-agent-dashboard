@@ -37,6 +37,12 @@ describe("WorktreeInitButton", () => {
     expect(screen.getByTestId("worktree-init-btn").textContent).toContain("Initialize");
   });
 
+  it("shows the button when the hook is present but untrusted (gate not yet run)", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, trusted: false });
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+  });
+
   it("hides the button when needsInit is false", async () => {
     fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: false, trusted: true });
     render(<WorktreeInitButton cwd="/repo" />);

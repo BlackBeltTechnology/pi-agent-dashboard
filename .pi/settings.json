@@ -1,7 +1,7 @@
 {
   "packages": [
     {
-      "source": "/Users/robson/Project/pi-agent-dashboard",
+      "source": "..",
       "extensions": [
         "+packages/extension/src/bridge.ts"
       ]

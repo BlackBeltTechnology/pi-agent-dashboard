@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerGitRoutes } from "../routes/git-routes.js";
 import { hookDefHash, type WorktreeInitHook } from "../worktree-init.js";
+import { recordTrust } from "../worktree-init-trust.js";
+import { resolveMainPath } from "../git-operations.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });
@@ -69,17 +71,30 @@ describe("GET /api/git/worktree/init-status", () => {
     expect(res.json().data).toEqual({ hasHook: false });
   });
 
-  it("hook present, gate exits 0 → needsInit:true, trusted:false", async () => {
-    repo = makeHookRepo(scriptHook("test ! -d node_modules", ":"));
+  it("untrusted hook → trusted:false, gate NOT run (no needsInit)", async () => {
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
     const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
     const data = res.json().data;
     expect(data.hasHook).toBe(true);
-    expect(data.needsInit).toBe(true);
     expect(data.trusted).toBe(false);
+    expect(data.needsInit).toBeUndefined();
   });
 
-  it("hook present, gate exits non-zero → needsInit:false", async () => {
-    repo = makeHookRepo(scriptHook("test ! -d node_modules", ":"));
+  it("trusted hook, gate exits 0 → needsInit:true, trusted:true", async () => {
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
+    recordTrust(resolveMainPath(repo)!, hookDefHash(hook));
+    const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
+    const data = res.json().data;
+    expect(data.trusted).toBe(true);
+    expect(data.needsInit).toBe(true);
+  });
+
+  it("trusted hook, gate exits non-zero → needsInit:false", async () => {
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
+    recordTrust(resolveMainPath(repo)!, hookDefHash(hook));
     mkdirSync(join(repo, "node_modules"), { recursive: true });
     const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
     expect(res.json().data.needsInit).toBe(false);

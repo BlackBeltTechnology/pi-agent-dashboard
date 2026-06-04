@@ -194,9 +194,15 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       if (!hook) {
         return { success: true, data: { hasHook: false } } satisfies ApiResponse;
       }
-      const gate = await evaluateGateCached(validated.cwd, hook);
       const trusted = isTrusted(repoRoot, hookDefHash(hook));
-      return { success: true, data: { hasHook: true, needsInit: gate.needsInit, trusted } } satisfies ApiResponse;
+      // TOFU: do NOT execute the repo-declared `gate` (arbitrary bash) until the
+      // hook is trusted. An untrusted hook reports presence only; `needsInit` is
+      // unknown until the user confirms. See change: generalize-worktree-init-hook.
+      if (!trusted) {
+        return { success: true, data: { hasHook: true, trusted: false } } satisfies ApiResponse;
+      }
+      const gate = await evaluateGateCached(validated.cwd, hook);
+      return { success: true, data: { hasHook: true, needsInit: gate.needsInit, trusted: true } } satisfies ApiResponse;
     },
   );
 
@@ -209,8 +215,17 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     { preHandler: networkGuard },
     async (request, reply) => {
       // A `script` install or detached `agent` can take minutes — well past
-      // Fastify's 10 s connectionTimeout. Disable the per-socket timeout.
-      request.raw.socket?.setTimeout?.(0);
+      // Fastify's 10 s connectionTimeout. Disable the per-socket timeout for
+      // this request, then restore it once the response flushes so a keep-alive
+      // socket doesn't carry an infinite timeout into the next request.
+      const socket = request.raw.socket;
+      const prevTimeout = typeof socket?.timeout === "number" ? socket.timeout : undefined;
+      socket?.setTimeout?.(0);
+      if (typeof prevTimeout === "number") {
+        reply.raw.once("finish", () => {
+          if (socket && !socket.destroyed) socket.setTimeout(prevTimeout);
+        });
+      }
       const body = request.body ?? {};
       const validated = validateCwd(body.cwd);
       if (!validated.ok) {

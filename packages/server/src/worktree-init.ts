@@ -247,11 +247,20 @@ async function runScript(
   const start = Date.now();
   return await new Promise<InitResult>((resolve) => {
     let settled = false;
-    const child = spawnFn("bash", ["-c", command], {
-      cwd,
-      env: opts.env ?? process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    let child: ChildProcess;
+    try {
+      child = spawnFn("bash", ["-c", command], {
+        cwd,
+        env: opts.env ?? process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      // Synchronous spawn failure (e.g. ENOENT) — keep the stable failure envelope.
+      appendToTail(`\n${(err as Error)?.message ?? "spawn failed"}`);
+      emit();
+      resolve({ ok: false, ran: true, durationMs: Date.now() - start, code: "spawn_error", stderr: tail });
+      return;
+    }
     const timer = setTimeout(() => {
       if (settled) return;
       try { child.kill("SIGTERM"); } catch { /* noop */ }
@@ -313,6 +322,7 @@ async function runAgent(
     return { ok: false, ran: false, durationMs: 0, code: "internal" };
   }
   const tailBytes = opts.tailBytes ?? DEFAULT_TAIL_BYTES;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const spawnFn = opts.spawnFn ?? spawn;
   const resolvePiBin = opts.resolvePiBin ?? resolvePiBinDefault;
   const evalGate = opts.evaluateGateFn ?? ((c, h) => evaluateGate(c, h, { spawnFn: opts.spawnFn, env: opts.env }));
@@ -336,8 +346,21 @@ async function runAgent(
   const start = Date.now();
   const exitCode = await new Promise<number | null>((resolve) => {
     let settled = false;
-    const finish = (code: number | null) => { if (!settled) { settled = true; resolve(code); } };
-    let child: ChildProcess;
+    let child: ChildProcess | null = null;
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code);
+    };
+    // Bound the detached agent so a stuck child can't block the init request.
+    const timer = setTimeout(() => {
+      try { child?.kill("SIGTERM"); } catch { /* noop */ }
+      const hardKill = setTimeout(() => { try { child?.kill("SIGKILL"); } catch { /* noop */ } }, 2000);
+      if (typeof hardKill.unref === "function") hardKill.unref();
+      finish(null);
+    }, timeoutMs);
+    if (typeof timer.unref === "function") timer.unref();
     try {
       child = spawnFn(piBin, args, {
         cwd,

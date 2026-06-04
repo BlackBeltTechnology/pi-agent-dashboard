@@ -4,7 +4,7 @@
  *
  * Uses a minimal fake WebSocket (`once` + `readyState` + `send`).
  *
- * See change: harden-worktree-spawn.
+ * See change: generalize-worktree-init-hook.
  */
 import { describe, it, expect, vi } from "vitest";
 import { createWorktreeInitRegistry } from "../worktree-init-registry.js";

@@ -44,6 +44,14 @@ The server SHALL evaluate `worktreeInit.gate` as a bash command in the target ch
 
 The same evaluation SHALL be used for a freshly created worktree and for the primary checkout (main / develop); the gate is unaware of which kind of checkout it runs in.
 
+Because the gate is repo-declared bash, the server SHALL NOT evaluate it until the hook is trusted (TOFU). Init-status for an untrusted hook SHALL report hook presence without running the gate, and `needsInit` SHALL be unknown until trust is recorded. This closes a trust-boundary hole where merely viewing a directory would execute repo-declared code.
+
+#### Scenario: Untrusted hook does not run the gate
+
+- **WHEN** init-status is requested for a checkout whose hook is not yet trusted
+- **THEN** the server SHALL NOT spawn the gate
+- **AND** SHALL report `{ hasHook: true, trusted: false }` without a `needsInit` value
+
 #### Scenario: Gate exits 0 means needs init
 
 - **WHEN** the gate `test ! -d node_modules` runs in a checkout with no `node_modules/`
