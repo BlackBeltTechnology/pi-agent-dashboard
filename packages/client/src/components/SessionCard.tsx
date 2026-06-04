@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, type ReactNode } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiConsoleLine } from "@mdi/js";
+import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiConsoleLine, mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
 import {
   statusColors as statusColorsExt,
   sourceBadgeColors as sourceBadgeColorsExt,
@@ -343,6 +343,8 @@ export function SessionCard({
   onRename,
   onShutdown,
   onResume,
+  onSpawnSibling,
+  onSpawnWorktree,
   commands,
   processes,
   onKillProcess,
@@ -403,6 +405,21 @@ export function SessionCard({
   onRename?: (name: string) => void;
   onShutdown?: (id: string) => void;
   onResume?: (mode: "continue" | "fork") => void;
+  /**
+   * Spawn a clean sibling session in the parent's cwd, inheriting the
+   * parent's `attachedProposal` when set. Always-visible `+Session` button —
+   * NOT gated on `status === "ended"` or `sessionFile` (unlike Fork/Resume).
+   * See change: session-card-plus-session-button.
+   */
+  onSpawnSibling?: (session: DashboardSession) => void;
+  /**
+   * Open the worktree-spawn dialog scoped to this session's cwd. Always-
+   * visible `+Worktree` button (gated upstream by `gitWorktreeEnabled`).
+   * Reuses `WorktreeSpawnDialog` — create worktree (if needed) + bootstrap
+   * + spawn session inside it, pre-attaching the session's proposal.
+   * See change: session-card-plus-session-button.
+   */
+  onSpawnWorktree?: (session: DashboardSession) => void;
   commands?: CommandInfo[];
   processes?: ProcessEntry[];
   onKillProcess?: (pgid: number) => void;
@@ -707,21 +724,51 @@ export function SessionCard({
               <button
                 onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
                 disabled={session.resuming || session.cwdMissing === true}
-                className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 title={session.cwdMissing ? "session's directory no longer exists" : "Resume session (continue same session)"}
               >
-                <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />Resume
+                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />Resume
               </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
               disabled={session.resuming || session.cwdMissing === true}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
               title={session.cwdMissing ? "session's directory no longer exists" : "Fork session (new session from this point)"}
             >
-              <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />Fork
+              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />Fork
             </button>
           </>
+        )}
+        {/* +Session — clean sibling spawn. Always visible (no ended/sessionFile
+            gate, unlike Fork/Resume above). Inherits cwd + attachedProposal.
+            See change: session-card-plus-session-button. */}
+        {onSpawnSibling && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
+            disabled={!!session.cwdMissing}
+            className="text-[9px] px-1 py-px rounded border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={session.cwdMissing ? "session's directory no longer exists" : "+Session clean sibling in same folder"}
+            data-testid="session-card-spawn-sibling"
+          >
+            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />Session
+          </button>
+        )}
+        {/* +Worktree — create git worktree (if needed) + spawn session inside
+            it via WorktreeSpawnDialog. Gated upstream by gitWorktreeEnabled.
+            Hidden when the session is ALREADY a worktree session
+            (`session.gitWorktree` set) — spawning a worktree from inside a
+            worktree is redundant. See change: session-card-plus-session-button. */}
+        {onSpawnWorktree && !session.gitWorktree && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
+            disabled={!!session.cwdMissing}
+            className="text-[9px] px-1 py-px rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            title={session.cwdMissing ? "session's directory no longer exists" : "Create git worktree + spawn session inside it"}
+            data-testid="session-card-spawn-worktree"
+          >
+            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />Worktree
+          </button>
         )}
       </div>
 

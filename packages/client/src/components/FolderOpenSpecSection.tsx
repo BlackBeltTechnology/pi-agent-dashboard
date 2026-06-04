@@ -279,7 +279,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
               type="button"
               onClick={(e) => { e.stopPropagation(); onSpawnAttached(cwd, c.name); }}
               data-testid={`spawn-attached-btn-${c.name}`}
-              title="Spawn session attached to this change"
+              title="+Session attached to this change"
               className="text-[var(--text-muted)] hover:text-green-400"
             >
               <Icon path={mdiPlay} size={0.5} />

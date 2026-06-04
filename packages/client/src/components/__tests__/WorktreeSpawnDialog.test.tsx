@@ -706,7 +706,7 @@ describe("WorktreeSpawnDialog — bootstrap probe + degraded button", () => {
     await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
     // The row label should still be Spawn → (no ⚠ badge).
     const row = screen.getByTestId("worktree-row-main");
-    expect(row.textContent).toMatch(/Spawn →/);
+    expect(row.textContent).toMatch(/\+Session →/);
     expect(row.textContent).not.toMatch(/Install deps/);
   });
 
@@ -736,7 +736,7 @@ describe("WorktreeSpawnDialog — bootstrap probe + degraded button", () => {
     await waitFor(() => screen.getByTestId("worktree-row-main"));
     await waitFor(() => expect(fetchWorktreeBootstrapStatus).toHaveBeenCalled());
     const row = screen.getByTestId("worktree-row-main");
-    expect(row.textContent).toMatch(/Spawn →/);
+    expect(row.textContent).toMatch(/\+Session →/);
     expect(row.textContent).not.toMatch(/Install deps/);
   });
 });

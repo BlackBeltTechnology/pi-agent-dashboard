@@ -192,8 +192,8 @@ export function LandingPage({
               title="Start session"
               description={
                 firstPinnedCwd
-                  ? `Spawn a pi session in ${truncatePath(firstPinnedCwd)}.`
-                  : "Spawn your first pi session in a pinned folder."
+                  ? `+Session: a pi session in ${truncatePath(firstPinnedCwd)}.`
+                  : "+Session: your first pi session in a pinned folder."
               }
               hint={step3 === "locked" ? "Requires: a pinned folder" : undefined}
               ctaLabel="Start session"

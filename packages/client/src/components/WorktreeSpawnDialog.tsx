@@ -493,10 +493,10 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                   <span className="text-[11px] text-yellow-300">Installing…</span>
                 ) : needs ? (
                   <span className="text-[11px] text-yellow-300" data-testid={`worktree-row-${wt.isMain ? "main" : encodeURIComponent(wt.path)}-needs-bootstrap`}>
-                    ⚠ Install deps + Spawn →
+                    ⚠ Install deps +Session →
                   </span>
                 ) : (
-                  <span className="text-[11px] text-blue-400">Spawn →</span>
+                  <span className="text-[11px] text-blue-400">+Session →</span>
                 )}
               </button>
             );
@@ -633,7 +633,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           >
             {bootstrap.phase === "installing"
               ? "Installing…"
-              : submitting ? "Creating…" : "Create + Spawn →"}
+              : submitting ? "Creating…" : "Create +Session →"}
           </button>
         </div>
 

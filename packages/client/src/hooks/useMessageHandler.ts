@@ -457,7 +457,7 @@ export function useMessageHandler(
           setSpawnErrors((prev) => {
             const next = new Map(prev);
             if (!next.has(msg.cwd)) {
-              next.set(msg.cwd, { kind: "error", message: msg.message ?? "Spawn failed" });
+              next.set(msg.cwd, { kind: "error", message: msg.message ?? "+Session failed" });
             }
             return next;
           });

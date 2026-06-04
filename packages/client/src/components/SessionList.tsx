@@ -268,7 +268,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // Show toast for spawn results
   useEffect(() => {
     if (spawnResult) {
-      showToast(spawnResult.success ? spawnResult.message : `Spawn failed: ${spawnResult.message}`);
+      showToast(spawnResult.success ? spawnResult.message : `+Session failed: ${spawnResult.message}`);
       onSpawnResultSeen?.();
     }
   }, [spawnResult, showToast, onSpawnResultSeen]);
@@ -834,6 +834,13 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                         onRename={onRename ? (name) => onRename(session.id, name) : undefined}
                         onShutdown={onShutdown}
                         onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
+                        onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
+                        onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
+                          // Reuse existing worktree dialogs: proposal-aware path
+                          // when attached, plain path otherwise. No new state.
+                          if (s.attachedProposal) setWorktreeForChange({ cwd: s.cwd, changeName: s.attachedProposal });
+                          else setWorktreeDialogCwd(s.cwd);
+                        } : undefined}
                         commands={commandsMap?.get(session.id)}
                         processes={session.processes}
                         onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
