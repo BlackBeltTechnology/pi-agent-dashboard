@@ -462,7 +462,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
 
               <Section title="Sessions">
                 <SelectField
-                  label="Spawn Strategy"
+                  label="+Session Strategy"
                   value={config.spawnStrategy}
                   options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
                   onChange={(v) => update((c) => { c.spawnStrategy = v; })}
@@ -494,7 +494,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">Spawn register timeout (ms)</label>
+                    <label className="text-sm text-[var(--text-secondary)]">+Session register timeout (ms)</label>
                     <input
                       type="number"
                       className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
@@ -829,7 +829,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
                         })}
                       />
                       <NumberField
-                        label="Max Concurrent Spawns (1–16)"
+                        label="Max Concurrent +Sessions (1–16)"
                         disabled={openspecOff}
                         value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
                         onChange={(v) => update((c) => {

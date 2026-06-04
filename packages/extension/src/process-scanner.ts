@@ -58,6 +58,56 @@ export interface ChildProcessInfo {
 }
 
 /**
+ * Resolve pi's OWN process-group id once and cache it. pi's plugin/MCP
+ * sidecars (e.g. context-mode's `server.bundle.mjs`) are spawned directly
+ * by pi and inherit pi's PGID, so seeding `excludedPgids` with this value
+ * keeps pi-self + same-group plumbing out of the process list.
+ *
+ * Unix-only: `ps -o pgid= -p <pid>`. Returns `undefined` on Windows (the
+ * scan path there is PID-based, so the exclusion is a no-op) or on any
+ * failure. Cached for the process lifetime. See change:
+ * classify-process-list-entries.
+ */
+let ownPgidResolved = false;
+let ownPgidValue: number | undefined;
+
+export function getOwnPgid(options?: {
+  _spawnSync?: SpawnSyncFn;
+  _platform?: string;
+  _pid?: number;
+}): number | undefined {
+  if (ownPgidResolved) return ownPgidValue;
+  const platform = options?._platform ?? process.platform;
+  const spawnSync = options?._spawnSync ?? defaultSpawnSync;
+  const pid = options?._pid ?? process.pid;
+  ownPgidValue = resolveOwnPgid(pid, platform, spawnSync);
+  ownPgidResolved = true;
+  return ownPgidValue;
+}
+
+function resolveOwnPgid(pid: number, platform: string, spawnSync: SpawnSyncFn): number | undefined {
+  if (platform === "win32") return undefined;
+  try {
+    const result = spawnSync("ps", ["-o", "pgid=", "-p", String(pid)], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    if (result.status !== 0 || !result.stdout) return undefined;
+    const pgid = parseInt(result.stdout.trim(), 10);
+    return !isNaN(pgid) && pgid > 0 ? pgid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Test-only: reset the cached own-PGID so each test resolves fresh. */
+export function __resetOwnPgidCacheForTests(): void {
+  ownPgidResolved = false;
+  ownPgidValue = undefined;
+}
+
+/**
  * Parse ps ETIME format into milliseconds.
  * Re-exported from the shared platform primitive to keep the public API of
  * this module stable while centralizing the pure helper.

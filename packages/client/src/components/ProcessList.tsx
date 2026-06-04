@@ -29,13 +29,35 @@
  */
 import React from "react";
 import { Icon } from "@mdi/react";
-import { mdiClose, mdiChevronDown, mdiChevronRight, mdiAlertOutline } from "@mdi/js";
+import { mdiClose, mdiChevronDown, mdiChevronRight, mdiAlertOutline, mdiRobotOutline, mdiPowerPlugOutline, mdiCogOutline } from "@mdi/js";
+import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 export interface ProcessEntry {
   pid: number;
   pgid: number;
   command: string;
   elapsedMs: number;
+  /** Server-supplied classification. Absent ⇒ render as a raw `task`. */
+  kind?: ProcessKind;
+  label?: string;
+  sessionRef?: string;
+}
+
+/** Map a process kind to its mdi icon path. */
+const KIND_ICON: Record<ProcessKind, string> = {
+  "sub-session": mdiRobotOutline,
+  "pi-worker": mdiRobotOutline,
+  plugin: mdiPowerPlugOutline,
+  task: mdiCogOutline,
+};
+
+function kindIcon(kind: ProcessKind | undefined): string {
+  return KIND_ICON[kind ?? "task"] ?? mdiCogOutline;
+}
+
+/** Display text: the friendly label when present, else the raw command. */
+function displayLabel(p: ProcessEntry): string {
+  return p.label ?? p.command;
 }
 
 /**
@@ -88,6 +110,55 @@ export function computeVisibleRows(processes: readonly ProcessEntry[]): VisibleR
   return { visible, overflow };
 }
 
+/** One process row: kind icon + (linkable) label + elapsed + kill button. */
+function ProcessRow({
+  p,
+  compact,
+  onKill,
+  onNavigateToSession,
+}: {
+  p: ProcessEntry;
+  compact: boolean;
+  onKill: (pgid: number) => void;
+  onNavigateToSession?: (sessionId: string) => void;
+}) {
+  const iconSize = compact ? 0.45 : 0.5;
+  const closeSize = compact ? 0.35 : 0.4;
+  const text = compact ? truncateCommand(displayLabel(p), 30) : truncateCommand(displayLabel(p));
+  const linkable = p.kind === "sub-session" && !!p.sessionRef && !!onNavigateToSession;
+  const rowClass = compact
+    ? "flex items-center gap-1.5 text-[11px]"
+    : "flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)]";
+  return (
+    <div className={rowClass}>
+      <Icon path={kindIcon(p.kind)} size={iconSize} className="text-[var(--text-tertiary)] flex-shrink-0" />
+      {linkable ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onNavigateToSession!(p.sessionRef!); }}
+          className="text-[var(--accent,#3b82f6)] hover:underline truncate flex-1 text-left"
+          title={p.command}
+        >
+          {text}
+        </button>
+      ) : (
+        <span className="text-[var(--text-secondary)] truncate flex-1" title={p.command}>
+          {text}
+        </span>
+      )}
+      <span className="text-[var(--text-tertiary)] flex-shrink-0">{formatElapsed(p.elapsedMs)}</span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onKill(p.pgid); }}
+        className="text-[var(--text-muted)] hover:text-red-400 flex-shrink-0 p-0.5"
+        title={KILL_TOOLTIP}
+        aria-label={KILL_TOOLTIP}
+      >
+        <Icon path={mdiClose} size={closeSize} />
+      </button>
+    </div>
+  );
+}
+
 interface ProcessListProps {
   processes: ProcessEntry[];
   onKill: (pgid: number) => void;
@@ -96,9 +167,11 @@ interface ProcessListProps {
   /** Invoked when the user clicks the summary row. */
   onToggle: () => void;
   compact?: boolean;
+  /** Focus/scroll to a referenced session (for `sub-session` rows). */
+  onNavigateToSession?: (sessionId: string) => void;
 }
 
-export function ProcessList({ processes, onKill, expanded, onToggle, compact }: ProcessListProps) {
+export function ProcessList({ processes, onKill, expanded, onToggle, compact, onNavigateToSession }: ProcessListProps) {
   if (processes.length === 0) return null;
 
   const { visible, overflow } = computeVisibleRows(processes);
@@ -129,20 +202,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact }: 
         {expanded && (
           <>
             {visible.map((p) => (
-              <div key={p.pid} className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-[var(--text-secondary)] truncate flex-1" title={p.command}>
-                  {truncateCommand(p.command, 30)}
-                </span>
-                <span className="text-[var(--text-tertiary)] flex-shrink-0">{formatElapsed(p.elapsedMs)}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onKill(p.pgid); }}
-                  className="text-[var(--text-muted)] hover:text-red-400 flex-shrink-0 p-0.5"
-                  title={KILL_TOOLTIP}
-                  aria-label={KILL_TOOLTIP}
-                >
-                  <Icon path={mdiClose} size={0.35} />
-                </button>
-              </div>
+              <ProcessRow key={p.pid} p={p} compact onKill={onKill} onNavigateToSession={onNavigateToSession} />
             ))}
             {overflow.length > 0 && (
               <div
@@ -164,20 +224,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact }: 
       {expanded && (
         <>
           {visible.map((p) => (
-            <div key={p.pid} className="flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)]">
-              <span className="text-[var(--text-secondary)] truncate flex-1" title={p.command}>
-                {truncateCommand(p.command)}
-              </span>
-              <span className="text-[var(--text-tertiary)] flex-shrink-0">{formatElapsed(p.elapsedMs)}</span>
-              <button
-                onClick={(e) => { e.stopPropagation(); onKill(p.pgid); }}
-                className="text-[var(--text-muted)] hover:text-red-400 flex-shrink-0 p-0.5"
-                title={KILL_TOOLTIP}
-                aria-label={KILL_TOOLTIP}
-              >
-                <Icon path={mdiClose} size={0.4} />
-              </button>
-            </div>
+            <ProcessRow key={p.pid} p={p} compact={false} onKill={onKill} onNavigateToSession={onNavigateToSession} />
           ))}
           {overflow.length > 0 && (
             <div

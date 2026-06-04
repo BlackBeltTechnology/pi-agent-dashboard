@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, renderHook } from "@testing-library/react";
 import React from "react";
 import { SessionCard, GroupGitInfo } from "../SessionCard.js";
+import { useSessionActions } from "../../hooks/useSessionActions.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
@@ -1024,5 +1025,177 @@ describe("SessionCard — openspecHasDir (auto-hide-empty-session-subcards)", ()
       />,
     );
     expect(screen.queryByText("OPENSPEC")).not.toBeNull();
+  });
+});
+
+describe("SessionCard — +Session sibling-spawn button (session-card-plus-session-button)", () => {
+  const spawnProps = { ...defaultProps, onSpawnSibling: () => {} };
+
+  it("2.1 renders for a live session (status !== ended)", () => {
+    const session = makeSession({ status: "streaming" });
+    render(<SessionCard session={session} {...spawnProps} />);
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
+  });
+
+  it("2.2 renders for an ended session alongside Fork", () => {
+    const session = makeSession({ status: "ended", sessionFile: "/sess/x.jsonl" });
+    render(<SessionCard session={session} {...spawnProps} onResume={() => {}} />);
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
+    expect(screen.getByText("Fork")).toBeTruthy();
+  });
+
+  it("2.3 renders even when sessionFile is absent (no Fork-style gating)", () => {
+    const session = makeSession({ status: "ended", sessionFile: undefined });
+    render(<SessionCard session={session} {...spawnProps} onResume={() => {}} />);
+    // Fork is gated on sessionFile; +Session is not.
+    expect(screen.queryByText("Fork")).toBeNull();
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
+  });
+
+  it("2.4 click invokes handler with the session", () => {
+    const onSpawnSibling = vi.fn();
+    const session = makeSession();
+    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
+    expect(onSpawnSibling).toHaveBeenCalledWith(session);
+  });
+
+  it("2.5 cwdMissing → disabled attribute + tooltip changes", () => {
+    const session = makeSession({ cwdMissing: true });
+    render(<SessionCard session={session} {...spawnProps} />);
+    const btn = screen.getByTestId("session-card-spawn-sibling") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toBe("session's directory no longer exists");
+  });
+
+  it("2.6 no handler → button absent", () => {
+    const session = makeSession();
+    render(<SessionCard session={session} {...defaultProps} />);
+    expect(screen.queryByTestId("session-card-spawn-sibling")).toBeNull();
+  });
+});
+
+describe("SessionCard — +Session wiring through handleSpawnSession (session-card-plus-session-button)", () => {
+  // Build a real handleSpawnSession from useSessionActions with stubbed deps,
+  // then wire onSpawnSibling exactly as SessionList does:
+  //   onSpawnSibling={(s) => onSpawnSession(s.cwd, s.attachedProposal || undefined)}
+  // This exercises the full click → ws.send payload path (cwd, attachProposal
+  // omission, requestId minting).
+  //
+  // NOTE: worktree sessions inherit the parent cwd unconditionally — a
+  // worktree session's `cwd` is the worktree dir, so +Session spawns INSIDE
+  // the worktree, never the main repo. Do not add gitWorktreeBase here; that
+  // would change the clean-sibling semantic. See change:
+  // session-card-plus-session-button (task 6.5).
+  function setup() {
+    const send = vi.fn();
+    const { result } = renderHook(() =>
+      useSessionActions({
+        selectedId: undefined,
+        send,
+        navigate: () => {},
+        setMobileOpen: () => {},
+        sessions: new Map(),
+        setSessions: () => {},
+        setSessionStates: () => {},
+        setSpawningCwds: () => {},
+        setTerminals: () => {},
+        clearSpawningCwd: () => {},
+        spawnTimeoutsRef: { current: new Map() },
+        pendingTerminalCwdRef: { current: null },
+        terminals: new Map(),
+        pendingSpawnsRef: { current: new Map() },
+      } as any),
+    );
+    const onSpawnSession = result.current.handleSpawnSession;
+    const onSpawnSibling = (s: any) => onSpawnSession(s.cwd, s.attachedProposal || undefined);
+    return { send, onSpawnSibling };
+  }
+
+  it("4.1 click sends spawn_session with cwd + attachProposal + requestId", () => {
+    const { send, onSpawnSibling } = setup();
+    const session = makeSession({ cwd: "/project/foo", attachedProposal: "add-dark-mode" });
+    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
+    expect(send).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0][0];
+    expect(payload.type).toBe("spawn_session");
+    expect(payload.cwd).toBe("/project/foo");
+    expect(payload.attachProposal).toBe("add-dark-mode");
+    expect(typeof payload.requestId).toBe("string");
+    expect(payload.requestId.length).toBeGreaterThan(0);
+  });
+
+  it("4.2 click omits attachProposal key when parent has none", () => {
+    const { send, onSpawnSibling } = setup();
+    const session = makeSession({ cwd: "/project/bar", attachedProposal: undefined });
+    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
+    const payload = send.mock.calls[0][0];
+    expect(payload.cwd).toBe("/project/bar");
+    expect("attachProposal" in payload).toBe(false);
+    // Also true for empty-string proposal.
+    send.mockClear();
+    cleanup();
+    const session2 = makeSession({ cwd: "/project/baz", attachedProposal: "" });
+    render(<SessionCard session={session2} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
+    expect("attachProposal" in send.mock.calls[0][0]).toBe(false);
+  });
+
+  it("4.3 cwdMissing → button disabled, click does NOT send", () => {
+    const { send, onSpawnSibling } = setup();
+    const session = makeSession({ cwd: "/project/gone", cwdMissing: true });
+    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={onSpawnSibling} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-sibling"));
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionCard — +Worktree button (session-card-plus-session-button)", () => {
+  const wtProps = { ...defaultProps, onSpawnWorktree: () => {} };
+
+  it("7.x renders when onSpawnWorktree supplied", () => {
+    render(<SessionCard session={makeSession()} {...wtProps} />);
+    const btn = screen.getByTestId("session-card-spawn-worktree");
+    expect(btn).toBeTruthy();
+    expect(btn.textContent).toContain("Worktree");
+    expect((btn as HTMLButtonElement).title).toBe("Create git worktree + spawn session inside it");
+  });
+
+  it("7.x absent when no handler", () => {
+    render(<SessionCard session={makeSession()} {...defaultProps} />);
+    expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
+  });
+
+  it("7.x absent when session is already a worktree session", () => {
+    const session = makeSession({ gitWorktree: { name: "wt-x", base: "main" } as any });
+    render(<SessionCard session={session} {...wtProps} />);
+    expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
+    // +Session is unaffected by the worktree gate.
+    render(<SessionCard session={session} {...defaultProps} onSpawnSibling={() => {}} />);
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
+  });
+
+  it("7.x click invokes handler with the session", () => {
+    const onSpawnWorktree = vi.fn();
+    const session = makeSession();
+    render(<SessionCard session={session} {...defaultProps} onSpawnWorktree={onSpawnWorktree} />);
+    fireEvent.click(screen.getByTestId("session-card-spawn-worktree"));
+    expect(onSpawnWorktree).toHaveBeenCalledWith(session);
+  });
+
+  it("7.x cwdMissing → disabled + tooltip changes", () => {
+    const session = makeSession({ cwdMissing: true });
+    render(<SessionCard session={session} {...wtProps} />);
+    const btn = screen.getByTestId("session-card-spawn-worktree") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toBe("session's directory no longer exists");
+  });
+
+  it("7.x coexists with +Session", () => {
+    render(<SessionCard session={makeSession()} {...defaultProps} onSpawnSibling={() => {}} onSpawnWorktree={() => {}} />);
+    expect(screen.getByTestId("session-card-spawn-sibling")).toBeTruthy();
+    expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
   });
 });

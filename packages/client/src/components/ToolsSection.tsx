@@ -376,7 +376,7 @@ export function SpawnFailuresSection() {
         onClick={expanded ? () => setExpanded(false) : load}
         className="w-full flex items-center justify-between px-4 py-2.5 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] text-sm font-medium text-[var(--text-primary)]"
       >
-        <span>Recent Spawn Failures</span>
+        <span>Recent +Session Failures</span>
         <span className="text-[var(--text-tertiary)] text-xs">{loading ? "Loading…" : expanded ? "▲" : "▼"}</span>
       </button>
       {expanded && entries !== null && (

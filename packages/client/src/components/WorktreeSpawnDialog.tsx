@@ -320,7 +320,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
               {wt.isMain && (
                 <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">main</span>
               )}
-              <span className="text-[11px] text-blue-400">Spawn →</span>
+              <span className="text-[11px] text-blue-400">+Session →</span>
             </button>
           ))}
         </div>
@@ -430,7 +430,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             data-testid="worktree-dialog-create-submit"
             className="px-3 py-1 text-sm rounded bg-blue-500/80 hover:bg-blue-500 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] text-white"
           >
-            {submitting ? "Creating…" : "Create + Spawn →"}
+            {submitting ? "Creating…" : "Create +Session →"}
           </button>
         </div>
 

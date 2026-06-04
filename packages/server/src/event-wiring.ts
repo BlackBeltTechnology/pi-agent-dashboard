@@ -14,6 +14,7 @@ import { composeWorktreePayload } from "./git-worktree-compose.js";
 import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
 import { setCatalogueForSession } from "./provider-catalogue-cache.js";
 import { spawnPiSession } from "./process-manager.js";
+import { classifyProcesses, buildPidIndex } from "./process-classifier.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -988,14 +989,17 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    // Forward process list from bridge to subscribed browsers
+    // Forward process list from bridge to subscribed browsers, enriched with
+    // per-entry classification. See change: classify-process-list-entries.
     if (msg.type === "process_list") {
-      // Store on session so new subscribers get current processes
-      sessionManager.update(sessionId, { processes: msg.processes });
+      const pidIndex = buildPidIndex(sessionManager.listActive());
+      const enriched = classifyProcesses(msg.processes, pidIndex);
+      // Store enriched entries so late subscribers replay with classification.
+      sessionManager.update(sessionId, { processes: enriched });
       browserGateway.sendToSubscribers(sessionId, {
         type: "process_list_update",
         sessionId,
-        processes: msg.processes,
+        processes: enriched,
       });
     }
 

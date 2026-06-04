@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
 import { StatusBar } from "../StatusBar.js";
+import { ChatViewMenu } from "../ChatViewMenu.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());
@@ -31,6 +32,38 @@ describe("StatusBar", () => {
   it("hides working status when idle", () => {
     render(<StatusBar model="anthropic/claude-4" models={models} status="idle" onSelectModel={() => {}} onSelectThinkingLevel={() => {}} />);
     expect(screen.queryByTestId("working-status")).toBeNull();
+  });
+});
+
+describe("StatusBar display-prefs menu (relocate-view-menu-to-status-bar)", () => {
+  it("renders the View menu inside the status bar, after refresh and before the model selector", () => {
+    render(
+      <StatusBar
+        model="anthropic/claude-4"
+        models={models}
+        status="idle"
+        onSelectModel={() => {}}
+        onSelectThinkingLevel={() => {}}
+        leading={(
+          <>
+            <button data-testid="status-refresh" type="button">⟳</button>
+            <ChatViewMenu sessionId="s1" currentOverride={undefined} send={() => {}} />
+          </>
+        )}
+      />,
+    );
+    const statusBar = screen.getByTestId("status-bar");
+    const refresh = screen.getByTestId("status-refresh");
+    // Exactly one View trigger must exist, and it must live in the status bar.
+    const viewButtons = screen.getAllByTitle("View options");
+    expect(viewButtons).toHaveLength(1);
+    const viewButton = viewButtons[0];
+    const modelButton = screen.getByTestId("model-selector-button");
+
+    expect(statusBar.contains(viewButton)).toBe(true);
+    // DOM order: refresh -> View menu -> model selector
+    expect(refresh.compareDocumentPosition(viewButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(viewButton.compareDocumentPosition(modelButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
