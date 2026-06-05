@@ -179,10 +179,12 @@ describe("listPullRequests", () => {
 describe("addWorktreeFromPr", () => {
   let repo: string;
   let worktrees: string[];
+  let bareRemotes: string[];
 
   beforeEach(() => {
     repo = makeRepo();
     worktrees = [];
+    bareRemotes = [];
   });
 
   afterEach(() => {
@@ -191,6 +193,9 @@ describe("addWorktreeFromPr", () => {
       try { git(`worktree remove --force ${wt}`, repo); } catch {}
     }
     rmSync(repo, { recursive: true, force: true });
+    for (const r of bareRemotes) {
+      rmSync(r, { recursive: true, force: true });
+    }
   });
 
   /**
@@ -200,6 +205,7 @@ describe("addWorktreeFromPr", () => {
   function simulatePr(prNumber: number, commitMsg = "PR commit"): void {
     // Create a bare remote.
     const remote = mkdtempSync(join(tmpdir(), "bare-remote-"));
+    bareRemotes.push(remote);
     git("init --bare", remote);
     git(`remote add origin ${remote}`, repo);
     git("push origin main", repo);

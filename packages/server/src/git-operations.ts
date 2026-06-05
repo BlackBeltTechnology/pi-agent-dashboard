@@ -1148,7 +1148,11 @@ export function listPullRequests(opts: {
   }
   let raw: any[];
   try {
-    raw = JSON.parse(stdout);
+    const parsed = JSON.parse(stdout);
+    if (!Array.isArray(parsed)) {
+      return { ok: false, code: "git_failed", stderr: "gh returned non-array JSON" };
+    }
+    raw = parsed;
   } catch {
     return { ok: false, code: "git_failed", stderr: "malformed JSON from gh" };
   }

@@ -132,7 +132,7 @@ To avoid duplicate file-read logic, the `model:resolve` listener in `provider-re
 
 ### Requirement: pi-agent-dashboard SHALL register a `role:resolve-model` listener serving the subagents harness
 
-The dashboard extension SHALL register a `pi.events.on("role:resolve-model", probe)` listener in `role-manager.ts::activate`. This serves `pi-dashboard-subagents` (>= 0.2.0), which resolves an agent definition's `model: "@role"` frontmatter by emitting `role:resolve-model` with a probe shaped `{ ref: string, resolved?: string, available?: Record<string, string> }` and reading back `probe.resolved`.
+The dashboard extension SHALL register a `pi.events.on("role:resolve-model", probe)` listener in `role-manager.ts::activate`. This serves `pi-dashboard-subagents` (>= 0.2.0), which resolves an agent definition's `model: "@role"` frontmatter by emitting `role:resolve-model` with a probe-shaped `{ ref: string, resolved?: string, available?: Record<string, string> }` and reading back `probe.resolved`.
 
 The handler SHALL:
 

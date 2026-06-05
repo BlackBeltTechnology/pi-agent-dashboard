@@ -599,10 +599,11 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: "cwd_invalid", error: "prNumber required (positive integer)" } satisfies ApiResponse;
       }
+      const pathArg = typeof body.path === "string" && body.path.length > 0 ? body.path : undefined;
       const result = addWorktreeFromPr({
         cwd: validated.cwd,
         prNumber: body.prNumber,
-        path: body.path,
+        path: pathArg,
       });
       if (!result.ok) {
         const httpStatus =

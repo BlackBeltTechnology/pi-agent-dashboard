@@ -39,6 +39,14 @@ export function PrCombobox({
   const filterInputRef = useRef<HTMLInputElement>(null);
   const popoverId = useId();
 
+  // Reset cached state when cwd changes.
+  useEffect(() => {
+    setPrs(null);
+    setFetched(false);
+    setError(null);
+    setLoading(false);
+  }, [cwd]);
+
   // Fetch on first open.
   useEffect(() => {
     if (!open || fetched) return;
