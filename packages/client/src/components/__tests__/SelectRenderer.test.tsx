@@ -45,11 +45,31 @@ describe("SelectRenderer", () => {
       expect(screen.getByText("lean one-line hook")).toBeTruthy();
     });
 
-    it("Cancel row triggers onCancel", () => {
+    it("synthetic Cancel row triggers onCancel", () => {
       const onCancel = vi.fn();
       render(<SelectRenderer {...baseProps} status="pending" onRespond={vi.fn()} onCancel={onCancel} />);
       fireEvent.click(screen.getByText("Cancel"));
       expect(onCancel).toHaveBeenCalled();
+    });
+
+    it("inline Cancel option calls onCancel (not onRespond) and suppresses synthetic Cancel row", () => {
+      const onRespond = vi.fn();
+      const onCancel = vi.fn();
+      render(
+        <SelectRenderer
+          requestId="r"
+          method="select"
+          params={{ title: "Pick", options: ["Alpha", "Beta", "Cancel"] }}
+          status="pending"
+          onRespond={onRespond}
+          onCancel={onCancel}
+        />,
+      );
+      // Only ONE Cancel row (the inline option), not a synthetic duplicate.
+      expect(screen.getAllByText("Cancel")).toHaveLength(1);
+      fireEvent.click(screen.getByText("Cancel"));
+      expect(onCancel).toHaveBeenCalled();
+      expect(onRespond).not.toHaveBeenCalled();
     });
   });
 
