@@ -25,6 +25,8 @@ import {
   resolveDefaultBase,
   slugifyBranch,
 } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
+import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { BranchCombobox } from "./BranchCombobox.js";
 
 interface Props {
   /** Cwd to scope the dialog to (folder header's path). */
@@ -62,8 +64,8 @@ interface Props {
 interface LoadedData {
   worktrees: WorktreeEntry[];
   head: HeadInfo;
-  localBranches: string[];
-  remoteBranches: string[];
+  localBranches: GitBranchEntry[];
+  remoteBranches: GitBranchEntry[];
 }
 
 export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal }: Props) {
@@ -106,15 +108,15 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           fetchBranches(cwd),
         ]);
         if (cancelled) return;
-        const localBranches = branchList.branches.filter((b) => !b.isRemote).map((b) => b.name);
-        const remoteBranches = branchList.branches.filter((b) => b.isRemote).map((b) => b.name);
+        const localBranches = branchList.branches.filter((b) => !b.isRemote);
+        const remoteBranches = branchList.branches.filter((b) => b.isRemote);
         const loaded: LoadedData = { worktrees, head, localBranches, remoteBranches };
         setData(loaded);
         // Compute initial base via the shared fallback helper.
         const def = resolveDefaultBase({
           currentBranch: head.branch,
-          localBranches,
-          remoteBranches,
+          localBranches: localBranches.map((b) => b.name),
+          remoteBranches: remoteBranches.map((b) => b.name),
         });
         if (def.ok) setBase(def.base);
       } catch (err: any) {
@@ -137,8 +139,8 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     return joinPath(main.path, ".worktrees", slug);
   }, [data, slug]);
   const effectivePath = pathOverride ?? derivedPath;
-  const allBranches = useMemo(() => {
-    if (!data) return [] as string[];
+  const allBranches = useMemo<GitBranchEntry[]>(() => {
+    if (!data) return [];
     return [...data.localBranches, ...data.remoteBranches];
   }, [data]);
 
@@ -334,17 +336,14 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         <div className="space-y-2">
           <label className="block">
             <span className="text-[11px] text-[var(--text-tertiary)]">Base branch</span>
-            <select
-              data-testid="worktree-base-select"
+            <BranchCombobox
+              data-testid="worktree-base-combobox"
+              branches={allBranches}
               value={base}
-              onChange={(e) => setBase(e.target.value)}
-              className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
-            >
-              {!hasUsableBase && <option value="">no usable default base — pick one</option>}
-              {allBranches.map((b) => (
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
+              onChange={setBase}
+              current={data.head.branch ?? undefined}
+              placeholder={hasUsableBase ? undefined : "no usable default base — pick one"}
+            />
           </label>
 
           <label className="block">
