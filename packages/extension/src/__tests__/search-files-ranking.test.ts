@@ -146,6 +146,11 @@ describe("searchFiles ranking", () => {
     expect(r).toContain("match.ts");
   });
 
+  it("unreadable directory is skipped, not fatal", () => {
+    // Non-existent cwd: readdirSync throws -> caught -> empty result, no throw.
+    expect(searchFiles(join(tmpdir(), "searchfiles-does-not-exist-xyz"), "")).toEqual([]);
+  });
+
   it("IGNORE_DIRS and depth > 6 pruned", () => {
     const r = search([
       "node_modules/pkg/index.ts",
