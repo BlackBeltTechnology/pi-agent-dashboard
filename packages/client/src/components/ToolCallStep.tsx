@@ -6,6 +6,28 @@ import type { ChatImage } from "../lib/event-reducer.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { ElapsedBadge } from "./ElapsedBadge.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
+import { forToolName, CurrentPluginLayer, type ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+
+/**
+ * Evaluate a `tool-renderer` claim's optional `shouldRender`. Absent or truthy
+ * → render. Returns false → fall through. Throws → fail closed (false) + warn.
+ * See change: wire-tool-renderer-slot.
+ */
+function claimShouldRender(claim: ClaimEntry, toolName: string): boolean {
+  if (!claim.shouldRender) return true;
+  try {
+    // tool-renderer claims take no predicate input (SlotPredicateInput = never);
+    // honcho-style claims read a sync cache. Pass undefined.
+    return (claim.shouldRender as (input?: unknown) => boolean)(undefined) !== false;
+  } catch (err) {
+    console.warn(
+      `[tool-renderer] shouldRender threw for plugin "${claim.pluginId}" toolName "${toolName}"; treating as false (fail-closed)`,
+      err,
+    );
+    return false;
+  }
+}
 
 type StopState = "idle" | "aborting" | "killing";
 
@@ -68,6 +90,22 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const [stopState, setStopState] = useState<StopState>("idle");
   const Renderer = getToolRenderer(toolName);
 
+  // Resolution chain: plugin `tool-renderer` claim → built-in registry → Generic.
+  // One-shot at lookup time; a chosen plugin renderer that throws is caught by
+  // the per-tool ErrorBoundary below (no silent fall-through). When no
+  // SlotRegistryProvider is mounted (tests/storybook) the lookup is skipped.
+  // See change: wire-tool-renderer-slot.
+  const registry = useSlotRegistryOrNull();
+  const pluginClaim = React.useMemo<ClaimEntry | null>(() => {
+    if (!registry) return null;
+    const claims = forToolName(registry.getClaims("tool-renderer"), toolName);
+    for (const c of claims) {
+      if (claimShouldRender(c, toolName)) return c;
+    }
+    return null;
+  }, [registry, toolName]);
+  const PluginComponent = pluginClaim?.Component;
+
   // Reset stop state when tool finishes
   React.useEffect(() => {
     if (status !== "running") setStopState("idle");
@@ -124,15 +162,30 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
       {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>
-            <Renderer
-              toolName={toolName}
-              args={args}
-              status={status}
-              result={result}
-              images={images}
-              context={context}
-              toolDetails={toolDetails}
-            />
+            {PluginComponent && pluginClaim ? (
+              <CurrentPluginLayer pluginId={pluginClaim.pluginId}>
+                <PluginComponent
+                  toolName={toolName}
+                  toolInput={args ?? {}}
+                  sessionId={context.sessionId ?? ""}
+                  status={status}
+                  result={result}
+                  images={images}
+                  context={context}
+                  toolDetails={toolDetails}
+                />
+              </CurrentPluginLayer>
+            ) : (
+              <Renderer
+                toolName={toolName}
+                args={args}
+                status={status}
+                result={result}
+                images={images}
+                context={context}
+                toolDetails={toolDetails}
+              />
+            )}
           </ErrorBoundary>
         </div>
       )}

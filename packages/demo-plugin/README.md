@@ -4,7 +4,7 @@
 
 It exists solely to exercise the `dashboard-plugin-runtime` end-to-end:
 - `settings-section` claim: renders a small settings form in the General tab.
-- `tool-renderer` claim: renders `tool_call` events with `toolName: "DashboardDemo"` as a green box.
+- `tool-renderer` claim: renders `tool_call` events with `toolName: "DashboardDemo"` as a green box. Since `wire-tool-renderer-slot`, `ToolCallStep` consults plugin `tool-renderer` claims before the built-in registry, so this green box actually mounts in the chat surface when the `DashboardDemo` tool is invoked and this plugin is enabled.
 
 ## Usage in tests
 

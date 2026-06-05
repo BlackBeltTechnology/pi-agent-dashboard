@@ -24,6 +24,29 @@ export interface FolderDescriptor {
   label?: string;
 }
 
+/**
+ * Image payload forwarded to `tool-renderer` plugins. Structural mirror of the
+ * client's `ChatImage` (kept inline so this types-only package stays free of a
+ * client dependency). See change: wire-tool-renderer-slot.
+ */
+export interface ToolRendererImage {
+  data: string;
+  mimeType: string;
+}
+
+/**
+ * Tool execution context forwarded to `tool-renderer` plugins. Structural
+ * mirror of the client's `ToolContext`. `editors` / `session` are intentionally
+ * loose (`unknown[]` / `unknown`) so the shared package avoids importing client
+ * types. See change: wire-tool-renderer-slot.
+ */
+export interface ToolRendererContext {
+  cwd?: string;
+  editors?: unknown[];
+  sessionId?: string;
+  session?: unknown;
+}
+
 /** Map of slot id → props type for that slot's contributions. */
 export interface SlotPropsMap {
   "sidebar-folder-section": {
@@ -90,6 +113,13 @@ export interface SlotPropsMap {
     toolInput: Record<string, unknown>;
     sessionId: string;
     pluginContext: AnyPluginContext;
+    // ─── newly optional (mirror built-in ToolRendererProps) ───
+    // See change: wire-tool-renderer-slot.
+    status?: "running" | "complete" | "error";
+    result?: string;
+    toolDetails?: Record<string, unknown>;
+    images?: ToolRendererImage[];
+    context?: ToolRendererContext;
   };
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;
