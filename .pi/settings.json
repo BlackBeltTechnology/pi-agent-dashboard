@@ -1,7 +1,7 @@
 {
   "packages": [
     {
-      "source": "..",
+      "source": "/Users/robson/Project/pi-agent-dashboard",
       "extensions": [
         "+packages/extension/src/bridge.ts"
       ]
@@ -9,6 +9,9 @@
   ],
   "worktreeInit": {
     "gate": "test ! -d node_modules",
-    "run": { "type": "script", "command": "npm ci && npx openspec init --tools pi --force" }
+    "run": {
+      "type": "script",
+      "command": "npm ci && npx openspec init --tools pi --force"
+    }
   }
 }

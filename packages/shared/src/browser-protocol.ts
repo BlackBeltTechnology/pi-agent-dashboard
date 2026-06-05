@@ -23,6 +23,15 @@ import type { TerminalSession } from "./terminal-types.js";
 import type { EditorInstanceStatus } from "./editor-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 
+// Batch ask_user contracts live in protocol.ts; re-export so browser-side
+// consumers import from one place. See change: redesign-ask-user-question-cards.
+export type {
+  InteractiveMethod,
+  BatchQuestion,
+  BatchAnswer,
+  BatchResult,
+} from "./protocol.js";
+
 // ── Configurable chat display ───────────────────────────────────────
 // See change: configurable-chat-display.
 
@@ -375,10 +384,12 @@ export interface BrowserPromptRequestMessage {
   promptId: string;
   prompt: {
     question: string;
+    /** Interactive method, incl. "batch". See InteractiveMethod in protocol.ts. */
     type: string;
     options?: string[];
     defaultValue?: string;
     pipeline?: string;
+    /** For type: "batch", carries questions: BatchQuestion[]. */
     metadata?: Record<string, unknown>;
   };
   component: {

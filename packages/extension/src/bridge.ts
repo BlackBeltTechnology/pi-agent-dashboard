@@ -1725,6 +1725,29 @@ function initBridge(pi: ExtensionAPI) {
           metadata: opts?.message ? { message: opts.message } : undefined,
         }).then(decodeMultiselectAnswer);
 
+      // ── Batch ────────────────────────────────────────────────────
+      // ctx.ui.batch is NOT a built-in pi method. The ask_user tool calls it
+      // to dispatch a multi-question batch as ONE bus request carrying
+      // `questions[]` in metadata; the dashboard renders a BatchRenderer
+      // wizard and returns one `{answers}` response (JSON-encoded in the bus
+      // `answer` string). Resolves to BatchAnswer[] on submit, or undefined on
+      // cancel. See change: redesign-ask-user-question-cards.
+      (ctx.ui as any).batch = (title: string, questions: unknown[], opts?: any) =>
+        bus.request({
+          pipeline: "command",
+          type: "batch",
+          question: title,
+          metadata: { ...(buildMeta(opts) ?? {}), questions },
+        }).then((r) => {
+          if (r.cancelled || r.answer == null) return undefined;
+          try {
+            const parsed = JSON.parse(r.answer);
+            return Array.isArray(parsed) ? parsed : undefined;
+          } catch {
+            return undefined;
+          }
+        });
+
       // Notify is fire-and-forget: call original + forward to dashboard
       (ctx.ui as any).notify = (message: string, level?: string) => {
         originalNotify?.(message, level);

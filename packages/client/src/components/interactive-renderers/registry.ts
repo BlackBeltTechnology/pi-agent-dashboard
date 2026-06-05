@@ -5,6 +5,7 @@ import { InputRenderer } from "./InputRenderer.js";
 import { EditorRenderer } from "./EditorRenderer.js";
 import { MultiselectRenderer } from "./MultiselectRenderer.js";
 import { NotifyRenderer } from "./NotifyRenderer.js";
+import { BatchRenderer } from "./BatchRenderer.js";
 import { GenericInteractiveRenderer } from "./GenericInteractiveRenderer.js";
 
 const renderers = new Map<string, InteractiveRenderer>([
@@ -14,6 +15,7 @@ const renderers = new Map<string, InteractiveRenderer>([
   ["editor", EditorRenderer],
   ["multiselect", MultiselectRenderer],
   ["notify", NotifyRenderer],
+  ["batch", BatchRenderer],
 ]);
 
 /** Register a custom interactive renderer for a method */

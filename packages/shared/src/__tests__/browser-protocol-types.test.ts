@@ -13,6 +13,8 @@ import type {
   BrowserPromptCancelMessage,
   BrowserExtUiDecoratorMessage,
   BrowserAssetRegisterMessage,
+  BatchQuestion,
+  BatchAnswer,
 } from "../browser-protocol.js";
 import type {
   ExtensionToServerMessage,
@@ -76,6 +78,34 @@ describe("ServerToBrowserMessage includes PromptBus messages", () => {
       promptId: "p1",
     };
     expect(extractPromptType(msg)).toBe("p1");
+  });
+
+  it("batch prompt_request carries questions[] in metadata", () => {
+    const questions: BatchQuestion[] = [
+      { method: "input", title: "Project name" },
+      { method: "select", title: "Language", options: ["TS", "Go"] },
+      { method: "multiselect", title: "Tooling", options: ["ESLint", "Vitest"] },
+    ];
+    const msg: BrowserPromptRequestMessage = {
+      type: "prompt_request",
+      sessionId: "s1",
+      promptId: "p1",
+      prompt: { question: "Project setup", type: "batch", metadata: { questions } },
+      component: { type: "generic-dialog", props: {} },
+      placement: "inline",
+    };
+    expect(extractPromptType(msg)).toBe("p1");
+    expect((msg.prompt.metadata!.questions as BatchQuestion[]).length).toBe(3);
+  });
+
+  it("BatchAnswer covers confirm/value/values shapes", () => {
+    const answers: BatchAnswer[] = [
+      { value: "pi-dashboard" },
+      { value: "TS" },
+      { values: ["ESLint", "Vitest"] },
+      { confirmed: true },
+    ];
+    expect(answers).toHaveLength(4);
   });
 });
 

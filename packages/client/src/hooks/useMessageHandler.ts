@@ -625,6 +625,9 @@ export function useMessageHandler(
               message: msg.prompt?.metadata?.message as string | undefined,
               options: msg.prompt?.options,
               defaultValue: msg.prompt?.defaultValue,
+              // For method "batch": sub-questions travel in metadata.questions.
+              // See change: redesign-ask-user-question-cards.
+              questions: msg.prompt?.metadata?.questions,
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
             },

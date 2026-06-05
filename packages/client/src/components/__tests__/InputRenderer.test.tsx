@@ -145,7 +145,7 @@ describe("InputRenderer", () => {
   });
 
   describe("resolved state", () => {
-    it("displays entered value", () => {
+    it("keeps the question as title and shows the value in a read-only field", () => {
       render(
         <InputRenderer
           {...baseProps}
@@ -156,7 +156,22 @@ describe("InputRenderer", () => {
         />,
       );
 
+      expect(screen.getByText("Enter your name")).toBeTruthy();
       expect(screen.getByText("Alice")).toBeTruthy();
+    });
+
+    it("renders (left blank) for an empty submitted value", () => {
+      render(
+        <InputRenderer
+          {...baseProps}
+          status="resolved"
+          result={{ value: "" }}
+          onRespond={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText("(left blank)")).toBeTruthy();
     });
   });
 

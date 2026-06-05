@@ -259,16 +259,57 @@ export interface SpawnNewSessionMessage {
 
 // ── PromptBus protocol messages ─────────────────────────────────────
 
+/**
+ * Interactive `ask_user` methods carried by `prompt.type`. The wire field
+ * stays `string` (adapters/plugins emit custom types) but this union is the
+ * authoritative set the built-in renderers handle. `"batch"` dispatches all
+ * sub-questions as ONE request answered together.
+ * See change: redesign-ask-user-question-cards.
+ */
+export type InteractiveMethod =
+  | "confirm"
+  | "select"
+  | "multiselect"
+  | "input"
+  | "editor"
+  | "batch";
+
+/** One sub-question inside a `batch` prompt (no nesting — cannot be `batch`). */
+export interface BatchQuestion {
+  method: "confirm" | "select" | "multiselect" | "input";
+  title: string;
+  message?: string;
+  options?: string[];
+  placeholder?: string;
+}
+
+/**
+ * One answer in a `batch` response, index-aligned with `BatchQuestion[]`.
+ * `confirm` → `{confirmed}`, `select`/`input` → `{value}`,
+ * `multiselect` → `{values}`.
+ */
+export type BatchAnswer =
+  | { confirmed: boolean }
+  | { value: string }
+  | { values: string[] };
+
+/** Result payload returned by a resolved `batch` prompt. */
+export interface BatchResult {
+  answers: BatchAnswer[];
+}
+
 export interface PromptRequestMessage {
   type: "prompt_request";
   sessionId: string;
   promptId: string;
   prompt: {
     question: string;
+    /** Interactive method. See {@link InteractiveMethod}. */
     type: string;
     options?: string[];
     defaultValue?: string;
     pipeline?: string;
+    /** For `type: "batch"`, carries `questions: BatchQuestion[]`. */
     metadata?: Record<string, unknown>;
   };
   component: {

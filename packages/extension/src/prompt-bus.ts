@@ -25,7 +25,7 @@ export interface PromptClaim {
 export interface PromptRequest {
   id: string;
   pipeline: string;
-  type: "select" | "input" | "confirm" | "editor" | "multiselect";
+  type: "select" | "input" | "confirm" | "editor" | "multiselect" | "batch";
   question: string;
   options?: string[];
   defaultValue?: string;

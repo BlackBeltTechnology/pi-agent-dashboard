@@ -328,73 +328,59 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
       };
 
       // ── Batch branch ─────────────────────────────────────────────────
+      // Dispatch ALL sub-questions as ONE UI request (method:"batch"). The
+      // dashboard renders a single BatchRenderer wizard and returns one
+      // index-aligned `answers[]` response, enabling review/edit before
+      // submit. The previous per-question sequential loop could not support
+      // that. See change: redesign-ask-user-question-cards.
       if (params.method === "batch" && Array.isArray(params.questions)) {
-        const results: Array<unknown> = [];
-        let cancelled = false;
-
+        // Validate options up front (same contract as single-method dispatch).
         for (const sq of params.questions) {
-          const subTitle = `${params.title} — ${sq.title ?? "Question"}`;
-          const subMsg = withTcid(params.message ? { message: params.message } : undefined);
-
-          let answer: unknown;
-          try {
-            switch (sq.method) {
-              case "confirm":
-                answer = await ctx.ui.confirm(
-                  subTitle,
-                  sq.message ?? params.message ?? "",
-                  withTcid(undefined),
-                );
-                break;
-              case "select": {
-                const opts = Array.isArray(sq.options) ? sq.options : [];
-                if (opts.length === 0) {
-                  throw new Error(
-                    `ask_user batch: sub-question method "select" requires a non-empty "options" array.`,
-                  );
-                }
-                answer = await ctx.ui.select(subTitle, opts, subMsg);
-                break;
-              }
-              case "multiselect": {
-                const opts = Array.isArray(sq.options) ? sq.options : [];
-                if (opts.length === 0) {
-                  throw new Error(
-                    `ask_user batch: sub-question method "multiselect" requires a non-empty "options" array.`,
-                  );
-                }
-                answer = await polyfillMultiselect(ctx, subTitle, opts, subMsg);
-                break;
-              }
-              case "input":
-                answer = await ctx.ui.input(subTitle, sq.placeholder, subMsg);
-                break;
-              default:
-                throw new Error(`ask_user batch: unknown sub-question method "${sq.method}"`);
-            }
-          } catch (err) {
-            // Propagate hard errors (schema/logic bugs); cancellation is signalled by undefined.
-            throw err;
-          }
-
-          // Treat `undefined` from input/select/multiselect as cancellation.
-          // (confirm always resolves to a boolean and has no cancel path.)
           if (
-            (sq.method === "input" || sq.method === "select" || sq.method === "multiselect") &&
-            answer === undefined
+            (sq.method === "select" || sq.method === "multiselect") &&
+            (!Array.isArray(sq.options) || sq.options.length === 0)
           ) {
-            cancelled = true;
-            results.push(null);
-            break;
+            throw new Error(
+              `ask_user batch: sub-question method "${sq.method}" requires a non-empty "options" array.`,
+            );
           }
-
-          results.push(answer);
         }
+
+        const questions = params.questions.map((sq: any) => ({
+          method: sq.method,
+          title: sq.title ?? "Question",
+          message: sq.message,
+          options: Array.isArray(sq.options) ? sq.options : undefined,
+          placeholder: sq.placeholder,
+        }));
+
+        // ONE request. ctx.ui.batch resolves to BatchAnswer[] on submit or
+        // undefined on cancel.
+        const answers: Array<any> | undefined = await (ctx.ui as any).batch(
+          params.title || "Questions",
+          questions,
+          withTcid(params.message ? { message: params.message } : undefined),
+        );
+
+        const cancelled = answers === undefined;
+        // Map each BatchAnswer back to the legacy result shape
+        // (confirm→boolean, select/input→string, multiselect→string[]) so
+        // details.results stays index-aligned and unchanged for the model.
+        const results: Array<unknown> = cancelled
+          ? []
+          : answers.map((a) => {
+              if (a && typeof a === "object") {
+                if ("confirmed" in a) return (a as any).confirmed;
+                if ("values" in a) return (a as any).values;
+                if ("value" in a) return (a as any).value;
+              }
+              return a;
+            });
 
         const warnings: string[] = (params as any).__normalizations ?? [];
         const lines: string[] = [];
         if (cancelled) {
-          lines.push(`User cancelled batch after ${results.filter((r) => r !== null).length} of ${params.questions.length} answers.`);
+          lines.push(`User cancelled batch (0 of ${params.questions.length} answers submitted).`);
         } else {
           lines.push(`User completed batch (${results.length} answers).`);
         }

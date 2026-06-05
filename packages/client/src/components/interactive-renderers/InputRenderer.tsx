@@ -12,22 +12,35 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
   const enteredValue = (result as any)?.value as string | undefined;
   const [text, setText] = useState("");
 
-  if (status !== "pending") {
+  if (status === "cancelled" || status === "dismissed") {
     return (
       <div className="mx-4 my-1 p-2 bg-[var(--bg-hover)] rounded text-xs flex items-center gap-2">
         <Icon path={mdiFormTextbox} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
         <span className="text-[var(--text-secondary)]"><InlineMarkdown content={title} /></span>
-        {status === "resolved" && enteredValue !== undefined && (
-          <span className="ml-1 inline-flex items-center gap-0.5 text-green-400">
-            <Icon path={mdiCheckCircle} size={0.55} /> {enteredValue}
-          </span>
-        )}
-        {status === "cancelled" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Cancelled</span>
-        )}
-        {status === "dismissed" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Answered in terminal</span>
-        )}
+        <span className="ml-1 text-[var(--text-tertiary)]">
+          {status === "cancelled" ? "Cancelled" : "Answered in terminal"}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "resolved") {
+    const isBlank = enteredValue === undefined || enteredValue === "";
+    return (
+      <div className="mx-4 my-1 p-3 bg-[var(--bg-hover)] rounded-lg text-xs">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon path={mdiCheckCircle} size={0.55} className="text-green-400 shrink-0" />
+          <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
+        </div>
+        <div
+          className={
+            isBlank
+              ? "ml-6 px-3 py-2 rounded-md bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-tertiary)] italic whitespace-pre-wrap break-words"
+              : "ml-6 px-3 py-2 rounded-md bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] whitespace-pre-wrap break-words"
+          }
+        >
+          {isBlank ? "(left blank)" : enteredValue}
+        </div>
       </div>
     );
   }

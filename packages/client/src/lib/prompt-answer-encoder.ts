@@ -6,10 +6,11 @@
  * Encoding precedence (order matters):
  *
  *   1. Cancellation                        → undefined  (no answer at all)
- *   2. result.values is array (multiselect) → JSON.stringify(values)
- *   3. result.value is defined (select / input / editor) → result.value as string
- *   4. result.confirmed (confirm)          → "true" / "false"
- *   5. fallback                            → String(result ?? "")
+ *   2. result.answers is array (batch)     → JSON.stringify(answers)
+ *   3. result.values is array (multiselect) → JSON.stringify(values)
+ *   4. result.value is defined (select / input / editor) → result.value as string
+ *   5. result.confirmed (confirm)          → "true" / "false"
+ *   6. fallback                            → String(result ?? "")
  *
  * The multiselect arm distinguishes empty selection (`answer: "[]"`) from
  * cancellation (`answer: undefined`, `cancelled: true`) — the bridge
@@ -25,6 +26,9 @@ export function encodePromptAnswer(
   if (cancelled) return undefined;
   if (typeof result === "object" && result !== null) {
     const r = result as Record<string, unknown>;
+    if (Array.isArray(r.answers)) {
+      return JSON.stringify(r.answers);
+    }
     if (Array.isArray(r.values)) {
       return JSON.stringify(r.values);
     }

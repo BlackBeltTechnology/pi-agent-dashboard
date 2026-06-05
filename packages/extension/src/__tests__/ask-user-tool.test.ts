@@ -377,28 +377,30 @@ describe("registerAskUserTool", () => {
   });
 
   describe("batch execution", () => {
-    function getToolAndMockCtx() {
+    function getToolAndMockCtx(batchImpl?: any) {
       const pi = createMockPi();
       registerAskUserTool(pi as any);
       const tool = pi.registerTool.mock.calls[0][0];
-      const custom = vi.fn().mockImplementation(async (factory: any) => {
-        return await new Promise<unknown>((resolve) => {
-          const component: any = factory({}, {}, {}, (r: unknown) => resolve(r));
-          component?.onConfirm?.(["A"]);
-        });
-      });
+      const batch =
+        batchImpl ??
+        vi.fn().mockResolvedValue([
+          { value: "hello" },
+          { value: "A" },
+          { confirmed: true },
+        ]);
       const ctx = {
         ui: {
           confirm: vi.fn().mockResolvedValue(true),
           select: vi.fn().mockResolvedValue("A"),
           input: vi.fn().mockResolvedValue("hello"),
-          custom,
+          custom: vi.fn(),
+          batch,
         },
       };
       return { tool, ctx };
     }
 
-    it("invokes ctx.ui primitives sequentially for each sub-question", async () => {
+    it("issues exactly ONE ctx.ui.batch request with all questions (no per-question dispatch)", async () => {
       const { tool, ctx } = getToolAndMockCtx();
       const result = await tool.execute(
         "id",
@@ -415,37 +417,41 @@ describe("registerAskUserTool", () => {
         undefined,
         ctx,
       );
-      expect(ctx.ui.input).toHaveBeenCalledTimes(1);
-      expect(ctx.ui.select).toHaveBeenCalledTimes(1);
-      expect(ctx.ui.confirm).toHaveBeenCalledTimes(1);
+      expect(ctx.ui.batch).toHaveBeenCalledTimes(1);
+      // No per-question dispatch.
+      expect(ctx.ui.input).not.toHaveBeenCalled();
+      expect(ctx.ui.select).not.toHaveBeenCalled();
+      expect(ctx.ui.confirm).not.toHaveBeenCalled();
+      // questions[] passed through to the single request.
+      const passedQuestions = ctx.ui.batch.mock.calls[0][1];
+      expect(passedQuestions).toHaveLength(3);
+      expect(passedQuestions[1]).toMatchObject({ method: "select", options: ["TS", "Py"] });
+      // Answers mapped index-aligned to the legacy result shape.
       expect(result.details.method).toBe("batch");
       expect(result.details.results).toEqual(["hello", "A", true]);
       expect(result.details.cancelled).toBe(false);
     });
 
-    it("prepends batch title to sub-question titles", async () => {
-      const { tool, ctx } = getToolAndMockCtx();
-      await tool.execute(
+    it("maps a multiselect sub-question answer to {values} → string[]", async () => {
+      const batch = vi.fn().mockResolvedValue([{ values: ["ESLint", "Vitest"] }]);
+      const { tool, ctx } = getToolAndMockCtx(batch);
+      const result = await tool.execute(
         "id",
         {
           method: "batch",
           title: "Setup",
-          questions: [{ method: "input", title: "Name?" }],
+          questions: [{ method: "multiselect", title: "Tooling", options: ["ESLint", "Vitest", "Husky"] }],
         },
         undefined,
         undefined,
         ctx,
       );
-      const firstCallTitle = ctx.ui.input.mock.calls[0][0];
-      expect(firstCallTitle).toContain("Setup");
-      expect(firstCallTitle).toContain("Name?");
+      expect(result.details.results).toEqual([["ESLint", "Vitest"]]);
     });
 
-    it("stops on cancellation and returns partial results with cancelled=true", async () => {
-      const { tool, ctx } = getToolAndMockCtx();
-      // First sub-question returns a value; second cancels (undefined); third should not be called.
-      ctx.ui.input.mockResolvedValueOnce("first");
-      ctx.ui.select.mockResolvedValueOnce(undefined); // cancel
+    it("returns a cancel summary with cancelled=true when ctx.ui.batch resolves undefined", async () => {
+      const batch = vi.fn().mockResolvedValue(undefined);
+      const { tool, ctx } = getToolAndMockCtx(batch);
       const result = await tool.execute(
         "id",
         {
@@ -454,7 +460,6 @@ describe("registerAskUserTool", () => {
           questions: [
             { method: "input", title: "Q1" },
             { method: "select", title: "Q2", options: ["a", "b"] },
-            { method: "confirm", title: "Q3" },
           ],
         },
         undefined,
@@ -462,8 +467,8 @@ describe("registerAskUserTool", () => {
         ctx,
       );
       expect(result.details.cancelled).toBe(true);
-      expect(result.details.results).toEqual(["first", null]);
-      expect(ctx.ui.confirm).not.toHaveBeenCalled();
+      expect(result.details.results).toEqual([]);
+      expect(result.content[0].text).toMatch(/cancelled batch/i);
     });
 
     it("surfaces __normalizations warnings in details.warnings", async () => {
