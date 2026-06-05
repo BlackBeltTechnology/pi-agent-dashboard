@@ -140,6 +140,27 @@ export function activate(pi: ExtensionAPI): void {
   const initial = loadRoleConfig();
   currentRoles = initial.roles;
 
+  // Resolve `@role` aliases for the subagents harness. pi-dashboard-subagents
+  // (>=0.2.0) emits `role:resolve-model` with probe `{ ref, resolved?,
+  // available? }` and reads back `probe.resolved` (a literal
+  // "provider/modelId"). The bridge's own `model:resolve` handler
+  // (provider-register.ts) uses a different probe shape, so the subagent
+  // spawn path never reached it — `@role` model fields hard-failed. This
+  // adapter maps the role name to its assigned model via providers.json#roles.
+  pi.events.on("role:resolve-model", (probe: any) => {
+    if (!probe || typeof probe.ref !== "string") return;
+    const ref = probe.ref.trim();
+    const roleName = ref.startsWith("@") ? ref.slice(1) : ref;
+    if (!roleName) return;
+    const cfg = loadRoleConfig();
+    currentRoles = cfg.roles;
+    probe.available = cfg.roles;
+    const mapped = cfg.roles[roleName];
+    if (typeof mapped === "string" && mapped.trim() !== "") {
+      probe.resolved = mapped.trim();
+    }
+  });
+
   pi.events.on("flow:role-get-all", (data: any) => {
     const cfg = loadRoleConfig();
     data.roles = { ...cfg.roles };

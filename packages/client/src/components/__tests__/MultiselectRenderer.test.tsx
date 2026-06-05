@@ -104,7 +104,7 @@ describe("MultiselectRenderer", () => {
   });
 
   describe("resolved state", () => {
-    it("displays selected values", () => {
+    it("keeps the full option list with selected + unselected both shown", () => {
       render(
         <MultiselectRenderer
           {...baseProps}
@@ -115,10 +115,15 @@ describe("MultiselectRenderer", () => {
         />,
       );
 
-      expect(screen.getByText("a.ts, c.ts")).toBeTruthy();
+      // All three options remain visible (not collapsed to just the picks).
+      expect(screen.getByText("a.ts")).toBeTruthy();
+      expect(screen.getByText("b.ts")).toBeTruthy();
+      expect(screen.getByText("c.ts")).toBeTruthy();
+      // Count summary present.
+      expect(screen.getByText(/2 of 3/)).toBeTruthy();
     });
 
-    it("displays 'None selected' when empty array", () => {
+    it("shows a 0 of N count when nothing selected", () => {
       render(
         <MultiselectRenderer
           {...baseProps}
@@ -129,7 +134,9 @@ describe("MultiselectRenderer", () => {
         />,
       );
 
-      expect(screen.getByText("None selected")).toBeTruthy();
+      expect(screen.getByText(/0 of 3/)).toBeTruthy();
+      // Options still listed.
+      expect(screen.getByText("a.ts")).toBeTruthy();
     });
   });
 

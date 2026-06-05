@@ -1043,3 +1043,269 @@ export function orphanCleanup(
   }
   return { ok: true };
 }
+
+// ── Pull request helpers (change: add-worktree-from-pull-request) ──────────
+
+import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+
+export type ListPrCode = "gh_not_authed" | "no_remote" | "git_failed";
+
+export interface ListPrSuccess {
+  ok: true;
+  data: PullRequestInfo[];
+}
+
+export interface ListPrFailure {
+  ok: false;
+  code: ListPrCode;
+  stderr?: string;
+}
+
+/**
+ * Collapse GitHub's `statusCheckRollup` array into a single summary.
+ * Each entry has a `status` and/or `conclusion`; we derive a rollup:
+ *   - any failing  → "failing"
+ *   - any pending  → "pending"
+ *   - all success  → "passing"
+ *   - empty / null → "none"
+ */
+function collapseCheckRollup(
+  rollup: Array<{ status?: string; conclusion?: string }> | null | undefined,
+): PullRequestInfo["checkRollup"] {
+  if (!rollup || rollup.length === 0) return "none";
+  let hasPending = false;
+  for (const check of rollup) {
+    const conclusion = check.conclusion?.toUpperCase();
+    const status = check.status?.toUpperCase();
+    if (
+      conclusion === "FAILURE" ||
+      conclusion === "TIMED_OUT" ||
+      conclusion === "CANCELLED" ||
+      conclusion === "ACTION_REQUIRED" ||
+      conclusion === "STARTUP_FAILURE" ||
+      status === "FAILURE" ||
+      status === "ERROR"
+    ) {
+      return "failing";
+    }
+    if (
+      status === "PENDING" ||
+      status === "QUEUED" ||
+      status === "IN_PROGRESS" ||
+      status === "WAITING" ||
+      status === "REQUESTED" ||
+      conclusion === "" ||
+      conclusion === undefined ||
+      conclusion === null
+    ) {
+      hasPending = true;
+    }
+  }
+  return hasPending ? "pending" : "passing";
+}
+
+/**
+ * List open pull requests for the repo at `cwd` via `gh pr list`.
+ * Returns typed `PullRequestInfo[]` with a collapsed `checkRollup`.
+ */
+export function listPullRequests(opts: {
+  cwd: string;
+  ghPath: string;
+}): ListPrSuccess | ListPrFailure {
+  const { cwd, ghPath } = opts;
+  const args = [
+    ghPath,
+    "pr", "list",
+    "--json", "number,title,headRefName,headRefOid,author,isDraft,isCrossRepository,statusCheckRollup",
+    "--limit", "100",
+  ];
+  let stdout: string;
+  try {
+    stdout = execSync(args.map(shellEscape).join(" "), {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+      env: { ...process.env, GH_PROMPT_DISABLED: "1" },
+    });
+  } catch (err: any) {
+    const stderr = [err?.stderr, err?.stdout, err?.message]
+      .map((v) => (v == null ? "" : String(v)))
+      .filter((s) => s.length > 0)
+      .join("\n");
+    const s = stderr.toLowerCase();
+    if (
+      /not logged in|authentication required|gh auth login|http 401/i.test(s)
+    ) {
+      return { ok: false, code: "gh_not_authed", stderr };
+    }
+    if (
+      /no such remote|does not appear to be a git repository|could not determine repo/i.test(s)
+    ) {
+      return { ok: false, code: "no_remote", stderr };
+    }
+    return { ok: false, code: "git_failed", stderr };
+  }
+  let raw: any[];
+  try {
+    const parsed = JSON.parse(stdout);
+    if (!Array.isArray(parsed)) {
+      return { ok: false, code: "git_failed", stderr: "gh returned non-array JSON" };
+    }
+    raw = parsed;
+  } catch {
+    return { ok: false, code: "git_failed", stderr: "malformed JSON from gh" };
+  }
+  const data: PullRequestInfo[] = raw.map((pr: any) => ({
+    number: pr.number,
+    title: pr.title ?? "",
+    headRefName: pr.headRefName ?? "",
+    headRefOid: pr.headRefOid ?? "",
+    author: pr.author?.login ?? "",
+    isDraft: pr.isDraft === true,
+    isCrossRepository: pr.isCrossRepository === true,
+    checkRollup: collapseCheckRollup(pr.statusCheckRollup),
+  }));
+  return { ok: true, data };
+}
+
+// ── Create worktree from PR (change: add-worktree-from-pull-request) ──────
+
+export type AddWorktreeFromPrError =
+  | AddWorktreeError
+  | "pr_not_found"
+  | "gh_not_authed";
+
+export interface AddWorktreeFromPrSuccess {
+  ok: true;
+  path: string;
+  branch: string;
+  prNumber: number;
+}
+
+export interface AddWorktreeFromPrFailure {
+  ok: false;
+  error: AddWorktreeFromPrError;
+  message: string;
+  stderr?: string;
+  orphanLikely?: boolean;
+}
+
+/**
+ * Create a new worktree checked out at a pull request's head commit.
+ *
+ * Mechanic (Candidate B from design.md):
+ *   1. `git fetch origin refs/pull/<N>/head:refs/pr/<N>`
+ *   2. `git worktree add <path> -b pr-<N> refs/pr/<N>`
+ *
+ * Works for both same-repo and fork PRs because GitHub serves
+ * `refs/pull/<N>/head` from the base repo.
+ */
+export function addWorktreeFromPr(opts: {
+  cwd: string;
+  prNumber: number;
+  path?: string;
+}): AddWorktreeFromPrSuccess | AddWorktreeFromPrFailure {
+  const { cwd, prNumber } = opts;
+  if (!isGitRepo(cwd)) {
+    return { ok: false, error: "not_a_repo", message: "not a git repository" };
+  }
+
+  // Resolve repo root (same as addWorktree).
+  const commonDirRaw = tryRun("git rev-parse --git-common-dir", cwd);
+  if (!commonDirRaw) {
+    return { ok: false, error: "not_a_repo", message: "unable to resolve git common-dir" };
+  }
+  const commonDirAbs = path.isAbsolute(commonDirRaw)
+    ? commonDirRaw
+    : path.resolve(cwd, commonDirRaw);
+  const repoRoot = path.dirname(commonDirAbs);
+
+  const localRef = `refs/pr/${prNumber}`;
+  const localBranch = `pr-${prNumber}`;
+  const worktreePath = opts.path ?? path.join(repoRoot, ".worktrees", `pr-${prNumber}`);
+
+  // Step 1: Fetch the PR head ref.
+  const fetchCmd = [
+    "git", "fetch", "origin",
+    `refs/pull/${prNumber}/head:${localRef}`,
+  ].map(shellEscape).join(" ");
+  try {
+    execSync(fetchCmd, {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    if (/couldn.t find remote ref|no such ref/i.test(stderr)) {
+      return { ok: false, error: "pr_not_found", message: `PR #${prNumber} not found`, stderr };
+    }
+    if (/authentication|permission denied|terminal prompts disabled/i.test(stderr)) {
+      return { ok: false, error: "gh_not_authed", message: "git fetch auth failed", stderr };
+    }
+    return { ok: false, error: "git_failed", message: "git fetch failed", stderr };
+  }
+
+  // Step 2: Pre-flight path check.
+  if (fs.existsSync(worktreePath)) {
+    const isEmpty = (() => {
+      try { return fs.readdirSync(worktreePath).length === 0; } catch { return false; }
+    })();
+    if (!isEmpty) {
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      return {
+        ok: false,
+        error: "path_exists",
+        message: `target path already exists and is not empty: ${worktreePath}`,
+        orphanLikely,
+      };
+    }
+  }
+
+  // Step 3: Create the worktree.
+  const addArgs = ["git", "worktree", "add", "-b", localBranch, worktreePath, localRef];
+  try {
+    execSync(addArgs.map(shellEscape).join(" "), {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    if (/already used by worktree at|is already checked out at/i.test(stderr)) {
+      return { ok: false, error: "branch_in_use", message: `branch pr-${prNumber} is already checked out in another worktree`, stderr };
+    }
+    if (/A branch named.*already exists|branch '.*' already exists/i.test(stderr)) {
+      return { ok: false, error: "branch_exists", message: `branch "${localBranch}" already exists`, stderr };
+    }
+    if (/'.*' already exists/i.test(stderr)) {
+      const orphanLikely = computeOrphanLikely(cwd, worktreePath);
+      return { ok: false, error: "path_exists", message: `target path already exists: ${worktreePath}`, stderr, orphanLikely };
+    }
+    return { ok: false, error: "git_failed", message: "git worktree add failed", stderr };
+  }
+
+  // Housekeeping: append .worktrees/ to .git/info/exclude (same as addWorktree).
+  if (!opts.path) {
+    const excludePath = path.join(commonDirAbs, "info", "exclude");
+    try {
+      const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf-8") : "";
+      const result = ensureWorktreeExcludeLine(existing);
+      if (result.appended) {
+        fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+        fs.writeFileSync(excludePath, result.content);
+      }
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  // Rewrite .pi/settings.json for the new worktree.
+  rewriteWorktreePiSettings(worktreePath, repoRoot);
+
+  return { ok: true, path: worktreePath, branch: localBranch, prNumber };
+}

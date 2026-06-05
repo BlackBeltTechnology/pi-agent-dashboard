@@ -1,32 +1,39 @@
 import React from "react";
 import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiCloseCircle, mdiShieldAlert } from "@mdi/js";
+import { mdiShieldAlert } from "@mdi/js";
 import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { AnsweredOption } from "./AnsweredOption.js";
 
 export function ConfirmRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   const confirmed = (result as any)?.confirmed;
 
-  if (status !== "pending") {
+  if (status === "cancelled" || status === "dismissed") {
     return (
       <div className="mx-4 my-1 p-2 bg-[var(--bg-hover)] rounded text-xs flex items-center gap-2">
         <Icon path={mdiShieldAlert} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
         <span className="text-[var(--text-secondary)]"><InlineMarkdown content={title} /></span>
-        {status === "resolved" && confirmed && (
-          <span className="ml-1 inline-flex items-center gap-0.5 text-green-400"><Icon path={mdiCheckCircle} size={0.55} /> Allowed</span>
-        )}
-        {status === "resolved" && !confirmed && (
-          <span className="ml-1 inline-flex items-center gap-0.5 text-red-400"><Icon path={mdiCloseCircle} size={0.55} /> Denied</span>
-        )}
-        {status === "cancelled" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Cancelled</span>
-        )}
-        {status === "dismissed" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Answered in terminal</span>
-        )}
+        <span className="ml-1 text-[var(--text-tertiary)]">
+          {status === "cancelled" ? "Cancelled" : "Answered in terminal"}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "resolved") {
+    return (
+      <div className="mx-4 my-1 p-3 bg-[var(--bg-hover)] rounded-lg text-xs">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon path={mdiShieldAlert} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
+          <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
+        </div>
+        <div className="flex gap-2 ml-6">
+          <AnsweredOption title="Yes" picked={!!confirmed} />
+          <AnsweredOption title="No" picked={!confirmed} />
+        </div>
       </div>
     );
   }
@@ -45,13 +52,13 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           onClick={() => onRespond({ confirmed: true })}
           className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors"
         >
-          Allow
+          Yes
         </button>
         <button
           onClick={() => onRespond({ confirmed: false })}
           className="px-3 py-1 text-xs rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
         >
-          Deny
+          No
         </button>
         <button
           onClick={onCancel}

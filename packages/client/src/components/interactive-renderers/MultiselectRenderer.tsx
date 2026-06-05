@@ -4,6 +4,7 @@ import { mdiCheckCircle, mdiCheckboxMarkedOutline } from "@mdi/js";
 import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { AnsweredOption } from "./AnsweredOption.js";
 
 export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -31,25 +32,34 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
     else setChecked(new Set(options));
   }
 
-  if (status !== "pending") {
+  if (status === "cancelled" || status === "dismissed") {
     return (
       <div className="mx-4 my-1 p-2 bg-[var(--bg-hover)] rounded text-xs flex items-center gap-2">
         <Icon path={mdiCheckboxMarkedOutline} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
         <span className="text-[var(--text-secondary)]"><InlineMarkdown content={title} /></span>
-        {status === "resolved" && selectedValues && selectedValues.length > 0 && (
-          <span className="ml-1 inline-flex items-center gap-0.5 text-green-400">
-            <Icon path={mdiCheckCircle} size={0.55} /> {selectedValues.join(", ")}
+        <span className="ml-1 text-[var(--text-tertiary)]">
+          {status === "cancelled" ? "Cancelled" : "Answered in terminal"}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "resolved") {
+    const picks = selectedValues ?? [];
+    return (
+      <div className="mx-4 my-1 p-3 bg-[var(--bg-hover)] rounded-lg text-xs">
+        <div className="flex items-center gap-2 mb-2">
+          <Icon path={mdiCheckboxMarkedOutline} size={0.55} className="text-[var(--text-secondary)] shrink-0" />
+          <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
+          <span className="ml-auto inline-flex items-center gap-0.5 text-green-400">
+            <Icon path={mdiCheckCircle} size={0.5} /> {picks.length} of {options.length}
           </span>
-        )}
-        {status === "resolved" && (!selectedValues || selectedValues.length === 0) && (
-          <span className="ml-1 text-[var(--text-tertiary)]">None selected</span>
-        )}
-        {status === "cancelled" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Cancelled</span>
-        )}
-        {status === "dismissed" && (
-          <span className="ml-1 text-[var(--text-tertiary)]">Answered in terminal</span>
-        )}
+        </div>
+        <div className="flex flex-col gap-1 ml-6">
+          {options.map((option) => (
+            <AnsweredOption key={option} title={option} picked={picks.includes(option)} />
+          ))}
+        </div>
       </div>
     );
   }

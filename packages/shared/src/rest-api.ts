@@ -256,6 +256,21 @@ export interface GitStashPopResult {
 
 export type GitStashPopResponse = ApiResponse<GitStashPopResult>;
 
+// ── Pull Requests ─────────────────────────────────────────────────────────
+
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  headRefName: string;
+  headRefOid: string;
+  author: string;
+  isDraft: boolean;
+  isCrossRepository: boolean;
+  checkRollup: "passing" | "failing" | "pending" | "none";
+}
+
+export type PullRequestListResponse = ApiResponse<PullRequestInfo[]>;
+
 // ── Provider Auth ─────────────────────────────────────────────────────────
 
 export interface ProviderAuthInfo {

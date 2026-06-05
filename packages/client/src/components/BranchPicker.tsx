@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { fetchBranches } from "../lib/git-api.js";
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { BranchListbox, useBranchListboxKeyboard } from "./BranchListbox.js";
 
 interface Props {
   cwd: string;
@@ -10,15 +11,21 @@ interface Props {
   rows?: number;
 }
 
+/**
+ * Always-open branch picker (filter input + listbox + Cancel) used by
+ * `BranchSwitchDialog` and the icon-click checkout flow. Delegates row
+ * rendering + keyboard nav to `BranchListbox`. Owns fetching and the
+ * loading/error/empty states.
+ *
+ * See change: worktree-base-branch-typeahead.
+ */
 export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 }: Props) {
   const [filter, setFilter] = useState("");
   const [branches, setBranches] = useState<GitBranchEntry[]>([]);
-  const [current, setCurrent] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,7 +33,6 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
     try {
       const data = await fetchBranches(cwd);
       setBranches(data.branches);
-      setCurrent(data.current);
     } catch (err: any) {
       const msg = err.message ?? "Failed to load branches";
       if (msg.includes("not a git repository") && onNotGitRepo) {
@@ -37,78 +43,31 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
     } finally {
       setLoading(false);
     }
-  }, [cwd]);
+  }, [cwd, onNotGitRepo]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Filter branches by text (case-insensitive contains)
-  const lowerFilter = filter.toLowerCase();
-  const filtered = filter
-    ? branches.filter((b) => b.name.toLowerCase().includes(lowerFilter))
-    : branches;
+  const { handleKey } = useBranchListboxKeyboard({
+    branches,
+    filter,
+    highlightIndex,
+    onHighlightChange: setHighlightIndex,
+    onSelect,
+    disableCurrent: true,
+  });
 
-  // Split into local and remote sections
-  const localBranches = filtered.filter((b) => !b.isRemote);
-  const remoteBranches = filtered.filter((b) => b.isRemote);
-
-  // Build flat display list
-  type DisplayItem =
-    | { type: "branch"; branch: GitBranchEntry }
-    | { type: "separator" };
-
-  const displayItems: DisplayItem[] = [];
-  for (const b of localBranches) displayItems.push({ type: "branch", branch: b });
-  if (remoteBranches.length > 0) {
-    if (localBranches.length > 0) displayItems.push({ type: "separator" });
-    for (const b of remoteBranches) displayItems.push({ type: "branch", branch: b });
-  }
-
-  const selectableIndices = displayItems
-    .map((item, i) => (item.type === "branch" && !item.branch.isCurrent ? i : -1))
-    .filter((i) => i >= 0);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlightIndex((prev) => {
-        const currentIdx = selectableIndices.indexOf(prev);
-        const next = currentIdx < selectableIndices.length - 1 ? selectableIndices[currentIdx + 1] : selectableIndices[0];
-        return next ?? prev;
-      });
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightIndex((prev) => {
-        const currentIdx = selectableIndices.indexOf(prev);
-        const next = currentIdx > 0 ? selectableIndices[currentIdx - 1] : selectableIndices[selectableIndices.length - 1];
-        return next ?? prev;
-      });
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (highlightIndex >= 0 && highlightIndex < displayItems.length) {
-        const item = displayItems[highlightIndex];
-        if (item.type === "branch" && !item.branch.isCurrent) {
-          onSelect(item.branch.name);
-        }
-      }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      onCancel();
-    }
-  };
-
-  // Scroll highlighted item into view
-  useEffect(() => {
-    if (highlightIndex < 0 || !listRef.current) return;
-    const items = listRef.current.querySelectorAll("[data-branch-item]");
-    items[highlightIndex]?.scrollIntoView?.({ block: "nearest" });
-  }, [highlightIndex]);
-
-  // Reset highlight when filter changes
+  // Reset highlight when filter changes.
   useEffect(() => { setHighlightIndex(-1); }, [filter]);
 
-  const rowHeight = 32;
-  const listHeight = rows * rowHeight;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel();
+      return;
+    }
+    handleKey(e);
+  };
 
   return (
     <div className="flex flex-col gap-1">
@@ -122,58 +81,31 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
         className="w-full bg-[var(--bg-tertiary)] rounded px-3 py-2 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
         autoFocus
       />
-      <div
-        ref={listRef}
-        className="overflow-y-auto border border-[var(--border-secondary)] rounded bg-[var(--bg-tertiary)]"
-        style={{ height: listHeight }}
-        role="listbox"
-      >
-        {loading && (
-          <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">Loading…</div>
-        )}
-        {error && (
-          <div className="px-3 py-2 text-sm text-red-400">{error}</div>
-        )}
-        {!loading && !error && displayItems.length === 0 && (
-          <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">No branches found</div>
-        )}
-        {!loading && !error && displayItems.map((item, i) => {
-          if (item.type === "separator") {
-            return (
-              <div key="sep" data-branch-item className="px-3 py-1 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-secondary)] uppercase tracking-wider">
-                Remote
-              </div>
-            );
-          }
-          const { branch } = item;
-          const isHighlighted = i === highlightIndex;
-          const isCurrentBranch = branch.isCurrent;
-          return (
-            <div
-              key={branch.name}
-              data-branch-item
-              role="option"
-              aria-selected={isHighlighted}
-              className={`px-3 py-1 text-sm flex items-center gap-2 ${
-                isCurrentBranch
-                  ? "text-[var(--text-muted)] cursor-default"
-                  : isHighlighted
-                    ? "bg-blue-600/30 cursor-pointer"
-                    : "hover:bg-[var(--bg-secondary)] cursor-pointer"
-              }`}
-              onClick={() => !isCurrentBranch && onSelect(branch.name)}
-            >
-              <span className="w-3 text-center text-green-400">
-                {isCurrentBranch ? "●" : ""}
-              </span>
-              <span className="flex-1 truncate font-mono text-xs">{branch.name}</span>
-              {branch.isRemote && (
-                <span className="text-[10px] text-[var(--text-muted)]">remote</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {loading ? (
+        <div
+          className="overflow-y-auto border border-[var(--border-secondary)] rounded bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)]"
+          style={{ height: rows * 32 }}
+        >
+          Loading…
+        </div>
+      ) : error ? (
+        <div
+          className="overflow-y-auto border border-[var(--border-secondary)] rounded bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-red-400"
+          style={{ height: rows * 32 }}
+        >
+          {error}
+        </div>
+      ) : (
+        <BranchListbox
+          branches={branches}
+          filter={filter}
+          highlightIndex={highlightIndex}
+          onHighlightChange={setHighlightIndex}
+          onSelect={onSelect}
+          disableCurrent
+          rows={rows}
+        />
+      )}
       <div className="flex justify-end gap-2 mt-2">
         <button
           onClick={onCancel}

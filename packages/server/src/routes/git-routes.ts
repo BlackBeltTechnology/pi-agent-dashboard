@@ -8,12 +8,14 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { BrowserGateway } from "../browser-gateway.js";
 import {
   addWorktree,
+  addWorktreeFromPr,
   orphanCleanup,
   checkoutBranch,
   createPullRequest,
   gitInit,
   isGitRepo,
   listBranches,
+  listPullRequests,
   listWorktrees,
   mergeWorktree,
   pushBranch,
@@ -546,6 +548,83 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         } satisfies ApiResponse;
       }
       return { success: true, data: result.data } satisfies ApiResponse;
+    },
+  );
+
+  // ── List pull requests (change: add-worktree-from-pull-request) ──────────
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/git/pull-requests",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd(request.query.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      const ghResolved = getDefaultRegistry().resolve("gh");
+      if (!ghResolved.ok || !ghResolved.path) {
+        reply.code(400);
+        return { success: false, code: "gh_not_found", error: "gh_not_found" } satisfies ApiResponse;
+      }
+      const result = listPullRequests({ cwd: validated.cwd, ghPath: ghResolved.path });
+      if (!result.ok) {
+        const status =
+          result.code === "gh_not_authed" ? 401
+          : result.code === "no_remote" ? 400
+          : 500;
+        reply.code(status);
+        return {
+          success: false,
+          code: result.code,
+          error: result.code,
+          ...(result.stderr ? { stderr: result.stderr } : {}),
+        } satisfies ApiResponse;
+      }
+      return { success: true, data: result.data } satisfies ApiResponse;
+    },
+  );
+
+  // ── Create worktree from PR (change: add-worktree-from-pull-request) ────
+  fastify.post<{ Body: { cwd?: string; prNumber?: number; path?: string } }>(
+    "/api/git/worktree/from-pr",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const validated = validateCwd(body.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (typeof body.prNumber !== "number" || !Number.isInteger(body.prNumber) || body.prNumber <= 0) {
+        reply.code(400);
+        return { success: false, code: "cwd_invalid", error: "prNumber required (positive integer)" } satisfies ApiResponse;
+      }
+      const pathArg = typeof body.path === "string" && body.path.length > 0 ? body.path : undefined;
+      const result = addWorktreeFromPr({
+        cwd: validated.cwd,
+        prNumber: body.prNumber,
+        path: pathArg,
+      });
+      if (!result.ok) {
+        const httpStatus =
+          result.error === "pr_not_found" ? 404
+          : result.error === "gh_not_authed" ? 401
+          : result.error === "branch_in_use" || result.error === "branch_exists" || result.error === "path_exists" ? 409
+          : result.error === "not_a_repo" || result.error === "base_not_found" ? 400
+          : 500;
+        reply.code(httpStatus);
+        return {
+          success: false,
+          code: result.error,
+          error: result.message,
+          ...(result.stderr ? { stderr: result.stderr } : {}),
+          ...(typeof result.orphanLikely === "boolean" ? { orphanLikely: result.orphanLikely } : {}),
+        } satisfies ApiResponse;
+      }
+      return {
+        success: true,
+        data: { path: result.path, branch: result.branch, prNumber: result.prNumber },
+      } satisfies ApiResponse;
     },
   );
 

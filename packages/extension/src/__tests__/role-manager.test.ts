@@ -277,6 +277,58 @@ describe("flow:role-preset-delete", () => {
   });
 });
 
+describe("role:resolve-model (subagents adapter)", () => {
+  it("sets probe.resolved to the assigned model for a @role ref", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { fast: "my-google/gemma-4-31b-it" },
+      rolePresets: [],
+      activePreset: null,
+    }));
+    const { pi } = makeFakePi();
+    activate(pi);
+    const probe: any = { ref: "@fast" };
+    await pi.events.emit("role:resolve-model", probe);
+    expect(probe.resolved).toBe("my-google/gemma-4-31b-it");
+    expect(probe.available).toEqual({ fast: "my-google/gemma-4-31b-it" });
+  });
+
+  it("accepts a bare role name without the @ prefix", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { fast: "anthropic/haiku" }, rolePresets: [], activePreset: null,
+    }));
+    const { pi } = makeFakePi();
+    activate(pi);
+    const probe: any = { ref: "fast" };
+    await pi.events.emit("role:resolve-model", probe);
+    expect(probe.resolved).toBe("anthropic/haiku");
+  });
+
+  it("leaves probe.resolved unset when role is unassigned", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    const probe: any = { ref: "@ghost" };
+    await pi.events.emit("role:resolve-model", probe);
+    expect(probe.resolved).toBeUndefined();
+    expect(probe.available).toEqual({});
+  });
+
+  it("re-reads disk so cross-session role edits are visible", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    await pi.events.emit("flow:role-set", { role: "fast", modelId: "x/y" });
+    const probe: any = { ref: "@fast" };
+    await pi.events.emit("role:resolve-model", probe);
+    expect(probe.resolved).toBe("x/y");
+  });
+
+  it("ignores a malformed probe without throwing", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    await expect(pi.events.emit("role:resolve-model", {})).resolves.toBeUndefined();
+    await expect(pi.events.emit("role:resolve-model", null)).resolves.toBeUndefined();
+  });
+});
+
 describe("getModelRole", () => {
   it("returns the current model assigned to a role, re-reading from disk", async () => {
     const { pi } = makeFakePi();

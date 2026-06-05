@@ -1,7 +1,7 @@
 /**
  * Client-side git API helpers for the BranchPicker / BranchSwitchDialog.
  */
-import type { GitBranchesResult, GitStashPopResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GitBranchesResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
 
 export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
@@ -351,6 +351,60 @@ export async function pushWorktreeBranch(params: { cwd: string; setUpstream?: bo
 /** POST /api/git/worktree/pr */
 export async function createWorktreePR(params: { cwd: string; title?: string; body?: string }): Promise<LifecycleResult<{ url: string; pushed: boolean }>> {
   return postLifecycle("/api/git/worktree/pr", params);
+}
+
+// ── Pull request helpers (change: add-worktree-from-pull-request) ──────
+
+export type FetchPrResult =
+  | { ok: true; data: PullRequestInfo[] }
+  | { ok: false; code: string; error: string };
+
+/** GET /api/git/pull-requests */
+export async function fetchPullRequests(cwd: string): Promise<FetchPrResult> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/git/pull-requests?cwd=${encodeURIComponent(cwd)}`);
+    const json = await res.json();
+    if (json.success) return { ok: true, data: json.data as PullRequestInfo[] };
+    return { ok: false, code: json.code ?? "git_failed", error: json.error ?? "failed to list PRs" };
+  } catch (err: any) {
+    return { ok: false, code: "network_failure", error: err?.message ?? "network failure" };
+  }
+}
+
+export type CreateWorktreeFromPrResult =
+  | { ok: true; path: string; branch: string; prNumber: number }
+  | CreateWorktreeError;
+
+/** POST /api/git/worktree/from-pr */
+export async function createWorktreeFromPr(params: {
+  cwd: string;
+  prNumber: number;
+  path?: string;
+}): Promise<CreateWorktreeFromPrResult> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/git/worktree/from-pr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    const json = await res.json();
+    if (json.success) {
+      return { ok: true, ...(json.data as { path: string; branch: string; prNumber: number }) };
+    }
+    return {
+      ok: false,
+      code: json.code ?? "git_failed",
+      error: json.error ?? "worktree from PR failed",
+      ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
+      ...(typeof json.orphanLikely === "boolean" ? { orphanLikely: json.orphanLikely } : {}),
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      code: "network_failure",
+      error: err?.message ?? "network failure",
+    };
+  }
 }
 
 /** GET /api/git/worktree/diff-stat */

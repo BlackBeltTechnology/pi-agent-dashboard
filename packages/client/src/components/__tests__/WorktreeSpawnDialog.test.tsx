@@ -226,8 +226,8 @@ describe("WorktreeSpawnDialog — create form", () => {
     });
     render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-    const sel = screen.getByTestId("worktree-base-select") as HTMLSelectElement;
-    expect(sel.value).toBe("feature");
+    const trigger = screen.getByTestId("worktree-base-combobox");
+    expect(trigger.textContent).toContain("feature");
   });
 
   it("falls through to develop when detached", async () => {
@@ -237,8 +237,8 @@ describe("WorktreeSpawnDialog — create form", () => {
     });
     render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
     await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-    const sel = screen.getByTestId("worktree-base-select") as HTMLSelectElement;
-    expect(sel.value).toBe("develop");
+    const trigger = screen.getByTestId("worktree-base-combobox");
+    expect(trigger.textContent).toContain("develop");
   });
 
   it("path preview updates live as user types newBranch (slugified)", async () => {
