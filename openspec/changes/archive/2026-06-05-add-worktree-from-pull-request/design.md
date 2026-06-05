@@ -45,6 +45,15 @@ git worktree add <path> -b pr-123 refs/pr/123        # composes with existing ad
 
 **Decision gate:** adopt **Candidate B** unless the spike reveals a blocker (e.g. fork pull refs unreachable without auth headers `gh` injects). If B fails, fall back to A with a throwaway-checkout wrapper and document the trade-off.
 
+### Spike outcome (resolved)
+
+**Candidate B confirmed.** Tested against `BlackBeltTechnology/pi-agent-dashboard` with:
+- Same-repo PR (#77): `git fetch origin refs/pull/77/head:refs/pr/77` + `git worktree add <path> -b pr-77 refs/pr/77` — works.
+- Fork PR (#22, `isCrossRepository: true`): same command sequence — works. GitHub serves `refs/pull/<N>/head` from the base repo for fork PRs.
+- Local branch name: `pr-<N>` (collision-proof, matches derived path).
+- Re-checkout collision: path-exists or branch-exists error; reuses existing stable codes.
+- `.git/info/exclude` housekeeping applies unchanged.
+
 ## Decision — endpoint shape
 
 **New endpoint `POST /api/git/worktree/from-pr`** rather than overloading `POST /api/git/worktree`.

@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   cleanupOrphanWorktreePath,
   createWorktree,
+  createWorktreeFromPr,
   fetchBranches,
   fetchGitHead,
   fetchWorktrees,
@@ -21,12 +22,16 @@ import {
   type HeadInfo,
   type WorktreeEntry,
 } from "../lib/git-api.js";
+import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   resolveDefaultBase,
   slugifyBranch,
 } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
 import type { GitBranchEntry } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { BranchCombobox } from "./BranchCombobox.js";
+import { PrCombobox } from "./PrCombobox.js";
+
+type SourceMode = "branch" | "pr";
 
 interface Props {
   /** Cwd to scope the dialog to (folder header's path). */
@@ -80,6 +85,9 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   const [branchDirty, setBranchDirty] = useState(false);
   const [base, setBase] = useState("");
   const [pathOverride, setPathOverride] = useState<string | null>(null);
+  const [sourceMode, setSourceMode] = useState<SourceMode>("branch");
+  const [selectedPr, setSelectedPr] = useState<PullRequestInfo | null>(null);
+  const [ghUnavailable, setGhUnavailable] = useState<"gh_not_found" | "gh_not_authed" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<CreateWorktreeError | null>(null);
   // Orphan-path state (change: openspec-worktree-spawn-button):
@@ -138,18 +146,32 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     if (!main) return `.worktrees/${slug}`;
     return joinPath(main.path, ".worktrees", slug);
   }, [data, slug]);
-  const effectivePath = pathOverride ?? derivedPath;
+  // PR-mode derived path.
+  const prDerivedPath = useMemo(() => {
+    if (!data || !selectedPr) return "";
+    const main = data.worktrees.find((w) => w.isMain);
+    if (!main) return `.worktrees/pr-${selectedPr.number}`;
+    return joinPath(main.path, ".worktrees", `pr-${selectedPr.number}`);
+  }, [data, selectedPr]);
+  const effectivePath = pathOverride ?? (sourceMode === "pr" ? prDerivedPath : derivedPath);
   const allBranches = useMemo<GitBranchEntry[]>(() => {
     if (!data) return [];
     return [...data.localBranches, ...data.remoteBranches];
   }, [data]);
 
-  const canSubmit =
+  const canSubmitBranch =
     !!data &&
     !submitting &&
     newBranch.trim().length > 0 &&
     base.trim().length > 0 &&
     slug.length > 0;
+
+  const canSubmitPr =
+    !!data &&
+    !submitting &&
+    selectedPr !== null;
+
+  const canSubmit = sourceMode === "pr" ? canSubmitPr : canSubmitBranch;
 
   // ── handlers ───────────────────────────────────────────────────────────
   // Always include attachProposal in opts when the prop was supplied;
@@ -175,12 +197,20 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     setSubmitError(null);
     let res;
     try {
-      res = await createWorktree({
-        cwd,
-        base,
-        newBranch,
-        ...(pathOverride ? { path: pathOverride } : {}),
-      });
+      if (sourceMode === "pr" && selectedPr) {
+        res = await createWorktreeFromPr({
+          cwd,
+          prNumber: selectedPr.number,
+          ...(pathOverride ? { path: pathOverride } : {}),
+        });
+      } else {
+        res = await createWorktree({
+          cwd,
+          base,
+          newBranch,
+          ...(pathOverride ? { path: pathOverride } : {}),
+        });
+      }
     } catch (err: any) {
       // Network failure, JSON parse error, or any other thrown exception.
       setSubmitting(false);
@@ -196,10 +226,9 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
       setSubmitError(res);
       return;
     }
-    // Worktree created clean; spawn the session. Initialization (if the
-    // project declares a hook) is a separate gated Initialize action.
-    onSpawn(res.path, buildOpts(base));
-  }, [data, cwd, base, newBranch, pathOverride, onSpawn, buildOpts]);
+    // Worktree created clean; spawn the session.
+    onSpawn(res.path, buildOpts(sourceMode === "branch" ? base : undefined));
+  }, [data, cwd, base, newBranch, sourceMode, selectedPr, pathOverride, onSpawn, buildOpts]);
 
   // Clean-up the orphan path then optionally auto-retry submit.
   const handleCleanOrphan = useCallback(async (autoResubmit: boolean) => {
@@ -237,7 +266,12 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     if (orphanError) setOrphanError(null);
     // We intentionally watch only the inputs, not submitError itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newBranch, base, pathOverride]);
+  }, [newBranch, base, pathOverride, selectedPr, sourceMode]);
+
+  // Reset path override when switching modes.
+  useEffect(() => {
+    setPathOverride(null);
+  }, [sourceMode]);
 
   // ── Reactive `attachProposal` effect ─────────────────────────────────
   // When the parent re-renders with a changed `attachProposal`, update
@@ -333,28 +367,85 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
           Create a new worktree
         </h4>
-        <div className="space-y-2">
-          <label className="block">
-            <span className="text-[11px] text-[var(--text-tertiary)]">Base branch</span>
-            <BranchCombobox
-              data-testid="worktree-base-combobox"
-              branches={allBranches}
-              value={base}
-              onChange={setBase}
-              placeholder={hasUsableBase ? undefined : "no usable default base — pick one"}
-            />
-          </label>
 
-          <label className="block">
-            <span className="text-[11px] text-[var(--text-tertiary)]">New branch name</span>
-            <input
-              data-testid="worktree-new-branch-input"
-              value={newBranch}
-              onChange={(e) => { setNewBranch(e.target.value); setBranchDirty(true); }}
-              placeholder="feat/dark-mode"
-              className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono"
-            />
-          </label>
+        {/* Source mode toggle (change: add-worktree-from-pull-request) */}
+        <div className="flex gap-2 mb-3" data-testid="worktree-source-toggle">
+          <button
+            type="button"
+            onClick={() => setSourceMode("branch")}
+            data-testid="worktree-source-branch"
+            className={`px-2 py-0.5 text-[11px] rounded border ${
+              sourceMode === "branch"
+                ? "border-blue-500 text-blue-400 bg-blue-500/10"
+                : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            From a branch
+          </button>
+          <button
+            type="button"
+            onClick={() => !ghUnavailable && setSourceMode("pr")}
+            disabled={!!ghUnavailable}
+            data-testid="worktree-source-pr"
+            className={`px-2 py-0.5 text-[11px] rounded border ${
+              ghUnavailable
+                ? "border-[var(--border-subtle)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
+                : sourceMode === "pr"
+                  ? "border-blue-500 text-blue-400 bg-blue-500/10"
+                  : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            From a pull request
+          </button>
+          {ghUnavailable && (
+            <span className="text-[10px] text-[var(--text-muted)] self-center" data-testid="worktree-gh-hint">
+              {ghUnavailable === "gh_not_found"
+                ? "Install gh to checkout PRs"
+                : "Authenticate gh to checkout PRs"}
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          {sourceMode === "branch" ? (
+            <>
+              <label className="block">
+                <span className="text-[11px] text-[var(--text-tertiary)]">Base branch</span>
+                <BranchCombobox
+                  data-testid="worktree-base-combobox"
+                  branches={allBranches}
+                  value={base}
+                  onChange={setBase}
+                  placeholder={hasUsableBase ? undefined : "no usable default base — pick one"}
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-[11px] text-[var(--text-tertiary)]">New branch name</span>
+                <input
+                  data-testid="worktree-new-branch-input"
+                  value={newBranch}
+                  onChange={(e) => { setNewBranch(e.target.value); setBranchDirty(true); }}
+                  placeholder="feat/dark-mode"
+                  className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono"
+                />
+              </label>
+            </>
+          ) : (
+            <label className="block">
+              <span className="text-[11px] text-[var(--text-tertiary)]">Pull request</span>
+              <PrCombobox
+                cwd={cwd}
+                value={selectedPr}
+                onChange={setSelectedPr}
+                onGhUnavailable={(code) => {
+                  setGhUnavailable(code);
+                  setSourceMode("branch");
+                }}
+                data-testid="worktree-pr-combobox"
+              />
+            </label>
+          )}
 
           <label className="block">
             <span className="text-[11px] text-[var(--text-tertiary)]">Path</span>
@@ -362,7 +453,11 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
               data-testid="worktree-path-input"
               value={effectivePath}
               onChange={(e) => setPathOverride(e.target.value)}
-              placeholder={derivedPath || "(enter a branch name to derive)"}
+              placeholder={
+                sourceMode === "pr"
+                  ? prDerivedPath || "(select a PR to derive)"
+                  : derivedPath || "(enter a branch name to derive)"
+              }
               className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono text-[var(--text-tertiary)]"
             />
           </label>
