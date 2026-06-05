@@ -103,6 +103,10 @@ Empty query: every entry "matches", so score is uniform (0) and the depth tie-br
 |---|---|
 | Just bump `MAX_RESULTS` to 100, no ranking | Doesn't fix traversal-order starvation (first subtree still drains budget) or bare-`@`. More payload, still wrong order. |
 | Breadth-first walk only (no scoring) | Fixes shallow-first but not relevance (`@db` still returns alphabetical path hits, not name matches). |
+
+### Traversal: BFS + scoring (implementation refinement)
+
+Implementation uses a **breadth-first** (level-order queue) walk, not the depth-first recursion of the original. Reason: `MAX_VISITS` bounds the scan, and a depth-first walk drains that budget inside the first deep subtree (e.g. this repo's large `openspec/changes/archive/`) before shallow siblings like root `package.json` are ever *visited* — so the anti-starvation requirement fails in real repos even with the result cap decoupled. BFS visits shallowest entries first, guaranteeing shallow matches are collected within the budget; ranking + tie-breaks still decide final order. This is BFS **plus** scoring — the union the "Breadth-first walk only (no scoring)" alternative lacked — so relevance is preserved. Verified by smoke (`@package` surfaces root `package.json`) and a >4000-entry regression test.
 | fzf-style subsequence fuzzy matching | Larger surface, scoring tuning, more tests. Deferred — substring + ranking solves the reported pain. Can layer on later without protocol change. |
 | Client-side ranking | Client only receives 20 already-truncated entries; ranking must happen where the full candidate set exists — the bridge. |
 

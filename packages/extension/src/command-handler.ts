@@ -16,30 +16,99 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { buildProviderCatalogue } from "./provider-register.js";
 
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
-const MAX_RESULTS = 20;
+const MAX_RESULTS = 50;
+/** Entries scanned budget — decoupled from the result cap so a deep first
+ *  subtree no longer starves shallow sibling matches.
+ *  See change: fix-file-mention-search-ranking. */
+const MAX_VISITS = 4000;
 
-function searchFiles(cwd: string, query: string): FileEntry[] {
-  const results: FileEntry[] = [];
+/**
+ * Split a (lowercased) query at the LAST slash. The prefix (up to and
+ * including that slash) scopes candidates; the leaf is ranked as a basename.
+ * A query without a slash yields an empty prefix and the whole query as leaf.
+ * See change: fix-file-mention-search-ranking.
+ */
+export function splitQuery(lowerQuery: string): { prefix: string; leaf: string } {
+  const idx = lowerQuery.lastIndexOf("/");
+  if (idx === -1) return { prefix: "", leaf: lowerQuery };
+  return { prefix: lowerQuery.slice(0, idx + 1), leaf: lowerQuery.slice(idx + 1) };
+}
+
+/**
+ * Score `leaf` (lowercased) against a candidate `relPath`. Tiers, highest
+ * first: 4 exact basename, 3 basename prefix, 2 basename substring,
+ * 1 path substring (fallback). Empty leaf → 0 (depth tie-break decides).
+ * Returns 0 for a non-empty leaf absent from both basename and path → dropped.
+ * See change: fix-file-mention-search-ranking.
+ */
+export function scoreMatch(relPath: string, leaf: string): number {
+  if (leaf === "") return 0;
+  const lower = relPath.toLowerCase();
+  const trimmed = lower.endsWith("/") ? lower.slice(0, -1) : lower;
+  const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  if (base === leaf) return 4;
+  if (base.startsWith(leaf)) return 3;
+  if (base.includes(leaf)) return 2;
+  if (lower.includes(leaf)) return 1;
+  return 0;
+}
+
+/**
+ * Walk `cwd` BREADTH-FIRST up to MAX_VISITS entries (depth ≤ 6, IGNORE_DIRS
+ * skipped), collect every candidate that survives the slash-aware prefix
+ * filter + leaf scoring, rank them (score desc, depth asc, pathLen asc,
+ * alpha asc), and return at most MAX_RESULTS — the highest-ranked, not the
+ * first reached.
+ *
+ * BFS (level-order queue) is load-bearing: it visits shallowest entries
+ * first, so when MAX_VISITS bounds a large tree the budget spends on shallow
+ * matches before deep ones. A depth-first walk would drain the budget inside
+ * an early subtree (e.g. a huge `openspec/changes/archive/`) and starve
+ * shallow siblings like root `package.json` — the exact failure the
+ * file-autocomplete anti-starvation requirement forbids.
+ * See change: fix-file-mention-search-ranking.
+ */
+export function searchFiles(cwd: string, query: string): FileEntry[] {
   const lowerQuery = query?.toLowerCase() ?? "";
+  const { prefix, leaf } = splitQuery(lowerQuery);
+  const candidates: Array<{ path: string; isDirectory: boolean; depth: number; score: number }> = [];
+  let visits = 0;
 
-  function walk(dir: string, depth: number): void {
-    if (results.length >= MAX_RESULTS || depth > 6) return;
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: cwd, depth: 0 }];
+  while (queue.length > 0 && visits < MAX_VISITS) {
+    const { dir, depth } = queue.shift()!;
+    if (depth > 6) continue;
     let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries) {
-      if (results.length >= MAX_RESULTS) return;
+      if (visits >= MAX_VISITS) break;
       if (IGNORE_DIRS.has(entry.name)) continue;
+      visits++;
       const fullPath = join(dir, entry.name);
-      const relPath = relative(cwd, fullPath).replace(/\\/g, "/") + (entry.isDirectory() ? "/" : "");
-      if (!lowerQuery || relPath.toLowerCase().includes(lowerQuery)) {
-        results.push({ path: relPath, isDirectory: entry.isDirectory() });
+      const isDirectory = entry.isDirectory();
+      const relPath = relative(cwd, fullPath).replace(/\\/g, "/") + (isDirectory ? "/" : "");
+      const inScope = !prefix || relPath.toLowerCase().includes(prefix);
+      if (inScope) {
+        const score = scoreMatch(relPath, leaf);
+        if (leaf === "" || score > 0) {
+          candidates.push({ path: relPath, isDirectory, depth, score });
+        }
       }
-      if (entry.isDirectory()) walk(fullPath, depth + 1);
+      if (isDirectory) queue.push({ dir: fullPath, depth: depth + 1 });
     }
   }
 
-  walk(cwd, 0);
-  return results;
+  // Empty leaf (bare `@`): every entry scores 0, so order by depth then
+  // alphabetically per the bare-@ requirement (pathLen tie-break omitted).
+  // Non-empty leaf: full ranking tie-break score→depth→pathLen→alpha.
+  candidates.sort((a, b) =>
+    b.score - a.score ||
+    a.depth - b.depth ||
+    (leaf === "" ? 0 : a.path.length - b.path.length) ||
+    a.path.localeCompare(b.path)
+  );
+
+  return candidates.slice(0, MAX_RESULTS).map((c) => ({ path: c.path, isDirectory: c.isDirectory }));
 }
 
 /** Parsed result from parseSendPrompt */
