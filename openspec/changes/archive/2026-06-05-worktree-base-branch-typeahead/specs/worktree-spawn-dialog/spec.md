@@ -8,7 +8,7 @@ The "Base branch" field in `WorktreeSpawnDialog` SHALL be rendered as a typeahea
 
 The set of selectable branches SHALL be the union of local and remote branches returned by `GET /api/git/branches?cwd=…` for the dialog's `cwd`. The user SHALL NOT be able to commit a free-text value that does not match an existing branch: the base branch must already exist in the repository.
 
-The component SHALL implement the WAI-ARIA combobox pattern: the trigger SHALL carry `role="combobox"`, `aria-expanded`, `aria-controls`, and `aria-haspopup="listbox"`; the popover listbox SHALL carry `role="listbox"` and each option `role="option"` with `aria-selected` reflecting highlight state.
+The component SHALL implement the WAI-ARIA combobox pattern: the trigger SHALL carry `role="combobox"`, `aria-expanded`, `aria-controls`, and `aria-haspopup="listbox"`; the popover listbox SHALL carry `role="listbox"` and each option `role="option"` with `aria-selected` reflecting the committed selection (row matching chosen `base`), per the WAI-ARIA single-select listbox contract. Keyboard highlight is a visual-only cursor.
 
 #### Scenario: Collapsed by default
 
