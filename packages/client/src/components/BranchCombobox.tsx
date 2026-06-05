@@ -15,7 +15,6 @@ interface Props {
   branches: GitBranchEntry[];
   value: string;
   onChange: (branch: string) => void;
-  current?: string;
   disabled?: boolean;
   placeholder?: string;
   "data-testid"?: string;
@@ -152,6 +151,7 @@ export function BranchCombobox({
             onHighlightChange={setHighlightIndex}
             onSelect={handleSelect}
             disableCurrent={false}
+            selectedValue={value}
           />
         </div>
       )}

@@ -341,7 +341,6 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
               branches={allBranches}
               value={base}
               onChange={setBase}
-              current={data.head.branch ?? undefined}
               placeholder={hasUsableBase ? undefined : "no usable default base — pick one"}
             />
           </label>

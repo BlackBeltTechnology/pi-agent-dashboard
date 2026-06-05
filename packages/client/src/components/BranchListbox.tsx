@@ -122,6 +122,14 @@ interface Props {
   onSelect: (branchName: string) => void;
   disableCurrent?: boolean;
   rows?: number;
+  /**
+   * Committed selection (the combobox `value`). When set, the row whose
+   * `branch.name` equals it carries `aria-selected="true"`, per the
+   * WAI-ARIA single-select listbox contract (selected = chosen value, not
+   * the keyboard-highlighted/active row). Omit for pickers with no
+   * persistent committed value (e.g. `BranchPicker`'s one-shot checkout).
+   */
+  selectedValue?: string;
 }
 
 export function BranchListbox({
@@ -132,6 +140,7 @@ export function BranchListbox({
   onSelect,
   disableCurrent = false,
   rows = 10,
+  selectedValue,
 }: Props) {
   const { displayItems } = useBranchListboxKeyboard({
     branches,
@@ -178,12 +187,16 @@ export function BranchListbox({
         const isHighlighted = i === highlightIndex;
         const isCurrentBranch = branch.isCurrent;
         const nonSelectable = disableCurrent && isCurrentBranch;
+        // aria-selected reflects the COMMITTED selection (matches the
+        // combobox value), not the keyboard highlight. The highlight is a
+        // visual-only cursor (bg tint). See change: worktree-base-branch-typeahead.
+        const isSelected = selectedValue !== undefined && branch.name === selectedValue;
         return (
           <div
             key={branch.name}
             data-branch-item
             role="option"
-            aria-selected={isHighlighted}
+            aria-selected={isSelected}
             className={`px-3 py-1 text-sm flex items-center gap-2 ${
               nonSelectable
                 ? "text-[var(--text-muted)] cursor-default"

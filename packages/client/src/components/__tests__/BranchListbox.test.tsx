@@ -139,9 +139,28 @@ describe("BranchListbox (presentational)", () => {
     expect(onSelect).toHaveBeenCalledWith("develop");
   });
 
-  it("aria-selected reflects highlightIndex", () => {
+  it("aria-selected reflects the committed selectedValue, not the highlight", () => {
     // displayItems order with mixed (all local+remote, no filter):
     //   0 main, 1 develop, 2 feature/ui, 3 separator, 4 origin/fix-bug
+    // highlightIndex points at develop (visual cursor) but selectedValue
+    // is main — aria-selected must follow the committed value, not the cursor.
+    render(
+      <BranchListbox
+        branches={mixed}
+        filter=""
+        highlightIndex={1}
+        onHighlightChange={() => {}}
+        onSelect={() => {}}
+        selectedValue="main"
+      />,
+    );
+    const main = screen.getByText("main").closest('[role="option"]');
+    expect(main?.getAttribute("aria-selected")).toBe("true");
+    const dev = screen.getByText("develop").closest('[role="option"]');
+    expect(dev?.getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("no option is aria-selected when selectedValue is omitted", () => {
     render(
       <BranchListbox
         branches={mixed}
@@ -151,10 +170,9 @@ describe("BranchListbox (presentational)", () => {
         onSelect={() => {}}
       />,
     );
-    const dev = screen.getByText("develop").closest('[role="option"]');
-    expect(dev?.getAttribute("aria-selected")).toBe("true");
-    const main = screen.getByText("main").closest('[role="option"]');
-    expect(main?.getAttribute("aria-selected")).toBe("false");
+    const options = document.querySelectorAll('[role="option"]');
+    expect(options.length).toBeGreaterThan(0);
+    options.forEach((o) => expect(o.getAttribute("aria-selected")).toBe("false"));
   });
 });
 
