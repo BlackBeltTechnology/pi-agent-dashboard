@@ -46,10 +46,10 @@ When the query contains `/`, the bridge SHALL split it at the LAST slash: the pr
 ### Requirement: File match ranking
 The bridge SHALL rank file matches by relevance before applying the result cap. Ranking tiers, highest first, score the leaf query against the candidate basename: (1) exact basename match, (2) basename starts with the leaf, (3) basename contains the leaf, (4) path contains the leaf (fallback). Ties SHALL be broken by shallower path depth, then shorter path length, then alphabetical path order, yielding a deterministic order.
 
-#### Scenario: Exact basename outranks substring
+#### Scenario: Basename match outranks path substring
 - **GIVEN** files `db.ts` and `src/dbg/util.ts` and query `db`
 - **WHEN** the bridge ranks matches
-- **THEN** `db.ts` (exact basename) SHALL rank above `src/dbg/util.ts` (path substring)
+- **THEN** `db.ts` (basename prefix) SHALL rank above `src/dbg/util.ts` (path substring)
 
 #### Scenario: Prefix outranks mid-string substring
 - **GIVEN** files `server.ts` and `myserver.ts` and query `server`
@@ -58,7 +58,7 @@ The bridge SHALL rank file matches by relevance before applying the result cap. 
 
 #### Scenario: Shallower path wins on equal score
 - **GIVEN** files `config.ts` and `a/b/config.ts` and query `config`
-- **WHEN** both score as exact basename matches
+- **WHEN** both score equally (basename prefix)
 - **THEN** `config.ts` (shallower) SHALL rank above `a/b/config.ts`
 
 ### Requirement: Bare-@ ordering surfaces top-level entries
