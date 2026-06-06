@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { MarkdownContent, tableToMarkdown, tableToTsv } from "../MarkdownContent.js";
 import { ThemeProvider } from "../ThemeProvider.js";
 import { SessionAssetsProvider } from "../../lib/SessionAssetsContext.js";
+import type { ToolContext } from "../tool-renderers/types.js";
 
 // Each test renders a MarkdownContent into the document; the lightbox
 // portals to document.body. Cleanup unmounts both, removing any open
@@ -28,6 +29,51 @@ beforeAll(() => {
 function renderMd(content: string) {
   return render(<ThemeProvider><MarkdownContent content={content} /></ThemeProvider>);
 }
+
+describe("MarkdownContent — prose & inline-code linkification", () => {
+  const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+  const renderWithCtx = (content: string) =>
+    render(<ThemeProvider><MarkdownContent content={content} context={ctx} /></ThemeProvider>);
+
+  it("linkifies a path inside an inline code span", () => {
+    const { container } = renderWithCtx("see `packages/client/src/FileLink.tsx` here");
+    const btn = container.querySelector("button");
+    expect(btn).not.toBeNull();
+    expect(btn?.textContent).toBe("packages/client/src/FileLink.tsx");
+  });
+
+  it("linkifies an absolute path in prose text", () => {
+    const { container } = renderWithCtx("wrote /Users/me/app.ts to disk");
+    const btn = container.querySelector("button");
+    expect(btn?.textContent).toBe("/Users/me/app.ts");
+  });
+
+  it("does NOT linkify inside a fenced code block", () => {
+    const { container } = renderWithCtx("```ts\nimport x from 'src/foo.ts';\n```");
+    // The CodeBlockWrapper renders a Copy button; assert no FileLink (a button
+    // whose label is the path) is produced inside the fenced block.
+    const fileLinks = Array.from(container.querySelectorAll("button")).filter((b) =>
+      (b.textContent ?? "").includes("src/foo.ts"),
+    );
+    expect(fileLinks).toHaveLength(0);
+  });
+
+  it("does NOT double-wrap an existing markdown link anchor", () => {
+    const { container } = renderWithCtx("[click](https://example.com/page)");
+    const anchor = container.querySelector("a");
+    expect(anchor?.getAttribute("href")).toBe("https://example.com/page");
+    // The anchor element is passed through untouched (not re-tokenized).
+    expect(anchor?.querySelector("button")).toBeNull();
+  });
+
+  it("renders plain (no links) when no context is supplied", () => {
+    const { container } = render(
+      <ThemeProvider><MarkdownContent content="wrote /Users/me/app.ts" /></ThemeProvider>,
+    );
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).toContain("/Users/me/app.ts");
+  });
+});
 
 describe("MarkdownContent", () => {
   it("renders plain text as a paragraph", () => {

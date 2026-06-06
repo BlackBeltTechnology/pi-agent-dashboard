@@ -46,6 +46,7 @@ function LinkifiedTextInner({ text, context }: Props) {
             path={tok.path}
             line={tok.line}
             col={tok.col}
+            absolute={tok.absolute}
             context={context}
           >
             {tok.text}

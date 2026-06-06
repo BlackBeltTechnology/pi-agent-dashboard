@@ -32,6 +32,7 @@ import fs from "node:fs";
 import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { decodeFileUri } from "../lib/decode-file-uri.js";
 
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
@@ -129,7 +130,8 @@ export function registerSystemRoutes(
     "/api/open-editor",
     { preHandler: networkGuard },
     async (request) => {
-      const { path: cwd, editor: editorId, file, line } = request.body ?? {};
+      const { path: cwd, editor: editorId, file: rawFile, line } = request.body ?? {};
+      const file = rawFile ? decodeFileUri(rawFile) : rawFile;
       if (!cwd || !editorId) {
         return { success: false, error: "path and editor required" } satisfies ApiResponse;
       }

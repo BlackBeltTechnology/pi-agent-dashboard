@@ -1,9 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Icon } from "@mdi/react";
 import { mdiClose, mdiLoading } from "@mdi/js";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { DialogPortal } from "./DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { getApiBase } from "../lib/api-context.js";
+import { useThemeContext } from "./ThemeProvider.js";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import { detectLanguage } from "./tool-renderers/lang-detect.js";
+
+/** DOM id of the scroll target line inside the highlighted code view. */
+const TARGET_LINE_ID = "file-preview-target-line";
 
 const BACKDROP_ID = "file-preview-backdrop";
 
@@ -40,10 +47,13 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const lineRef = useRef<HTMLDivElement | null>(null);
+  const { resolved: theme, themeName } = useThemeContext();
+  const syntaxStyle = getSyntaxTheme(theme, themeName);
 
   const ext = getExt(path);
   const isImage = IMAGE_EXTS.has(ext);
   const isMd = MD_EXTS.has(ext);
+  const language = detectLanguage(path);
 
   useEffect(() => {
     if (isImage) return; // image loads via <img src>, no JSON fetch
@@ -89,12 +99,17 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     };
   }, []);
 
-  // After plain-text content loads, scroll to the requested line if any.
+  // After content loads, scroll to the requested line if any. The flat
+  // (no-language) branch uses `lineRef`; the highlighted branch tags the
+  // target line with `TARGET_LINE_ID` via `lineProps`.
   useEffect(() => {
-    if (content && line && lineRef.current) {
+    if (!content || !line) return;
+    if (language) {
+      document.getElementById(TARGET_LINE_ID)?.scrollIntoView({ block: "center" });
+    } else if (lineRef.current) {
       lineRef.current.scrollIntoView({ block: "center" });
     }
-  }, [content, line]);
+  }, [content, line, language]);
 
   return (
     <DialogPortal>
@@ -141,7 +156,25 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
             {!error && !isImage && content !== null && isMd && (
               <MarkdownContent content={content} />
             )}
-            {!error && !isImage && content !== null && !isMd && (
+            {!error && !isImage && content !== null && !isMd && language && (
+              <SyntaxHighlighter
+                style={syntaxStyle}
+                language={language}
+                PreTag="div"
+                showLineNumbers
+                wrapLines
+                lineProps={(n: number) =>
+                  n === line
+                    ? { id: TARGET_LINE_ID, style: { display: "block", background: "var(--bg-surface)" } }
+                    : { style: { display: "block" } }
+                }
+                customStyle={{ margin: 0, padding: "0.5rem", fontSize: "12px", background: "var(--bg-code)" }}
+                data-testid="file-preview-code"
+              >
+                {content}
+              </SyntaxHighlighter>
+            )}
+            {!error && !isImage && content !== null && !isMd && !language && (
               <pre className="text-xs font-mono whitespace-pre-wrap text-[var(--text-secondary)]">
                 {content.split("\n").map((row, i) => {
                   const num = i + 1;

@@ -122,6 +122,73 @@ describe("tokenize — bare path with known extension", () => {
   });
 });
 
+describe("tokenize — absolute / file:// / Windows-drive", () => {
+  type FileTok = Extract<Token, { kind: "file" }>;
+
+  it("detects a bare absolute POSIX path with root preserved", () => {
+    const input = "see /Users/me/app.ts for details";
+    const toks = tokenize(input);
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.text).toBe("/Users/me/app.ts");
+    expect(f.path).toBe("/Users/me/app.ts");
+    expect(f.absolute).toBe(true);
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("decodes a file:// URI (percent-encoded) to a native path", () => {
+    const toks = tokenize("file:///Users/me/my%20app.ts");
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("/Users/me/my app.ts");
+    expect(f.absolute).toBe(true);
+    expect(ofKind(toks, "url")).toHaveLength(0);
+    expect(concat(toks)).toBe("file:///Users/me/my%20app.ts");
+  });
+
+  it("spans dot-directory segments in an absolute path (.git, .worktrees)", () => {
+    const input = "at /Users/me/.config/app/.worktrees/x/main.ts:8";
+    const toks = tokenize(input);
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("/Users/me/.config/app/.worktrees/x/main.ts");
+    expect(f.line).toBe(8);
+    expect(f.absolute).toBe(true);
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("parses absolute path with :line:col", () => {
+    const toks = tokenize("/Users/me/app.ts:42:7: error");
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("/Users/me/app.ts");
+    expect(f.line).toBe(42);
+    expect(f.col).toBe(7);
+    expect(f.absolute).toBe(true);
+    expect(concat(toks)).toBe("/Users/me/app.ts:42:7: error");
+  });
+
+  it("detects a Windows drive path", () => {
+    const input = "open C:\\src\\app.ts:10 now";
+    const toks = tokenize(input);
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("C:\\src\\app.ts");
+    expect(f.line).toBe(10);
+    expect(f.absolute).toBe(true);
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("does not parse the Windows drive colon as a line separator", () => {
+    const toks = tokenize("C:/src/app.ts");
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("C:/src/app.ts");
+    expect(f.line).toBeUndefined();
+  });
+
+  it("verbatim coverage holds for mixed absolute input", () => {
+    const input = "wrote /Users/me/a.ts and file:///tmp/b.ts and C:\\c.ts:3 done";
+    const toks = tokenize(input);
+    expect(concat(toks)).toBe(input);
+    expect(ofKind(toks, "file")).toHaveLength(3);
+  });
+});
+
 describe("tokenize — negative cases", () => {
   it("does not match version 1.0.0", () => {
     const toks = tokenize("installed v1.2.3 of foo and version 1.0.0 today");

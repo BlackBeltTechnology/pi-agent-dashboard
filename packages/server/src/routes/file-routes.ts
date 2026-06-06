@@ -7,6 +7,7 @@ import type { PreferencesStore } from "../preferences-store.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
 import { listDirectories, createDirectory, classifyPaths, parseFlagsQuery } from "../browse.js";
+import { decodeFileUri } from "../lib/decode-file-uri.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -107,7 +108,7 @@ export function registerFileRoutes(
     { preHandler: networkGuard },
     async (request, reply) => {
       const cwd = request.query.cwd;
-      const relPath = request.query.path;
+      const relPath = request.query.path ? decodeFileUri(request.query.path) : request.query.path;
       if (!cwd || !relPath) {
         reply.code(400);
         return { success: false, error: "cwd and path parameters required" } satisfies ApiResponse;

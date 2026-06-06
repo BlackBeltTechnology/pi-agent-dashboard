@@ -1,7 +1,8 @@
 import React from "react";
 import { Icon } from "@mdi/react";
-import { mdiOpenInNew } from "@mdi/js";
-import { openEditor } from "../../lib/editor-api.js";
+import { mdiOpenInNew, mdiEyeOutline } from "@mdi/js";
+import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
+import { useFileOpenRouting } from "./useFileOpenRouting.js";
 import type { ToolContext } from "./types.js";
 
 interface Props {
@@ -10,26 +11,48 @@ interface Props {
   context: ToolContext;
 }
 
-/** Small button to open a file in the detected editor */
+/**
+ * Open affordance for Read/Edit/Write tool headers. Routes clicks via the
+ * shared {@link useFileOpenRouting} hook, mirroring `FileLink`:
+ *   localhost + detected editor → open in editor
+ *   otherwise                   → in-dashboard preview overlay
+ *
+ * Renders nothing only when there is no `cwd` or no `filePath` — never merely
+ * because no editor is detected (that case falls back to preview).
+ *
+ * See change: unify-file-link-openability (spec: open-in-editor).
+ */
 export function OpenFileButton({ filePath, line, context }: Props) {
-  const { cwd, editors } = context;
-  if (!cwd || editors.length === 0 || !filePath) return null;
+  const { cwd, localEditorAvailable, editorName, preview, openFile, closePreview } =
+    useFileOpenRouting(context);
+  if (!cwd || !filePath) return null;
 
-  const editor = editors[0]; // Use first detected editor
-
-  const handleClick = async (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    await openEditor(cwd, editor.id, filePath, line);
+    void openFile(filePath, line);
   };
 
+  const label = localEditorAvailable ? editorName : "Preview";
+  const title = localEditorAvailable ? `Open in ${editorName}` : `Preview ${filePath}`;
+
   return (
-    <button
-      onClick={handleClick}
-      className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] hover:text-blue-400 transition-colors"
-      title={`Open in ${editor.name}`}
-    >
-      <Icon path={mdiOpenInNew} size={0.45} />
-      <span>{editor.name}</span>
-    </button>
+    <>
+      <button
+        onClick={handleClick}
+        className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] hover:text-blue-400 transition-colors"
+        title={title}
+      >
+        <Icon path={localEditorAvailable ? mdiOpenInNew : mdiEyeOutline} size={0.45} />
+        <span>{label}</span>
+      </button>
+      {preview && cwd && (
+        <FilePreviewOverlay
+          cwd={cwd}
+          path={preview.path}
+          line={preview.line}
+          onClose={closePreview}
+        />
+      )}
+    </>
   );
 }

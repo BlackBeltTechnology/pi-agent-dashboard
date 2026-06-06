@@ -92,7 +92,7 @@ function ImageAttachments({ images }: { images: ChatImage[] }) {
   );
 }
 
-function MessageBubble({ content, className, timestamp, entryId, onFork }: { content: string; className: string; timestamp?: number; entryId?: string; onFork?: (entryId: string) => void }) {
+function MessageBubble({ content, className, timestamp, entryId, onFork, context }: { content: string; className: string; timestamp?: number; entryId?: string; onFork?: (entryId: string) => void; context?: ToolContext }) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const getPlainText = useCallback(() => {
@@ -102,7 +102,7 @@ function MessageBubble({ content, className, timestamp, entryId, onFork }: { con
   return (
     <div className={className}>
       <div ref={contentRef}>
-        <MarkdownContent content={content} />
+        <MarkdownContent content={content} context={context} />
       </div>
       <div className="border-t border-[var(--border-secondary)] mt-2 pt-1.5 flex justify-end items-center gap-0.5 opacity-50 hover:opacity-100 transition-opacity">
         {timestamp != null && (
@@ -503,6 +503,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               timestamp={msg.timestamp}
               entryId={msg.entryId}
               onFork={onForkFromMessage}
+              context={toolContext}
             />
           </div>
         );
@@ -522,7 +523,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       {state.streamingText && (
         <div className="flex justify-start">
           <div className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(state.streamingText) ? bubbleWide : bubbleMax}`}>
-            <MarkdownContent content={state.streamingText} />
+            <MarkdownContent content={state.streamingText} context={toolContext} />
             <span className="inline-block w-1.5 h-4 bg-[var(--bg-surface)] animate-pulse ml-0.5" />
           </div>
         </div>

@@ -1041,6 +1041,14 @@ The dashboard is installable as a Progressive Web App on mobile devices:
 - **Service Worker** (`public/sw.js`) — minimal fetch pass-through for installability
 - **Tunnel/QR Button** — unified sidebar button: shows tunnel icon when zrok is not installed (click → setup guide), QR code icon when set up but disconnected (click → setup guide), green QR code icon when connected (click → QR dialog with disconnect and setup buttons)
 
+### Tool-Output File Linkification
+
+`linkify-tool-output.ts::tokenize` detects file refs in tool output. Click routes via `useFileOpenRouting`: localhost + editor detected → `openEditor`; else mount `FilePreviewOverlay`. `FileLink` + `OpenFileButton` share the hook. `MarkdownContent` linkifies prose + inline `code` when `context` prop set; fenced code blocks excluded.
+
+Tokenizer detects absolute POSIX paths, `file://`/`file:///` URIs (percent-decoded), Windows drive paths. Server decodes leading `file://` via `decodeFileUri` on `/api/file` (`path`) + `/api/open-editor` (`file`). Absolute paths accepted but gated by known-session-cwd + traversal check.
+
+**Known limitation: wrong-base relative paths.** Relative path emitted under non-session cwd resolves against wrong base. Protocol carries no per-invocation cwd. Bash tool args = `{command, timeout}`. `browser-protocol.ts` has no `tool_call`/`tool_result` cwd field. Session cwd only available base. Correct fix needs per-tool cwd threaded bridge → server → client. Deferred follow-up. Absolute paths (change: unify-file-link-openability) = recommended mitigation.
+
 ### External Link Routing (#13)
 
 The dashboard runs in three shells (regular browser tab, installed PWA with `"display": "standalone"`, Electron), and all three previously stranded the user when a link in chat content was clicked — the PWA and Electron shells have no URL bar / back button to recover with. Two layers of hardening route external URLs safely:

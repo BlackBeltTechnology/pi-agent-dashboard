@@ -14,9 +14,56 @@ import { wrapAsciiTables } from "../lib/wrap-ascii-tables.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { useSessionAssets } from "../lib/SessionAssetsContext.js";
 import { ImageLightbox } from "./ImageLightbox.js";
+import { tokenize } from "../lib/linkify-tool-output.js";
+import { FileLink } from "./tool-renderers/FileLink.js";
+import { UrlLink } from "./tool-renderers/UrlLink.js";
+import { ErrorBoundary } from "./ErrorBoundary.js";
+import type { ToolContext } from "./tool-renderers/types.js";
 
 interface Props {
   content: string;
+  /**
+   * When provided, inline prose text and inline-`code` spans are run through
+   * the tool-output tokenizer so file references and URLs become clickable.
+   * Fenced/multi-line code blocks are never linkified. Omit to render plain
+   * markdown (the default for non-chat surfaces).
+   * See change: unify-file-link-openability.
+   */
+  context?: ToolContext;
+}
+
+/**
+ * Tokenize a plain string and render file/URL tokens as clickable elements,
+ * leaving text verbatim. Used only for inline contexts (paragraph text, list
+ * items, inline code). Wrapped by `linkifyChildren` in an ErrorBoundary.
+ */
+function renderInlineString(text: string, context: ToolContext, keyPrefix: string): React.ReactNode {
+  return tokenize(text).map((tok, i) => {
+    const key = `${keyPrefix}-${i}`;
+    if (tok.kind === "text") return <React.Fragment key={key}>{tok.text}</React.Fragment>;
+    if (tok.kind === "url") return <UrlLink key={key} href={tok.text}>{tok.text}</UrlLink>;
+    return (
+      <FileLink key={key} path={tok.path} line={tok.line} col={tok.col} absolute={tok.absolute} context={context}>
+        {tok.text}
+      </FileLink>
+    );
+  });
+}
+
+/**
+ * Map react-markdown inline children: linkify string nodes, pass every other
+ * node (existing markdown anchors, bold, nested elements) through untouched so
+ * real link anchors are never double-wrapped. Fault-isolated so a tokenizer
+ * throw degrades to the original children rather than crashing the render.
+ */
+function linkifyChildren(children: React.ReactNode, context: ToolContext): React.ReactNode {
+  return (
+    <ErrorBoundary fallback={<>{children}</>}>
+      {React.Children.map(children, (child, i) =>
+        typeof child === "string" ? renderInlineString(child, context, `lk-${i}`) : child,
+      )}
+    </ErrorBoundary>
+  );
 }
 
 type HastNode = {
@@ -294,7 +341,7 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   );
 }
 
-export const MarkdownContent = React.memo(function MarkdownContent({ content }: Props) {
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
@@ -363,7 +410,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content }: 
                   className="bg-[var(--bg-surface)] px-1.5 py-0.5 rounded text-sm font-mono"
                   {...props}
                 >
-                  {children}
+                  {context ? renderInlineString(codeString, context, "code") : children}
                 </code>
               );
             }
@@ -376,6 +423,20 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content }: 
               </CodeBlockWrapper>
             );
           },
+          // Linkify inline prose. Only enabled when a `context` is supplied
+          // (chat surfaces); fenced/multi-line code blocks render via the
+          // `code` override above and are never linkified.
+          // See change: unify-file-link-openability.
+          ...(context
+            ? {
+                p({ node: _node, children }: any) {
+                  return <p>{linkifyChildren(children, context)}</p>;
+                },
+                li({ node: _node, children }: any) {
+                  return <li>{linkifyChildren(children, context)}</li>;
+                },
+              }
+            : {}),
           table({ children }) {
             return (
               <TableWrapper>
