@@ -14,6 +14,7 @@ describe("TerminalGateway", () => {
       get: vi.fn(),
       list: vi.fn(() => []),
       updateTitle: vi.fn(),
+      getTranscript: vi.fn(() => ""),
     };
   });
 
