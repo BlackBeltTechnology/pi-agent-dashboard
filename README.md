@@ -35,6 +35,7 @@
 
 - [Quickstart](#quickstart)
 - [Features](#features)
+- [Chinese UI](#chinese-ui)
 - [Prerequisites](#prerequisites)
 - [Configuration](#configuration)
 - [Usage](#usage)
@@ -205,6 +206,20 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Alternatively, add the pack
 **Networking & distribution**
 - **Network discovery** — mDNS-based auto-discovery of other dashboard servers on the local network
 - **Zrok tunnel** — optional persistent public URL via reserved shares (see [Configuration → Tunnel](#tunnel-zrok))
+
+---
+
+## Chinese UI
+
+PI Dashboard now includes a lightweight Simplified Chinese interface for the core operator workflow: onboarding, the session sidebar, chat composer, connection banners, Settings, provider setup, and package management.
+
+The language selector lives in **Settings → General → Interface**. English remains the default for existing users, and the selection is saved in the browser. Deployments that want to start in Chinese can build the web client with:
+
+```bash
+VITE_PI_DASHBOARD_DEFAULT_LANGUAGE=zh-CN npm run build --workspace=@blackbelt-technology/pi-dashboard-web
+```
+
+This keeps plugin-provided dynamic content, package names, model names, and command output unchanged while making the main dashboard usable for Chinese-speaking operators out of the box.
 
 ---
 

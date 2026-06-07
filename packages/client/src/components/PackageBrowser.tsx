@@ -10,6 +10,7 @@ import { PackageRow } from "./PackageRow.js";
 import { classifySource } from "../lib/package-classifier.js";
 import { RecommendedExtensions } from "./RecommendedExtensions.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { useI18n } from "../lib/i18n.js";
 
 const TYPE_PILLS = ["extension", "skill", "theme", "prompt"] as const;
 
@@ -39,6 +40,7 @@ export function PackageBrowser({
   onConfirmInstall,
   showInstalledSection = true,
 }: PackageBrowserProps) {
+  const { t } = useI18n();
   const search = usePackageSearch();
   const installedOwn = useInstalledPackages(scope, cwd);
   // Also fetch the other scope to show cross-scope badges
@@ -168,7 +170,7 @@ export function PackageBrowser({
       {showInstalledSection && installedNonRecommended.length > 0 && (
         <div data-testid="installed-packages-section">
           <h3 className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-1.5">
-            Installed Packages
+            {t("packages.installed", undefined, "Installed Packages")}
           </h3>
           <div className="space-y-1">
             {installedNonRecommended.map((pkg) => {
@@ -224,7 +226,7 @@ export function PackageBrowser({
           disabled={!urlInput.trim()}
           className="px-3 py-1.5 text-xs bg-[var(--accent-primary)] text-white rounded hover:bg-[var(--accent-primary)]/80 disabled:opacity-50 font-medium"
         >
-          Install
+          {t("common.install", undefined, "Install")}
         </button>
       </div>
 
@@ -239,7 +241,7 @@ export function PackageBrowser({
           type="text"
           value={search.query}
           onChange={(e) => search.setQuery(e.target.value)}
-          placeholder="Search pi packages on npm..."
+          placeholder={t("packages.searchPlaceholder", undefined, "Search pi packages on npm...")}
           className="w-full pl-7 pr-2 py-1.5 text-xs bg-[var(--bg-surface)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
           data-testid="package-search-input"
         />
@@ -278,10 +280,10 @@ export function PackageBrowser({
             <Icon path={mdiLoading} size={0.4} className="inline animate-spin mr-1" />
           )}
           {operations.operation.status === "running"
-            ? `Installing ${operations.operation.source}…`
+            ? t("packages.installing", { source: operations.operation.source }, `Installing ${operations.operation.source}...`)
             : operations.operation.message}
           {operations.queueDepth > 0 && operations.operation.status === "running" && (
-            <span className="ml-2 opacity-80">({operations.queueDepth} queued)</span>
+            <span className="ml-2 opacity-80">({t("common.queuedCount", { count: operations.queueDepth }, `${operations.queueDepth} queued`)})</span>
           )}
         </div>
       )}
@@ -300,14 +302,14 @@ export function PackageBrowser({
       {!search.isLoading && displayPackages.length === 0 && !search.error && (
         <div className="text-center py-6 text-[var(--text-muted)]">
           <Icon path={mdiPackageVariantClosed} size={1.2} className="mx-auto mb-2 opacity-30" />
-          <p className="text-xs">No packages found</p>
+          <p className="text-xs">{t("packages.noPackages", undefined, "No packages found")}</p>
         </div>
       )}
 
       {displayPackages.length > 0 && (
         <>
           <div className="text-[10px] text-[var(--text-muted)]">
-            {displayPackages.length} package{displayPackages.length !== 1 ? "s" : ""}
+            {t("packages.packageCount", { count: displayPackages.length }, `${displayPackages.length} package${displayPackages.length !== 1 ? "s" : ""}`)}
           </div>
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
             {displayPackages.map((pkg) => {
@@ -328,7 +330,7 @@ export function PackageBrowser({
                   })()}
                   operationMessage={(() => {
                     const s = operations.statusFor(`npm:${pkg.name}`);
-                    if (s === "queued") return "Queued…";
+                    if (s === "queued") return t("common.queued", undefined, "Queued...");
                     if (s === "idle") return undefined;
                     return operations.messageFor(`npm:${pkg.name}`);
                   })()}
