@@ -1129,6 +1129,13 @@ export interface PromptResponseBrowserMessage {
   answer?: string;
   cancelled?: boolean;
   source: string;
+  /**
+   * Optional pasted images for a `type:"input"` answer (standalone
+   * `ask_user{method:"input"}`). The encoder cannot fit images into the
+   * string `answer`, so they ride here. Additive. See change:
+   * add-ask-user-input-multiline-paste.
+   */
+  images?: ImageContent[];
 }
 
 export interface RoleSetBrowserMessage {

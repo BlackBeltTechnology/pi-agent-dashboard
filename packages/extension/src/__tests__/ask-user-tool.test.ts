@@ -184,6 +184,64 @@ describe("registerAskUserTool", () => {
     });
   });
 
+  describe("image attachments (multiline paste)", () => {
+    function getTool() {
+      const pi = createMockPi();
+      registerAskUserTool(pi as any);
+      return pi.registerTool.mock.calls[0][0];
+    }
+
+    it("standalone input prefers ctx.ui.inputWithImages and surfaces attachment paths", async () => {
+      const tool = getTool();
+      const inputWithImages = vi.fn().mockResolvedValue({
+        value: "see attached",
+        attachments: [{ path: "/home/u/.pi/dashboard/attachments/s/abc.png", mimeType: "image/png", bytes: 42 }],
+      });
+      const ctx = { ui: { inputWithImages, input: vi.fn().mockResolvedValue("unused") } };
+      const res = await tool.execute("id", { method: "input", title: "Paste" }, undefined, undefined, ctx);
+      expect(inputWithImages).toHaveBeenCalledTimes(1);
+      expect(ctx.ui.input).not.toHaveBeenCalled();
+      expect(res.content[0].text).toContain('"attachments"');
+      expect(res.content[0].text).toContain("abc.png");
+      expect(res.details.result).toEqual({
+        value: "see attached",
+        attachments: [{ path: "/home/u/.pi/dashboard/attachments/s/abc.png", mimeType: "image/png", bytes: 42 }],
+      });
+    });
+
+    it("standalone input falls back to ctx.ui.input (text-only) when inputWithImages absent", async () => {
+      const tool = getTool();
+      const ctx = { ui: { input: vi.fn().mockResolvedValue("plain text") } };
+      const res = await tool.execute("id", { method: "input", title: "Q" }, undefined, undefined, ctx);
+      expect(ctx.ui.input).toHaveBeenCalledTimes(1);
+      expect(res.content[0].text).toBe('User responded: "plain text"');
+    });
+
+    it("batch input answer with attachments flows into the summary + details", async () => {
+      const tool = getTool();
+      const batch = vi.fn().mockResolvedValue([
+        { value: "the error", attachments: [{ path: "/a/x.png", mimeType: "image/png", bytes: 9 }] },
+        { confirmed: true },
+      ]);
+      const ctx = { ui: { batch } };
+      const res = await tool.execute(
+        "id",
+        { method: "batch", title: "Qs", questions: [
+          { method: "input", title: "Paste the error" },
+          { method: "confirm", title: "Proceed?" },
+        ] },
+        undefined,
+        undefined,
+        ctx,
+      );
+      expect(batch).toHaveBeenCalledTimes(1);
+      // input entry carries the {value, attachments} object; confirm stays boolean.
+      expect(res.details.results[0]).toEqual({ value: "the error", attachments: [{ path: "/a/x.png", mimeType: "image/png", bytes: 9 }] });
+      expect(res.details.results[1]).toBe(true);
+      expect(res.content[0].text).toContain("x.png");
+    });
+  });
+
   describe("prepareArguments", () => {
     function getTool() {
       const pi = createMockPi();

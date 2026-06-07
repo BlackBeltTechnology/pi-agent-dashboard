@@ -1,9 +1,11 @@
 import React, { useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiCheck, mdiCheckCircle, mdiViewListOutline } from "@mdi/js";
+import { mdiCheck, mdiCheckCircle, mdiImageMultiple, mdiViewListOutline } from "@mdi/js";
+import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { parseOption, isCancelOption } from "./parseOption.js";
+import { InputComposer } from "./InputComposer.js";
 
 /**
  * BatchRenderer — renders a `batch` ask_user request as a single wizard card:
@@ -25,7 +27,7 @@ interface SubQuestion {
 
 type Answer =
   | { confirmed: boolean }
-  | { value: string }
+  | { value: string; images?: ImageContent[] }
   | { values: string[] };
 
 function initialAnswer(q: SubQuestion): Answer | undefined {
@@ -50,7 +52,14 @@ function answerToText(q: SubQuestion, a: Answer | undefined): React.ReactNode {
     );
   }
   if ("value" in a) {
-    return a.value === "" ? <span className="text-[var(--text-tertiary)] italic">(left blank)</span> : a.value;
+    const imgCount = a.images?.length ?? 0;
+    const pill = imgCount > 0 ? (
+      <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-[var(--text-tertiary)] align-middle">
+        <Icon path={mdiImageMultiple} size={0.5} />+{imgCount}
+      </span>
+    ) : null;
+    if (a.value === "" && imgCount === 0) return <span className="text-[var(--text-tertiary)] italic">(left blank)</span>;
+    return <span>{a.value === "" ? <span className="text-[var(--text-tertiary)] italic">(no text)</span> : a.value}{pill}</span>;
   }
   return null;
 }
@@ -264,13 +273,13 @@ function StepBody({
         <div className="text-[11px] text-[var(--text-tertiary)] mb-3"><InlineMarkdown content={question.message} /></div>
       )}
       {question.method === "input" && (
-        <input
-          type="text"
+        <InputComposer
           autoFocus
           value={(answer as { value: string } | undefined)?.value ?? ""}
+          images={(answer as { images?: ImageContent[] } | undefined)?.images ?? []}
           placeholder={question.placeholder}
-          onChange={(e) => onChange({ value: e.target.value })}
-          className="w-full px-2.5 py-1.5 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] outline-none focus:border-blue-500"
+          onChange={(next) => onChange({ value: next.value, images: next.images.length > 0 ? next.images : undefined })}
+          onSubmit={() => { /* batch advances via Next/Submit; no per-step submit */ }}
         />
       )}
       {question.method === "confirm" && (

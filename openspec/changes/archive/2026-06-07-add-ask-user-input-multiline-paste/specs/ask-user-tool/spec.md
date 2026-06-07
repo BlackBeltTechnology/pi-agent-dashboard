@@ -2,15 +2,14 @@
 
 ### Requirement: method:"input" supports optional image attachments via a disk-backed side channel
 
-The `ask_user` tool's `method:"input"` branch (standalone) and the `case "input"` arm of `method:"batch"` sub-questions SHALL accept an optional `images?: ImageContent[]` field on the `PromptResponse` returned from `PromptBus.request(...)`. When images are present, the tool SHALL persist each image to disk under `~/.pi/dashboard/attachments/<sessionId>/<hash>.<ext>` and include the resulting absolute paths in the tool result so the calling LLM may invoke its own `Read` tool to view them.
+The `ask_user` tool's standalone `method:"input"` branch and the `input` step of the `method:"batch"` wizard SHALL accept an optional `images?: ImageContent[]` side channel. When images are present, the tool SHALL persist each image to disk under `~/.pi/dashboard/attachments/<sessionId>/<hash>.<ext>` and include the resulting absolute paths in the tool result so the calling LLM may invoke its own `Read` tool to view them.
 
-Concretely:
+The two methods use different transports (since change `redesign-ask-user-question-cards`, #76):
 
-1. The dashboard's `InputRenderer` SHALL be permitted to call `onRespond({ value: string, images?: ImageContent[] })` where `images` is an array of `{type: "image", data: <base64>, mimeType: <"image/jpeg" | "image/png" | "image/gif" | "image/webp">}`.
-2. The `PromptResponse` interface in `packages/extension/src/prompt-bus.ts` SHALL gain an optional `images?: ImageContent[]` field. This field is purely additive; existing adapters and renderers that do not produce or consume it SHALL continue to work unchanged.
-3. The matching `PromptResponseBrowserMessage` in `packages/shared/src/browser-protocol.ts` SHALL gain the same optional field with the same shape.
-4. For `method:"input"` (standalone and batch sub-question), the `ask_user` tool SHALL call `bridgeContext.promptBus.request(...)` directly instead of dispatching through `ctx.ui.input(...)`, because `ctx.ui.input` discards the richer response shape. All other methods (`confirm`, `select`, `multiselect`) SHALL continue to dispatch through `ctx.ui.*` unchanged.
-5. When the resolved `PromptResponse` carries no `images` (or an empty array), the tool's behavior and result shape SHALL be byte-for-byte identical to the pre-change behavior for `method:"input"` and the batch input sub-question arm.
+1. **Standalone** `method:"input"` rides `PromptResponse.images`. The dashboard's `InputRenderer` SHALL be permitted to call `onRespond({ value: string, images?: ImageContent[] })` where `images` is an array of `{type: "image", data: <base64>, mimeType: <"image/jpeg" | "image/png" | "image/gif" | "image/webp">}`. The `PromptResponse` interface in `packages/extension/src/prompt-bus.ts` SHALL gain an optional `images?: ImageContent[]` field (purely additive). The matching `PromptResponseBrowserMessage` in `packages/shared/src/browser-protocol.ts` SHALL gain the same optional field.
+2. **Batch** rides `ctx.ui.batch`. The `input` variant of `BatchAnswer` in `packages/shared/src/protocol.ts` SHALL gain an optional `images?: ImageContent[]` field; `BatchRenderer` includes pasted images in the per-step answer, and they ride inside the `{answers}` payload (JSON-encoded into the bus `answer` string). No per-sub-question `PromptResponse.images` channel is used.
+3. The bridge SHALL patch `(ctx.ui as any).inputWithImages` (next to the existing `ctx.ui.input` patch, where `bus`/`sessionId`/`connection` are in scope). For **standalone** `method:"input"`, the `ask_user` tool SHALL dispatch through `ctx.ui.inputWithImages(...)` when present (else fall back to `ctx.ui.input(...)`, text-only). For **batch**, the tool SHALL keep its single `ctx.ui.batch(...)` dispatch; the bridge SHALL extend that patch to process `answers[].images`. Attachment persistence and `asset_register` emission live in the bridge (importing the pure `ask-user-attachments.ts` helper), not in the tool. All other methods (`confirm`, `select`, `multiselect`) SHALL continue to dispatch through `ctx.ui.*` unchanged.
+4. When a resolved input answer carries no `images` (or an empty array), the tool's behavior and result shape SHALL be byte-for-byte identical to the pre-change behavior for both standalone `method:"input"` and the batch `input` step.
 
 #### Scenario: input response with no images (backward compat)
 - **WHEN** the dashboard renderer resolves `method:"input"` with `{ value: "hello world" }` (no `images`)
@@ -28,15 +27,16 @@ Concretely:
 - **THEN** the tool SHALL write two files with extensions `.png` and `.jpg` respectively
 - **AND** the `attachments` array in the result SHALL have two entries in the same order as the incoming `images` array
 
-#### Scenario: input bypass does not affect confirm/select/multiselect
+#### Scenario: input change does not affect confirm/select/multiselect
 - **WHEN** the `ask_user` tool dispatches `method:"confirm"`, `method:"select"`, or `method:"multiselect"`
 - **THEN** the call SHALL continue to flow through `ctx.ui.confirm` / `ctx.ui.select` / `polyfillMultiselect` exactly as before this change
 - **AND** the result shape for these methods SHALL be unchanged
 
 #### Scenario: batch sub-question with input + images
-- **WHEN** a `method:"batch"` call has a sub-question `{method: "input", title: "Paste the error"}` and the user pastes an image while answering it
-- **THEN** the batch loop SHALL also bypass `ctx.ui.input` for that sub-question and harvest the images via `bridgeContext.promptBus.request(...)`
-- **AND** the per-sub-question entry in the numbered summary SHALL carry `{value, attachments}` JSON instead of a bare string
+- **WHEN** a `method:"batch"` call has a sub-question `{method: "input", title: "Paste the error"}` and the user pastes an image while answering that step in the `BatchRenderer` wizard
+- **THEN** the image SHALL ride in that step's `BatchAnswer.images` inside the single `{answers}` payload (no per-question bypass)
+- **AND** the bridge's `ctx.ui.batch` patch SHALL persist that answer's images and rewrite its mapped result to `{value, attachments}` before returning to the tool
+- **AND** the index-aligned `details.results[i]` and the numbered summary line for that sub-question SHALL carry `{value, attachments}` instead of a bare string
 - **AND** other sub-questions in the same batch SHALL be unaffected
 
 ### Requirement: Pasted images are persisted under ~/.pi/dashboard/attachments/<sessionId>/
@@ -71,7 +71,7 @@ The writer SHALL be idempotent: if a file at the resolved path already exists, t
 
 ### Requirement: Per-image and per-response byte caps mirror markdown-image-inliner
 
-The attachment side channel SHALL enforce the same caps as `markdown-image-inliner`: 5 MB per image (`MAX_PER_IMAGE_BYTES`) and 20 MB cumulative per `ask_user` response (`MAX_PER_MESSAGE_BYTES`). Caps SHALL be enforced both client-side (by `useImagePaste`, which already drops oversize blobs with a transient banner) and bridge-side as a defense-in-depth check.
+The attachment side channel SHALL enforce the same caps as `markdown-image-inliner`: 5 MB per image (`MAX_PER_IMAGE_BYTES`) and 20 MB cumulative per `ask_user` response (`MAX_PER_MESSAGE_BYTES`). Caps SHALL be enforced both client-side (by `useImagePaste`, which already drops oversize blobs with a transient banner) and bridge-side as a defense-in-depth check (inside the bridge's `persistAnswerImages` helper).
 
 #### Scenario: Bridge re-validates per-image cap
 - **WHEN** an image larger than 5 MB somehow reaches the bridge (e.g. client-side cap was bypassed)
@@ -117,8 +117,8 @@ This rule applies to both the standalone `method:"input"` result and the per-sub
 
 #### Scenario: Batch summary line uses same shape for input sub-questions
 - **WHEN** a batch contains an `input` sub-question whose answer carried attachments
-- **THEN** the numbered summary line for that sub-question SHALL be `${i}. ${title}: {"value":"...","attachments":[...]}`
-- **AND** other sub-question types (confirm/select/multiselect) in the same batch SHALL keep their existing bare-value `JSON.stringify` rendering
+- **THEN** the numbered summary line for that sub-question SHALL be `${i+1}. ${title}: {"value":"...","attachments":[...]}` and `details.results[i]` SHALL be `{value, attachments}`
+- **AND** other sub-question types (confirm→boolean / select→string / multiselect→string[]) in the same batch SHALL keep their existing `JSON.stringify` rendering
 
 ### Requirement: Attachment directory is cleaned up on session_end (best-effort)
 
@@ -147,7 +147,7 @@ The `InputRenderer` component at `packages/client/src/components/interactive-ren
 
 The textarea SHALL NOT advertise image-paste support via a placeholder hint, helper text, or visual affordance — the paste capability is silent, matching the main composer's `CommandInput`.
 
-Because `InputRenderer` is the global handler for `type:"input"` in `packages/client/src/components/interactive-renderers/registry.ts`, this change SHALL apply uniformly to every callsite routing through `PromptBus` with `type:"input"`: standalone `ask_user{method:"input"}`, batch `input` sub-questions, the `polyfillMultiselect` input fallback path, and any third-party extension issuing input prompts via the bus.
+The textarea + paste wiring SHALL be extracted into a shared `<InputComposer>` component consumed by both `InputRenderer` (registry `type:"input"`) and `BatchRenderer`'s `StepBody` `input` arm (registry `type:"batch"`), since #76 routes standalone-input and batch through separate renderers. Via `InputRenderer`, the upgrade SHALL apply uniformly to every callsite routing `type:"input"` through `PromptBus`: standalone `ask_user{method:"input"}`, the `polyfillMultiselect` input fallback path, and any third-party extension issuing input prompts. The batch `input` step gets the same UX via `BatchRenderer`'s `StepBody`.
 
 #### Scenario: Enter inserts a newline, Cmd/Ctrl+Enter submits
 - **GIVEN** the textarea has focus and the user has typed "line one"

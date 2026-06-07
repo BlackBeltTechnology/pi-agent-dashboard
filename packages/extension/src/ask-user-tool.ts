@@ -372,6 +372,12 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
               if (a && typeof a === "object") {
                 if ("confirmed" in a) return (a as any).confirmed;
                 if ("values" in a) return (a as any).values;
+                // input answers with pasted images are rewritten to
+                // {value, attachments} by the bridge's ctx.ui.batch patch;
+                // pass the whole object through so the summary + details
+                // carry the attachment paths. Plain inputs stay bare strings.
+                // See change: add-ask-user-input-multiline-paste.
+                if ("attachments" in a) return a;
                 if ("value" in a) return (a as any).value;
               }
               return a;
@@ -434,7 +440,13 @@ export function registerAskUserTool(pi: ExtensionAPI): void {
           result = await polyfillMultiselect(ctx, title, options, msgOpts);
           break;
         case "input":
-          result = await ctx.ui.input(title, params.placeholder, msgOpts);
+          // Prefer the bridge-patched inputWithImages (dashboard sessions) so
+          // pasted images survive as {value, attachments}; fall back to the
+          // built-in ctx.ui.input (TUI, text-only) when absent.
+          // See change: add-ask-user-input-multiline-paste.
+          result = typeof (ctx.ui as any).inputWithImages === "function"
+            ? await (ctx.ui as any).inputWithImages(title, params.placeholder, msgOpts)
+            : await ctx.ui.input(title, params.placeholder, msgOpts);
           break;
       }
 

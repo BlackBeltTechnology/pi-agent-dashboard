@@ -142,7 +142,15 @@ export function useSessionActions(deps: SessionActionDeps) {
       // Encoding precedence (multiselect-aware): see prompt-answer-encoder.ts.
       // Fix: change fix-multiselect-auto-cancel-on-dashboard.
       const answer = encodePromptAnswer(result, cancelled);
-      send({ type: "prompt_response", sessionId: selectedId, promptId: requestId, answer, cancelled, source: "dashboard-default" } as any);
+      // Standalone method:"input" carries pasted images that cannot fit in
+      // the string `answer`; lift them onto the message. Batch images ride
+      // inside `answer` (JSON answers) and are not duplicated here.
+      // See change: add-ask-user-input-multiline-paste.
+      const images =
+        result && typeof result === "object" && Array.isArray((result as any).images)
+          ? (result as any).images
+          : undefined;
+      send({ type: "prompt_response", sessionId: selectedId, promptId: requestId, answer, cancelled, source: "dashboard-default", images } as any);
       setSessionStates((prev) => {
         const next = new Map(prev);
         const current = next.get(selectedId);

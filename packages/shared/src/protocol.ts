@@ -305,10 +305,15 @@ export interface BatchQuestion {
  * One answer in a `batch` response, index-aligned with `BatchQuestion[]`.
  * `confirm` → `{confirmed}`, `select`/`input` → `{value}`,
  * `multiselect` → `{values}`.
+ *
+ * The `input` variant MAY carry pasted `images` (multiline-paste). They
+ * ride inside the JSON-encoded `{answers}` payload; the bridge persists
+ * them and rewrites the answer to `{value, attachments}` before the tool
+ * sees it. See change: add-ask-user-input-multiline-paste.
  */
 export type BatchAnswer =
   | { confirmed: boolean }
-  | { value: string }
+  | { value: string; images?: ImageContent[] }
   | { values: string[] };
 
 /** Result payload returned by a resolved `batch` prompt. */

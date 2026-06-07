@@ -47,6 +47,11 @@ import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  persistAttachment,
+  cleanupAttachmentsForSession,
+  MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
+} from "./ask-user-attachments.js";
 
 const HEARTBEAT_INTERVAL = 15_000;
 const GIT_POLL_INTERVAL = 30_000;
@@ -753,6 +758,9 @@ function initBridge(pi: ExtensionAPI) {
           answer: (msg as any).answer,
           cancelled: (msg as any).cancelled,
           source: (msg as any).source ?? "dashboard-default",
+          // Optional pasted images for method:"input".
+          // See change: add-ask-user-input-multiline-paste.
+          images: (msg as any).images,
         });
         return;
       }
@@ -1693,6 +1701,54 @@ function initBridge(pi: ExtensionAPI) {
         bus.request({ pipeline: "command", type: "input", question: title, defaultValue: placeholder, metadata: buildMeta(opts) })
           .then(r => r.cancelled ? undefined : r.answer);
 
+      // Persist pasted images for an ask_user input answer to disk + emit one
+      // asset_register per new hash (dashboard thumbnail). Returns absolute
+      // paths the LLM can Read. Drops over per-image / cumulative caps.
+      // Closes over sessionId, connection, getEmittedAssetHashes (all in
+      // scope here). See change: add-ask-user-input-multiline-paste.
+      const persistAnswerImages = (
+        images: ImageContent[],
+      ): Array<{ path: string; mimeType: string; bytes: number }> => {
+        const out: Array<{ path: string; mimeType: string; bytes: number }> = [];
+        const emitted = getEmittedAssetHashes(sessionId);
+        let cumulative = 0;
+        for (const image of images) {
+          const persisted = persistAttachment({ sessionId, image });
+          if (!persisted) continue;
+          if (cumulative + persisted.bytes > ATTACH_MAX_PER_MESSAGE_BYTES) {
+            console.warn(`[bridge] ask_user image over cumulative cap dropped (${persisted.hash})`);
+            continue;
+          }
+          cumulative += persisted.bytes;
+          if (!emitted.has(persisted.hash)) {
+            emitted.add(persisted.hash);
+            connection.send({
+              type: "asset_register",
+              sessionId,
+              hash: persisted.hash,
+              mimeType: persisted.mimeType,
+              data: image.data,
+            });
+          }
+          out.push({ path: persisted.path, mimeType: persisted.mimeType, bytes: persisted.bytes });
+        }
+        return out;
+      };
+
+      // ctx.ui.inputWithImages is NOT a built-in pi method. The ask_user tool
+      // calls it for method:"input" so pasted images survive (ctx.ui.input
+      // decodes to a bare string, dropping PromptResponse.images). Resolves
+      // to: undefined (cancel) | string (no images) | {value, attachments}
+      // (images). See change: add-ask-user-input-multiline-paste, design.md
+      // Decision 1.
+      (ctx.ui as any).inputWithImages = (title: string, placeholder?: string, opts?: any) =>
+        bus.request({ pipeline: "command", type: "input", question: title, defaultValue: placeholder, metadata: buildMeta(opts) })
+          .then(r => {
+            if (r.cancelled) return undefined;
+            const atts = r.images?.length ? persistAnswerImages(r.images) : [];
+            return atts.length ? { value: r.answer ?? "", attachments: atts } : (r.answer ?? "");
+          });
+
       (ctx.ui as any).confirm = (title: string, message?: string, opts?: any) =>
         bus.request({ pipeline: "command", type: "confirm", question: title, metadata: buildMeta(opts, message) })
           .then(r => !r.cancelled && r.answer === "true");
@@ -1743,7 +1799,18 @@ function initBridge(pi: ExtensionAPI) {
           if (r.cancelled || r.answer == null) return undefined;
           try {
             const parsed = JSON.parse(r.answer);
-            return Array.isArray(parsed) ? parsed : undefined;
+            if (!Array.isArray(parsed)) return undefined;
+            // Persist any input-step images and rewrite that answer to
+            // {value, attachments}, dropping the raw base64 `images`.
+            // See change: add-ask-user-input-multiline-paste.
+            return parsed.map((a: any) => {
+              if (a && typeof a === "object" && Array.isArray(a.images) && a.images.length) {
+                const atts = persistAnswerImages(a.images);
+                const { images: _drop, ...rest } = a;
+                return atts.length ? { ...rest, attachments: atts } : rest;
+              }
+              return a;
+            });
           } catch {
             return undefined;
           }
@@ -2109,6 +2176,10 @@ function initBridge(pi: ExtensionAPI) {
       type: "session_unregister",
       sessionId,
     });
+
+    // Best-effort: remove this session's pasted ask_user attachments.
+    // See change: add-ask-user-input-multiline-paste.
+    cleanupAttachmentsForSession(sessionId);
 
     // Give time for the unregister to send
     await new Promise((resolve) => setTimeout(resolve, 100));

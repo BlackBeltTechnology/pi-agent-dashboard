@@ -1,16 +1,21 @@
 import React, { useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiCheckCircle, mdiFormTextbox } from "@mdi/js";
+import { mdiCheckCircle, mdiFormTextbox, mdiImageMultiple } from "@mdi/js";
+import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
+import { InputComposer } from "./InputComposer.js";
 
 export function InputRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
   const message = params.message as string | undefined;
   const placeholder = params.placeholder as string | undefined;
   const enteredValue = (result as any)?.value as string | undefined;
-  const [text, setText] = useState("");
+  const imageCount = ((result as any)?.images as ImageContent[] | undefined)?.length ?? 0;
+  const [value, setValue] = useState("");
+  const [images, setImages] = useState<ImageContent[]>([]);
+  const submit = () => onRespond({ value, images: images.length > 0 ? images : undefined });
 
   if (status === "cancelled" || status === "dismissed") {
     return (
@@ -41,6 +46,12 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
         >
           {isBlank ? "(left blank)" : enteredValue}
         </div>
+        {imageCount > 0 && (
+          <div className="ml-6 mt-1 inline-flex items-center gap-1 text-[10px] text-[var(--text-tertiary)]">
+            <Icon path={mdiImageMultiple} size={0.5} />
+            +{imageCount} image{imageCount === 1 ? "" : "s"}
+          </div>
+        )}
       </div>
     );
   }
@@ -54,27 +65,30 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
       {message && (
         <div className="text-xs text-[var(--text-secondary)] mb-3 ml-6"><MarkdownContent content={message} /></div>
       )}
-      <div className="flex gap-2 ml-6">
-        <input
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onRespond({ value: text }); }}
+      <div className="ml-6">
+        <InputComposer
+          value={value}
+          images={images}
+          onChange={(next) => { setValue(next.value); setImages(next.images); }}
+          onSubmit={submit}
+          onCancel={onCancel}
           placeholder={placeholder}
-          className="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] outline-none focus:border-blue-500"
+          autoFocus
         />
-        <button
-          onClick={() => onRespond({ value: text })}
-          className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
-        >
-          Submit
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
-        >
-          Cancel
-        </button>
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={submit}
+            className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
+          >
+            Submit
+          </button>
+          <button
+            onClick={onCancel}
+            className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 Today's `ask_user{method:"input"}` dialog renders a single-line `<input type="text">` and shuttles a bare string back through `ctx.ui.input` (pi-coding-agent API). The main prompt composer in `CommandInput` has long since gained a multiline `<textarea>` with image paste, riding to the agent as a mixed content block via `pi.sendUserMessage([{type:"text"}, {type:"image"}, …])`. The asymmetry is user-visible and obnoxious: when an agent asks "paste the screenshot here," the user has to switch to the main prompt.
 
-The interactive-renderer registry (`packages/client/src/components/interactive-renderers/registry.ts`) maps `type:"input"` → `InputRenderer` globally. Any callsite routing through `PromptBus` with `type:"input"` lands in the same renderer — standalone `ask_user{method:"input"}`, the per-sub-question `input` step inside `method:"batch"`, and any other extension issuing input prompts. One renderer change ripples through all of them.
+The interactive-renderer registry (`packages/client/src/components/interactive-renderers/registry.ts`) maps `type:"input"` → `InputRenderer` and `type:"batch"` → `BatchRenderer`. Since change `redesign-ask-user-question-cards` (#76), `method:"batch"` no longer dispatches sub-questions one at a time; the ask_user tool issues ONE `ctx.ui.batch(title, questions)` bus request (`type:"batch"`, `questions[]` in metadata), and `BatchRenderer` renders a stepper wizard that collects all answers locally and returns one `{answers: BatchAnswer[]}` payload (JSON-encoded into the bus `answer` string). Consequence for this change: the standalone-input textarea lives in `InputRenderer`, but the batch `input` step lives in `BatchRenderer`'s `StepBody` — two renderers, not one. To avoid divergence we extract a shared `<InputComposer>` (textarea + `useImagePaste` + `ImagePreviewStrip`) consumed by both.
 
 The `markdown-image-inliner` (`packages/extension/src/markdown-image-inliner.ts`) already establishes a convention for assistant-side image bytes flowing in the *other* direction: rewrite `![alt](path)` → `![alt](pi-asset:<hash>)` and ship bytes out-of-band via `asset_register` events. Crucially, `pi-asset:<hash>` is a display-only convention — the LLM cannot resolve it as a filesystem path. To put images in front of the LLM via `ask_user`, we need a real on-disk path the LLM's `Read` tool can open.
 
@@ -10,7 +10,7 @@ The `markdown-image-inliner` (`packages/extension/src/markdown-image-inliner.ts`
 
 ## Goals
 
-- Make `ask_user{method:"input"}` (and the `input` sub-question arm of `method:"batch"`) feel identical to the main prompt composer: autosizing textarea, `Cmd/Ctrl+Enter` to submit, clipboard image paste, thumbnail strip.
+- Make `ask_user{method:"input"}` (standalone) and the `input` step of the `method:"batch"` wizard feel identical to the main prompt composer: autosizing textarea, `Cmd/Ctrl+Enter` to submit, clipboard image paste, thumbnail strip. Both consume one shared `<InputComposer>`.
 - Persist pasted images to disk so the LLM's `Read` tool can see them. Reuse existing hash / MIME / size conventions.
 - Render thumbnails of pasted images in the `ask_user` tool card via `asset_register` so chat history shows what was sent.
 - Zero behavioral regression when no images are pasted — the tool result for a plain text response is unchanged.
@@ -26,9 +26,14 @@ The `markdown-image-inliner` (`packages/extension/src/markdown-image-inliner.ts`
 
 ## Decisions
 
-### Decision 1: Bypass `ctx.ui.input` for `method:"input"` (option C from explore)
+### Decision 1: Bridge-patched `ctx.ui.inputWithImages`; extend `ctx.ui.batch` (option C from explore, wiring option B)
 
-The `ask_user` tool currently dispatches every method through `ctx.ui.*`, which returns plain strings. To get `ImageContent[]` out of the dashboard back to the bridge, the standalone `input` case and the batch `input` sub-question case must bypass `ctx.ui.input` and call the lower-level `bridgeContext.promptBus.request(...)` directly, where the resolved `PromptResponse` carries the optional `images` field.
+The `ask_user` tool dispatches every method through `ctx.ui.*` and has no access to `promptBus`, `sessionId`, or `connection` (it is registered as `registerAskUserTool(pi)`, ctx exposes only `ctx.ui` + `ctx.sessionManager`). Attachment persistence and `asset_register` emission both REQUIRE `sessionId` + `connection`, which live only in `bridge.ts`. Rather than thread those internals into the tool, we follow the established `ctx.ui.batch` / `ctx.ui.multiselect` precedent: the bridge patches extra methods onto `ctx.ui` where `bus`, `sessionId`, and `connection` are already in scope.
+
+- **Standalone** `method:"input"`: bridge adds `(ctx.ui as any).inputWithImages(title, placeholder, opts)` next to the existing `ctx.ui.input` patch. It calls `bus.request({type:"input"})`, reads the resolved `PromptResponse.images`, persists each image to disk, emits one `asset_register` per new hash, and resolves to `string` (no images) | `{value, attachments}` (images) | `undefined` (cancel). The tool calls `inputWithImages` when present, else falls back to `ctx.ui.input` (TUI path, text-only).
+- **Batch** (since #76): the tool already issues ONE `ctx.ui.batch(title, questions)` call. The `BatchAnswer` input variant gains `images?: ImageContent[]`, so pasted bytes ride inside the existing `{answers}` payload (JSON-decoded from the bus `answer` string). The bridge extends the existing `ctx.ui.batch` `.then(...)` to persist `answers[].images` and emit `asset_register`, rewriting each affected answer's `value` into `{value, attachments}` before returning to the tool.
+
+Net effect: all `sessionId`/`connection`/`asset_register`/disk-write work stays in `bridge.ts` (importing the pure `ask-user-attachments.ts` helper); the tool only formats results. No fork of the tool's uniform `ctx.ui` dispatch, no new tool↔bridge coupling.
 
 **Alternatives considered:**
 
@@ -88,11 +93,11 @@ Wire a `session_end` hook in `bridge.ts` that `rmSync(attachmentDirForSession(si
 
 Orphans accumulate if the dashboard crashes between paste and session end. Expected rate is negligible at human paste cadence; revisit only if telemetry warrants. No prune CLI in v1.
 
-### Decision 7: Renderer-level change applies universally
+### Decision 7: Shared composer spans two renderers
 
-`InputRenderer.tsx` is the global handler for `type:"input"` in the registry. Replacing its body upgrades every callsite: standalone `ask_user{method:"input"}`, batch sub-questions with `sq.method === "input"`, and any other extension routing through `PromptBus` with `type:"input"`. This is intentional and per agreement.
+Since #76, `type:"input"` → `InputRenderer` and `type:"batch"` → `BatchRenderer` are separate registry entries. The standalone-input textarea lives in `InputRenderer`; the batch `input` step lives in `BatchRenderer`'s `StepBody`. Rather than duplicate the textarea + paste wiring, we extract a shared `<InputComposer>` (controlled `value`/`images` props, `onChange`, `onSubmit`, `onCancel`) and consume it from both. Any other extension routing `type:"input"` through `PromptBus` gets the upgrade via `InputRenderer` automatically.
 
-A corollary: the renderer must keep the historical `enteredValue` display in the post-resolve "answered" state working for the no-attachment case (the existing one-line green-check summary), and extend it to show "(+N image)" or similar in the attachment case.
+A corollary: `InputRenderer` must keep the #76 post-resolve read-only "answered"/`(left blank)` summary working for the no-attachment case, and extend it to show "(+N image)" in the attachment case. `BatchRenderer`'s `ReviewRow`/`answerToText` must likewise render the `(+N image)` affordance for an `input` answer that carried images.
 
 ### Decision 8: Schema-description silence
 
@@ -102,20 +107,20 @@ Likewise the textarea shows no "Paste images supported" hint. The main composer 
 
 ## Risks / Trade-offs
 
-- **Two bypass sites in `ask-user-tool.ts`** create a fork from the otherwise-uniform `ctx.ui.*` dispatch. → Mitigation: explicit comment above each bypass call referencing this design doc; both arms call the same private helper so duplication is just one line per site.
+- **`bridge.ts` grows** with attachment orchestration (the `inputWithImages` patch + the extended `ctx.ui.batch` `.then`). → Mitigation: the byte-shuffling lives in the pure `ask-user-attachments.ts` helper; the bridge patches are thin call-throughs, consistent with the existing `ctx.ui.batch`/`multiselect` patches. The tool's `ctx.ui` dispatch stays uniform — no fork.
 - **`PromptResponse.images` is a new field on a shared interface.** → Mitigation: optional field, backward compatible; existing adapters and renderers ignoring it continue to work. The `dashboard-default-adapter` is the only adapter that needs to know how to surface it (and via the renderer, which is what changes).
 - **Disk leaks on crash.** → Mitigation: documented; not load-bearing; revisit if telemetry warrants. `~/.pi/dashboard/attachments/` is easy to manually clean.
 - **LLM tries to `Read` a path that no longer exists** (e.g. session ended between tool response and follow-up turn). → Mitigation: paths only get cleaned up on `session_end`, which is also when the LLM stops running. The window for stale-path reads is functionally zero. If it does happen, the LLM's `Read` returns ENOENT and the LLM can apologize.
 - **Per-image base64 transmitted twice** — once as `asset_register` for the dashboard thumbnail, once as the disk write. → Mitigation: both flows are bounded by the caps (5 MB / 20 MB); the duplication is the cost of clean separation between user-facing display and LLM input.
-- **Batch summary format changes** for sub-questions that received images. → Mitigation: the per-sub-question entry's JSON value naturally grows from `"text"` to `{value, attachments}`; the surrounding `${i}. ${title}:` framing is unchanged. Existing consumers that only `.match()` the leading line are unaffected.
+- **Batch summary format changes** for sub-questions that received images. → Mitigation: the per-sub-question entry's JSON value naturally grows from `"text"` to `{value, attachments}`; the surrounding `${i+1}. ${title}:` framing and the index-aligned `details.results` contract (#76) are unchanged. Existing consumers that only `.match()` the leading line are unaffected.
 
 ## Migration Plan
 
 No migration required. This is purely additive:
 
-1. Ship the renderer change first (textarea + paste UI), keyed to ignore the `images` field if the protocol round-trips it. Renderer change is independently useful even before the protocol change lands (multiline alone).
-2. Ship the protocol field next (`PromptResponse.images?`). No-op when no images are pasted.
-3. Ship the bridge attachment writer + `asset_register` emission. When all three are deployed, paste-with-images works end-to-end.
+1. Ship `<InputComposer>` + wire it into both `InputRenderer` and `BatchRenderer`'s `StepBody` (textarea + paste UI), keyed to ignore the `images` field if the protocol round-trips it. Renderer change is independently useful even before the protocol change lands (multiline alone).
+2. Ship the protocol fields next: `PromptResponse.images?` (standalone) and `BatchAnswer.images?` (batch). No-op when no images are pasted.
+3. Ship the bridge attachment writer + `asset_register` emission, processing both the standalone `PromptResponse.images` and the batch `answers[].images`. When all three are deployed, paste-with-images works end-to-end.
 
 **Rollback strategy:** the renderer change is a single-file revert. The protocol field is optional; reverting it is field-removal with no schema migration. The bridge attachment writer is gated on `response.images?.length > 0` — if removed, behavior collapses back to text-only, no orphan paths in tool results.
 

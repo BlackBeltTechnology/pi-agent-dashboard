@@ -6,6 +6,8 @@
  * Replaces the ui-proxy race pattern and emitPromptAndAwait event system.
  */
 
+import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 // ── Interfaces ──────────────────────────────────────────────────────
 
 export interface PromptComponent {
@@ -37,6 +39,13 @@ export interface PromptResponse {
   answer?: string;
   cancelled?: boolean;
   source: string;
+  /**
+   * Optional pasted images riding alongside a `type:"input"` answer.
+   * Standalone `ask_user{method:"input"}` transport only. Additive;
+   * adapters that ignore it keep working. See change:
+   * add-ask-user-input-multiline-paste.
+   */
+  images?: ImageContent[];
 }
 
 export interface PromptAdapter {

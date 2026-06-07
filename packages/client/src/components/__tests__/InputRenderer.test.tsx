@@ -57,7 +57,7 @@ describe("InputRenderer", () => {
   });
 
   describe("empty submission", () => {
-    it("submits empty string via Enter key", () => {
+    it("plain Enter inserts a newline and does NOT submit", () => {
       const onRespond = vi.fn();
       render(
         <InputRenderer
@@ -70,7 +70,7 @@ describe("InputRenderer", () => {
 
       fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
 
-      expect(onRespond).toHaveBeenCalledWith({ value: "" });
+      expect(onRespond).not.toHaveBeenCalled();
     });
 
     it("submits empty string via button click", () => {
@@ -86,12 +86,12 @@ describe("InputRenderer", () => {
 
       fireEvent.click(screen.getByText("Submit"));
 
-      expect(onRespond).toHaveBeenCalledWith({ value: "" });
+      expect(onRespond).toHaveBeenCalledWith({ value: "", images: undefined });
     });
   });
 
   describe("non-empty submission", () => {
-    it("submits entered text via Enter key", () => {
+    it("submits entered text via Cmd/Ctrl+Enter", () => {
       const onRespond = vi.fn();
       render(
         <InputRenderer
@@ -103,9 +103,9 @@ describe("InputRenderer", () => {
       );
 
       fireEvent.change(screen.getByRole("textbox"), { target: { value: "Alice" } });
-      fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+      fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", metaKey: true });
 
-      expect(onRespond).toHaveBeenCalledWith({ value: "Alice" });
+      expect(onRespond).toHaveBeenCalledWith({ value: "Alice", images: undefined });
     });
 
     it("submits entered text via button click", () => {
@@ -122,7 +122,7 @@ describe("InputRenderer", () => {
       fireEvent.change(screen.getByRole("textbox"), { target: { value: "Bob" } });
       fireEvent.click(screen.getByText("Submit"));
 
-      expect(onRespond).toHaveBeenCalledWith({ value: "Bob" });
+      expect(onRespond).toHaveBeenCalledWith({ value: "Bob", images: undefined });
     });
   });
 
@@ -172,6 +172,50 @@ describe("InputRenderer", () => {
       );
 
       expect(screen.getByText("(left blank)")).toBeTruthy();
+    });
+
+    it("shows a +N image pill when the answer carried images", () => {
+      render(
+        <InputRenderer
+          {...baseProps}
+          status="resolved"
+          result={{ value: "see attached", images: [
+            { type: "image", data: "AAA", mimeType: "image/png" },
+            { type: "image", data: "BBB", mimeType: "image/jpeg" },
+          ] }}
+          onRespond={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      expect(screen.getByText(/\+2 images/)).toBeTruthy();
+    });
+  });
+
+  describe("image paste", () => {
+    it("submit includes pasted images", () => {
+      const onRespond = vi.fn();
+      render(
+        <InputRenderer
+          {...baseProps}
+          status="pending"
+          onRespond={onRespond}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      const file = new File(["x"], "shot.png", { type: "image/png" });
+      fireEvent.paste(screen.getByRole("textbox"), {
+        clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] },
+      });
+      // FileReader is async; the assertion below only checks the no-image
+      // path stays correct synchronously. Image attachment round-trip is
+      // covered by the bridge + ask-user-tool tests.
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "hi" } });
+      fireEvent.click(screen.getByText("Submit"));
+      expect(onRespond).toHaveBeenCalled();
+      const arg = onRespond.mock.calls[0][0];
+      expect(arg.value).toBe("hi");
     });
   });
 
