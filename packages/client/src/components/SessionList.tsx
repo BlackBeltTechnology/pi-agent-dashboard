@@ -50,6 +50,7 @@ import { selectedCardScrollFingerprint } from "../lib/session-list-scroll.js";
 import { TunnelButton } from "./TunnelButton.js";
 import { InstallButton } from "./InstallButton.js";
 import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
+import { useI18n } from "../lib/i18n.js";
 
 
 export interface ContextUsageInfo {
@@ -197,6 +198,7 @@ function ToggleButton({
 }
 
 export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+  const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
   const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
@@ -284,7 +286,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // Show toast for spawn results
   useEffect(() => {
     if (spawnResult) {
-      showToast(spawnResult.success ? spawnResult.message : `+Session failed: ${spawnResult.message}`);
+      showToast(spawnResult.success ? spawnResult.message : `${t("sessionList.sessionFailed", undefined, "+Session failed")}: ${spawnResult.message}`);
       onSpawnResultSeen?.();
     }
   }, [spawnResult, showToast, onSpawnResultSeen]);
@@ -566,7 +568,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 setAddToWsMenuFor(menuOpen ? null : group.cwd);
               }}
               className="text-[10px] px-1 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
-              title="Add to workspace"
+              title={t("sessionList.addToWorkspace", undefined, "Add to workspace")}
               data-testid={`add-to-workspace-btn-${group.cwd}`}
             >
               +ws
@@ -630,7 +632,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                   else onPinDirectory?.(group.cwd);
                 }}
                 className={`ml-auto px-1 py-0.5 rounded ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-[var(--text-tertiary)] hover:text-yellow-400"}`}
-                title={isPinned ? "Unpin directory" : "Pin directory"}
+                title={isPinned ? t("sessionList.unpinDirectory", undefined, "Unpin directory") : t("sessionList.pinDirectory", undefined, "Pin directory")}
                 data-testid={isPinned ? "unpin-dir-btn" : "pin-dir-btn"}
               >
                 <Icon path={mdiPin} size={0.55} />
@@ -647,7 +649,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               <button
                 onClick={(e) => { e.stopPropagation(); onViewReadme(group.cwd); }}
                 className="ml-auto text-[var(--text-muted)] hover:text-blue-400 transition-colors"
-                title="View README.md"
+                title={t("sessionList.viewReadme", undefined, "View README.md")}
                 data-testid="view-readme-btn"
               >
                 <Icon path={mdiFileDocumentOutline} size={0.5} />
@@ -776,7 +778,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                   className="text-xs text-[var(--text-muted)] italic px-2 py-2 select-none"
                   data-testid="folder-search-empty"
                 >
-                  No sessions match your search
+                  {t("sessionList.noSessionsMatch", undefined, "No sessions match your search")}
                 </div>
               );
             }
@@ -820,10 +822,10 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                           onClick={(e) => { e.stopPropagation(); toggleEndedExpanded(group.cwd); }}
                           className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center justify-center gap-1 border-t border-[var(--border-subtle)]"
                           data-testid={`folder-ended-toggle-top-${group.cwd}`}
-                          aria-label={`Hide ${endedSessions.length} ended sessions`}
+                          aria-label={t("sessionList.hideEndedCount", { count: endedSessions.length }, `Hide ${endedSessions.length} ended sessions`)}
                         >
                           <Icon path={mdiChevronDown} size={0.4} />
-                          <span>Hide ended</span>
+                          <span>{t("sessionList.hideEnded", undefined, "Hide ended")}</span>
                         </button>
                       )}
                     <SortableSessionCard key={id} id={id}>
@@ -905,7 +907,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 onClick={(e) => { e.stopPropagation(); toggleEndedExpanded(group.cwd); }}
                 className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center justify-center gap-1"
                 data-testid={`folder-ended-toggle-${group.cwd}`}
-                aria-label={expanded ? `Hide ${endedCount} ended sessions` : `Show ${endedCount} ended sessions`}
+                aria-label={expanded ? t("sessionList.hideEndedCount", { count: endedCount }, `Hide ${endedCount} ended sessions`) : t("sessionList.showEndedCount", { count: endedCount }, `Show ${endedCount} ended sessions`)}
               >
                 {/* Bottom toggle: arrow points UP when expanded (collapse-up
                     direction — matches where the click takes the eye) and
@@ -915,7 +917,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                     pointing down at it would still mean "this collapses what's
                     below me" — inverse direction is intentional. */}
                 <Icon path={expanded ? mdiChevronUp : mdiChevronRight} size={0.4} />
-                <span>{expanded ? `Hide ended` : `${endedCount} ended`}</span>
+                <span>{expanded ? t("sessionList.hideEnded", undefined, "Hide ended") : t("sessionList.showEnded", { count: endedCount }, `${endedCount} ended`)}</span>
               </button>
             );
           })()}
@@ -930,7 +932,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
       <div className="border-b border-[var(--border-primary)]">
         <div className="flex items-center justify-between px-3 py-1.5" data-testid="header-app-bar">
           <div className="flex gap-1.5 items-center">
-            <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title="Home">
+            <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={t("common.home", undefined, "Home")}>
               <PiLogo size={24} />
             </button>
             <ThemePicker />
@@ -943,7 +945,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             <button
               onClick={() => navigate("/settings")}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-              title="Settings"
+              title={t("sessionList.settings", undefined, "Settings")}
               data-testid="settings-btn"
             >
               <Icon path={mdiCog} size={0.6} />
@@ -955,28 +957,28 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             type="search"
             value={workspaceFilter}
             onChange={(e) => setWorkspaceFilter(e.target.value)}
-            placeholder="Folder…"
+            placeholder={t("sessionList.folderPlaceholder", undefined, "Folder...")}
             className="min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
             data-testid="workspace-filter-input"
-            aria-label="Filter folders by path"
+            aria-label={t("sessionList.filterFolders", undefined, "Filter folders by path")}
           />
           <input
             type="search"
             value={sessionSearch}
             onChange={(e) => setSessionSearch(e.target.value)}
-            placeholder="Session…"
+            placeholder={t("sessionList.sessionPlaceholder", undefined, "Session...")}
             className="min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
             data-testid="session-search-input"
-            aria-label="Search sessions across folders"
+            aria-label={t("sessionList.searchSessions", undefined, "Search sessions across folders")}
           />
           <ToggleButton active={showHidden} onClick={() => setShowHidden((p) => !p)}>
-            Hidden
+            {t("common.hidden", undefined, "Hidden")}
           </ToggleButton>
         </div>
       </div>
       <div ref={listRef} className="flex-1 overflow-y-auto">
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
-        <div className="p-4 text-sm text-[var(--text-tertiary)]">No active sessions</div>
+        <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <ul className="flex flex-col gap-2 p-2">
@@ -1008,7 +1010,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 <div className="flex flex-col gap-1 p-1.5">
                   {ws.folders.length === 0 && (
                     <div className="text-[11px] text-[var(--text-muted)] italic px-2 py-2 text-center">
-                      Empty workspace. Use “+ Add to workspace” on a folder’s actions to assign it here.
+                      {t("sessionList.emptyWorkspace", undefined, "Empty workspace. Use \"+ Add to workspace\" on a folder's actions to assign it here.")}
                     </div>
                   )}
                   {ws.folders.map((folder) => (
@@ -1019,7 +1021,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                       <button
                         onClick={() => onRemoveFolderFromWorkspace?.(ws.id, folder.cwd)}
                         className="absolute top-1 right-1 text-[10px] text-[var(--text-muted)] hover:text-red-400 px-1"
-                        title="Remove from workspace"
+                        title={t("sessionList.removeFromWorkspace", undefined, "Remove from workspace")}
                         data-testid={`ws-remove-${ws.id}-${folder.cwd}`}
                       >
                         ×
@@ -1096,7 +1098,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
       )}
       {hiddenCount > 0 && !showHidden && (
         <div className="p-2 text-center text-[11px] text-[var(--text-muted)]">
-          {hiddenCount} hidden
+          {t("sessionList.hiddenCount", { count: hiddenCount }, `${hiddenCount} hidden`)}
         </div>
       )}
       {worktreeDialogCwd && (
@@ -1182,4 +1184,3 @@ function FolderDragGutter({
     </div>
   );
 }
-

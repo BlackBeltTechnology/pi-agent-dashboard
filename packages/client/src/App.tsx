@@ -111,6 +111,7 @@ import { ApiContext, deriveApiBase, VITE_API_URL, setGlobalApiBase } from "./lib
 import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
 import { FirstLaunchDisplayModal } from "./components/FirstLaunchDisplayModal.js";
 import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
+import { useI18n } from "./lib/i18n.js";
 import { PluginContextProvider, applyPluginConfigUpdate, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
@@ -287,6 +288,7 @@ function PiResourceFileRoute({
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
   const { send, onMessage, status } = useWebSocket(wsUrl);
   // Worktree-init bus needs a way to send subscribe/unsubscribe
@@ -1218,19 +1220,19 @@ export default function App() {
     <>
       {status === "connecting" && (
         <div className="bg-yellow-600/20 text-yellow-400 text-xs px-3 py-1 text-center">
-          Connecting...
+          {t("connection.connecting", undefined, "Connecting...")}
         </div>
       )}
       {status === "offline" && (
         <div className="bg-red-600/20 text-red-400 text-xs px-3 py-1 text-center">
-          Server offline
+          {t("connection.offline", undefined, "Server offline")}
         </div>
       )}
       {status === "auth_required" && (
         <div className="bg-amber-600/20 text-amber-400 text-xs px-3 py-1 text-center">
-          Session expired —{" "}
+          {t("connection.authRequired", undefined, "Session expired")}{" - "}
           <a href={`${apiBase}/auth/login?return=${encodeURIComponent(window.location.pathname)}`} className="underline hover:text-amber-300">
-            Sign in
+            {t("connection.signIn", undefined, "Sign in")}
           </a>
         </div>
       )}
@@ -1308,7 +1310,7 @@ export default function App() {
               <span className="text-yellow-400">⚡ {selectedState.currentTool}</span>
             )}
             {selectedState.status === "streaming" && !selectedState.currentTool && (
-              <span className="text-green-400">Thinking…</span>
+              <span className="text-green-400">{t("status.thinking", undefined, "Thinking...")}</span>
             )}
             <span className="flex-1" />
             {selectedState.cost > 0 && <span>${selectedState.cost.toFixed(2)}</span>}
@@ -1410,8 +1412,8 @@ export default function App() {
           <ErrorBoundary fallback={
             <div className="flex-1 flex items-center justify-center p-8">
               <div className="text-center space-y-2">
-                <div className="text-red-400 text-sm">Chat view encountered an error</div>
-                <button onClick={() => window.location.reload()} className="text-xs text-blue-400 hover:underline">Reload page</button>
+                <div className="text-red-400 text-sm">{t("shell.chatError", undefined, "Chat view encountered an error")}</div>
+                <button onClick={() => window.location.reload()} className="text-xs text-blue-400 hover:underline">{t("shell.reloadPage", undefined, "Reload page")}</button>
               </div>
             </div>
           }>
@@ -1562,10 +1564,10 @@ export default function App() {
             }));
             return (
               <SearchableSelectDialog
-                title="Extension Modules"
+                title={t("extension.modules", undefined, "Extension Modules")}
                 options={options}
-                placeholder="Search modules..."
-                emptyMessage="No modules available"
+                placeholder={t("extension.searchModules", undefined, "Search modules...")}
+                emptyMessage={t("extension.noModules", undefined, "No modules available")}
                 onSelect={(moduleId) => {
                   setExtensionModuleOpen({ sessionId: selectedId, moduleId });
                   setExtensionModulePickerOpen(false);
@@ -1681,8 +1683,8 @@ export default function App() {
         <ErrorBoundary fallback={
           <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="shell-error-fallback">
             <div className="text-center space-y-2">
-              <div className="text-red-400 text-sm">Shell encountered an error</div>
-              <button onClick={() => window.location.reload()} className="text-xs text-blue-400 hover:underline">Reload page</button>
+              <div className="text-red-400 text-sm">{t("shell.error", undefined, "Shell encountered an error")}</div>
+              <button onClick={() => window.location.reload()} className="text-xs text-blue-400 hover:underline">{t("shell.reloadPage", undefined, "Reload page")}</button>
             </div>
           </div>
         }>
@@ -1981,6 +1983,7 @@ export default function App() {
  * See change: redesign-session-card-and-composer (refresh-before-model).
  */
 function StatusBarRefreshButton({ cwd, onRefresh }: { cwd: string; onRefresh: (cwd: string) => void }) {
+  const { t } = useI18n();
   const [spinning, setSpinning] = useState(false);
   return (
     <button
@@ -1990,7 +1993,7 @@ function StatusBarRefreshButton({ cwd, onRefresh }: { cwd: string; onRefresh: (c
         setSpinning(true);
         setTimeout(() => setSpinning(false), 600);
       }}
-      title="Refresh OpenSpec data"
+      title={t("status.refreshOpenSpec", undefined, "Refresh OpenSpec data")}
       data-testid="statusbar-refresh-btn"
       className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] p-0.5"
     >

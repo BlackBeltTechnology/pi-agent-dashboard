@@ -36,24 +36,33 @@ import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PinDirectoryDialog } from "./PinDirectoryDialog.js";
 import { WhatsNewDialog } from "./WhatsNewDialog.js";
 import { usePiChangelog } from "../hooks/usePiChangelog.js";
+import { useI18n } from "../lib/i18n.js";
 
 /** Single core package the breaking-change icon is wired for. v1 scope. */
 const PI_CORE_PKG = "@mariozechner/pi-coding-agent";
 
 type ProgressMap = Map<string, { phase: "start" | "output" | "complete" | "error"; message?: string }>;
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, t: ReturnType<typeof useI18n>["t"]): string {
 	const then = new Date(iso).getTime();
 	if (isNaN(then)) return iso;
 	const diff = Math.floor((Date.now() - then) / 1000);
-	if (diff < 5) return "just now";
-	if (diff < 60) return `${diff}s ago`;
-	if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-	if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-	return `${Math.floor(diff / 86400)}d ago`;
+	if (diff < 5) return t("time.justNow", undefined, "just now");
+	if (diff < 60) return t("time.secondsAgo", { count: diff }, `${diff}s ago`);
+	if (diff < 3600) {
+		const count = Math.floor(diff / 60);
+		return t("time.minutesAgo", { count }, `${count}m ago`);
+	}
+	if (diff < 86400) {
+		const count = Math.floor(diff / 3600);
+		return t("time.hoursAgo", { count }, `${count}h ago`);
+	}
+	const count = Math.floor(diff / 86400);
+	return t("time.daysAgo", { count }, `${count}d ago`);
 }
 
 export function UnifiedPackagesSection() {
+	const { t } = useI18n();
 	// launchSource gates the Core sub-group. Under Electron, bundled
 	// node_modules/ is read-only — pi-version upgrades flow via
 	// electron-updater whole-app replacement. Recommended Extensions +
@@ -294,11 +303,11 @@ export function UnifiedPackagesSection() {
 	return (
 		<div>
 			<h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)] flex items-center justify-between">
-				<span>Pi Ecosystem</span>
+				<span>{t("settings.piEcosystem", undefined, "Pi Ecosystem")}</span>
 				<div className="flex items-center gap-2">
 					{status?.lastChecked && (
 						<span className="text-[10px] font-normal text-[var(--text-muted)]">
-							Last checked: {relativeTime(status.lastChecked)}
+								{t("settings.lastChecked", { time: relativeTime(status.lastChecked, t) }, `Last checked: ${relativeTime(status.lastChecked, t)}`)}
 						</span>
 					)}
 					<button
@@ -311,13 +320,13 @@ export function UnifiedPackagesSection() {
 						data-testid="unified-pkg-check-now"
 					>
 						<Icon path={isLoading || checkingUpdates ? mdiLoading : mdiRefresh} size={0.5} spin={isLoading || checkingUpdates} />
-						{isLoading || checkingUpdates ? "Checking..." : "Check Now"}
+							{isLoading || checkingUpdates ? t("common.checking", undefined, "Checking...") : t("common.checkNow", undefined, "Check Now")}
 					</button>
 				</div>
 			</h2>
 
 			<p className="text-xs text-[var(--text-tertiary)] mb-3">
-				Pi tooling, recommended extensions, and any other packages your pi loads.
+					{t("settings.piEcosystemDescription", undefined, "Pi tooling, recommended extensions, and any other packages your pi loads.")}
 			</p>
 
 			{error && (
@@ -328,9 +337,9 @@ export function UnifiedPackagesSection() {
 			)}
 
 			{/* ── Core sub-group ─────────────────────────────────────────── */}
-			{!hideCoreGroup && <SubGroupHeader title="Core" />}
+			{!hideCoreGroup && <SubGroupHeader title={t("settings.core", undefined, "Core")} />}
 			{!hideCoreGroup && (corePackages.length === 0 ? (
-				<EmptyHint>No pi ecosystem core packages detected.</EmptyHint>
+				<EmptyHint>{t("settings.noCorePackages", undefined, "No pi ecosystem core packages detected.")}</EmptyHint>
 			) : (
 				<>
 					{updatableCore.length > 1 && (
@@ -342,7 +351,7 @@ export function UnifiedPackagesSection() {
 								data-testid="pi-core-update-all"
 							>
 								<Icon path={coreUpdating.size > 0 ? mdiLoading : mdiArrowUpBold} size={0.55} spin={coreUpdating.size > 0} />
-								Update All ({updatableCore.length})
+									{t("common.updateAll", { count: updatableCore.length }, `Update All (${updatableCore.length})`)}
 							</button>
 						</div>
 					)}
@@ -376,17 +385,17 @@ export function UnifiedPackagesSection() {
 			))}
 
 			{/* ── Recommended Extensions sub-group ───────────────────────── */}
-			<SubGroupHeader title="Recommended Extensions" />
+			<SubGroupHeader title={t("settings.recommendedExtensions", undefined, "Recommended Extensions")} />
 			{recommended.length === 0 ? (
-				<EmptyHint>No recommended extensions installed.</EmptyHint>
+				<EmptyHint>{t("settings.noRecommendedExtensions", undefined, "No recommended extensions installed.")}</EmptyHint>
 			) : (
 				<div className="space-y-1 mb-4">{recommended.map(renderInstalledRow)}</div>
 			)}
 
 			{/* ── Other Packages sub-group ───────────────────────────────── */}
-			<SubGroupHeader title="Other Packages" />
+			<SubGroupHeader title={t("settings.otherPackages", undefined, "Other Packages")} />
 			{other.length === 0 ? (
-				<EmptyHint>Locally-developed and user-added packages will appear here.</EmptyHint>
+				<EmptyHint>{t("settings.otherPackagesHint", undefined, "Locally-developed and user-added packages will appear here.")}</EmptyHint>
 			) : (
 				<div className="space-y-1 mb-2">{other.map(renderInstalledRow)}</div>
 			)}

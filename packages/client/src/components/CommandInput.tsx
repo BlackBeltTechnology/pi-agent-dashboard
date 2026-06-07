@@ -7,6 +7,7 @@ import { useImagePaste } from "../hooks/useImagePaste.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 import { extractRecentUrls } from "../lib/extract-urls.js";
+import { useI18n } from "../lib/i18n.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -152,6 +153,7 @@ function extractAtQuery(text: string): string | null {
 type StopState = "idle" | "aborting" | "killing";
 
 export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages }: Props) {
+  const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
   // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
@@ -345,6 +347,22 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       inputRef.current?.focus();
     });
+  };
+
+  const localizedCommandDescription = (cmd: CommandInfo) => {
+    if (cmd.source !== "builtin") return cmd.description;
+    switch (cmd.name) {
+      case "compact":
+        return t("command.compactDescription", undefined, cmd.description);
+      case "reload":
+        return t("command.reloadDescription", undefined, cmd.description);
+      case "new":
+        return t("command.newDescription", undefined, cmd.description);
+      case "view":
+        return t("command.previewDescription", undefined, cmd.description);
+      default:
+        return cmd.description;
+    }
   };
 
   const handleSend = useCallback((delivery?: "steer" | "followUp") => {
@@ -543,7 +561,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               <span className="inline-flex">{sourceIcons[cmd.source] ?? <Icon path={mdiFlash} size={0.6} />}</span>
               <span className="font-mono text-blue-400">/{cmd.name}</span>
               {cmd.description && (
-                <span className="text-[var(--text-tertiary)] truncate">{cmd.description}</span>
+                <span className="text-[var(--text-tertiary)] truncate">{localizedCommandDescription(cmd)}</span>
               )}
             </button>
           ))}
@@ -616,7 +634,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder="Message, /command, !shell, or @file..."
+          placeholder={t("command.placeholder", undefined, "Message, /command, !shell, or @file...")}
           /* Bridge-owned mid-turn queue: keep input enabled while the agent
              is streaming so further sends queue. Per the modified
              `optimistic-prompt` capability, disable only when pendingPrompt
@@ -637,7 +655,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             onClick={() => onOpenInlineTerminal()}
             disabled={disabled}
             className="p-2 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-surface)] disabled:opacity-50 disabled:cursor-not-allowed self-end"
-            title="Open inline terminal"
+            title={t("command.inlineTerminal", undefined, "Open inline terminal")}
             data-testid="open-inline-terminal-button"
           >
             <Icon path={mdiConsole} size={0.7} />
@@ -649,7 +667,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
              user can queue another mid-turn message. */
           disabled={disabled || (pendingPrompt && !isWorking) || !text.trim()}
           className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
-          title="Send"
+          title={t("command.send", undefined, "Send")}
           data-testid="send-button"
         >
           <Icon path={mdiPlay} size={0.7} />
@@ -665,7 +683,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
               }
             }}
             className="p-2 bg-red-600 rounded-lg hover:bg-red-500 self-end"
-            title="Stop"
+            title={t("command.stop", undefined, "Stop")}
             data-testid="stop-button"
           >
             <Icon path={mdiStop} size={0.7} />
@@ -675,7 +693,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           <button
             onClick={() => { onForceKill(); setStopState("killing"); }}
             className="p-2 bg-orange-600 rounded-lg hover:bg-orange-500 self-end animate-pulse"
-            title="Force Stop — kill the process"
+            title={t("command.forceStop", undefined, "Force Stop - kill the process")}
             data-testid="force-stop-button"
           >
             <Icon path={mdiAlert} size={0.7} />
@@ -685,7 +703,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           <button
             disabled
             className="p-2 bg-orange-800 rounded-lg opacity-60 cursor-not-allowed self-end"
-            title="Killing process..."
+            title={t("command.killing", undefined, "Killing process...")}
             data-testid="killing-button"
           >
             <Icon path={mdiStop} size={0.7} />

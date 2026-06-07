@@ -4,6 +4,7 @@ import { mdiLoading, mdiFlash } from "@mdi/js";
 import { ModelSelector } from "./ModelSelector.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useI18n } from "../lib/i18n.js";
 
 interface Props {
   model?: string;
@@ -68,19 +69,20 @@ export function StatusBar({
   actions,
   leading,
 }: Props) {
+  const { t } = useI18n();
   let statusLabel: string | null = null;
   let statusIcon = mdiLoading;
   let toolHighlight = false;
 
   if (status === "streaming") {
     if (currentTool) {
-      statusLabel = `Running ${currentTool}…`;
+      statusLabel = t("status.runningTool", { tool: currentTool }, `Running ${currentTool}...`);
       statusIcon = mdiFlash;
       toolHighlight = true;
     } else if (streamingText) {
-      statusLabel = "Generating…";
+      statusLabel = t("status.generating", undefined, "Generating...");
     } else {
-      statusLabel = "Thinking…";
+      statusLabel = t("status.thinking", undefined, "Thinking...");
     }
   }
 

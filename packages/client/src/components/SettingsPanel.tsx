@@ -25,6 +25,7 @@ import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
 import { PluginsSection } from "./PluginsSection.js";
 import { OpenSpecProfileSection } from "./OpenSpecProfileSection.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { LANGUAGE_OPTIONS, useI18n, type Language } from "../lib/i18n.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -139,6 +140,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
   onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
 }) {
+  const { language, setLanguage, t } = useI18n();
   const [, navigate] = useLocation();
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
@@ -225,9 +227,9 @@ export function SettingsPanel({ availableModels, onMessage }: {
           setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
         }
       })
-      .catch(() => setMessage({ type: "error", text: "Failed to load settings" }))
+      .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
 
   const handleSave = useCallback(async () => {
     if (!config || !original) return;
@@ -320,7 +322,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
     const llmChanged = JSON.stringify(llmProviders) !== JSON.stringify(originalLlmProviders);
 
     if (Object.keys(partial).length === 0 && !llmChanged) {
-      setMessage({ type: "warn", text: "No changes to save" });
+      setMessage({ type: "warn", text: t("settings.noChanges", undefined, "No changes to save") });
       setSaving(false);
       return;
     }
@@ -337,7 +339,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
         });
         const data = await res.json();
         if (!data.success) {
-          setMessage({ type: "error", text: data.error || "Failed to save config" });
+          setMessage({ type: "error", text: data.error || t("settings.saveFailed", undefined, "Failed to save settings") });
           setSaving(false);
           return;
         }
@@ -363,7 +365,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
         });
         const data = await res.json();
         if (!data.success) {
-          setMessage({ type: "error", text: data.error || "Failed to save providers" });
+          setMessage({ type: "error", text: data.error || t("settings.saveFailed", undefined, "Failed to save settings") });
           setSaving(false);
           return;
         }
@@ -374,21 +376,21 @@ export function SettingsPanel({ availableModels, onMessage }: {
       }
 
       if (restartRequired) {
-        setMessage({ type: "warn", text: "Saved. Some changes require a server restart to take effect." });
+        setMessage({ type: "warn", text: t("settings.restartRequired", undefined, "Saved. Some changes require a server restart to take effect.") });
       } else {
-        setMessage({ type: "success", text: "Settings saved" });
+        setMessage({ type: "success", text: t("settings.saved", undefined, "Settings saved") });
       }
     } catch {
-      setMessage({ type: "error", text: "Failed to save settings" });
+      setMessage({ type: "error", text: t("settings.saveFailed", undefined, "Failed to save settings") });
     } finally {
       setSaving(false);
     }
-  }, [config, original, llmProviders, originalLlmProviders]);
+  }, [config, original, llmProviders, originalLlmProviders, t]);
 
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center text-[var(--text-tertiary)]">
-        Loading settings...
+        {t("settings.loading", undefined, "Loading settings...")}
       </div>
     );
   }
@@ -396,7 +398,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
   if (!config) {
     return (
       <div className="flex-1 flex items-center justify-center text-red-400">
-        Failed to load settings
+        {t("settings.failedLoad", undefined, "Failed to load settings")}
       </div>
     );
   }
@@ -420,13 +422,13 @@ export function SettingsPanel({ availableModels, onMessage }: {
   };
 
   const tabs = [
-    { id: "general", label: "General" },
-    { id: "servers", label: "Servers" },
-    { id: "packages", label: "Packages" },
-    { id: "plugins", label: "Plugins" },
-    { id: "providers", label: "Providers" },
-    { id: "security", label: "Security" },
-    { id: "advanced", label: "Advanced" },
+    { id: "general", label: t("settings.general", undefined, "General") },
+    { id: "servers", label: t("settings.servers", undefined, "Servers") },
+    { id: "packages", label: t("settings.packages", undefined, "Packages") },
+    { id: "plugins", label: t("settings.plugins", undefined, "Plugins") },
+    { id: "providers", label: t("settings.providers", undefined, "Providers") },
+    { id: "security", label: t("settings.security", undefined, "Security") },
+    { id: "advanced", label: t("settings.advanced", undefined, "Advanced") },
   ];
 
   return (
@@ -436,20 +438,20 @@ export function SettingsPanel({ availableModels, onMessage }: {
         <button
           onClick={() => navigate("/")}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title="Back"
+          title={t("common.back", undefined, "Back")}
         >
           <Icon path={mdiArrowLeft} size={0.8} />
         </button>
-        <h1 className="text-lg font-bold text-[var(--text-primary)]">Settings</h1>
+        <h1 className="text-lg font-bold text-[var(--text-primary)]">{t("common.settings", undefined, "Settings")}</h1>
         <div className="flex-1" />
         <button
           onClick={() => { setMessage(null); restart.run(); }}
           disabled={restarting || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm font-medium disabled:opacity-50 border border-[var(--border-secondary)]"
-          title="Restart server"
+          title={t("settings.restartServer", undefined, "Restart server")}
         >
           <Icon path={mdiRestart} size={0.6} />
-          {restarting ? "Restarting…" : "Restart"}
+          {restarting ? t("common.restarting", undefined, "Restarting...") : t("common.restart", undefined, "Restart")}
         </button>
         <button
           onClick={handleSave}
@@ -458,7 +460,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
         >
           <Icon path={mdiContentSave} size={0.6} />
-          {saving ? "Saving..." : "Save"}
+          {saving ? t("common.saving", undefined, "Saving...") : t("common.save", undefined, "Save")}
         </button>
       </div>
 
@@ -501,18 +503,30 @@ export function SettingsPanel({ availableModels, onMessage }: {
           {/* General Tab */}
           {activeTab === "general" && (
             <>
+              <Section title={t("settings.interface", undefined, "Interface")}>
+                <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                  {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
+                </p>
+                <SelectField
+                  label={t("settings.language", undefined, "Language")}
+                  value={language}
+                  options={LANGUAGE_OPTIONS}
+                  onChange={(v) => setLanguage(v as Language)}
+                />
+              </Section>
+
               <Section title="Server">
-                <NumberField label="HTTP Port" value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
-                <NumberField label="Pi Gateway Port" value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
-                <ToggleField label="Auto Shutdown" value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
+                <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
+                <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
+                <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
                 {config.autoShutdown && (
                   <NumberField label="Idle Seconds Before Shutdown" value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
                 )}
               </Section>
 
-              <Section title="Sessions">
+              <Section title={t("settings.sessions", undefined, "Sessions")}>
                 <SelectField
-                  label="+Session Strategy"
+                  label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
                   value={config.spawnStrategy}
                   options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
                   onChange={(v) => update((c) => { c.spawnStrategy = v; })}
@@ -599,7 +613,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <label className="text-sm text-[var(--text-secondary)]">Default Model</label>
+                    <label className="text-sm text-[var(--text-secondary)]">{t("settings.defaultModel", undefined, "Default Model")}</label>
                   <ModelSelector
                     current={config.defaultModel || undefined}
                     models={availableModels}
@@ -623,14 +637,14 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 </div>
               </Section>
 
-              <Section title="Tunnel">
-                <ToggleField label="Enable Zrok Tunnel" value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
+              <Section title={t("settings.tunnel", undefined, "Tunnel")}>
+                <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Zrok Tunnel")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
                 <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                   <p className="text-xs text-[var(--text-tertiary)]">
                     Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).
                   </p>
                   <ToggleField
-                    label="Enable Watchdog"
+                    label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
                     value={config.tunnel.watchdog?.enabled ?? true}
                     onChange={(v) => update((c) => {
                       c.tunnel.watchdog = {
@@ -642,7 +656,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                     })}
                   />
                   <NumberField
-                    label="Probe Interval (seconds)"
+                    label={t("settings.probeInterval", undefined, "Probe Interval (seconds)")}
                     value={Math.round((config.tunnel.watchdog?.intervalMs ?? 60000) / 1000)}
                     onChange={(v) => update((c) => {
                       c.tunnel.watchdog = {
@@ -666,7 +680,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                     })}
                   />
                   <NumberField
-                    label="Probe Timeout (seconds)"
+                    label={t("settings.probeTimeout", undefined, "Probe Timeout (seconds)")}
                     value={Math.round((config.tunnel.watchdog?.probeTimeoutMs ?? 10000) / 1000)}
                     onChange={(v) => update((c) => {
                       c.tunnel.watchdog = {
@@ -683,15 +697,15 @@ export function SettingsPanel({ availableModels, onMessage }: {
               {/* Configurable chat display (configurable-chat-display). */}
               <DisplayPrefsSection />
 
-              <Section title="Developer">
-                <ToggleField label="Dev Build on Reload" value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
+              <Section title={t("settings.developer", undefined, "Developer")}>
+                <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
                 <ToggleField
-                  label="Capture pi session output (debug)"
+                  label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                   value={config.keeperLog?.capturePiOutput ?? false}
                   onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
                 />
                 <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                  Archives each session's full pi stdout/stderr into keeper-&lt;id&gt;.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.
+                  {t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
                 </p>
               </Section>
 
@@ -715,13 +729,13 @@ export function SettingsPanel({ availableModels, onMessage }: {
           {/* Providers Tab */}
           {activeTab === "providers" && (
             <>
-              <Section title="Provider Authentication">
+              <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
                 <ProviderAuthSection />
               </Section>
 
-              <Section title="LLM Providers">
+              <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                  Register custom OpenAI-compatible API endpoints for model access.
+                  {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
                 </p>
                 {llmProviders.map((provider, index) => (
                   <LlmProviderCard
@@ -740,10 +754,10 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
                 >
                   <Icon path={mdiPlus} size={0.6} />
-                  Add Provider
+                  {t("settings.addProvider", undefined, "Add Provider")}
                 </button>
               </Section>
-              <Section title="API Proxy">
+              <Section title={t("settings.apiProxy", undefined, "API Proxy")}>
                 <ModelProxySection
                   config={config.modelProxy ?? {}}
                   onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
@@ -757,9 +771,9 @@ export function SettingsPanel({ availableModels, onMessage }: {
           {/* Security Tab */}
           {activeTab === "security" && (
             <>
-              <Section title="Authentication">
+              <Section title={t("settings.auth", undefined, "Authentication")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                  Configure OAuth providers to protect external (tunnel) access. Localhost is always open.
+                  {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (tunnel) access. Localhost is always open.")}
                 </p>
                 {["github", "google", "keycloak", "oidc"].map((key) => (
                   <ProviderSection
@@ -778,7 +792,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 ))}
                 <div className="mt-3">
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    Allowed Users <span className="text-[var(--text-tertiary)]">(one per line: username, email, or *@domain)</span>
+                    {t("settings.allowedUsers", undefined, "Allowed Users")} <span className="text-[var(--text-tertiary)]">({t("settings.allowedUsersHint", undefined, "one per line: username, email, or *@domain")})</span>
                   </label>
                   <textarea
                     className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
@@ -796,7 +810,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 </div>
                 <div className="mt-3">
                   <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    Bypass URL Prefixes <span className="text-[var(--text-tertiary)]">(one per line — requests to these paths skip auth)</span>
+                    {t("settings.bypassUrls", undefined, "Bypass URL Prefixes")} <span className="text-[var(--text-tertiary)]">({t("settings.bypassUrlsHint", undefined, "one per line — requests to these paths skip auth")})</span>
                   </label>
                   <textarea
                     className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
@@ -842,16 +856,15 @@ export function SettingsPanel({ availableModels, onMessage }: {
 
           {activeTab === "advanced" && (
             <>
-              <Section title="Chat Display">
+              <Section title={t("settings.chatDisplay", undefined, "Chat Display")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  Controls what is shown in the chat message stream.
+                  {t("settings.chatDisplayAdvancedDescription", undefined, "Controls what is shown in the chat message stream.")}
                 </p>
                 <DebugToolsToggle />
               </Section>
-              <Section title="Memory Limits">
+              <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  Controls for bounding server memory usage. Set to 0 to disable a limit.
-                  Requires server restart.
+                  {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                 </p>
                 <NumberField
                   label="Max Events Per Session"
@@ -878,12 +891,12 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
               </Section>
-              <Section title="Background polling (OpenSpec)">
+              <Section title={t("settings.backgroundPolling", undefined, "Background polling (OpenSpec)")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
                   Controls how aggressively the server polls <code>openspec list</code> and <code>openspec status</code> for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection <code>mtime</code> skips re-polling unchanged proposals (recommended).
                 </p>
                 <ToggleField
-                  label="Enable OpenSpec"
+                  label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
                   value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                   onChange={(v) => update((c) => {
                     if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
@@ -943,9 +956,9 @@ export function SettingsPanel({ availableModels, onMessage }: {
               </Section>
               {/* See change: add-openspec-profile-settings. */}
               <OpenSpecProfileSection />
-              <Section title="Editor (code-server)">
+              <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  Configure the embedded VS Code editor powered by code-server.
+                  {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
                 </p>
                 <TextField
                   label="Binary Path (leave empty for auto-detect)"
@@ -996,10 +1009,11 @@ export function SettingsPanel({ availableModels, onMessage }: {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function DebugToolsToggle() {
+  const { t } = useI18n();
   const [visible, setVisible] = useDebugToolsVisible();
   return (
     <ToggleField
-      label="Show debug events (raw events, flow:list-flows, resources_discover)"
+      label={t("settings.showDebugEvents", undefined, "Show debug events (raw events, flow:list-flows, resources_discover)")}
       value={visible}
       onChange={setVisible}
     />
@@ -1008,6 +1022,7 @@ function DebugToolsToggle() {
 
 // ── Display preferences (configurable-chat-display) ───────────────────────────────
 function DisplayPrefsSection() {
+  const { t } = useI18n();
   const { global } = useDisplayPrefsContext();
   const prefs = global ?? DISPLAY_PRESETS.standard;
 
@@ -1031,24 +1046,23 @@ function DisplayPrefsSection() {
   }, [patch]);
 
   return (
-    <Section title="Chat display">
+    <Section title={t("settings.chatDisplay", undefined, "Chat display")}>
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
-        Hide chat elements you don’t need. Per-session overrides live in the
-        chat view’s “View” popover.
+        {t("settings.chatDisplayDescription", undefined, "Hide chat elements you don't need. Per-session overrides live in the chat view's View popover.")}
       </p>
-      <ToggleField label="Token stats bar" value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} />
-      <ToggleField label="Context usage bar" value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} />
-      <ToggleField label="Reasoning blocks" value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} />
-      <ToggleField label="Tool result bodies" value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
-      <ToggleField label="Turn metadata separators" value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
-      <ToggleField label="Debug events" value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />
+      <ToggleField label={t("settings.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} onChange={(v) => patch({ tokenStatsBar: v })} />
+      <ToggleField label={t("settings.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} onChange={(v) => patch({ contextUsageBar: v })} />
+      <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} />
+      <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
+      <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
+      <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />
       <div className="pt-2">
-        <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">Tool calls — show these types</h3>
-        <ToggleField label="Read" value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} />
-        <ToggleField label="Bash" value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} />
-        <ToggleField label="Edit / Write" value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} />
-        <ToggleField label="Agent" value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} />
-        <ToggleField label="Other" value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} />
+        <h3 className="text-xs font-semibold text-[var(--text-primary)] mb-2">{t("settings.toolCallsHeader", undefined, "Tool calls - show these types")}</h3>
+        <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} />
+        <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} />
+        <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} />
+        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} />
+        <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} />
       </div>
       <div className="pt-2">
         <button
@@ -1056,7 +1070,7 @@ function DisplayPrefsSection() {
           onClick={resetToDefaults}
           className="text-xs text-blue-400 hover:text-blue-300 underline"
         >
-          Reset to defaults
+          {t("settings.resetDefaults", undefined, "Reset to defaults")}
         </button>
       </div>
     </Section>
@@ -1090,6 +1104,7 @@ function TrustedNetworksSection({
   legacyTrustedNetworks: string[];
   onChange: (nets: string[]) => void;
 }) {
+  const { t } = useI18n();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1138,10 +1153,9 @@ function TrustedNetworksSection({
   };
 
   return (
-    <Section title="Trusted Networks">
+    <Section title={t("settings.trustedNetworks", undefined, "Trusted Networks")}>
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
-        Devices matching these networks or hosts can access the dashboard without authentication.
-        Accepts exact IP (<code>10.0.0.5</code>), wildcard (<code>10.0.0.*</code>), or CIDR (<code>192.168.1.0/24</code>).
+        {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
       </p>
 
       {bypassHosts.length > 0 && (
@@ -1152,7 +1166,7 @@ function TrustedNetworksSection({
               <button
                 onClick={() => removeNetwork(net)}
                 className="text-red-400 hover:text-red-300 text-xs px-1 cursor-pointer"
-                title="Remove"
+                title={t("common.remove", undefined, "Remove")}
                 data-testid={`trusted-networks-remove-${net}`}
               >
                 ✕
@@ -1169,7 +1183,7 @@ function TrustedNetworksSection({
             className="text-xs px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
             data-testid="trusted-networks-add-local"
           >
-            {loading ? "Detecting…" : "+ Add Local Network"}
+            {loading ? t("settings.detecting", undefined, "Detecting...") : t("settings.addLocalNetwork", undefined, "+ Add Local Network")}
           </button>
           {dropdownOpen && interfaces.length > 0 && (
             <div className="absolute left-0 top-full mt-1 z-50 min-w-[260px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1">
@@ -1205,7 +1219,7 @@ function TrustedNetworksSection({
           className="text-xs px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="trusted-networks-manual-add"
         >
-          Add
+          {t("common.add", undefined, "Add")}
         </button>
       </div>
 
@@ -1220,13 +1234,14 @@ function TrustedNetworksSection({
       )}
 
       <p className="text-xs text-amber-400/80 mt-2">
-        ⚠ Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.
+        {t("settings.trustedNetworksWarning", undefined, "Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control.")}
       </p>
     </Section>
   );
 }
 
 function ServersTab() {
+  const { t } = useI18n();
   const [knownServers, setKnownServers] = useState<import("@blackbelt-technology/pi-dashboard-shared/config.js").KnownServer[]>([]);
   const [loadCount, setLoadCount] = useState(0);
 
@@ -1242,10 +1257,10 @@ function ServersTab() {
 
   return (
     <>
-      <Section title="Known Servers">
+      <Section title={t("settings.knownServers", undefined, "Known Servers")}>
         <KnownServersSection onChange={() => setLoadCount((c) => c + 1)} />
       </Section>
-      <Section title="Network Discovery">
+      <Section title={t("settings.networkDiscovery", undefined, "Network Discovery")}>
         <NetworkDiscoverySection
           knownServers={knownServers}
           onServerAdded={() => setLoadCount((c) => c + 1)}
@@ -1319,6 +1334,7 @@ function ProviderSection({ providerKey, provider, onChange }: {
   provider?: ProviderConfig;
   onChange: (p: ProviderConfig | null) => void;
 }) {
+  const { t } = useI18n();
   const enabled = !!provider;
   const label = PROVIDER_LABELS[providerKey] || providerKey;
   const needsIssuer = NEEDS_ISSUER.has(providerKey);
@@ -1337,7 +1353,7 @@ function ProviderSection({ providerKey, provider, onChange }: {
           }}
           className={`text-xs px-2 py-0.5 rounded ${enabled ? "bg-red-600/20 text-red-400 hover:bg-red-600/30" : "bg-green-600/20 text-green-400 hover:bg-green-600/30"}`}
         >
-          {enabled ? "Remove" : "Enable"}
+          {enabled ? t("common.remove", undefined, "Remove") : t("common.enable", undefined, "Enable")}
         </button>
       </div>
       {enabled && (
@@ -1403,6 +1419,7 @@ const API_TYPE_OPTIONS = [
 // consolidate-packages-settings-ui.
 
 function GlobalPackagesBrowseAndDialogs() {
+  const { t } = useI18n();
   const installed = useInstalledPackages("global");
   const operations = usePackageOperations("global", undefined, installed.refresh);
   const [confirmInstall, setConfirmInstall] = useState<{ source: string; pkg?: NpmPackageResult } | null>(null);
@@ -1420,7 +1437,7 @@ function GlobalPackagesBrowseAndDialogs() {
 
   return (
     <>
-      <Section title="Browse Packages">
+      <Section title={t("common.browsePackages", undefined, "Browse Packages")}>
         <PackageBrowser
           scope="global"
           onViewReadme={setReadmePkg}
@@ -1465,6 +1482,7 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
   onChange: (p: LlmProvider) => void;
   onRemove: () => void;
 }) {
+  const { t } = useI18n();
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
 
   const handleChange = (update: LlmProvider) => {
@@ -1508,7 +1526,7 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
           <input
             type="text"
             className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-0.5 text-sm font-medium text-[var(--text-primary)] w-48"
-            placeholder="Provider name"
+            placeholder={t("settings.providerName", undefined, "Provider name")}
             value={provider.name}
             onChange={(e) => onChange({ ...provider, name: e.target.value })}
             autoFocus
@@ -1522,8 +1540,8 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             disabled={!canTest}
             title={
               !canTest && testState.kind !== "testing"
-                ? "Enter Base URL and API Key first"
-                : "Ping the provider's /models endpoint"
+                ? t("settings.baseUrlFirst", undefined, "Enter Base URL and API Key first")
+                : t("settings.pingModels", undefined, "Ping the provider's /models endpoint")
             }
             className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
             data-testid="test-provider-button"
@@ -1531,12 +1549,12 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             {testState.kind === "testing" ? (
               <>
                 <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-                Testing…
+                {t("common.testing", undefined, "Testing...")}
               </>
             ) : (
               <>
                 <Icon path={mdiPlay} size={0.45} />
-                Test
+                {t("common.test", undefined, "Test")}
               </>
             )}
           </button>
@@ -1545,7 +1563,7 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             className="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30 flex items-center gap-1"
           >
             <Icon path={mdiDelete} size={0.45} />
-            Remove
+            {t("common.remove", undefined, "Remove")}
           </button>
         </div>
       </div>
@@ -1582,6 +1600,7 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
 }
 
 function TestPill({ state }: { state: TestState }) {
+  const { t } = useI18n();
   if (state.kind === "testing") {
     return (
       <div
@@ -1590,12 +1609,14 @@ function TestPill({ state }: { state: TestState }) {
         data-state="testing"
       >
         <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-        Testing…
+        {t("common.testing", undefined, "Testing...")}
       </div>
     );
   }
   if (state.kind === "ok") {
-    const label = state.modelCount > 0 ? `Connected · ${state.modelCount} models` : "Connected";
+    const label = state.modelCount > 0
+      ? t("settings.connectedModels", { count: state.modelCount }, `Connected · ${state.modelCount} models`)
+      : t("settings.connectedOnly", undefined, "Connected");
     return (
       <div
         className="flex items-center gap-1.5 text-xs text-green-400"
