@@ -1,7 +1,7 @@
 # dashboard-add-buttons Specification
 
 ## Purpose
-TBD - created by archiving change elevate-dashboard-add-buttons. Update Purpose after archive.
+Elevate dashboard- and workspace-scope add gestures to full-width line buttons. Replaces scattered low-discoverability affordances (header Pin+ chip, mid-list dashed New workspace button, mdiPin icon) with `+ Add Folder` / `+ New Workspace` buttons matching per-folder spawn styling. Reuses existing pin-dialog, create-workspace, add-folder-to-workspace handlers.
 ## Requirements
 ### Requirement: Elevated dashboard add-button pair
 The sidebar SHALL render an elevated full-width stacked line-button pair as the first item in the scrollable session list, above any workspace tiers and pinned folder groups, using the same visual treatment as the per-folder spawn buttons (`FolderSpawnButtons`).

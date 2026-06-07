@@ -977,7 +977,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           {/* Elevated dashboard-scope add buttons: rendered as the FIRST list
               item, above workspace tiers and pinned folder groups.
               See change: elevate-dashboard-add-buttons. */}
-          {onPinDirectory && (
+          {onOpenPinDialog && (
             <li>
               <DashboardSpawnButtons
                 onAddFolder={() => onOpenPinDialog?.()}
