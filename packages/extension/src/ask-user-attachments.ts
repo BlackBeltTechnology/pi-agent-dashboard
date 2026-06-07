@@ -31,8 +31,15 @@ const EXT_BY_MIME: Record<string, string> = {
   "image/webp": ".webp",
 };
 
-/** Per-session attachment directory under the dashboard home tree. */
+/**
+ * Per-session attachment directory under the dashboard home tree.
+ * Validates `sessionId` (bridge-supplied, but defense-in-depth): a value
+ * containing path separators or `..` could escape the attachments root.
+ */
 export function attachmentDirForSession(sessionId: string): string {
+  if (sessionId.includes("/") || sessionId.includes(path.sep) || sessionId.includes("..")) {
+    throw new Error(`[ask-user-attachments] invalid sessionId: ${sessionId}`);
+  }
   return path.join(os.homedir(), ".pi", "dashboard", "attachments", sessionId);
 }
 

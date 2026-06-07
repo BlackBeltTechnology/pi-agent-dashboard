@@ -209,8 +209,15 @@ describe("InputRenderer", () => {
         clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] },
       });
       // FileReader is async; the assertion below only checks the no-image
-      // path stays correct synchronously. Image attachment round-trip is
-      // covered by the bridge + ask-user-tool tests.
+      // path stays correct synchronously. Coverage of the rest lives elsewhere:
+      // the async paste path (image -> base64 pending images) and submit
+      // payload are exercised client-side by useImagePaste +
+      // chat-input-images-integration; ask-user-tool tests only assert UI
+      // surfacing with ctx.ui.inputWithImages mocked (no real bridge
+      // persistence); ask-user-attachments covers persistAttachment dedup/
+      // caps/cleanup. The full bridge wiring that persists, emits
+      // asset_register, and returns {path,mimeType,bytes} into the
+      // ask-user-tool flow is not asserted by any test.
       fireEvent.change(screen.getByRole("textbox"), { target: { value: "hi" } });
       fireEvent.click(screen.getByText("Submit"));
       expect(onRespond).toHaveBeenCalled();
