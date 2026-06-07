@@ -29,6 +29,13 @@ import os from "node:os";
 
 const home = mkdtempSync(join(os.tmpdir(), "pi-test-"));
 process.env.HOME = home;
+if (process.platform === "win32") { // platform-branch-ok: test HOME isolation; win32 os.homedir() reads USERPROFILE not HOME
+  // On win32 os.homedir() reads USERPROFILE (fallback HOMEDRIVE+HOMEPATH), not
+  // HOME — set them too or tests would still resolve to the real user home.
+  process.env.USERPROFILE = home;
+  process.env.HOMEDRIVE = home.slice(0, 2);
+  process.env.HOMEPATH = home.slice(2) || "\\";
+}
 
 // Pre-create expected .pi subdirectories (mirrors globalSetup bootstrap) so
 // production code that reads those paths finds empty but well-formed dirs.

@@ -1,7 +1,7 @@
 /**
  * Integration test: shutdown fallback kills headless process when bridge is disconnected.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
 import { WebSocket } from "ws";
 import { spawn } from "node:child_process";
@@ -30,11 +30,7 @@ let piPort: number;
 let server: DashboardServer;
 
 describe("Headless shutdown fallback", () => {
-  afterAll(async () => {
-    if (server) await server.stop();
-  });
-
-  it("should kill headless process via SIGTERM when bridge is disconnected", async () => {
+  beforeEach(async () => {
     server = await createServer({
       port: 0, piPort: 0, dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
@@ -43,7 +39,13 @@ describe("Headless shutdown fallback", () => {
     await server.start();
     httpPort = server.httpPort()!;
     piPort = server.piPort()!;
+  });
 
+  afterEach(async () => {
+    if (server) await server.stop();
+  });
+
+  it("should kill headless process via SIGTERM when bridge is disconnected", async () => {
     // Spawn a real dummy process (sleep) to act as the headless pi session
     const dummy = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
     dummy.unref();

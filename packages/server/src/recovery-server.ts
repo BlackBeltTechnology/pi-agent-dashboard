@@ -247,7 +247,7 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
   console.error(`  reason: ${enrichedInfo.error.message}`);
   console.error(`  missing: ${enrichedInfo.missingModule ?? "(unknown)"}`);
   console.error(`  suggested: ${enrichedInfo.suggestedFix}`);
-  console.error(`  serving recovery UI at http://localhost:${info.port}/`);
+  console.error(`  requested recovery bind port: ${info.port}`);
   console.error("══════════════════════════════════════════════════════════════");
   console.error("");
 
