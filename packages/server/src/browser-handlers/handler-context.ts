@@ -73,6 +73,13 @@ export interface BrowserHandlerContext {
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */
   broadcast(msg: ServerToBrowserMessage): void;
+  /**
+   * Insert-and-broadcast a dashboard event into a session's chat stream
+   * (same path as forwarded extension events). Used by inline-terminal
+   * open/close so the card is event-sourced and replays on reload.
+   * See change: add-inline-terminal-card.
+   */
+  broadcastEvent?(sessionId: string, seq: number, event: unknown): void;
   /** Get subscribers for a session */
   getSubscribers(sessionId: string): WebSocket[];
   /** Track UI request */

@@ -10,6 +10,13 @@ export interface TerminalSession {
   title?: string;
   manuallyRenamed?: boolean;
   createdAt: number;
+  /**
+   * Inline interactive terminal cards spawn ephemeral terminals. Ephemeral
+   * terminals are excluded from the content-area TerminalsView tab bar so
+   * they don't clutter a folder's terminal tabs.
+   * See change: add-inline-terminal-card.
+   */
+  ephemeral?: boolean;
 }
 
 /** Control messages sent as text frames on the terminal WebSocket. */

@@ -104,6 +104,12 @@ interface Props {
    */
   onViewLocal?: (target: ViewTarget) => void;
   /**
+   * Open an inline interactive terminal card in the chat stream (same path as
+   * bare `!!`). When omitted, the terminal button is not rendered.
+   * See change: add-inline-terminal-card.
+   */
+  onOpenInlineTerminal?: () => void;
+  /**
    * Current session's messages — source for the `@`-autocomplete URL pool
    * (via `extractRecentUrls`). Omit to disable URL surfacing.
    * See change: render-file-previews.
@@ -144,7 +150,7 @@ function extractAtQuery(text: string): string | null {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, sessionMessages }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages }: Props) {
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
   // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
@@ -607,6 +613,17 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
+        {onOpenInlineTerminal && (
+          <button
+            onClick={() => onOpenInlineTerminal()}
+            disabled={disabled}
+            className="p-2 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-surface)] disabled:opacity-50 disabled:cursor-not-allowed self-end"
+            title="Open inline terminal"
+            data-testid="open-inline-terminal-button"
+          >
+            <Icon path={mdiConsole} size={0.7} />
+          </button>
+        )}
         <button
           onClick={() => handleSend("steer")}
           /* Send button mirrors textarea: enabled during streaming so the

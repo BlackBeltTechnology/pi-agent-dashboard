@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { Icon } from "@mdi/react";
 import { mdiPlus, mdiClose, mdiConsoleLine } from "@mdi/js";
 import { TerminalView } from "./TerminalView.js";
@@ -18,13 +18,17 @@ interface Props {
 
 export function TerminalsView({
   cwd,
-  terminals,
+  terminals: allTerminals,
   activeTerminalId,
   onCreateTerminal,
   onKillTerminal,
   onRenameTerminal,
   onTerminalTitle,
 }: Props) {
+  // Ephemeral terminals back inline interactive terminal cards in the chat
+  // stream; they must not appear as content-area tabs.
+  // See change: add-inline-terminal-card.
+  const terminals = useMemo(() => allTerminals.filter((t) => !t.ephemeral), [allTerminals]);
   const [activeTabId, setActiveTabId] = useState<string | null>(activeTerminalId ?? null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
 

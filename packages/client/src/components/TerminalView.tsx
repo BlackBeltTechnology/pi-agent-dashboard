@@ -25,9 +25,17 @@ interface Props {
   onTitle?: (terminalId: string, title: string) => void;
   onClose?: (terminalId: string) => void;
   terminalName?: string;
+  /**
+   * Fixed pixel height for inline (chat-stream) use. When set, the root takes
+   * an explicit height instead of `flex-1` (which assumes a flex-column
+   * parent and caused the half-height bug — see fix-terminal-half-height-dual-mount).
+   * Omit for the content-area TerminalsView fill behavior.
+   * See change: add-inline-terminal-card.
+   */
+  heightPx?: number;
 }
 
-export function TerminalView({ terminalId, visible, onTitle, onClose, terminalName }: Props) {
+export function TerminalView({ terminalId, visible, onTitle, onClose, terminalName, heightPx }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -148,10 +156,11 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
     onClose?.(terminalId);
   }, [terminalId, onClose]);
 
+  const bounded = typeof heightPx === "number";
   return (
     <div
-      style={{ display: visible ? "flex" : "none" }}
-      className="flex-1 flex flex-col min-h-0"
+      style={{ display: visible ? "flex" : "none", ...(bounded ? { height: heightPx } : {}) }}
+      className={bounded ? "flex flex-col" : "flex-1 flex flex-col min-h-0"}
     >
       {/* Minimal terminal header */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">

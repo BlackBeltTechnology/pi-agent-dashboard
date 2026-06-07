@@ -20,7 +20,7 @@ export interface ChatImage {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent";
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal";
   content: string;
   images?: ChatImage[];
   toolName?: string;
@@ -1415,6 +1415,62 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           args: { command, exitCode, excludeFromContext } as any,
         },
       ];
+      break;
+    }
+
+    // Inline interactive terminal card lifecycle. `open` appends a live card
+    // keyed by terminalId (reattaches to /ws/terminal/:id on render). `close`
+    // transitions that row in place to a frozen read-only transcript.
+    // See change: add-inline-terminal-card.
+    case "inline_terminal_open": {
+      const terminalId = data.terminalId as string;
+      next.pendingPrompt = undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: `inlineterm-${terminalId}`,
+          role: "inlineTerminal" as any,
+          content: "",
+          timestamp: event.timestamp,
+          args: { terminalId, closed: false } as any,
+        },
+      ];
+      break;
+    }
+
+    case "inline_terminal_close": {
+      const terminalId = data.terminalId as string;
+      const transcript = (data.transcript as string) ?? "";
+      let replaced = false;
+      const updated = next.messages.slice();
+      for (let i = updated.length - 1; i >= 0; i--) {
+        const m = updated[i] as any;
+        if (m?.role === "inlineTerminal" && m?.args?.terminalId === terminalId) {
+          updated[i] = {
+            ...m,
+            content: transcript,
+            timestamp: event.timestamp,
+            args: { terminalId, closed: true },
+          };
+          replaced = true;
+          break;
+        }
+      }
+      if (replaced) {
+        next.messages = updated;
+      } else {
+        // Defensive: close without a matching open (e.g. partial replay).
+        next.messages = [
+          ...next.messages,
+          {
+            id: `inlineterm-${terminalId}`,
+            role: "inlineTerminal" as any,
+            content: transcript,
+            timestamp: event.timestamp,
+            args: { terminalId, closed: true } as any,
+          },
+        ];
+      }
       break;
     }
 

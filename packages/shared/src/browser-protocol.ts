@@ -1079,6 +1079,24 @@ export interface KillTerminalBrowserMessage {
   terminalId: string;
 }
 
+/** Open an inline interactive terminal card in a session's chat stream.
+ *  Server spawns an ephemeral PTY in `cwd` and writes an `inline_terminal_open`
+ *  event into the `sessionId` event stream. See change: add-inline-terminal-card. */
+export interface OpenInlineTerminalBrowserMessage {
+  type: "open_inline_terminal";
+  sessionId: string;
+  cwd: string;
+}
+
+/** Close a live inline terminal card. Server captures the ring-buffer transcript,
+ *  kills the PTY, and writes an `inline_terminal_close` event into the `sessionId`
+ *  event stream. See change: add-inline-terminal-card. */
+export interface CloseInlineTerminalBrowserMessage {
+  type: "close_inline_terminal";
+  sessionId: string;
+  terminalId: string;
+}
+
 export interface RenameTerminalBrowserMessage {
   type: "rename_terminal";
   terminalId: string;
@@ -1249,6 +1267,8 @@ export type BrowserToServerMessage =
   | OpenSpecBulkArchiveBrowserMessage
   | CreateTerminalBrowserMessage
   | KillTerminalBrowserMessage
+  | OpenInlineTerminalBrowserMessage
+  | CloseInlineTerminalBrowserMessage
   | RenameTerminalBrowserMessage
   | FlowControlBrowserMessage
   | ForceKillBrowserMessage

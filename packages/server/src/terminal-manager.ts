@@ -92,13 +92,19 @@ export interface TerminalManagerOptions {
 }
 
 export interface TerminalManager {
-  spawn(cwd: string): TerminalSession;
+  spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession;
   attach(id: string, ws: WebSocket): void;
   detach(id: string, ws: WebSocket): void;
   kill(id: string): void;
   get(id: string): TerminalSession | undefined;
   list(): TerminalSession[];
   updateTitle(id: string, title: string): void;
+  /**
+   * Current ring-buffer contents decoded as a UTF-8 string. Used to capture
+   * the final transcript of an ephemeral inline terminal at close time.
+   * See change: add-inline-terminal-card.
+   */
+  getTranscript(id: string): string;
 }
 
 function generateId(): string {
@@ -112,7 +118,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
   const entries = new Map<string, TerminalEntry>();
   const bufferSize = options?.bufferSize ?? DEFAULT_BUFFER_SIZE;
 
-  function spawn(cwd: string): TerminalSession {
+  function spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession {
     const shell = detectShell();
     const id = generateId();
 
@@ -131,6 +137,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
       shell,
       status: "active",
       createdAt: Date.now(),
+      ...(opts?.ephemeral ? { ephemeral: true } : {}),
     };
 
     const buffer = new RingBuffer(bufferSize);
@@ -282,6 +289,12 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     return entries.get(id)?.session;
   }
 
+  function getTranscript(id: string): string {
+    const entry = entries.get(id);
+    if (!entry) return "";
+    return entry.buffer.contents().toString("utf8");
+  }
+
   function list(): TerminalSession[] {
     return Array.from(entries.values()).map((e) => e.session);
   }
@@ -293,5 +306,5 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  return { spawn, attach, detach, kill, get, list, updateTitle };
+  return { spawn, attach, detach, kill, get, list, updateTitle, getTranscript };
 }

@@ -27,6 +27,7 @@ import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { PreviewCard } from "./PreviewCard.js";
+import { InlineTerminalCard } from "./InlineTerminalCard.js";
 
 interface Props {
   sessionId?: string;
@@ -39,6 +40,11 @@ interface Props {
   onAbort?: () => void;
   onForceKill?: () => void;
   onForkFromMessage?: (entryId: string) => void;
+  /**
+   * Close a live inline terminal card (sends close_inline_terminal). The
+   * parent binds the owning sessionId. See change: add-inline-terminal-card.
+   */
+  onCloseInlineTerminal?: (terminalId: string) => void;
   // onDismissError / onRetryAfterError moved to App.tsx → SessionBanner.
   // See change: unify-status-banner-and-terminal-limit-stop.
   /**
@@ -156,7 +162,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, queuedTexts, pendingSteering }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, queuedTexts, pendingSteering }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
   const programmaticScroll = useRef(false);
@@ -437,6 +443,19 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               exitCode={args?.exitCode ?? 0}
               excludeFromContext={args?.excludeFromContext ?? false}
               timestamp={msg.timestamp}
+            />
+          );
+        }
+
+        if (msg.role === "inlineTerminal") {
+          const args = msg.args as any;
+          return (
+            <InlineTerminalCard
+              key={msg.id}
+              terminalId={args?.terminalId ?? ""}
+              closed={args?.closed ?? false}
+              transcript={msg.content}
+              onClose={(tid) => onCloseInlineTerminal?.(tid)}
             />
           );
         }

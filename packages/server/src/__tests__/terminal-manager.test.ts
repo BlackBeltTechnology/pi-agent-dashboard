@@ -77,6 +77,20 @@ describe("TerminalManager", () => {
       process.env.SHELL = original;
     });
 
+    it("marks ephemeral terminals (inline cards) and defaults others to non-ephemeral", () => {
+      const inline = manager.spawn("/tmp", { ephemeral: true });
+      const normal = manager.spawn("/tmp");
+      expect(inline.ephemeral).toBe(true);
+      expect(normal.ephemeral).toBeUndefined();
+    });
+
+    it("getTranscript returns buffered PTY output as a string", () => {
+      const session = manager.spawn("/tmp", { ephemeral: true });
+      mockOnData?.("hello transcript");
+      expect(manager.getTranscript(session.id)).toBe("hello transcript");
+      expect(manager.getTranscript("term-missing")).toBe("");
+    });
+
     it("spawns node-pty with correct args", async () => {
       const pty = await import("node-pty");
       manager.spawn("/home/user");

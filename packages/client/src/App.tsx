@@ -874,6 +874,7 @@ export default function App() {
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
+    handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
     // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
     removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,
@@ -904,6 +905,16 @@ export default function App() {
   // are handled separately by the shell's command-route slot consumer.
   const wrappedHandleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
     const trimmed = text.trim();
+    // Bare `!!` (no command) opens an inline interactive terminal card in the
+    // chat stream. `!! <cmd>` / `! <cmd>` keep their one-shot bash semantics
+    // (handled in the extension). Intercept here client-side so the trigger
+    // matches the composer button's open path. See change: add-inline-terminal-card.
+    if (trimmed === "!!" && selectedId && selectedCwd) {
+      handleOpenInlineTerminal(selectedId, selectedCwd);
+      clearDraftForSession(selectedId);
+      clearImagesForSession(selectedId);
+      return;
+    }
     // Extension UI System (Phase 1): exact-match slash command opens the
     // matching module modal and suppresses the prompt send.
     // See change: add-extension-ui-modal.
@@ -930,7 +941,7 @@ export default function App() {
       clearDraftForSession(selectedId);
       clearImagesForSession(selectedId);
     }
-  }, [handleSend, selectedId, clearDraftForSession, clearImagesForSession, sessions, BUILTIN_SLASH_COMMANDS]);
+  }, [handleSend, selectedId, selectedCwd, handleOpenInlineTerminal, clearDraftForSession, clearImagesForSession, sessions, BUILTIN_SLASH_COMMANDS]);
 
   // wrappedHandleAbort removed. The yank-to-draft UX ("restoreQueuedMessages
   // ToEditor" parity) required pi to actually clear its queues on abort, which
@@ -1298,7 +1309,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — picks
@@ -1422,6 +1433,7 @@ export default function App() {
               if (!selectedId) return;
               send({ type: "inject_view_message", sessionId: selectedId, target });
             }}
+            onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}

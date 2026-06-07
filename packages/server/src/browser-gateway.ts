@@ -69,7 +69,7 @@ import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { ViewMessageStore } from "./view-message-store.js";
 import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
 import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer } from "./browser-handlers/session-meta-handler.js";
-import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
+import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleOpenInlineTerminal, handleCloseInlineTerminal } from "./browser-handlers/terminal-handler.js";
 import { handlePinDirectory, handleUnpinDirectory, handleReorderPinnedDirs, handleReorderSessions, handleOpenSpecRefresh, handleOpenSpecBulkArchive, handleExtensionUiResponse, handlePiGatewayForward, handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleSetWorkspaceCollapsed, handleAddFolderToWorkspace, handleRemoveFolderFromWorkspace, handleReorderWorkspaceFolders, handleReorderWorkspaces } from "./browser-handlers/directory-handler.js";
 
 
@@ -349,6 +349,7 @@ export function createBrowserGateway(
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
           sendTo, broadcast, getSubscribers, replayPendingUiRequests,
+          broadcastEvent: gateway.broadcastEvent,
           viewMessageStore,
           trackUiRequest: trackUiRequest,
           markReplaying(targetWs, sessionId) {
@@ -601,6 +602,12 @@ export function createBrowserGateway(
           }
           case "create_terminal":
             handleCreateTerminal(msg, ctx);
+            break;
+          case "open_inline_terminal":
+            handleOpenInlineTerminal(msg, ctx);
+            break;
+          case "close_inline_terminal":
+            handleCloseInlineTerminal(msg, ctx);
             break;
           case "kill_terminal":
             handleKillTerminal(msg, ctx);

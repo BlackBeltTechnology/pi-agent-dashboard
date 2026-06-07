@@ -308,6 +308,18 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "kill_terminal", terminalId });
   }, [send]);
 
+  // Inline interactive terminal card lifecycle. Open spawns an ephemeral PTY
+  // and writes inline_terminal_open into the session chat stream; close
+  // captures the transcript and writes inline_terminal_close.
+  // See change: add-inline-terminal-card.
+  const handleOpenInlineTerminal = useCallback((sessionId: string, cwd: string) => {
+    send({ type: "open_inline_terminal", sessionId, cwd });
+  }, [send]);
+
+  const handleCloseInlineTerminal = useCallback((sessionId: string, terminalId: string) => {
+    send({ type: "close_inline_terminal", sessionId, terminalId });
+  }, [send]);
+
   const handleRenameTerminal = useCallback((terminalId: string, title: string) => {
     setTerminals((prev) => {
       const next = new Map(prev);
@@ -342,6 +354,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
+    handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
     // Bridge-owned follow-up buffer mutation senders. See change: rework-mid-turn-prompt-queue.
     removeFollowUpEntry, editFollowUpEntry, promoteFollowUpEntry, clearFollowUpEntries,

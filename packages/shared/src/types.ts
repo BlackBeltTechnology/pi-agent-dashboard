@@ -643,6 +643,25 @@ export interface BashOutputData {
   excludeFromContext: boolean;
 }
 
+/** Data payload for inline_terminal_open dashboard events.
+ *  Fixes the inline terminal card's durable position in the chat stream so
+ *  it is reconstructed on reload via event replay.
+ *  See change: add-inline-terminal-card. */
+export interface InlineTerminalOpenData {
+  /** The ephemeral PTY's terminal id (reattach via /ws/terminal/:id). */
+  terminalId: string;
+}
+
+/** Data payload for inline_terminal_close dashboard events.
+ *  Freezes the card to a read-only scrollable transcript on close.
+ *  See change: add-inline-terminal-card. */
+export interface InlineTerminalCloseData {
+  /** The closed terminal's id. */
+  terminalId: string;
+  /** Captured final scrollback transcript. */
+  transcript: string;
+}
+
 /** Data payload for command_feedback dashboard events */
 export interface CommandFeedbackData {
   command: string;
