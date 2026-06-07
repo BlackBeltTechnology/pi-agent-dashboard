@@ -268,7 +268,7 @@ describe("SessionList header layout", () => {
     expect(themeToggle).toBeTruthy();
   });
 
-  it("places pin button in filter-bar row", () => {
+  it("filter bar no longer renders the folder pin chip", () => {
     render(
       <TestRouter>
         <ThemeProvider>
@@ -281,12 +281,12 @@ describe("SessionList header layout", () => {
         </ThemeProvider>
       </TestRouter>,
     );
-    const filterBar = screen.getByTestId("header-filter-bar");
-    const pinBtn = screen.getByTestId("pin-dir-dialog-btn");
-    expect(filterBar.contains(pinBtn)).toBe(true);
+    expect(screen.queryByTestId("pin-dir-dialog-btn")).toBeNull();
   });
+});
 
-  it("Add folder button calls onOpenPinDialog and does not mount PinDirectoryDialog internally", () => {
+describe("SessionList dashboard add buttons", () => {
+  it("renders the Add Folder button as first list item and calls onOpenPinDialog", () => {
     const onOpenPinDialog = vi.fn();
     render(
       <TestRouter>
@@ -300,11 +300,123 @@ describe("SessionList header layout", () => {
         </ThemeProvider>
       </TestRouter>,
     );
-    const pinBtn = screen.getByTestId("pin-dir-dialog-btn");
-    fireEvent.click(pinBtn);
+    const addBtn = screen.getByTestId("dashboard-add-folder-btn");
+    fireEvent.click(addBtn);
     expect(onOpenPinDialog).toHaveBeenCalledTimes(1);
     // PinDirectoryDialog heading "Pin Directory" should NOT be rendered by SessionList
     expect(screen.queryByText("Pin Directory")).toBeNull();
+  });
+
+  it("renders New Workspace button when onCreateWorkspace is provided", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            onOpenPinDialog={() => {}}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const newWsBtn = screen.getByTestId("dashboard-new-workspace-btn");
+    fireEvent.click(newWsBtn);
+    // Opens the new-workspace dialog flow.
+    expect(screen.getByTestId("new-workspace-input")).toBeTruthy();
+  });
+
+  it("hides New Workspace button when onCreateWorkspace is absent", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            onOpenPinDialog={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("dashboard-new-workspace-btn")).toBeNull();
+    expect(screen.getByTestId("dashboard-add-folder-btn")).toBeTruthy();
+  });
+
+  it("no longer renders the dashed + New workspace… list button", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            onOpenPinDialog={() => {}}
+            onCreateWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("new-workspace-btn")).toBeNull();
+  });
+});
+
+describe("SessionList workspace-scope Add Folder", () => {
+  const expandedWs = { id: "ws1", name: "WS One", collapsed: false, folders: [] as string[] };
+
+  it("renders the Add Folder button in an expanded workspace and opens the picker", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            workspaces={[expandedWs]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const addBtn = screen.getByTestId("workspace-add-folder-btn-ws1");
+    fireEvent.click(addBtn);
+    // Opens the workspace-scoped folder picker (PinDirectoryDialog).
+    expect(screen.getByText("Pin Directory")).toBeTruthy();
+  });
+
+  it("hides the workspace Add Folder button when collapsed", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            workspaces={[{ ...expandedWs, collapsed: true }]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("workspace-add-folder-btn-ws1")).toBeNull();
+  });
+
+  it("no longer renders the mdiPin add-folder icon in the workspace header", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession()]}
+            onSelect={() => {}}
+            onPinDirectory={() => {}}
+            workspaces={[expandedWs]}
+            onAddFolderToWorkspace={() => {}}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("workspace-add-folder-ws1")).toBeNull();
   });
 });
 

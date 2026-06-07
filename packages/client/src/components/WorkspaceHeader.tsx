@@ -1,14 +1,14 @@
 /**
  * WorkspaceHeader — header row for a workspace container.
  * Shows: name (double-click to rename), folder count, collapse chevron,
- * pin/add-folder button, and a kebab menu (rename / delete).
+ * and a kebab menu (rename / delete).
  *
  * Rename UX mirrors session rename: double-click → InlineRenameInput,
  * Enter to commit, Esc/blur to cancel. No explicit check/× buttons.
  *
- * The "pin folder" button opens a folder picker; on confirm the parent
- * adds the folder to this workspace (and silently pins it — workspace
- * folders don't display pin state inside the container).
+ * Add-folder-to-workspace now lives in an elevated `+ Add Folder` line
+ * button at the bottom of the expanded workspace body (SessionList), not
+ * in this header. See change: elevate-dashboard-add-buttons.
  *
  * See change: folder-workspaces.
  */
@@ -18,7 +18,6 @@ import {
   mdiChevronDown,
   mdiChevronRight,
   mdiDotsVertical,
-  mdiPin,
 } from "@mdi/js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 
@@ -30,12 +29,6 @@ interface Props {
   onToggleCollapsed: () => void;
   onRename: (newName: string) => void;
   onDelete: () => void;
-  /**
-   * Invoked when the pin button is clicked. Parent opens a folder picker
-   * and, on confirm, dispatches both `add_folder_to_workspace` for this
-   * id and (silently) `pin_directory`. See change: folder-workspaces.
-   */
-  onAddFolderViaPicker?: (id: string) => void;
 }
 
 const NAME_MAX = 80;
@@ -48,7 +41,6 @@ export function WorkspaceHeader({
   onToggleCollapsed,
   onRename,
   onDelete,
-  onAddFolderViaPicker,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -130,22 +122,6 @@ export function WorkspaceHeader({
       <span className="text-[10px] text-[var(--text-muted)] shrink-0">
         ({folderCount})
       </span>
-
-      {/* Pin/add-folder button: opens a folder picker via the parent.
-          The result is `add_folder_to_workspace` (+ silent `pin_directory`).
-          Workspace folders don't display pin state, so the user perceives
-          this purely as "add a folder to this workspace". */}
-      {onAddFolderViaPicker && (
-        <button
-          onClick={() => onAddFolderViaPicker(id)}
-          className="text-[var(--text-tertiary)] hover:text-yellow-400 shrink-0 px-0.5"
-          title="Add folder to workspace"
-          data-testid={`workspace-add-folder-${id}`}
-          aria-label="Add folder to workspace"
-        >
-          <Icon path={mdiPin} size={0.55} />
-        </button>
-      )}
 
       {!editing && (
         <div className="relative shrink-0" ref={menuRef}>

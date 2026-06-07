@@ -7,6 +7,7 @@ import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFold
 import { PiLogo } from "./PiLogo.js";
 import { FolderActionBar } from "./FolderActionBar.js";
 import { FolderSpawnButtons } from "./FolderSpawnButtons.js";
+import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -965,17 +966,6 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           <ToggleButton active={showHidden} onClick={() => setShowHidden((p) => !p)}>
             Hidden
           </ToggleButton>
-          {onPinDirectory && (
-            <button
-              onClick={() => onOpenPinDialog?.()}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-tertiary)] hover:text-yellow-400 hover:border-yellow-500/50 inline-flex items-center gap-1 shrink-0"
-              title="Pin a folder to the sidebar"
-              data-testid="pin-dir-dialog-btn"
-            >
-              <Icon path={mdiPin} size={0.45} />
-              <span>Folder</span>
-            </button>
-          )}
         </div>
       </div>
       <div ref={listRef} className="flex-1 overflow-y-auto">
@@ -984,6 +974,17 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <ul className="flex flex-col gap-2 p-2">
+          {/* Elevated dashboard-scope add buttons: rendered as the FIRST list
+              item, above workspace tiers and pinned folder groups.
+              See change: elevate-dashboard-add-buttons. */}
+          {onPinDirectory && (
+            <li>
+              <DashboardSpawnButtons
+                onAddFolder={() => onOpenPinDialog?.()}
+                onNewWorkspace={onCreateWorkspace ? () => setNewWsOpen({ pendingFolder: null }) : undefined}
+              />
+            </li>
+          )}
           {/* Workspace tier (folder-workspaces): rendered ABOVE the top-level
               area when at least one workspace exists. */}
           {workspaceTiers && workspaceTiers.workspaces.map((ws) => (
@@ -996,7 +997,6 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                 onToggleCollapsed={() => onSetWorkspaceCollapsed?.(ws.id, !ws.collapsed)}
                 onRename={(name) => onRenameWorkspace?.(ws.id, name)}
                 onDelete={() => onDeleteWorkspace?.(ws.id)}
-                onAddFolderViaPicker={onAddFolderToWorkspace ? (wsId) => setPickFolderForWsId(wsId) : undefined}
               />
               {!ws.collapsed && (
                 <div className="flex flex-col gap-1 p-1.5">
@@ -1020,23 +1020,18 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                       </button>
                     </div>
                   ))}
+                  {/* Workspace-scope Add Folder button at the bottom of the
+                      expanded body. See change: elevate-dashboard-add-buttons. */}
+                  {onAddFolderToWorkspace && (
+                    <DashboardSpawnButtons
+                      onAddFolder={() => setPickFolderForWsId(ws.id)}
+                      addFolderTestId={`workspace-add-folder-btn-${ws.id}`}
+                    />
+                  )}
                 </div>
               )}
             </li>
           ))}
-          {/* "+ New workspace" affordance (only when workspaces feature is
-              wired). Hidden when no callback is provided. */}
-          {onCreateWorkspace && (
-            <li>
-              <button
-                onClick={() => setNewWsOpen({ pendingFolder: null })}
-                className="w-full text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-blue)] py-1.5 px-2 rounded border border-dashed border-[var(--border-subtle)] hover:border-[var(--accent-blue)]"
-                data-testid="new-workspace-btn"
-              >
-                + New workspace…
-              </button>
-            </li>
-          )}
           {/* Pinned directory groups (filtered if workspace/session filter active).
               Workspace-owned folders are filtered out via visibleTopPinned. */}
           {visibleTopPinned.length > 0 && (
