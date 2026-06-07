@@ -4,8 +4,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
 
-const httpPort = 19080;
-const piPort = 19081;
+let httpPort: number;
+let piPort: number;
 let server: DashboardServer;
 
 // Mock process.exit to prevent actually exiting
@@ -21,11 +21,13 @@ describe("POST /api/shutdown", () => {
 
   it("should respond with { ok: true }", async () => {
     server = await createServer({
-      port: httpPort, piPort, dev: true,
+      port: 0, piPort: 0, dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    httpPort = server.httpPort()!;
+    piPort = server.piPort()!;
 
     const res = await fetch(`http://localhost:${httpPort}/api/shutdown`, {
       method: "POST",

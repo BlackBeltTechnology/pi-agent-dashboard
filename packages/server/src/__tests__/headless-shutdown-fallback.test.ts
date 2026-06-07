@@ -25,8 +25,8 @@ function collectMsgs(ws: WebSocket, ms: number): Promise<any[]> {
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const httpPort = 19190;
-const piPort = 19191;
+let httpPort: number;
+let piPort: number;
 let server: DashboardServer;
 
 describe("Headless shutdown fallback", () => {
@@ -36,11 +36,13 @@ describe("Headless shutdown fallback", () => {
 
   it("should kill headless process via SIGTERM when bridge is disconnected", async () => {
     server = await createServer({
-      port: httpPort, piPort, dev: true,
+      port: 0, piPort: 0, dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    httpPort = server.httpPort()!;
+    piPort = server.piPort()!;
 
     // Spawn a real dummy process (sleep) to act as the headless pi session
     const dummy = spawn("sleep", ["60"], { detached: true, stdio: "ignore" });

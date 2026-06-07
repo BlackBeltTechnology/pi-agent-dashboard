@@ -100,15 +100,10 @@ describe("Auto-attach from openspec activity", () => {
   let browserPort: number;
   let ws: WebSocket;
 
-  let testPort = 18800;
-
   beforeEach(async () => {
-    testPort += 2;
-    browserPort = testPort;
-    piPort = testPort + 1;
     server = await createServer({
-      port: browserPort,
-      piPort,
+      port: 0,
+      piPort: 0,
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -116,6 +111,8 @@ describe("Auto-attach from openspec activity", () => {
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    browserPort = server.httpPort()!;
+    piPort = server.piPort()!;
     ws = await connectSession(piPort, "s1");
   });
 
@@ -244,15 +241,10 @@ describe("Detach clears openspec state", () => {
   let browserPort: number;
   let ws: WebSocket;
 
-  let testPort = 18900;
-
   beforeEach(async () => {
-    testPort += 2;
-    browserPort = testPort;
-    piPort = testPort + 1;
     server = await createServer({
-      port: browserPort,
-      piPort,
+      port: 0,
+      piPort: 0,
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -260,6 +252,8 @@ describe("Detach clears openspec state", () => {
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    browserPort = server.httpPort()!;
+    piPort = server.piPort()!;
     ws = await connectSession(piPort, "s1");
   });
 

@@ -6,7 +6,7 @@ export default defineConfig({
     include: ["src/**/__tests__/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     pool: "forks",
-    maxWorkers: 1,
+    maxWorkers: "50%",
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
   },
   resolve: {

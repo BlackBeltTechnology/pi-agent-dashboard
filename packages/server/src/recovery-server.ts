@@ -222,14 +222,17 @@ function runReinstall(
 }
 
 /**
- * Start the recovery HTTP server. Does not return — the server stays bound
- * to the port until the process exits (typically after `/api/recovery/retry`
- * respawns the CLI and `process.exit`s).
+ * Start the recovery HTTP server. Resolves once listening with the bound port
+ * (the server stays bound until the process exits, typically after
+ * `/api/recovery/retry` respawns the CLI and `process.exit`s).
+ *
+ * Pass `port: 0` to bind an OS-assigned port (used by tests to stay
+ * collision-free under parallel forks); the resolved value is the real port.
  *
  * If the port is already bound (something else listening), this will log
  * and exit with code 2 — better than silent infinite-recovery loops.
  */
-export async function startRecoveryServer(info: RecoveryInfo): Promise<void> {
+export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
   const scriptPath = process.argv[1] ?? "";
   const layout = detectInstallLayout(scriptPath);
   const enrichedInfo: RecoveryInfo = {
@@ -342,7 +345,7 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<void> {
     res.end(buildRecoveryHtml(enrichedInfo));
   });
 
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<number>((resolve, reject) => {
     server.once("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
         console.error(
@@ -355,12 +358,10 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<void> {
       reject(err);
     });
     server.listen(info.port, () => {
-      console.error(`[recovery] listening on http://localhost:${info.port}`);
-      // Never resolve — recovery server runs until the process exits.
-      // This promise stays pending so the caller `await`s forever.
-      // The caller may also choose to short-circuit with `return` after
-      // invoking us; either way is safe.
-      resolve();
+      const addr = server.address();
+      const bound = typeof addr === "object" && addr ? addr.port : info.port;
+      console.error(`[recovery] listening on http://localhost:${bound}`);
+      resolve(bound);
     });
   });
 }

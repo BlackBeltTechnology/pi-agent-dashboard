@@ -38,16 +38,12 @@ describe("providers_list — server wiring", () => {
   let server: DashboardServer;
   let piPort: number;
   let browserPort: number;
-  let testPort = 19500;
 
   beforeEach(async () => {
     _resetForTests();
-    testPort += 2;
-    browserPort = testPort;
-    piPort = testPort + 1;
     server = await createServer({
-      port: browserPort,
-      piPort,
+      port: 0,
+      piPort: 0,
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -55,6 +51,8 @@ describe("providers_list — server wiring", () => {
       editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    browserPort = server.httpPort()!;
+    piPort = server.piPort()!;
   });
 
   afterEach(async () => {

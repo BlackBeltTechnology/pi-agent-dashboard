@@ -4,8 +4,8 @@
 import { describe, it, expect, afterAll, beforeAll, vi } from "vitest";
 import { createServer, type DashboardServer } from "../server.js";
 
-const httpPort = 19200;
-const piPort = 19201;
+let httpPort: number;
+let piPort: number;
 let server: DashboardServer;
 
 // Mock spawnPiSession to avoid actually spawning processes
@@ -44,8 +44,8 @@ function registerSession(id: string, overrides?: Record<string, unknown>) {
 describe("Session Control REST API", () => {
   beforeAll(async () => {
     server = await createServer({
-      port: httpPort,
-      piPort,
+      port: 0,
+      piPort: 0,
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -53,6 +53,8 @@ describe("Session Control REST API", () => {
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    httpPort = server.httpPort()!;
+    piPort = server.piPort()!;
   });
 
   afterAll(async () => {

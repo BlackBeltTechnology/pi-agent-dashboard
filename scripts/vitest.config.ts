@@ -11,6 +11,6 @@ export default defineConfig({
     include: ["__tests__/**/*.test.mjs"],
     environment: "node",
     pool: "forks",
-    maxWorkers: 1,
+    maxWorkers: "50%",
   },
 });

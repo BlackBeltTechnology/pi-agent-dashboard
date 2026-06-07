@@ -2092,3 +2092,17 @@ Two writer processes for `~/.pi/agent/auth.json`:
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
 See change: `add-dashboard-model-proxy`.
+
+## Test execution & isolation
+
+Vitest 4. Root `vitest.config.ts` lists projects under `test.projects`. Per-project `vitest.config.ts` carries `pool: "forks"` + `maxWorkers: "50%"` (parallel; was `1`).
+
+Per-file HOME isolation via `setupFiles` → `packages/shared/src/test-support/setup-home-perfile.ts`. Fresh `mkdtemp` HOME per test file. `globalSetup` `setup-home.ts` tripwire kept.
+
+Server-boot tests bind `port: 0` (OS-assigned) via `createTestServer()` / `httpPort()`/`piPort()` getters. No hardcoded ports. Guard test `packages/server/src/__tests__/test-server-canary.test.ts` scans every `createServer({...})` block. Fails on non-zero `port`/`piPort` literal.
+
+`startRecoveryServer(info)` accepts `port: 0`. Returns bound port. Race-free test binding.
+
+jsdom `localStorage` per-fork in-memory. Node `--localstorage-file` unused by node-env tests.
+
+Full `npm test` wall time ~8m27s → ~1m31s after parallelization.

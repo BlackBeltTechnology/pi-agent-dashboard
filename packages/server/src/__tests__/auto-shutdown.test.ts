@@ -14,16 +14,9 @@ describe("Server auto-shutdown", () => {
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   };
 
-  let testPort = 18700;
-
   beforeEach(async () => {
     vi.useFakeTimers();
-    testPort += 2;
-    server = await createServer({
-      ...baseConfig,
-      port: testPort,
-      piPort: testPort + 1,
-    });
+    server = await createServer({ ...baseConfig });
   });
 
   afterEach(async () => {
@@ -54,11 +47,8 @@ describe("Server auto-shutdown", () => {
   // under fake timers doesn't drain real I/O cleanly. See §7.
   it.skip("should not shut down when autoShutdown is false", async () => {
     await server.stop();
-    testPort += 2;
     server = await createServer({
       ...baseConfig,
-      port: testPort,
-      piPort: testPort + 1,
       autoShutdown: false,
     });
 
@@ -76,6 +66,7 @@ describe("Server auto-shutdown", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     await server.start();
+    const piPort = server.piPort()!;
 
     // Advance to just before idle timeout
     await vi.advanceTimersByTimeAsync(1500);
@@ -83,7 +74,7 @@ describe("Server auto-shutdown", () => {
     // Connect a session — this cancels the idle timer and sets lastConnectionTimestamp
     vi.useRealTimers();
     const { WebSocket } = await import("ws");
-    const ws = new WebSocket(`ws://localhost:${testPort + 1}`);
+    const ws = new WebSocket(`ws://localhost:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({
@@ -111,12 +102,13 @@ describe("Server auto-shutdown", () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
 
     await server.start();
+    const piPort = server.piPort()!;
 
     await vi.advanceTimersByTimeAsync(1000);
 
     vi.useRealTimers();
     const { WebSocket } = await import("ws");
-    const ws = new WebSocket(`ws://localhost:${testPort + 1}`);
+    const ws = new WebSocket(`ws://localhost:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({

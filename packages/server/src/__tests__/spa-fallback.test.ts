@@ -7,8 +7,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const httpPort = 19100;
-const piPort = 19101;
+let httpPort: number;
+let piPort: number;
 let server: DashboardServer;
 
 // Ensure dist/client/index.html exists for the test
@@ -27,8 +27,8 @@ describe("SPA fallback", () => {
     }
 
     server = await createServer({
-      port: httpPort,
-      piPort,
+      port: 0,
+      piPort: 0,
       dev: false, // production mode enables static serving + SPA fallback
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -36,6 +36,8 @@ describe("SPA fallback", () => {
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
     await server.start();
+    httpPort = server.httpPort()!;
+    piPort = server.piPort()!;
   });
 
   afterAll(async () => {

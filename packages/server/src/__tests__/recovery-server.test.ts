@@ -122,24 +122,19 @@ describe("buildRecoveryHtml", () => {
   });
 });
 
-// Pick an ephemeral port (0 → OS assigns) and verify the live HTTP server.
+// Bind port:0 (OS assigns atomically — no probe/rebind TOCTOU under parallel
+// forks) and use the resolved bound port to talk to the live HTTP server.
 async function withRecoveryServer<T>(
   fn: (port: number) => Promise<T>,
 ): Promise<T> {
-  // Probe an open port via a throwaway server.
-  const probe = http.createServer();
-  await new Promise<void>((r) => probe.listen(0, () => r()));
-  const port = (probe.address() as { port: number }).port;
-  await new Promise<void>((r) => probe.close(() => r()));
-
   // Capture & swallow noisy console.error during the test
   const origErr = console.error;
   console.error = () => {};
 
-  // Start in the background — startRecoveryServer resolves once `listen`
-  // succeeds (server keeps running on its own).
-  await startRecoveryServer({
-    port,
+  // startRecoveryServer resolves once `listen` succeeds, returning the bound
+  // port (server keeps running on its own).
+  const port = await startRecoveryServer({
+    port: 0,
     error: new Error("Cannot find module 'fastify'"),
     missingModule: "fastify",
   });

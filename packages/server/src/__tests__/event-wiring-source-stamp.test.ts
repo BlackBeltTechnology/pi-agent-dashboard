@@ -9,7 +9,7 @@
  *
  * See change: fix-dashboard-spawn-correlation-by-token.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { WebSocket } from "ws";
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -29,7 +29,7 @@ interface TestRig {
   logs: string[];
 }
 
-async function startServerWithEnv(env: Record<string, string | undefined>, basePort: number): Promise<TestRig> {
+async function startServerWithEnv(env: Record<string, string | undefined>): Promise<TestRig> {
   // Capture stdout writes so we can assert the fallback log line.
   const logs: string[] = [];
   const origLog = console.log;
@@ -48,8 +48,8 @@ async function startServerWithEnv(env: Record<string, string | undefined>, baseP
   const { createServer } = await import("../server.js");
 
   const server = await createServer({
-    port: basePort,
-    piPort: basePort + 1,
+    port: 0,
+    piPort: 0,
     dev: true,
     autoShutdown: false,
     shutdownIdleSeconds: 999,
@@ -57,6 +57,7 @@ async function startServerWithEnv(env: Record<string, string | undefined>, baseP
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
   });
   await server.start();
+  const piPort = server.piPort()!;
 
   const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pi-srcstamp-"));
 
@@ -72,7 +73,7 @@ async function startServerWithEnv(env: Record<string, string | undefined>, baseP
       sessionManager: server.sessionManager,
       pendingDashboardSpawns: server.pendingDashboardSpawns,
     },
-    piPort: basePort + 1,
+    piPort,
     tmpDir,
     logs,
   };
@@ -90,14 +91,8 @@ async function sendRegister(piPort: number, payload: Record<string, unknown>): P
   return ws;
 }
 
-let testPort = 19900;
-
 describe("event-wiring: source-stamp gating", () => {
   let rig: TestRig | undefined;
-
-  beforeEach(() => {
-    testPort += 2;
-  });
 
   afterEach(async () => {
     if (rig) {
@@ -107,7 +102,7 @@ describe("event-wiring: source-stamp gating", () => {
   });
 
   it("strong signal (dashboardSpawned=true) stamps in-memory AND persists .meta.json", async () => {
-    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: undefined }, testPort);
+    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: undefined });
     const SID = "src-strong-sess";
     const sessionFile = path.join(rig.tmpDir, `${SID}.jsonl`);
     writeFileSync(sessionFile, "");
@@ -129,7 +124,7 @@ describe("event-wiring: source-stamp gating", () => {
   });
 
   it("legacy cwd-FIFO fallback stamps in-memory but does NOT write .meta.json + logs the fallback", async () => {
-    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: undefined }, testPort);
+    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: undefined });
     const SID = "src-legacy-sess";
     const sessionFile = path.join(rig.tmpDir, `${SID}.jsonl`);
     writeFileSync(sessionFile, "");
@@ -159,7 +154,7 @@ describe("event-wiring: source-stamp gating", () => {
   });
 
   it("strict mode suppresses the legacy cwd-FIFO fallback entirely", async () => {
-    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: "1" }, testPort);
+    rig = await startServerWithEnv({ STRICT_SPAWN_CORRELATION: "1" });
     const SID = "src-strict-sess";
     const sessionFile = path.join(rig.tmpDir, `${SID}.jsonl`);
     writeFileSync(sessionFile, "");

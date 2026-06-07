@@ -1,6 +1,19 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeAll } from "vitest";
 import http from "node:http";
+import net from "node:net";
 import { startCallbackServer, closeAllCallbackServers } from "../oauth-callback-server.js";
+
+/** Probe an OS-assigned free port so parallel forks never collide. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const p = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(p));
+    });
+  });
+}
 
 function httpGet(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -13,8 +26,11 @@ function httpGet(port: number, path: string): Promise<{ status: number; body: st
   });
 }
 
-// Use high ephemeral ports to avoid conflicts
-const TEST_PORT = 19876;
+// Probe a free port per fork to avoid cross-fork conflicts under parallelism.
+let TEST_PORT: number;
+beforeAll(async () => {
+  TEST_PORT = await freePort();
+});
 
 afterEach(async () => {
   await closeAllCallbackServers();
@@ -147,7 +163,7 @@ describe("startCallbackServer", () => {
   });
 
   it("handles onCode errors gracefully", async () => {
-    const port = TEST_PORT + 1;
+    const port = await freePort();
     const server = await startCallbackServer({
       providerId: "test-error-provider",
       port,
