@@ -407,7 +407,7 @@ export default function App() {
   // back to the originating click for auto-select after spawn AND fork.
   // Lives alongside `spawningCwds` (which keeps placeholder + disabled-button
   // behavior cwd-keyed). See change: spawn-correlation-token.
-  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume" }>>(new Map());
+  const pendingSpawnsRef = useRef<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>(new Map());
   const [sessionOrderMap, setSessionOrderMap] = useState<Map<string, string[]>>(new Map());
   const [pinnedDirectories, setPinnedDirectories] = useState<string[]>([]);
   // folder-workspaces: full workspace list, kept in sync via workspaces_updated broadcast.
@@ -508,6 +508,27 @@ export default function App() {
       spawnTimeoutsRef.current.delete(cwd);
     }
   }, []);
+
+  // Add a cwd to the spawning set + arm a 30s safety timeout, guarding
+  // against double-add/double-timeout. Used by WorktreeSpawnDialog's
+  // `onSpawnStart` so a placeholder appears from dialog submit (covering
+  // the createWorktree window), before `handleSpawnSession` runs.
+  // See change: add-worktree-spawn-placeholder-card.
+  const addSpawningCwd = useCallback((cwd: string) => {
+    setSpawningCwds((prev) => {
+      if (prev.has(cwd)) return prev;
+      const next = new Set(prev);
+      next.add(cwd);
+      return next;
+    });
+    if (!spawnTimeoutsRef.current.has(cwd)) {
+      const timer = setTimeout(() => {
+        spawnTimeoutsRef.current.delete(cwd);
+        clearSpawningCwd(cwd);
+      }, 30_000);
+      spawnTimeoutsRef.current.set(cwd, timer);
+    }
+  }, [clearSpawningCwd]);
 
   // Live snapshot of visible-cwd inputs for the off-screen spawn_error
   // toast fallback. Updated every render so the latest pinned/workspace/
@@ -1036,6 +1057,8 @@ export default function App() {
       onUnhideSession={handleUnhideSession}
       onSpawnSession={handleSpawnSession}
       spawningCwds={spawningCwds}
+      addSpawningCwd={addSpawningCwd}
+      clearSpawningCwd={clearSpawningCwd}
       spawnResult={spawnResult}
       onSpawnResultSeen={() => setSpawnResult(null)}
       pinnedDirectories={pinnedDirectories}

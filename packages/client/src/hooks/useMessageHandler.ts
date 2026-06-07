@@ -93,7 +93,7 @@ export interface MessageHandlerDeps {
    * navigate to the new session) and in `case "spawn_result"` failure (when
    * `msg.requestId` matches, drop the entry). See change: spawn-correlation-token.
    */
-  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume" }>>;
+  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
   /**
    * Live snapshot of pinned dirs + workspaces + sessions for the
    * `isVisibleCwd` check that gates the off-screen spawn_error toast.
@@ -140,7 +140,11 @@ export function useMessageHandler(
         if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
           const entry = pendingSpawnsRef.current.get(msg.spawnRequestId)!;
           pendingSpawnsRef.current.delete(msg.spawnRequestId);
-          if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.cwd);
+          // Clear the placeholder keyed on the group cwd. For a worktree
+          // spawn `placeholderCwd` is the PARENT repo path (where the
+          // session groups), NOT `entry.cwd` (the worktree path).
+          // See change: add-worktree-spawn-placeholder-card.
+          if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
           navigate(`/session/${msg.session.id}`);
         } else if (spawningCwdsRef.current.has(msg.session.cwd)) {
           // Tier 2 (legacy fallback): cwd-based heuristic for older servers
@@ -452,7 +456,12 @@ export function useMessageHandler(
       case "spawn_result":
         setSpawnResult({ success: msg.success, message: msg.message });
         if (!msg.success) {
-          clearSpawningCwd(msg.cwd);
+          // Clear the placeholder on the group cwd. For a worktree spawn the
+          // matching pending entry carries `placeholderCwd` (parent repo),
+          // distinct from `msg.cwd` (the worktree path).
+          // See change: add-worktree-spawn-placeholder-card.
+          const failedEntry = msg.requestId ? pendingSpawnsRef.current.get(msg.requestId) : undefined;
+          clearSpawningCwd(failedEntry?.placeholderCwd ?? msg.cwd);
           // Leave the spawn_error message to fill the rich detail; set a placeholder if not yet present.
           setSpawnErrors((prev) => {
             const next = new Map(prev);

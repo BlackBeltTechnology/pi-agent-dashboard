@@ -761,6 +761,111 @@ describe("WorktreeSpawnDialog — reactive attachProposal", () => {
   });
 });
 
+// ── onSpawnStart / onSpawnAbort lifecycle (change: add-worktree-spawn-placeholder-card) ──
+describe("WorktreeSpawnDialog — placeholder lifecycle callbacks", () => {
+  it("fires onSpawnStart(cwd) at submit BEFORE createWorktree resolves", async () => {
+    defaultMocks();
+    const order: string[] = [];
+    const onSpawnStart = vi.fn(() => { order.push("start"); });
+    // Defer the createWorktree resolution so we can assert ordering.
+    let resolveCreate!: (v: any) => void;
+    createWorktree.mockImplementation(() => {
+      order.push("createWorktree");
+      return new Promise((res) => { resolveCreate = res; });
+    });
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+        onSpawnStart={onSpawnStart}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    // onSpawnStart fired with the parent cwd, before createWorktree.
+    expect(onSpawnStart).toHaveBeenCalledWith("/repo");
+    await waitFor(() => expect(createWorktree).toHaveBeenCalled());
+    expect(order).toEqual(["start", "createWorktree"]);
+    resolveCreate({ ok: true, path: "/repo/.worktrees/x", branch: "x" });
+  });
+
+  it("fires onSpawnStart(cwd) on an existing-worktree row click", async () => {
+    defaultMocks({
+      worktrees: [
+        { path: "/repo", branch: "main", isMain: true },
+        { path: "/repo/.worktrees/feat-x", branch: "feat/x", isMain: false },
+      ],
+    });
+    const onSpawnStart = vi.fn();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        onSpawn={() => {}}
+        onCancel={() => {}}
+        onSpawnStart={onSpawnStart}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-row-main"));
+    fireEvent.click(
+      screen.getByTestId(`worktree-row-${encodeURIComponent("/repo/.worktrees/feat-x")}`),
+    );
+    expect(onSpawnStart).toHaveBeenCalledWith("/repo");
+  });
+
+  it("fires onSpawnAbort(cwd) when createWorktree returns a non-ok result; dialog stays open with error", async () => {
+    defaultMocks();
+    createWorktree.mockResolvedValue({
+      ok: false,
+      code: "branch_in_use",
+      error: "branch is already checked out in another worktree",
+    });
+    const onSpawnAbort = vi.fn();
+    const onSpawn = vi.fn();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        onSpawn={onSpawn}
+        onCancel={() => {}}
+        onSpawnStart={() => {}}
+        onSpawnAbort={onSpawnAbort}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    const errEl = await waitFor(() => screen.getByTestId("worktree-dialog-error"));
+    expect(onSpawnAbort).toHaveBeenCalledWith("/repo");
+    expect(onSpawn).not.toHaveBeenCalled();
+    // Dialog remains open rendering the error code.
+    expect(errEl.textContent).toContain("branch_in_use");
+    expect(screen.getByTestId("worktree-spawn-dialog")).toBeTruthy();
+  });
+
+  it("does NOT fire onSpawnAbort when createWorktree succeeds", async () => {
+    defaultMocks();
+    createWorktree.mockResolvedValue({
+      ok: true,
+      path: "/repo/.worktrees/feat-x",
+      branch: "feat/x",
+    });
+    const onSpawnAbort = vi.fn();
+    const onSpawn = vi.fn();
+    render(
+      <WorktreeSpawnDialog
+        cwd="/repo"
+        onSpawn={onSpawn}
+        onCancel={() => {}}
+        onSpawnStart={() => {}}
+        onSpawnAbort={onSpawnAbort}
+      />,
+    );
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
+    expect(onSpawnAbort).not.toHaveBeenCalled();
+  });
+});
+
 describe("WorktreeSpawnDialog — dismissal", () => {
   it("Cancel button calls onCancel", async () => {
     defaultMocks();

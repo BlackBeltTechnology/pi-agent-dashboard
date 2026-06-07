@@ -85,8 +85,17 @@ interface Props {
   onResumeKeepPosition?: (sessionId: string) => void;
   onHideSession?: (sessionId: string) => void;
   onUnhideSession?: (sessionId: string) => void;
-  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string }) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
   spawningCwds?: Set<string>;
+  /**
+   * Add/remove a cwd from the spawning set (placeholder + disabled-button).
+   * Wired to `WorktreeSpawnDialog`'s `onSpawnStart` / `onSpawnAbort` so a
+   * placeholder appears under the PARENT group from dialog submit and is
+   * removed on `createWorktree` failure.
+   * See change: add-worktree-spawn-placeholder-card.
+   */
+  addSpawningCwd?: (cwd: string) => void;
+  clearSpawningCwd?: (cwd: string) => void;
   spawnResult?: { success: boolean; message: string } | null;
   onSpawnResultSeen?: () => void;
   pinnedDirectories?: string[];
@@ -181,7 +190,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
   const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
@@ -1102,9 +1111,15 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
         <WorktreeSpawnDialog
           cwd={worktreeDialogCwd}
           onCancel={() => setWorktreeDialogCwd(null)}
+          onSpawnStart={(c) => addSpawningCwd?.(c)}
+          onSpawnAbort={(c) => clearSpawningCwd?.(c)}
           onSpawn={(path, opts) => {
+            // Capture the parent group cwd BEFORE clearing the dialog state;
+            // the placeholder renders under this group, not the worktree
+            // path. See change: add-worktree-spawn-placeholder-card.
+            const placeholderCwd = worktreeDialogCwd;
             setWorktreeDialogCwd(null);
-            onSpawnSession?.(path, opts?.attachProposal, opts);
+            onSpawnSession?.(path, opts?.attachProposal, { ...opts, placeholderCwd });
           }}
         />
       )}
@@ -1114,9 +1129,12 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           initialBranch={`os/${worktreeForChange.changeName}`}
           attachProposal={worktreeForChange.changeName}
           onCancel={() => setWorktreeForChange(null)}
+          onSpawnStart={(c) => addSpawningCwd?.(c)}
+          onSpawnAbort={(c) => clearSpawningCwd?.(c)}
           onSpawn={(path, opts) => {
+            const placeholderCwd = worktreeForChange.cwd;
             setWorktreeForChange(null);
-            onSpawnSession?.(path, opts?.attachProposal, opts);
+            onSpawnSession?.(path, opts?.attachProposal, { ...opts, placeholderCwd });
           }}
         />
       )}

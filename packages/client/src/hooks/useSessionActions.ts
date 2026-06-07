@@ -35,7 +35,7 @@ export interface SessionActionDeps {
    * `useMessageHandler.session_added` for exact auto-select correlation.
    * See change: spawn-correlation-token.
    */
-  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume" }>>;
+  pendingSpawnsRef: React.MutableRefObject<Map<string, { cwd: string; kind: "spawn" | "resume"; placeholderCwd?: string }>>;
 }
 
 export function useSessionActions(deps: SessionActionDeps) {
@@ -247,22 +247,35 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSpawnSession = useCallback((
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string },
+    opts?: { gitWorktreeBase?: string; placeholderCwd?: string },
   ) => {
+    // The placeholder/disabled-button group cwd. For a normal spawn this is
+    // the spawn cwd; for a worktree spawn the host passes the PARENT repo
+    // cwd (the group that will host the new session per the grouping
+    // precedence). See change: add-worktree-spawn-placeholder-card.
+    const placeholderCwd = opts?.placeholderCwd ?? cwd;
     setSpawningCwds((prev) => {
+      if (prev.has(placeholderCwd)) return prev;
       const next = new Set(prev);
-      next.add(cwd);
+      next.add(placeholderCwd);
       return next;
     });
-    const timer = setTimeout(() => {
-      spawnTimeoutsRef.current.delete(cwd);
-      clearSpawningCwd(cwd);
-    }, 30_000);
-    spawnTimeoutsRef.current.set(cwd, timer);
+    // Guard against a double timeout: for worktree spawns `onSpawnStart`
+    // already armed one for this group cwd. Only arm when none exists so a
+    // single timer governs the whole in-flight window.
+    if (!spawnTimeoutsRef.current.has(placeholderCwd)) {
+      const timer = setTimeout(() => {
+        spawnTimeoutsRef.current.delete(placeholderCwd);
+        clearSpawningCwd(placeholderCwd);
+      }, 30_000);
+      spawnTimeoutsRef.current.set(placeholderCwd, timer);
+    }
     // Mint requestId for exact auto-select correlation when session_added
-    // arrives. See change: spawn-correlation-token.
+    // arrives. See change: spawn-correlation-token. The entry carries
+    // `placeholderCwd` so the clear keys on the group cwd, not the worktree
+    // path. See change: add-worktree-spawn-placeholder-card.
     const requestId = mintRequestId();
-    pendingSpawnsRef.current.set(requestId, { cwd, kind: "spawn" });
+    pendingSpawnsRef.current.set(requestId, { cwd, kind: "spawn", placeholderCwd });
     // The optional `attachProposal` field is consumed server-side and applied
     // when the bridge issues `session_register`. See change:
     // add-folder-task-checker-and-spawn-attach.

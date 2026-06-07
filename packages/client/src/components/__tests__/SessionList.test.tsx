@@ -215,6 +215,62 @@ describe("SessionList placeholder spawn card", () => {
     const btn = screen.getByTestId("folder-spawn-session-btn");
     expect(btn.hasAttribute("disabled")).toBe(false);
   });
+
+  // Worktree spawn: placeholder keyed on the PARENT repo cwd (the group the
+  // worktree session collapses into via gitWorktree.mainPath), NOT the
+  // worktree path. See change: add-worktree-spawn-placeholder-card.
+  it("renders the worktree placeholder under the PARENT repo group, not a worktree-path group", () => {
+    // One session living in a worktree but grouping under /repo via
+    // gitWorktree.mainPath. spawningCwds carries the PARENT cwd.
+    const session = makeSession({
+      id: "wt-sess",
+      cwd: "/repo/.worktrees/feat-x",
+      gitWorktree: { mainPath: "/repo", name: "feat-x" },
+    } as Partial<DashboardSession>);
+    const spawningCwds = new Set(["/repo"]);
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[session]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            spawningCwds={spawningCwds}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    // Exactly one placeholder, rendered in the single /repo group.
+    expect(screen.getAllByTestId("placeholder-session-card").length).toBe(1);
+    // The worktree path produced no standalone group/placeholder: there is
+    // only one spawn button (the parent group's) and it is disabled.
+    const btns = screen.getAllByTestId("folder-spawn-session-btn");
+    expect(btns.length).toBe(1);
+    expect(btns[0].hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does NOT render a placeholder when only the worktree path (not parent) is in spawningCwds", () => {
+    const session = makeSession({
+      id: "wt-sess",
+      cwd: "/repo/.worktrees/feat-x",
+      gitWorktree: { mainPath: "/repo", name: "feat-x" },
+    } as Partial<DashboardSession>);
+    // The worktree path is homeless: no group has cwd === worktree path.
+    const spawningCwds = new Set(["/repo/.worktrees/feat-x"]);
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[session]}
+            onSelect={() => {}}
+            onSpawnSession={() => {}}
+            spawningCwds={spawningCwds}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    expect(screen.queryByTestId("placeholder-session-card")).toBeNull();
+  });
 });
 
 describe("SessionList header layout", () => {

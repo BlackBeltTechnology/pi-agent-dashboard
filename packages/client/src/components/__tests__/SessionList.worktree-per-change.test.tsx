@@ -154,10 +154,13 @@ describe("SessionList — per-change ⑂+ worktree spawn end-to-end", () => {
     fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
 
     await waitFor(() => expect(onSpawnSession).toHaveBeenCalled());
+    // placeholderCwd is the PARENT repo cwd (worktreeForChange.cwd) so the
+    // placeholder renders under the parent group, not the worktree path.
+    // See change: add-worktree-spawn-placeholder-card.
     expect(onSpawnSession).toHaveBeenCalledWith(
       "/project/foo/.worktrees/os-add-dark-mode",
       "add-dark-mode",
-      { gitWorktreeBase: "main", attachProposal: "add-dark-mode" },
+      { gitWorktreeBase: "main", attachProposal: "add-dark-mode", placeholderCwd: "/project/foo" },
     );
   });
 

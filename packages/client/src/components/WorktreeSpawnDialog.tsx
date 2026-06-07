@@ -71,6 +71,21 @@ interface Props {
     opts?: { gitWorktreeBase?: string; attachProposal?: string },
   ) => void;
   onCancel: () => void;
+  /**
+   * Fired at the TOP of every submit path (existing-worktree row click and
+   * create-new submit), BEFORE any `createWorktree`/spawn call. `parentCwd`
+   * is the dialog's `cwd` prop so the host renders a placeholder in the
+   * group that will host the new worktree session. Optional (back-compat).
+   * See change: add-worktree-spawn-placeholder-card.
+   */
+  onSpawnStart?: (parentCwd: string) => void;
+  /**
+   * Fired when `createWorktree` rejects or returns a non-ok result. Lets the
+   * host remove the placeholder immediately while the dialog stays open
+   * showing the error. Optional (back-compat).
+   * See change: add-worktree-spawn-placeholder-card.
+   */
+  onSpawnAbort?: (parentCwd: string) => void;
 }
 
 interface LoadedData {
@@ -80,7 +95,7 @@ interface LoadedData {
   remoteBranches: GitBranchEntry[];
 }
 
-export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal }: Props) {
+export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, attachProposal, onSpawnStart, onSpawnAbort }: Props) {
   const [data, setData] = useState<LoadedData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newBranch, setNewBranch] = useState(initialBranch ?? "");
@@ -219,11 +234,16 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   // Existing worktree rows spawn directly. Any required initialization is
   // a separate gated action (the folder-action-bar Initialize button).
   const handleSpawnExisting = useCallback((entry: WorktreeEntry) => {
+    onSpawnStart?.(cwd);
     onSpawn(entry.path, buildOpts());
-  }, [onSpawn, buildOpts]);
+  }, [onSpawn, buildOpts, onSpawnStart, cwd]);
 
   const handleCreateAndSpawn = useCallback(async () => {
     if (!data) return;
+    // Signal the host to render a placeholder NOW, covering the
+    // createWorktree latency window. See change:
+    // add-worktree-spawn-placeholder-card.
+    onSpawnStart?.(cwd);
     setSubmitting(true);
     setSubmitError(null);
     let res;
@@ -247,6 +267,8 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
       }
     } catch (err: any) {
       // Network failure, JSON parse error, or any other thrown exception.
+      // Remove the placeholder; keep the dialog open showing the error.
+      onSpawnAbort?.(cwd);
       setSubmitting(false);
       setSubmitError({
         ok: false,
@@ -257,13 +279,16 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     }
     setSubmitting(false);
     if (!res.ok) {
+      // createWorktree returned a stable error code (branch_in_use, etc.).
+      // Remove the placeholder; dialog stays open rendering the error.
+      onSpawnAbort?.(cwd);
       setSubmitError(res);
       return;
     }
     // Worktree created clean; spawn the session. Both branch modes carry
     // the base through as gitWorktreeBase; PR mode does not.
     onSpawn(res.path, buildOpts(sourceMode === "pr" ? undefined : base));
-  }, [data, cwd, base, newBranch, sourceMode, checkoutMode, selectedPr, pathOverride, onSpawn, buildOpts]);
+  }, [data, cwd, base, newBranch, sourceMode, checkoutMode, selectedPr, pathOverride, onSpawn, buildOpts, onSpawnStart, onSpawnAbort]);
 
   // Clean-up the orphan path then optionally auto-retry submit.
   const handleCleanOrphan = useCallback(async (autoResubmit: boolean) => {
