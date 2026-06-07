@@ -14,7 +14,6 @@ import { getMobileDepth } from "./lib/mobile-depth.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { SessionBanner } from "./components/SessionBanner.js";
-import { ConfirmDialog } from "./components/ConfirmDialog.js";
 // Flow components are no longer imported by the shell. They render
 // exclusively via plugin slot claims (content-header-sticky,
 // content-view, content-inline-footer, command-route). See change:

@@ -23,7 +23,7 @@ import { Icon } from "@mdi/react";
 import { mdiClose } from "@mdi/js";
 import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DialogPortal } from "../DialogPortal.js";
-import { ConfirmDialog } from "../ConfirmDialog.js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
 
 interface Props {
@@ -130,14 +130,17 @@ function ActionButton({ action, onDispatch, compact }: { action: UiAction; onDis
         {action.label}
       </button>
       {confirmOpen && action.confirm && (
-        <ConfirmDialog
+        <Confirm
+          open
+          title="Confirm"
+          testId="confirm-dialog"
           message={action.confirm}
           confirmLabel={action.label}
           onConfirm={() => {
             setConfirmOpen(false);
             onDispatch({ action: action.id, event: action.event, params: action.params });
           }}
-          onCancel={() => setConfirmOpen(false)}
+          onClose={() => setConfirmOpen(false)}
         />
       )}
     </>

@@ -23,17 +23,10 @@ describe("QrCodeDialog", () => {
     expect(screen.getByTestId("qr-canvas")).toBeDefined();
   });
 
-  it("calls onClose when close button clicked", () => {
+  it("calls onClose when overlay clicked", () => {
     const onClose = vi.fn();
     render(<QrCodeDialog url={url} connected={true} onClose={onClose} />);
-    fireEvent.click(screen.getByTestId("qr-dialog-close"));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it("calls onClose when backdrop clicked", () => {
-    const onClose = vi.fn();
-    render(<QrCodeDialog url={url} connected={true} onClose={onClose} />);
-    fireEvent.click(screen.getByTestId("qr-dialog-backdrop"));
+    fireEvent.click(screen.getByTestId("qr-dialog-overlay"));
     expect(onClose).toHaveBeenCalled();
   });
 

@@ -41,7 +41,7 @@ describe("TunnelButton", () => {
     render(<TunnelButton />);
     fireEvent.click(screen.getByTestId("tunnel-btn"));
     await waitFor(() => {
-      expect(screen.getByTestId("qr-dialog-backdrop")).toBeDefined();
+      expect(screen.getByTestId("qr-dialog-overlay")).toBeDefined();
       expect(screen.getByTestId("qr-connect-btn")).toBeDefined();
     });
   });
@@ -51,7 +51,7 @@ describe("TunnelButton", () => {
     render(<TunnelButton />);
     fireEvent.click(screen.getByTestId("tunnel-btn"));
     await waitFor(() => {
-      expect(screen.getByTestId("qr-dialog-backdrop")).toBeDefined();
+      expect(screen.getByTestId("qr-dialog-overlay")).toBeDefined();
       expect(screen.getByTestId("qr-disconnect-btn")).toBeDefined();
       expect(screen.getByTestId("qr-setup-btn")).toBeDefined();
       expect(screen.getByTestId("qr-canvas")).toBeDefined();

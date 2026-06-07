@@ -86,6 +86,8 @@ React-based responsive web UI that:
 - Works on mobile with responsive layout and swipe gestures
 - Shows an onboarding `LandingPage` whenever the main pane is empty, narrating the three steps needed to go from install → first running session (Setup credentials → Add folder → Start session). Each step is a card in **pending**, **done**, or **locked** state, derived purely from client state: `useProvidersReady()` (from `GET /api/providers`), `pinnedDirectories.length`, and `sessions.size`. Satisfied steps collapse to single-line ✔ rows, so returning users see a compact status strip rather than a full onboarding wall. The `PinDirectoryDialog` used by Step ② is mounted once at the app root in `App.tsx` and shared with the sidebar "Add folder" button via a single `onOpenPinDialog` callback.
 
+**Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
+
 ### 4. Shared Types (`src/shared/`)
 TypeScript type definitions shared across all components:
 
@@ -221,7 +223,7 @@ Key properties:
 - `kind: "management-modal"` — slash-command-triggered modal.
 - `view.kind` ∈ `"table" | "grid" | "form"`.
 - `UiField.kind` ∈ `"text" | "number" | "boolean" | "select" | "code" | "datetime" | "textarea"`.
-- `UiAction.confirm` polish via the existing Tailwind `ConfirmDialog` (no `window.confirm()`).
+- `UiAction.confirm` polish via `Confirm` (client-utils, testId `confirm-dialog`); no `window.confirm()`. See change: unify-dialog-system.
 - Icons resolved against `@mdi/js` keys; unknown keys render no icon (no error).
 - Slash-command interception in `App.tsx`'s `wrappedHandleSend`; built-in collisions (`/model`, `/compact`, `/flows`, etc.) drop the module with a `console.warn`.
 - "Modules" entry point in `SessionHeader` shows when `session.uiModules?.length > 0`.

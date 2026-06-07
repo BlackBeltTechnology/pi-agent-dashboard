@@ -6,10 +6,10 @@
  */
 import React, { useState, useMemo } from "react";
 import { Icon } from "@mdi/react";
-import { mdiMagnify, mdiClose } from "@mdi/js";
+import { mdiMagnify } from "@mdi/js";
 import type { OpenSpecChange, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { OpenSpecGroupPills } from "./OpenSpecGroupPills.js";
 import { OpenSpecGroupSection } from "./OpenSpecGroupSection.js";
 
@@ -91,24 +91,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
   }
 
   return (
-    <DialogPortal>
-      <div
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-        onClick={onCancel}
-        data-testid="grouped-attach-dialog"
-      >
-        <div
-          className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg w-80 max-h-[70vh] flex flex-col"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-secondary)]">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Attach Change</h3>
-            <button onClick={onCancel} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-              <Icon path={mdiClose} size={0.6} />
-            </button>
-          </div>
-
+    <Dialog open onClose={onCancel} title="Attach Change" size="sm" testId="grouped-attach-dialog">
           {/* Pills */}
           <div className="px-3 pt-1">
             <OpenSpecGroupPills
@@ -172,8 +155,6 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </DialogPortal>
+    </Dialog>
   );
 }

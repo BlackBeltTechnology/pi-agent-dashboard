@@ -72,8 +72,8 @@ describe("SessionOpenSpecActions — groups", () => {
     expect(screen.getByTestId("grouped-attach-dialog")).toBeTruthy();
     // Select a pill
     fireEvent.click(screen.getByTestId("group-pill-backend"));
-    // Close by clicking backdrop (find the overlay div)
-    const overlay = screen.getByTestId("grouped-attach-dialog");
+    // Close by clicking the overlay (sibling of the dialog container)
+    const overlay = screen.getByTestId("grouped-attach-dialog-overlay");
     fireEvent.click(overlay);
     // Reopen
     fireEvent.click(screen.getByTestId("attach-combo"));

@@ -4,6 +4,7 @@
  * See change: folder-workspaces.
  */
 import React, { useState, useRef, useEffect } from "react";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 
 interface Props {
   onCreate: (name: string) => void;
@@ -30,18 +31,13 @@ export function NewWorkspaceDialog({ onCreate, onCancel }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-[60]">
-      <div className="bg-[var(--bg-secondary)] rounded-lg p-6 w-full max-w-md border border-[var(--border-secondary)]">
-        <h3 className="text-lg font-semibold mb-4">New Workspace</h3>
-        <form onSubmit={submit}>
+    <Dialog open onClose={onCancel} title="New Workspace" size="md" testId="new-workspace-dialog">
+        <form onSubmit={submit} className="space-y-1">
           <input
             ref={inputRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") onCancel();
-            }}
             placeholder="Workspace name"
             maxLength={NAME_MAX}
             className="w-full px-3 py-2 text-sm rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
@@ -51,26 +47,18 @@ export function NewWorkspaceDialog({ onCreate, onCancel }: Props) {
           <div className="text-[10px] text-[var(--text-muted)] mt-1">
             {trimmed.length}/{NAME_MAX}
           </div>
-          <div className="flex gap-2 justify-end mt-4">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-1.5 text-xs rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              data-testid="new-workspace-cancel"
-            >
-              Cancel
-            </button>
+          <Dialog.Footer>
+            <Dialog.Cancel onClick={onCancel} testId="new-workspace-cancel" />
             <button
               type="submit"
               disabled={!valid}
-              className="px-3 py-1.5 text-xs rounded border border-[var(--accent-blue)] text-[var(--accent-blue)] hover:bg-[var(--accent-blue)] hover:text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--accent-blue)]"
+              className="text-xs px-3 py-1.5 rounded bg-[var(--accent-primary)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="new-workspace-create"
             >
               Create
             </button>
-          </div>
+          </Dialog.Footer>
         </form>
-      </div>
-    </div>
+    </Dialog>
   );
 }

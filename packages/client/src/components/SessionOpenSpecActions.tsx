@@ -16,7 +16,7 @@ import {
 import type { DashboardSession, OpenSpecChange, OpenSpecGroup, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ExploreDialog } from "./ExploreDialog.js";
-import { ConfirmDialog } from "./ConfirmDialog.js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { DialogPortal } from "./DialogPortal.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
@@ -123,15 +123,17 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   ) : null;
 
   const bulkArchiveDialog = bulkArchiveConfirm ? (
-    <DialogPortal><ConfirmDialog
+    <Confirm
+      open
+      title="Bulk archive changes?"
       message="Bulk archive all completed changes?"
       confirmLabel="Bulk Archive"
       onConfirm={() => {
         onBulkArchive?.();
         setBulkArchiveConfirm(false);
       }}
-      onCancel={() => setBulkArchiveConfirm(false)}
-    /></DialogPortal>
+      onClose={() => setBulkArchiveConfirm(false)}
+    />
   ) : null;
 
   // Clear attaching state once the session reflects the attachment
@@ -363,26 +365,31 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       )}
 
       {archiveConfirm && (
-        <DialogPortal><ConfirmDialog
+        <Confirm
+          open
+          title="Archive change?"
           message={`Archive "${attached}"?`}
           confirmLabel="Archive"
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveConfirm(false);
           }}
-          onCancel={() => setArchiveConfirm(false)}
-        /></DialogPortal>
+          onClose={() => setArchiveConfirm(false)}
+        />
       )}
       {archiveAnywayConfirm && (
-        <DialogPortal><ConfirmDialog
+        <Confirm
+          open
+          testId="archive-anyway-confirm"
+          title="Archive anyway?"
           message={`${uncheckedCount} of ${change.totalTasks} tasks are unchecked. Archive anyway?`}
           confirmLabel="Archive anyway"
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveAnywayConfirm(false);
           }}
-          onCancel={() => setArchiveAnywayConfirm(false)}
-        /></DialogPortal>
+          onClose={() => setArchiveAnywayConfirm(false)}
+        />
       )}
       {tasksOpen && (
         <TasksPopover

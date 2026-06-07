@@ -20,7 +20,8 @@ import {
   registerUiPrimitive,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
-import { ConfirmDialog } from "@blackbelt-technology/pi-dashboard-client-utils/ConfirmDialog";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { SearchableSelectDialog } from "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog";
@@ -38,12 +39,39 @@ import { ThinkingBlock } from "./components/ThinkingBlock.js";
 import type {
   UiToolCallStepProps,
   UiThinkingBlockProps,
+  UiConfirmDialogProps,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 
 const primitiveRegistry = createUiPrimitiveRegistry();
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.markdownContent, MarkdownContent);
-registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.confirmDialog, ConfirmDialog);
+// `confirmDialog` primitive — re-skinned over the unified `Confirm`/`Dialog`
+// without changing the narrow contract plugins depend on. Maps the registry's
+// `onCancel` to `Confirm`'s `onClose`, supplies no title (always open while
+// rendered), and lets `Confirm`'s default primary intent apply.
+// See change: unify-dialog-system.
+const ConfirmDialogPrimitive: React.FC<UiConfirmDialogProps> = ({
+  message,
+  confirmLabel,
+  onConfirm,
+  onCancel,
+}) => (
+  <Confirm
+    open
+    onClose={onCancel}
+    onConfirm={onConfirm}
+    title=""
+    message={message}
+    confirmLabel={confirmLabel}
+    testId="confirm-dialog"
+  />
+);
+registerUiPrimitive(
+  primitiveRegistry,
+  UI_PRIMITIVE_KEYS.confirmDialog,
+  ConfirmDialogPrimitive,
+);
+registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.dialog, Dialog);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.dialogPortal, DialogPortal);
 registerUiPrimitive(
   primitiveRegistry,

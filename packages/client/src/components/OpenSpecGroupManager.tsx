@@ -24,8 +24,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GROUP_PALETTE, resolveGroupColor, type PaletteEntry } from "../lib/openspec-group-palette.js";
-import { ConfirmDialog } from "./ConfirmDialog.js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -281,17 +280,18 @@ export function OpenSpecGroupManager({
       )}
 
       {deleteTarget && (
-        <DialogPortal>
-          <ConfirmDialog
-            message={`Delete group "${deleteTarget.name}"? Assigned changes will revert to Ungrouped.`}
-            confirmLabel="Delete"
-            onConfirm={async () => {
-              await onDeleteGroup(deleteTarget.id);
-              setDeleteTarget(null);
-            }}
-            onCancel={() => setDeleteTarget(null)}
-          />
-        </DialogPortal>
+        <Confirm
+          open
+          intent="danger"
+          title="Delete group?"
+          message={`Delete group "${deleteTarget.name}"? Assigned changes will revert to Ungrouped.`}
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            await onDeleteGroup(deleteTarget.id);
+            setDeleteTarget(null);
+          }}
+          onClose={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   );

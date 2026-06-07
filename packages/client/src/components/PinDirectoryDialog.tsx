@@ -1,4 +1,5 @@
 import React from "react";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { PathPicker } from "./PathPicker.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { inferPlatform } from "../lib/session-grouping.js";
@@ -10,10 +11,7 @@ interface Props {
 
 export function PinDirectoryDialog({ onPin, onCancel }: Props) {
   return (
-    <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-[60]">
-      <div className="bg-[var(--bg-secondary)] rounded-lg p-6 w-full max-w-lg border border-[var(--border-secondary)]">
-        <h3 className="text-lg font-semibold mb-4">Pin Directory</h3>
-
+    <Dialog open onClose={onCancel} title="Pin Directory" size="lg" testId="pin-directory-dialog">
         <PathPicker
           onSelect={(p) => {
             const trimmed = p.trim();
@@ -27,7 +25,6 @@ export function PinDirectoryDialog({ onPin, onCancel }: Props) {
           onCancel={onCancel}
           rows={8}
         />
-      </div>
-    </div>
+    </Dialog>
   );
 }

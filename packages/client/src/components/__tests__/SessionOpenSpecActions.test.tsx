@@ -655,7 +655,7 @@ describe("SessionOpenSpecActions", () => {
       fireEvent.click(screen.getByTestId("archive-anyway-btn"));
       // 2/5 complete → 3 unchecked of 5
       expect(screen.getByText(/3 of 5 tasks are unchecked/)).toBeTruthy();
-      fireEvent.click(screen.getByTestId("confirm-ok"));
+      fireEvent.click(screen.getByTestId("archive-anyway-confirm-action"));
       expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-archive-change impl-change");
     });
   });

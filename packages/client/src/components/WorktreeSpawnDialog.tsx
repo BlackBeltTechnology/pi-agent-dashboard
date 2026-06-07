@@ -10,6 +10,7 @@
  * See change: add-worktree-spawn-dialog.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import {
   cleanupOrphanWorktreePath,
   createWorktree,
@@ -615,25 +616,10 @@ function DialogChrome({
   onCancel: () => void;
   title: string;
 }) {
-  // Escape-to-cancel for keyboard-driven users.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
   return (
-    <div className="fixed inset-0 bg-[var(--bg-overlay)] flex items-center justify-center z-[60]">
-      <div
-        className="bg-[var(--bg-secondary)] rounded-lg p-6 w-full max-w-xl border border-[var(--border-secondary)]"
-        data-testid="worktree-spawn-dialog"
-      >
-        <h3 className="text-lg font-semibold mb-4">{title}</h3>
+    <Dialog open onClose={onCancel} title={title} size="lg" testId="worktree-spawn-dialog">
         {children}
-      </div>
-    </div>
+    </Dialog>
   );
 }
 

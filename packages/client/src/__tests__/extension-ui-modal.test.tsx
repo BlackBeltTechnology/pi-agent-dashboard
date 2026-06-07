@@ -135,12 +135,12 @@ describe("GenericExtensionDialog — table view", () => {
     expect(onDispatch).not.toHaveBeenCalled();
 
     // Cancel path: dialog closes, no dispatch.
-    act(() => { fireEvent.click(getByTestId("confirm-cancel")); });
+    act(() => { fireEvent.click(getByTestId("confirm-dialog-cancel")); });
     expect(onDispatch).not.toHaveBeenCalled();
 
     // Click again, then confirm.
     act(() => { fireEvent.click(getAllByTestId("extension-ui-action-delete")[0]!); });
-    act(() => { fireEvent.click(getByTestId("confirm-ok")); });
+    act(() => { fireEvent.click(getByTestId("confirm-dialog-action")); });
 
     expect(onDispatch).toHaveBeenCalledTimes(1);
     expect(onDispatch).toHaveBeenCalledWith(

@@ -20,7 +20,7 @@
  */
 import React, { useState } from "react";
 import { removeWorktree } from "../lib/git-api.js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 interface Props {
@@ -82,11 +82,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
   };
 
   return (
-    <DialogPortal>
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" data-testid="close-worktree-dialog">
-      <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onClose} />
-      <div className="relative bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg p-4 max-w-lg w-full mx-4 space-y-3">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Close worktree</h3>
+    <Dialog open onClose={onClose} title="Close worktree" size="lg" testId="close-worktree-dialog">
         <p className="text-xs text-[var(--text-muted)]">
           <code>{cwd}</code>
         </p>
@@ -133,36 +129,28 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="text-xs px-3 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            data-testid="close-cancel"
-          >
-            Cancel
-          </button>
+        <Dialog.Footer>
+          <Dialog.Cancel onClick={onClose} testId="close-cancel" />
           {activeIds && activeIds.length > 0 ? (
-            <button
+            <Dialog.Action
               onClick={onEndSessionsAndRemove}
               disabled={busy}
-              className="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
-              data-testid="close-end-sessions"
+              intent="danger"
+              testId="close-end-sessions"
             >
               End {activeIds.length} session{activeIds.length === 1 ? "" : "s"} and remove worktree
-            </button>
+            </Dialog.Action>
           ) : (
-            <button
+            <Dialog.Action
               onClick={() => attempt({ force })}
               disabled={busy}
-              className="text-xs px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-500 disabled:opacity-50"
-              data-testid="close-confirm"
+              intent="danger"
+              testId="close-confirm"
             >
               {busy ? "Removing…" : "Remove worktree"}
-            </button>
+            </Dialog.Action>
           )}
-        </div>
-      </div>
-    </div>
-    </DialogPortal>
+        </Dialog.Footer>
+    </Dialog>
   );
 }

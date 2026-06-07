@@ -18,7 +18,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@mdi/react";
 import { mdiCogPlayOutline, mdiAlertCircleOutline } from "@mdi/js";
-import { ConfirmDialog } from "@blackbelt-technology/pi-dashboard-client-utils/ConfirmDialog";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import {
   fetchWorktreeInitStatus,
   runWorktreeInit,
@@ -150,14 +150,16 @@ export function WorktreeInitButton({ cwd }: Props) {
       )}
 
       {confirm && (
-        <ConfirmDialog
+        <Confirm
+          open
+          title="Run worktree-init hook?"
           message={
             `Run this project's worktree-init hook?\n\ngate: ${confirm.hook.gate}\n${describeRun(confirm.hook)}\n\n` +
             `This executes repo-provided code on your machine.`
           }
           confirmLabel="Run"
           onConfirm={() => { const hash = confirm.hash; setConfirm(null); void doRun(hash); }}
-          onCancel={() => setConfirm(null)}
+          onClose={() => setConfirm(null)}
         />
       )}
     </div>

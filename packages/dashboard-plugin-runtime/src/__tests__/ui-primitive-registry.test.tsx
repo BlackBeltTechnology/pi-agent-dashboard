@@ -119,6 +119,29 @@ describe("UI primitive registry", () => {
       expect(md.current).toBe(StubMarkdown);
       expect(card.current).toBe(StubAgentCard);
     });
+
+    // See change: unify-dialog-system — additive `ui:dialog` key.
+    it("registers and retrieves the additive ui:dialog primitive", () => {
+      expect(UI_PRIMITIVE_KEYS.dialog).toBe("ui:dialog");
+      const StubDialog = (({ children }) => (
+        <div data-testid="stub-dialog">{children}</div>
+      )) as UiPrimitiveMap["ui:dialog"];
+      StubDialog.Footer = ({ children }) => <div>{children}</div>;
+      StubDialog.Cancel = ({ onClick }) => <button onClick={onClick} />;
+      StubDialog.Action = ({ onClick, children }) => (
+        <button onClick={onClick}>{children}</button>
+      );
+      const reg = createUiPrimitiveRegistry();
+      registerUiPrimitive(reg, UI_PRIMITIVE_KEYS.dialog, StubDialog);
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <UiPrimitiveProvider value={reg}>{children}</UiPrimitiveProvider>
+      );
+      const { result } = renderHook(
+        () => useUiPrimitive(UI_PRIMITIVE_KEYS.dialog),
+        { wrapper },
+      );
+      expect(result.current).toBe(StubDialog);
+    });
   });
 
   describe("useUiPrimitive (strict)", () => {

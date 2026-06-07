@@ -12,17 +12,16 @@
  *
  * See change: pi-update-whats-new-panel.
  */
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { Icon } from "@mdi/react";
 import {
   mdiAlertCircleOutline,
   mdiChevronDown,
   mdiChevronRight,
-  mdiClose,
   mdiOpenInNew,
   mdiArrowUpBold,
 } from "@mdi/js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type {
   ChangelogResponse,
@@ -56,19 +55,6 @@ export function WhatsNewDialog({
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
   const [otherExpanded, setOtherExpanded] = useState(false);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, handleKeyDown]);
-
   // Aggregate bullets across releases for the collapsed sections.
   const featureGroups = useMemo(
     () => collectGrouped(response.releases, "features"),
@@ -91,39 +77,19 @@ export function WhatsNewDialog({
   };
 
   return (
-    <DialogPortal>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
-        data-testid="whats-new-dialog"
-      >
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl w-[90vw] max-w-2xl max-h-[80vh] flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-secondary)]">
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">
-                What&rsquo;s new in {displayName}
-              </h3>
-              <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                {response.from} → {response.to}
-              </span>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1"
-              aria-label="Close"
-            >
-              <Icon path={mdiClose} size={0.6} />
-            </button>
-          </div>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={`What’s new in ${displayName}`}
+      size="lg"
+      testId="whats-new-dialog"
+    >
+          <span className="text-[10px] text-[var(--text-muted)] font-mono -mt-2 block">
+            {response.from} → {response.to}
+          </span>
 
           {/* Content */}
-          <div
-            className="flex-1 overflow-y-auto p-4 space-y-4"
-            style={{ WebkitOverflowScrolling: "touch" }}
-          >
+          <div className="space-y-4">
             {!hasReleases && (
               <p
                 className="text-sm text-[var(--text-muted)] italic"
@@ -174,26 +140,18 @@ export function WhatsNewDialog({
           </div>
 
           {/* Footer CTAs */}
-          <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--border-secondary)]">
-            <button
-              onClick={onClose}
-              className="text-xs px-3 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
-              data-testid="whats-new-cancel"
-            >
-              Cancel
-            </button>
+          <Dialog.Footer>
+            <Dialog.Cancel onClick={onClose} testId="whats-new-cancel" />
             <button
               onClick={handleUpdate}
-              className="text-xs px-3 py-1 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 flex items-center gap-1 font-medium"
+              className="text-xs px-3 py-1.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 flex items-center gap-1 font-medium"
               data-testid="whats-new-update"
             >
               <Icon path={mdiArrowUpBold} size={0.45} />
               Update to {latestVersion}
             </button>
-          </div>
-        </div>
-      </div>
-    </DialogPortal>
+          </Dialog.Footer>
+    </Dialog>
   );
 }
 

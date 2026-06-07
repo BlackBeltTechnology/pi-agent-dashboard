@@ -10,7 +10,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { fetchWorktreeDiffStat, mergeWorktree } from "../lib/git-api.js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 
 interface Props {
   cwd: string;
@@ -49,11 +49,7 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
   };
 
   return (
-    <DialogPortal>
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" data-testid="merge-confirm-dialog">
-      <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onClose} />
-      <div className="relative bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg p-4 max-w-lg w-full mx-4 space-y-3">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">Merge worktree</h3>
+    <Dialog open onClose={onClose} title="Merge worktree" size="lg" testId="merge-confirm-dialog">
         {stat ? (
           <div className="space-y-1">
             <div className="text-[11px] text-[var(--text-muted)]">
@@ -89,25 +85,16 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
             )}
           </div>
         )}
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="text-xs px-3 py-1.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            data-testid="merge-cancel"
-          >
-            Cancel
-          </button>
-          <button
+        <Dialog.Footer>
+          <Dialog.Cancel onClick={onClose} testId="merge-cancel" />
+          <Dialog.Action
             onClick={onConfirm}
             disabled={busy || !stat || stat.filesChanged === 0}
-            className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
-            data-testid="merge-confirm"
+            testId="merge-confirm"
           >
             {busy ? "Merging…" : "Merge"}
-          </button>
-        </div>
-      </div>
-    </div>
-    </DialogPortal>
+          </Dialog.Action>
+        </Dialog.Footer>
+    </Dialog>
   );
 }

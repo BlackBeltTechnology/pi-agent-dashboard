@@ -22,7 +22,7 @@ import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { TasksPopover } from "./TasksPopover.js";
 import { ExploreDialog } from "./ExploreDialog.js";
 import { DialogPortal } from "./DialogPortal.js";
-import { ConfirmDialog } from "./ConfirmDialog.js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 
 /**
  * ComposerSessionActions — slim inline session-action row mounted inside
@@ -403,17 +403,17 @@ export function ComposerSessionActions({
         </DialogPortal>
       )}
       {archiveConfirm && attached && (
-        <DialogPortal>
-          <ConfirmDialog
-            message={`Archive "${attached}"?`}
-            confirmLabel="Archive"
-            onConfirm={() => {
-              onSendPrompt?.(`/skill:openspec-archive-change ${attached}`);
-              setArchiveConfirm(false);
-            }}
-            onCancel={() => setArchiveConfirm(false)}
-          />
-        </DialogPortal>
+        <Confirm
+          open
+          title="Archive change?"
+          message={`Archive "${attached}"?`}
+          confirmLabel="Archive"
+          onConfirm={() => {
+            onSendPrompt?.(`/skill:openspec-archive-change ${attached}`);
+            setArchiveConfirm(false);
+          }}
+          onClose={() => setArchiveConfirm(false)}
+        />
       )}
     </div>
   );

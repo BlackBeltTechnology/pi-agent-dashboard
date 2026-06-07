@@ -29,9 +29,17 @@
       "types": "./src/Popover.tsx",
       "default": "./src/Popover.tsx"
     },
-    "./ConfirmDialog": {
-      "types": "./src/ConfirmDialog.tsx",
-      "default": "./src/ConfirmDialog.tsx"
+    "./Dialog": {
+      "types": "./src/Dialog.tsx",
+      "default": "./src/Dialog.tsx"
+    },
+    "./Confirm": {
+      "types": "./src/Confirm.tsx",
+      "default": "./src/Confirm.tsx"
+    },
+    "./useFocusTrap": {
+      "types": "./src/useFocusTrap.ts",
+      "default": "./src/useFocusTrap.ts"
     },
     "./SearchableSelectDialog": {
       "types": "./src/SearchableSelectDialog.tsx",

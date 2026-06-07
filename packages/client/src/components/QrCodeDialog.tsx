@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { Icon } from "@mdi/react";
-import { mdiClose, mdiContentCopy, mdiCheck, mdiLanDisconnect, mdiLanConnect, mdiCog } from "@mdi/js";
-import { DialogPortal } from "./DialogPortal.js";
+import { mdiContentCopy, mdiCheck, mdiLanDisconnect, mdiLanConnect, mdiCog } from "@mdi/js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 
 interface Props {
   url?: string;
@@ -37,14 +37,6 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
     }
   }, [url]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   async function handleCopy() {
     if (!url) return;
     try {
@@ -57,31 +49,13 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
   }
 
   return (
-    <DialogPortal>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-        onClick={onClose}
-        data-testid="qr-dialog-backdrop"
-      >
-        <div
-          className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl p-6 max-w-sm w-full mx-4"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-              {connected ? "Open on Mobile" : "Tunnel Disconnected"}
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title="Close"
-              data-testid="qr-dialog-close"
-            >
-              <Icon path={mdiClose} size={0.8} />
-            </button>
-          </div>
-
+    <Dialog
+      open
+      onClose={onClose}
+      title={connected ? "Open on Mobile" : "Tunnel Disconnected"}
+      size="sm"
+      testId="qr-dialog"
+    >
           {connected && url ? (
             <>
               {/* QR Code */}
@@ -163,8 +137,6 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
               </button>
             )}
           </div>
-        </div>
-      </div>
-    </DialogPortal>
+    </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "./Dialog.js";
 
 export interface SelectOption {
   value: string;
@@ -66,19 +66,13 @@ export function SearchableSelectDialog({
       if (filtered[selectedIndex]) {
         onSelect(filtered[selectedIndex].value);
       }
-    } else if (e.key === "Escape") {
-      onCancel();
     }
   };
 
   return (
-    <DialogPortal>
-      <div className="fixed inset-0 z-[60] flex items-center justify-center">
-        <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onCancel} />
-        <div className="relative bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-subtle)] shadow-2xl w-[90vw] max-w-sm overflow-hidden">
-          {/* Header */}
-          <div className="px-3 pt-3 pb-2">
-            <div className="text-sm font-medium text-[var(--text-primary)] mb-2">{title}</div>
+    <Dialog open onClose={onCancel} title={title} size="sm">
+          {/* Search */}
+          <div>
             <input
               ref={inputRef}
               type="text"
@@ -123,11 +117,9 @@ export function SearchableSelectDialog({
           </div>
 
           {/* Footer hint */}
-          <div className="px-3 py-1.5 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)]">
+          <div className="pt-1.5 border-t border-[var(--border-subtle)] text-[10px] text-[var(--text-muted)]">
             ↑↓ navigate · Enter select · Esc cancel
           </div>
-        </div>
-      </div>
-    </DialogPortal>
+    </Dialog>
   );
 }

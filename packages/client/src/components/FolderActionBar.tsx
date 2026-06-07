@@ -13,7 +13,7 @@ import {
   mdiCircleSmall,
   mdiBroom,
 } from "@mdi/js";
-import { ConfirmDialog } from "@blackbelt-technology/pi-dashboard-client-utils/ConfirmDialog";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { WorktreeInitButton } from "./WorktreeInitButton.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
@@ -139,11 +139,14 @@ export function FolderActionBar({
         </button>
       )}
       {confirmCleanUpOpen && (
-        <ConfirmDialog
+        <Confirm
+          open
+          testId="cleanup-broken-confirm"
+          title="Hide broken sessions?"
           message={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists?`}
           confirmLabel="Hide"
           onConfirm={() => { setConfirmCleanUpOpen(false); onCleanUpBroken?.(); }}
-          onCancel={() => setConfirmCleanUpOpen(false)}
+          onClose={() => setConfirmCleanUpOpen(false)}
         />
       )}
 

@@ -47,7 +47,8 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const FORBIDDEN_PRIMITIVES: Record<string, { subpath: string; registryKey: string }> = {
   AgentCardShell: { subpath: "AgentCardShell", registryKey: "UI_PRIMITIVE_KEYS.agentCard" },
   MarkdownContent: { subpath: "MarkdownContent", registryKey: "UI_PRIMITIVE_KEYS.markdownContent" },
-  ConfirmDialog: { subpath: "ConfirmDialog", registryKey: "UI_PRIMITIVE_KEYS.confirmDialog" },
+  Confirm: { subpath: "Confirm", registryKey: "UI_PRIMITIVE_KEYS.confirmDialog" },
+  Dialog: { subpath: "Dialog", registryKey: "UI_PRIMITIVE_KEYS.dialog" },
   DialogPortal: { subpath: "DialogPortal", registryKey: "UI_PRIMITIVE_KEYS.dialogPortal" },
   SearchableSelectDialog: {
     subpath: "SearchableSelectDialog",

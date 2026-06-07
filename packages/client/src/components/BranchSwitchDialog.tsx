@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { BranchPicker } from "./BranchPicker.js";
 import { checkoutBranch, stashPop, gitInit } from "../lib/git-api.js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 
 interface Props {
   cwd: string;
@@ -65,12 +65,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
   };
 
   return (
-    <DialogPortal>
-      <div
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-        onClick={(e) => e.target === e.currentTarget && onClose()}
-      >
-        <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-secondary)] p-4 w-[420px] max-w-[90vw] max-h-[80vh] overflow-y-auto shadow-lg">
+    <Dialog open onClose={onClose} ariaLabel="Switch branch" size="sm" testId="branch-switch-dialog">
           {step.type === "pick" && (
             <>
               <h3 className="text-sm font-medium mb-3">Switch Branch</h3>
@@ -105,7 +100,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                       setStep({ type: "error", message: err.message ?? "Init failed" });
                     }
                   }}
-                  className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500"
+                  className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
                   Initialize Git
                 </button>
@@ -139,7 +134,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                 </button>
                 <button
                   onClick={() => handleStashAndSwitch(step.branch)}
-                  className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500"
+                  className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
                   Stash &amp; Switch
                 </button>
@@ -162,7 +157,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                 </button>
                 <button
                   onClick={handlePop}
-                  className="px-3 py-1.5 rounded text-sm bg-blue-600 hover:bg-blue-500"
+                  className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
                   Pop
                 </button>
@@ -184,8 +179,6 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
               </div>
             </>
           )}
-        </div>
-      </div>
-    </DialogPortal>
+    </Dialog>
   );
 }

@@ -1,7 +1,7 @@
-import React, { useEffect, useCallback } from "react";
+import React from "react";
 import { Icon } from "@mdi/react";
 import { mdiDownload, mdiPackageVariantClosed } from "@mdi/js";
-import { DialogPortal } from "./DialogPortal.js";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 
 interface PackageInstallConfirmDialogProps {
   source: string;
@@ -26,36 +26,21 @@ export function PackageInstallConfirmDialog({
   onCancel,
 }: PackageInstallConfirmDialogProps) {
   const showScopePicker = lockScope === undefined && onScopeChange !== undefined;
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onCancel();
-  }, [onCancel]);
-
-  useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
 
   return (
-    <DialogPortal>
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-        onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
-        data-testid="package-install-confirm-dialog"
-      >
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl w-[90vw] max-w-sm p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-[var(--accent-primary)]/10">
-              <Icon path={mdiPackageVariantClosed} size={0.8} className="text-[var(--accent-primary)]" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--text-primary)]">Install Package</h3>
-              <p className="text-[11px] text-[var(--text-muted)]">
-                This will install the package and reload all active sessions.
-              </p>
-            </div>
-          </div>
+    <Dialog
+      open
+      onClose={onCancel}
+      title="Install Package"
+      icon={mdiPackageVariantClosed}
+      size="sm"
+      testId="package-install-confirm-dialog"
+    >
+          <p className="text-[11px] text-[var(--text-muted)] -mt-2">
+            This will install the package and reload all active sessions.
+          </p>
 
-          <div className="bg-[var(--bg-surface)] rounded p-3 mb-4 space-y-1.5">
+          <div className="bg-[var(--bg-surface)] rounded p-3 space-y-1.5">
             {packageName && (
               <div className="flex justify-between text-xs">
                 <span className="text-[var(--text-muted)]">Name</span>
@@ -76,7 +61,7 @@ export function PackageInstallConfirmDialog({
 
           {showScopePicker && (
             <div
-              className="mb-4 p-3 rounded border border-[var(--border-secondary)] bg-[var(--bg-surface)]"
+              className="p-3 rounded border border-[var(--border-secondary)] bg-[var(--bg-surface)]"
               data-testid="package-install-scope-picker"
               role="radiogroup"
               aria-label="Install scope"
@@ -113,23 +98,13 @@ export function PackageInstallConfirmDialog({
             </div>
           )}
 
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={onCancel}
-              className="px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded border border-[var(--border-secondary)] hover:border-[var(--border-primary)]"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onConfirm}
-              className="px-3 py-1.5 text-xs bg-[var(--accent-primary)] text-white rounded hover:bg-[var(--accent-primary)]/80 font-medium flex items-center gap-1"
-            >
-              <Icon path={mdiDownload} size={0.4} />
+          <Dialog.Footer>
+            <Dialog.Cancel onClick={onCancel} />
+            <Dialog.Action onClick={onConfirm}>
+              <Icon path={mdiDownload} size={0.4} className="inline mr-1" />
               Install
-            </button>
-          </div>
-        </div>
-      </div>
-    </DialogPortal>
+            </Dialog.Action>
+          </Dialog.Footer>
+    </Dialog>
   );
 }

@@ -35,6 +35,9 @@ export const UI_PRIMITIVE_KEYS = {
   markdownContent: "ui:markdown-content",
   /** Modal yes/no confirmation dialog. */
   confirmDialog: "ui:confirm-dialog",
+  /** Unified modal dialog shell: portal, overlay, Esc, click-outside, focus
+   *  trap, ARIA, size variants, header/footer slots. See change: unify-dialog-system. */
+  dialog: "ui:dialog",
   /** Base modal portal: renders children at `document.body` with body-scroll lock. */
   dialogPortal: "ui:dialog-portal",
   /** Typeahead-filtered selection dialog with keyboard navigation. */
@@ -101,6 +104,59 @@ export interface UiConfirmDialogProps {
 export interface UiDialogPortalProps {
   children: ReactNode;
 }
+
+/**
+ * Public prop signature for the unified dialog primitive. Mirrors `Dialog`
+ * in client-utils. The registered implementation carries static
+ * `Footer` / `Cancel` / `Action` subcomponents for footer composition; the
+ * contract types the base props only. See change: unify-dialog-system.
+ */
+export interface UiDialogProps {
+  open: boolean;
+  onClose: () => void;
+  title?: string;
+  /** Optional leading icon (mdi path string). */
+  icon?: string;
+  size?: "sm" | "md" | "lg";
+  testId?: string;
+  /** aria-label fallback when no `title` is supplied. */
+  ariaLabel?: string;
+  children: ReactNode;
+}
+
+/** Action-button intent for `Dialog.Action`. */
+export type UiDialogIntent = "primary" | "danger" | "neutral";
+
+/** Props for the `Dialog.Footer` slot. */
+export interface UiDialogFooterProps {
+  children: ReactNode;
+}
+
+/** Props for the `Dialog.Cancel` button. */
+export interface UiDialogCancelProps {
+  onClick: () => void;
+  children?: ReactNode;
+  testId?: string;
+}
+
+/** Props for the `Dialog.Action` button. */
+export interface UiDialogActionProps {
+  onClick: () => void;
+  intent?: UiDialogIntent;
+  disabled?: boolean;
+  children: ReactNode;
+  testId?: string;
+}
+
+/**
+ * The registered `ui:dialog` implementation: the `Dialog` component plus its
+ * static `Footer` / `Cancel` / `Action` subcomponents for footer composition.
+ */
+export type UiDialogComponent = ComponentType<UiDialogProps> & {
+  Footer: ComponentType<UiDialogFooterProps>;
+  Cancel: ComponentType<UiDialogCancelProps>;
+  Action: ComponentType<UiDialogActionProps>;
+};
 
 /**
  * One option in a searchable-select-dialog. Mirrors `SelectOption` in
@@ -232,6 +288,7 @@ export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
   "ui:confirm-dialog": ComponentType<UiConfirmDialogProps>;
+  "ui:dialog": UiDialogComponent;
   "ui:dialog-portal": ComponentType<UiDialogPortalProps>;
   "ui:searchable-select-dialog": ComponentType<UiSearchableSelectDialogProps>;
   "ui:zoom-controls": ComponentType<UiZoomControlsProps>;

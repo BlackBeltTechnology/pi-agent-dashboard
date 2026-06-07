@@ -1,36 +1,73 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { ConfirmDialog } from "../ConfirmDialog.js";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { ExploreDialog } from "../ExploreDialog.js";
 
 afterEach(() => cleanup());
 
-describe("ConfirmDialog", () => {
+describe("Confirm", () => {
   it("renders message and buttons", () => {
-    render(<ConfirmDialog message='Archive "feat"?' onConfirm={() => {}} onCancel={() => {}} />);
+    render(
+      <Confirm
+        open
+        title="Archive change?"
+        message='Archive "feat"?'
+        onConfirm={() => {}}
+        onClose={() => {}}
+        testId="confirm"
+      />,
+    );
     expect(screen.getByText('Archive "feat"?')).toBeTruthy();
     expect(screen.getByTestId("confirm-cancel")).toBeTruthy();
-    expect(screen.getByTestId("confirm-ok")).toBeTruthy();
+    expect(screen.getByTestId("confirm-action")).toBeTruthy();
   });
 
   it("calls onConfirm when confirm clicked", () => {
     const onConfirm = vi.fn();
-    render(<ConfirmDialog message="Sure?" onConfirm={onConfirm} onCancel={() => {}} />);
-    fireEvent.click(screen.getByTestId("confirm-ok"));
+    render(
+      <Confirm
+        open
+        title="t"
+        message="Sure?"
+        onConfirm={onConfirm}
+        onClose={() => {}}
+        testId="confirm"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("confirm-action"));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
-  it("calls onCancel when cancel clicked", () => {
-    const onCancel = vi.fn();
-    render(<ConfirmDialog message="Sure?" onConfirm={() => {}} onCancel={onCancel} />);
+  it("calls onClose when cancel clicked", () => {
+    const onClose = vi.fn();
+    render(
+      <Confirm
+        open
+        title="t"
+        message="Sure?"
+        onConfirm={() => {}}
+        onClose={onClose}
+        testId="confirm"
+      />,
+    );
     fireEvent.click(screen.getByTestId("confirm-cancel"));
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("uses custom confirmLabel", () => {
-    render(<ConfirmDialog message="Sure?" confirmLabel="Delete" onConfirm={() => {}} onCancel={() => {}} />);
-    expect(screen.getByTestId("confirm-ok").textContent).toBe("Delete");
+    render(
+      <Confirm
+        open
+        title="t"
+        message="Sure?"
+        confirmLabel="Delete"
+        onConfirm={() => {}}
+        onClose={() => {}}
+        testId="confirm"
+      />,
+    );
+    expect(screen.getByTestId("confirm-action").textContent).toBe("Delete");
   });
 });
 

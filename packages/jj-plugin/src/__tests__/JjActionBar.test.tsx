@@ -14,7 +14,12 @@ import { render, cleanup } from "@testing-library/react";
 
 afterEach(cleanup);
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { JjActionBar } from "../client/JjActionBar.js";
+
+const renderBar = (ui: React.ReactElement) =>
+  render(withUiPrimitiveProvider({ "ui:dialog": Dialog }, ui));
 
 const baseSession: DashboardSession = {
   id: "s1",
@@ -26,12 +31,12 @@ const baseSession: DashboardSession = {
 
 describe("JjActionBar", () => {
   it("renders nothing when not in a jj repo", () => {
-    const { queryByTestId } = render(<JjActionBar session={baseSession} />);
+    const { queryByTestId } = renderBar(<JjActionBar session={baseSession} />);
     expect(queryByTestId("jj-action-bar")).toBeNull();
   });
 
   it("shows only `+ Workspace` for the default workspace", () => {
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId, queryByTestId } = renderBar(
       <JjActionBar
         session={{
           ...baseSession,
@@ -50,7 +55,7 @@ describe("JjActionBar", () => {
   });
 
   it("shows fold-back + forget for non-default workspaces", () => {
-    const { getByTestId } = render(
+    const { getByTestId } = renderBar(
       <JjActionBar
         session={{
           ...baseSession,
@@ -68,7 +73,7 @@ describe("JjActionBar", () => {
   });
 
   it("shows only `+ Workspace` when jjState.isJjRepo but no workspace name", () => {
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId, queryByTestId } = renderBar(
       <JjActionBar
         session={{
           ...baseSession,

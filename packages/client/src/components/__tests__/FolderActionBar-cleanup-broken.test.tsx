@@ -41,8 +41,8 @@ describe("FolderActionBar — Clean up broken", () => {
     const onCleanUpBroken = vi.fn();
     renderBar({ brokenSessionCount: 2, onCleanUpBroken });
     fireEvent.click(screen.getByTestId("folder-cleanup-broken-btn"));
-    expect(screen.getByTestId("confirm-dialog")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("confirm-ok"));
+    expect(screen.getByTestId("cleanup-broken-confirm")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("cleanup-broken-confirm-action"));
     expect(onCleanUpBroken).toHaveBeenCalledTimes(1);
   });
 });
