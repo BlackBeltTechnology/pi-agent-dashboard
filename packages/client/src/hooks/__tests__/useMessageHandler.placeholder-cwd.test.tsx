@@ -87,8 +87,9 @@ describe("useMessageHandler — placeholderCwd clearing", () => {
   });
 
   it("session_added clears the spawn cwd for a normal spawn (no placeholderCwd)", () => {
+    // Omit placeholderCwd so this exercises the `?? entry.cwd` fallback.
     const pending = new Map([
-      ["rq-2", { cwd: "/repo", kind: "spawn" as const, placeholderCwd: "/repo" }],
+      ["rq-2", { cwd: "/repo", kind: "spawn" as const }],
     ]);
     const { dispatch, clearSpawningCwd } = setup(pending);
 
