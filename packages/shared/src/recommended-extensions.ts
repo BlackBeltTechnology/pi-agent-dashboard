@@ -204,6 +204,21 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// Companion dashboard plugin id. See change: add-plugin-activation-ui.
 		dashboardPlugin: "honcho",
 	},
+	{
+		id: "@blackbelt-technology/pi-image-fit",
+		source: "npm:@blackbelt-technology/pi-image-fit",
+		displayName: "pi-image-fit",
+		fallbackDescription:
+			"Transparently downsizes oversize images before they reach the " +
+			"model (defaults: 1568 px long edge / 4 MiB / quality 85), saving " +
+			"tokens and avoiding provider image-size rejections. Intercepts the " +
+			"Read tool and swaps in a cached, resized copy — note this silently " +
+			"reduces image quality.",
+		status: "optional",
+		unlocks: [
+			"Automatic image downscaling on Read (saves tokens, avoids provider image-size limits)",
+		],
+	},
 ];
 
 /**

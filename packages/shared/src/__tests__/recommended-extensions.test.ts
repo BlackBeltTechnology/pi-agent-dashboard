@@ -8,13 +8,14 @@ import {
 } from "../recommended-extensions.js";
 
 describe("RECOMMENDED_EXTENSIONS manifest", () => {
-	it("contains exactly the six expected entries", () => {
+	it("contains exactly the seven expected entries", () => {
 		const ids = RECOMMENDED_EXTENSIONS.map((e) => e.id).sort();
 		expect(ids).toEqual(
 			[
 				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
+				"@blackbelt-technology/pi-image-fit",
 				"pi-flows",
 				"pi-memory-honcho",
 				"pi-web-access",
@@ -85,6 +86,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"pi-memory-honcho",
 				"pi-web-access",
 				"@blackbelt-technology/pi-dashboard-subagents",
+				"@blackbelt-technology/pi-image-fit",
 			].sort(),
 		);
 	});
@@ -129,7 +131,12 @@ describe("getRecommendedByStatus", () => {
 	it("filters by optional", () => {
 		const optional = getRecommendedByStatus("optional");
 		expect(optional.map((e) => e.id).sort()).toEqual(
-			["pi-agent-browser", "@blackbelt-technology/pi-dashboard-subagents", "pi-memory-honcho"].sort(),
+			[
+				"pi-agent-browser",
+				"@blackbelt-technology/pi-dashboard-subagents",
+				"@blackbelt-technology/pi-image-fit",
+				"pi-memory-honcho",
+			].sort(),
 		);
 	});
 });
