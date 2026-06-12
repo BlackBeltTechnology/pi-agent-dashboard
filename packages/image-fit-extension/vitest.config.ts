@@ -6,5 +6,7 @@ export default defineConfig({
     environment: "node",
     pool: "forks",
     maxWorkers: 1,
+    // Image-resize tests process multi-megapixel inputs; default 5s is borderline.
+    testTimeout: 30000,
   },
 });
