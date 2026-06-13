@@ -104,12 +104,19 @@ function resolveTemplate(
     // Step 3: pi.getCommands() registry skill / prompt template.
     if (pi?.getCommands) {
       try {
-        const commands = pi.getCommands();
+        const commandsRaw = pi.getCommands();
+        const commands = Array.isArray(commandsRaw) ? commandsRaw : [];
         // pi's getCommands() carries the on-disk path under `sourceInfo.path`
         // (synthetic SourceInfo: { path, source, scope, origin, baseDir }).
         // Older builds / unit stubs use a top-level `path`. Accept both.
-        // See change: resolve-global-prompt-templates-from-dashboard.
-        const cmdPath = (c: any): string | undefined => c?.sourceInfo?.path ?? c?.path;
+        // Guard the type: a malformed entry with a non-string path must not
+        // throw in existsSync (which would abort the loop and shadow an
+        // otherwise-resolvable entry). See change:
+        // resolve-global-prompt-templates-from-dashboard.
+        const cmdPath = (c: any): string | undefined => {
+          const p = c?.sourceInfo?.path ?? c?.path;
+          return typeof p === "string" && p.length > 0 ? p : undefined;
+        };
         const skill = commands.find(
           (c: any) => c.name === cand && c.source === "skill" && cmdPath(c),
         );

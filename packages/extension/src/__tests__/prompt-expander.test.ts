@@ -230,6 +230,22 @@ describe("expandPromptTemplateFromDisk", () => {
     expect(expandPromptTemplateFromDisk("/legacy-summary", tmpDir, pi)).toBe("Legacy body");
   });
 
+  it("ignores a malformed getCommands entry (non-string path) without throwing", () => {
+    const pi = {
+      getCommands: () => [
+        { name: "session-summary", source: "prompt", sourceInfo: { path: 12345 } },
+        { name: "session-summary", source: "prompt", path: null },
+      ],
+    };
+    // Malformed paths => no resolution, raw text returned (no throw).
+    expect(expandPromptTemplateFromDisk("/session-summary", tmpDir, pi)).toBe("/session-summary");
+  });
+
+  it("tolerates a non-array getCommands() return", () => {
+    const pi = { getCommands: () => null };
+    expect(expandPromptTemplateFromDisk("/session-summary", tmpDir, pi)).toBe("/session-summary");
+  });
+
   it("expands a colon-aliased prompt template registered with hyphen via pi.getCommands", () => {
     const promptPath = join(tmpDir, "registry", "session-summary.md");
     mkdirSync(dirname(promptPath), { recursive: true });

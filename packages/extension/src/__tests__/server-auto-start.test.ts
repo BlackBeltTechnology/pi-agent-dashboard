@@ -211,6 +211,39 @@ describe("autoStartServer", () => {
       expect(result.server).toEqual({ host: "localhost", port: 8123, piPort: 9123 });
     });
 
+    it("skips mDNS when NO_MDNS=yes (server-compatible truthy value)", async () => {
+      process.env.PI_DASHBOARD_NO_MDNS = "yes";
+      const deps = makeDeps({
+        discoverDashboard: vi.fn().mockResolvedValue([]),
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: true }),
+      });
+      const result = await autoStartServer({ piPort: 9123, port: 8123, autoStart: true }, deps);
+      expect(deps.discoverDashboard).not.toHaveBeenCalled();
+      expect(result.server).toEqual({ host: "localhost", port: 8123, piPort: 9123 });
+    });
+
+    it("normalizes NO_MDNS values via trim + lowercase (' TRUE ')", async () => {
+      process.env.PI_DASHBOARD_NO_MDNS = " TRUE ";
+      const deps = makeDeps({
+        discoverDashboard: vi.fn().mockResolvedValue([]),
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: true }),
+      });
+      await autoStartServer({ piPort: 9123, port: 8123, autoStart: true }, deps);
+      expect(deps.discoverDashboard).not.toHaveBeenCalled();
+    });
+
+    it("treats an unrelated NO_MDNS value as NOT disabled (mDNS still runs)", async () => {
+      process.env.PI_DASHBOARD_NO_MDNS = "0";
+      const local: DiscoveredServer = {
+        host: "myhost.local", port: 8000, piPort: 9999,
+        isLocal: true, source: "mdns",
+      };
+      const deps = makeDeps({ discoverDashboard: vi.fn().mockResolvedValue([local]) });
+      const result = await autoStartServer(baseConfig, deps);
+      expect(deps.discoverDashboard).toHaveBeenCalled();
+      expect(result.server).toEqual({ host: "myhost.local", port: 8000, piPort: 9999 });
+    });
+
     it("still uses mDNS when NO_MDNS is unset (default behavior preserved)", async () => {
       const local: DiscoveredServer = {
         host: "myhost.local", port: 8000, piPort: 9999,
