@@ -266,13 +266,20 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
   const inFlightStarts = new Map<string, Promise<EditorInstanceInfo>>();
 
   function start(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo> {
-    const pending = inFlightStarts.get(cwd);
+    // Validate at the API boundary: a blank/whitespace cwd would create a
+    // bogus dedup key and a doomed spawn. The REST route guards `!cwd`, but
+    // whitespace-only values slip through, so normalize + reject here too.
+    const normalizedCwd = typeof cwd === "string" ? cwd.trim() : "";
+    if (!normalizedCwd) {
+      return Promise.reject(new Error("cwd_required"));
+    }
+    const pending = inFlightStarts.get(normalizedCwd);
     if (pending) {
-      if (theme) setTheme(cwd, theme);
+      if (theme) setTheme(normalizedCwd, theme);
       return pending;
     }
-    const p = startInner(cwd, theme).finally(() => inFlightStarts.delete(cwd));
-    inFlightStarts.set(cwd, p);
+    const p = startInner(normalizedCwd, theme).finally(() => inFlightStarts.delete(normalizedCwd));
+    inFlightStarts.set(normalizedCwd, p);
     return p;
   }
 

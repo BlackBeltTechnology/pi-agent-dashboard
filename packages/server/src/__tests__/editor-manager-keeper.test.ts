@@ -154,6 +154,15 @@ describe("editor-manager.start — 3-way resolution (task 7.4)", () => {
       server.close();
     }
   });
+
+  it("rejects a blank/whitespace cwd without spawning", async () => {
+    const km = makeKeeperManager();
+    const mgr = createEditorManager({ config: BASE_CONFIG, detection: DETECTED, keeperManager: km });
+    await expect(mgr.start("   ")).rejects.toThrow("cwd_required");
+    await expect(mgr.start("")).rejects.toThrow("cwd_required");
+    expect(km.spawnKeeperFor).not.toHaveBeenCalled();
+    expect(mgr.list()).toHaveLength(0);
+  });
 });
 
 // ── 7.5: stop semantics ──────────────────────────────────────────────────────
