@@ -3,6 +3,10 @@
 ### Requirement: Spawn code-server per folder
 The EditorManager SHALL ensure exactly one code-server instance per folder cwd. Spawning SHALL be delegated to the editor keeper sidecar (see `editor-keeper-sidecar`); the dashboard server does NOT spawn code-server directly. The `editorId` SHALL be `sha256(cwd).slice(0,12)` and stable across dashboard restarts. The instance SHALL bind to `127.0.0.1` on a dynamically allocated free port (allocated by the dashboard before spawning the keeper and passed to the keeper via argv). The instance SHALL use `--auth none`, `--disable-telemetry`, `--disable-update-check`, and `--user-data-dir ~/.pi/dashboard/editors/<editorId>/`.
 
+On the fresh-spawn path, before spawning the keeper, the EditorManager SHALL seed `~/.pi/dashboard/editors/<editorId>/User/settings.json` with persistence-friendly defaults merged with any existing values; user-set values SHALL take precedence over seeded defaults. Seeded keys SHALL include the theme keys plus `window.restoreWindows: "all"`, `workbench.editor.restoreViewState: true`, `files.hotExit: "onExitAndWindowClose"`, `security.workspace.trust.enabled: false`, `update.mode: "none"`, `extensions.autoCheckUpdates: false`, and `workbench.startupEditor: "none"`.
+
+Concurrent `start(cwd)` calls for the same cwd SHALL be deduplicated to a single in-flight resolution: at most one keeper SHALL be spawned for a cwd, and all concurrent callers SHALL resolve to the same instance. This prevents two code-servers racing on one `--user-data-dir`.
+
 `start(cwd)` SHALL follow a 3-way resolution:
 
 1. **In-memory hit**: an instance for cwd already tracked → return it.
@@ -11,6 +15,7 @@ The EditorManager SHALL ensure exactly one code-server instance per folder cwd. 
 
 #### Scenario: Fresh spawn delegates to keeper
 - **WHEN** `start(cwd)` is called and neither in-memory nor sidecar state exists for cwd
+- **THEN** `<dataDir>/User/settings.json` SHALL be written with the seeded persistence keys merged over any existing content
 - **THEN** a free port SHALL be allocated
 - **THEN** the dashboard SHALL spawn the editor keeper detached with argv `<editorId> <cwd> <port> <binary> <dataDir>`
 - **THEN** the dashboard SHALL wait until either the keeper's socket probe returns a `status` event or `waitForPort(port)` succeeds (whichever first), within 15 s
@@ -26,6 +31,18 @@ The EditorManager SHALL ensure exactly one code-server instance per folder cwd. 
 #### Scenario: Instance already exists in memory
 - **WHEN** `start(cwd)` is called and an in-memory instance is already tracked for cwd
 - **THEN** the existing instance's `{ id, port }` SHALL be returned without contacting the keeper
+
+#### Scenario: User customization preserved across spawns
+- **WHEN** `<dataDir>/User/settings.json` already contains `"security.workspace.trust.enabled": true` from a prior user edit
+- **AND** `start(cwd)` is called again for that cwd on the fresh-spawn path
+- **THEN** the resulting `settings.json` SHALL retain `"security.workspace.trust.enabled": true`
+- **THEN** other seeded keys absent from the existing file SHALL be added
+
+#### Scenario: Concurrent start for the same folder
+- **WHEN** two or more `start(cwd)` calls for the same cwd are in flight before the first has registered its instance (e.g. multiple browser tabs/iframes opening the same folder, or post-restart heartbeat re-starts)
+- **THEN** at most one code-server keeper SHALL be spawned for that cwd
+- **THEN** all concurrent callers SHALL resolve to the same `{ id, port }` instance
+- **THEN** no duplicate code-server SHALL be started against the same `--user-data-dir`
 
 ### Requirement: Stop instance
 The EditorManager SHALL stop a running instance by sending `{"cmd":"stop"}` to its keeper over the per-editor socket / named pipe. The keeper handles SIGTERM → 5 s grace → SIGKILL escalation against the code-server child. The dashboard SHALL remove the in-memory entry when it receives the keeper's `{"event":"child_exit",...}` message, OR after a 6 s fallback timer if the keeper is unreachable. On dashboard graceful shutdown, `stopAll()` behaviour SHALL be controlled by `EditorConfig.stopOnDashboardExit` (default `false` — no-op against keepers, editors persist).

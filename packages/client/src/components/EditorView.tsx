@@ -21,11 +21,19 @@ export function EditorView({ cwd, onClose }: Props) {
   const [editorInfo, setEditorInfo] = useState<EditorInfo | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Dedup guard: prevents a single tab from firing two concurrent
+  // /api/editor/start calls (React StrictMode double-mount, rapid remount,
+  // or a heartbeat re-start overlapping the initial start). The server also
+  // dedups per-cwd, but suppressing the redundant request here avoids the
+  // wasted round-trip and a flash back to the loading state.
+  const startInFlightRef = useRef(false);
   const { resolved: themeMode } = useThemeContext();
   const themeModeRef = useRef(themeMode);
   themeModeRef.current = themeMode;
 
   const startEditor = useCallback(async () => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
     setState("loading");
     setErrorMsg("");
 
@@ -52,6 +60,8 @@ export function EditorView({ cwd, onClose }: Props) {
     } catch (err: any) {
       setErrorMsg(err.message || "Network error");
       setState("error");
+    } finally {
+      startInFlightRef.current = false;
     }
   }, [cwd]);
 

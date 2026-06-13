@@ -21,6 +21,12 @@ The EditorManager SHALL spawn a code-server child process for a given folder cwd
 - **WHEN** `start(cwd)` is called and an instance is already running for the cwd
 - **THEN** the existing instance's `{ id, port }` SHALL be returned without spawning a new process
 
+#### Scenario: Concurrent start for the same folder
+- **WHEN** two or more `start(cwd)` calls for the same cwd are in flight before the first has registered its instance (e.g. multiple browser tabs/iframes opening the same folder, or post-restart heartbeat re-starts)
+- **THEN** at most one code-server keeper SHALL be spawned for that cwd
+- **THEN** all concurrent callers SHALL resolve to the same `{ id, port }` instance
+- **THEN** no duplicate code-server SHALL be started against the same `--user-data-dir`
+
 ### Requirement: Stop instance
 The EditorManager SHALL support stopping a running instance via SIGTERM, allowing up to 5 seconds for the child to exit gracefully before escalating to SIGKILL of the process group. On process exit, all tracking state SHALL be cleaned up.
 

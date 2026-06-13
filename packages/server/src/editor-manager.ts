@@ -115,7 +115,7 @@ function folderHash(cwd: string): string {
 const DEFAULT_DARK_THEME = "Default Dark Modern";
 const DEFAULT_LIGHT_THEME = "Default Light Modern";
 
-function writeVscodeThemeSettings(dataDir: string, theme: "dark" | "light" = "dark"): void {
+function writeVscodeUserSettings(dataDir: string, theme: "dark" | "light" = "dark"): void {
   const userDir = path.join(dataDir, "User");
   mkdirSync(userDir, { recursive: true });
 
@@ -131,7 +131,17 @@ function writeVscodeThemeSettings(dataDir: string, theme: "dark" | "light" = "da
   const darkTheme = (existing["workbench.preferredDarkColorTheme"] as string) ?? DEFAULT_DARK_THEME;
   const lightTheme = (existing["workbench.preferredLightColorTheme"] as string) ?? DEFAULT_LIGHT_THEME;
 
+  // Persistence-friendly defaults seeded only when absent: existing user
+  // values win (spread last), theme keys stay authoritative (set explicitly
+  // by the dashboard each spawn).
   const settings = {
+    "window.restoreWindows": "all",
+    "workbench.editor.restoreViewState": true,
+    "files.hotExit": "onExitAndWindowClose",
+    "security.workspace.trust.enabled": false,
+    "update.mode": "none",
+    "extensions.autoCheckUpdates": false,
+    "workbench.startupEditor": "none",
     ...existing,
     "window.autoDetectColorScheme": false,
     "workbench.preferredDarkColorTheme": darkTheme,
@@ -199,7 +209,7 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
 
   function setTheme(cwd: string, theme: "dark" | "light"): void {
     const dataDir = path.join(os.homedir(), ".pi", "dashboard", "editors", folderHash(cwd));
-    writeVscodeThemeSettings(dataDir, theme);
+    writeVscodeUserSettings(dataDir, theme);
   }
 
   function subscribeChildExit(inst: InternalInstance): void {
@@ -247,7 +257,26 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
     return toInfo(inst);
   }
 
-  async function start(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo> {
+  // In-flight start dedup: concurrent start(cwd) calls (e.g. multiple browser
+  // tabs/iframes opening the same folder, or post-restart heartbeat re-starts)
+  // share one promise. Without this, two calls both miss `cwdIndex` before the
+  // first registers, then both spawn a keeper for the same deterministic
+  // editorId/dataDir → duplicate code-servers on one locked --user-data-dir =
+  // stalled instance the manager can't cleanly stop.
+  const inFlightStarts = new Map<string, Promise<EditorInstanceInfo>>();
+
+  function start(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo> {
+    const pending = inFlightStarts.get(cwd);
+    if (pending) {
+      if (theme) setTheme(cwd, theme);
+      return pending;
+    }
+    const p = startInner(cwd, theme).finally(() => inFlightStarts.delete(cwd));
+    inFlightStarts.set(cwd, p);
+    return p;
+  }
+
+  async function startInner(cwd: string, theme?: "dark" | "light"): Promise<EditorInstanceInfo> {
     // 1. In-memory hit
     const existingId = cwdIndex.get(cwd);
     if (existingId) {
@@ -300,7 +329,7 @@ export function createEditorManager(options: EditorManagerOptions): EditorManage
 
     // 3. Fresh spawn via keeper.
     const port = await allocatePort();
-    writeVscodeThemeSettings(dataDir, theme ?? "dark");
+    writeVscodeUserSettings(dataDir, theme ?? "dark");
 
     const inst = registerInternal({ editorId, cwd, port, initialStatus: "starting" });
     setStatus(inst, "starting");

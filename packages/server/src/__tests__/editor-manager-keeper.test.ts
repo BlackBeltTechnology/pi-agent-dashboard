@@ -127,6 +127,33 @@ describe("editor-manager.start — 3-way resolution (task 7.4)", () => {
       server.close();
     }
   });
+
+  it("dedups concurrent start(cwd) for the same folder — one spawn, shared instance", async () => {
+    const server = net.createServer().listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", () => r(null)));
+    const port = (server.address() as net.AddressInfo).port;
+    try {
+      let probeCalls = 0;
+      const km = makeKeeperManager({
+        probe: vi.fn(async () => {
+          probeCalls++;
+          return probeCalls === 1
+            ? { alive: false, editorId: "x" }
+            : { alive: true, editorId: "x", port, cwd: "/p", dataDir: "/d" };
+        }) as any,
+      });
+      const mgr = createEditorManager({ config: BASE_CONFIG, detection: DETECTED, keeperManager: km });
+      // Two browser instances open the same folder at the same time.
+      const [a, b] = await Promise.all([mgr.start("/proj-race"), mgr.start("/proj-race")]);
+      // Shared instance; only ONE keeper spawned (no duplicate code-server on
+      // the same locked --user-data-dir).
+      expect(a.id).toBe(b.id);
+      expect(km.spawnKeeperFor).toHaveBeenCalledTimes(1);
+      expect(mgr.list()).toHaveLength(1);
+    } finally {
+      server.close();
+    }
+  });
 });
 
 // ── 7.5: stop semantics ──────────────────────────────────────────────────────

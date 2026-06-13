@@ -27,6 +27,15 @@ spawn time, (2) extend the graceful-stop window so workspaceStorage flushes.
 - Continue to merge with existing `settings.json` so user customizations win.
 - Increase graceful-stop timeout in `editor-manager.stop()` from 2000 ms to
   5000 ms so VS Code finishes flushing workspaceStorage before SIGKILL.
+  (Already satisfied by the keeper sidecar's `STOP_GRACE_MS = 5000`; no
+  `killProcess` call remains in `stop()`.)
+- Dedup concurrent `start(cwd)` calls so multiple browser tabs/iframes opening
+  the same folder (or post-restart heartbeat re-starts) cannot spawn two
+  code-servers on one locked `--user-data-dir` (stalled-instance race).
+- Harden the client: `EditorView` suppresses a second concurrent
+  `/api/editor/start` from the same tab (StrictMode double-mount, rapid
+  remount, heartbeat re-start) via an in-flight ref. Defense-in-depth atop the
+  server dedup.
 - No behavioural change for users who have customized any of the seeded keys
   — existing values pass through unchanged.
 
@@ -39,7 +48,8 @@ None.
 ### Modified Capabilities
 
 - `editor-manager`: settings seeding contract extended; graceful-stop window
-  extended from 2 s to 5 s.
+  is 5 s (via keeper); concurrent `start(cwd)` for one folder deduped to a
+  single spawn.
 
 ## Impact
 

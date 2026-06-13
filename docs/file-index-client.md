@@ -96,7 +96,8 @@
 | `src/client/components/CollapsedToolGroup.tsx` | Collapsed group of repeated tool calls with expand toggle |
 | `src/client/components/DialogPortal.tsx` | Portal wrapper rendering dialogs at document.body with scroll lock. Now consumed internally by client-utils Dialog; still registered as `ui:dialog-portal`. See change: unify-dialog-system. |
 | `src/client/components/EditorInstallGuide.tsx` | Platform-specific code-server installation guide |
-| `src/client/components/EditorView.tsx` | code-server iframe embedding with lazy start + heartbeat |
+| `src/client/components/__tests__/EditorView.test.tsx` | asserts EditorView fires `/api/editor/start` once under StrictMode double-mount; regression for client start dedup. See change: fix-editor-settings-persistence. |
+| `src/client/components/EditorView.tsx` | code-server iframe embedding with lazy start + heartbeat. `startInFlightRef` dedups concurrent `/api/editor/start` from one tab (StrictMode double-mount, rapid remount, heartbeat re-start). See change: fix-editor-settings-persistence. |
 | `src/client/components/extension-ui/AgentMetricSlot.tsx` | Phase-2 slot. Renders `agent-metric` descriptors whose `payload.agentId` matches `FlowAgentCard.agent.agentName` of parent. Mounted inside `FlowAgentCard.tsx`. Orphan descriptors (no matching agent) render nothing. |
 | `src/client/components/extension-ui/BreadcrumbSlot.tsx` | Phase-2 slot. Renders most-recently-cached `breadcrumb` descriptor as horizontal step indicator at top of `FlowDashboard.tsx`. Steps with `status: "done"` show check; `"error"` show red alert; active step matched against `payload.current` (or first `status: "active"`). |
 | `src/client/components/extension-ui/decorator-utils.ts` | Phase-2 helper: `decoratorsOfKind(decorators, kind)` — typed filter over `Session.uiDecorators` returning only descriptors of requested `DecoratorKind`. Used by every Phase-2 slot component. See change: add-extension-ui-decorations. |
