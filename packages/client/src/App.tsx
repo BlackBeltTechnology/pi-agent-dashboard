@@ -1661,7 +1661,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel />
+              <SettingsPanel onMessage={onMessage} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={() => navigate("/")} />
             ) : pluginOverlayMatched ? (
@@ -1858,7 +1858,7 @@ export default function App() {
             }
           }
           return models;
-        })()} />}
+        })()} onMessage={onMessage} />}
         {tunnelSetupMatch && <ZrokInstallGuide onBack={() => navigate("/")} />}
       </div>
       {pinDialogOpen && (

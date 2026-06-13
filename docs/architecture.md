@@ -588,6 +588,25 @@ The `fix-restart-bridge-auto-start-race` change collapses the three paths into a
 
 Older bridges that don't understand `server_restarting` ignore the message and fall back to today's behaviour — the CLI fix in step 1 already eliminates the worst-case path even for them. There is no flag day; the protocol message is additive on the `ServerToExtensionMessage` discriminated union.
 
+### Async action feedback
+
+Problem: bare call sites fire `fetch()`, HTTP ack returns, real effect lands seconds later via WS broadcast. No spinner/disable between click and effect.
+
+Primitive: `useAsyncAction(fn, opts)` in `packages/client/src/hooks/useAsyncAction.ts`. Exposes `{ pending, error, run, bind }`. `bind` auto-disables bound control. Routes outcomes to injected `opts.showToast` — no global toast/WS context; deps passed via opts.
+
+Two completion modes:
+
+- `confirm:"http"` (default, fast ops): pending ends when `fetch()` settles. TunnelButton connect/disconnect, ProviderAuthSection sign-out/remove-key.
+- `confirm:"ws"` (slow ops): pending holds after HTTP ack until correlated `ServerToBrowserMessage` matches `opts.confirmEvent(msg, requestId)`. `opts.confirmTimeoutMs` (default 15000ms) fallback clears pending + info toast. Never stuck-spins.
+
+Correlation contract: client generates requestId, sends in REST body, registers WS handler on `run()` BEFORE fn fires (race-free). Server echoes requestId into completion broadcast.
+
+WS case — SettingsPanel restart: `POST /api/restart` body `{requestId}`. Server `announceRestart` broadcasts `server_restarting {reason, quiesceMs, requestId}` to browsers via `browserGateway.broadcastToAll` (additive to existing bridge `piGateway` broadcast). `ServerRestartingMessage` added to `ServerToBrowserMessage` union in `packages/shared/src/browser-protocol.ts` (additive, optional requestId; old clients ignore).
+
+Toast variants: `ToastMessage.variant` `"error"|"success"|"info"`, default `"error"` (back-compat).
+
+Reference FSM: WorktreeInitButton (richer streaming UI, left as-is). PluginsSection restart left as-is — polls `/api/health` startedAt re-up (stronger completion signal than broadcast).
+
 ### Auto-Resume on Prompt
 When a user sends a prompt to an ended session, the server automatically resumes it:
 1. Server detects `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`

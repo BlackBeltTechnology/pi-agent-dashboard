@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
@@ -18,6 +18,8 @@ import { ModelProxySection } from "./ModelProxySection.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
+import { useAsyncAction } from "../hooks/useAsyncAction.js";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
 import { PluginsSection } from "./PluginsSection.js";
@@ -128,7 +130,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 
-export function SettingsPanel({ availableModels }: { availableModels?: Array<{ provider: string; id: string }> }) {
+export function SettingsPanel({ availableModels, onMessage }: {
+  availableModels?: Array<{ provider: string; id: string }>;
+  /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
+  onMessage?: (handler: (msg: ServerToBrowserMessage) => void) => () => void;
+}) {
   const [, navigate] = useLocation();
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
@@ -143,8 +149,42 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
-  const [restarting, setRestarting] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "warn"; text: string } | null>(null);
+  // Restart is a slow op: the HTTP ack returns immediately but the effect lands
+  // when the server re-broadcasts `server_restarting` with our requestId. Hold
+  // pending until that correlated event (confirm:"ws"), with a timeout fallback.
+  // See change: add-async-action-feedback.
+  const restartReqIdRef = useRef<string>("");
+  const restart = useAsyncAction(
+    async () => {
+      const requestId = crypto.randomUUID();
+      restartReqIdRef.current = requestId;
+      const res = await fetch(`${getApiBase()}/api/restart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      });
+      // The server returns {ok:true} then exits ~200ms later; a rejected fetch
+      // (socket closed on exit) is also a success signal, so only an explicit
+      // ok:false is an error.
+      const data = await res.json().catch(() => ({ ok: true }));
+      if (data && data.ok === false) throw new Error(data.error || "Restart failed");
+    },
+    {
+      confirm: "ws",
+      onMessage,
+      confirmEvent: (msg) =>
+        msg.type === "server_restarting" && msg.requestId === restartReqIdRef.current,
+      onSuccess: () => {
+        setMessage({ type: "success", text: "Server restarting…" });
+        setTimeout(() => navigate("/"), 1500);
+      },
+      // Route the hook's outcome toasts into the existing settings banner.
+      showToast: (text, variant) =>
+        setMessage({ type: variant === "info" ? "warn" : variant === "success" ? "success" : "error", text }),
+    },
+  );
+  const restarting = restart.pending;
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
@@ -388,25 +428,7 @@ export function SettingsPanel({ availableModels }: { availableModels?: Array<{ p
         <h1 className="text-lg font-bold text-[var(--text-primary)]">Settings</h1>
         <div className="flex-1" />
         <button
-          onClick={async () => {
-            setRestarting(true);
-            setMessage(null);
-            try {
-              const res = await fetch(`${getApiBase()}/api/restart`, { method: "POST" });
-              const data = await res.json();
-              if (data.ok) {
-                setMessage({ type: "success", text: "Server restarting…" });
-                setTimeout(() => navigate("/"), 1500);
-              } else {
-                setMessage({ type: "error", text: data.error || "Restart failed" });
-                setRestarting(false);
-              }
-            } catch {
-              // fetch fails when server exits — that's expected
-              setMessage({ type: "success", text: "Server restarting…" });
-              setTimeout(() => navigate("/"), 1500);
-            }
-          }}
+          onClick={() => { setMessage(null); restart.run(); }}
           disabled={restarting || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm font-medium disabled:opacity-50 border border-[var(--border-secondary)]"
           title="Restart server"

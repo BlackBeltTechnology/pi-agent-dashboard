@@ -649,7 +649,23 @@ export interface PluginConfigUpdateMessage {
   config: unknown;
 }
 
+/**
+ * Server → browser: broadcast just before the server restarts/shuts down so a
+ * browser-side `useAsyncAction(confirm: "ws")` can correlate its restart click.
+ * Mirrors the bridge-facing `ServerRestartingExtensionMessage` (protocol.ts).
+ * `requestId` echoes the optional client correlation id from `POST /api/restart`;
+ * additive + optional so clients/bridges that omit it are unaffected.
+ * See change: add-async-action-feedback.
+ */
+export interface ServerRestartingMessage {
+  type: "server_restarting";
+  reason: "restart" | "shutdown";
+  quiesceMs: number;
+  requestId?: string;
+}
+
 export type ServerToBrowserMessage =
+  | ServerRestartingMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage
   | SessionUpdatedMessage

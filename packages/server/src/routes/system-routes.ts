@@ -9,6 +9,7 @@ import type { DirectoryService } from "../directory-service.js";
 import type { PiGateway } from "../pi-gateway.js";
 import type { ServerConfig } from "../server.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { NetworkGuard } from "./route-deps.js";
 import { detectEditors, EDITORS } from "../editor-registry.js";
 import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
@@ -82,9 +83,10 @@ export function registerSystemRoutes(
     version?: string;
     directoryService?: DirectoryService;
     piGateway?: PiGateway;
+    browserGateway?: { broadcastToAll: (msg: ServerToBrowserMessage) => void };
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -92,11 +94,20 @@ export function registerSystemRoutes(
   // discovery + reconnection still run.
   const RESTART_QUIESCE_MS = 5000;
   const SHUTDOWN_QUIESCE_MS = 60000;
-  const announceRestart = (reason: "restart" | "shutdown", quiesceMs: number) => {
-    if (!piGateway) return;
+  const announceRestart = (
+    reason: "restart" | "shutdown",
+    quiesceMs: number,
+    requestId?: string,
+  ) => {
+    // Bridges: suppress the auto-start spawn step during the quiesce window.
     try {
-      piGateway.broadcast({ type: "server_restarting", reason, quiesceMs });
+      piGateway?.broadcast({ type: "server_restarting", reason, quiesceMs });
     } catch { /* best-effort — never block exit on a flaky bridge socket */ }
+    // Browsers: correlate a confirm:"ws" restart click via the echoed requestId.
+    // See change: add-async-action-feedback.
+    try {
+      browserGateway?.broadcastToAll({ type: "server_restarting", reason, quiesceMs, requestId });
+    } catch { /* best-effort */ }
   };
   const serverStartTime = Date.now();
 
@@ -362,7 +373,7 @@ export function registerSystemRoutes(
   );
 
   // Restart endpoint — flush state, spawn new server, then exit
-  fastify.post<{ Body: { dev?: boolean } }>(
+  fastify.post<{ Body: { dev?: boolean; requestId?: string } }>(
     "/api/restart",
     { preHandler: networkGuard },
     async (request) => {
@@ -372,7 +383,9 @@ export function registerSystemRoutes(
       // Announce restart to every bridge BEFORE spawning the replacement so
       // bridges suppress their auto-start spawn step and don't race the
       // orchestrator. See change: fix-restart-bridge-auto-start-race.
-      announceRestart("restart", RESTART_QUIESCE_MS);
+      // Echo the optional client requestId to browsers so a confirm:"ws"
+      // restart click can correlate. See change: add-async-action-feedback.
+      announceRestart("restart", RESTART_QUIESCE_MS, request.body?.requestId);
 
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.

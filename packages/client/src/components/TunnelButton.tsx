@@ -5,6 +5,7 @@ import { mdiTunnel, mdiQrcode } from "@mdi/js";
 import { useLocation } from "wouter";
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { QrCodeDialog } from "./QrCodeDialog.js";
+import { useAsyncAction, type ToastVariant } from "../hooks/useAsyncAction.js";
 
 const POLL_INTERVAL = 30_000;
 
@@ -14,7 +15,7 @@ const POLL_INTERVAL = 30_000;
  * - inactive (set up, not connected) → default QR icon → opens dialog with Connect button
  * - active (connected) → green QR icon → opens dialog with QR code + Disconnect button
  */
-export function TunnelButton() {
+export function TunnelButton({ showToast }: { showToast?: (text: string, variant?: ToastVariant) => void } = {}) {
   const [status, setStatus] = useState<TunnelStatus | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [, navigate] = useLocation();
@@ -52,32 +53,37 @@ export function TunnelButton() {
     }
   }, [fetchStatus, navigate]);
 
-  const handleDisconnect = useCallback(async () => {
-    try {
-      await fetch(`${getApiBase()}/api/tunnel-disconnect`, { method: "POST" });
-    } catch {
-      // ignore
-    }
-    setDialogOpen(false);
-    fetchStatus();
-  }, [fetchStatus]);
+  // Tunnel connect/disconnect are synchronous REST ops (HTTP body carries the
+  // result), so confirm:"http" + a success toast is the right shape. The hook
+  // disables the dialog buttons while pending and routes failures to a toast.
+  // See change: add-async-action-feedback.
+  const disconnect = useAsyncAction(
+    async () => {
+      const res = await fetch(`${getApiBase()}/api/tunnel-disconnect`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to disconnect tunnel");
+    },
+    {
+      showToast,
+      successToast: "Tunnel disconnected",
+      onSuccess: () => { setDialogOpen(false); fetchStatus(); },
+    },
+  );
 
-  const handleConnect = useCallback(async () => {
-    try {
+  const connect = useAsyncAction(
+    async () => {
       const res = await fetch(`${getApiBase()}/api/tunnel-connect`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) {
-          // Refresh status to pick up the new URL, keep dialog open
-          await fetchStatus();
-          return;
-        }
-      }
-    } catch {
-      // ignore
-    }
-    await fetchStatus();
-  }, [fetchStatus]);
+      const data = res.ok ? await res.json() : null;
+      if (!data?.ok) throw new Error(data?.error || "Failed to connect tunnel");
+    },
+    {
+      showToast,
+      successToast: "Tunnel connected",
+      // Refresh status to pick up the new URL, keep dialog open.
+      onSuccess: () => { fetchStatus(); },
+    },
+  );
+
+  const busy = connect.pending || disconnect.pending;
 
   const isActive = status?.status === "active";
   const isUnavailable = !status || status.status === "unavailable";
@@ -113,8 +119,9 @@ export function TunnelButton() {
           url={dialogUrl}
           connected={isActive}
           onClose={() => setDialogOpen(false)}
-          onDisconnect={handleDisconnect}
-          onConnect={handleConnect}
+          onDisconnect={disconnect.bind.onClick}
+          onConnect={connect.bind.onClick}
+          busy={busy}
           onSetup={() => { setDialogOpen(false); navigate("/tunnel-setup"); }}
         />
       )}

@@ -11,9 +11,11 @@ interface Props {
   onDisconnect?: () => void;
   onConnect?: () => void;
   onSetup?: () => void;
+  /** Disables connect/disconnect + swaps their labels while an action runs. */
+  busy?: boolean;
 }
 
-export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect, onSetup }: Props) {
+export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect, onSetup, busy }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -106,23 +108,25 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
             {connected && onDisconnect && (
               <button
                 onClick={onDisconnect}
-                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-400 transition-colors disabled:opacity-50"
                 title="Disconnect tunnel"
                 data-testid="qr-disconnect-btn"
               >
                 <Icon path={mdiLanDisconnect} size={0.55} />
-                Disconnect
+                {busy ? "Disconnecting…" : "Disconnect"}
               </button>
             )}
             {!connected && onConnect && (
               <button
                 onClick={onConnect}
-                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-green-400 transition-colors"
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-green-400 transition-colors disabled:opacity-50"
                 title="Connect tunnel"
                 data-testid="qr-connect-btn"
               >
                 <Icon path={mdiLanConnect} size={0.55} />
-                Connect
+                {busy ? "Connecting…" : "Connect"}
               </button>
             )}
             {onSetup && (

@@ -945,7 +945,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           </div>
           <div className="flex gap-1 items-center">
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
-            <TunnelButton />
+            <TunnelButton showToast={showToast} />
             {headerExtra}
             <button
               onClick={() => navigate("/settings")}

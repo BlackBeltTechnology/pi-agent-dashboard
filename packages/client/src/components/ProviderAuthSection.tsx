@@ -19,6 +19,8 @@ import {
   mdiKeyPlus,
 } from "@mdi/js";
 import type { ProviderAuthStatus, DeviceCodeResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { Toast, useToast, type ToastVariant } from "./Toast.js";
+import { useAsyncAction } from "../hooks/useAsyncAction.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ function relativeExpiry(expires: number): string {
 export function ProviderAuthSection() {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const { messages, showToast, dismissToast } = useToast();
 
   const refresh = useCallback(async () => {
     try {
@@ -65,11 +68,12 @@ export function ProviderAuthSection() {
 
   return (
     <div className="space-y-4">
+      <Toast messages={messages} onDismiss={dismissToast} />
       {/* OAuth Providers */}
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Subscriptions (OAuth)</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} onChanged={refresh} />
+          <OAuthProviderRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
         ))}
       </div>
 
@@ -77,7 +81,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4">API Keys</h3>
         {apiKeyProviders.map((p) => (
-          <ApiKeyRow key={p.id} provider={p} onChanged={refresh} />
+          <ApiKeyRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
         ))}
       </div>
     </div>
@@ -86,7 +90,7 @@ export function ProviderAuthSection() {
 
 // ── OAuth Provider Row ───────────────────────────────────────────────────────
 
-function OAuthProviderRow({ provider, onChanged }: { provider: ProviderAuthStatus; onChanged: () => void }) {
+function OAuthProviderRow({ provider, onChanged, showToast }: { provider: ProviderAuthStatus; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceModal, setDeviceModal] = useState<DeviceCodeResponse | null>(null);
@@ -196,17 +200,15 @@ function OAuthProviderRow({ provider, onChanged }: { provider: ProviderAuthStatu
     }
   };
 
-  const handleSignOut = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
-      onChanged();
-    } catch (err: any) {
-      setError(err.message);
-    }
-    setBusy(false);
-  };
+  // Sign-out is a synchronous REST delete — confirm:"http" + success toast.
+  // See change: add-async-action-feedback.
+  const signOut = useAsyncAction(
+    async () => {
+      const res = await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to sign out");
+    },
+    { showToast, successToast: `Signed out of ${provider.name}`, onSuccess: onChanged },
+  );
 
   return (
     <div className="flex flex-col gap-1 p-3 rounded bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
@@ -226,12 +228,12 @@ function OAuthProviderRow({ provider, onChanged }: { provider: ProviderAuthStatu
               <Icon path={mdiCheck} size={0.5} /> Connected
             </span>
             <button
-              onClick={handleSignOut}
-              disabled={busy}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-red-900/30 text-[var(--text-muted)] hover:text-red-400 border border-[var(--border-secondary)]"
+              onClick={signOut.bind.onClick}
+              disabled={busy || signOut.pending}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-red-900/30 text-[var(--text-muted)] hover:text-red-400 border border-[var(--border-secondary)] disabled:opacity-50"
             >
               <Icon path={mdiLogout} size={0.5} />
-              Sign Out
+              {signOut.pending ? "Signing Out…" : "Sign Out"}
             </button>
           </div>
         ) : (
@@ -315,7 +317,7 @@ function OAuthProviderRow({ provider, onChanged }: { provider: ProviderAuthStatu
 
 // ── API Key Row ──────────────────────────────────────────────────────────────
 
-function ApiKeyRow({ provider, onChanged }: { provider: ProviderAuthStatus; onChanged: () => void }) {
+function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthStatus; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
   const [editing, setEditing] = useState(false);
   const [keyValue, setKeyValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -342,17 +344,15 @@ function ApiKeyRow({ provider, onChanged }: { provider: ProviderAuthStatus; onCh
     setBusy(false);
   };
 
-  const handleRemove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
-      onChanged();
-    } catch (err: any) {
-      setError(err.message);
-    }
-    setBusy(false);
-  };
+  // Remove key is a synchronous REST delete — confirm:"http" + success toast.
+  // See change: add-async-action-feedback.
+  const remove = useAsyncAction(
+    async () => {
+      const res = await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to remove key");
+    },
+    { showToast, successToast: `Removed ${provider.name} key`, onSuccess: onChanged },
+  );
 
   return (
     <div className="flex flex-col gap-1 p-3 rounded bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
@@ -369,12 +369,12 @@ function ApiKeyRow({ provider, onChanged }: { provider: ProviderAuthStatus; onCh
               <Icon path={mdiCheck} size={0.5} /> Configured
             </span>
             <button
-              onClick={handleRemove}
-              disabled={busy}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-red-900/30 text-[var(--text-muted)] hover:text-red-400 border border-[var(--border-secondary)]"
+              onClick={remove.bind.onClick}
+              disabled={busy || remove.pending}
+              className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-[var(--bg-secondary)] hover:bg-red-900/30 text-[var(--text-muted)] hover:text-red-400 border border-[var(--border-secondary)] disabled:opacity-50"
             >
               <Icon path={mdiDelete} size={0.5} />
-              Remove
+              {remove.pending ? "Removing…" : "Remove"}
             </button>
           </div>
         ) : !editing ? (
