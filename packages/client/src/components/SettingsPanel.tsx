@@ -159,14 +159,19 @@ export function SettingsPanel({ availableModels, onMessage }: {
     async () => {
       const requestId = crypto.randomUUID();
       restartReqIdRef.current = requestId;
-      const res = await fetch(`${getApiBase()}/api/restart`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId }),
-      });
       // The server returns {ok:true} then exits ~200ms later; a rejected fetch
-      // (socket closed on exit) is also a success signal, so only an explicit
-      // ok:false is an error.
+      // (socket closed mid-response on exit) is also a success signal, so swallow
+      // it. Only an explicit ok:false from a completed response is an error.
+      let res: Response;
+      try {
+        res = await fetch(`${getApiBase()}/api/restart`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId }),
+        });
+      } catch {
+        return; // socket closed on exit → restart underway
+      }
       const data = await res.json().catch(() => ({ ok: true }));
       if (data && data.ok === false) throw new Error(data.error || "Restart failed");
     },

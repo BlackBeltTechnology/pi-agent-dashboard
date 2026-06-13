@@ -22,12 +22,14 @@ export function ActionButton({
   pendingLabel,
   children,
   disabled,
+  type = "button",
   ...rest
 }: ActionButtonProps) {
   const { pending, bind } = useAsyncAction(action, options);
   return (
     <button
       {...rest}
+      type={type}
       onClick={bind.onClick}
       disabled={disabled || bind.disabled}
     >

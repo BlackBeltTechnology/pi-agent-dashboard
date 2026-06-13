@@ -146,6 +146,17 @@ describe("POST /api/restart echoes requestId into the browser broadcast", () => 
     expect(browserMsgs[0]).toMatchObject({ type: "server_restarting", reason: "restart" });
     expect((browserMsgs[0] as { requestId?: string }).requestId).toBeUndefined();
   });
+
+  it("drops a non-string or oversized requestId (bounds untrusted input)", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/api/restart",
+      payload: { requestId: "x".repeat(200) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(browserMsgs).toHaveLength(1);
+    expect((browserMsgs[0] as { requestId?: string }).requestId).toBeUndefined();
+  });
 });
 
 describe("/api/restart works without piGateway (no-op broadcast)", () => {

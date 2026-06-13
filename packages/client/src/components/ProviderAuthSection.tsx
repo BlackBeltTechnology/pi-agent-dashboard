@@ -29,6 +29,18 @@ async function fetchStatus(): Promise<ProviderAuthStatus[]> {
   return res.json();
 }
 
+/** DELETE a provider credential, surfacing the backend error detail on failure. */
+async function deleteProvider(id: string, fallback: string): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/provider-auth/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((d) => (d && typeof d.error === "string" ? d.error : null))
+      .catch(() => null);
+    throw new Error(detail || fallback);
+  }
+}
+
 // ── Time formatting ──────────────────────────────────────────────────────────
 
 function relativeExpiry(expires: number): string {
@@ -203,10 +215,7 @@ function OAuthProviderRow({ provider, onChanged, showToast }: { provider: Provid
   // Sign-out is a synchronous REST delete — confirm:"http" + success toast.
   // See change: add-async-action-feedback.
   const signOut = useAsyncAction(
-    async () => {
-      const res = await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to sign out");
-    },
+    () => deleteProvider(provider.id, "Failed to sign out"),
     { showToast, successToast: `Signed out of ${provider.name}`, onSuccess: onChanged },
   );
 
@@ -347,10 +356,7 @@ function ApiKeyRow({ provider, onChanged, showToast }: { provider: ProviderAuthS
   // Remove key is a synchronous REST delete — confirm:"http" + success toast.
   // See change: add-async-action-feedback.
   const remove = useAsyncAction(
-    async () => {
-      const res = await fetch(`${getApiBase()}/api/provider-auth/${provider.id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to remove key");
-    },
+    () => deleteProvider(provider.id, "Failed to remove key"),
     { showToast, successToast: `Removed ${provider.name} key`, onSuccess: onChanged },
   );
 

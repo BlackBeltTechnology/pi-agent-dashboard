@@ -384,8 +384,11 @@ export function registerSystemRoutes(
       // bridges suppress their auto-start spawn step and don't race the
       // orchestrator. See change: fix-restart-bridge-auto-start-race.
       // Echo the optional client requestId to browsers so a confirm:"ws"
-      // restart click can correlate. See change: add-async-action-feedback.
-      announceRestart("restart", RESTART_QUIESCE_MS, request.body?.requestId);
+      // restart click can correlate. Bound it to a sane string before fanning
+      // out to all browser clients. See change: add-async-action-feedback.
+      const rawReqId = request.body?.requestId;
+      const requestId = typeof rawReqId === "string" && rawReqId.length <= 128 ? rawReqId : undefined;
+      announceRestart("restart", RESTART_QUIESCE_MS, requestId);
 
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.
