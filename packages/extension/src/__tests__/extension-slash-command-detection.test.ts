@@ -6,7 +6,11 @@
  * regression: see openspec/changes/fix-extension-slash-commands-in-dashboard/
  */
 import { describe, it, expect } from "vitest";
-import { isExtensionSlashCommand, isHeadlessRpcSession } from "../bridge-context.js";
+import {
+  isExtensionSlashCommand,
+  isHeadlessRpcSession,
+  hasDispatchCommand,
+} from "../bridge-context.js";
 
 describe("isExtensionSlashCommand", () => {
   it("detects a bare extension command", () => {
@@ -77,6 +81,38 @@ describe("isExtensionSlashCommand", () => {
 });
 
 // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 7.2).
+// See change: resolve-global-prompt-templates-from-dashboard (Decision 2).
+describe("hasDispatchCommand", () => {
+  it("returns true for a plain function", () => {
+    expect(hasDispatchCommand({ dispatchCommand: () => {} })).toBe(true);
+  });
+
+  it("returns true for a getter-backed / Proxy-hidden function", () => {
+    const fn = () => {};
+    const pi = new Proxy(
+      {},
+      {
+        has: (_t, k) => k === "dispatchCommand",
+        get: (_t, k) => (k === "dispatchCommand" ? fn : undefined),
+      },
+    );
+    expect(hasDispatchCommand(pi)).toBe(true);
+  });
+
+  it("returns false when absent", () => {
+    expect(hasDispatchCommand({})).toBe(false);
+  });
+
+  it("returns false for a non-function value", () => {
+    expect(hasDispatchCommand({ dispatchCommand: "yes" })).toBe(false);
+  });
+
+  it("returns false for null / undefined", () => {
+    expect(hasDispatchCommand(null)).toBe(false);
+    expect(hasDispatchCommand(undefined)).toBe(false);
+  });
+});
+
 describe("isHeadlessRpcSession", () => {
   it("returns true when env=1 AND argv contains --mode rpc", () => {
     expect(

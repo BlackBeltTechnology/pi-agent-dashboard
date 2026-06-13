@@ -101,15 +101,31 @@ function resolveTemplate(
     if (localSkill) {
       return { filePath: localSkill, source: "skill", resolvedName: cand };
     }
-    // Step 3: pi.getCommands() registry skill.
+    // Step 3: pi.getCommands() registry skill / prompt template.
     if (pi?.getCommands) {
       try {
         const commands = pi.getCommands();
+        // pi's getCommands() carries the on-disk path under `sourceInfo.path`
+        // (synthetic SourceInfo: { path, source, scope, origin, baseDir }).
+        // Older builds / unit stubs use a top-level `path`. Accept both.
+        // See change: resolve-global-prompt-templates-from-dashboard.
+        const cmdPath = (c: any): string | undefined => c?.sourceInfo?.path ?? c?.path;
         const skill = commands.find(
-          (c: any) => c.name === cand && c.source === "skill" && c.path,
+          (c: any) => c.name === cand && c.source === "skill" && cmdPath(c),
         );
-        if (skill?.path && existsSync(skill.path)) {
-          return { filePath: skill.path, source: "skill", resolvedName: cand };
+        const skillPath = skill && cmdPath(skill);
+        if (skillPath && existsSync(skillPath)) {
+          return { filePath: skillPath, source: "skill", resolvedName: cand };
+        }
+        // Global/project/package prompt templates register as source: "prompt".
+        // pi.getCommands() already carries their absolute path — no fs scan added.
+        // Probed inside the same candidate loop so original-form-first precedence holds.
+        const prompt = commands.find(
+          (c: any) => c.name === cand && c.source === "prompt" && cmdPath(c),
+        );
+        const promptPath = prompt && cmdPath(prompt);
+        if (promptPath && existsSync(promptPath)) {
+          return { filePath: promptPath, source: "prompt", resolvedName: cand };
         }
       } catch { /* ignore */ }
     }

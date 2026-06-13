@@ -111,11 +111,19 @@ export function isExtensionSlashCommand(
 
 /**
  * Feature-detect upstream `pi.dispatchCommand(text, opts)` (pi 0.71+).
- * Returns true iff the field is a function on the supplied object.
- * See change: fix-extension-slash-commands-in-dashboard.
+ * Returns true iff `dispatchCommand` resolves to a function on the supplied
+ * object. Fast path uses a direct `typeof` access; when that is false an
+ * `in`-operator fallback with a guarded `typeof` detects getter-backed /
+ * Proxy-hidden properties. Returns false for null/undefined and non-functions.
+ * See change: resolve-global-prompt-templates-from-dashboard.
  */
 export function hasDispatchCommand(pi: unknown): boolean {
-  return typeof (pi as any)?.dispatchCommand === "function";
+  if (pi == null) return false;
+  if (typeof (pi as any).dispatchCommand === "function") return true;
+  if ("dispatchCommand" in (pi as object)) {
+    return typeof (pi as any).dispatchCommand === "function";
+  }
+  return false;
 }
 
 /**

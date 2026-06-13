@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Global prompt template resolution
 
@@ -21,6 +21,8 @@ Skill resolution and original-form-first precedence SHALL remain unchanged.
 #### Scenario: Unrecognized slash still falls through
 - **WHEN** `pi.getCommands()` contains no entry named `totally-unknown` of source `skill` or `prompt`
 - **THEN** `resolveTemplate` SHALL return `null` and the handler SHALL fall through to `pi.sendUserMessage`
+
+## MODIFIED Requirements
 
 ### Requirement: Bridge feature-detects pi.dispatchCommand
 The bridge's `sessionPrompt` callback in `packages/extension/src/bridge.ts` SHALL feature-detect the presence of `pi.dispatchCommand` at call time via `hasDispatchCommand(pi)` in `packages/extension/src/bridge-context.ts`.

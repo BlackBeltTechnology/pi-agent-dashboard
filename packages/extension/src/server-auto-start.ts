@@ -57,6 +57,20 @@ export interface AutoStartResult {
 }
 
 /**
+ * Opt-out gate for isolated / CI runs. When `PI_DASHBOARD_NO_MDNS` is truthy
+ * the bridge skips mDNS discovery entirely and binds to the explicit /
+ * configured URL via the health-check path. Mirrors the server's identical
+ * gate in `server.ts` (PI_DASHBOARD_NO_MDNS). Without this, a co-located real
+ * dashboard advertising on mDNS would be discovered here and override the
+ * bridge's explicit `PI_DASHBOARD_URL`, hijacking the connection off the
+ * isolated gateway. See change: resolve-global-prompt-templates-from-dashboard.
+ */
+function mdnsDisabled(): boolean {
+  const raw = (process.env.PI_DASHBOARD_NO_MDNS ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+/**
  * Discover or auto-start the dashboard server.
  * Discovery chain: mDNS browse → health check fallback → auto-start.
  * Returns the server to connect to.
@@ -65,16 +79,20 @@ export async function autoStartServer(
   config: { piPort: number; port: number; autoStart: boolean },
   deps: AutoStartDeps,
 ): Promise<AutoStartResult> {
-  // 1. Try mDNS discovery (2s timeout)
-  try {
-    const servers = await deps.discoverDashboard(2000);
-    const local = servers.find(s => s.isLocal);
-    if (local) {
-      return { server: { host: local.host, port: local.port, piPort: local.piPort } };
+  const noMdns = mdnsDisabled();
+
+  // 1. Try mDNS discovery (2s timeout) — skipped when mDNS is disabled.
+  if (!noMdns) {
+    try {
+      const servers = await deps.discoverDashboard(2000);
+      const local = servers.find(s => s.isLocal);
+      if (local) {
+        return { server: { host: local.host, port: local.port, piPort: local.piPort } };
+      }
+      // Remote servers exist but no local — fall through to health check
+    } catch {
+      // mDNS failed — fall through to health check
     }
-    // Remote servers exist but no local — fall through to health check
-  } catch {
-    // mDNS failed — fall through to health check
   }
 
   // 2. Fallback: health check on configured port
@@ -108,15 +126,18 @@ export async function autoStartServer(
     deps.onLaunchEnd?.(true);
     deps.notify(`🌐 Dashboard started at http://localhost:${config.port}`, "info");
 
-    // Wait for mDNS advertisement from the newly started server (up to 10s)
-    try {
-      const discovered = await deps.discoverDashboard(10000);
-      const local = discovered.find(s => s.isLocal);
-      if (local) {
-        return { server: { host: local.host, port: local.port, piPort: local.piPort } };
+    // Wait for mDNS advertisement from the newly started server (up to 10s).
+    // Skipped when mDNS is disabled — bind directly to the configured ports.
+    if (!noMdns) {
+      try {
+        const discovered = await deps.discoverDashboard(10000);
+        const local = discovered.find(s => s.isLocal);
+        if (local) {
+          return { server: { host: local.host, port: local.port, piPort: local.piPort } };
+        }
+      } catch {
+        // mDNS failed — use config defaults
       }
-    } catch {
-      // mDNS failed — use config defaults
     }
 
     return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
