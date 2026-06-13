@@ -204,6 +204,82 @@ describe("tokenize — absolute / file:// / Windows-drive", () => {
   });
 });
 
+describe("tokenize — generic extensions and dot-directories", () => {
+  type FileTok = Extract<Token, { kind: "file" }>;
+
+  it("detects leading dot-directory and does not truncate .json to .js", () => {
+    const input = ".pi/settings.json";
+    const toks = tokenize(input);
+    const files = ofKind(toks, "file");
+    expect(files).toHaveLength(1);
+    const f = files[0] as FileTok;
+    expect(f.path).toBe(".pi/settings.json");
+    expect(f.absolute).toBeFalsy();
+    expect(concat(toks)).toBe(input);
+    // no stray `on` text token
+    expect(ofKind(toks, "text")).toHaveLength(0);
+  });
+
+  it("does not truncate src/data.json to src/data.js", () => {
+    const toks = tokenize("src/data.json");
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("src/data.json");
+  });
+
+  it("detects multi-segment leading dot-directory (.github/workflows)", () => {
+    const input = ".github/workflows/ci.yml";
+    const toks = tokenize(input);
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe(".github/workflows/ci.yml");
+    expect(f.absolute).toBeFalsy();
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("detects interior dot-directory as a single relative token", () => {
+    const input = "a/.config/b.ts";
+    const toks = tokenize(input);
+    const files = ofKind(toks, "file");
+    expect(files).toHaveLength(1);
+    const f = files[0] as FileTok;
+    expect(f.path).toBe("a/.config/b.ts");
+    expect(f.absolute).toBeFalsy();
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("detects multi-level parent traversal without dropping leading ..", () => {
+    const input = "../../packages/server/src/cli.ts";
+    const toks = tokenize(input);
+    const files = ofKind(toks, "file");
+    expect(files).toHaveLength(1);
+    const f = files[0] as FileTok;
+    expect(f.path).toBe("../../packages/server/src/cli.ts");
+    expect(f.absolute).toBeFalsy();
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("detects unlisted text extension with line suffix", () => {
+    const toks = tokenize("config/app.toml:12");
+    const f = ofKind(toks, "file")[0] as FileTok;
+    expect(f.path).toBe("config/app.toml");
+    expect(f.line).toBe(12);
+  });
+
+  it("detects unlisted text extensions with separator", () => {
+    const input = "wrote scripts/setup.lua and config/db.sql";
+    const toks = tokenize(input);
+    const files = ofKind(toks, "file");
+    expect(files).toHaveLength(2);
+    expect((files[0] as FileTok).path).toBe("scripts/setup.lua");
+    expect((files[1] as FileTok).path).toBe("config/db.sql");
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("does not detect bare Node.js or README.md in prose", () => {
+    const toks = tokenize("the Node.js runtime and README.md docs");
+    expect(ofKind(toks, "file")).toHaveLength(0);
+  });
+});
+
 describe("tokenize — negative cases", () => {
   it("does not match version 1.0.0", () => {
     const toks = tokenize("installed v1.2.3 of foo and version 1.0.0 today");

@@ -17,22 +17,19 @@ export type Token =
 /** Maximum number of link tokens before remainder degrades to plain text. */
 export const MAX_LINKS = 5000;
 
-/** Recognised extensions for path detection (per spec). Longer-first for regex alternation. */
-const EXTS = [
-  "tsx", "ts", "jsx", "js", "mjs", "cjs",
-  "mdx", "md",
-  "json", "yaml", "yml",
-  "scss", "css",
-  "html", "sh",
-  "py", "go", "rs", "txt",
-];
-const EXT_GROUP = `(?:${EXTS.join("|")})`;
+// Generic file extension (per spec): a dot followed by an alpha character and
+// up to 15 further alphanumerics. No fixed allowlist — any text/code extension
+// linkifies once path structure is present. Alpha-first rejects all-numeric
+// tails (`.2024`, `.3`) so version-like prose (`v1.2.3`) is not pathy; the
+// length cap bounds backtracking. Replaces the old enumerated allowlist and
+// removes the `js`-before-`json` prefix-collision defect by construction.
+const EXT = "[A-Za-z][A-Za-z0-9]{0,15}";
 
-// A single path segment — letters, digits, dot, dash, underscore. Must NOT
-// be empty and SHOULD start with a non-dot character to keep prose tokens
-// like `1.2.3` from looking pathy. Trailing `.ext` is enforced at the
-// top-level pattern, so a `1.0.0` token cannot match (`.0` is not in EXTS).
-const SEG = "[\\w][\\w.-]*";
+// Relative path segment — word-start (prose guard) then word, dot, dash. A
+// leading dot is admitted (`.pi`, `.github`, `.config`) so dot-directories
+// linkify; a bare first segment still needs a separator (enforced at the
+// branch level) so `1.2.3` / `Node.js` stay non-pathy.
+const RDIR = "\\.?[\\w][\\w.-]*";
 // Absolute-context segment — may start with `.` (dot-directories like
 // `.config`, `.git`, `.pi`, `.worktrees`). Safe because a leading `/`, drive
 // letter, or `file://` scheme already disambiguates from prose, so the bare
@@ -59,15 +56,18 @@ const COMBINED = new RegExp(
   // file:// URI (file:// or file:///) with recognised extension. An optional
   // Windows drive segment (`C:/` / `C:\`) is admitted because URISEG excludes
   // `:`, so `file:///C:/src/app.ts` would otherwise never tokenize.
-  `|(?<file_uri>file:\\/\\/\\/?(?:[A-Za-z]:[\\\\/])?(?:${URISEG}[\\\\/])*${URISEG}\\.${EXT_GROUP}${LINE_COL})` +
+  `|(?<file_uri>file:\\/\\/\\/?(?:[A-Za-z]:[\\\\/])?(?:${URISEG}[\\\\/])*${URISEG}\\.${EXT}${LINE_COL})` +
   // POSIX absolute path (dot-directory segments allowed)
-  `|(?<file_posix>\\/(?:${ASEG}\\/)*${ASEG}\\.${EXT_GROUP}${LINE_COL})` +
+  `|(?<file_posix>\\/(?:${ASEG}\\/)*${ASEG}\\.${EXT}${LINE_COL})` +
   // Windows drive-absolute path (`\\` or `/` separators; dot-dirs allowed)
-  `|(?<file_win>[A-Za-z]:[\\\\/](?:${ASEG}[\\\\/])*${ASEG}\\.${EXT_GROUP}${LINE_COL})` +
-  // path-with-line(-col)
-  `|(?<file_line>(?:\\.{1,2}\\/)?(?:${SEG}\\/)*${SEG}\\.${EXT_GROUP}:\\d+(?::\\d+)?)` +
-  // path-with-ext: either explicit ./../ prefix (no separator needed) OR at least one separator
-  `|(?<file_ext>(?:\\.{1,2}\\/)(?:${SEG}\\/)*${SEG}\\.${EXT_GROUP}|(?:${SEG}\\/)+${SEG}\\.${EXT_GROUP})`,
+  `|(?<file_win>[A-Za-z]:[\\\\/](?:${ASEG}[\\\\/])*${ASEG}\\.${EXT}${LINE_COL})` +
+  // path-with-line(-col): one-or-more leading `../`, dot-dir segments. The line
+  // suffix is itself the structure signal so a bare `foo.ts:42` stays admitted.
+  `|(?<file_line>(?:\\.{1,2}\\/)*(?:${RDIR}\\/)*${RDIR}\\.${EXT}:\\d+(?::\\d+)?)` +
+  // path-with-ext: explicit `./`/`../` prefix (one-or-more, no separator needed)
+  // OR at least one separator. Dot-dir segments admitted; multi-level `../../`
+  // claims its interior-slash tail before file_posix can re-capture it.
+  `|(?<file_ext>(?:\\.{1,2}\\/)+(?:${RDIR}\\/)*${RDIR}\\.${EXT}|(?:${RDIR}\\/)+${RDIR}\\.${EXT})`,
   "g",
 );
 
