@@ -30,7 +30,7 @@ export {
 } from "./plugin-context.js";
 export type { InteractiveUiRequestSnapshot, SubagentStateSnapshot } from "./plugin-context.js";
 export type { PluginContextProviderProps, PluginLogger, PluginRouter } from "./plugin-context.js";
-export { publishSessionEvent, clearSessionEvents } from "./session-events-store.js";
+export { publishSessionEvent, clearSessionEvents, getSessionEvents } from "./session-events-store.js";
 export { intentStore, useSlotIntents, IntentStore, keyToString } from "./intent-store.js";
 export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
 export { IntentRenderer, UnknownPrimitive, isIntentNode } from "./intent-renderer.js";

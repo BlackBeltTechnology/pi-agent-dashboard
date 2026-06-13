@@ -16,30 +16,38 @@ The system SHALL ship a monorepo package at `packages/goal-plugin/` published as
 - **THEN** the plugin activates on dashboard boot without a manual toggle
 - **AND** it is surfaced in Settings ▸ Plugins
 
-### Requirement: Bridge entry runs the judge-driven continuation loop
+### Requirement: Plugin requires the `@ricoyudog/pi-goal-hermes` extension
 
-The plugin bridge entry SHALL register `pi.on("turn_end")` to capture the last assistant text and `pi.on("agent_end")` to run the judge against the current goal. The judge logic (`evaluateWithJudge`, `JudgeService`, continuation-prompt builder, goal-state persistence) SHALL be vendored from `@ricoyudog/pi-goal-hermes` with no TUI coupling. On a "continue" verdict the entry SHALL emit `pi.events.emit("dashboard:enqueue-followup", { text })` and SHALL NOT call `pi.sendUserMessage` directly.
+The plugin manifest SHALL declare `requires.piExtensions: ["@ricoyudog/pi-goal-hermes"]`. The judge-driven loop (judge, state persistence, continuation injection via `deliverAs:"followUp"`, `/goal` command) SHALL be owned by that installed pi extension — NOT vendored into the plugin. The plugin SHALL activate only when the requirement probe reports the extension installed.
 
-#### Scenario: Judge says continue
+#### Scenario: Extension not installed
 
-- **WHEN** a goal is active, the turn ends with non-empty assistant text, and the judge verdict is "not done"
-- **THEN** `turnsUsed` increments, state is persisted, and `dashboard:enqueue-followup` is emitted with the continuation prompt
-- **AND** no direct `pi.sendUserMessage` call is made by the plugin
+- **WHEN** `@ricoyudog/pi-goal-hermes` is not installed
+- **THEN** the requirement probe reports it unsatisfied and the plugin surfaces as inactive (no chip, no continuations)
 
-#### Scenario: Judge says done
+#### Scenario: Extension installed
 
-- **WHEN** the judge verdict is "done"
-- **THEN** status transitions to `done`, no continuation is emitted, and a `done` `goal_status` snapshot is broadcast
+- **WHEN** the extension is installed into pi
+- **THEN** the probe flips to satisfied and the plugin activates; the extension's loop runs in any session whose bridge loads the plugin
 
-#### Scenario: Budget exhausted or unparseable
+### Requirement: Thin bridge entry mirrors extension events to a clean snapshot
 
-- **WHEN** `turnsUsed >= maxTurns` OR the judge output is unparseable 3 times in a row
-- **THEN** status transitions to `paused` with the corresponding reason and no continuation is emitted
+The plugin bridge entry SHALL subscribe to the extension's `pi-goal-hermes:event` custom messages and map each (`goal-set` / `goal-continuing` / `goal-achieved` / `goal-paused` / `goal-resumed` / `goal-cleared`) to a clean `goal_status` snapshot re-emitted to the plugin server. The bridge entry SHALL NOT run its own judge and SHALL NOT call `pi.sendUserMessage`; continuation injection stays owned by the extension.
 
-#### Scenario: Session reload while active
+#### Scenario: Continuing event
 
-- **WHEN** `session_start` fires with `reason === "reload"` and the restored goal is active
-- **THEN** the goal is paused with reason `"reload"` and a `paused` snapshot is broadcast
+- **WHEN** the extension emits `pi-goal-hermes:event` with `eventType: "goal-continuing"`
+- **THEN** the bridge entry re-emits a `goal_status` snapshot with `status: "active"`, the new `turnsUsed`/`maxTurns`, and `lastVerdict`
+
+#### Scenario: Achieved event
+
+- **WHEN** the extension emits `goal-achieved`
+- **THEN** the bridge entry re-emits a `done` `goal_status` snapshot
+
+#### Scenario: Paused event (budget / unparseable / reload / interrupted)
+
+- **WHEN** the extension emits `goal-paused` with a `pausedReason`
+- **THEN** the bridge entry re-emits a `paused` `goal_status` snapshot carrying that reason
 
 ### Requirement: Goal status surfaced as a snapshot broadcast
 

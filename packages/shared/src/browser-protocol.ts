@@ -4,6 +4,7 @@
 import type {
   PluginIntentsMessage,
   PluginActionMessage,
+  PluginEventBroadcast,
 } from "./dashboard-plugin/intent-types.js";
 import type {
   DashboardSession,
@@ -702,6 +703,7 @@ export type ServerToBrowserMessage =
   | BrowserExtUiDecoratorMessage
   | BrowserAssetRegisterMessage
   | PluginIntentsMessage
+  | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage
   | ViewMessagesUpdateMessage;

@@ -301,6 +301,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-honcho-plugin"
             "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin"
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
+            "@blackbelt-technology/pi-dashboard-goal-plugin"
             "@blackbelt-technology/pi-image-fit"
             "@blackbelt-technology/pi-agent-dashboard"
           )

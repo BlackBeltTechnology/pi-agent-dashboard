@@ -60,6 +60,24 @@ export interface ActionDescriptor {
  * a plugin. The shell on every connected client receives it via the bridge
  * fanout.
  */
+/**
+ * Server → Browser: a generic plugin-emitted dashboard event for a session.
+ * The plugin server broadcasts these; the shell routes `event` into the
+ * plugin per-session event store so `useSessionEvents(sessionId)` consumers
+ * re-render. Distinct from `plugin_intents` (declarative slot trees) — this
+ * carries a raw `{ eventType, timestamp, data }` event for plugin reducers.
+ * See change: add-goal-continuation-plugin.
+ */
+export interface PluginEventBroadcast {
+  type: "plugin_event";
+  /** The plugin emitting this event. */
+  pluginId: string;
+  /** The session this event applies to. */
+  sessionId: string;
+  /** Raw dashboard event folded by the plugin's own reducer. */
+  event: { eventType: string; timestamp: number; data: Record<string, unknown> };
+}
+
 export interface PluginIntentsMessage {
   type: "plugin_intents";
   /** The plugin emitting this intent. */

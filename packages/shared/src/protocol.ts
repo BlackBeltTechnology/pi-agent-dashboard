@@ -469,6 +469,27 @@ export interface AssetRegisterMessage {
   data: string;
 }
 
+/**
+ * Generic plugin-originated message forwarded from a plugin bridge entry to
+ * its plugin server entry. The bridge emits `pi.events.emit("dashboard:plugin-message",
+ * { pluginId, messageType, payload })`; the main bridge wraps it in this
+ * envelope and the server dispatches it to handlers registered via
+ * `ServerPluginContext.registerPiHandler(messageType, handler)`.
+ *
+ * Keeps plugin-specific payloads out of the typed core protocol: the
+ * envelope is generic, `payload` is opaque. See change: add-goal-continuation-plugin.
+ */
+export interface PluginPiMessage {
+  type: "plugin_pi_message";
+  sessionId: string;
+  /** Manifest id of the originating plugin (e.g. "goal"). */
+  pluginId: string;
+  /** Handler key the plugin server registered via registerPiHandler. */
+  messageType: string;
+  /** Opaque plugin-defined payload. */
+  payload: unknown;
+}
+
 export type ExtensionToServerMessage =
   | SessionRegisterMessage
   | SessionUnregisterMessage
@@ -500,6 +521,7 @@ export type ExtensionToServerMessage =
   | AssetRegisterMessage
   | DispatchExtensionCommandMessage
   | CwdMissingMessage
+  | PluginPiMessage
   | QueueUpdateToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────

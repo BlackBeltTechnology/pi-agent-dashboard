@@ -22,13 +22,15 @@ Port Hermes `/goal` (judge-driven cross-turn continuation, the "Ralph loop") int
 - Image-bearing continuations (inherits `bridgeFollowUp` text-only limit).
 - Changing the standalone `@ricoyudog/pi-goal-hermes` package.
 
-## Decision 1: Vendor the judge core, replace only injection + UX
+## Decision 1 (REVISED): Require the external extension, do NOT vendor
 
-**Choice:** Copy `judge-service.ts`, `goal-manager.ts` (`evaluateWithJudge`), `goal-state.ts`, `continuation-prompt.ts` from `@ricoyudog/pi-goal-hermes` into `packages/goal-plugin/src/bridge/`. Replace `index.ts` turn-injection (`queueContinuation` → emit `dashboard:enqueue-followup`) and delete all TUI UX (`setStatus` / `notify` / `registerMessageRenderer`) in favour of `goal_status` broadcasts.
+**Choice:** Install `@ricoyudog/pi-goal-hermes` as a pi extension (`pi.extensions: ["./index.ts"]`). The plugin manifest declares `requires.piExtensions: ["@ricoyudog/pi-goal-hermes"]` so it activates only when the extension is installed — exactly the honcho `pi-memory-honcho` pattern. The extension runs the whole loop in-session: judge (`evaluateWithJudge`), state persistence, `/goal` command, AND its own continuation injection via `pi.sendMessage(…, { deliverAs: "followUp", triggerTurn: true })`. It also emits `pi-goal-hermes:event` custom messages carrying full goal state in `details`.
 
-**Rationale:** The judge + state machine + continuation-prompt builder are pure logic with no dashboard or TUI coupling — verified by reading them. Only the two surfaces that don't cross the bridge (injection, UX) need replacing.
+**Rationale:** Vendoring forks four files from upstream and re-tests pure logic that already ships and works in the pi TUI. Requiring the extension keeps a single source of truth, zero vendor drift, and matches the established honcho/jj `requires` activation model the user asked for. The plugin shrinks to dashboard surfaces only (server + client + a thin bridge status-mirror).
 
-**Rejected:** (a) Depend on the npm package as-is — its `index.ts` runs a parallel `sendUserMessage` engine (Decision 2 forbids). (b) Reimplement the judge from scratch — wasteful; the port is correct.
+**Rejected:** (a) Vendor the judge core (original Decision 1) — fork + drift, re-implements injection the extension already does. (b) Reimplement from scratch — wasteful.
+
+**Consequence:** Continuation injection is owned by the extension (`deliverAs:"followUp"`), not the plugin. `enqueueSystemFollowup` (Decision 2) is retained as generic safety-net infrastructure for any plugin-routed continuation, not the primary path.
 
 ## Decision 2: ONE continuation engine via `enqueueSystemFollowup`
 
@@ -36,13 +38,17 @@ Port Hermes `/goal` (judge-driven cross-turn continuation, the "Ralph loop") int
 
 **Rationale:** Collapses user follow-ups and goal continuations into the single existing drain path. `isDraining` lock + one-entry-per-`agent_end` already serialize them; no new race surface. Defeats both timing walls: the ungated push survives the closed `isAgentStreaming` gate, and the explicit drain schedule re-runs after the judge resolves. Generic — any plugin can request a system follow-up.
 
+**Status after Decision 1 revision:** Implemented and retained as a SAFETY NET. The required extension does its own `deliverAs:"followUp"` injection, so `enqueueSystemFollowup` is not on the hot path in v1. It stays because (a) it is generic bridge infrastructure already merged + tested (`bridge-system-followup.test.ts`), and (b) it is the collision-safe route if a plugin ever needs to drive a continuation through the bridge's single queue instead of the extension's engine.
+
 **Ordering:** push to the BACK of `bridgeFollowUp` (default) so a user follow-up queued mid-goal-turn wins; goal continuation rides the next `agent_end`. (Front-insert via the existing `unshift` primitive is a config knob if "goal authoritative" is wanted later.)
 
 **Rejected:** (a) Parallel `queueContinuation` (the port's approach) — two engines racing `isIdle()` → double turns. (b) Reuse `bufferFollowupSend` directly — its `isAgentStreaming` gate is shut at judge time → silent no-op + stall.
 
 ## Decision 3: Plugin-owned status via snapshot broadcast (mirror `queue_update`)
 
-**Choice:** The plugin server caches the latest `goal_status` per session and `broadcastToSubscribers` on change, replaying on (re)subscribe — identical semantics to the core `queue_update` snapshot (`protocol.ts:8`). The plugin client reducer keys on its OWN message type; a `GoalChip` slot reads it. No `goal_status` in the shared protocol union, no `case` in the shell `event-reducer.ts`.
+**Choice:** A thin plugin bridge entry subscribes to the extension's `pi-goal-hermes:event` custom messages (which already cross the bridge as messages), maps each to a clean `goal_status` snapshot, and re-emits it to the plugin server. The plugin server caches the latest `goal_status` per session and `broadcastToSubscribers` on change, replaying on (re)subscribe — identical semantics to the core `queue_update` snapshot (`protocol.ts:8`). The plugin client reducer keys on its OWN message type; a `GoalChip` slot reads it. No `goal_status` in the shared protocol union, no `case` in the shell `event-reducer.ts`.
+
+**Why a bridge entry (vs reading raw messages in the server):** the extension's `pi-goal-hermes:event` payloads carry display strings + TUI render details mixed with state. The thin bridge entry normalizes them to a stable `{ status, goal, turnsUsed, maxTurns, lastVerdict, lastReason }` snapshot once, at the source, so the server and client never parse extension-internal message shapes.
 
 **Rationale:** Goal status is a single current value, not a log — snapshot model fits (survives reconnect, no replay-the-whole-log rebuild). Plugins already own reducers + slots (flows intents prove it end-to-end). Keeps core untouched.
 

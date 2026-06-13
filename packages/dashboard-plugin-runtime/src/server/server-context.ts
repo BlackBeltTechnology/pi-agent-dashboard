@@ -39,6 +39,21 @@ export type BroadcastFn = (msg: unknown) => void;
 /** Register a handler for an extension WebSocket message type. */
 export type RegisterPiHandlerFn = (type: string, handler: (msg: unknown) => void) => void;
 
+/**
+ * Subscribe to every forwarded pi event for any session. The handler
+ * receives `(sessionId, event)` where `event` is the raw forwarded pi
+ * event (`{ eventType, timestamp, data }`). Returns an unsubscribe fn.
+ */
+export type OnEventFn = (handler: (sessionId: string, event: unknown) => void) => () => void;
+
+/**
+ * Send a prompt/command into a running pi session. Text starting with `/`
+ * is routed through the bridge's extension-command dispatch (Path C keeper
+ * for headless sessions). Returns false when the session is not connected.
+ * See change: add-goal-continuation-plugin.
+ */
+export type SendToSessionFn = (sessionId: string, text: string) => boolean;
+
 /** Register a handler for a browser WebSocket message type. */
 export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws: unknown) => void) => void;
 
@@ -50,6 +65,10 @@ export interface ServerPluginContext {
   broadcastToSubscribers: BroadcastFn;
   registerPiHandler: RegisterPiHandlerFn;
   registerBrowserHandler: RegisterBrowserHandlerFn;
+  /** Subscribe to all forwarded pi events. See change: add-goal-continuation-plugin. */
+  onEvent: OnEventFn;
+  /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
+  sendToSession: SendToSessionFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
   logger: PluginLogger;
@@ -63,6 +82,8 @@ export interface ServerContextDeps {
   broadcastToSubscribers: BroadcastFn;
   registerPiHandler: RegisterPiHandlerFn;
   registerBrowserHandler: RegisterBrowserHandlerFn;
+  onEvent: OnEventFn;
+  sendToSession: SendToSessionFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
 }
@@ -83,6 +104,8 @@ export function createServerPluginContext(
     broadcastToSubscribers: deps.broadcastToSubscribers,
     registerPiHandler: deps.registerPiHandler,
     registerBrowserHandler: deps.registerBrowserHandler,
+    onEvent: deps.onEvent,
+    sendToSession: deps.sendToSession,
 
     getPluginConfig<T>(): T {
       return deps.getPluginConfig(pluginId) as T;

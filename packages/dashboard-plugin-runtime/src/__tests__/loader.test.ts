@@ -19,6 +19,8 @@ function makeFakeContext(): ServerPluginContext {
     eventStore: { getEvents: () => [], getLatestEvent: () => undefined },
     broadcastToSubscribers: () => {},
     registerPiHandler: () => {},
+    onEvent: () => () => {},
+    sendToSession: () => true,
     registerBrowserHandler: () => {},
     getPluginConfig: () => ({} as never),
     updatePluginConfig: async () => {},

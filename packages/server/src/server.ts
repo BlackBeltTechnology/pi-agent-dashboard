@@ -501,6 +501,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     browserGateway.sendToClient(ws, { type: "servers_discovered", servers: all });
   };
 
+  // Plugin pi-message dispatch registry + raw-event subscribers.
+  // Populated by ServerPluginContext.registerPiHandler / onEvent (see the
+  // createContext block below); consumed by wireEvents — `plugin_pi_message`
+  // envelopes route to handlers by messageType; every `event_forward` fans
+  // out to raw-event subscribers. See change: add-goal-continuation-plugin.
+  const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
+  const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
+  function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
+    const arr = pluginPiHandlers.get(messageType);
+    if (!arr) return;
+    for (const h of arr) {
+      try { h(msg); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
+    }
+  }
+  function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
+    for (const h of pluginRawEventSubs) {
+      try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
+    }
+  }
+
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
@@ -516,6 +536,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingWorktreeBaseRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
+    dispatchPluginPiMessage,
+    dispatchPluginRawEvent,
   });
 
   // Auto-shutdown idle timer
@@ -1103,7 +1125,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 browserGateway.broadcast(msg as any);
               },
-              registerPiHandler: (_type, _handler) => {},
+              registerPiHandler: (type, handler) => {
+                const arr = pluginPiHandlers.get(type) ?? [];
+                arr.push(handler);
+                pluginPiHandlers.set(type, arr);
+              },
+              onEvent: (handler) => {
+                pluginRawEventSubs.add(handler);
+                return () => pluginRawEventSubs.delete(handler);
+              },
+              sendToSession: (sessionId, text) =>
+                piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
               registerBrowserHandler: (type, handler) =>
                 browserGateway.registerHandler(type, (msg, ws) =>
                   handler(msg, ws as unknown),

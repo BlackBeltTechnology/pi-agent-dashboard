@@ -76,6 +76,21 @@ export interface EventWiringDeps {
    * correlation. See change: spawn-correlation-token.
    */
   pendingClientCorrelations?: import("./pending-client-correlations.js").PendingClientCorrelations;
+  /**
+   * Optional plugin pi-message dispatcher. When provided, every
+   * `plugin_pi_message` envelope forwarded from a plugin bridge entry is
+   * routed to plugin-server handlers registered via
+   * `ServerPluginContext.registerPiHandler(messageType, handler)`.
+   * See change: add-goal-continuation-plugin.
+   */
+  dispatchPluginPiMessage?: (messageType: string, msg: unknown) => void;
+  /**
+   * Optional raw pi-event fan-out. When provided, every forwarded
+   * `event_forward` event is delivered to plugin-server subscribers
+   * registered via `ServerPluginContext.onEvent(handler)`.
+   * See change: add-goal-continuation-plugin.
+   */
+  dispatchPluginRawEvent?: (sessionId: string, event: unknown) => void;
 }
 
 /**
@@ -97,6 +112,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingWorktreeBaseRegistry,
     viewedSessionTracker,
     pendingClientCorrelations,
+    dispatchPluginPiMessage,
+    dispatchPluginRawEvent,
   } = deps;
 
   // Broadcast placeholder session to browsers when auto-created from early events
@@ -197,7 +214,19 @@ export function wireEvents(deps: EventWiringDeps): void {
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
   piGateway.onEvent = (sessionId, msg) => {
+    // Generic plugin bridge→server channel. Routed to plugin-server
+    // handlers by messageType; never touches core session state.
+    // See change: add-goal-continuation-plugin.
+    if (msg.type === "plugin_pi_message") {
+      dispatchPluginPiMessage?.(msg.messageType, msg);
+      return;
+    }
+
     if (msg.type === "event_forward") {
+      // Raw-event fan-out to plugin onEvent subscribers (live + replay).
+      // Fired before the core handling so plugins see every forwarded event.
+      // See change: add-goal-continuation-plugin.
+      dispatchPluginRawEvent?.(sessionId, msg.event);
       // Legacy queue_state event no longer emitted (bridge removed PromptQueue).
       // See change: add-followup-edit-and-steer-cancel.
       if (msg.event.eventType === "queue_state") return;

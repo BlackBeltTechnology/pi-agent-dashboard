@@ -274,6 +274,14 @@ export function useMessageHandler(
         );
         break;
 
+      // Generic plugin-emitted dashboard event. Routed into the plugin
+      // per-session event store so `useSessionEvents(sessionId)` consumers
+      // (e.g. goal-plugin GoalChip) re-derive. See change:
+      // add-goal-continuation-plugin.
+      case "plugin_event":
+        publishSessionEvent(msg.sessionId, msg.event);
+        break;
+
       case "commands_list":
         setSessionCommands((prev) => {
           const next = new Map(prev);

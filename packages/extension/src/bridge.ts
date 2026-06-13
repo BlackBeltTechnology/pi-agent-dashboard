@@ -386,6 +386,37 @@ function initBridge(pi: ExtensionAPI) {
     }
   }
   /**
+   * System-originated follow-up enqueue. Unlike `bufferFollowupSend`, this
+   * does NOT gate on `isAgentStreaming` — it is called by plugin bridges
+   * (via the `dashboard:enqueue-followup` pi.event) AFTER `agent_end` has
+   * fired, by which point `isAgentStreaming` is already `false` and the
+   * streaming gate would silently discard the entry.
+   *
+   * Routes through the SINGLE existing `drainFollowupQueue` path so a
+   * plugin-requested continuation cannot race or double-inject against
+   * user follow-ups: both share the one `bridgeFollowUp` buffer and the
+   * `isDraining` lock, shipping one entry per `agent_end`.
+   *
+   * Respects `FOLLOWUP_QUEUE_CAP` (drops with warning, same policy as
+   * `bufferFollowupSend`). Schedules `drainFollowupQueue(0)` via
+   * `setTimeout(…, 0)` so the drain re-runs AFTER the async judge verdict
+   * resolves (the bridge's own `agent_end` drain already ran against an
+   * empty buffer by then).
+   *
+   * Generic infrastructure — not goal-specific. See change:
+   * add-goal-continuation-plugin (design.md Decision 2).
+   */
+  function enqueueSystemFollowup(text: string): void {
+    if (typeof text !== "string" || text.length === 0) return;
+    if (bridgeFollowUp.length >= FOLLOWUP_QUEUE_CAP) {
+      console.warn("[dashboard] follow-up buffer at soft cap (" + FOLLOWUP_QUEUE_CAP + "); dropping system entry");
+      return;
+    }
+    bridgeFollowUp.push(text);
+    emitQueueUpdate();
+    setTimeout(() => drainFollowupQueue(0), 0);
+  }
+  /**
    * Mirror of pi's `_getUserMessageText` (pi-coding-agent agent-session.js).
    * Used by the per-entry shadow-queue drain matcher in the `message_start`
    * handler. Joining all text blocks (and dropping non-text content) keeps
@@ -1855,6 +1886,38 @@ function initBridge(pi: ExtensionAPI) {
       // Expose bus request function for pi-flows to use via emitPromptAndAwait
       pi.events.emit("prompt:set-bus-request", {
         request: (options: any) => promptBus!.request(options),
+      });
+
+      // Generic system-follow-up channel: any plugin bridge entry can request
+      // a system-originated continuation through the single drain path by
+      // emitting `dashboard:enqueue-followup`. Inert when no plugin emits it.
+      // See change: add-goal-continuation-plugin (Decision 2).
+      pi.events.on("dashboard:enqueue-followup", (payload: any) => {
+        if (payload && typeof payload.text === "string") {
+          enqueueSystemFollowup(payload.text);
+        }
+      });
+
+      // Generic plugin bridge→server channel: a plugin bridge entry emits
+      // `dashboard:plugin-message` and the main bridge wraps it in a
+      // `plugin_pi_message` envelope over the extension WS. The server
+      // dispatches to handlers registered via
+      // `ServerPluginContext.registerPiHandler(messageType, handler)`.
+      // See change: add-goal-continuation-plugin.
+      pi.events.on("dashboard:plugin-message", (payload: any) => {
+        if (
+          payload &&
+          typeof payload.pluginId === "string" &&
+          typeof payload.messageType === "string"
+        ) {
+          connection.send({
+            type: "plugin_pi_message",
+            sessionId,
+            pluginId: payload.pluginId,
+            messageType: payload.messageType,
+            payload: payload.payload ?? null,
+          });
+        }
       });
     }
 

@@ -430,6 +430,16 @@ Results populate `PluginStatus.requirements` + flat `missingRequirements: string
 
 **Settings consolidation.** Plugin-contributed `settings-section` claims render only under owning plugin row in Settings ▸ Plugins. Legacy `claim.tab` manifest field preserved for back-compat manifests; `SettingsPanel` no longer consumes it. See change: add-plugin-activation-ui (settings-consolidation).
 
+#### Plugin bridge↔server channel (generic)
+
+Generic channel. Any plugin routes pi events bridge→server→browser + requests system follow-ups. goal-plugin first consumer. See change: add-goal-continuation-plugin.
+
+- `dashboard:enqueue-followup` event. Plugin bridge emits `{text}`. Main bridge `enqueueSystemFollowup` ships text through single `bridgeFollowUp` drain. Ungated push, survives closed `isAgentStreaming` gate. Generic — any plugin requests system follow-up.
+- `dashboard:plugin-message` event. Plugin bridge emits `{pluginId, messageType, payload}`. Main bridge wraps in `plugin_pi_message` over extension WS.
+- `plugin_pi_message` (ExtensionToServer). Server `event-wiring` dispatches to `ServerPluginContext.registerPiHandler(messageType, handler)`.
+- `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
+- New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
+
 ### Bootstrap & First Run (R3, immutable bundle)
 
 pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.

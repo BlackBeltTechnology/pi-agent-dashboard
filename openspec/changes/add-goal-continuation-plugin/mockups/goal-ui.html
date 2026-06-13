@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal Continuation Plugin — Card Mockup</title>
+<!--
+  Mockup built from the REAL SessionCard.tsx tokens (captured via browser + source):
+   • card: px-4 py-3 rounded-xl shadow-md border border-[--border-subtle] bg-[--bg-tertiary]
+   • Line 1: status icon + name (text-sm) + age (text-[11px] --text-muted)
+   • Line 2: model (text-[12px] --text-tertiary) + activity + [chips] + spacer + ctx bar + cost
+   • existing chip convention (queue badge): rounded-full px-1.5 text-[10px] bg-*/15 text-* border border-*/30
+   • action buttons convention: text-[9px] px-1 py-px rounded border border-*/30 text-*
+  CSS vars below are copied verbatim from packages/client/src/index.css (dark + light).
+-->
+<style>
+  :root, html[data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-secondary:#333; --border-subtle:rgba(255,255,255,.06); --shadow-card:rgba(0,0,0,.4);
+  }
+  html[data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-overlay:rgba(0,0,0,.3);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06); --shadow-card:rgba(0,0,0,.08);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font:14px/1.4 -apple-system,system-ui,"Segoe UI",sans-serif; padding:28px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--text-tertiary); font-size:12.5px; margin:0 0 22px; max-width:760px; }
+  .col { display:flex; flex-direction:column; gap:18px; max-width:560px; }
+  .caption { font:11px/1.4 ui-monospace,Menlo,monospace; color:var(--text-tertiary);
+    border-left:2px solid #6366f1; padding:3px 10px; margin:6px 0 2px; }
+  .toggle { float:right; font:600 12px system-ui; background:transparent; color:var(--text-secondary);
+    border:1px solid var(--border-secondary); border-radius:8px; padding:6px 12px; cursor:pointer; }
+
+  /* ── real card ────────────────────────────── */
+  .card { padding:12px 16px; border-radius:12px; border:1px solid var(--border-subtle);
+    background:var(--bg-tertiary); box-shadow:0 4px 6px -1px var(--shadow-card); }
+  .row1 { display:flex; align-items:center; gap:8px; }
+  .icon { color:#34d399; flex:0 0 auto; font-size:13px; }
+  .name { font-size:13.5px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .age { font-size:11px; color:var(--text-muted); flex:0 0 auto; }
+  .row2 { display:flex; align-items:center; gap:8px; margin-top:4px; font-size:12px; }
+  .model { color:var(--text-tertiary); }
+  .activity { color:var(--text-tertiary); font-size:11px; }
+  .spacer { flex:1; }
+  .ctxbar { width:56px; height:4px; border-radius:999px; background:var(--border-secondary); position:relative; }
+  .ctxbar::after{ content:""; position:absolute; inset:0 60% 0 0; border-radius:999px; background:#34d399; }
+  .cost { color:var(--text-tertiary); flex:0 0 auto; }
+
+  /* ── chip: matches existing queue-badge convention ── */
+  .chip { flex:0 0 auto; display:inline-flex; align-items:center; gap:4px;
+    padding:1px 7px; border-radius:999px; font:600 10px/1.5 ui-monospace,Menlo,monospace; border:1px solid; }
+  .chip .dot{ font-size:8px; }
+  .chip.go   { background:rgba(99,102,241,.15);  color:#a5b4fc; border-color:rgba(99,102,241,.30); }
+  .chip.pause{ background:rgba(251,191,36,.15);  color:#fcd34d; border-color:rgba(251,191,36,.30); }
+  .chip.done { background:rgba(52,211,153,.15);  color:#6ee7b7; border-color:rgba(52,211,153,.30); }
+  html[data-theme="light"] .chip.go   { color:#4338ca; }
+  html[data-theme="light"] .chip.pause{ color:#92600a; }
+  html[data-theme="light"] .chip.done { color:#047857; }
+  .pulse { animation:pulse 1.6s ease-in-out infinite; } @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+  /* ── expandable goal control row (action-button convention) ── */
+  .goalrow { margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); }
+  .glabel { font:600 9px/1 ui-monospace,Menlo,monospace; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--text-muted); margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .gtext { font-size:12px; color:var(--text-secondary); background:var(--bg-secondary);
+    border:1px solid var(--border-subtle); border-radius:6px; padding:5px 8px; margin-bottom:6px; }
+  textarea { width:100%; resize:vertical; min-height:42px; background:var(--bg-secondary); color:var(--text-primary);
+    border:1px solid var(--border-secondary); border-radius:6px; padding:5px 8px; font:12px system-ui; outline:none; }
+  textarea:focus { border-color:#6366f1; }
+  .meta { display:flex; gap:12px; font:10px/1 ui-monospace,Menlo,monospace; color:var(--text-muted); margin:6px 0; }
+  .meta b{ color:var(--text-secondary); }
+  .btns { display:flex; gap:5px; flex-wrap:wrap; }
+  .b { font:600 9px/1 system-ui; padding:3px 7px; border-radius:6px; border:1px solid; background:transparent; cursor:pointer; }
+  .b.green { border-color:rgba(34,197,94,.30); color:#4ade80; }
+  .b.blue  { border-color:rgba(59,130,246,.30); color:#60a5fa; }
+  .b.amber { border-color:rgba(249,115,22,.30); color:#fb923c; }
+  .b.red   { border-color:rgba(239,68,68,.30);  color:#f87171; }
+  .b.primary{ background:#6366f1; border-color:#6366f1; color:#fff; }
+  .b.dim   { border-color:var(--border-secondary); color:var(--text-tertiary); }
+</style>
+</head>
+<body>
+  <button class="toggle" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">toggle theme</button>
+  <h1>Goal Continuation Plugin — fits the real SessionCard</h1>
+  <p class="sub">Cards rebuilt from <code>SessionCard.tsx</code> tokens (<code>rounded-xl</code>, <code>--bg-tertiary</code>, the Line-2 chip row, action-button convention). The <b>GoalChip</b> rides Line 2 beside the queue badge; the <b>Set Goal control</b> is an expandable row under it using the existing tiny-button style. Toggle theme to verify both palettes.</p>
+
+  <div class="col">
+
+    <!-- 1. PURSUING — chip only, collapsed -->
+    <div class="caption">① Goal active, collapsed — chip on Line 2 beside queue badge</div>
+    <div class="card">
+      <div class="row1"><span class="icon">◉</span><span class="name">pi-agent-dashboard</span><span class="age">11m</span></div>
+      <div class="row2">
+        <span class="model">anthropic/claude-opus-4-8</span>
+        <span class="activity">Running</span>
+        <span class="chip go"><span class="dot pulse">●</span>Pursuing 4/20</span>
+        <span class="spacer"></span><span class="ctxbar"></span><span class="cost">$0.79</span>
+      </div>
+    </div>
+
+    <!-- 2. PURSUING — expanded control -->
+    <div class="caption">② Expanded — Set Goal control as a bordered row (action-button style)</div>
+    <div class="card">
+      <div class="row1"><span class="icon">◉</span><span class="name">pi-agent-dashboard</span><span class="age">11m</span></div>
+      <div class="row2">
+        <span class="model">anthropic/claude-opus-4-8</span>
+        <span class="chip go"><span class="dot pulse">●</span>Pursuing 4/20</span>
+        <span class="spacer"></span><span class="ctxbar"></span><span class="cost">$0.79</span>
+      </div>
+      <div class="goalrow">
+        <div class="glabel">◎ Goal</div>
+        <div class="gtext">Get the test suite green and keep it green.</div>
+        <div class="meta"><span>turns <b>4/20</b></span><span>last verdict <b>continue</b></span><span>judge <b>haiku</b></span></div>
+        <div class="btns">
+          <button class="b amber">⏸ Pause</button>
+          <button class="b green">✓ Done</button>
+          <button class="b red">Clear</button>
+          <button class="b dim">＋ Subgoal</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. PAUSED -->
+    <div class="caption">③ Paused (budget) — amber chip + Resume</div>
+    <div class="card">
+      <div class="row1"><span class="icon" style="color:var(--text-tertiary)">◉</span><span class="name">Session ordering refactor</span><span class="age">12m</span></div>
+      <div class="row2">
+        <span class="model">anthropic/claude-opus-4-8</span>
+        <span class="activity">Waiting for input</span>
+        <span class="chip pause">⏸ Paused · budget</span>
+        <span class="spacer"></span><span class="ctxbar"></span><span class="cost">$2.98</span>
+      </div>
+      <div class="goalrow">
+        <div class="glabel">◎ Goal</div>
+        <div class="gtext">Get the test suite green and keep it green.</div>
+        <div class="meta"><span>turns <b>20/20</b></span><span>reason <b>budget exhausted</b></span></div>
+        <div class="btns">
+          <button class="b primary">▶ Resume</button>
+          <button class="b blue">⤢ Raise budget</button>
+          <button class="b red">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. EMPTY / SET -->
+    <div class="caption">④ No goal yet — Set Goal input (chip hidden when no snapshot)</div>
+    <div class="card">
+      <div class="row1"><span class="icon" style="color:var(--text-tertiary)">◉</span><span class="name">MAIN</span><span class="age">7d</span></div>
+      <div class="row2">
+        <span class="model">anthropic/claude-opus-4-8</span>
+        <span class="activity">Waiting for input</span>
+        <span class="spacer"></span><span class="ctxbar"></span><span class="cost">$3.45</span>
+      </div>
+      <div class="goalrow">
+        <div class="glabel">◎ Goal · none set</div>
+        <textarea placeholder="Set a standing objective… e.g. &quot;Ship the release and verify CI is green.&quot;"></textarea>
+        <div class="btns" style="margin-top:6px;align-items:center">
+          <button class="b primary">Set goal</button>
+          <span class="meta" style="margin:0">judge <b>haiku</b> · max <b>20</b> turns</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. DONE -->
+    <div class="caption">⑤ Achieved — green chip, control auto-collapses</div>
+    <div class="card">
+      <div class="row1"><span class="icon">◉</span><span class="name">docs sweep</span><span class="age">2m</span></div>
+      <div class="row2">
+        <span class="model">anthropic/claude-haiku-4-5</span>
+        <span class="activity">Waiting for input</span>
+        <span class="chip done">✓ Achieved</span>
+        <span class="spacer"></span><span class="ctxbar"></span><span class="cost">$0.12</span>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
