@@ -51,6 +51,11 @@ describe("ReplaceProposalDialog", () => {
     expect(screen.queryByTestId("replace-proposal-dialog")).toBeNull();
   });
 
+  it("6.1c does not render when attachedProposal is absent even if pending exists", () => {
+    renderActions(makeSession({ attachedProposal: null, pendingReplaceProposal: "bravo" }));
+    expect(screen.queryByTestId("replace-proposal-dialog")).toBeNull();
+  });
+
   it("6.2 button text shows the committed target, not the latest suggestion", () => {
     const { rerender } = renderActions(
       makeSession({ attachedProposal: "alpha", pendingReplaceProposal: "bravo" }),

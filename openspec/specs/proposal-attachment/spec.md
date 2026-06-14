@@ -294,8 +294,9 @@ User-initiated attach paths (`handleAttachProposal`, REST `POST /api/session/:id
 The `DashboardSession` type SHALL include an optional
 `pendingReplaceProposal?: string | null` field representing a
 server-suggested replacement for a manually-attached proposal that the
-user has not yet accepted or dismissed. When non-null, the client SHALL
-render a replace-proposal dialog.
+user has not yet accepted or dismissed. When non-null AND
+`attachedProposal` is also non-null, the client SHALL render a
+replace-proposal dialog.
 
 #### Scenario: Server sets pending replacement
 
