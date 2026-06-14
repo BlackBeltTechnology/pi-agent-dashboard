@@ -19,13 +19,27 @@ if ($Setup -match '^https?://') {
 
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\PI Dashboard"
 
-# Silent install accepting the default location (/S = NSIS silent).
-Write-Host "Running silent install: $exe /S"
-Start-Process -FilePath $exe -ArgumentList "/S" -Wait
-Start-Sleep -Seconds 5
+# Silent install. electron-builder assisted installers (oneClick:false) only
+# compute the default $INSTDIR in the directory page, which /S skips — so a
+# silent install MUST pass /D=<dir>. /D must be last and unquoted; pass the raw
+# command line via ProcessStartInfo so PowerShell does not re-quote the path
+# (which would break NSIS /D= parsing of paths containing spaces).
+Write-Host "Running silent install: $exe /S /D=$installDir"
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $exe
+$psi.Arguments = "/S /D=$installDir"
+$psi.UseShellExecute = $false
+$p = [System.Diagnostics.Process]::Start($psi)
+$p.WaitForExit()
 
-if (-not (Test-Path $installDir)) {
-    Write-Host "FAIL: install dir not found at $installDir"
+# Assisted installers may relaunch; poll for the install dir to appear.
+$found = $false
+for ($i = 0; $i -lt 60; $i++) {
+    if (Test-Path (Join-Path $installDir "pi-dashboard.exe")) { $found = $true; break }
+    Start-Sleep -Seconds 1
+}
+if (-not $found) {
+    Write-Host "FAIL: pi-dashboard.exe not found under $installDir after 60s"
     exit 1
 }
 Write-Host "Install dir present: $installDir"

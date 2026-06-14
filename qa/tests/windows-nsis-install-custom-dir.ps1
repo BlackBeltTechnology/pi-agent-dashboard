@@ -17,13 +17,24 @@ if ($Setup -match '^https?://') {
     Invoke-WebRequest -Uri $Setup -OutFile $exe
 }
 
-# /D=<path> is the NSIS standard install-dir override (must be last, unquoted).
+# /D=<path> is the NSIS install-dir override (must be last, unquoted). Pass the
+# raw command line via ProcessStartInfo so PowerShell does not re-quote a path
+# with spaces (which breaks NSIS /D= parsing).
 Write-Host "Running: $exe /S /D=$Dir"
-Start-Process -FilePath $exe -ArgumentList "/S", "/D=$Dir" -Wait
-Start-Sleep -Seconds 5
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = $exe
+$psi.Arguments = "/S /D=$Dir"
+$psi.UseShellExecute = $false
+$p = [System.Diagnostics.Process]::Start($psi)
+$p.WaitForExit()
 
-if (-not (Test-Path (Join-Path $Dir "pi-dashboard.exe"))) {
-    Write-Host "FAIL: pi-dashboard.exe not found under $Dir"
+$found = $false
+for ($i = 0; $i -lt 60; $i++) {
+    if (Test-Path (Join-Path $Dir "pi-dashboard.exe")) { $found = $true; break }
+    Start-Sleep -Seconds 1
+}
+if (-not $found) {
+    Write-Host "FAIL: pi-dashboard.exe not found under $Dir after 60s"
     exit 1
 }
 $uninst = Join-Path $Dir "Uninstall PI Dashboard.exe"
