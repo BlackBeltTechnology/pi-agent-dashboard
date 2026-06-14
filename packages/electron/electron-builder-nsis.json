@@ -8,7 +8,6 @@
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
     "icon": "build/installer-assets/installer-icon.ico",
-    "publisherName": "BlackBelt Technology",
     "signtoolOptions": null
   },
   "nsis": {

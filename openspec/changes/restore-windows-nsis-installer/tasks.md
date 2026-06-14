@@ -21,7 +21,6 @@
   {
     "appId": "hu.blackbelt.pi-dashboard",
     "productName": "PI Dashboard",
-    "publisherName": "BlackBelt Technology",
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
       "icon": "build/installer-assets/installer-icon.ico"

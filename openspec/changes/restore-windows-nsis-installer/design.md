@@ -144,7 +144,7 @@ NSIS was removed in v0.5.0 by `simplify-electron-bootstrap-derived-state`. This 
 
 ## Decision D8 — `productName` / `appId` / shortcut naming pinned explicitly
 
-**Choice:** Pin `productName = "PI Dashboard"`, **`appId = "hu.blackbelt.pi-dashboard"`** (confirmed final value), `shortcutName = "PI Dashboard"`, `uninstallDisplayName = "PI Dashboard"`, `publisherName = "BlackBelt Technology"`. Capture in `packages/electron/electron-builder-nsis.json`.
+**Choice:** Pin `productName = "PI Dashboard"`, **`appId = "hu.blackbelt.pi-dashboard"`** (confirmed final value), `shortcutName = "PI Dashboard"`, `uninstallDisplayName = "PI Dashboard"` in `packages/electron/electron-builder-nsis.json`. Publisher `BlackBelt Technology` is NOT a valid electron-builder 26 `win`/`nsis` field (schema rejects `publisherName` outside `signtoolOptions`), so `installer.nsh` `customInstall` writes the Add/Remove `Publisher` registry value directly. `windows-nsis-install.ps1` hard-gates that registry value.
 
 **Why:**
 

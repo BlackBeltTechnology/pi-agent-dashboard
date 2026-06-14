@@ -12,13 +12,28 @@ $ErrorActionPreference = "Stop"
 
 Write-Host "=== Test: NSIS installer branding ==="
 
-# Publisher embedded in the Setup.exe version-info resource.
+# Publisher: the reliable signal is the HKCU Add/Remove entry, written
+# deterministically by installer.nsh (and already hard-gated in
+# windows-nsis-install.ps1). electron-builder does not set the installer
+# binary's version-info CompanyName without code-signing, so that field is
+# only an informational check here.
+$entry = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.DisplayName -eq "PI Dashboard" }
+if ($entry) {
+    if ($entry.Publisher -ne "BlackBelt Technology") {
+        Write-Host "FAIL: HKCU Publisher '$($entry.Publisher)' != 'BlackBelt Technology'"
+        exit 1
+    }
+    Write-Host "HKCU Add/Remove Publisher = BlackBelt Technology"
+} else {
+    Write-Host "NOTE: app not installed yet; skipping registry Publisher check (run windows-nsis-install.ps1 first)"
+}
 $pub = (Get-Item $Setup).VersionInfo.CompanyName
 if ($pub -ne "BlackBelt Technology") {
-    Write-Host "FAIL: Setup.exe CompanyName '$pub' != 'BlackBelt Technology'"
-    exit 1
+    Write-Host "NOTE: Setup.exe version-info CompanyName is '$pub' (not set without code-signing; informational only)"
+} else {
+    Write-Host "Setup.exe version-info CompanyName = BlackBelt Technology"
 }
-Write-Host "Setup.exe Publisher = BlackBelt Technology"
 
 # Uninstaller icon SHA matches the built asset (when provided).
 if ($UninstallerIco -ne "" -and (Test-Path $UninstallerIco)) {
