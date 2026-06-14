@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline, mdiPlay, mdiPlus, mdiEyeOffOutline, mdiEyeOutline, mdiPlayCircleOutline, mdiSourceFork, mdiRobotOutline, mdiSourceBranchPlus } from "@mdi/js";
+import { mdiRefresh, mdiChevronDown, mdiChevronRight, mdiArchiveOutline, mdiFileDocumentOutline, mdiPlay, mdiPlus, mdiEyeOffOutline, mdiEyeOutline, mdiPlayCircleOutline, mdiSourceFork, mdiRobotOutline, mdiSourceBranchPlus, mdiSourceBranch } from "@mdi/js";
 import {
   sourceIcons,
   deriveDotColor,
@@ -24,7 +24,12 @@ interface Props {
   data: OpenSpecData;
   cwd: string;
   onRefresh: () => void;
-  onReadArtifact?: (changeName: string, artifactId: string) => void;
+  /**
+   * Read an artifact. `sourceCwd` is the change row's origin working copy
+   * (worktree cwd for worktree-only changes); parents route the read there.
+   * See change: fix-openspec-worktree-cwd-keying.
+   */
+  onReadArtifact?: (changeName: string, artifactId: string, sourceCwd: string) => void;
   sessions?: DashboardSession[];
   onNavigateToSession?: (sessionId: string) => void;
   onOpenSpecs?: () => void;
@@ -62,7 +67,7 @@ interface Props {
 
 export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, sessions, onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnAttached, onSpawnAttachedWorktree, isGitRepo, gitWorktreeEnabled, onHideSession, onUnhideSession, onResumeSession, groups: externalGroups, assignments: externalAssignments, selectedId }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [tasksOpenForChange, setTasksOpenForChange] = useState<string | null>(null);
+  const [tasksOpenForChange, setTasksOpenForChange] = useState<{ name: string; cwd: string } | null>(null);
   const [activePill, setActivePill] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState("");
   const [collapseState, setCollapseState] = useState<Record<string, boolean>>({});
@@ -228,10 +233,23 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
   const renderChangeRow = (c: OpenSpecChange, opts?: { showGroupPicker?: boolean }) => {
     const showPicker = opts?.showGroupPicker ?? true;
     const linkedSessions = sessions?.filter((s) => s.attachedProposal === c.name) ?? [];
+    // Route per-change reads/writes to the working copy the change lives in.
+    // See change: fix-openspec-worktree-cwd-keying.
+    const rowCwd = c.sourceCwd ?? cwd;
+    const isWorktreeOrigin = !!c.sourceCwd && c.sourceCwd !== cwd;
     return (
       <div key={c.name} className="px-2 py-1">
         {/* Line 1: change name + task count + controls */}
         <div className="flex items-center gap-2">
+          {isWorktreeOrigin && (
+            <span
+              data-testid={`worktree-origin-marker-${c.name}`}
+              title={`From worktree: ${c.sourceCwd}`}
+              className="flex-shrink-0 text-yellow-500/80"
+            >
+              <Icon path={mdiSourceBranch} size={0.45} />
+            </span>
+          )}
           <span data-testid="change-name" className="text-[11px] font-medium text-[var(--text-secondary)] truncate min-w-0">
             {c.name}
           </span>
@@ -240,7 +258,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setTasksOpenForChange((current) => (current === c.name ? null : c.name));
+                setTasksOpenForChange((current) => (current?.name === c.name ? null : { name: c.name, cwd: rowCwd }));
               }}
               data-testid={`folder-tasks-counter-${c.name}`}
               title="Toggle tasks"
@@ -262,11 +280,11 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
               }}
             />
           )}
-          <ArtifactLettersButton artifacts={c.artifacts} changeName={c.name} onReadArtifact={onReadArtifact} />
+          <ArtifactLettersButton artifacts={c.artifacts} changeName={c.name} onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(changeName, artifactId, rowCwd) : undefined} />
           {isGitRepo && gitWorktreeEnabled && onSpawnAttachedWorktree && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onSpawnAttachedWorktree(cwd, c.name); }}
+              onClick={(e) => { e.stopPropagation(); onSpawnAttachedWorktree(rowCwd, c.name); }}
               data-testid={`spawn-attached-worktree-btn-${c.name}`}
               title="New worktree for this change"
               className="text-[var(--text-muted)] hover:text-yellow-400"
@@ -277,7 +295,7 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
           {onSpawnAttached && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onSpawnAttached(cwd, c.name); }}
+              onClick={(e) => { e.stopPropagation(); onSpawnAttached(rowCwd, c.name); }}
               data-testid={`spawn-attached-btn-${c.name}`}
               title="+Session attached to this change"
               className="text-[var(--text-muted)] hover:text-green-400"
@@ -567,8 +585,8 @@ export function FolderOpenSpecSection({ data, cwd, onRefresh, onReadArtifact, se
       {tasksOpenForChange && (
         <DialogPortal>
           <TasksPopover
-            cwd={cwd}
-            change={tasksOpenForChange}
+            cwd={tasksOpenForChange.cwd}
+            change={tasksOpenForChange.name}
             onClose={() => setTasksOpenForChange(null)}
           />
         </DialogPortal>

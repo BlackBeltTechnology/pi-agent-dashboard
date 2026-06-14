@@ -508,6 +508,15 @@ export interface OpenSpecChange {
    * See change: add-openspec-change-grouping.
    */
   groupId?: string | null;
+  /**
+   * Working-copy cwd the change was discovered under. Set client-side when the
+   * folder OpenSpec card aggregates changes across a group's member cwds
+   * (worktree sessions have a distinct `openspec/changes/<name>/tasks.md`).
+   * Absent on raw server payloads — absence means the group cwd. Task
+   * read/toggle/spawn actions route to this cwd so edits land in the right tree.
+   * See change: fix-openspec-worktree-cwd-keying.
+   */
+  sourceCwd?: string;
 }
 
 /** Schema version for the per-repo OpenSpec groups file at

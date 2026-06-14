@@ -19,6 +19,7 @@ vi.mock("../../lib/openspec-groups-api.js", () => ({
 }));
 
 import { FolderOpenSpecSection } from "../FolderOpenSpecSection.js";
+import { fetchTasks } from "../../lib/openspec-tasks-api.js";
 import type { OpenSpecData, OpenSpecGroup, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());
@@ -125,7 +126,7 @@ describe("FolderOpenSpecSection", () => {
 
     const btns = screen.getAllByTestId("artifact-letters-btn");
     fireEvent.click(btns[0]);
-    expect(onReadArtifact).toHaveBeenCalledWith("feat-in-progress", "proposal");
+    expect(onReadArtifact).toHaveBeenCalledWith("feat-in-progress", "proposal", "/project/foo");
   });
 
   it("does not show Specs button when onOpenSpecs not provided", () => {
@@ -814,5 +815,52 @@ describe("selected linked-session row", () => {
     fireEvent.click(screen.getByTestId("linked-session-hide"));
     expect(onHide).toHaveBeenCalledWith("sA");
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
+// --- Worktree-origin cwd routing (change: fix-openspec-worktree-cwd-keying) ---
+
+describe("FolderOpenSpecSection worktree cwd routing", () => {
+  const worktreeData: OpenSpecData = {
+    initialized: true,
+    changes: [
+      {
+        name: "main-change",
+        status: "in-progress",
+        completedTasks: 1,
+        totalTasks: 3,
+        artifacts: [{ id: "tasks", status: "ready" }],
+        sourceCwd: "/repo",
+      },
+      {
+        name: "worktree-change",
+        status: "in-progress",
+        completedTasks: 0,
+        totalTasks: 2,
+        artifacts: [{ id: "tasks", status: "ready" }],
+        sourceCwd: "/repo/.worktrees/feat-x",
+      },
+    ],
+  };
+
+  it("marks worktree-origin rows and not group-cwd rows", () => {
+    render(<FolderOpenSpecSection {...defaultProps} cwd="/repo" data={worktreeData} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    expect(screen.queryByTestId("worktree-origin-marker-worktree-change")).toBeTruthy();
+    expect(screen.queryByTestId("worktree-origin-marker-main-change")).toBeNull();
+  });
+
+  it("toggling a worktree-origin row reads tasks from the worktree cwd", () => {
+    render(<FolderOpenSpecSection {...defaultProps} cwd="/repo" data={worktreeData} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-worktree-change"));
+    expect(fetchTasks).toHaveBeenCalledWith("/repo/.worktrees/feat-x", "worktree-change", expect.anything());
+  });
+
+  it("toggling a group-cwd row reads tasks from the group cwd", () => {
+    render(<FolderOpenSpecSection {...defaultProps} cwd="/repo" data={worktreeData} />);
+    fireEvent.click(screen.getByTestId("folder-openspec-header"));
+    fireEvent.click(screen.getByTestId("folder-tasks-counter-main-change"));
+    expect(fetchTasks).toHaveBeenCalledWith("/repo", "main-change", expect.anything());
   });
 });

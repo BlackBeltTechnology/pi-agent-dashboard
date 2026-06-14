@@ -37,6 +37,7 @@ import {
 import { SessionCard, GroupGitInfo, EditorButtons, branchCache } from "./SessionCard.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { FolderOpenSpecSection } from "./FolderOpenSpecSection.js";
+import { aggregateOpenSpec } from "../lib/openspec-aggregate.js";
 import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { ThemeToggle } from "./ThemeToggle.js";
 import { ThemePicker } from "./ThemePicker.js";
@@ -670,14 +671,20 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           </div>
           {/* Plugin slot: sidebar-folder-section (additive, coexists with FolderOpenSpecSection) */}
           <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
-          {/* Render for both initialized (full section) and pending (spinner).
-              See change: fix-cold-boot-openspec-protocol. */}
-          {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
+          {/* Aggregate OpenSpec across group cwd + member (worktree) cwds so the
+              folder card reflects every working copy, not just the main repo.
+              See change: fix-openspec-worktree-cwd-keying. */}
+          {(() => {
+          const aggregatedOpenSpec = aggregateOpenSpec(group.cwd, group.sessions.map((s) => s.cwd), openspecMap);
+          return (
+          /* Render for both initialized (full section) and pending (spinner).
+              See change: fix-cold-boot-openspec-protocol. */
+          (aggregatedOpenSpec.initialized || aggregatedOpenSpec.pending) && (
             <FolderOpenSpecSection
-              data={openspecMap.get(group.cwd)!}
+              data={aggregatedOpenSpec}
               cwd={group.cwd}
               onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
-              onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(group.cwd, changeName, artifactId) : undefined}
+              onReadArtifact={onReadArtifact ? (changeName, artifactId, sourceCwd) => onReadArtifact(sourceCwd ?? group.cwd, changeName, artifactId) : undefined}
               sessions={group.sessions}
               onNavigateToSession={onSelect}
               onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
@@ -693,7 +700,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               assignments={openspecGroupsMap?.get(group.cwd)?.assignments}
               selectedId={selectedId}
             />
-          )}
+          )
+          );
+          })()}
           {/* Elevated spawn buttons: full-width stacked, always visible
               regardless of collapse state. Placed after OpenSpec section. */}
           <div className="mt-1">
