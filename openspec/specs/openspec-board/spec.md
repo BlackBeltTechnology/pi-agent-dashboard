@@ -3,9 +3,7 @@
 ## Purpose
 
 Full-page OpenSpec board at overlay route `/folder/:encodedCwd/openspec`. Renders OpenSpec groups as kanban columns of proposal cards with lifecycle steppers, task progress, attached sessions, drag-and-drop assignment/reorder, a filter bar, and new-proposal/add-group affordances. Reached from the folder-card OpenSpec button.
-
 ## Requirements
-
 ### Requirement: OpenSpec board route
 The dashboard SHALL provide a full-page OpenSpec board at the overlay route `/folder/:encodedCwd/openspec`, reached from the folder-card OpenSpec button. The board SHALL show a top bar (Back, breadcrumb, Refresh, Specs, Archive, New proposal) and a column area.
 
@@ -54,15 +52,13 @@ A proposal card SHALL be draggable to another column (reassigning its group) and
 - **THEN** `add-auth` SHALL render before `fix-bug` and the new intra-group order SHALL persist
 
 ### Requirement: Lifecycle stepper on cards
-Each card SHALL render the OpenSpec lifecycle stepper (Explore→Proposal→Design→Specs→Tasks→Apply→Archive) with done/current/todo node states; the Tasks node SHALL show `completed/total`. The connecting line SHALL NOT bleed through node interiors.
+Each card SHALL render the OpenSpec lifecycle stepper (Explore→Proposal→Design→Specs→Tasks→Apply→Archive) in the `compact` variant with done/current/todo node states; the Tasks node SHALL show `completed/total`. The connecting line SHALL NOT bleed through node interiors.
+
+Because the card stepper is `compact` (per-node labels hidden), done artifact nodes (`Proposal`, `Design`, `Specs`, `Tasks`) SHALL render their artifact letter (`P`/`D`/`S`/`T`) rather than the mdi-check, so each done node remains identifiable without a label. Done non-artifact nodes (`Explore`, `Apply`, `Archive`) SHALL render the mdi-check.
 
 #### Scenario: Stepper reflects state
 - **WHEN** a change has proposal/design/specs done and is implementing with `6/14` tasks
-- **THEN** Explore..Specs nodes SHALL render done (check), Tasks SHALL render current with `6/14`, Apply/Archive SHALL render todo
-
-#### Scenario: Node opens artifact
-- **WHEN** the user clicks the Proposal/Design/Specs node
-- **THEN** the artifact reader SHALL open for that artifact
+- **THEN** the `Explore` node SHALL render done with a check, `Proposal`/`Design`/`Specs` SHALL render done with letters `P`/`D`/`S`, `Tasks` SHALL render current with `6/14`, and `Apply`/`Archive` SHALL render todo
 
 ### Requirement: Card actions
 Each card SHALL provide `New session` (spawn attached) and `New worktree` (spawn attached in a worktree) actions.
@@ -124,3 +120,4 @@ The board SHALL adapt to viewport width: horizontal scrolling columns on desktop
 - **WHEN** the viewport is 540px or narrower
 - **THEN** columns SHALL stack full-width and the top bar SHALL wrap
 - **AND** the column area SHALL scroll vertically to reach the last card while the top bar and filter bar stay fixed
+

@@ -209,9 +209,11 @@ function StepperNode({
     : {};
 
   const renderContent = () => {
-    // Done artifact nodes show the check (per design.md §6); todo/current keep
-    // the artifact letter so the workflow position remains readable.
-    if (state === "done" && (node.id === "explore" || node.id === "apply" || node.id === "archive" || node.letter)) {
+    // Done nodes render the mdi-check, EXCEPT compact-done artifact nodes, which
+    // keep their letter (P/D/S/T) — in compact the per-node label is hidden, so
+    // the letter is the only surviving identity cue. Non-letter nodes
+    // (Explore/Apply/Archive) and all sidebar-done nodes show the check.
+    if (state === "done" && (!node.letter || !isCompact)) {
       return <Icon path={mdiCheck} size={isCompact ? 0.42 : 0.5} />;
     }
     if (node.letter) {

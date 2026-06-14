@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Define the session card's OpenSpec attach combo box, attach dialog, workflow stepper, ChangeState pill, auto-rename behavior, and pending attach-intent plumbing that bind a session to an OpenSpec change.
+## Requirements
 ### Requirement: Session card shows attach combo box when no proposal attached
 Each session card SHALL display a `<select>` dropdown listing available changes from the folder-level OpenSpec data when the session has no attached proposal and the directory has initialized OpenSpec data. **When the user opens the searchable attach dialog (the dialog reachable from the combo box's "Browse all changes…" entry or equivalent affordance), the dialog SHALL render group sections + pill row when the cwd has at least one defined group; otherwise the dialog renders the flat list exactly as today.** The inline `<select>` combo box itself remains a flat list — group structure is exposed only inside the searchable dialog.
 
@@ -108,49 +110,30 @@ Each node SHALL render in one of four states — `done`, `current`, `todo`, `dis
 
 Nodes SHALL be connected by short horizontal lines. The connecting line between node N-1 and N SHALL render green (`var(--green)`) when both N-1 and N are `done` or `current`; otherwise grey (`var(--border-secondary)`). The node circle SHALL render with an opaque background base (`var(--bg-tertiary)`) so the connecting line never bleeds through the circle interior.
 
-Done nodes SHALL render with green border + tint and an mdi-check icon (or the artifact letter `P`/`D`/`S`/`T` for artifact nodes). Current nodes SHALL render with orange border + tint and a soft halo pulse (2.4 s ease-in-out infinite, box-shadow goes `3px → 5px → 3px`). Todo nodes SHALL render dim with the artifact letter or icon glyph. Disabled nodes SHALL render at `opacity: 0.4`.
+Done nodes SHALL render with green border + green tint. Their interior glyph depends on whether the node owns an artifact letter (`Proposal`=`P`, `Design`=`D`, `Specs`=`S`, `Tasks`=`T`) and on the active `variant`:
+
+- A done artifact node (one with a letter) SHALL render the **mdi-check** in the `sidebar` variant — where the per-node text label already carries node identity — and SHALL render its **artifact letter** in the `compact` variant, where the label is hidden and the letter is the only surviving identity cue.
+- A done non-artifact node (`Explore`, `Apply`, `Archive` — no letter) SHALL render the mdi-check in BOTH variants.
+
+Current nodes SHALL render with orange border + tint and a soft halo pulse (2.4 s ease-in-out infinite, box-shadow goes `3px → 5px → 3px`). Todo nodes SHALL render dim with the artifact letter or icon glyph. Disabled nodes SHALL render at `opacity: 0.4`.
 
 Tasks node SHALL display a `<sub>` line below its label with the text `<completed>/<total>` when `change.totalTasks > 0`.
 
-The stepper component SHALL expose a `variant: "sidebar" | "compact"` prop. `sidebar` is the default (22 px node, 9 px label below each node). `compact` shrinks to 18 px nodes, hides per-node labels (replaced by `title` attribute for tooltip), and scales the row at `transform: scale(.92)` — used by the composer surface.
+The stepper component SHALL expose a `variant: "sidebar" | "compact"` prop. `sidebar` is the default (22 px node, 9 px label below each node). `compact` shrinks to 18 px nodes, hides per-node labels (replaced by `title` attribute for tooltip), and scales the row at `transform: scale(.92)` — used by the composer surface and the OpenSpec board cards.
 
-#### Scenario: Implementing change shows Specs done and Tasks current
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`, `deriveChangeState` returns `IMPLEMENTING`, `change.artifacts` has `proposal/design/specs` all `done`, `change.completedTasks = 4`, `change.totalTasks = 12`
-- **THEN** the stepper SHALL render with `Explore`, `Proposal`, `Design`, `Specs` all `done`
-- **AND** `Tasks` SHALL render `current` with sub-label `4/12`
-- **AND** `Apply` SHALL render `current`
-- **AND** `Archive` SHALL render `todo`
+#### Scenario: Sidebar done artifact node renders the check
+- **WHEN** the stepper is rendered with `variant="sidebar"` and the `Proposal` node is `done`
+- **THEN** the `Proposal` node SHALL render the mdi-check icon
+- **AND** its text label `Proposal` SHALL render below the node
 
-#### Scenario: Complete change with all tasks done
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`, `deriveChangeState` returns `COMPLETE`, every artifact `done`, `change.completedTasks === change.totalTasks > 0`
-- **THEN** the first six nodes (`Explore`, `Proposal`, `Design`, `Specs`, `Tasks`, `Apply`) SHALL all render `done`
-- **AND** `Archive` SHALL render `current`
+#### Scenario: Compact done artifact node renders its letter
+- **WHEN** the stepper is rendered with `variant="compact"` and the `Proposal`, `Design`, `Specs` nodes are `done`
+- **THEN** each SHALL render its artifact letter (`P`, `D`, `S`) — NOT the mdi-check
+- **AND** each SHALL keep its green border + green tint to signal `done`
 
-#### Scenario: No proposal attached, no changes in cwd
-- **WHEN** session `"s1"` has `attachedProposal = null` AND the folder's `openspecChanges` is `[]`
-- **THEN** the stepper SHALL render with `Explore` as `current`
-- **AND** every other node SHALL render `todo`
-- **AND** `Archive` SHALL render `disabled`
-
-#### Scenario: Tasks node sub-label hidden when totalTasks is zero
-- **WHEN** the stepper is rendered for a change with `change.totalTasks === 0`
-- **THEN** the `Tasks` node SHALL NOT render the `<sub>` line
-
-#### Scenario: Connecting line never visible inside a node interior
-- **WHEN** the stepper is rendered with consecutive `done` nodes
-- **THEN** the green connecting line SHALL terminate at the outer edge of each circle
-- **AND** the circle's filled background SHALL fully obscure the line behind it
-
-#### Scenario: Compact variant in composer
-- **WHEN** the stepper is rendered with `variant="compact"`
-- **THEN** the node circles SHALL render at 18 px diameter
-- **AND** the per-node text label SHALL NOT render under each node
-- **AND** each node SHALL carry a `title` attribute equal to the label text it would otherwise show
-
-#### Scenario: Reduced-motion suppresses current-node halo pulse
-- **WHEN** `prefers-reduced-motion: reduce` is active
-- **AND** the stepper is rendered with a `current` node
-- **THEN** the current node's box-shadow SHALL remain static at 3 px without animation
+#### Scenario: Compact done non-artifact node still renders the check
+- **WHEN** the stepper is rendered with `variant="compact"` and the `Explore` and `Apply` nodes are `done`
+- **THEN** both SHALL render the mdi-check icon (they own no artifact letter)
 
 ### Requirement: Session card shows attached change badge and actions when attached
 When a session has an `attachedProposal`, the session card SHALL show the attached change name as a badge with `text-blue-400` color, a `ChangeState` pill next to the badge, and LLM action buttons driven by `deriveChangeState`.
@@ -538,3 +521,4 @@ Pill selection in the attach dialog SHALL be local to that dialog instance and S
 #### Scenario: Pill state independent of folder view
 - **WHEN** the folder view's pill is set to `Server` and the user opens the attach dialog
 - **THEN** the dialog SHALL open with the "All" pill active, independent of the folder view
+

@@ -151,4 +151,33 @@ describe("OpenSpecStepper render", () => {
     const nodes = container.querySelectorAll(".openspec-stepper-node-base");
     expect(nodes.length).toBe(7);
   });
+
+  it("sidebar done artifact node renders the mdi-check, not its letter", () => {
+    render(<OpenSpecStepper variant="sidebar" change={makeChange()} attached="add-auth" hasAnyChanges />);
+    const proposal = screen.getByTestId("stepper-node-proposal");
+    expect(proposal.getAttribute("data-state")).toBe("done");
+    // mdi-check is an <svg>; no letter span inside the node base.
+    expect(proposal.querySelector(".openspec-stepper-node-base svg")).toBeTruthy();
+    expect(proposal.querySelector(".openspec-stepper-node-base span")).toBeNull();
+  });
+
+  it("compact done artifact nodes render their letter, not the check", () => {
+    render(<OpenSpecStepper variant="compact" change={makeChange()} attached="add-auth" hasAnyChanges />);
+    for (const [id, letter] of [["proposal", "P"], ["design", "D"], ["specs", "S"]] as const) {
+      const node = screen.getByTestId(`stepper-node-${id}`);
+      expect(node.getAttribute("data-state")).toBe("done");
+      const base = node.querySelector(".openspec-stepper-node-base")!;
+      expect(base.querySelector("svg")).toBeNull();
+      expect(base.textContent).toBe(letter);
+    }
+  });
+
+  it("compact done non-artifact nodes render the mdi-check", () => {
+    // Apply is done at COMPLETE + all tasks done; it owns no artifact letter.
+    const completeChange = makeChange({ status: "complete", completedTasks: 12, totalTasks: 12 });
+    render(<OpenSpecStepper variant="compact" change={completeChange} attached="add-auth" hasAnyChanges />);
+    const apply = screen.getByTestId("stepper-node-apply");
+    expect(apply.getAttribute("data-state")).toBe("done");
+    expect(apply.querySelector(".openspec-stepper-node-base svg")).toBeTruthy();
+  });
 });
