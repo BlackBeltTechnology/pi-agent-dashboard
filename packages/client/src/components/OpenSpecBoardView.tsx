@@ -34,6 +34,7 @@ import {
   useSensors,
   closestCenter,
   useDroppable,
+  DragOverlay,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
@@ -424,6 +425,15 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
             + Add group
           </button>
         </div>
+        <DragOverlay>
+          {activeDrag ? (
+            <DragChip
+              activeDrag={activeDrag}
+              changes={data.changes}
+              groups={groups}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
 
       <div className="px-4 pb-3 text-[var(--text-muted)] text-[11px]">
@@ -497,6 +507,42 @@ function FilterPill({ active, onClick, children, testId }: { active: boolean; on
   );
 }
 
+// ── Drag overlay chip ─────────────────────────────────────────────
+// Lightweight pointer-following preview rendered inside <DragOverlay>.
+// Shows just the name + a state pill (card) or color dot (column) — never
+// the full ProposalCard subtree, so it stays cheap during a 60fps drag.
+function DragChip({ activeDrag, changes, groups }: {
+  activeDrag: { type: "column" | "card"; id: string };
+  changes: OpenSpecChange[];
+  groups: OpenSpecGroup[];
+}) {
+  if (activeDrag.type === "card") {
+    const c = changes.find((x) => x.name === activeDrag.id);
+    if (!c) return null;
+    const state = deriveChangeState(c);
+    return (
+      <div
+        className="bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 shadow-lg cursor-grabbing flex items-center gap-1.5 max-w-[300px]"
+        data-testid="board-drag-chip"
+      >
+        <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate">{c.name}</span>
+        <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full ${STATE_PILL_CLASS[state]}`}>{state.toLowerCase()}</span>
+      </div>
+    );
+  }
+  const g = groups.find((x) => x.id === activeDrag.id);
+  if (!g) return null;
+  return (
+    <div
+      className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl px-3 py-2.5 shadow-lg cursor-grabbing flex items-center gap-2 max-w-[300px]"
+      data-testid="board-drag-chip"
+    >
+      <span className="w-2.5 h-2.5 rounded-[3px] flex-none" style={{ background: resolveGroupColor(g.color) }} />
+      <span className="font-semibold text-[var(--text-primary)] text-[12px] truncate">{g.name}</span>
+    </div>
+  );
+}
+
 // ── Column ────────────────────────────────────────────────────────
 function BoardColumn({
   colKey, group, changes, draggableHeader, isDragging, onNewProposal, onManage, renderCard,
@@ -511,7 +557,7 @@ function BoardColumn({
   renderCard: (c: OpenSpecChange) => React.ReactNode;
 }) {
   const sortable = useSortable({ id: colKey, data: { type: "column" }, disabled: !draggableHeader });
-  const { setNodeRef: setDropRef } = useDroppable({ id: colKey, data: { type: "column", groupKey: colKey } });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: colKey, data: { type: "column", groupKey: colKey } });
   const dotColor = group ? resolveGroupColor(group.color) : "var(--text-muted)";
   const name = group ? group.name : "Ungrouped";
 
@@ -541,7 +587,7 @@ function BoardColumn({
           {draggableHeader && <Icon path={mdiDragVertical} size={0.6} className="text-[var(--text-muted)]" />}
         </span>
       </div>
-      <div ref={setDropRef} className="p-2 flex flex-col gap-2 overflow-y-auto board-column-body" data-testid={`board-column-body-${colKey}`}>
+      <div ref={setDropRef} className={`p-2 flex flex-col gap-2 overflow-y-auto board-column-body rounded-b-xl ${isOver ? "ring-2 ring-inset ring-blue-500/60 bg-blue-500/5" : ""}`} data-testid={`board-column-body-${colKey}`} data-over={isOver ? "true" : undefined}>
         <SortableContext items={changes.map((c) => c.name)} strategy={verticalListSortingStrategy}>
           {changes.length > 0
             ? changes.map((c) => renderCard(c))
@@ -589,7 +635,7 @@ function ProposalCard(props: {
     <div
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
-      className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card ${sortable.isDragging ? "opacity-40" : ""}`}
+      className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card cursor-grab active:cursor-grabbing ${sortable.isDragging ? "opacity-40" : ""}`}
       data-testid={`board-card-${c.name}`}
       {...sortable.attributes}
       {...sortable.listeners}

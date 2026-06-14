@@ -147,6 +147,13 @@ describe("OpenSpecBoardView", () => {
     expect(p.onSpawnAttachedWorktree).toHaveBeenCalledWith("/p", "add-thing");
   });
 
+  it("proposal cards carry a grab cursor for drag affordance", () => {
+    render(<OpenSpecBoardView {...props()} />);
+    const card = screen.getByTestId("board-card-add-auth");
+    expect(card.className).toContain("cursor-grab");
+    expect(card.className).toContain("active:cursor-grabbing");
+  });
+
   it("clicking a session row navigates to the session", () => {
     const p = props();
     render(<OpenSpecBoardView {...p} />);
