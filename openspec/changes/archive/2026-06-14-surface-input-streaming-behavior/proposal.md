@@ -16,7 +16,7 @@ The dashboard already receives this field today via the schema-blind pass-throug
 
 ```
 pi InputEvent
-  → bridge passThroughEventTypes (bridge.ts:1144)
+  → bridge passThroughEventTypes (bridge.ts: passThroughEventTypes list)
   → mapEventToProtocol (event-forwarder.ts:25, serializes ALL fields)
   → server forwards opaque
   → client reducer renders as `rawEvent` JSON card (no `input` handler)

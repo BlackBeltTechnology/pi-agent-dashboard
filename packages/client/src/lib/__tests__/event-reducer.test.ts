@@ -1342,6 +1342,70 @@ describe("command_feedback events", () => {
     });
   });
 
+  describe("input streamingBehavior (surface-input-streaming-behavior)", () => {
+    const userStart = (text: string): DashboardEvent => ({
+      eventType: "message_start",
+      timestamp: 2000,
+      data: { message: { role: "user", content: [{ type: "text", text }] } },
+    });
+    const inputEvent = (
+      source: string | undefined,
+      streamingBehavior?: "steer" | "followUp",
+    ): DashboardEvent => ({
+      eventType: "input",
+      timestamp: 1000,
+      data: { source, text: "hi", ...(streamingBehavior ? { streamingBehavior } : {}) },
+    });
+
+    it("stamps streamingBehavior=steer onto the next interactive user message", () => {
+      const state = applyEvents([inputEvent("interactive", "steer"), userStart("do X")]);
+      const user = state.messages.find((m) => m.role === "user")!;
+      expect(user.streamingBehavior).toBe("steer");
+      expect(state.pendingInputBehavior).toBeUndefined();
+    });
+
+    it("stamps streamingBehavior=followUp onto the next interactive user message", () => {
+      const state = applyEvents([inputEvent("interactive", "followUp"), userStart("do Y")]);
+      const user = state.messages.find((m) => m.role === "user")!;
+      expect(user.streamingBehavior).toBe("followUp");
+    });
+
+    it("idle interactive input (no streamingBehavior) leaves the user message unstamped", () => {
+      const state = applyEvents([inputEvent("interactive", undefined), userStart("hello")]);
+      const user = state.messages.find((m) => m.role === "user")!;
+      expect(user.streamingBehavior).toBeUndefined();
+    });
+
+    it("does not stamp for source=rpc", () => {
+      const state = applyEvents([inputEvent("rpc", "steer"), userStart("cmd")]);
+      const user = state.messages.find((m) => m.role === "user")!;
+      expect(user.streamingBehavior).toBeUndefined();
+      expect(state.pendingInputBehavior).toBeUndefined();
+    });
+
+    it("does not stamp for source=extension", () => {
+      const state = applyEvents([inputEvent("extension", "followUp"), userStart("injected")]);
+      const user = state.messages.find((m) => m.role === "user")!;
+      expect(user.streamingBehavior).toBeUndefined();
+    });
+
+    it("input event does not render a rawEvent card (Decision 4)", () => {
+      const state = applyEvents([inputEvent("interactive", "steer")]);
+      expect(state.messages.filter((m) => m.role === "rawEvent")).toHaveLength(0);
+    });
+
+    it("clears the correlation slot so a later user message is not re-stamped", () => {
+      const state = applyEvents([
+        inputEvent("interactive", "steer"),
+        userStart("first"),
+        userStart("second"),
+      ]);
+      const users = state.messages.filter((m) => m.role === "user");
+      expect(users[0].streamingBehavior).toBe("steer");
+      expect(users[1].streamingBehavior).toBeUndefined();
+    });
+  });
+
   describe("unknown / raw events", () => {
     it("should render unknown event types as rawEvent messages", () => {
       const state = applyEvents([

@@ -74,6 +74,17 @@ export interface ChatMessage {
    * observes them. See change: render-file-previews.
    */
   view?: ViewTarget;
+  /**
+   * How pi delivered this user message when it arrived mid-stream (pi 0.77+
+   * `InputEvent.streamingBehavior`). `"steer"` = interrupted + steered the
+   * current turn; `"followUp"` = queued for after the current turn. Absent
+   * for idle inputs and non-interactive sources. Stamped onto the user row
+   * via correlation: the preceding interactive `input` event sets
+   * `SessionState.pendingInputBehavior`, the next user `message_start`
+   * consumes it. Renders as an inline badge on the user bubble.
+   * See change: surface-input-streaming-behavior.
+   */
+  streamingBehavior?: "steer" | "followUp";
 }
 
 export interface ToolCallState {
@@ -158,6 +169,14 @@ export interface SessionState {
   subagents: Map<string, SubagentState>;
   /** Total turn count (for turnIndex assignment and sliding window offset) */
   turnCount: number;
+  /**
+   * Correlation slot for `InputEvent.streamingBehavior`. Set by an
+   * interactive `input` event that arrived mid-stream (steer/followUp),
+   * consumed by the next user `message_start` which stamps it onto the
+   * created ChatMessage, then cleared. Undefined for idle / non-interactive
+   * inputs. See change: surface-input-streaming-behavior.
+   */
+  pendingInputBehavior?: "steer" | "followUp";
   /** Last LLM provider error (set from agent_end, cleared on agent_start or dismiss) */
   lastError?: { message: string; timestamp: number };
   /**
@@ -946,8 +965,31 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
             // See change: fix-per-message-fork.
             entryId: data.entryId as string | undefined,
             nonce: data.nonce as string | undefined,
+            // Stamp the mid-stream delivery mode captured from the preceding
+            // interactive `input` event, then clear the correlation slot.
+            // See change: surface-input-streaming-behavior.
+            ...(state.pendingInputBehavior
+              ? { streamingBehavior: state.pendingInputBehavior }
+              : {}),
           },
         ];
+        next.pendingInputBehavior = undefined;
+      }
+      break;
+    }
+
+    case "input": {
+      // pi 0.77+ InputEvent. When an interactive user message arrives
+      // mid-stream, pi sets `streamingBehavior` ("steer" | "followUp"); idle
+      // inputs leave it undefined. We remember the behavior so the next user
+      // `message_start` can stamp it onto the rendered bubble as a badge.
+      // Non-interactive sources (rpc / extension) already surface via
+      // command_feedback / extension messages, so we skip them to avoid
+      // duplicate signal. See change: surface-input-streaming-behavior.
+      const source = data.source as string | undefined;
+      const behavior = data.streamingBehavior as "steer" | "followUp" | undefined;
+      if (source === "interactive" && (behavior === "steer" || behavior === "followUp")) {
+        next.pendingInputBehavior = behavior;
       }
       break;
     }

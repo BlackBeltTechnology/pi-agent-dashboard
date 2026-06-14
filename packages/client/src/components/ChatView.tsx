@@ -98,6 +98,28 @@ function ImageAttachments({ images }: { images: ChatImage[] }) {
   );
 }
 
+/**
+ * Inline badge on a user bubble showing how pi delivered the message when it
+ * arrived mid-stream (pi 0.77+ `InputEvent.streamingBehavior`). "steer" =
+ * interrupted the current turn; "followUp" = queued for after it. Absent for
+ * idle / non-interactive inputs. See change: surface-input-streaming-behavior.
+ */
+function StreamingBehaviorBadge({ behavior }: { behavior: "steer" | "followUp" }) {
+  const isSteer = behavior === "steer";
+  return (
+    <span
+      className="inline-flex items-center self-end mb-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-300/80"
+      title={
+        isSteer
+          ? "Interrupted and steered the current turn"
+          : "Queued — delivered after the current turn ends"
+      }
+    >
+      {isSteer ? "steered" : "queued"}
+    </span>
+  );
+}
+
 function MessageBubble({ content, className, timestamp, entryId, onFork, context }: { content: string; className: string; timestamp?: number; entryId?: string; onFork?: (entryId: string) => void; context?: ToolContext }) {
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -341,7 +363,8 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
           // See change: render-skill-invocations-collapsibly.
           if (msg.skill) {
             return (
-              <div key={msg.id} className="mt-4 mb-4 flex justify-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+              <div key={msg.id} className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+                {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
                 <div className={bubbleMax}>
                   {msg.images && msg.images.length > 0 && (
                     <div className="mb-2">
@@ -360,7 +383,8 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
             );
           }
           return (
-            <div key={msg.id} className="mt-4 mb-4 flex justify-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+            <div key={msg.id} className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+              {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
               <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
                   <ImageAttachments images={msg.images} />

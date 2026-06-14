@@ -1,11 +1,15 @@
 ## Purpose
 
 Client-side state machine that converts a stream of `DashboardEvent` objects into `SessionState` for rendering the chat view. Pure function: `(state, event) → newState`.
-
 ## Requirements
-
 ### Requirement: Session state structure
 The `SessionState` SHALL contain: `messages` (array of `ChatMessage`), `toolCalls` (Map of in-flight tool states), `streamingText` and `streamingThinking` (current assistant output), `isStreaming` (boolean), `model`, `thinkingLevel`, token counters (`tokensIn`, `tokensOut`, `cacheRead`, `cacheWrite`, `cost`), `currentTool`, `status`, `turnStats` (per-turn token breakdown array, max 50), `contextUsage`, and `pendingPrompt`.
+
+#### Scenario: Initial state is empty and idle
+- **WHEN** `createInitialState()` is called
+- **THEN** `messages` SHALL be empty
+- **AND** `isStreaming` SHALL be `false`
+- **AND** `status` SHALL be `"idle"`
 
 ### Requirement: User message rendering
 A `message_start` event with role `"user"` SHALL create a new `ChatMessage` with `role: "user"`. Text content parts SHALL be concatenated. Image content parts SHALL be extracted into the `images` array.
@@ -104,7 +108,6 @@ A `model_select` event SHALL update `model` and `thinkingLevel` on the session s
 #### Scenario: Model changed
 - **WHEN** a `model_select` event arrives with `model: { provider: "anthropic", id: "claude-4" }`
 - **THEN** `model` SHALL be set to `"anthropic/claude-4"`
-## Requirements
 
 ### Requirement: message_end extracts content from message object during replay
 When a `message_end` event fires and `streamingText` is empty (as happens during event replay for forked or resumed sessions), the reducer SHALL extract text content from `data.message.content` and create an assistant message. The reducer SHALL NOT fall through to the `turnSeparator` path when the message contains text content.
@@ -125,7 +128,6 @@ When a `message_end` event fires and `streamingText` is empty (as happens during
 - **WHEN** a `message_end` fires during live streaming
 - **AND** `streamingText` has accumulated text from `message_update` events
 - **THEN** the assistant message uses `streamingText` content (existing behavior unchanged)
-
 
 ### Requirement: Assistant content-array order preserved in chat
 On every `message_end` event for an assistant message whose `message.content` array contains at least one block of type `toolCall`, the reducer SHALL ensure the rows in `messages[]` corresponding to this message's content blocks appear in the same order as the content array. The reorder SHALL operate over a **turn-boundary anchored window** that includes every row pushed during the current assistant turn (not just rows that map 1:1 to content blocks).
@@ -239,7 +241,6 @@ The `tool_execution_start` reducer arm SHALL continue to push the `toolResult` r
 - **GIVEN** `streamingText` is non-empty when `tool_execution_start` fires
 - **WHEN** the `tool_execution_start` reducer call flushes `streamingText` then pushes the `toolResult`
 - **THEN** the resulting `messages[]` SHALL contain `[…, assistant_flushed, toolResult(running)]` after the same reducer call returns — the spinner is visible to ChatView in the same render cycle as the flushed text bubble (the flush SHALL NOT delay the `toolResult` push). See change: fix-streaming-text-vs-interactive-ui-order.
-
 
 ### Requirement: PromptBus carries originating toolCallId in metadata
 When a PromptBus adapter emits a `prompt_request` from inside a tool execution, the `prompt_request.metadata.toolCallId` field SHALL be populated with the originating tool call's `id`. The reducer uses this id to pair the resulting `interactiveUi` row with its parent `toolResult` row during the assistant `message_end` reorder.
@@ -416,3 +417,44 @@ The `streamingTextFlushed` per-message lifecycle invariants from change `fix-str
 - **AND** an assistant `message_end { data: { entryId: "e1", nonce: "n1" } }` arrives
 - **THEN** `findFlushedAssistantRowIndex` SHALL locate the row by `entryId/nonce` absence (NOT by id pattern matching)
 - **AND** the row SHALL be stamped in place with `entryId: "e1"`, `nonce: "n1"`; the id `"flush-t1"` SHALL be preserved
+
+### Requirement: InputEvent streaming-behavior rendering
+
+The reducer SHALL recognize `eventType === "input"` events from pi 0.77+ and render the `streamingBehavior` field as user-visible state in the transcript when the input came from interactive user typing during a streaming turn.
+
+Specifically, for `data.source === "interactive"`:
+
+- `data.streamingBehavior === "steer"` SHALL produce a transcript affordance indicating the message will interrupt and steer the current turn.
+- `data.streamingBehavior === "followUp"` SHALL produce a transcript affordance indicating the message is queued and will deliver after the current turn ends.
+- `data.streamingBehavior === undefined` (idle input) SHALL produce no transcript affordance — the subsequent `message_start { role: "user" }` covers the message.
+
+For `data.source !== "interactive"` (RPC dispatches, extension-synthesized inputs), the reducer SHALL NOT render a streaming-behavior affordance to avoid duplicating signal that already appears via command_feedback / extension messages.
+
+The exact rendering shape (typed status row vs. inline badge on the user-message row) is delegated to design.md; both shapes satisfy this requirement.
+
+#### Scenario: Mid-stream steer renders affordance
+
+- **WHEN** an `input` event arrives with `source: "interactive"` and `streamingBehavior: "steer"`
+- **THEN** the transcript SHALL include an affordance indicating the user's message will steer the current streaming turn
+
+#### Scenario: Mid-stream followUp renders affordance
+
+- **WHEN** an `input` event arrives with `source: "interactive"` and `streamingBehavior: "followUp"`
+- **THEN** the transcript SHALL include an affordance indicating the user's message is queued for delivery after the current streaming turn
+
+#### Scenario: Idle input produces no affordance
+
+- **WHEN** an `input` event arrives with `source: "interactive"` and `streamingBehavior` undefined
+- **THEN** the reducer SHALL NOT add a streaming-behavior affordance to the transcript
+- **AND** the subsequent `message_start { role: "user" }` event SHALL render the user message normally
+
+#### Scenario: Non-interactive source produces no affordance
+
+- **WHEN** an `input` event arrives with `source: "rpc"` or `source: "extension"`
+- **THEN** the reducer SHALL NOT add a streaming-behavior affordance regardless of the `streamingBehavior` value
+
+#### Scenario: Pi <0.77 input event is harmless
+
+- **WHEN** the connected pi version predates 0.77 and the `streamingBehavior` field is always absent
+- **THEN** the reducer SHALL treat all interactive `input` events as idle (no affordance) without error
+

@@ -7,7 +7,15 @@
 
 Pi 0.77 added `InputEvent.streamingBehavior?: "steer" | "followUp"` (undefined when idle). The dashboard's pass-through pipeline already delivers the field to the client — it shows up inside rawEvent JSON cards today. The work is purely client-side: reducer + UI.
 
-## Decision 1 — STATUS ROW vs. INLINE BADGE (OPEN)
+## Decision 1 — STATUS ROW vs. INLINE BADGE — RESOLVED: OPTION B (inline badge)
+
+**Resolved: Option B (inline badge).** `streamingBehavior` is stamped onto the
+user-message row via correlation and rendered as a small pill ("steered" /
+"queued") above the bubble. Reducer keeps a single `pendingInputBehavior` slot
+set by the interactive mid-stream `input` event and consumed by the next user
+`message_start`. Higher fidelity than the status row — the badge sits with the
+message it describes.
+
 
 ```
 OPTION A — STATUS ROW                  OPTION B — INLINE BADGE
@@ -41,6 +49,8 @@ InputEvent carries `source: "interactive" | "rpc" | "extension"`. Only `"interac
 - `"extension"` — input synthesized by an extension calling `pi.sendUserMessage()` (e.g. flows step injecting a prompt). The user did not type it; surfacing "(queued)" here may confuse rather than inform.
 
 Recommendation: filter to `source === "interactive"` only. Skip the rest.
+
+**Resolved: interactive-only.** Reducer ignores `rpc` / `extension` inputs.
 
 ## Decision 3 — Idle inputs (no streamingBehavior field)
 
