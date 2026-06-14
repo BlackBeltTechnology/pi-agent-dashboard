@@ -662,10 +662,10 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenEditor={() => onOpenEditor?.(group.cwd)}
               onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
-              brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended").length}
+              brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
               onCleanUpBroken={onHideSession ? () => {
                 for (const s of group.sessions) {
-                  if (s.cwdMissing === true && s.status === "ended") onHideSession(s.id);
+                  if (s.cwdMissing === true && s.status === "ended" && !s.hidden) onHideSession(s.id);
                 }
               } : undefined}
             />

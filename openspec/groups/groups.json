@@ -2,58 +2,46 @@
   "schemaVersion": 1,
   "groups": [
     {
-      "id": "small-change",
-      "name": "Small Change",
-      "color": "#a855f7",
-      "order": 0
-    },
-    {
       "id": "ui",
       "name": "Current",
       "color": "#22c55e",
-      "order": 1
+      "order": 0
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 2
+      "order": 1
     },
     {
       "id": "sdasdasd",
       "name": "Later",
       "color": "#eab308",
-      "order": 3
+      "order": 2
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 4
+      "order": 3
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 5
+      "order": 4
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 6
-    },
-    {
-      "id": "context-render",
-      "name": "Context Render",
-      "color": "#3b82f6",
-      "order": 7
+      "order": 5
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 8
+      "order": 6
     }
   ],
   "assignments": {
@@ -89,7 +77,6 @@
     "skip-rpc-probes-in-event-forwarder": "future",
     "modernize-pi-version-handling": "future",
     "overlay-url-routing": "sdasdasd",
-    "history-nav-only-when-empty": "small-change",
     "adopt-pi-071-072-073-features": "future",
     "docker-packaging": "next-phase",
     "session-card-attached-change-link": "next-phase",
@@ -136,7 +123,6 @@
     "add-wizard-launch-progress-log": "electrun-execution",
     "fix-doctor-bundle-aware-probes": "electrun-execution",
     "fix-doctor-windows-launch-test": "electrun-execution",
-    "tighten-process-list-ux": "small-change",
     "fix-ci-electron-runnable-bundles": "electrun-execution",
     "add-ci-electron-on-demand-build": "electrun-execution",
     "add-bundle-mode-marker": "electrun-execution",
@@ -150,8 +136,6 @@
     "fix-publish-tsx-missing": "electrun-execution",
     "add-package-health-cleanup": "electrun-execution",
     "fix-darwin-dmg-maker-macos-alias": "electrun-execution",
-    "wire-tool-renderer-slot": "context-render",
-    "add-context-mode-plugin": "context-render",
     "add-bundle-manual-launch-scripts": "electrun-execution",
     "fix-wizard-occluded-by-splash": "electrun-execution",
     "auto-launch-first-run-skip-welcome": "electrun-execution",
