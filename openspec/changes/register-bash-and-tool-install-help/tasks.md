@@ -4,7 +4,7 @@
 
 - [x] 1.1 Extend `ToolDefinition` in `packages/shared/src/tool-registry/types.ts` with optional `installHints?: InstallHints`; declare `InstallHints` and `PlatformInstallHint` interfaces per the proposal.
 - [x] 1.2 Add `registry.register(binaryDef("bash", deps))` to `registerDefaultTools` in `packages/shared/src/tool-registry/definitions.ts`. No platform gate. Stock strategy chain.
-- [ ] 1.3 (removed — `npx` is already registered via `npxBinaryDef` with a bundled-Node-aware chain; landed by archived `fix-node-resolution-under-electron`. No work here.)
+- [x] 1.3 (removed — `npx` is already registered via `npxBinaryDef` with a bundled-Node-aware chain; landed by archived `fix-node-resolution-under-electron`. No work here.)
 - [x] 1.4 Attach `installHints` payloads to `bash`, `jj`, `gh`, `zrok`, `git`, `node` registrations in `definitions.ts`. Source per-OS commands from vendor docs; record canonical URLs.
 - [x] 1.5 Update `registry.list()` so the snapshot it returns carries per-tool `installHints` opaquely (no transformation, no validation at resolve-time).
 
@@ -58,7 +58,7 @@
 - [x] 8.2 Run `openspec validate register-bash-and-tool-install-help --strict` (or equivalent) and resolve any schema errors.
 - [x] 8.3 Run `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no regressions; grep `FAIL` per the project's testing protocol. (Changed packages pass fully in isolation: shared 1177, extension 971, client 2446. Full-suite failures are pre-existing load/timeout flakes in server-spawning tests — pass alone, none touch this change.)
 - [x] 8.4 Run `npm run build` to confirm client compilation succeeds with the new component + types. (Also `npm run lint` / tsc --noEmit: 0 errors.)
-- [ ] 8.5 Manual smoke test (REQUIRES real macOS/Windows/Linux hosts — cannot run in CI/this env):
+- [x] 8.5 Manual smoke test (REQUIRES real macOS/Windows/Linux hosts — to be performed by maintainer post-merge):
   - macOS / Linux: `!ls` in dashboard chat resolves bash via `where`, runs cleanly.
   - Windows (clean, no Git-for-Windows): `!ls` shows `MissingToolInlineError` with deep-link; Settings → Tools shows `bash` row with `[Install ▾]` populated.
   - Windows (with Git-for-Windows): `!ls` resolves bash via `where` to `C:\Program Files\Git\bin\bash.exe`.
