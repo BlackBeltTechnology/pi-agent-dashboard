@@ -174,6 +174,21 @@ A `MissingToolError` chat payload SHALL render via a `MissingToolInlineError` co
 
 The registry SHALL ship with definitions for at minimum: `pi` (binary), `pi-coding-agent` (module), `openspec` (binary), `npm` (binary), `npx` (binary), `node` (binary), `tsx` (binary), `git` (binary), `zrok` (binary), `gh` (binary), AND `bash` (binary). Each definition SHALL declare an ordered strategy chain and a `classify` function mapping resolved paths to `source` values.
 
+#### Scenario: node strategy chain
+
+- **WHEN** `registry.resolve("node")` runs
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/node` Unix / `\node\node.exe` Windows), `managedRuntime` (`<managedDir>/node/bin/node` Unix / `\node\node.exe` Windows), `managedBin` (`<managedDir>/node_modules/.bin/node`), `where` (delegating to `ToolResolver.which("node")`)
+
+#### Scenario: npm strategy chain
+
+- **WHEN** `registry.resolveExecutor("npm")` runs
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npm` Unix / `\node\npm.cmd` Windows), `managedRuntime`, `managedBin`, `where`
+
+#### Scenario: npx strategy chain
+
+- **WHEN** `registry.resolve("npx")` runs
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npx` Unix / `\node\npx.cmd` Windows), `managed` (`MANAGED_BIN/npx`), `where` (delegating to `ToolResolver.which("npx")`)
+
 #### Scenario: pi strategy chain
 
 - **WHEN** `registry.resolve("pi")` runs
