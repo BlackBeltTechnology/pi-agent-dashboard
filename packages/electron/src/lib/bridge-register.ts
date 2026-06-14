@@ -14,7 +14,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  *  - macOS: /Applications/PI Dashboard.app/Contents/Resources/server/packages/extension
  *  - Linux (deb/rpm): /usr/lib/pi-dashboard/resources/server/packages/extension
  *  - Linux (AppImage): /tmp/.mount_PIxxxx/... (rejected — unstable!)
- *  - Windows: C:\Program Files\PI Dashboard\resources\server\packages\extension
+ *  - Windows (NSIS per-user): %LOCALAPPDATA%\Programs\PI Dashboard\resources\server\packages\extension
+ *  - Windows (.zip): <extracted dir>\PI-Dashboard-win32-<arch>\resources\server\packages\extension
+ *    (resolved dynamically via process.resourcesPath — never hardcoded)
  */
 function findBundledExtension(): string | null {
   // Packaged app: use Electron's resourcesPath

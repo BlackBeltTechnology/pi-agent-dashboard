@@ -190,9 +190,9 @@ if [ "$PLATFORM" = "win32" ]; then
   cp "/tmp/node-$VERSION-win-$ARCH/npm.cmd" "$NODE_DIR/"
   cp "/tmp/node-$VERSION-win-$ARCH/npx.cmd" "$NODE_DIR/"
 
-  # Package with Forge (package only — forge has no Windows maker we use
-  # since NSIS was removed; we produce ZIP via `zip` below and an optional
-  # 7-Zip SFX portable .exe via electron-builder).
+  # Package with Forge (package only — forge has no Windows maker we use.
+  # Docker path produces ZIP only; NSIS Setup.exe is CI-only (windows-latest,
+  # see change restore-windows-nsis-installer). We produce ZIP via `zip` below.
   cd /build/packages/electron
   ../../node_modules/.bin/electron-forge package --platform win32 --arch "$ARCH"
 
@@ -218,37 +218,9 @@ if [ "$PLATFORM" = "win32" ]; then
   zip -r -q "../out/make/zip/$ARCH/$ZIP_NAME" "PI-Dashboard-win32-$ARCH/"
   cd /build/packages/electron
 
-  # 2. Portable exe (7-Zip SFX via electron-builder). Skipped when
-  # ZIP_ONLY=1 — build-installer.sh --windows-zip and build-windows-zip.sh
-  # --no-portable both set this. ZIP is always produced above.
-  if [ "${ZIP_ONLY:-0}" = "1" ]; then
-    echo "→ Skipping portable exe (ZIP_ONLY=1)"
-  else
-    echo "→ Building portable exe..."
-    # Disable code-signing: no cert configured, but electron-builder otherwise
-    # auto-discovers system certs and runs osslsigncode on the 169 MB SFX.
-    # See: signtoolOptions:null in the inline config below + these env vars.
-    export CSC_IDENTITY_AUTO_DISCOVERY=false
-    export WIN_CSC_LINK=
-    export CSC_LINK=
-    npx electron-builder --win portable --$ARCH \
-      --prepackaged "$PACKAGED_DIR" \
-      --config <(cat <<EOF
-{
-  "appId": "com.blackbelt-technology.pi-dashboard",
-  "productName": "PI Dashboard",
-  "executableName": "pi-dashboard",
-  "directories": { "output": "out/make/portable/$ARCH" },
-  "portable": { "artifactName": "PI-Dashboard-portable.exe" },
-  "win": {
-    "icon": "resources/icon.ico",
-    "target": ["portable"],
-    "signtoolOptions": null
-  }
-}
-EOF
-) || echo "  ⚠ Portable build failed (non-fatal)"
-  fi
+  # NSIS Setup.exe is NOT built here — it requires a Windows host (CI
+  # windows-latest leg). The Docker cross-build path is ZIP-only for Windows.
+  # See change: restore-windows-nsis-installer.
 
   echo ""
   echo "✓ Build complete for win32-$ARCH"

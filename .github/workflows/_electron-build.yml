@@ -1,7 +1,7 @@
 name: Electron build (reusable)
 
 # Reusable workflow that builds the full Electron installer matrix
-# (DMG/AppImage/DEB/Windows ZIP+portable .exe) across 6 legs.
+# (DMG/AppImage/DEB/Windows ZIP + NSIS Setup.exe) across 6 legs.
 #
 # Consumed by:
 #   - .github/workflows/publish.yml         (release flow, source_only_bundle=false)
@@ -318,10 +318,10 @@ jobs:
             node_modules/@pengx17/electron-forge-maker-appimage/scripts/patch-apprun.sh
 
       - name: Make Electron distributables
-        # Skip for all Windows: forge.config.ts has no Windows maker (NSIS
-        # removed in change `simplify-electron-bootstrap-derived-state`).
+        # Skip for all Windows: forge.config.ts has no Windows maker.
+        # NSIS Setup.exe is produced by electron-builder, not Forge.
         # Windows packaging goes through `forge package` + the dedicated
-        # "Build Windows ZIP and portable exe" step below. Without this
+        # "Build Windows ZIP and NSIS Setup.exe" step below. Without this
         # exclusion, win32-x64 fails with "Could not find any make targets
         # configured for the win32 platform" (run 25410899936 win32-x64 leg).
         if: matrix.platform != 'win32'
@@ -428,7 +428,7 @@ jobs:
         # Runs for both win32-x64 and win32-arm64. forge.config.ts has no
         # Windows maker, so we use `forge package` to produce the unpacked
         # app dir at `out/PI-Dashboard-win32-<arch>/`. The next step
-        # ("Build Windows ZIP and portable exe") consumes that dir.
+        # ("Build Windows ZIP and NSIS Setup.exe") consumes that dir.
         if: matrix.platform == 'win32'
         shell: pwsh
         run: |
@@ -437,7 +437,7 @@ jobs:
           Write-Host "Packaged output:"
           Get-ChildItem out\ -ErrorAction SilentlyContinue | Format-Table
 
-      - name: Build Windows ZIP and portable exe
+      - name: Build Windows ZIP and NSIS Setup.exe
         if: matrix.platform == 'win32'
         shell: pwsh
         run: |
@@ -453,16 +453,20 @@ jobs:
           $zipDir = "packages/electron/out/make/zip/$arch"
           New-Item -ItemType Directory -Force -Path $zipDir
           Compress-Archive -Path $packaged -DestinationPath "$zipDir/PI-Dashboard-win32-$arch.zip"
-          # Portable exe (7-Zip SFX via electron-builder — no NSIS required)
-          # See change: simplify-electron-bootstrap-derived-state.
+          # NSIS Setup.exe (per-user installer via electron-builder).
+          # See change: restore-windows-nsis-installer.
           cd packages/electron
-          npx electron-builder --win portable --$arch `
+          # 1. Derive Pi-branded ICO + BMP installer assets from master.png.
+          node scripts/build-installer-assets.mjs
+          # 2. Build the per-user NSIS Setup.exe. No code-signing (no cert
+          #    configured); CSC_* envs short-circuit electron-builder's
+          #    auto cert discovery + osslsigncode PE rewrite.
+          $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+          $env:WIN_CSC_LINK = ""
+          $env:CSC_LINK = ""
+          npx electron-builder --win nsis --$arch `
             --prepackaged "out/PI-Dashboard-win32-$arch" `
-            --config.appId=com.blackbelt-technology.pi-dashboard `
-            --config.productName="PI Dashboard" `
-            --config.directories.output="out/make/portable/$arch" `
-            --config.portable.artifactName="PI-Dashboard-$arch-portable.exe" `
-            --config.win.icon=resources/icon.ico
+            --config electron-builder-nsis.json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -471,3 +475,83 @@ jobs:
           path: packages/electron/out/make/**/*
           retention-days: ${{ inputs.artifact_retention_days }}
           if-no-files-found: error
+
+      # NSIS Setup.exe smoke test — runs on the same windows-latest runner that
+      # just built it. Per-user /S install needs no admin/UAC, so it works on
+      # the runner. See change: restore-windows-nsis-installer.
+      #   - install + registry + uninstall: HARD gates (deterministic, offline).
+      #   - launch (/api/health): x64 only (runner is x64; arm64 binary can't
+      #     exec here — needs a windows-11-arm runner) and NON-FATAL because
+      #     first-run bootstrap is network/time-sensitive. Harden to fatal once
+      #     observed stably green.
+      - name: Smoke-test NSIS Setup.exe
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $arch = "${{ matrix.arch }}"
+          $setup = Get-ChildItem "packages/electron/out/make/nsis/PI-Dashboard-Setup-*-$arch.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $setup) {
+            Write-Host "::error::NSIS Setup.exe not found for $arch"
+            Get-ChildItem -Recurse "packages/electron/out/make/nsis" -ErrorAction SilentlyContinue | Format-Table
+            exit 1
+          }
+          $setupPath = $setup.FullName
+          Write-Host "Smoke-testing $setupPath"
+          # Hard gates: install -> per-user-only -> branding.
+          ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
+          ./qa/tests/windows-nsis-no-permachine.ps1
+          ./qa/tests/windows-nsis-branding.ps1 -Setup $setupPath
+          # Launch smoke: x64 only, non-fatal (isolated subprocess so its exit
+          # code does not terminate this step).
+          if ($arch -eq "x64") {
+            pwsh -NoProfile -File ./qa/tests/windows-nsis-launch.ps1 -TimeoutSec 180
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::warning::NSIS launch smoke failed (non-fatal; first-run bootstrap is network/time-sensitive)"
+            }
+          } else {
+            Write-Host "Skipping launch smoke on $arch (x64 runner cannot exec arm64 binary; needs windows-11-arm)."
+          }
+          # Hard gate: uninstall removes app, preserves user data.
+          ./qa/tests/windows-nsis-uninstall.ps1
+
+  # arm64 NSIS launch smoke. The build legs run on x64 (windows-latest), where
+  # the arm64 Electron shell (pi-dashboard.exe) cannot launch. Download the
+  # arm64 artifact and smoke it natively on a windows-11-arm runner. Build path
+  # is unchanged — this is additive. See change: restore-windows-nsis-installer.
+  smoke-win-arm64:
+    name: arm64 NSIS smoke (windows-11-arm)
+    needs: build
+    if: ${{ inputs.legs == 'all' || inputs.legs == 'win32' || contains(inputs.legs, 'win32-arm64') }}
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Download arm64 electron artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: electron-win32-arm64${{ inputs.artifact_name_suffix }}
+          path: artifact
+      - name: Smoke-test arm64 NSIS Setup.exe (native arm64)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem -Recurse artifact -Filter "PI-Dashboard-Setup-*-arm64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $setup) {
+            Write-Host "::error::arm64 Setup.exe not found in downloaded artifact"
+            Get-ChildItem -Recurse artifact -ErrorAction SilentlyContinue | Format-Table
+            exit 1
+          }
+          $setupPath = $setup.FullName
+          Write-Host "Smoke-testing $setupPath on native arm64"
+          # Hard gates: install -> per-user-only -> branding -> uninstall.
+          ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
+          ./qa/tests/windows-nsis-no-permachine.ps1
+          ./qa/tests/windows-nsis-branding.ps1 -Setup $setupPath
+          # Launch smoke runs natively here (arm64 host). Non-fatal: first-run
+          # bootstrap is network/time-sensitive. Isolated subprocess so its exit
+          # code does not terminate this step. Harden to fatal once stably green.
+          pwsh -NoProfile -File ./qa/tests/windows-nsis-launch.ps1 -TimeoutSec 180
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::arm64 launch smoke failed (non-fatal; first-run bootstrap is network/time-sensitive)"
+          }
+          ./qa/tests/windows-nsis-uninstall.ps1

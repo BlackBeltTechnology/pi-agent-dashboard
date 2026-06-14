@@ -152,7 +152,11 @@ On `v*` tag push, `publish.yml`:
    job.
 
 2. **`electron` job (matrix)** — builds DMG (macOS arm64), DEB + AppImage
-   (Linux x64 + arm64), NSIS + ZIP + portable (Windows x64 + arm64).
+   (Linux x64 + arm64), NSIS `Setup.exe` + ZIP (Windows x64 + arm64).
+   Per-user NSIS artifact `PI-Dashboard-Setup-<version>-<arch>.exe`; portable
+   `.exe` dropped; `.zip` unchanged. appId `hu.blackbelt.pi-dashboard`
+   immutable after first NSIS release — changing it strands installed users
+   on the old Add/Remove Programs entry.
 3. **`github-release` job** —
    - Extracts `## [<version>]` section from `CHANGELOG.md` →
      `release-notes.md`.

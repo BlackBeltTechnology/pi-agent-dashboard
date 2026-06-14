@@ -11,7 +11,8 @@
     "astro": "astro",
     "check": "astro check",
     "screenshots": "tsx scripts/screenshots/capture.ts",
-    "size": "node ./scripts/check-js-size.mjs"
+    "size": "node ./scripts/check-js-size.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@astrojs/mdx": "^4.0.3",
@@ -28,6 +29,7 @@
     "@types/node": "^22.10.5",
     "playwright": "^1.49.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.0"
   }
 }

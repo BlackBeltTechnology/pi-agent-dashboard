@@ -10,9 +10,9 @@ Three ways to build the Electron app. Each suits a different scenario.
 | **Runs on** | Your machine | Docker container (Node 22 Debian) on your machine | GitHub-hosted native runners per platform |
 | **macOS DMG** | ✅ native | ❌ | ✅ `macos-14` (arm64) + `macos-15-intel` (x64) |
 | **Linux .deb/.AppImage** | ✅ if on Linux | ✅ via Docker | ✅ `ubuntu-latest` (x64) + `ubuntu-24.04-arm` (arm64) |
-| **Windows NSIS .exe** | ❌ removed | ❌ removed | ❌ removed |
+| **Windows NSIS `Setup.exe`** | ❌ | ❌ | ✅ `windows-latest` (`electron-builder --win nsis`) |
 | **Windows .zip** | ✅ if on Windows | ✅ via Docker | ✅ `windows-latest` |
-| **Windows portable .exe** | ✅ if on Windows | ✅ via Docker (7-Zip SFX) | ✅ `windows-latest` |
+| **Windows portable .exe** | ❌ removed | ❌ removed | ❌ removed |
 | **node-pty native modules** | ✅ match host platform | ⚠️ cross-compiled — may mismatch target | ✅ always native match |
 | **Bundled extensions** | ⚙️ opt-in: `BUNDLE_RECOMMENDED_EXTENSIONS=1` | ⚙️ opt-in: `BUNDLE_RECOMMENDED_EXTENSIONS=1` | ✅ always on (SPDX-checked, 15 MB budget) |
 | **Bundled Node.js** | ✅ (`download-node.sh`) | ✅ (downloaded for Windows target) | ✅ per-platform download |
@@ -35,25 +35,25 @@ Flags:
 
 Outputs in `packages/electron/out/make/`.
 
-> **Windows**: NSIS installer removed. ZIP (`.zip`) and portable `.exe` (7-Zip SFX, no NSIS) remain.
+> **Windows**: local + Docker emit ZIP only. NSIS `Setup.exe` CI-only (`windows-latest`). Portable removed.
 
 ## Docker (cross-compile)
 
 Builds Linux or Windows artifacts from any host with Docker. Docker must be running.
 
 ```bash
-npm run electron:build -- --windows        # Windows .zip + portable .exe (no NSIS)
+npm run electron:build -- --windows        # Windows .zip (no NSIS, no portable)
 npm run electron:build -- --linux          # Linux .deb + .AppImage
 npm run electron:build -- --linux --windows  # both
 npm run electron:build -- --all            # native + Linux + Windows
 ```
 
 Docker image: Node 22 Debian (`packages/electron/scripts/Dockerfile.build`).
-Entrypoint: `docker-make.sh` — runs `electron-forge package`, then `zip`, then `electron-builder --win portable`.
+Entrypoint: `docker-make.sh` — runs `electron-forge package`, then `zip`. ZIP only.
 
 **Limitations:**
-- NSIS installer skipped — uninstaller extractor requires Wine; produced only by CI.
-- `node-pty` `.node` files are Linux-compiled; mismatch on a real Windows runtime (use CI builds for distribution).
+- Docker emits ZIP only for Windows. NSIS `Setup.exe` CI-only — needs Windows host (`electron-builder --win nsis`), no Wine. Portable removed.
+- `node-pty` `.node` files Linux-compiled; mismatch real Windows runtime (use CI builds for distribution).
 
 ## CI (`publish.yml`)
 
@@ -72,8 +72,8 @@ Native runner matrix:
 | `macos-15-intel` | x64 `.dmg` |
 | `ubuntu-latest` | x64 `.deb` + `.AppImage` |
 | `ubuntu-24.04-arm` | arm64 `.deb` |
-| `windows-latest` | x64 `.exe` (NSIS) + `.zip` + portable |
-| `windows-latest` (arm64 matrix entry) | `.zip` + portable |
+| `windows-latest` | x64 NSIS `Setup.exe` + `.zip` |
+| `windows-latest` (arm64 matrix entry) | arm64 NSIS `Setup.exe` + `.zip` |
 
 Steps always enabled on CI, opt-in locally:
 - `bundle-recommended-extensions.mjs` — clones bundled extension IDs (SPDX allowlist + 15 MB budget). Enable locally: `BUNDLE_RECOMMENDED_EXTENSIONS=1 npm run electron:build`.
@@ -102,9 +102,6 @@ Dedicated script that runs the full pipeline (web → server → package → zip
 # Skip web client rebuild (already built)
 ./packages/electron/scripts/build-windows-zip.sh --skip-client
 
-# ZIP only, no portable .exe
-./packages/electron/scripts/build-windows-zip.sh --no-portable
-
 # On Windows (native, no Docker needed)
 bash packages/electron/scripts/build-windows-zip.sh
 ```
@@ -119,12 +116,12 @@ bash packages/electron/scripts/build-windows-zip.sh
 | 4 | Download Windows Node.js → `resources/node/` | ✅ direct | ✅ inside Docker |
 | 5 | `electron-forge package --platform win32` | ✅ direct | ✅ inside Docker |
 | 6 | `zip` → `out/make/zip/x64/PI-Dashboard-win32-x64.zip` | ✅ direct | ✅ inside Docker |
-| 7 | `electron-builder --win portable` → `PI-Dashboard-portable.exe` | ✅ opt-in | ✅ opt-in |
+
 
 ## Related files
 
 - `packages/electron/scripts/build-installer.sh` — main build script (orchestrates native + Docker)
-- `packages/electron/scripts/docker-make.sh` — Docker entrypoint (package + zip + portable)
+- `packages/electron/scripts/docker-make.sh` — Docker entrypoint (package + zip)
 - `packages/electron/scripts/Dockerfile.build` — Node 22 Debian build image
 - `packages/electron/scripts/bundle-recommended-extensions.sh` — extension bundler (CI only)
 - `.github/workflows/publish.yml` — CI release workflow

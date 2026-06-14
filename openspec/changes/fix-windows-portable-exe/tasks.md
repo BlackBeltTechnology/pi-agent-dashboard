@@ -26,6 +26,15 @@
 
 ## 4. Drop path (only if §2.2 selects drop)
 
+> **SUBSUMED by `restore-windows-nsis-installer`.** That change drops the
+> portable.exe target on independent grounds (replaced by a per-user NSIS
+> Setup.exe) and already implements §4.1–§4.7: portable removed from
+> `_electron-build.yml`, `docker-make.sh`, `build-windows-zip.sh`
+> (`--no-portable`/`ZIP_ONLY` plumbing gone), `build-installer.sh`
+> (`--windows-zip` kept as alias), and `electron-builder` retained (now used
+> for `--win nsis`). This proposal's Drop path is therefore closed; archive
+> `fix-windows-portable-exe` once `restore-windows-nsis-installer` lands.
+
 - [ ] 4.1 Remove the portable build step from `.github/workflows/publish.yml` ("Build Windows ZIP and portable exe" → "Build Windows ZIP"; drop the `npx electron-builder --win portable …` block).
 - [ ] 4.2 Remove step 7 ("Building portable .exe (7-Zip SFX)") from `packages/electron/scripts/build-windows-zip.sh` and the `--no-portable` flag plumbing.
 - [ ] 4.3 Remove the portable block from `packages/electron/scripts/docker-make.sh` (lines ~200–230) and the `ZIP_ONLY` short-circuit referencing it.

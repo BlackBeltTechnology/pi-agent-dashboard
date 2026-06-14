@@ -1,0 +1,31 @@
+{
+  "appId": "hu.blackbelt.pi-dashboard",
+  "productName": "PI Dashboard",
+  "executableName": "pi-dashboard",
+  "directories": {
+    "output": "out/make/nsis"
+  },
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
+    "icon": "build/installer-assets/installer-icon.ico",
+    "publisherName": "BlackBelt Technology",
+    "signtoolOptions": null
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "allowElevation": true,
+    "include": "build/installer.nsh",
+    "installerIcon": "build/installer-assets/installer-icon.ico",
+    "uninstallerIcon": "build/installer-assets/uninstaller-icon.ico",
+    "installerSidebar": "build/installer-assets/welcome-banner.bmp",
+    "uninstallerSidebar": "build/installer-assets/welcome-banner.bmp",
+    "installerHeader": "build/installer-assets/header-banner.bmp",
+    "artifactName": "PI-Dashboard-Setup-${version}-${arch}.exe",
+    "shortcutName": "PI Dashboard",
+    "uninstallDisplayName": "PI Dashboard",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": true
+  }
+}

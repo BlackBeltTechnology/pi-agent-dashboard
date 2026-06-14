@@ -175,8 +175,10 @@ const config: ForgeConfig = {
       name: "@pengx17/electron-forge-maker-appimage",
       config: {},
     }] : []),
-    // NSIS installer removed — see change: simplify-electron-bootstrap-derived-state.
-    // Windows distribution is ZIP + portable.exe only.
+    // Forge has no Windows maker. Windows distribution = ZIP (forge package +
+    // zip) plus an NSIS Setup.exe produced by electron-builder as a sidecar
+    // step (CI windows-latest). See change: restore-windows-nsis-installer.
+    // The 7-Zip SFX portable.exe target was dropped by that change.
   ],
   plugins: [
     {

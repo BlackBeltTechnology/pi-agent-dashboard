@@ -19,7 +19,7 @@ const TABS: Tab[] = [
     id: "electron",
     label: "Electron app",
     subline: "Zero prerequisites. Guided setup wizard.",
-    code: "# Download an installer:\n# https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases\n#\n# macOS    — .dmg (arm64 / x64)\n# Linux    — .deb / .AppImage\n# Windows  — .zip",
+    code: "# Download an installer:\n# https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases\n#\n# macOS    — .dmg (arm64 / x64)\n# Linux    — .deb / .AppImage\n# Windows  — .exe (installer) / .zip",
     note: "Bundles Node.js, auto-installs pi + openspec. System tray integration. Builds are not yet code-signed — see the unblocking notes below.",
     unsignedNote: true,
   },

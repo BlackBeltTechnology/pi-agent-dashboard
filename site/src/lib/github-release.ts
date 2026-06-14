@@ -56,7 +56,9 @@ export interface LatestRelease {
   releasesUrl: string;
 }
 
-function classify(
+// Exported for unit testing (see __tests__/classify.test.ts). Maps a release
+// asset filename to its platform bucket + display kind + sort priority.
+export function classify(
   name: string,
 ): { platform: PlatformBundle["id"]; kind: string; priority: number } | null {
   const n = name.toLowerCase();

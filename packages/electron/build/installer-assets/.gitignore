@@ -1,0 +1,7 @@
+# Derived NSIS installer assets — generated at build time by
+# scripts/build-installer-assets.mjs (CI windows-latest leg).
+# Only master.png is tracked; ICO/BMP are build artifacts.
+installer-icon.ico
+uninstaller-icon.ico
+welcome-banner.bmp
+header-banner.bmp

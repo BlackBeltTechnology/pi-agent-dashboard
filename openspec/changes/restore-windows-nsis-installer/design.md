@@ -4,50 +4,43 @@ NSIS was removed in v0.5.0 by `simplify-electron-bootstrap-derived-state`. This 
 
 ## Decision D1 — NSIS toolchain: electron-builder + custom include script
 
-**Choice:** `electron-builder --win nsis` invoked as a sidecar step in the CI Windows build, **extended via the `nsis.include` config option** with a custom `packages/electron/build/installer.nsh` that adds MUI2 branding, the multi-user install-mode page, and JUDO-style registry writes. electron-builder generates the NSIS script and `!include`s our file before compilation — we extend, we do not replace.
+**Choice:** `electron-builder --win nsis` invoked as a sidecar step in the CI Windows build, **extended via the `nsis.include` config option** with a custom `packages/electron/build/installer.nsh` that adds MUI2 branding and JUDO-style registry writes (per-user only — no install-mode page). electron-builder generates the NSIS script and `!include`s our file before compilation — we extend, we do not replace.
 
 **Rejected alternatives:**
 
 - **`@felixrieseberg/electron-forge-maker-nsis`** — what was used before v0.5.0 removal. Last npm publish 2021, no recent maintenance, single maintainer outside the Forge team. Removed by `simplify-electron-bootstrap-derived-state`. Reintroducing it ties us to an unmaintained surface, and the maker has no documented extension point for a custom `.nsh` include — we would lose the branding/install-mode customisation path.
 - **`@electron-forge/maker-squirrel`** — officially maintained by the Forge team. Produces a Squirrel.Windows installer, not NSIS. Different UX (silent install, auto-update built in). Users asking for a "real Windows installer with a wizard and an Add/Remove Programs entry" do not get a wizard from Squirrel — they get a silent install that pops a toast. Wrong target.
-- **Fully hand-rolled .nsi script (the JUDO designer pattern)** — the JUDO designer ships a complete `install.nsi` written from scratch, invoked directly with `makensis`. Maximum control. But: we would lose electron-builder's electron-version pinning, asar-packaging integration, `extraResources` handling, and the `electron-updater` differ format that lets future auto-update work. Maintenance burden multiplies — every electron major-version upgrade risks breaking our hand-rolled script. We use the JUDO `install.nsi` as **reference and inspiration for branding + multi-user wizard patterns**, not as a script to ship verbatim.
+- **Fully hand-rolled .nsi script (the JUDO designer pattern)** — the JUDO designer ships a complete `install.nsi` written from scratch, invoked directly with `makensis`. Maximum control. But: we would lose electron-builder's electron-version pinning, asar-packaging integration, `extraResources` handling, and the `electron-updater` differ format that lets future auto-update work. Maintenance burden multiplies — every electron major-version upgrade risks breaking our hand-rolled script. We use the JUDO `install.nsi` as **reference and inspiration for branding + wizard patterns**, not as a script to ship verbatim.
 - **electron-builder's `nsis.script` option (full script replacement)** — same downside as fully hand-rolled. The `nsis.include` option is the right granularity.
 
 **Why electron-builder + include script wins:**
 
 - Already a devDependency in `packages/electron/package.json`. Zero new dependency surface.
-- The `nsis.include` extension point is documented and stable. electron-builder's generated script handles asar unpacking, electron-version stamping, `extraResources`, and updater hooks; our `.nsh` adds branding + multi-user without re-implementing any of that.
+- The `nsis.include` extension point is documented and stable. electron-builder's generated script handles asar unpacking, electron-version stamping, `extraResources`, and updater hooks; our `.nsh` adds branding without re-implementing any of that.
 - Forge + electron-builder coexistence is already precedent in this repo. We use Forge for DMG/AppImage/DEB/ZIP and shell out to electron-builder for Windows-specific targets. The pattern extends to NSIS cleanly.
-- The JUDO designer's `install.nsi` provides a battle-tested branding / multi-user / selective-uninstall reference that we port to MUI2 idiom inside our include script.
+- The JUDO designer's `install.nsi` provides a battle-tested branding / selective-uninstall reference that we port to MUI2 idiom inside our include script.
 
-**Trade accepted:** custom `.nsh` is a real surface we own. Mitigation: keep it small (target ~150 LOC); cover with the QA install smoke tests (§5) so any regression in branding or install-mode UX is caught before release.
+**Trade accepted:** custom `.nsh` is a real surface we own. Mitigation: keep it small (target ~150 LOC); cover with the QA install smoke tests (§5) so any regression in branding or install UX is caught before release.
 
-## Decision D2 — Install mode is a user choice (multi-user mode)
+## Decision D2 — Per-user install only (no per-machine mode)
 
-**Choice:** Enable electron-builder's multi-user NSIS mode by **omitting** `perMachine` from the config (omission, not literal `true` or `false`). This causes the generated NSIS script to include the multi-user macro from electron-builder's template, which presents a wizard page asking the user to pick "Install for just me" (per-user, no UAC) or "Install for everyone" (per-machine, UAC-elevated). Default selection: "just me".
+**Choice:** Ship a **per-user-only** installer. Set `perMachine: false` in the electron-builder config (explicit `false`, not omitted — omission would enable multi-user mode). No install-mode wizard page, no "Install for everyone" option, no HKLM registration, no Program Files default.
 
-**Per-user mode (default):**
-- Install dir defaults to `%LOCALAPPDATA%\Programs\PI Dashboard\`.
+**Per-user install (the only mode):**
+- Install dir defaults to `%LOCALAPPDATA%\Programs\PI Dashboard\`; the user MAY redirect it via the Choose-Install-Location page.
 - Add/Remove Programs entry registered under `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PI Dashboard`.
-- No UAC prompt.
-- Start Menu shortcut under the user's profile Start Menu.
+- No UAC prompt for the default path. If the user redirects the install dir to a system-protected location (e.g. `C:\Program Files\`), electron-builder's NSIS auto-elevates for that copy step only (see D3) — incidental file-permission elevation, not a per-machine install.
+- Start Menu shortcut under the user's per-profile Start Menu.
 
-**Per-machine mode (opt-in):**
-- Install dir defaults to `%PROGRAMFILES%\PI Dashboard\` (architecture-appropriate: `%PROGRAMFILES%` resolves to `Program Files` for x64 install on x64 Windows, `Program Files (x86)` is not used because we ship native x64 / arm64 binaries).
-- Add/Remove Programs entry registered under `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\PI Dashboard` (matches the JUDO designer reference's HKLM-only model).
-- UAC prompt at the install-mode → install-progress transition.
-- Start Menu shortcut under the machine-wide Start Menu (visible to all users).
+**Why per-user only:**
+- Fits the `~/.pi-dashboard/` per-user managed-dir bootstrap model cleanly — install shell and user-data tree both live in the launching user's profile. The machine-wide variant is the only one that clashes with this model (the original v0.5.0 removal rationale).
+- Zero-friction "try it on my laptop" path — no admin, no UAC, no mode choice to make.
+- Smallest install-mode surface to own in the custom `.nsh`: no `$MultiUser.InstallMode` branching across install-dir defaults, registry hive, and shortcut paths.
+- Corporate / shared-workstation use case is served by the `.zip` (extract once to a shared location). A per-machine installer for that niche is not worth the added wizard page, dual-hive registry logic, and per-machine QA path.
 
-**Why both modes:**
-- The per-user default covers the "I just want to try it on my laptop" path with zero friction.
-- Per-machine is the right choice in corporate environments where IT installs the app once for all users on a shared workstation, and in lab / kiosk setups. Forcing those users to fall back to `.zip` defeats the point of shipping a proper installer.
-- Multi-user mode is electron-builder's documented pattern for this exact requirement; it carries the install-mode choice into NSIS macros (`$MultiUser.InstallMode`) that propagate to install-dir defaults, registry hive, and shortcut paths automatically.
+**Trade accepted: corporate shared-workstation users use `.zip`.** They lose the Start-Menu / uninstaller affordance for the all-users case. Accepted — revisit only on concrete demand. Per-user Setup.exe + `.zip` covers both the individual-user and the IT-managed paths.
 
-**Trade accepted: bootstrap must work in both contexts.**
-- The bootstrap state machine resolves install location via `app.getPath('exe')` (already true). The `~/.pi/` + `~/.pi-dashboard/` user-data dirs always live in the launching user's profile regardless of install mode — even for per-machine installs, every user who launches the app gets their own user-data tree. This is correct behaviour, not a bug. Documented in design D4.
-- Per-machine install with multiple users launching: each user's first launch sees an empty `~/.pi-dashboard/` and runs through `installable.json` reconciliation against the per-user managed dir. The dashboard server installs into the launching user's `~/.pi-dashboard/`, not the shared install dir. This is consistent with how VS Code handles its per-user extensions.
-
-**Rejected: per-user only (the earlier draft).** Locked out the corporate / shared-workstation use case for no real benefit — the bootstrap machine already handles per-user state cleanly whether the app shell is per-user or per-machine.
+**Rejected: multi-user mode (omit `perMachine`).** Earlier draft enabled electron-builder's multi-user macro to offer "just me" / "everyone". Reversed — the per-machine half clashes with the managed-dir model, doubles the registry / shortcut / elevation logic in the `.nsh`, and adds a per-machine QA path, all to serve a niche the `.zip` already covers.
 
 ## Decision D3 — `oneClick: false` AND `allowToChangeInstallationDirectory: true`
 
@@ -158,6 +151,28 @@ NSIS was removed in v0.5.0 by `simplify-electron-bootstrap-derived-state`. This 
 - The single biggest source of breakage in the pre-v0.5.0 NSIS setup was electron-builder deriving install-dir paths from the npm package name (`pi-agent-dashboard`) rather than the product name. This produced "PI-Agent-Dashboard" Start Menu entries and other awkward strings. `fix-electron-windows-installer-and-server-bootstrap` (archived 2026-05-01) document D2 captured every knob needed to override this. We re-apply those knobs here.
 - `appId` matters for Add/Remove Programs uninstaller registration. Once shipped, changing it strands users on the old appId (their uninstaller stays registered under the old GUID). The value `hu.blackbelt.pi-dashboard` aligns with BlackBelt Technology's existing Java package namespace convention (`hu.blackbelt.*`, as seen in `hu.blackbelt.judo.eclipse.epp.package.designer.product`) and reverse-DNS for the registered Hungarian-country-code domain. **Do not iterate** after first NSIS release.
 
+## Decision D10 — Smoke-test Setup.exe inline on the build runner
+
+**Choice:** Smoke-test the installer as a `_electron-build.yml` step on the same `windows-latest` runner that built it, immediately after upload. No VM, no `automate-windows-remote-qa` harness, no `qa/remote/` dependency.
+
+**Why:**
+
+- The win32 legs already run on real Windows (`windows-latest`). The artifact under test sits on the runner's disk — testing it there is the cheapest possible loop.
+- **Per-user install unlocks this.** `/S` per-user install writes to `%LOCALAPPDATA%` and HKCU — no admin, no UAC — so it runs unprivileged on the runner. A per-machine installer would need an elevated step and is one more reason D2 chose per-user.
+- Install / registry / uninstall assertions are deterministic and offline — hard gates that fail the job, giving real regression protection for the installer mechanics this change ships.
+
+**arm64 launch needs a native arm64 host — separate job, build path unchanged.**
+
+- The `windows-latest` build runner is x64, so the arm64 Electron shell (`pi-dashboard.exe`, arm64) cannot launch there. The inline smoke step runs launch only on the x64 leg; the arm64 build leg runs every non-launch assertion inline.
+- A dedicated `smoke-win-arm64` job (`runs-on: windows-11-arm`, `needs: build`) downloads the `electron-win32-arm64` artifact and runs the full install→launch→uninstall smoke **natively on arm64**. This is additive — the build still cross-builds arm64 on `windows-latest` (deliberately bundling x64 Node + native modules for WoW64 emulation; see the win32 build steps). Moving the build host was rejected: the x64 cross-build is the proven path and the bundling logic targets x64-under-emulation by design.
+
+**Trade accepted: non-fatal launch initially.**
+
+- Launch (both x64 inline and arm64 job) is non-fatal at first because first-run bootstrap (pi download + managed-dir reconciliation) is network/time-sensitive and could flake the release matrix. Run via an isolated `pwsh -File` subprocess so its exit code does not terminate the step; surface failures as `::warning::`. Harden to a hard gate once observed stably green.
+- `smoke-win-arm64` depends on `windows-11-arm` GitHub-hosted runner availability.
+
+**Rejected: VM-only QA via `automate-windows-remote-qa`.** That harness doesn't exist yet (`qa/remote/` absent) and would gate this change on an unrelated proposal. The same `windows-nsis-*.ps1` scripts run both inline on CI now and under the VM harness later — no duplicate logic.
+
 ## State machine impact
 
 The Electron bootstrap state machine (`docs/electron-bootstrap-flow.md`) doesn't change. NSIS-installed app lands at `%LOCALAPPDATA%\Programs\PI Dashboard\PI Dashboard.exe` and runs through the same `selectLaunchSource()` resolver as today's `.zip`-extracted install. Both fall under the existing "installed/extracted" source. No new source needed.
@@ -191,8 +206,8 @@ This is the design-time sketch of the custom include script. Lock in shape + int
 electron-builder's generated NSIS script already provides:
 
 - MUI2 setup, page macros, language selection.
-- `multiUser.nsh` inclusion when `perMachine` is omitted from config — the install-mode wizard page comes for free.
-- `SHCTX` variable set to HKCU (per-user mode) or HKLM (per-machine mode) automatically. Every `WriteReg*` / `DeleteReg*` against `SHCTX` lands in the right hive without our code branching.
+- With `perMachine: false`, per-user install mode — NO `multiUser.nsh` install-mode page.
+- `SHCTX` variable set to HKCU (per-user mode). Every `WriteReg*` / `DeleteReg*` against `SHCTX` lands in HKCU without our code branching.
 - Standard Add/Remove Programs entry write with DisplayName, Publisher, DisplayVersion, UninstallString, QuietUninstallString, InstallLocation, EstimatedSize.
 - Standard `RMDir /r "$INSTDIR"` on uninstall.
 - In-place upgrade detection via version stamping.
@@ -233,7 +248,7 @@ electron-builder's generated NSIS script already provides:
 ; electron-builder doesn't write by default: DisplayIcon, NoModify,
 ; NoRepair. (EstimatedSize is set by electron-builder.)
 ;
-; SHCTX is HKCU or HKLM per multi-user mode — no branching needed.
+; SHCTX is HKCU (per-user mode) — no branching needed.
 ; UNINSTALL_REGISTRY_KEY_PATH below is the full path; the leaf key
 ; name (electron-builder calls it ${UNINSTALL_APP_KEY} internally)
 ; must be confirmed against the pinned electron-builder version
@@ -290,9 +305,9 @@ electron-builder's generated NSIS script already provides:
 
 2. **`${UNINSTALL_APP_KEY}` define name.** Visible in `node_modules/app-builder-lib/templates/nsis/boring.nsh`. If the literal name has drifted, swap the define name in the `!define UNINSTALL_REGISTRY_KEY_PATH` line. Falling back to writing into both possible paths is a safe-bet alternative.
 
-3. **Confirm `SHCTX` is set before `customInstall` fires.** Inspect the generated `installer.nsi` (electron-builder logs the generated script path during build) after a first build to confirm ordering. If `SHCTX` isn't set yet, replace with explicit `$MultiUser.InstallMode == "CurrentUser"` branching.
+3. **Confirm `SHCTX` is set before `customInstall` fires.** Inspect the generated `installer.nsi` (electron-builder logs the generated script path during build) after a first build to confirm ordering. If `SHCTX` isn't set yet (per-user install), hardcode `HKCU` in the `WriteReg*` calls.
 
-4. **MessageBox in silent mode.** `/SD IDOK` should suppress the dialog under `/S`, but verify on the per-machine silent path §5.1c. If the messagebox blocks the QA test harness, gate the call on `$SilentInstall`.
+4. **MessageBox in silent mode.** `/SD IDOK` should suppress the dialog under `/S`, but verify on the silent install path §5.1c. If the messagebox blocks the QA test harness, gate the call on `$SilentInstall`.
 
 ### What's NOT in the sketch (deliberately)
 

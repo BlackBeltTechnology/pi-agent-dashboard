@@ -15,8 +15,7 @@ will shrink and eventually disappear as each lands.
 #### Windows — SmartScreen warning
 
 SmartScreen will show **"Windows protected your PC"** the first time you
-run any `.exe` artifact (Setup, portable, or any `.exe` extracted from a
-ZIP).
+run any `.exe` artifact (Setup, or any `.exe` extracted from a ZIP).
 
 **Option A — at the SmartScreen dialog:**
 

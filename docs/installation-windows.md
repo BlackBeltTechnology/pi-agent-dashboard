@@ -4,27 +4,27 @@ Guide to installing + running **pi-agent-dashboard** on Windows 10/11.
 
 Two install paths:
 
-1. **Electron portable / installer** (recommended) — one-click download, bundled Node + npm, graphical setup wizard. Works for most users.
+1. **Electron `Setup.exe` installer** (recommended) — per-user NSIS installer, bundled Node + npm, Start Menu shortcut, uninstaller. `.zip` extract-and-run available as secondary. Works for most users.
 2. **Tarball / npm install** (advanced) — for developers validating pre-release builds or running headless server without Electron.
 
 Both share same runtime layout: agent runtime (`pi-coding-agent`) lives in `%USERPROFILE%\.pi-dashboard\node_modules\`; dashboard's config / logs / sessions live in `%USERPROFILE%\.pi\dashboard\` + `%USERPROFILE%\.pi\agent\sessions\`.
 
 ---
 
-## Path 1 — Electron portable (recommended)
+## Path 1 — Electron Setup.exe (recommended)
 
 ### Step 1 — Download
 
-Grab latest Windows installer or portable zip from GitHub releases page:
+Grab latest Windows artifact from GitHub releases page:
 
-- **`PI-Dashboard-<version>-Setup.exe`** — full installer, creates Start Menu entries + file associations.
-- **`PI-Dashboard-win32-x64.zip`** — portable zip; unzip + run `pi-dashboard.exe` in place.
+- **`PI-Dashboard-Setup-<version>-<arch>.exe`** (primary) — per-user NSIS installer. Default dir `%LOCALAPPDATA%\Programs\PI Dashboard\`, user can change it. Start Menu shortcut, Add/Remove Programs entry, uninstaller. Installs `pi-dashboard.exe`. No admin, no UAC, no HKLM. x64 + arm64.
+- **`PI-Dashboard-win32-x64.zip`** (secondary) — extract-and-run. Unzip + run `pi-dashboard.exe` in place. No install, no Start Menu entry.
 
-Both built on Linux CI runner via Docker + electron-forge → NSIS. Artifacts identical in behaviour; installer vs portable = packaging preference.
+`Setup.exe` built on `windows-latest` CI via `electron-builder --win nsis`. `.zip` also from CI.
 
 ### Step 2 — Launch
 
-Double-click `pi-dashboard.exe` (portable) or Start Menu shortcut (installer).
+Start Menu shortcut (Setup.exe) or double-click `pi-dashboard.exe` (.zip).
 
 Splash window appears within 1 second + progresses through startup phases:
 
@@ -295,29 +295,14 @@ Windows username contains accented characters (e.g. `Róbert Csákány`) → som
 
 Packaged build requires executable permissions on `node-pty`'s spawn helper. Handled at install time for npm installs, but packaged Electron bundles need their own bundle-time fix. Terminals silently fail in packaged .exe → file issue with build log attached.
 
-### Startup feels slow on cold launch (Windows portable)
-
-Splash window should appear within 1 second — if not, check `%TEMP%\pi-dashboard-electron.log` for phase progression. Expected sequence:
-
-```
-[timestamp] === Electron starting ===
-[timestamp] splash: Checking dashboard server…
-[timestamp] splash: Detecting pi agent…
-[timestamp] splash: Checking bridge extension…
-[timestamp] splash: Opening setup wizard…           (or: Launching dashboard server…)
-[timestamp] splash: Opening dashboard…
-```
-
-Any phase stalls > 10 seconds, share that block in bug report.
-
 ---
 
 ## Upgrading
 
 ### Electron (Path 1)
 
-- **Installer:** download new `PI-Dashboard-<version>-Setup.exe`, run it. Uninstalls old version + installs new. Config / sessions preserved.
-- **Portable:** download new `.zip`, unzip over (or next to) old folder, launch new `pi-dashboard.exe`.
+- **Setup.exe:** download new `PI-Dashboard-Setup-<version>-<arch>.exe`, run it. Installs over old version. Config / sessions preserved.
+- **.zip:** download new `.zip`, unzip over (or next to) old folder, launch new `pi-dashboard.exe`.
 
 ### Tarball / npm (Path 2)
 
@@ -343,8 +328,8 @@ pi-dashboard start
 
 ### Path 1 (Electron)
 
-- **Installer:** Windows Settings → Apps → PI Dashboard → Uninstall.
-- **Portable:** delete unzipped folder.
+- **Setup.exe:** Windows Settings → Apps → PI Dashboard → Uninstall. Removes app; preserves `~/.pi/` + `~/.pi-dashboard/`.
+- **.zip:** delete unzipped folder.
 
 ### Path 2 (tarball)
 
@@ -392,15 +377,15 @@ cd pi-agent-dashboard
 npm install
 npm run build
 
-# Windows installer via Docker (cross-platform from macOS/Linux)
+# Windows .zip via Docker (cross-platform from macOS/Linux)
 ./packages/electron/scripts/build-installer.sh --windows
 
-# OR natively on Windows
+# OR natively on Windows (ZIP + native modules)
 cd packages/electron
 npm run make
 ```
 
-Artifacts land in `packages/electron/out/make/`. Expect ~5-15 minutes first time (Docker pulls base image + Wine + build tools), ~2-5 min subsequent.
+Docker produces `.zip` only. NSIS `Setup.exe` CI-only (`windows-latest` via `electron-builder --win nsis`); needs Windows host, no Wine. Artifacts land in `packages/electron/out/make/`. Expect ~5-15 minutes first time (Docker pulls base image + build tools), ~2-5 min subsequent.
 
 Docker build uses `--platform linux/amd64`. On Apple Silicon, Rosetta emulation slow (~20-30 min); use CI or native Windows box for faster turnaround.
 

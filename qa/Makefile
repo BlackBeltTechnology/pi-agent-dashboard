@@ -111,6 +111,27 @@ test-linux-arm:
 test-windows:
 	@$(SCRIPTS_DIR)/run-test.sh windows $(OUTPUT_DIR)/windows $(SSH_USER) $(SSH_KEY) $(SSH_TIMEOUT)
 
+# NSIS Setup.exe install/launch/uninstall smoke (restore-windows-nsis-installer).
+# Requires: a built Setup.exe (SETUP=...) AND the automate-windows-remote-qa
+# harness (qa/remote/) to copy + run the scripts on a Windows VM. Until that
+# harness lands this target documents the script order and guards SETUP.
+# Scripts (run in order on the VM):
+#   windows-nsis-install.ps1 -Setup <SETUP>
+#   windows-nsis-install-custom-dir.ps1 -Setup <SETUP>
+#   windows-nsis-no-permachine.ps1
+#   windows-nsis-branding.ps1 -Setup <SETUP>
+#   windows-nsis-launch.ps1
+#   windows-nsis-uninstall.ps1
+.PHONY: test-windows-remote-nsis
+test-windows-remote-nsis:
+	@if [ -z "$(SETUP)" ]; then \
+	  echo "Usage: make test-windows-remote-nsis SETUP=<path-or-url-to-Setup.exe>"; \
+	  echo "Note: needs the automate-windows-remote-qa harness (qa/remote/) to run on a VM."; \
+	  exit 2; \
+	fi
+	@echo "NSIS QA scripts present in qa/tests/windows-nsis-*.ps1 (SETUP=$(SETUP))."
+	@echo "Wire into the qa/remote harness once automate-windows-remote-qa lands."
+
 .PHONY: test-macos-x86
 test-macos-x86:
 	@$(SCRIPTS_DIR)/run-test.sh macos-x86 $(OUTPUT_DIR)/macos-x86 $(SSH_USER) $(SSH_KEY) $(SSH_TIMEOUT)

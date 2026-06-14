@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# build-windows-zip.sh — Build Windows ZIP (and portable .exe) from source
+# build-windows-zip.sh — Build Windows ZIP (and optional NSIS Setup.exe) from source
 #
 # Full pipeline:
 #   1. Build web client (Vite)
@@ -9,22 +9,25 @@
 #   4. Download Windows Node.js → resources/node/
 #   5. electron-forge package --platform win32
 #   6. Zip packaged output → out/make/zip/x64/PI-Dashboard-win32-x64.zip
-#   7. electron-builder portable → out/make/portable/x64/PI-Dashboard-portable.exe
+#   7. (--with-nsis, Windows host only) electron-builder nsis →
+#      out/make/nsis/x64/PI-Dashboard-Setup-<version>-x64.exe
 #
 # Platform behaviour:
-#   Windows (native)  — steps run directly; forge + PowerShell do the zip
-#   macOS / Linux     — cross-compile inside Docker (same image CI uses)
+#   Windows (native)  — steps run directly; forge + PowerShell do the zip;
+#                       NSIS Setup.exe optional via --with-nsis.
+#   macOS / Linux     — cross-compile inside Docker (same image CI uses).
+#                       ZIP only — NSIS requires a Windows host (CI-only).
 #
 # Usage:
 #   ./build-windows-zip.sh                  # x64 (default)
 #   ./build-windows-zip.sh --arch arm64     # arm64
 #   ./build-windows-zip.sh --skip-client    # skip step 1 (already built)
-#   ./build-windows-zip.sh --no-portable    # skip portable .exe (step 7)
+#   ./build-windows-zip.sh --with-nsis      # also build NSIS Setup.exe (Windows host)
 #   ./build-windows-zip.sh --skip-docker    # macOS/Linux: skip Docker, manual steps only
 #
 # Output: packages/electron/out/make/
 #   zip/x64/PI-Dashboard-win32-x64.zip
-#   portable/x64/PI-Dashboard-portable.exe  (unless --no-portable)
+#   nsis/x64/PI-Dashboard-Setup-<version>-x64.exe  (only with --with-nsis on Windows)
 # =============================================================================
 
 set -euo pipefail
@@ -38,7 +41,7 @@ source "$SCRIPT_DIR/_node-version.sh"
 NODE_VERSION="$BUNDLED_NODE_VERSION"
 ARCH="x64"
 SKIP_CLIENT=false
-NO_PORTABLE=false
+WITH_NSIS=false
 SKIP_DOCKER=false
 DOCKER_IMAGE="pi-dashboard-electron-builder"
 
@@ -48,7 +51,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)        ARCH="$2"; shift 2 ;;
     --skip-client) SKIP_CLIENT=true; shift ;;
-    --no-portable) NO_PORTABLE=true; shift ;;
+    --with-nsis)   WITH_NSIS=true; shift ;;
     --skip-docker) SKIP_DOCKER=true; shift ;;
     --help|-h)
       sed -n '/^# Usage/,/^# Output/p' "$0" | sed 's/^# \{0,2\}//'
@@ -180,25 +183,23 @@ if [ "$HOST_PLATFORM" = "win32" ]; then
   zip -r -q "$ZIP_DIR/PI-Dashboard-win32-$ARCH.zip" "PI-Dashboard-win32-$ARCH/"
   echo "✓ ZIP created: $ZIP_DIR/PI-Dashboard-win32-$ARCH.zip"
 
-  # ── Step 7 — Portable .exe ───────────────────────────────────────────────
-  if [ "$NO_PORTABLE" = false ]; then
+  # ── Step 7 — NSIS Setup.exe (optional, Windows host only) ────────────────
+  if [ "$WITH_NSIS" = true ]; then
     echo ""
-    echo "▶ Step 7/7 — Building portable .exe (7-Zip SFX)..."
+    echo "▶ Step 7/7 — Building NSIS Setup.exe (per-user installer)..."
     cd "$ELECTRON_DIR"
+    # Derive Pi-branded ICO + BMP assets from master.png.
+    node scripts/build-installer-assets.mjs
     # Disable code-signing entirely: no cert is configured, but electron-builder
-    # auto-discovers system certs by default and runs osslsigncode (slow PE rewrite
-    # of the 169 MB SFX). CSC_IDENTITY_AUTO_DISCOVERY=false short-circuits that.
+    # auto-discovers system certs by default and runs osslsigncode (slow PE
+    # rewrite). CSC_IDENTITY_AUTO_DISCOVERY=false short-circuits that.
     CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= CSC_LINK= \
-    npx electron-builder --win portable --"$ARCH" \
+    npx electron-builder --win nsis --"$ARCH" \
       --prepackaged "out/PI-Dashboard-win32-$ARCH" \
-      --config.appId=com.blackbelt-technology.pi-dashboard \
-      --config.productName="PI Dashboard" \
-      --config.directories.output="out/make/portable/$ARCH" \
-      --config.portable.artifactName="PI-Dashboard-portable.exe" \
-      --config.win.icon=resources/icon.ico
-    echo "✓ Portable .exe built"
+      --config electron-builder-nsis.json
+    echo "✓ NSIS Setup.exe built"
   else
-    echo "– Step 7/7 — Skipping portable .exe (--no-portable)"
+    echo "– Step 7/7 — Skipping NSIS Setup.exe (pass --with-nsis to enable; Windows host only)"
   fi
 
 else
@@ -247,14 +248,15 @@ else
     echo "✓ Docker image already present"
   fi
 
-  # ── Steps 2–7: Run inside Docker ────────────────────────────────────────
+  # ── Steps 2–6: Run inside Docker (ZIP only) ─────────────────────────────
   # The docker-make.sh entrypoint handles:
   #   2. bundle-server.mjs --source-only
   #   3. npm install (Windows-targeted native modules)
   #   4. Download Windows Node.js
   #   5. electron-forge package --platform win32
   #   6. zip
-  #   7. electron-builder portable (unless ZIP_ONLY=1)
+  # NSIS Setup.exe is NOT built on the Docker path — it needs a Windows host
+  # (CI windows-latest). --with-nsis is ignored here.
   #
   # Mount strategy:
   #   * Source tree bind-mounted at /build (fast iteration, avoids copying
@@ -271,11 +273,11 @@ else
   #     rmSync(SERVER_BUNDLE) doesn't fight a mountpoint (EBUSY).
   # Artifacts are extracted via `docker cp` from the volume mount point.
   echo ""
-  echo "▶ Steps 2–7 — Running inside Docker (win32-$ARCH)..."
+  echo "▶ Steps 2–6 — Running inside Docker (win32-$ARCH, ZIP only)..."
   echo ""
-
-  ZIP_ONLY_FLAG="0"
-  [ "$NO_PORTABLE" = true ] && ZIP_ONLY_FLAG="1"
+  if [ "$WITH_NSIS" = true ]; then
+    echo "⚠ --with-nsis ignored on the Docker path; NSIS requires a Windows host (CI-only)."
+  fi
 
   CONTAINER_NAME="pi-dashboard-electron-build-$$"
   RUN_RC=0
@@ -287,7 +289,6 @@ else
     -v "$PROJECT_DIR:/build" \
     -v /build/packages/electron/out \
     -w /build \
-    -e "ZIP_ONLY=$ZIP_ONLY_FLAG" \
     "$DOCKER_IMAGE" \
     win32 "$ARCH" || RUN_RC=$?
 

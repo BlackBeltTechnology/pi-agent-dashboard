@@ -28,17 +28,16 @@ Cross-refs:
 - packages/client/src/components/PreviewCard.tsx
 - packages/server/src/routes/file-routes.ts
 
-## How to build Windows electron zip + portable .exe?
+## How to build Windows electron zip?
 
-One command produces both artifacts.
+Docker cross-build produces `.zip` only.
 
 Command: `./packages/electron/scripts/build-installer.sh --windows`. Add `--arch arm64` for ARM.
 
-Outputs (both, single run):
+Output:
 - zip: `packages/electron/out/make/zip/<arch>/PI-Dashboard-<arch>.zip`
-- portable .exe: `packages/electron/out/make/portable/<arch>/PI-Dashboard-portable.exe`
 
-Cross-builds Windows from macOS/Linux via Docker. `Dockerfile.build` + `docker-make.sh` run `electron-builder --win portable` then `zip -r`. NSIS installer skipped on cross-build; uninstaller extraction needs Wine. NSIS produced only on native `windows-latest` CI.
+Cross-builds Windows from macOS/Linux via Docker. `Dockerfile.build` + `docker-make.sh` run `electron-forge package` then `zip -r`. Portable `.exe` dropped. NSIS `Setup.exe` CI-only (`windows-latest` via `electron-builder --win nsis`); needs Windows host.
 
 ### Zip only (no Docker)
 
@@ -556,7 +555,7 @@ npm run make                          # electron-forge make
 Outputs in `packages/electron/out/make/`:
 - macOS: `.dmg`
 - Linux: `.deb` + `.AppImage`
-- Windows: `.exe` (NSIS) + `.zip` + portable `.exe`
+- Windows: `.zip` (NSIS `Setup.exe` CI-only)
 
 Prerequisite: Node.js 22.12+. Forge handles platform tools.
 
@@ -571,13 +570,13 @@ Docker cross-compile from macOS/Linux.
 Commands:
 - `npm run electron:build -- --all` — macOS native + Linux + Windows (Docker)
 - `npm run electron:build -- --linux` — Linux `.deb` + `.AppImage`
-- `npm run electron:build -- --windows` — Windows `.exe` (NSIS) + `.zip` + portable
+- `npm run electron:build -- --windows` — Windows `.zip` (Docker; NSIS `Setup.exe` CI-only)
 - `npm run electron:build -- --linux --windows` — both, skip native
 - `npm run electron:build -- --mac-both` — arm64 + x64 DMGs on Apple Silicon
 
 `--mac-both` requires Rosetta 2 (`softwareupdate --install-rosetta --agree-to-license`) for node-pty x64 prebuilt unpacking. Script wipes per-arch caches via `resources/.last-arch` sentinel between runs. Intel macs cannot cross-build arm64 (Rosetta one-way).
 
-Docker image: Node 22 Debian + NSIS for Windows cross-compile. NSIS uninstaller skipped on cross-build (needs Wine); produced only on native `windows-latest` CI.
+Docker image: Node 22 Debian. Windows cross-build emits `.zip` only. Portable `.exe` dropped. NSIS `Setup.exe` CI-only (`windows-latest` via `electron-builder --win nsis`); needs Windows host.
 
 Outputs: `packages/electron/out/make/`.
 
@@ -624,8 +623,8 @@ Native runners:
 - `macos-15-intel` → x64 `.dmg`
 - `ubuntu-latest` → x64 `.deb` + `.AppImage`
 - `ubuntu-24.04-arm` → arm64 `.deb`
-- `windows-latest` → x64 `.exe` (NSIS) + `.zip` + portable
-- `windows-latest` (arm64) → `.zip` + portable (x64 Node.js via WoW64)
+- `windows-latest` → x64 NSIS `Setup.exe` + `.zip`
+- `windows-latest` (arm64) → arm64 NSIS `Setup.exe` + `.zip`
 
 Skill: `release-cut` automates `CHANGELOG.md` promotion + workspace `package.json` bumps + tag.
 
@@ -994,27 +993,48 @@ Cross-refs:
 - packages/server/src/event-wiring.ts
 - scripts/repair-meta-source.mjs
 
-## How do I install pi-dashboard on Windows (Electron portable)?
+## How do I install pi-dashboard on Windows (Electron Setup.exe)?
 
-Path 1 — recommended for most users. Download installer or portable zip from GitHub Releases, run.
+Path 1 — recommended for most users. Download `Setup.exe` or `.zip` from GitHub Releases, run.
 
 Steps:
 1. Download from [GitHub Releases](https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases):
-   - `PI-Dashboard-<version>-Setup.exe` — installer with Start Menu shortcuts
-   - `PI-Dashboard-win32-x64.zip` — portable; unzip + run `pi-dashboard.exe`
+   - `PI-Dashboard-Setup-<version>-<arch>.exe` — per-user NSIS installer, Start Menu shortcut, uninstaller (primary)
+   - `PI-Dashboard-win32-x64.zip` — extract-and-run; unzip + run `pi-dashboard.exe` (secondary)
 2. Launch. Splash window appears within 1 second, progresses through startup phases (Checking server… Detecting agent… Checking bridge… Setup wizard… Launching server… Opening dashboard).
 3. First-run setup wizard auto-installs agent runtime into `%USERPROFILE%\.pi-dashboard\node_modules\` using bundled Node.js + npm. No system Node required.
 4. Wizard completes → dashboard opens at `http://localhost:8000`.
 5. Settings → Providers, configure ≥1 LLM provider.
 6. Add folder (top right sidebar), spawn session.
 
-Installer uses bundled Node even when system Node present — sidesteps Windows bug where `spawn("npm", ...)` fails with `ENOENT` because Windows doesn't auto-append `.cmd` extensions.
+App uses bundled Node even when system Node present — sidesteps Windows bug where `spawn("npm", ...)` fails with `ENOENT` because Windows doesn't auto-append `.cmd` extensions.
 
 Cross-refs:
 - docs/installation-windows.md:18
 - docs/installation-windows.md:36
 - docs/installation-windows.md:67
 - README.md:34
+
+## Which Windows download should I pick — Setup.exe or .zip?
+
+`Setup.exe` for install. `.zip` for extract-and-run.
+
+**`PI-Dashboard-Setup-<version>-<arch>.exe`** — per-user NSIS installer.
+- Default dir `%LOCALAPPDATA%\Programs\PI Dashboard\`, user can change it.
+- Start Menu shortcut, Add/Remove Programs entry, uninstaller.
+- No admin, no UAC, no HKLM. Installs `pi-dashboard.exe`.
+- Uninstall removes app; preserves `~/.pi/` + `~/.pi-dashboard/`.
+- x64 + arm64.
+
+**`PI-Dashboard-win32-x64.zip`** — extract-and-run.
+- Unzip, run `pi-dashboard.exe` in place. No install, no Start Menu entry.
+- Power-user path. Delete folder to remove.
+
+Portable `.exe` (7-Zip SFX) dropped — use `Setup.exe` or `.zip`.
+
+Cross-refs:
+- docs/installation-windows.md:18
+- docs/electron-build-methods.md
 
 ## How do I set up pi-dashboard offline on Windows (air-gapped)?
 
@@ -1035,7 +1055,7 @@ Cross-refs:
 
 ## What are the Windows-specific prerequisites for pi-dashboard installation?
 
-Only for Path 2 (tarball / npm). Path 1 (Electron portable) bundles everything.
+Only for Path 2 (tarball / npm). Path 1 (Electron Setup.exe) bundles everything.
 
 | Requirement | Why | Command |
 |---|---|---|
@@ -1239,8 +1259,8 @@ Cross-refs:
 Upgrade preserves config + sessions on both Path 1 + Path 2.
 
 **Path 1 (Electron):**
-- Installer: download new `.exe`, run it. Old version uninstalls + new installs.
-- Portable: download new `.zip`, unzip over (or next to) old folder, launch new `pi-dashboard.exe`.
+- Setup.exe: download new `PI-Dashboard-Setup-<version>-<arch>.exe`, run it. Installs over old version.
+- .zip: download new `.zip`, unzip over (or next to) old folder, launch new `pi-dashboard.exe`.
 
 **Path 2 (tarball):**
 ```cmd

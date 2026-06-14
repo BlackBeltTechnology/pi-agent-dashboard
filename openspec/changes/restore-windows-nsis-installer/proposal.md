@@ -20,22 +20,18 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 
 ### Restore NSIS Setup.exe (built on CI windows-latest legs, x64 + arm64)
 
-- Use **`electron-builder --win nsis`** as the NSIS toolchain, **extended with a custom include script** at `packages/electron/build/installer.nsh` for Pi branding and the install-mode wizard page. electron-builder is already a devDependency (currently invoked for the now-dropped portable target); same tool, one more target, plus one new `.nsh` include file. The custom include extends electron-builder's generated NSIS script via the documented `nsis.include` config option — we do NOT replace the generated script (that would forfeit electron-version pinning, asar packaging, and updater hooks we get for free).
+- Use **`electron-builder --win nsis`** as the NSIS toolchain, **extended with a custom include script** at `packages/electron/build/installer.nsh` for Pi branding (per-user installer; no install-mode wizard page). electron-builder is already a devDependency (currently invoked for the now-dropped portable target); same tool, one more target, plus one new `.nsh` include file. The custom include extends electron-builder's generated NSIS script via the documented `nsis.include` config option — we do NOT replace the generated script (that would forfeit electron-version pinning, asar packaging, and updater hooks we get for free).
 - Wizard UX (MUI2 modern interface, modelled on the JUDO designer's `install.nsi` reference but upgraded from the classic `sdbarker_tiny` UI to NSIS Modern UI 2):
   1. **Welcome page** — Pi-branded welcome bitmap (164×314 BMP).
-  2. **Install Mode page** — radio buttons: "Install for just me (no admin required)" / "Install for everyone (requires admin)". Default: just me. Backed by electron-builder's multi-user mode (enabled by omitting `perMachine` in config rather than setting it to literal `true`/`false`).
-  3. **Choose Install Location page** — editable path field, pre-filled with the mode-appropriate default: `%LOCALAPPDATA%\Programs\PI Dashboard\` (per-user) or `%PROGRAMFILES%\PI Dashboard\` (per-machine).
-  4. **Install progress page**.
-  5. **Finish page** — Pi-branded finish bitmap, "Launch PI Dashboard" checkbox (default checked).
+  2. **Choose Install Location page** — editable path field, pre-filled with the per-user default `%LOCALAPPDATA%\Programs\PI Dashboard\`. No install-mode page — this is a per-user-only installer.
+  3. **Install progress page**.
+  4. **Finish page** — Pi-branded finish bitmap, "Launch PI Dashboard" checkbox (default checked).
 - Branding assets (D9 in design.md): custom installer icon, uninstaller icon, MUI2 welcome/finish bitmap (164×314), MUI2 header bitmap (150×57), branding text "BlackBelt Technology — PI Dashboard". Sources live under `packages/electron/build/installer-assets/`; the build pipeline derives ICO + BMP from a Pi master asset.
-- UAC elevation rules:
-  - User picks "Install for just me" → no UAC prompt; install proceeds as the current user.
-  - User picks "Install for everyone" → UAC prompt at the transition from the install-mode page; install proceeds with admin token.
-- Registry behaviour (modelled on the JUDO `WriteRegStr HKLM ...Uninstall\$APPNAMEFULL` pattern, hive selected by mode):
-  - Per-user install → Add/Remove Programs entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PI Dashboard`.
-  - Per-machine install → entry under `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\PI Dashboard`.
-  - Either way: DisplayName `PI Dashboard`, Publisher `BlackBelt Technology`, DisplayVersion = release version, DisplayIcon = path into install dir, UninstallString + QuietUninstallString = uninstaller path, InstallLocation = actual chosen install dir, EstimatedSize, NoModify=1, NoRepair=1 (mirroring the JUDO reference's registry shape).
-- Shortcut creation: Start Menu shortcut named `PI Dashboard` under `$SMPROGRAMS` (NSIS multi-user mode resolves this to the per-user or per-machine Start Menu automatically). Desktop shortcut optional, default off.
+- UAC elevation: per-user install — no UAC prompt; install proceeds as the current user. (If the user redirects the install dir to a system-protected location such as `C:\Program Files\`, electron-builder's NSIS auto-elevates for that copy step only — standard Windows behaviour, documented. This is the only elevation path; there is no per-machine install mode.)
+- Registry behaviour (modelled on the JUDO `WriteRegStr ...Uninstall\$APPNAMEFULL` pattern):
+  - Add/Remove Programs entry under `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\PI Dashboard`.
+  - Entry fields: DisplayName `PI Dashboard`, Publisher `BlackBelt Technology`, DisplayVersion = release version, DisplayIcon = path into install dir, UninstallString + QuietUninstallString = uninstaller path, InstallLocation = actual chosen install dir, EstimatedSize, NoModify=1, NoRepair=1 (mirroring the JUDO reference's registry shape).
+- Shortcut creation: Start Menu shortcut named `PI Dashboard` under the user's per-profile Start Menu (`$SMPROGRAMS`). Desktop shortcut optional, default off.
 - Uninstaller behaviour: removes install dir; **preserves** `~/.pi/` and `~/.pi-dashboard/` (user data). Models the JUDO selective-uninstall pattern — explicit `RMDir /r` on app-owned subdirs only. Final uninstaller page shows a notice that user data has been preserved and how to remove it manually.
 - Artifact name: `PI-Dashboard-Setup-<version>-<arch>.exe` (matches the classifier already in `site/src/lib/github-release.ts`, line 80-83 — no marketing-site code change required).
 
@@ -51,6 +47,14 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 
 - `PI-Dashboard-win32-x64.zip` and `PI-Dashboard-win32-arm64.zip` continue to build and ship exactly as today. Use case: power users, CI consumers, "just give me the files" workflow.
 
+### Smoke-test Setup.exe on CI (same `windows-latest` runner)
+
+- The `windows-latest` legs that build Setup.exe are real Windows machines, so the installer is smoke-tested **inline as a workflow step right after the build** — no VM, no `automate-windows-remote-qa` harness, no `qa/remote/` dependency. Per-user `/S` install needs no admin/UAC, so it runs unprivileged on the runner.
+- Hard gates (deterministic, offline, fail the job): `windows-nsis-install.ps1` (default-path `/S` install → install dir, Start Menu shortcut, HKCU Add/Remove entry with matching `InstallLocation` + Publisher), `windows-nsis-no-permachine.ps1` (no HKLM entry, not under Program Files), `windows-nsis-branding.ps1` (Publisher version-info + uninstaller icon), `windows-nsis-uninstall.ps1` (removes app, preserves `~/.pi/` + `~/.pi-dashboard/`).
+- Launch smoke (`windows-nsis-launch.ps1` → `/api/health` 200): on the x64 build leg it runs inline (the `windows-latest` runner is x64). It is **non-fatal** initially because first-run bootstrap is network/time-sensitive — harden to fatal once observed stably green.
+- **arm64 launch** runs in a dedicated `smoke-win-arm64` job on a `windows-11-arm` runner: it downloads the arm64 artifact and runs full install→launch→uninstall natively (the arm64 Electron shell cannot execute on the x64 build runner). The x64 build path is unchanged (still cross-builds arm64 on `windows-latest`, bundling x64 Node for WoW64). The arm64 build leg also runs all non-launch asserts inline.
+- The same `windows-nsis-*.ps1` scripts run inline on CI, in the arm64 smoke job, and under the `automate-windows-remote-qa` VM harness once it lands (`make test-windows-remote-nsis SETUP=…`) — no duplicate test logic.
+
 ### Per-release artifact list (Windows)
 
 | | Before (v0.5.4) | After |
@@ -65,14 +69,14 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 ### Files affected
 
 **Build pipeline:**
-- `.github/workflows/_electron-build.yml` — line 4 (header comment); line ~309-315 (keep the "skip forge make on Windows" guard — NSIS is produced by electron-builder, not Forge); line ~428-452 (rename step to "Build Windows ZIP and NSIS Setup.exe"; replace portable invocation with `npx electron-builder --win nsis`).
+- `.github/workflows/_electron-build.yml` — line 4 (header comment); line ~309-315 (keep the "skip forge make on Windows" guard — NSIS is produced by electron-builder, not Forge); the win32 build step (rename to "Build Windows ZIP and NSIS Setup.exe"; replace portable invocation with `node scripts/build-installer-assets.mjs` + `npx electron-builder --win nsis --config electron-builder-nsis.json`); NEW "Smoke-test NSIS Setup.exe" step after the Upload step (win32-only): runs `qa/tests/windows-nsis-{install,no-permachine,branding,uninstall}.ps1` as hard gates + `windows-nsis-launch.ps1` x64-only/non-fatal; NEW `smoke-win-arm64` job (`needs: build`, `runs-on: windows-11-arm`) that downloads the arm64 artifact and runs the same scripts (launch included) natively on arm64.
 - `packages/electron/forge.config.ts` — leave Forge makers as-is; NSIS is produced by electron-builder, mirroring how portable was produced.
 - `packages/electron/package.json` — no change (electron-builder already a devDependency).
 - `packages/electron/scripts/build-installer.sh` — header comment (line 17-19), usage text (line 83-84), summary line (line 163).
 - `packages/electron/scripts/docker-make.sh` — remove portable block (line ~224-253); NSIS is **not** added to the Docker path (requires Windows host); document Docker as ZIP-only for Windows.
 - `packages/electron/scripts/build-windows-zip.sh` — drop portable step 7; add NSIS step gated on Windows host or skipped with a clear "NSIS is CI-only" message when run outside Windows. Add `--no-nsis` and `--with-nsis` flags.
-- **NEW** `packages/electron/electron-builder-nsis.json` — electron-builder config for the NSIS target: `appId: "hu.blackbelt.pi-dashboard"`, `productName`, `oneClick: false`, multi-user mode (omit `perMachine`), `allowToChangeInstallationDirectory: true`, `allowElevation: true`, `include: "build/installer.nsh"`, `installerIcon`, `uninstallerIcon`, `installerHeader`, `installerSidebar`, `uninstallerSidebar`, `artifactName`, `shortcutName: "PI Dashboard"`, `uninstallDisplayName: "PI Dashboard"`, `publisherName: "BlackBelt Technology"`, `deleteAppDataOnUninstall: false`.
-- **NEW** `packages/electron/build/installer.nsh` — custom NSIS include extending electron-builder's generated script. Adds: MUI2 page macros for the install-mode page; branding text (`BrandingText`); welcome/finish bitmap declarations (`MUI_WELCOMEFINISHPAGE_BITMAP`, `MUI_UNWELCOMEFINISHPAGE_BITMAP`); header bitmap (`MUI_HEADERIMAGE_BITMAP`); customised registry-write helpers if electron-builder's defaults don't cover `DisplayIcon` / `NoModify` / `NoRepair` (modelled on JUDO's `WriteRegStr HKLM "...Uninstall\$APPNAMEFULL" "DisplayIcon" ...`); selective-uninstall hook preserving `~/.pi/` and `~/.pi-dashboard/`. Helper functions (`StrContains`, `DeleteDirIfEmpty`) imported verbatim from the JUDO reference where useful.
+- **NEW** `packages/electron/electron-builder-nsis.json` — electron-builder config for the NSIS target: `appId: "hu.blackbelt.pi-dashboard"`, `productName`, `oneClick: false`, `perMachine: false` (per-user only), `allowToChangeInstallationDirectory: true`, `allowElevation: true` (auto-elevate only when the user targets a protected dir), `include: "build/installer.nsh"`, `installerIcon`, `uninstallerIcon`, `installerHeader`, `installerSidebar`, `uninstallerSidebar`, `artifactName`, `shortcutName: "PI Dashboard"`, `uninstallDisplayName: "PI Dashboard"`, `publisherName: "BlackBelt Technology"`, `deleteAppDataOnUninstall: false`.
+- **NEW** `packages/electron/build/installer.nsh` — custom NSIS include extending electron-builder's generated script. Adds: branding text (`BrandingText`); welcome/finish bitmap declarations (`MUI_WELCOMEFINISHPAGE_BITMAP`, `MUI_UNWELCOMEFINISHPAGE_BITMAP`); header bitmap (`MUI_HEADERIMAGE_BITMAP`); customised registry-write helpers if electron-builder's defaults don't cover `DisplayIcon` / `NoModify` / `NoRepair` (modelled on JUDO's `WriteRegStr "...Uninstall\$APPNAMEFULL" "DisplayIcon" ...` pattern, written to HKCU here); selective-uninstall hook preserving `~/.pi/` and `~/.pi-dashboard/`. Helper functions (`StrContains`, `DeleteDirIfEmpty`) imported verbatim from the JUDO reference where useful.
 - **NEW** `packages/electron/build/installer-assets/`:
   - `installer-icon.ico` — multi-resolution Pi-branded ICO (16/24/32/48/64/128/256).
   - `uninstaller-icon.ico` — same resolutions, visually differentiated.
@@ -95,7 +99,7 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 - `docs/faq.md` — add entry "Why two Windows downloads? Setup.exe vs `.zip`?". Update or remove any entry claiming NSIS is gone.
 - `docs/file-index-electron.md` — update `forge.config.ts` row (no change to makers, but note NSIS produced via electron-builder sidecar); add row for new `electron-builder-nsis.json` if created.
 - `docs/architecture.md` — verify no stale Windows-artifacts list; update if present.
-- `qa/README.md` — add NSIS install smoke test to the Windows QA suite (pairs with `automate-windows-remote-qa` harness).
+- `qa/README.md` — document the NSIS smoke scripts. Primary execution is inline on the `windows-latest` CI leg (post-build step in `_electron-build.yml`); the same scripts also run under the `automate-windows-remote-qa` VM harness via `make test-windows-remote-nsis` once it lands.
 - `CHANGELOG.md` — under Unreleased: "Windows: restored Setup.exe installer (per-user, Start Menu shortcut, Add/Remove Programs entry, uninstaller). Dropped broken portable.exe."
 
 **Specs:**
@@ -110,7 +114,7 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 
 ### Modified Capabilities
 
-- `electron-build-pipeline`: produce a NSIS `Setup.exe` artifact per Windows arch on CI `windows-latest` legs via `electron-builder --win nsis` extended with a custom `installer.nsh` include for Pi branding and a multi-user install-mode wizard page. Setup.exe MUST present a wizard that (1) lets the user pick "Install for just me" or "Install for everyone", (2) lets the user choose the install directory (defaulting to the mode-appropriate path), (3) creates a Start Menu shortcut, (4) registers an Add/Remove Programs entry under HKCU (per-user) or HKLM (per-machine) with publisher/version/`InstallLocation`/`DisplayIcon`/`NoModify`/`NoRepair` populated, and (5) includes an uninstaller that removes the install dir but preserves `~/.pi/` and `~/.pi-dashboard/`. The installer MUST display Pi-branded installer icon, welcome/finish bitmap, header bitmap, and branding text `BlackBelt Technology — PI Dashboard`. The `appId` SHALL be `hu.blackbelt.pi-dashboard` and SHALL NOT change once the first NSIS release has shipped. The `portable.exe` (7-Zip SFX) target is removed from the pipeline (`_electron-build.yml`, `docker-make.sh`, `build-windows-zip.sh`).
+- `electron-build-pipeline`: produce a NSIS `Setup.exe` artifact per Windows arch on CI `windows-latest` legs via `electron-builder --win nsis` extended with a custom `installer.nsh` include for Pi branding. The installer is **per-user only** (`perMachine: false`, no install-mode page, no per-machine variant). Setup.exe MUST present a wizard that (1) lets the user choose the install directory (defaulting to `%LOCALAPPDATA%\Programs\PI Dashboard\`), (2) creates a per-user Start Menu shortcut, (3) registers an Add/Remove Programs entry under HKCU with publisher/version/`InstallLocation`/`DisplayIcon`/`NoModify`/`NoRepair` populated, and (4) includes an uninstaller that removes the install dir but preserves `~/.pi/` and `~/.pi-dashboard/`. The installer MUST display Pi-branded installer icon, welcome/finish bitmap, header bitmap, and branding text `BlackBelt Technology — PI Dashboard`. The `appId` SHALL be `hu.blackbelt.pi-dashboard` and SHALL NOT change once the first NSIS release has shipped. The `portable.exe` (7-Zip SFX) target is removed from the pipeline (`_electron-build.yml`, `docker-make.sh`, `build-windows-zip.sh`).
 - `electron-shell`: continue to launch correctly from **any** install directory the user chose (no hardcoded install-path assumptions). The bootstrap resolves the running install location via `app.getPath('exe')` and `process.resourcesPath`, so the existing `selectLaunchSource()` resolver SHALL keep working for default `%LOCALAPPDATA%\Programs\PI Dashboard\` installs and for user-chosen paths like `D:\MyApps\PI Dashboard\` alike. A verification task (see tasks §2.6) confirms no hardcoded paths remain.
 
 ### Removed Capabilities
@@ -121,7 +125,7 @@ This change restores a **per-user NSIS Setup.exe** as the primary Windows distri
 
 - Code-signing the NSIS Setup.exe — composable with `windows-authenticode-signing`; not required for this change to ship. Without signing, users see the same SmartScreen prompt as today's `.zip` + Run anyway.
 - Auto-update via electron-updater's NSIS channel — wiring belongs in `fix-electron-auto-update-pipeline`.
-- Machine-wide NSIS variant (Program Files install with UAC elevation) — deferred. Per-user only for now.
+- Machine-wide / per-machine NSIS variant (HKLM registration, Program Files default, install-mode wizard page) — explicitly out of scope. Setup.exe is per-user only. A corporate/shared-workstation install can use the `.zip`. Revisit only if there is concrete demand.
 - MSIX installer — deferred (requires mandatory signing and may conflict with node-pty sandbox).
 - Microsoft Store submission — out of scope.
 - Reviving NSIS in the Docker cross-build path — Docker remains ZIP-only for Windows. NSIS is a CI-only artifact (`windows-latest` runner).

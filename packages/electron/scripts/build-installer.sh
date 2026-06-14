@@ -14,10 +14,10 @@
 # What it produces:
 #   macOS   → .dmg                          in out/make/
 #   Linux   → .deb + .AppImage              in out/make/
-#   Windows → .zip + portable .exe          in out/make/zip/<arch>/
-#                                           + out/make/portable/<arch>/
-#             (NSIS removed — see openspec/changes/
-#              simplify-electron-bootstrap-derived-state.)
+#   Windows → .zip                          in out/make/zip/<arch>/
+#             (Docker path is ZIP-only. NSIS Setup.exe is CI-only —
+#              built on windows-latest, see openspec/changes/
+#              restore-windows-nsis-installer.)
 #
 set -euo pipefail
 
@@ -80,8 +80,8 @@ while [[ $# -gt 0 ]]; do
       echo "  (none)            Build for current platform only"
       echo "  --all             Build for all platforms (native + Docker)"
       echo "  --linux           Build Linux .deb + .AppImage via Docker"
-      echo "  --windows         Build Windows .zip + portable .exe via Docker"
-      echo "  --windows-zip     Build Windows .zip only via Docker (no portable)"
+      echo "  --windows         Build Windows .zip via Docker (NSIS is CI-only)"
+      echo "  --windows-zip     Alias of --windows (Docker path is ZIP-only)"
       echo "  --mac-both        Build BOTH macOS DMGs (arm64 + x64) on an"
       echo "                    Apple Silicon host. Requires Rosetta 2."
       echo ""
@@ -159,10 +159,8 @@ echo ""
 echo "Build targets:"
 [ "$BUILD_NATIVE" = true ]  && echo "  • $HOST_LABEL (native)  → DMG / DEB+AppImage / EXE"
 [ "$BUILD_LINUX" = true ]   && echo "  • Linux (Docker)        → .deb + .AppImage"
-[ "$BUILD_WINDOWS" = true ] && [ "$BUILD_WINDOWS_ZIP_ONLY" = false ] \
-  && echo "  • Windows (Docker)      → .zip + portable .exe"
-[ "$BUILD_WINDOWS" = true ] && [ "$BUILD_WINDOWS_ZIP_ONLY" = true ] \
-  && echo "  • Windows (Docker)      → .zip only"
+[ "$BUILD_WINDOWS" = true ] \
+  && echo "  • Windows (Docker)      → .zip  (NSIS Setup.exe is CI-only)"
 echo ""
 
 # ── Check Docker if needed ──────────────────────────────────────
@@ -346,7 +344,6 @@ docker_build() {
   local TARGET_PLATFORM="$1"
   local TARGET_ARCH="${2:-x64}"
   local LABEL="$3"
-  local ZIP_ONLY_FLAG="${4:-0}"
 
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -370,7 +367,6 @@ docker_build() {
   docker run \
     --platform linux/amd64 \
     --name "$CONTAINER_NAME" \
-    -e "ZIP_ONLY=$ZIP_ONLY_FLAG" \
     "$DOCKER_IMAGE" \
     "$TARGET_PLATFORM" "$TARGET_ARCH"
 
@@ -391,9 +387,8 @@ fi
 # ── Windows build via Docker ────────────────────────────────────
 
 if [ "$BUILD_WINDOWS" = true ]; then
-  ZIP_ONLY_VAL="0"
-  [ "$BUILD_WINDOWS_ZIP_ONLY" = true ] && ZIP_ONLY_VAL="1"
-  docker_build "win32" "x64" "Windows" "$ZIP_ONLY_VAL"
+  # Docker path is ZIP-only; NSIS Setup.exe is CI-only (windows-latest).
+  docker_build "win32" "x64" "Windows"
 fi
 
 # ── Show results ────────────────────────────────────────────────
