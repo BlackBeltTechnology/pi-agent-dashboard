@@ -464,9 +464,12 @@ jobs:
           $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
           $env:WIN_CSC_LINK = ""
           $env:CSC_LINK = ""
+          # --publish never: electron-builder auto-detects CI and otherwise
+          # tries to publish to GitHub Releases (needs GH_TOKEN). We only build.
           npx electron-builder --win nsis --$arch `
             --prepackaged "out/PI-Dashboard-win32-$arch" `
-            --config electron-builder-nsis.json
+            --config electron-builder-nsis.json `
+            --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

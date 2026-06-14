@@ -193,10 +193,13 @@ if [ "$HOST_PLATFORM" = "win32" ]; then
     # Disable code-signing entirely: no cert is configured, but electron-builder
     # auto-discovers system certs by default and runs osslsigncode (slow PE
     # rewrite). CSC_IDENTITY_AUTO_DISCOVERY=false short-circuits that.
+    # --publish never: electron-builder auto-detects CI and otherwise tries to
+    # publish to GitHub Releases (needs GH_TOKEN). We only build the artifact.
     CSC_IDENTITY_AUTO_DISCOVERY=false WIN_CSC_LINK= CSC_LINK= \
     npx electron-builder --win nsis --"$ARCH" \
       --prepackaged "out/PI-Dashboard-win32-$ARCH" \
-      --config electron-builder-nsis.json
+      --config electron-builder-nsis.json \
+      --publish never
     echo "✓ NSIS Setup.exe built"
   else
     echo "– Step 7/7 — Skipping NSIS Setup.exe (pass --with-nsis to enable; Windows host only)"
