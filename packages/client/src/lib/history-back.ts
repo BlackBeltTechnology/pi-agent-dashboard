@@ -1,24 +1,48 @@
 /**
- * Universal back-arrow helper for shell overlays.
+ * Depth-aware back-arrow helper for shell overlays + mobile back/swipe.
  *
- * Replaces the priority-chain `selectDesktopBackTarget` + the inline mobile
- * switch + the per-overlay `setXxx(null)` callbacks. With URL-driven
- * overlays, the browser history stack is the single source of truth, and
- * `window.history.back()` pops the previous URL — which may be the prior
- * session view, Settings, the landing page, etc.
+ * The MobileShell is depth-based (`getMobileDepth`: 0 = cards, 1 = detail,
+ * 2 = overlay), but `window.history.back()` pops whatever URL preceded the
+ * current one — which after a window has been in use is commonly a sibling
+ * `/session/:id` (walks sibling chats) or a foreign page (escapes the app).
+ * The old `history.length > 1` guard was unsound: length > 1 ≠ predecessor
+ * belongs to the dashboard.
  *
- * Cold-load fallback: when `window.history.length === 1` the user opened
- * this URL directly (deep link / hard refresh / new tab). `history.back()`
- * would be a silent no-op, so we fall back to `navigate("/")` to get a
- * predictable landing page.
+ * `goBack` is hybrid:
+ *   - If the in-app nav tracker proves the predecessor is a strictly-shallower
+ *     in-app route, use `window.history.back()` (preserves scroll restoration +
+ *     forward entry) and pop the tracked stack.
+ *   - Otherwise navigate explicitly to `computeBackTarget(currentRoute)` — one
+ *     deterministic depth up. Covers cold-load / deep-link (no predecessor) and
+ *     same-depth-sibling predecessors.
+ *   - Depth 0 → no-op.
  *
- * See change: overlay-url-routing.
+ * See change: fix-mobile-back-depth-aware (replaces `goBackOrHome` from
+ * overlay-url-routing).
  */
+import { computeBackTarget, routeDepth } from "./back-target.js";
+import type { NavEntry } from "./nav-tracker.js";
 
-export function goBackOrHome(navigate: (to: string) => void): void {
-  if (window.history.length > 1) {
+export interface BackTracker {
+  predecessor(): NavEntry | undefined;
+  popNav(): void;
+}
+
+export function goBack(
+  navigate: (to: string) => void,
+  currentRoute: string,
+  tracker: BackTracker,
+): void {
+  const currentDepth = routeDepth(currentRoute);
+  if (currentDepth === 0) return;
+
+  const pred = tracker.predecessor();
+  if (pred && pred.depth < currentDepth) {
     window.history.back();
-  } else {
-    navigate("/");
+    tracker.popNav();
+    return;
   }
+
+  const target = computeBackTarget(currentRoute);
+  if (target) navigate(target);
 }

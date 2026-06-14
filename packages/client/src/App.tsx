@@ -73,7 +73,18 @@ import {
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
 } from "./lib/route-builders.js";
-import { goBackOrHome } from "./lib/history-back.js";
+import { goBack as goBackAction } from "./lib/history-back.js";
+import {
+  recordNavigation,
+  resetNavStack,
+  initNavTracker,
+  predecessor,
+  popNav,
+} from "./lib/nav-tracker.js";
+
+// Stable tracker facade for the depth-aware back action
+// (change: fix-mobile-back-depth-aware).
+const NAV_TRACKER = { predecessor, popNav };
 import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
@@ -293,7 +304,23 @@ export default function App() {
     setGlobalApiBase(base);
     return base;
   }, [wsUrl]);
-  const [, navigate] = useLocation();
+  const [, rawNavigate] = useLocation();
+  // Instrument the single navigation path so every navigate records into the
+  // in-app depth-tagged nav tracker (change: fix-mobile-back-depth-aware).
+  // wouter pushState/replaceState does not fire popstate, so record here; the
+  // tracker's own popstate listener realigns on browser back/forward.
+  const navigate = useCallback(
+    (to: string, opts?: { replace?: boolean }) => {
+      recordNavigation(to, opts);
+      rawNavigate(to, opts);
+    },
+    [rawNavigate],
+  );
+  // Seed the stack with the cold-load location and attach the popstate listener.
+  useEffect(() => {
+    resetNavStack(window.location.pathname + window.location.search);
+    return initNavTracker();
+  }, []);
   const [match, params] = useRoute("/session/:id");
   // Legacy /terminal/:id route removed — see change:
   // fix-terminal-half-height-dual-mount. Terminals are reached via
@@ -985,10 +1012,16 @@ export default function App() {
     navigate,
   });
 
-  // Universal back arrow: history.back() with cold-load fallback to navigate("/").
-  // Replaces the priority-chain selectDesktopBackTarget hook (see
-  // change overlay-url-routing).
-  const goBack = useCallback(() => goBackOrHome(navigate), [navigate]);
+  // Depth-aware back arrow: history.back() fast-path when the tracker proves a
+  // shallower in-app predecessor, else navigate to the computed parent route.
+  // Replaces goBackOrHome (change: fix-mobile-back-depth-aware).
+  const goBack = useCallback(() => {
+    goBackAction(
+      navigate,
+      window.location.pathname + window.location.search,
+      NAV_TRACKER,
+    );
+  }, [navigate]);
   const {
     handleOpenSpecRefresh, handleBulkArchive, handleReadArtifact,
     handleAttachProposal, handleDetachProposal,

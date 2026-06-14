@@ -1,61 +1,82 @@
 /**
- * Tests for goBackOrHome — the universal back-arrow helper that replaced
- * the priority-chain selectDesktopBackTarget after overlay-url-routing.
+ * Tests for the depth-aware mobile back action `goBack`
+ * (change: fix-mobile-back-depth-aware), which replaced `goBackOrHome`.
  *
- * Scenarios mirror the spec deltas:
- *   - "Back from sidebar-opened overlay returns to prior URL" — exercised via
- *     window.history.back() when length > 1
- *   - "Back from session detail with empty history" — fallback to navigate("/")
+ * Hybrid decision:
+ *   - predecessor exists AND its depth < current depth → window.history.back()
+ *     fast-path + pop the tracked stack (preserves scroll/forward).
+ *   - otherwise → navigate(computeBackTarget(currentRoute)).
+ *   - cold load (no predecessor) → navigate(computeBackTarget(currentRoute)).
+ *   - depth 0 → no-op.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { goBackOrHome } from "../history-back.js";
+import { goBack } from "../history-back.js";
+import type { NavEntry } from "../nav-tracker.js";
 
-describe("goBackOrHome", () => {
+function makeTracker(pred: NavEntry | undefined) {
+  return {
+    predecessor: () => pred,
+    popNav: vi.fn(),
+  };
+}
+
+describe("goBack", () => {
   let originalBack: typeof window.history.back;
-  let originalLength: number;
 
   beforeEach(() => {
     originalBack = window.history.back;
-    originalLength = window.history.length;
   });
-
   afterEach(() => {
     window.history.back = originalBack;
-    Object.defineProperty(window.history, "length", {
-      value: originalLength,
-      configurable: true,
-    });
   });
 
-  function setHistoryLength(n: number) {
-    Object.defineProperty(window.history, "length", {
-      value: n,
-      configurable: true,
-    });
-  }
-
-  it("calls window.history.back() when length > 1", () => {
-    setHistoryLength(3);
+  it("uses history.back() + popNav when predecessor depth < current depth", () => {
     const back = vi.fn();
     window.history.back = back;
     const navigate = vi.fn();
+    const tracker = makeTracker({ url: "/", depth: 0 });
 
-    goBackOrHome(navigate);
+    goBack(navigate, "/session/abc", tracker);
 
     expect(back).toHaveBeenCalledOnce();
+    expect(tracker.popNav).toHaveBeenCalledOnce();
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("falls back to navigate('/') when length === 1 (cold load)", () => {
-    setHistoryLength(1);
+  it("depth-navigates when predecessor is NOT shallower (sibling)", () => {
     const back = vi.fn();
     window.history.back = back;
     const navigate = vi.fn();
+    const tracker = makeTracker({ url: "/session/A", depth: 1 });
 
-    goBackOrHome(navigate);
+    goBack(navigate, "/session/B", tracker);
 
     expect(back).not.toHaveBeenCalled();
-    expect(navigate).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("/");
+    expect(tracker.popNav).not.toHaveBeenCalled();
+  });
+
+  it("cold load (no predecessor) depth-navigates to computed parent", () => {
+    const back = vi.fn();
+    window.history.back = back;
+    const navigate = vi.fn();
+    const tracker = makeTracker(undefined);
+
+    goBack(navigate, "/session/abc/diff", tracker);
+
+    expect(back).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith("/session/abc");
+  });
+
+  it("is a no-op at depth 0", () => {
+    const back = vi.fn();
+    window.history.back = back;
+    const navigate = vi.fn();
+    const tracker = makeTracker(undefined);
+
+    goBack(navigate, "/", tracker);
+
+    expect(back).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
