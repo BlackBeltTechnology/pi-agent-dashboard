@@ -411,6 +411,9 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       const session = result.session;
       const updates: Record<string, unknown> = {
         attachedProposal: null, openspecPhase: null, openspecChange: null,
+        // Detach ends the attachment lifecycle — clear the replace-proposal
+        // state too. See change: replace-proposal-dialog-with-race-handling.
+        pendingReplaceProposal: null, rejectedReplaceProposals: [],
       };
       // Idempotent auto-revert (see change: fix-mobile-attach-proposal-display).
       if (detachShouldClearName(session)) {

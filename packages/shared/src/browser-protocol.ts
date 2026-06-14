@@ -1031,6 +1031,31 @@ export interface DetachProposalBrowserMessage {
   sessionId: string;
 }
 
+/**
+ * Browser → server: commit a suggested proposal replacement. Attaches
+ * `changeName` (reusing the attach + auto-rename path) and clears the
+ * session's `pendingReplaceProposal`. The committed `changeName` is NOT
+ * added to `rejectedReplaceProposals`.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+export interface AcceptReplaceProposalBrowserMessage {
+  type: "accept_replace_proposal";
+  sessionId: string;
+  changeName: string;
+}
+
+/**
+ * Browser → server: reject a suggested proposal replacement. Appends
+ * `changeName` to `rejectedReplaceProposals` (deduped) and clears
+ * `pendingReplaceProposal`. Esc / click-outside map to this too.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+export interface DismissReplaceProposalBrowserMessage {
+  type: "dismiss_replace_proposal";
+  sessionId: string;
+  changeName: string;
+}
+
 export interface ReorderSessionsBrowserMessage {
   type: "reorder_sessions";
   cwd: string;
@@ -1310,6 +1335,8 @@ export type BrowserToServerMessage =
   | SpawnSessionBrowserMessage
   | AttachProposalBrowserMessage
   | DetachProposalBrowserMessage
+  | AcceptReplaceProposalBrowserMessage
+  | DismissReplaceProposalBrowserMessage
   | ReorderSessionsBrowserMessage
   | PinDirectoryMessage
   | UnpinDirectoryMessage

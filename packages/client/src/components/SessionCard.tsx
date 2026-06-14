@@ -338,6 +338,7 @@ export function SessionCard({
   onSendPrompt,
   onAttachProposal,
   onDetachProposal,
+  onReplaceProposal,
   onReadArtifact,
   onBulkArchive,
   onRename,
@@ -400,6 +401,9 @@ export function SessionCard({
   onSendPrompt?: (text: string, images?: ImageContent[]) => void;
   onAttachProposal?: (changeName: string) => void;
   onDetachProposal?: () => void;
+  /** Accept/dismiss a suggested proposal replacement (committed changeName).
+   *  See change: replace-proposal-dialog-with-race-handling. */
+  onReplaceProposal?: (accept: boolean, changeName: string) => void;
   onReadArtifact?: (changeName: string, artifactId: string) => void;
   onBulkArchive?: () => void;
   onRename?: (name: string) => void;
@@ -834,6 +838,7 @@ export function SessionCard({
             changes={openspecChanges}
             onAttach={onAttachProposal}
             onDetach={onDetachProposal}
+            onReplaceProposal={onReplaceProposal}
             onSendPrompt={onSendPrompt}
             onReadArtifact={onReadArtifact}
             onBulkArchive={onBulkArchive}

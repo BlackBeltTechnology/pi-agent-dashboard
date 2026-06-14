@@ -181,6 +181,7 @@ describe("handleDetachProposal — decision matrix", () => {
     ]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null, name: undefined,
+      pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
   });
 
@@ -196,6 +197,7 @@ describe("handleDetachProposal — decision matrix", () => {
     expect(piSends).toEqual([]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
+      pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
   });
 
@@ -211,6 +213,7 @@ describe("handleDetachProposal — decision matrix", () => {
     expect(piSends).toEqual([]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
+      pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
   });
 
@@ -226,6 +229,7 @@ describe("handleDetachProposal — decision matrix", () => {
     expect(piSends).toEqual([]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
+      pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
   });
 });

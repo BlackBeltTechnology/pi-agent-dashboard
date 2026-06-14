@@ -150,6 +150,13 @@ export interface DashboardServer {
    * See change: fix-dashboard-spawn-correlation-by-token.
    */
   pendingDashboardSpawns: Map<string, number>;
+  /**
+   * In-process OpenSpec poll cache + discovery service. Exposed for tests
+   * that need to stub `getOpenSpecData` (e.g. the deleted-proposal bypass).
+   * Not part of the public API.
+   * See change: replace-proposal-dialog-with-race-handling.
+   */
+  directoryService: DirectoryService;
 }
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
@@ -1039,6 +1046,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     eventStore,
     browserGateway,
     pendingDashboardSpawns,
+    directoryService,
 
     httpPort() {
       const addr = fastify.server.address();

@@ -68,7 +68,7 @@ import type { BrowserHandlerContext } from "./browser-handlers/handler-context.j
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { ViewMessageStore } from "./view-message-store.js";
 import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
-import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer } from "./browser-handlers/session-meta-handler.js";
+import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleAcceptReplaceProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer } from "./browser-handlers/session-meta-handler.js";
 import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleOpenInlineTerminal, handleCloseInlineTerminal } from "./browser-handlers/terminal-handler.js";
 import { handlePinDirectory, handleUnpinDirectory, handleReorderPinnedDirs, handleFavoriteModel, handleUnfavoriteModel, handleReorderSessions, handleOpenSpecRefresh, handleOpenSpecBulkArchive, handleExtensionUiResponse, handlePiGatewayForward, handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleSetWorkspaceCollapsed, handleAddFolderToWorkspace, handleRemoveFolderFromWorkspace, handleReorderWorkspaceFolders, handleReorderWorkspaces } from "./browser-handlers/directory-handler.js";
 
@@ -441,6 +441,12 @@ export function createBrowserGateway(
             break;
           case "detach_proposal":
             handleDetachProposal(msg, ctx);
+            break;
+          case "accept_replace_proposal":
+            handleAcceptReplaceProposal(msg, ctx);
+            break;
+          case "dismiss_replace_proposal":
+            handleDismissReplaceProposal(msg, ctx);
             break;
           case "setSessionDisplayPrefs":
             handleSetSessionDisplayPrefs(msg, ctx);

@@ -94,6 +94,7 @@ export interface OpenSpecBoardViewProps {
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
+  onReplaceProposal: (sessionId: string, accept: boolean, changeName: string) => void;
   onBulkArchive: () => void;
   isGitRepo: boolean;
   gitWorktreeEnabled: boolean;
@@ -134,7 +135,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
     cwd, data, sessions, openspecMap, groupsState, onBack, onRefresh, onReadArtifact,
     onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnSession, onSpawnAttachedWorktree,
     onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onAttachProposal,
-    onDetachProposal, onBulkArchive, isGitRepo, gitWorktreeEnabled, selectedId,
+    onDetachProposal, onReplaceProposal, onBulkArchive, isGitRepo, gitWorktreeEnabled, selectedId,
   } = props;
 
   const openspecConfig = useOpenSpecConfig(cwd);
@@ -402,6 +403,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                     onSendPrompt={onSendPrompt}
                     onAttachProposal={onAttachProposal}
                     onDetachProposal={onDetachProposal}
+                    onReplaceProposal={onReplaceProposal}
                     onBulkArchive={onBulkArchive}
                     allChanges={data.changes}
                     groups={groups}
@@ -569,6 +571,7 @@ function ProposalCard(props: {
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
+  onReplaceProposal: (sessionId: string, accept: boolean, changeName: string) => void;
   onBulkArchive: () => void;
   allChanges: OpenSpecChange[];
   groups: OpenSpecGroup[];
@@ -656,7 +659,7 @@ function ProposalCard(props: {
 function BoardSessionRow({
   session: s, change: c, cwd, openspecMap, selectedId, onNavigateToSession,
   onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onReadArtifact,
-  onAttachProposal, onDetachProposal, onBulkArchive, allChanges, groups, assignments, openspecConfig,
+  onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, allChanges, groups, assignments, openspecConfig,
 }: {
   session: DashboardSession;
   change: OpenSpecChange;
@@ -705,6 +708,7 @@ function BoardSessionRow({
                   changes={allChanges}
                   onAttach={(name) => onAttachProposal(s.id, name)}
                   onDetach={() => onDetachProposal(s.id)}
+                  onReplaceProposal={(accept, name) => onReplaceProposal(s.id, accept, name)}
                   onSendPrompt={(text) => onSendPrompt(s.id, text)}
                   onReadArtifact={onReadArtifact}
                   onBulkArchive={onBulkArchive}

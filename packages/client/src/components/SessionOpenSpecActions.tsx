@@ -74,11 +74,77 @@ export function buildOpenSpecTooltips(args: { attached: string | null; state: Ch
   return { explore, archive };
 }
 
+/**
+ * Replace-proposal dialog. Built on the shared `Confirm` shell with a custom
+ * `body` slot for the divergence banner. Mounts only when both
+ * `attachedProposal` and `pendingReplaceProposal` are set (parent-gated), so
+ * the lazy `committedTarget` initialiser captures the FIRST suggestion the
+ * dialog observed. The server may freely coalesce `pendingReplaceProposal`
+ * (latest wins) while the dialog is open; `committedTarget` only moves on an
+ * explicit `[Use latest]` click — what the button says is what attaches.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+function ReplaceProposalDialog({
+  session,
+  onAccept,
+  onDismiss,
+}: {
+  session: DashboardSession;
+  onAccept: (changeName: string) => void;
+  onDismiss: (changeName: string) => void;
+}) {
+  const pending = session.pendingReplaceProposal;
+  // Lazy init keyed by mount: captures the first observed suggestion. Parent
+  // gates rendering on `pending != null`, so this is always a real name.
+  // `[Use latest]` is the ONLY thing that advances this; the server's coalesced
+  // `pending` updates never mutate it automatically (the core invariant).
+  const [committedTarget, setCommittedTarget] = useState<string>(() => pending ?? "");
+  // Server cleared the suggestion (accept / dismiss / agent_end) — unmount.
+  if (session.attachedProposal == null || pending == null) return null;
+  const diverged = pending !== committedTarget;
+  return (
+    <Confirm
+      open
+      testId="replace-proposal-dialog"
+      title="Replace attached proposal?"
+      message={`This session is attached to “${session.attachedProposal}”, but the agent is now working on a different change.`}
+      confirmLabel={`Replace with ${committedTarget}`}
+      body={
+        diverged ? (
+          <div
+            data-testid="replace-divergence-banner"
+            className="mt-2 flex items-center gap-2 rounded border border-orange-500/40 bg-orange-500/5 px-2 py-1 text-[11px] text-orange-300"
+          >
+            <span>
+              Newer change detected: <code className="text-orange-200">{pending}</code>.
+            </span>
+            <button
+              data-testid="use-latest-btn"
+              onClick={() => setCommittedTarget(pending)}
+              className="ml-auto rounded border border-orange-500/50 px-1.5 py-0.5 hover:border-orange-400 hover:text-orange-200"
+            >
+              Use latest
+            </button>
+          </div>
+        ) : undefined
+      }
+      onConfirm={() => onAccept(committedTarget)}
+      onClose={() => onDismiss(committedTarget)}
+    />
+  );
+}
+
 interface Props {
   session: DashboardSession;
   changes: OpenSpecChange[];
   onAttach: (changeName: string) => void;
   onDetach: () => void;
+  /**
+   * Accept (`accept=true`) or dismiss (`accept=false`) a suggested proposal
+   * replacement. Sends the committed `changeName`, never the latest server
+   * suggestion. See change: replace-proposal-dialog-with-race-handling.
+   */
+  onReplaceProposal?: (accept: boolean, changeName: string) => void;
   onSendPrompt: (text: string, images?: ImageContent[]) => void;
   onReadArtifact?: (changeName: string, artifactId: string) => void;
   onBulkArchive?: () => void;
@@ -94,7 +160,7 @@ interface Props {
   openspecConfig?: OpenSpecConfig;
 }
 
-export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig }: Props) {
+export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onReplaceProposal, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig }: Props) {
   const cfg = openspecConfig ?? DEFAULT_OPENSPEC_CONFIG;
   const wf = (name: string) => cfg.workflows.includes(name);
   const [exploreOpen, setExploreOpen] = useState(false);
@@ -112,6 +178,20 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   const attached = session.attachedProposal;
   const isEnded = session.status === "ended";
+
+  // Replace-proposal dialog: gated on both attached + pending so the dialog's
+  // lazy committed-target init captures the first suggestion. Keyed by session
+  // id so switching sessions remounts with fresh state (task 6.7).
+  // See change: replace-proposal-dialog-with-race-handling.
+  const replaceDialog =
+    attached != null && session.pendingReplaceProposal != null && onReplaceProposal ? (
+      <ReplaceProposalDialog
+        key={session.id}
+        session={session}
+        onAccept={(name) => onReplaceProposal(true, name)}
+        onDismiss={(name) => onReplaceProposal(false, name)}
+      />
+    ) : null;
   const hasCompletedChanges = changes.some((c) => c.status === "complete");
   const actionsDisabledGlobal = session.status === "streaming";
 
@@ -275,6 +355,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           <span className="flex-1" />
           <ActionButton label="Detach" icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
         </div>
+        {replaceDialog}
       </div>
     );
   }
@@ -413,6 +494,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           onClose={() => setTasksOpen(false)}
         />
       )}
+      {replaceDialog}
       {/* Overflow portal removed — Archive anyway promoted to inline button. */}
     </div>
   );

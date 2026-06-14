@@ -40,8 +40,15 @@ export function useOpenSpecActions(deps: OpenSpecActionDeps) {
     send({ type: "detach_proposal", sessionId });
   }, [send]);
 
+  // Accept / dismiss a suggested proposal replacement. `accept` attaches the
+  // committed `changeName` (server clears pending); dismiss records the
+  // rejection. See change: replace-proposal-dialog-with-race-handling.
+  const handleReplaceProposal = useCallback((sessionId: string, accept: boolean, changeName: string) => {
+    send({ type: accept ? "accept_replace_proposal" : "dismiss_replace_proposal", sessionId, changeName });
+  }, [send]);
+
   return {
     handleOpenSpecRefresh, handleBulkArchive, handleReadArtifact,
-    handleAttachProposal, handleDetachProposal,
+    handleAttachProposal, handleDetachProposal, handleReplaceProposal,
   };
 }

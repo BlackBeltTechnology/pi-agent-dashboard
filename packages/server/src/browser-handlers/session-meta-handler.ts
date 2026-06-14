@@ -97,6 +97,58 @@ export function handleAttachProposal(
   applyAttachProposal(msg.sessionId, msg.changeName, ctx);
 }
 
+/**
+ * Browser → server: commit a suggested proposal replacement. Validates the
+ * `changeName` matches the session's `pendingReplaceProposal` (or, defensively,
+ * the current `attachedProposal`), reuses `applyAttachProposal` (idempotent:
+ * sets `attachedProposal`, runs `attachRenameTarget`, sends `rename_session`,
+ * broadcasts `session_updated`), then clears `pendingReplaceProposal`. Does
+ * NOT add the accepted name to `rejectedReplaceProposals`.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+export function handleAcceptReplaceProposal(
+  msg: Extract<BrowserToServerMessage, { type: "accept_replace_proposal" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { sessionManager, broadcast } = ctx;
+  const session = sessionManager.get(msg.sessionId);
+  if (!session) return;
+  // Defensive: only commit a name the server is actually offering (or the
+  // already-attached one, idempotent). Guards against stale/racy clients.
+  if (
+    msg.changeName !== session.pendingReplaceProposal &&
+    msg.changeName !== session.attachedProposal
+  ) {
+    return;
+  }
+  applyAttachProposal(msg.sessionId, msg.changeName, ctx);
+  const clearUpdates = { pendingReplaceProposal: null };
+  sessionManager.update(msg.sessionId, clearUpdates);
+  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: clearUpdates });
+}
+
+/**
+ * Browser → server: reject a suggested proposal replacement. Appends
+ * `changeName` to `rejectedReplaceProposals` (deduped) so it does not
+ * re-prompt until `agent_end`, and clears `pendingReplaceProposal`.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+export function handleDismissReplaceProposal(
+  msg: Extract<BrowserToServerMessage, { type: "dismiss_replace_proposal" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const { sessionManager, broadcast } = ctx;
+  const session = sessionManager.get(msg.sessionId);
+  if (!session) return;
+  const prev = session.rejectedReplaceProposals ?? [];
+  const rejectedReplaceProposals = prev.includes(msg.changeName)
+    ? prev
+    : [...prev, msg.changeName];
+  const updates = { rejectedReplaceProposals, pendingReplaceProposal: null };
+  sessionManager.update(msg.sessionId, updates);
+  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+}
+
 export function handleDetachProposal(
   msg: Extract<BrowserToServerMessage, { type: "detach_proposal" }>,
   ctx: BrowserHandlerContext,
@@ -110,6 +162,10 @@ export function handleDetachProposal(
     attachedProposal: null,
     openspecPhase: null,
     openspecChange: null,
+    // Detach ends the attachment lifecycle — clear the replace-proposal
+    // state too. See change: replace-proposal-dialog-with-race-handling.
+    pendingReplaceProposal: null,
+    rejectedReplaceProposals: [],
   };
   if (detachShouldClearName(session)) {
     updates.name = undefined;

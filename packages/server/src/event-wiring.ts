@@ -28,6 +28,25 @@ import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
 import { decideDashboardSource } from "./dashboard-source-decision.js";
 
 /**
+ * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
+ * cache. Returns `true` when the poll cache is absent / not yet initialized
+ * (unknown → conservative: keep manual-attachment semantics). Returns
+ * `false` only when poll data is authoritative AND omits the name
+ * (archived/deleted) — the deleted-proposal bypass. Reads in-memory cache;
+ * never triggers a poll.
+ * See change: replace-proposal-dialog-with-race-handling.
+ */
+function openSpecChangeExistsInCache(
+  directoryService: DirectoryService,
+  cwd: string,
+  changeName: string,
+): boolean {
+  const data = directoryService.getOpenSpecData(cwd);
+  if (!data || !data.initialized) return true;
+  return data.changes.some((c) => c.name === changeName);
+}
+
+/**
  * Server-side opt-in flag (`STRICT_SPAWN_CORRELATION=1`) that suppresses
  * the legacy cwd-FIFO source-stamp fallback. Read once at module init
  * because env vars don't change at runtime in normal operation; tests
@@ -403,14 +422,29 @@ export function wireEvents(deps: EventWiringDeps): void {
             // auto-tracked (name === attachedProposal) AND a different changeName
             // is now detected. Inner rename guard reuses attachRenameTarget.
             if (updatedSession?.openspecChange && detected.isActive) {
+              const changeName = updatedSession.openspecChange;
+              const attached = updatedSession.attachedProposal;
+              const isManualAttachment =
+                !!attached && !isNameAutoSetFromAttachment(updatedSession);
+              // Deleted-proposal bypass (design.md D5): a manual attachment
+              // whose change no longer appears in the OpenSpec poll cache has
+              // nothing to "replace" — treat it as auto-tracked so the new
+              // changeName auto-attaches directly (no dialog). Reuses the
+              // in-memory poll cache; never triggers a fresh poll.
+              // See change: replace-proposal-dialog-with-race-handling.
+              const attachedStillExists =
+                isManualAttachment &&
+                openSpecChangeExistsInCache(directoryService, updatedSession.cwd, attached!);
               const attachmentWasAutoTracked =
-                !updatedSession.attachedProposal ||
-                isNameAutoSetFromAttachment(updatedSession);
-              const differentChangeDetected =
-                updatedSession.attachedProposal !== updatedSession.openspecChange;
+                !attached ||
+                isNameAutoSetFromAttachment(updatedSession) ||
+                (isManualAttachment && !attachedStillExists);
+              const differentChangeDetected = attached !== changeName;
               if (attachmentWasAutoTracked && differentChangeDetected) {
-                attachUpdates.attachedProposal = updatedSession.openspecChange;
-                const newName = attachRenameTarget(updatedSession, updatedSession.openspecChange);
+                // Branches 1 / 2 / 4: auto-attach (no attachment, auto-tracked,
+                // or deleted-proposal bypass) + auto-rename.
+                attachUpdates.attachedProposal = changeName;
+                const newName = attachRenameTarget(updatedSession, changeName);
                 if (newName !== undefined) {
                   attachUpdates.name = newName;
                   piGateway.sendToSession(sessionId, {
@@ -420,6 +454,20 @@ export function wireEvents(deps: EventWiringDeps): void {
                   });
                 }
                 sessionManager.update(sessionId, attachUpdates);
+              } else if (isManualAttachment && attachedStillExists && differentChangeDetected) {
+                // Branch 3: manual attachment to a live proposal, LLM pivoted
+                // to a different change — surface the replace dialog via the
+                // coalescing `pendingReplaceProposal` slot. Latest wins;
+                // same name = no-op; rejected name = ignored.
+                // See change: replace-proposal-dialog-with-race-handling.
+                const rejected = updatedSession.rejectedReplaceProposals ?? [];
+                if (
+                  !rejected.includes(changeName) &&
+                  updatedSession.pendingReplaceProposal !== changeName
+                ) {
+                  attachUpdates.pendingReplaceProposal = changeName;
+                  sessionManager.update(sessionId, attachUpdates);
+                }
               }
             }
             if (!replayingSessions.has(sessionId)) {
@@ -433,10 +481,21 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
       if (msg.event.eventType === "agent_end" && !replayingSessions.has(sessionId)) {
         const session = sessionManager.get(sessionId);
-        if (session?.openspecPhase || session?.openspecChange) {
+        // Clear OpenSpec tracking AND the replace-proposal lifecycle on every
+        // turn end. agent_end = fresh intent slate: the pending suggestion and
+        // the per-name rejection memory both reset so a new turn re-prompts.
+        // See change: replace-proposal-dialog-with-race-handling.
+        if (
+          session?.openspecPhase ||
+          session?.openspecChange ||
+          session?.pendingReplaceProposal ||
+          (session?.rejectedReplaceProposals?.length ?? 0) > 0
+        ) {
           const clearUpdates: Partial<DashboardSession> = {
             openspecPhase: null as any,
             openspecChange: null as any,
+            pendingReplaceProposal: null as any,
+            rejectedReplaceProposals: [],
           };
           sessionManager.update(sessionId, clearUpdates);
           browserGateway.broadcastSessionUpdated(sessionId, clearUpdates);

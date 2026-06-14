@@ -142,6 +142,23 @@ export interface DashboardSession {
   openspecChange?: string | null;
   attachedProposal?: string | null;
   /**
+   * Server-suggested replacement for a manually-attached proposal that the
+   * user has not yet accepted or dismissed. Set by the event-wiring
+   * coalescing branch when the LLM emits an active OpenSpec operation for a
+   * different change than the one manually attached. When non-null AND
+   * `attachedProposal` is non-null, the client renders the replace-proposal
+   * dialog. Coalesces (latest wins); cleared on accept/dismiss/`agent_end`.
+   * See change: replace-proposal-dialog-with-race-handling.
+   */
+  pendingReplaceProposal?: string | null;
+  /**
+   * ChangeNames the user dismissed during the current LLM activity loop.
+   * A dismissed name does NOT re-prompt until `agent_end` clears this set.
+   * Per-name: dismissing B does not suppress a later prompt for C.
+   * See change: replace-proposal-dialog-with-race-handling.
+   */
+  rejectedReplaceProposals?: string[];
+  /**
    * Sparse per-session override for chat-view display preferences. Mirror
    * of `SessionMeta.displayPrefsOverride`. Deep-merged onto the global
    * `DisplayPrefs` on the client side via `mergeDisplayPrefs`.

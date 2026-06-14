@@ -1033,7 +1033,7 @@ export default function App() {
   }, [navigate]);
   const {
     handleOpenSpecRefresh, handleBulkArchive, handleReadArtifact,
-    handleAttachProposal, handleDetachProposal,
+    handleAttachProposal, handleDetachProposal, handleReplaceProposal,
   } = openspecActions;
 
   // Flow YAML viewer + agent source viewer moved into flows-plugin's
@@ -1110,6 +1110,7 @@ export default function App() {
       onViewReadme={handleViewReadme}
       onAttachProposal={handleAttachProposal}
       onDetachProposal={handleDetachProposal}
+      onReplaceProposal={handleReplaceProposal}
       onRename={handleRenameSession}
       onShutdown={handleShutdownSession}
       onResume={handleResumeSession}
@@ -1205,6 +1206,7 @@ export default function App() {
       onSendPrompt={handleSendPromptToSession}
       onAttachProposal={handleAttachProposal}
       onDetachProposal={handleDetachProposal}
+      onReplaceProposal={handleReplaceProposal}
       onBulkArchive={() => handleBulkArchive(openspecBoardCwd)}
       isGitRepo={Array.from(sessions.values()).some((s) => s.cwd === openspecBoardCwd && !!s.gitBranch)}
       gitWorktreeEnabled={gitWorktreeEnabled}
