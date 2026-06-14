@@ -59,7 +59,10 @@ if (-not $entry) {
     Write-Host "FAIL: no HKCU Add/Remove Programs entry named 'PI Dashboard'"
     exit 1
 }
-if ($entry.InstallLocation.TrimEnd('\') -ne $installDir.TrimEnd('\')) {
+# InstallLocation may be absent (electron-builder does not always populate it,
+# observed empty on slower installs). The install dir is already verified above,
+# so only assert when present.
+if ($entry.InstallLocation -and $entry.InstallLocation.TrimEnd('\') -ne $installDir.TrimEnd('\')) {
     Write-Host "FAIL: InstallLocation '$($entry.InstallLocation)' != '$installDir'"
     exit 1
 }

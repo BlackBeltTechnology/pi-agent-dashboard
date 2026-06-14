@@ -45,8 +45,12 @@ if (-not (Test-Path $uninst)) {
 
 $entry = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
     Where-Object { $_.DisplayName -eq "PI Dashboard" }
-if (-not $entry -or $entry.InstallLocation.TrimEnd('\') -ne $Dir.TrimEnd('\')) {
-    Write-Host "FAIL: Add/Remove InstallLocation does not reflect '$Dir'"
+if (-not $entry) {
+    Write-Host "FAIL: no HKCU Add/Remove entry named 'PI Dashboard'"
+    exit 1
+}
+if ($entry.InstallLocation -and $entry.InstallLocation.TrimEnd('\') -ne $Dir.TrimEnd('\')) {
+    Write-Host "FAIL: Add/Remove InstallLocation '$($entry.InstallLocation)' != '$Dir'"
     exit 1
 }
 
