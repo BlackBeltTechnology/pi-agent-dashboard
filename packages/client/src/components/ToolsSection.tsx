@@ -190,6 +190,9 @@ export function ToolsSection() {
               tool={t}
               hostOs={hostOs}
               autoOpenInstall={installTarget === t.name}
+              onAutoOpenConsumed={() =>
+                setInstallTarget((v) => (v === t.name ? null : v))
+              }
               busy={busyName === t.name}
               onRescan={() => onRescanOne(t.name)}
               onSetOverride={(p) => onSetOverride(t.name, p)}
@@ -209,21 +212,27 @@ interface ToolRowProps {
   tool: ToolListEntry;
   hostOs: HostPlatform | null;
   autoOpenInstall: boolean;
+  onAutoOpenConsumed: () => void;
   busy: boolean;
   onRescan: () => void;
   onSetOverride: (path: string) => void;
   onClearOverride: () => void;
 }
 
-function ToolRow({ tool, hostOs, autoOpenInstall, busy, onRescan, onSetOverride, onClearOverride }: ToolRowProps) {
+function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRescan, onSetOverride, onClearOverride }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const [draftPath, setDraftPath] = useState("");
 
   // Auto-open the install dropdown when deep-linked from an inline chat error.
   useEffect(() => {
-    if (autoOpenInstall) setInstallOpen(true);
-  }, [autoOpenInstall]);
+    // One-shot: open the dropdown, then clear the parent's deep-link target
+    // so a later remount/reload does not re-trigger the open.
+    if (autoOpenInstall) {
+      setInstallOpen(true);
+      onAutoOpenConsumed();
+    }
+  }, [autoOpenInstall, onAutoOpenConsumed]);
 
   const invalidOverride = tool.tried.some(
     (x) => x.strategy === "override" && typeof x.result === "string" && x.result.startsWith("invalid:"),

@@ -28,9 +28,12 @@ export async function copyText(text: string): Promise<boolean> {
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
+    try {
+      return document.execCommand("copy");
+    } finally {
+      // Guarantee the hidden node is removed even if execCommand throws.
+      ta.remove();
+    }
   } catch {
     return false;
   }
