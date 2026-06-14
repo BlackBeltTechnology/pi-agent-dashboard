@@ -7,6 +7,7 @@
 import React from "react";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { resolveGroupColor } from "../lib/openspec-group-palette.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -39,7 +40,7 @@ export function OpenSpecGroupPills({
         }`}
         data-testid="group-pill-all"
       >
-        All
+        {i18nT("auto.all", undefined, "All")}
       </button>
 
       {/* Group pills */}
@@ -75,7 +76,7 @@ export function OpenSpecGroupPills({
           className="text-[10px] text-[var(--text-muted)] hover:text-blue-400 ml-1"
           data-testid="manage-groups-link"
         >
-          Manage groups…
+          {i18nT("auto.manage_groups", undefined, "Manage groups…")}
         </button>
       )}
     </div>

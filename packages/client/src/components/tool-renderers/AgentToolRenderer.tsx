@@ -26,6 +26,7 @@ import { formatDuration } from "../agent-card-utils.js";
 import { ElapsedBadge } from "../ElapsedBadge.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
+import { t as i18nT } from "../../lib/i18n";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
 interface AgentDetails {
@@ -82,7 +83,7 @@ function buildStats(d: AgentDetails): string {
 function PromptBlock({ text }: { text: string }) {
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Prompt</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("auto.prompt", undefined, "Prompt")}</div>
       <pre className="whitespace-pre-wrap text-[11px] text-[var(--text-secondary)] max-h-40 overflow-auto">
         {text.slice(0, 1000)}
       </pre>
@@ -94,7 +95,7 @@ function PromptBlock({ text }: { text: string }) {
 function ResultBlock({ text }: { text: string }) {
   return (
     <div className="mt-1.5">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Result</div>
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("auto.result", undefined, "Result")}</div>
       <div className="max-h-80 overflow-auto text-[12px]">
         <MarkdownContent content={text} />
       </div>
@@ -154,7 +155,7 @@ function CardControls({
         title={popoutUrl ? "Open subagent in new tab" : "Subagent id not yet available"}
       >
         <Icon path={mdiOpenInNew} size={0.5} />
-        <span>Popout</span>
+        <span>{i18nT("auto.popout", undefined, "Popout")}</span>
       </button>
     </div>
   );
@@ -246,7 +247,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
         )}
         {details.status === "steered" && (
-          <div className="text-[11px] text-orange-400 mt-0.5">Wrapped up (turn limit)</div>
+          <div className="text-[11px] text-orange-400 mt-0.5">{i18nT("auto.wrapped_up_turn_limit", undefined, "Wrapped up (turn limit)")}</div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && result && <ResultBlock text={result} />}
@@ -268,13 +269,13 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
       )}
       {details.status === "error" && details.error && (
-        <div className="text-[11px] text-red-400 mt-1">Error: {details.error}</div>
+        <div className="text-[11px] text-red-400 mt-1">{i18nT("auto.error", undefined, "Error:")} {details.error}</div>
       )}
       {details.status === "aborted" && (
-        <div className="text-[11px] text-orange-400 mt-1">Aborted (max turns exceeded)</div>
+        <div className="text-[11px] text-orange-400 mt-1">{i18nT("auto.aborted_max_turns_exceeded", undefined, "Aborted (max turns exceeded)")}</div>
       )}
       {details.status === "stopped" && (
-        <div className="text-[11px] text-[var(--text-muted)] mt-1">Stopped</div>
+        <div className="text-[11px] text-[var(--text-muted)] mt-1">{i18nT("auto.stopped", undefined, "Stopped")}</div>
       )}
       {!expanded && promptText && <PromptBlock text={promptText} />}
       {!expanded && result && <ResultBlock text={result} />}

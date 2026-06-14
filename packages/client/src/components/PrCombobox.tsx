@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { fetchPullRequests, type FetchPrResult } from "../lib/git-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -179,7 +180,7 @@ export function PrCombobox({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Filter by #, title, or branch…"
+            placeholder={i18nT("auto.filter_by_title_or_branch", undefined, "Filter by #, title, or branch…")}
             data-testid={testid ? `${testid}-filter` : undefined}
             className="w-full bg-[var(--bg-tertiary)] rounded px-2 py-1 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
           />
@@ -228,7 +229,7 @@ function PrListbox({
   if (loading) {
     return (
       <div className="px-3 py-2 text-sm text-[var(--text-secondary)]" data-testid="pr-combobox-loading">
-        Loading pull requests…
+        {i18nT("auto.loading_pull_requests", undefined, "Loading pull requests…")}
       </div>
     );
   }
@@ -242,7 +243,7 @@ function PrListbox({
   if (items.length === 0) {
     return (
       <div className="px-3 py-2 text-sm text-[var(--text-secondary)]" data-testid="pr-combobox-empty">
-        No open pull requests
+        {i18nT("auto.no_open_pull_requests", undefined, "No open pull requests")}
       </div>
     );
   }
@@ -295,13 +296,13 @@ function PrBadge({ pr }: { pr: PullRequestInfo }) {
     );
   }
   if (pr.checkRollup === "passing") {
-    return <span className="text-green-400 text-[10px] shrink-0" title="CI passing">●</span>;
+    return <span className="text-green-400 text-[10px] shrink-0" title={i18nT("auto.ci_passing", undefined, "CI passing")}>●</span>;
   }
   if (pr.checkRollup === "failing") {
-    return <span className="text-red-400 text-[10px] shrink-0" title="CI failing">●</span>;
+    return <span className="text-red-400 text-[10px] shrink-0" title={i18nT("auto.ci_failing", undefined, "CI failing")}>●</span>;
   }
   if (pr.checkRollup === "pending") {
-    return <span className="text-yellow-400 text-[10px] shrink-0" title="CI pending">●</span>;
+    return <span className="text-yellow-400 text-[10px] shrink-0" title={i18nT("auto.ci_pending", undefined, "CI pending")}>●</span>;
   }
   return null;
 }

@@ -12,6 +12,7 @@ import {
   type QueryBlock,
   type IntentPreview,
 } from "./parse-ctx-result.js";
+import { t as i18nT } from "../../lib/i18n";
 
 // Single renderer for every context-mode (`ctx_*`) tool. Parses the result
 // text into a typed struct (parse-ctx-result.ts) and switches the body layout
@@ -107,7 +108,7 @@ function QueryAccordions({ queries, context }: { queries: QueryBlock[]; context:
       {queries.map((q, i) => (
         <Collapsible key={i} title={q.query}>
           {q.noResults || q.sections.length === 0 ? (
-            <span className="text-[11px] text-[var(--text-muted)] italic">No results found</span>
+            <span className="text-[11px] text-[var(--text-muted)] italic">{i18nT("auto.no_results_found", undefined, "No results found")}</span>
           ) : (
             <div className="space-y-2">
               {q.sections.map((s, j) => (
@@ -130,7 +131,7 @@ function IntentPreviewList({ intent }: { intent: IntentPreview }) {
   return (
     <div className="text-[11px] text-[var(--text-muted)] space-y-0.5">
       <div>
-        {intent.matched} sections matched <span className="font-mono">"{intent.query}"</span>
+        {intent.matched} {i18nT("auto.sections_matched", undefined, "sections matched")} <span className="font-mono">"{intent.query}"</span>
         {intent.indexed != null && ` · ${intent.indexed} indexed`}
       </div>
       <ul className="list-disc list-inside">
@@ -158,7 +159,7 @@ function ErrorCard({
         <LinkifiedText text={parsed.message} context={context} />
       </pre>
       {parsed.receivedArgs && (
-        <Collapsible title="Received arguments">
+        <Collapsible title={i18nT("auto.received_arguments", undefined, "Received arguments")}>
           <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)] p-2 bg-[var(--bg-code)] rounded">
             {parsed.receivedArgs}
           </pre>
@@ -245,7 +246,7 @@ function CtxBody({
       return (
         <div className="text-xs text-[var(--text-secondary)] font-mono space-y-0.5">
           <div>
-            {parsed.sections} sections · {parsed.size} — {parsed.source}
+            {parsed.sections} {i18nT("auto.sections", undefined, "sections ·")} {parsed.size} — {parsed.source}
           </div>
           {parsed.url && (
             <a
@@ -303,7 +304,7 @@ export function CtxToolRenderer({ toolName, args, status, result, context }: Too
       </div>
 
       {status === "running" && !result && (
-        <div className="text-xs text-[var(--text-muted)] italic">Running…</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
       )}
 
       {result && <CtxBody parsed={parsed} toolName={toolName} args={args} context={context} />}

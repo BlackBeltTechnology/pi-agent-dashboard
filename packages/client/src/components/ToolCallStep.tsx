@@ -8,6 +8,7 @@ import { ElapsedBadge } from "./ElapsedBadge.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import { forToolName, CurrentPluginLayer, type ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { t as i18nT } from "../lib/i18n";
 
 /**
  * Evaluate a `tool-renderer` claim's optional `shouldRender`. Absent or truthy
@@ -146,7 +147,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             data-testid="tool-stop-button"
             onClick={(e) => { e.stopPropagation(); onAbort(); if (onForceKill) setStopState("aborting"); }}
             className="ml-1 p-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-900/30 inline-flex"
-            title="Stop"
+            title={i18nT("auto.stop", undefined, "Stop")}
           >
             <Icon path={mdiStop} size={0.45} />
           </span>
@@ -157,7 +158,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             data-testid="tool-force-stop-button"
             onClick={(e) => { e.stopPropagation(); onForceKill(); setStopState("killing"); }}
             className="ml-1 p-0.5 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-900/30 animate-pulse inline-flex"
-            title="Force Stop — kill the process"
+            title={i18nT("auto.force_stop_kill_the_process", undefined, "Force Stop — kill the process")}
           >
             <Icon path={mdiAlert} size={0.45} />
           </span>

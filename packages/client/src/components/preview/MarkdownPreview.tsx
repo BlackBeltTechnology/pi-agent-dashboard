@@ -5,6 +5,7 @@
 import React, { useEffect, useState } from "react";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { readTextUrl } from "./raw-url.js";
+import { t as i18nT } from "../../lib/i18n";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -38,6 +39,6 @@ export function MarkdownPreview({ target }: Props) {
   }, [target.cwd, target.path]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
-  if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">Loading…</div>;
+  if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("auto.loading", undefined, "Loading…")}</div>;
   return <MarkdownContent content={content} />;
 }

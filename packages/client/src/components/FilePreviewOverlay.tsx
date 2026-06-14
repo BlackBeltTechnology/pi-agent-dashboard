@@ -8,6 +8,7 @@ import { getApiBase } from "../lib/api-context.js";
 import { useThemeContext } from "./ThemeProvider.js";
 import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { detectLanguage } from "./tool-renderers/lang-detect.js";
+import { t as i18nT } from "../lib/i18n";
 
 /** DOM id of the scroll target line inside the highlighted code view. */
 const TARGET_LINE_ID = "file-preview-target-line";
@@ -129,7 +130,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
             <button
               onClick={onClose}
               className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
-              title="Close"
+              title={i18nT("auto.close", undefined, "Close")}
             >
               <Icon path={mdiClose} size={0.7} />
             </button>

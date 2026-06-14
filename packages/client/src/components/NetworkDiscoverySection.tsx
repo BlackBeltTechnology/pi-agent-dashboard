@@ -21,6 +21,7 @@ import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/conf
 import type { DiscoveredServerInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { discoverServers, addKnownServer } from "../lib/known-servers-api.js";
 import { parseHostInput } from "../lib/parse-host-input.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   knownServers: KnownServer[];
@@ -122,7 +123,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
 
       {/* Scan error */}
       {scanError && (
-        <div className="text-xs text-red-400 py-1">Scan failed: {scanError}</div>
+        <div className="text-xs text-red-400 py-1">{i18nT("auto.scan_failed", undefined, "Scan failed:")} {scanError}</div>
       )}
 
       {/* Empty diagnostic + manual-add fallback */}
@@ -136,21 +137,20 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
             />
             <div className="space-y-1">
               <div className="text-sm text-[var(--text-primary)]">
-                No servers found via mDNS.
+                {i18nT("auto.no_servers_found_via_mdns", undefined, "No servers found via mDNS.")}
               </div>
               <div className="text-xs text-[var(--text-muted)] leading-relaxed">
-                mDNS discovery often fails across machines because of:
+                {i18nT("auto.mdns_discovery_often_fails_across_machines", undefined, "mDNS discovery often fails across machines because of:")}
                 <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                  <li>Wi-Fi <strong>AP/client isolation</strong> (common on consumer & guest networks)</li>
-                  <li>Mesh routers or Wi-Fi extenders that drop multicast between nodes</li>
-                  <li>Different VLANs / subnets between the two machines</li>
-                  <li>An active VPN capturing the default route</li>
-                  <li>The macOS firewall blocking inbound traffic on the dashboard port</li>
+                  <li>{i18nT("auto.wi_fi", undefined, "Wi-Fi")} <strong>{i18nT("auto.ap_client_isolation", undefined, "AP/client isolation")}</strong> {i18nT("auto.common_on_consumer_guest_networks", undefined, "(common on consumer & guest networks)")}</li>
+                  <li>{i18nT("auto.mesh_routers_or_wi_fi_extenders", undefined, "Mesh routers or Wi-Fi extenders that drop multicast between nodes")}</li>
+                  <li>{i18nT("auto.different_vlans_subnets_between_the_two", undefined, "Different VLANs / subnets between the two machines")}</li>
+                  <li>{i18nT("auto.an_active_vpn_capturing_the_default", undefined, "An active VPN capturing the default route")}</li>
+                  <li>{i18nT("auto.the_macos_firewall_blocking_inbound_traffi", undefined, "The macOS firewall blocking inbound traffic on the dashboard port")}</li>
                 </ul>
                 <div className="mt-2">
-                  If you know the server's IP (e.g.{" "}
-                  <code className="text-[var(--text-secondary)]">192.168.16.202:8000</code>),
-                  add it manually below.
+                  {i18nT("auto.if_you_know_the_server_s", undefined, "If you know the server's IP (e.g.")}{" "}
+                  <code className="text-[var(--text-secondary)]">192.168.16.202:8000</code>{i18nT("auto.add_it_manually_below", undefined, "),\n                  add it manually below.")}
                 </div>
               </div>
             </div>
@@ -161,7 +161,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="192.168.16.202:8000  or  http://host:8000"
+                placeholder={i18nT("auto.192_168_16_202_8000_or", undefined, "192.168.16.202:8000  or  http://host:8000")}
                 value={manualInput}
                 onChange={(e) => setManualInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleManualAdd(); }}
@@ -169,7 +169,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
               />
               <input
                 type="text"
-                placeholder="Label (optional)"
+                placeholder={i18nT("auto.label_optional", undefined, "Label (optional)")}
                 value={manualLabel}
                 onChange={(e) => setManualLabel(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleManualAdd(); }}
@@ -181,7 +181,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded cursor-pointer"
               >
                 <Icon path={mdiPlus} size={0.45} />
-                Add
+                {i18nT("auto.add", undefined, "Add")}
               </button>
             </div>
             {manualError && (
@@ -212,19 +212,19 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 {server.host}
               </div>
               <div className="text-xs text-[var(--text-muted)]">
-                :{server.port} · v{server.version}
+                :{server.port} {i18nT("auto.v", undefined, "· v")}{server.version}
               </div>
             </div>
 
             {alreadyKnown ? (
-              <span className="text-xs text-green-500 shrink-0">Already added</span>
+              <span className="text-xs text-green-500 shrink-0">{i18nT("auto.already_added", undefined, "Already added")}</span>
             ) : isAdding ? (
               <div className="flex items-center gap-1 shrink-0">
                 <input
                   type="text"
                   value={addLabel}
                   onChange={(e) => setAddLabel(e.target.value)}
-                  placeholder="Label"
+                  placeholder={i18nT("auto.label", undefined, "Label")}
                   className="w-28 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-1.5 py-0.5 text-xs text-[var(--text-primary)]"
                   autoFocus
                   onKeyDown={(e) => {
@@ -235,14 +235,14 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 <button
                   onClick={() => handleConfirmAdd(server)}
                   className="text-green-400 hover:text-green-300 cursor-pointer p-0.5"
-                  title="Confirm"
+                  title={i18nT("auto.confirm", undefined, "Confirm")}
                 >
                   <Icon path={mdiCheck} size={0.45} />
                 </button>
                 <button
                   onClick={handleCancelAdd}
                   className="text-[var(--text-muted)] hover:text-red-400 cursor-pointer p-0.5"
-                  title="Cancel"
+                  title={i18nT("auto.cancel", undefined, "Cancel")}
                 >
                   <Icon path={mdiClose} size={0.45} />
                 </button>
@@ -253,7 +253,7 @@ export function NetworkDiscoverySection({ knownServers, onServerAdded }: Props) 
                 className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors shrink-0 cursor-pointer"
               >
                 <Icon path={mdiPlus} size={0.45} />
-                Add
+                {i18nT("auto.add", undefined, "Add")}
               </button>
             )}
           </div>

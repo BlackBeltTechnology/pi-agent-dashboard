@@ -5,6 +5,7 @@
  */
 import React, { useState, useRef, useEffect } from "react";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   onCreate: (name: string) => void;
@@ -31,18 +32,18 @@ export function NewWorkspaceDialog({ onCreate, onCancel }: Props) {
   }
 
   return (
-    <Dialog open onClose={onCancel} title="New Workspace" size="md" testId="new-workspace-dialog">
+    <Dialog open onClose={onCancel} title={i18nT("auto.new_workspace_2", undefined, "New Workspace")} size="md" testId="new-workspace-dialog">
         <form onSubmit={submit} className="space-y-1">
           <input
             ref={inputRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Workspace name"
+            placeholder={i18nT("auto.workspace_name", undefined, "Workspace name")}
             maxLength={NAME_MAX}
             className="w-full px-3 py-2 text-sm rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
             data-testid="new-workspace-input"
-            aria-label="Workspace name"
+            aria-label={i18nT("auto.workspace_name", undefined, "Workspace name")}
           />
           <div className="text-[10px] text-[var(--text-muted)] mt-1">
             {trimmed.length}/{NAME_MAX}
@@ -55,7 +56,7 @@ export function NewWorkspaceDialog({ onCreate, onCancel }: Props) {
               className="text-xs px-3 py-1.5 rounded bg-[var(--accent-primary)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="new-workspace-create"
             >
-              Create
+              {i18nT("auto.create", undefined, "Create")}
             </button>
           </Dialog.Footer>
         </form>

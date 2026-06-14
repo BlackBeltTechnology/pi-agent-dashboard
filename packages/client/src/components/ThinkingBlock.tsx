@@ -3,6 +3,7 @@ import { Icon } from "@mdi/react";
 import { mdiChevronRight, mdiChevronDown, mdiHeadLightbulb } from "@mdi/js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { ElapsedBadge } from "./ElapsedBadge.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   content: string;
@@ -25,7 +26,7 @@ export function ThinkingBlock({ content, isStreaming, defaultExpanded = false, s
           <Icon path={mdiHeadLightbulb} size={0.55} />
         </span>
         <span className="truncate">
-          Reasoning
+          {i18nT("auto.reasoning", undefined, "Reasoning")}
           {isStreaming && <span className="ml-1 animate-pulse">…</span>}
         </span>
         <ElapsedBadge startedAt={startedAt} duration={duration} />

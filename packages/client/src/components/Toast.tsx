@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 
 export type ToastVariant = "error" | "success" | "info";
 
@@ -71,8 +72,8 @@ function ToastItem({ message, onDismiss }: {
       <button
         onClick={handleDismiss}
         className={`${styles.close} flex-shrink-0 leading-none`}
-        title="Dismiss"
-        aria-label="Dismiss"
+        title={i18nT("auto.dismiss", undefined, "Dismiss")}
+        aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
       >
         ×
       </button>

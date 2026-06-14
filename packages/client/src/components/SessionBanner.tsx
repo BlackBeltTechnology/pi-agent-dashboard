@@ -10,6 +10,7 @@ import {
   mdiStop,
 } from "@mdi/js";
 import { CopyButton } from "./CopyButton";
+import { t as i18nT } from "../lib/i18n";
 
 /**
  * Banner state shape derived by `deriveBannerState(state)` in event-reducer.
@@ -119,7 +120,7 @@ function RetryingVariant({
             {hasCountdown ? (
               <>
                 <span data-testid="retry-banner-attempt">
-                  Rate-limited — retry {state.attempt} of {state.maxAttempts}
+                  {i18nT("auto.rate_limited_retry", undefined, "Rate-limited — retry")} {state.attempt} of {state.maxAttempts}
                 </span>
                 <span className="text-amber-300/80"> in </span>
                 <span data-testid="retry-banner-countdown" className="font-mono">
@@ -128,7 +129,7 @@ function RetryingVariant({
               </>
             ) : (
               <span data-testid="retry-banner-indeterminate">
-                Rate-limited — retrying… (attempt {state.attempt})
+                {i18nT("auto.rate_limited_retrying_attempt", undefined, "Rate-limited — retrying… (attempt")} {state.attempt})
               </span>
             )}
           </div>
@@ -144,11 +145,11 @@ function RetryingVariant({
               <button
                 data-testid="retry-banner-stop"
                 onClick={onAbort}
-                title="Stop retrying"
+                title={i18nT("auto.stop_retrying", undefined, "Stop retrying")}
                 className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-amber-500/40 text-amber-200 hover:bg-amber-500/15"
               >
                 <Icon path={mdiStop} size={0.55} />
-                Stop retrying
+                {i18nT("auto.stop_retrying", undefined, "Stop retrying")}
               </button>
             </div>
           )}
@@ -206,7 +207,7 @@ function ErrorVariant({
               data-testid="limit-exceeded-hint"
               className="mt-0.5 text-xs text-red-300/70"
             >
-              Session stopped automatically.
+              {i18nT("auto.session_stopped_automatically", undefined, "Session stopped automatically.")}
             </div>
           )}
           <div className="mt-1.5 flex items-center gap-2 flex-wrap">
@@ -225,17 +226,17 @@ function ErrorVariant({
               <button
                 data-testid="error-banner-retry"
                 onClick={onRetry}
-                title="Retry (continue session)"
+                title={i18nT("auto.retry_continue_session", undefined, "Retry (continue session)")}
                 className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-red-500/40 text-red-200 hover:bg-red-500/15"
               >
                 <Icon path={mdiRefresh} size={0.55} />
-                Retry
+                {i18nT("auto.retry", undefined, "Retry")}
               </button>
             )}
             <CopyButton
               text={message}
               icon={<Icon path={mdiContentCopy} size={0.6} />}
-              title="Copy error message"
+              title={i18nT("auto.copy_error_message", undefined, "Copy error message")}
             />
           </div>
         </div>
@@ -244,7 +245,7 @@ function ErrorVariant({
             data-testid="error-banner-dismiss"
             onClick={onDismiss}
             className="text-red-400 hover:text-red-300 shrink-0"
-            title="Dismiss"
+            title={i18nT("auto.dismiss", undefined, "Dismiss")}
           >
             <Icon path={mdiClose} size={0.6} />
           </button>

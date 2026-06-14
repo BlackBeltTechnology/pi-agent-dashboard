@@ -21,6 +21,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { fetchDoctorReport, DoctorFetchError } from "../lib/doctor-api.js";
 import type { DoctorReport, DoctorCheck } from "../lib/doctor-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 type DoctorSection = DoctorCheck["section"];
 
@@ -188,10 +189,9 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
 
   return (
     <section className="mb-6">
-      <h2 className="text-base font-semibold text-slate-200 mb-2">Diagnostics</h2>
+      <h2 className="text-base font-semibold text-slate-200 mb-2">{i18nT("auto.diagnostics", undefined, "Diagnostics")}</h2>
       <p className="text-sm text-slate-400 mb-3">
-        Diagnoses the server you&apos;re connected to. Local installation issues are best diagnosed
-        from the Electron app&apos;s Help → Doctor menu.
+        {i18nT("auto.diagnoses_the_server_you_re_connected", undefined, "Diagnoses the server you're connected to. Local installation issues are best diagnosed\n        from the Electron app's Help → Doctor menu.")}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -210,7 +210,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
           data-testid="diagnostics-copy-md"
         >
-          Copy as Markdown
+          {i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")}
         </button>
         <button
           type="button"
@@ -218,7 +218,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
           data-testid="diagnostics-copy-plain"
         >
-          Copy as Plain
+          {i18nT("auto.copy_as_plain", undefined, "Copy as Plain")}
         </button>
         {report?.generatedAt ? (
           <span className="text-xs text-slate-500 ml-auto">
@@ -237,7 +237,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
           data-testid="diagnostics-error"
         >
           <div className="font-semibold mb-1">
-            Doctor fetch failed{error.status != null ? ` (HTTP ${error.status})` : ""}
+            {i18nT("auto.doctor_fetch_failed", undefined, "Doctor fetch failed")}{error.status != null ? ` (HTTP ${error.status})` : ""}
           </div>
           <div className="text-xs text-red-300 mb-1">{error.message}</div>
           {error.excerpt ? (
@@ -249,7 +249,7 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
       ) : null}
 
       {!report && !error && !running ? (
-        <div className="text-sm text-slate-500">No report yet.</div>
+        <div className="text-sm text-slate-500">{i18nT("auto.no_report_yet", undefined, "No report yet.")}</div>
       ) : null}
 
       {report ? (
@@ -324,7 +324,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-sm text-slate-200 mb-2">
-            Your browser blocked clipboard access — press Ctrl/Cmd+C to copy.
+            {i18nT("auto.your_browser_blocked_clipboard_access_pres", undefined, "Your browser blocked clipboard access — press Ctrl/Cmd+C to copy.")}
           </div>
           <textarea
             ref={ref}
@@ -339,7 +339,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
               className="px-3 py-1.5 text-sm rounded bg-slate-700 text-slate-200 hover:bg-slate-600"
               onClick={onClose}
             >
-              Close
+              {i18nT("auto.close", undefined, "Close")}
             </button>
           </div>
         </div>

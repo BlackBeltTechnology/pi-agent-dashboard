@@ -25,6 +25,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GROUP_PALETTE, resolveGroupColor, type PaletteEntry } from "../lib/openspec-group-palette.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -113,7 +114,7 @@ function SortableGroupRow({
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
         className="text-[var(--text-muted)] hover:text-blue-400 opacity-0 group-hover/row:opacity-100 transition-opacity"
         data-testid="edit-group-btn"
-        title="Edit"
+        title={i18nT("auto.edit", undefined, "Edit")}
       >
         <Icon path={mdiPencilOutline} size={0.45} />
       </button>
@@ -122,7 +123,7 @@ function SortableGroupRow({
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         className="text-[var(--text-muted)] hover:text-red-400 opacity-0 group-hover/row:opacity-100 transition-opacity"
         data-testid="delete-group-btn"
-        title="Delete"
+        title={i18nT("auto.delete", undefined, "Delete")}
       >
         <Icon path={mdiTrashCanOutline} size={0.45} />
       </button>
@@ -154,7 +155,7 @@ function InlineEditor({
           if (e.key === "Enter" && name.trim()) onSave(name.trim(), color);
           if (e.key === "Escape") onCancel();
         }}
-        placeholder="Group name"
+        placeholder={i18nT("auto.group_name", undefined, "Group name")}
         className="w-full text-[12px] bg-transparent border border-[var(--border-secondary)] rounded px-2 py-1 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-blue-500/50"
         data-testid="group-name-input"
         autoFocus
@@ -166,7 +167,7 @@ function InlineEditor({
           onClick={onCancel}
           className="text-[10px] px-2 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
         >
-          Cancel
+          {i18nT("auto.cancel", undefined, "Cancel")}
         </button>
         <button
           type="button"
@@ -175,7 +176,7 @@ function InlineEditor({
           className="text-[10px] px-2 py-0.5 rounded border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-40"
           data-testid="save-group-btn"
         >
-          Save
+          {i18nT("auto.save", undefined, "Save")}
         </button>
       </div>
     </div>
@@ -269,13 +270,13 @@ export function OpenSpecGroupManager({
           data-testid="add-group-btn"
         >
           <Icon path={mdiPlus} size={0.45} />
-          Add group
+          {i18nT("auto.add_group_2", undefined, "Add group")}
         </button>
       )}
 
       {groups.length === 0 && !showCreate && (
         <p className="text-[11px] text-[var(--text-muted)] px-2">
-          No groups yet. Create one to organize your changes.
+          {i18nT("auto.no_groups_yet_create_one_to", undefined, "No groups yet. Create one to organize your changes.")}
         </p>
       )}
 
@@ -283,7 +284,7 @@ export function OpenSpecGroupManager({
         <Confirm
           open
           intent="danger"
-          title="Delete group?"
+          title={i18nT("auto.delete_group", undefined, "Delete group?")}
           message={`Delete group "${deleteTarget.name}"? Assigned changes will revert to Ungrouped.`}
           confirmLabel="Delete"
           onConfirm={async () => {

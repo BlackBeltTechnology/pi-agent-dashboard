@@ -5,6 +5,7 @@ import { getSyntaxTheme } from "../../lib/syntax-theme.js";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { detectLanguage } from "./lang-detect.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function WriteToolRenderer({ args, status, result, context }: ToolRendererProps) {
   const { resolved: theme, themeName } = useThemeContext();
@@ -21,7 +22,7 @@ export function WriteToolRenderer({ args, status, result, context }: ToolRendere
       </div>
 
       {status === "running" && !content && (
-        <div className="text-xs text-[var(--text-muted)] italic">Writing…</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.writing", undefined, "Writing…")}</div>
       )}
 
       {content && (

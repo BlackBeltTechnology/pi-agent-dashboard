@@ -9,6 +9,7 @@ import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/ty
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
 import { fetchGroups, createGroup, updateGroup, deleteGroup } from "../lib/openspec-groups-api.js";
 import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface CwdGroups {
   cwd: string;
@@ -87,9 +88,9 @@ export function OpenSpecGroupsSettingsSection() {
     return (
       <div data-testid="openspec-groups-settings">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
-          OpenSpec Groups
+          {i18nT("auto.openspec_groups", undefined, "OpenSpec Groups")}
         </h2>
-        <p className="text-xs text-[var(--text-muted)]">Loading…</p>
+        <p className="text-xs text-[var(--text-muted)]">{i18nT("auto.loading", undefined, "Loading…")}</p>
       </div>
     );
   }
@@ -98,9 +99,9 @@ export function OpenSpecGroupsSettingsSection() {
     return (
       <div data-testid="openspec-groups-settings">
         <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
-          OpenSpec Groups
+          {i18nT("auto.openspec_groups", undefined, "OpenSpec Groups")}
         </h2>
-        <p className="text-xs text-[var(--text-muted)]">No projects with active sessions.</p>
+        <p className="text-xs text-[var(--text-muted)]">{i18nT("auto.no_projects_with_active_sessions", undefined, "No projects with active sessions.")}</p>
       </div>
     );
   }
@@ -108,7 +109,7 @@ export function OpenSpecGroupsSettingsSection() {
   return (
     <div data-testid="openspec-groups-settings">
       <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3 pb-1 border-b border-[var(--border-secondary)]">
-        OpenSpec Groups
+        {i18nT("auto.openspec_groups", undefined, "OpenSpec Groups")}
       </h2>
       <div className="space-y-3">
         {cwdList.map(({ cwd, groups }) => (

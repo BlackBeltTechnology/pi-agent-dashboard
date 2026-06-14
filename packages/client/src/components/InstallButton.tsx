@@ -1,6 +1,7 @@
 import React from "react";
 import { Icon } from "@mdi/react";
 import { mdiDownload } from "@mdi/js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   canInstall: boolean;
@@ -15,7 +16,7 @@ export function InstallButton({ canInstall, isInstalled, prompt }: Props) {
     <button
       onClick={prompt}
       className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-      title="Install app"
+      title={i18nT("auto.install_app", undefined, "Install app")}
       data-testid="install-btn"
     >
       <Icon path={mdiDownload} size={0.6} />

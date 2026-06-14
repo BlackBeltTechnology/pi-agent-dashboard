@@ -26,6 +26,7 @@ import { PluginsSection } from "./PluginsSection.js";
 import { OpenSpecProfileSection } from "./OpenSpecProfileSection.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { LANGUAGE_OPTIONS, useI18n, type Language } from "../lib/i18n.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface ProviderConfig {
   clientId: string;
@@ -515,12 +516,12 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 />
               </Section>
 
-              <Section title="Server">
+              <Section title={i18nT("auto.server", undefined, "Server")}>
                 <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
                 <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
                 <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
                 {config.autoShutdown && (
-                  <NumberField label="Idle Seconds Before Shutdown" value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
+                  <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
                 )}
               </Section>
 
@@ -533,7 +534,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 />
                 <div>
                   <SelectField
-                    label="Reattach Placement"
+                    label={i18nT("auto.reattach_placement", undefined, "Reattach Placement")}
                     value={config.reattachPlacement ?? "always"}
                     options={[
                       { value: "always", label: "Always move to top (default)" },
@@ -543,42 +544,42 @@ export function SettingsPanel({ availableModels, onMessage }: {
                     onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.
+                    {i18nT("auto.when_the_dashboard_restarts_and_a", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
                   </p>
                 </div>
                 <div>
                   <ToggleField
-                    label="Put completed session first"
+                    label={i18nT("auto.put_completed_session_first", undefined, "Put completed session first")}
                     value={config.completedFirst ?? false}
                     onChange={(v) => update((c) => { c.completedFirst = v; })}
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.
+                    {i18nT("auto.when_a_session_finishes_a_turn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
                   </p>
                 </div>
                 <div>
                   <ToggleField
-                    label="Put question session first"
+                    label={i18nT("auto.put_question_session_first", undefined, "Put question session first")}
                     value={config.questionFirst ?? false}
                     onChange={(v) => update((c) => { c.questionFirst = v; })}
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.
+                    {i18nT("auto.when_a_session_asks_a_question", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
                   </p>
                 </div>
                 <div>
                   <NumberField
-                    label="ask_user Prompt Timeout (seconds)"
+                    label={i18nT("auto.ask_user_prompt_timeout_seconds", undefined, "ask_user Prompt Timeout (seconds)")}
                     value={config.askUserPromptTimeoutSeconds ?? 300}
                     onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use <code>-1</code> (or <code>0</code>) to wait forever. Default: 300 (5&nbsp;min).
+                    {i18nT("auto.how_long_an_interactive_ask_user", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("auto.to_wait_forever_default_300_5", undefined, ") to wait forever. Default: 300 (5 min).")}
                   </p>
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">+Session register timeout (ms)</label>
+                    <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.session_register_timeout_ms", undefined, "+Session register timeout (ms)")}</label>
                     <input
                       type="number"
                       className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
@@ -596,20 +597,20 @@ export function SettingsPanel({ availableModels, onMessage }: {
                     />
                   </div>
                   {spawnTimeoutInvalid && (
-                    <p className="mt-1 text-xs text-red-400">Must be an integer between 5000 and 120000.</p>
+                    <p className="mt-1 text-xs text-red-400">{i18nT("auto.must_be_an_integer_between_5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                   )}
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.
+                    {i18nT("auto.how_long_to_wait_for_a", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                   </p>
                 </div>
                 <div>
                   <ToggleField
-                    label="Show worktree spawn buttons in folders and OpenSpec rows"
+                    label={i18nT("auto.show_worktree_spawn_buttons_in_folders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
                     value={config.gitWorktreeEnabled ?? true}
                     onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
                   />
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    UI preference only. Hides the folder <code>+Worktree</code> button and the per-change <code>⥂2+</code> button on OpenSpec rows. The <code>/api/git/worktree*</code> REST endpoints stay reachable for tooling. Default on.
+                    {i18nT("auto.ui_preference_only_hides_the_folder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("auto.button_and_the_per_change", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("auto.button_on_openspec_rows_the", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("auto.rest_endpoints_stay_reachable_for_tooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
@@ -622,17 +623,17 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 </div>
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">PWA Display Name</label>
+                    <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.pwa_display_name", undefined, "PWA Display Name")}</label>
                     <input
                       type="text"
                       className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-                      placeholder="(auto from hostname)"
+                      placeholder={i18nT("auto.auto_from_hostname", undefined, "(auto from hostname)")}
                       value={config.dashboardName ?? ""}
                       onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
                     />
                   </div>
                   <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request <code>Host</code> header (or the server hostname). Distinguishes installs from multiple machines or tunnels.
+                    {i18nT("auto.shown_on_the_home_screen_app", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("auto.host", undefined, "Host")}</code> {i18nT("auto.header_or_the_server_hostname_distinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
                   </p>
                 </div>
               </Section>
@@ -641,7 +642,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                 <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Zrok Tunnel")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
                 <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                   <p className="text-xs text-[var(--text-tertiary)]">
-                    Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).
+                    {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).")}
                   </p>
                   <ToggleField
                     label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
@@ -668,7 +669,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                     })}
                   />
                   <NumberField
-                    label="Failure Threshold"
+                    label={i18nT("auto.failure_threshold", undefined, "Failure Threshold")}
                     value={config.tunnel.watchdog?.failureThreshold ?? 2}
                     onChange={(v) => update((c) => {
                       c.tunnel.watchdog = {
@@ -867,7 +868,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                 </p>
                 <NumberField
-                  label="Max Events Per Session"
+                  label={i18nT("auto.max_events_per_session", undefined, "Max Events Per Session")}
                   value={config.memoryLimits?.maxEventsPerSession ?? 200}
                   onChange={(v) => update((c) => {
                     if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -875,7 +876,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <NumberField
-                  label="Max String Truncation (chars)"
+                  label={i18nT("auto.max_string_truncation_chars", undefined, "Max String Truncation (chars)")}
                   value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                   onChange={(v) => update((c) => {
                     if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -883,7 +884,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <NumberField
-                  label="Max WebSocket Buffer (bytes)"
+                  label={i18nT("auto.max_websocket_buffer_bytes", undefined, "Max WebSocket Buffer (bytes)")}
                   value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                   onChange={(v) => update((c) => {
                     if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
@@ -893,7 +894,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
               </Section>
               <Section title={t("settings.backgroundPolling", undefined, "Background polling (OpenSpec)")}>
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  Controls how aggressively the server polls <code>openspec list</code> and <code>openspec status</code> for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection <code>mtime</code> skips re-polling unchanged proposals (recommended).
+                  {i18nT("auto.controls_how_aggressively_the_server_polls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("auto.openspec_list", undefined, "openspec list")}</code> and <code>{i18nT("auto.openspec_status", undefined, "openspec status")}</code> {i18nT("auto.for_each_known_directory_longer_interval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("auto.skips_re_polling_unchanged_proposals_recom", undefined, "skips re-polling unchanged proposals (recommended).")}
                 </p>
                 <ToggleField
                   label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
@@ -904,14 +905,14 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.
+                  {i18nT("auto.when_off_openspec_is_fully_disabled", undefined, "When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.")}
                 </p>
                 {(() => {
                   const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
                   return (
                     <>
                       <NumberField
-                        label="Poll Interval (seconds, 5–3600)"
+                        label={i18nT("auto.poll_interval_seconds_5_3600", undefined, "Poll Interval (seconds, 5–3600)")}
                         disabled={openspecOff}
                         value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
                         onChange={(v) => update((c) => {
@@ -920,7 +921,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                         })}
                       />
                       <NumberField
-                        label="Max Concurrent +Sessions (1–16)"
+                        label={i18nT("auto.max_concurrent_sessions_1_16", undefined, "Max Concurrent +Sessions (1–16)")}
                         disabled={openspecOff}
                         value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
                         onChange={(v) => update((c) => {
@@ -929,7 +930,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                         })}
                       />
                       <SelectField
-                        label="Change Detection"
+                        label={i18nT("auto.change_detection", undefined, "Change Detection")}
                         disabled={openspecOff}
                         value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
                         options={[
@@ -942,7 +943,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                         })}
                       />
                       <NumberField
-                        label="Jitter (seconds, 0–60)"
+                        label={i18nT("auto.jitter_seconds_0_60", undefined, "Jitter (seconds, 0–60)")}
                         disabled={openspecOff}
                         value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
                         onChange={(v) => update((c) => {
@@ -961,7 +962,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
                 </p>
                 <TextField
-                  label="Binary Path (leave empty for auto-detect)"
+                  label={i18nT("auto.binary_path_leave_empty_for_auto", undefined, "Binary Path (leave empty for auto-detect)")}
                   value={config.editor?.binary ?? ""}
                   onChange={(v) => update((c) => {
                     if (!c.editor) c.editor = {};
@@ -970,7 +971,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   placeholder="code-server"
                 />
                 <NumberField
-                  label="Idle Timeout (minutes)"
+                  label={i18nT("auto.idle_timeout_minutes", undefined, "Idle Timeout (minutes)")}
                   value={config.editor?.idleTimeoutMinutes ?? 10}
                   onChange={(v) => update((c) => {
                     if (!c.editor) c.editor = {};
@@ -978,7 +979,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <NumberField
-                  label="Max Concurrent Instances"
+                  label={i18nT("auto.max_concurrent_instances", undefined, "Max Concurrent Instances")}
                   value={config.editor?.maxInstances ?? 3}
                   onChange={(v) => update((c) => {
                     if (!c.editor) c.editor = {};
@@ -986,7 +987,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <ToggleField
-                  label="Stop editors when dashboard exits"
+                  label={i18nT("auto.stop_editors_when_dashboard_exits", undefined, "Stop editors when dashboard exits")}
                   value={config.editor?.stopOnDashboardExit ?? false}
                   onChange={(v) => update((c) => {
                     if (!c.editor) c.editor = {};
@@ -994,7 +995,7 @@ export function SettingsPanel({ availableModels, onMessage }: {
                   })}
                 />
                 <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                  Leave off to let tabs and dirty buffers survive a dashboard restart.
+                  {i18nT("auto.leave_off_to_let_tabs_and", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
                 </p>
               </Section>
             </>
@@ -1209,7 +1210,7 @@ function TrustedNetworksSection({
           value={manualEntry}
           onChange={(e) => setManualEntry(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleManualAdd(); } }}
-          placeholder="IP, wildcard, or CIDR"
+          placeholder={i18nT("auto.ip_wildcard_or_cidr", undefined, "IP, wildcard, or CIDR")}
           className="flex-1 min-w-[160px] bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-xs font-mono text-[var(--text-primary)]"
           data-testid="trusted-networks-manual-input"
         />
@@ -1228,8 +1229,8 @@ function TrustedNetworksSection({
           className="text-xs text-[var(--text-tertiary)] mt-2"
           data-testid="trusted-networks-legacy-hint"
         >
-          {legacyTrustedNetworks.length} {legacyTrustedNetworks.length === 1 ? "entry" : "entries"} from <code>config.json</code> → <code>trustedNetworks</code>
-          {" "}are also active. Edit them directly in that file.
+          {legacyTrustedNetworks.length} {legacyTrustedNetworks.length === 1 ? "entry" : "entries"} from <code>config.json</code> → <code>{i18nT("auto.trustednetworks", undefined, "trustedNetworks")}</code>
+          {" "}{i18nT("auto.are_also_active_edit_them_directly", undefined, "are also active. Edit them directly in that file.")}
         </p>
       )}
 
@@ -1359,19 +1360,19 @@ function ProviderSection({ providerKey, provider, onChange }: {
       {enabled && (
         <div className="space-y-2">
           <TextField
-            label="Client ID"
+            label={i18nT("auto.client_id", undefined, "Client ID")}
             value={provider!.clientId}
             onChange={(v) => onChange({ ...provider!, clientId: v })}
           />
           <TextField
-            label="Client Secret"
+            label={i18nT("auto.client_secret", undefined, "Client Secret")}
             value={provider!.clientSecret}
             onChange={(v) => onChange({ ...provider!, clientSecret: v })}
             type="password"
           />
           {needsIssuer && (
             <TextField
-              label="Issuer URL"
+              label={i18nT("auto.issuer_url", undefined, "Issuer URL")}
               value={provider!.issuerUrl || ""}
               onChange={(v) => onChange({ ...provider!, issuerUrl: v })}
               placeholder="https://keycloak.example.com/realms/myrealm"
@@ -1569,20 +1570,20 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
       </div>
       <div className="space-y-2">
         <TextField
-          label="Base URL"
+          label={i18nT("auto.base_url", undefined, "Base URL")}
           value={provider.baseUrl}
           onChange={(v) => handleChange({ ...provider, baseUrl: v })}
           placeholder="https://api.example.com/v1"
         />
         <TextField
-          label="API Key"
+          label={i18nT("auto.api_key", undefined, "API Key")}
           value={provider.apiKey}
           onChange={(v) => handleChange({ ...provider, apiKey: v })}
           type="password"
-          placeholder="sk-... or $ENV_VAR_NAME"
+          placeholder={i18nT("auto.sk_or_env_var_name", undefined, "sk-... or $ENV_VAR_NAME")}
         />
         <div>
-          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">API Type</label>
+          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{i18nT("auto.api_type", undefined, "API Type")}</label>
           <select
             className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
             value={provider.api}

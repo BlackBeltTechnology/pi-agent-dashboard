@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import { rawUrl } from "./raw-url.js";
+import { t as i18nT } from "../../lib/i18n";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -96,7 +97,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum <= 1 || pageCount === 0}
           onClick={() => setPageNum((n) => Math.max(1, n - 1))}
         >
-          Prev
+          {i18nT("auto.prev", undefined, "Prev")}
         </button>
         <span className="text-[var(--text-muted)]">
           {pageCount === 0 ? "Loading…" : `Page ${pageNum} of ${pageCount}`}
@@ -106,7 +107,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum >= pageCount || pageCount === 0}
           onClick={() => setPageNum((n) => Math.min(pageCount, n + 1))}
         >
-          Next
+          {i18nT("auto.next_2", undefined, "Next")}
         </button>
       </div>
       <div className="flex-1 overflow-auto p-2 bg-[var(--bg-canvas)] flex justify-center">

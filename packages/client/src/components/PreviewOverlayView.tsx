@@ -9,6 +9,7 @@ import { mdiArrowLeft } from "@mdi/js";
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { dispatchPreview } from "../lib/preview-dispatch.js";
 import { PreviewBody } from "./PreviewCard.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   target: ViewTarget;
@@ -25,8 +26,8 @@ export function PreviewOverlayView({ target, onBack }: Props) {
           onClick={onBack}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
           data-testid="preview-overlay-back"
-          title="Back"
-          aria-label="Back"
+          title={i18nT("auto.back", undefined, "Back")}
+          aria-label={i18nT("auto.back", undefined, "Back")}
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>

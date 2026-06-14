@@ -26,6 +26,7 @@ import {
   type WorktreeInitStatus,
 } from "../lib/git-api.js";
 import { subscribeInit, type WorktreeInitEvent } from "../lib/worktree-init-bus.js";
+import { t as i18nT } from "../lib/i18n";
 
 let reqCounter = 0;
 function mintRequestId(): string {
@@ -122,7 +123,7 @@ export function WorktreeInitButton({ cwd }: Props) {
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-60 cursor-not-allowed"
             : "text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
         }`}
-        title="Initialize this checkout (run its declared worktree-init hook)"
+        title={i18nT("auto.initialize_this_checkout_run_its_declared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCogPlayOutline} size={0.5} />
@@ -152,7 +153,7 @@ export function WorktreeInitButton({ cwd }: Props) {
       {confirm && (
         <Confirm
           open
-          title="Run worktree-init hook?"
+          title={i18nT("auto.run_worktree_init_hook", undefined, "Run worktree-init hook?")}
           message={
             `Run this project's worktree-init hook?\n\ngate: ${confirm.hook.gate}\n${describeRun(confirm.hook)}\n\n` +
             `This executes repo-provided code on your machine.`

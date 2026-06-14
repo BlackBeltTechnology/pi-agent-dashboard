@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useRef } from "react";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   workspaces: Workspace[];
@@ -50,7 +51,7 @@ export function AddToWorkspaceMenu({
     >
       {workspaces.length === 0 && (
         <div className="px-3 py-1.5 text-[11px] text-[var(--text-muted)] italic">
-          No workspaces yet
+          {i18nT("auto.no_workspaces_yet", undefined, "No workspaces yet")}
         </div>
       )}
       {workspaces.map((w) => {
@@ -75,7 +76,7 @@ export function AddToWorkspaceMenu({
             className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]"
             data-testid="remove-from-workspace"
           >
-            Remove from workspace
+            {i18nT("auto.remove_from_workspace", undefined, "Remove from workspace")}
           </button>
         </>
       )}
@@ -85,7 +86,7 @@ export function AddToWorkspaceMenu({
         className="w-full text-left px-3 py-1.5 text-xs text-[var(--accent-blue)] hover:bg-[var(--bg-primary)]"
         data-testid="add-to-workspace-new"
       >
-        + New workspace…
+        {i18nT("auto.new_workspace", undefined, "+ New workspace…")}
       </button>
     </div>
   );

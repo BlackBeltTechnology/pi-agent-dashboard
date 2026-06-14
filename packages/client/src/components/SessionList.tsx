@@ -51,6 +51,7 @@ import { TunnelButton } from "./TunnelButton.js";
 import { InstallButton } from "./InstallButton.js";
 import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
 import { useI18n } from "../lib/i18n.js";
+import { t as i18nT } from "../lib/i18n";
 
 
 export interface ContextUsageInfo {
@@ -873,7 +874,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                       />
                       {resumeErrors?.get(session.id) && (
                         <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
-                          <span className="flex-1">Resume failed: {resumeErrors.get(session.id)}</span>
+                          <span className="flex-1">{i18nT("auto.resume_failed", undefined, "Resume failed:")} {resumeErrors.get(session.id)}</span>
                           {onDismissResumeError && (
                             <button
                               data-testid="resume-error-dismiss"

@@ -1,6 +1,7 @@
 import React from "react";
 import type { ToolRendererProps } from "./types.js";
 import { LinkifiedText } from "./LinkifiedText.js";
+import { t as i18nT } from "../../lib/i18n";
 
 // Strip ANSI escape sequences (CSI / SGR codes like \x1b[31m) so the
 // linkifier sees clean text. See change: linkify-tool-output. The previous
@@ -27,7 +28,7 @@ export function BashToolRenderer({ args, status, result, context }: ToolRenderer
       </div>
 
       {status === "running" && !result && (
-        <div className="text-xs text-[var(--text-muted)] italic">Running…</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
       )}
 
       {result && (

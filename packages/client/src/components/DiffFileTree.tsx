@@ -4,6 +4,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import type { FileDiffEntry, FileChangeEvent } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { buildFileTree, type TreeNode } from "../lib/diff-tree.js";
+import { t as i18nT } from "../lib/i18n";
 
 export interface FileSelection {
   /** Selected file path */
@@ -90,9 +91,9 @@ function TreeNodeView({
   const changeCount = file.changes.length;
   const hasEdits = file.changes.some((c) => c.type === "edit");
   const statusIndicator = hasEdits ? (
-    <span className="text-yellow-400 text-xs font-bold" title="Modified">●</span>
+    <span className="text-yellow-400 text-xs font-bold" title={i18nT("auto.modified", undefined, "Modified")}>●</span>
   ) : (
-    <span className="text-green-400 text-xs font-bold" title="Added">+</span>
+    <span className="text-green-400 text-xs font-bold" title={i18nT("auto.added", undefined, "Added")}>+</span>
   );
 
   return (

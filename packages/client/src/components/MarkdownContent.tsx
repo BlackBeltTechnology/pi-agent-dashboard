@@ -19,6 +19,7 @@ import { FileLink } from "./tool-renderers/FileLink.js";
 import { UrlLink } from "./tool-renderers/UrlLink.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import type { ToolContext } from "./tool-renderers/types.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   content: string;
@@ -145,7 +146,7 @@ function CodeBlockWrapper({ codeString, children }: { codeString: string; childr
     <div>
       {children}
       <div className="flex justify-end gap-0.5 -mt-1 mb-1 opacity-50 hover:opacity-100 transition-opacity">
-        <CopyButton text={codeString} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy code" />
+        <CopyButton text={codeString} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_code", undefined, "Copy code")} />
       </div>
     </div>
   );
@@ -172,8 +173,8 @@ function TableWrapper({ children }: { children: React.ReactNode }) {
     <div ref={ref}>
       {children}
       <div className="flex justify-end gap-0.5 -mt-1 mb-1 opacity-50 hover:opacity-100 transition-opacity">
-        <CopyButton text={copyMarkdown()} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy as Markdown" />
-        <CopyButton text={copyTsv()} icon={<Icon path={mdiTable} size={0.6} />} title="Copy as TSV" />
+        <CopyButton text={copyMarkdown()} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
+        <CopyButton text={copyTsv()} icon={<Icon path={mdiTable} size={0.6} />} title={i18nT("auto.copy_as_tsv", undefined, "Copy as TSV")} />
       </div>
     </div>
   );

@@ -27,6 +27,7 @@ import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
 import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
+import { t as i18nT } from "../lib/i18n";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -227,7 +228,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
-            title="Worktree actions"
+            title={i18nT("auto.worktree_actions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
             className="inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >

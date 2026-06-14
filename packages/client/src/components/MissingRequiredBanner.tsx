@@ -18,6 +18,7 @@ import { Icon } from "@mdi/react";
 import { mdiAlertCircle, mdiClose, mdiPlusCircle, mdiLoading, mdiFlashAuto } from "@mdi/js";
 import { useRecommendedExtensions } from "../hooks/useRecommendedExtensions.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { t as i18nT } from "../lib/i18n";
 
 const DISMISSED_KEY = "pi-dashboard:missing-required-dismissed";
 
@@ -107,10 +108,10 @@ export function MissingRequiredBanner() {
             <li key={entry.id}>
               <strong>{entry.displayName}</strong>
               {entry.installed.scope && (
-                <> <span className="text-success">(on disk: {entry.installed.scope})</span></>
+                <> <span className="text-success">{i18nT("auto.on_disk", undefined, "(on disk:")} {entry.installed.scope})</span></>
               )}
               {entry.unlocks.length > 0 && (
-                <> — unlocks: {entry.unlocks.join(", ")}</>
+                <> {i18nT("auto.unlocks", undefined, "— unlocks:")} {entry.unlocks.join(", ")}</>
               )}
             </li>
           ))}
@@ -130,7 +131,7 @@ export function MissingRequiredBanner() {
           onClick={onDismiss}
           className="text-xs p-1 rounded hover:bg-surface text-muted"
           data-testid="missing-required-dismiss"
-          aria-label="Dismiss"
+          aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
         >
           <Icon path={mdiClose} size={0.7} />
         </button>

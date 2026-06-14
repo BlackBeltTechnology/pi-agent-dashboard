@@ -6,6 +6,7 @@ import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { InputComposer } from "./InputComposer.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function InputRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -80,13 +81,13 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
             onClick={submit}
             className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
           >
-            Submit
+            {i18nT("auto.submit", undefined, "Submit")}
           </button>
           <button
             onClick={onCancel}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
           >
-            Cancel
+            {i18nT("auto.cancel", undefined, "Cancel")}
           </button>
         </div>
       </div>

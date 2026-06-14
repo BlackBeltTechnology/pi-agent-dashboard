@@ -28,6 +28,7 @@ import { VideoPreview } from "./preview/VideoPreview.js";
 import { ImagePreview } from "./preview/ImagePreview.js";
 import { YouTubePreview } from "./preview/YouTubePreview.js";
 import { FallbackPreview } from "./preview/FallbackPreview.js";
+import { t as i18nT } from "../lib/i18n";
 
 // Lazy-load pdfjs only when a PDF preview actually mounts. Keeps pdfjs
 // out of the main bundle. See change: render-file-previews (D6).
@@ -107,7 +108,7 @@ export function PreviewBody({
       return <HtmlPreview target={target} />;
     case "pdf":
       return (
-        <Suspense fallback={<div className="text-[var(--text-muted)] text-sm p-2">Loading PDF viewer…</div>}>
+        <Suspense fallback={<div className="text-[var(--text-muted)] text-sm p-2">{i18nT("auto.loading_pdf_viewer", undefined, "Loading PDF viewer…")}</div>}>
           <PdfPreview target={target} />
         </Suspense>
       );
@@ -137,8 +138,8 @@ export function PreviewCard({ target }: Props) {
         <button
           className="p-1 rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           onClick={() => navigate(expandUrl)}
-          title="Expand"
-          aria-label="Expand preview"
+          title={i18nT("auto.expand", undefined, "Expand")}
+          aria-label={i18nT("auto.expand_preview", undefined, "Expand preview")}
           data-testid="preview-expand"
         >
           <Icon path={mdiOpenInNew} size={0.7} />

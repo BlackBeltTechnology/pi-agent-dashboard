@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { BranchPicker } from "./BranchPicker.js";
 import { checkoutBranch, stashPop, gitInit } from "../lib/git-api.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -68,7 +69,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
     <Dialog open onClose={onClose} ariaLabel="Switch branch" size="sm" testId="branch-switch-dialog">
           {step.type === "pick" && (
             <>
-              <h3 className="text-sm font-medium mb-3">Switch Branch</h3>
+              <h3 className="text-sm font-medium mb-3">{i18nT("auto.switch_branch_2", undefined, "Switch Branch")}</h3>
               <BranchPicker
                 cwd={cwd}
                 onSelect={handleSelect}
@@ -80,16 +81,16 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
 
           {step.type === "no-git" && (
             <>
-              <h3 className="text-sm font-medium mb-2">No Git Repository</h3>
+              <h3 className="text-sm font-medium mb-2">{i18nT("auto.no_git_repository", undefined, "No Git Repository")}</h3>
               <p className="text-xs text-[var(--text-secondary)] mb-3">
-                This directory is not a git repository. Initialize one?
+                {i18nT("auto.this_directory_is_not_a_git", undefined, "This directory is not a git repository. Initialize one?")}
               </p>
               <div className="flex justify-end gap-2">
                 <button
                   onClick={onClose}
                   className="px-3 py-1.5 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
                 >
-                  Cancel
+                  {i18nT("auto.cancel", undefined, "Cancel")}
                 </button>
                 <button
                   onClick={async () => {
@@ -102,7 +103,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                   }}
                   className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
-                  Initialize Git
+                  {i18nT("auto.initialize_git", undefined, "Initialize Git")}
                 </button>
               </div>
             </>
@@ -110,15 +111,15 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
 
           {step.type === "switching" && (
             <div className="py-8 text-center text-sm text-[var(--text-secondary)]">
-              Switching to <span className="font-mono text-[var(--text-primary)]">{step.branch}</span>…
+              {i18nT("auto.switching_to", undefined, "Switching to")} <span className="font-mono text-[var(--text-primary)]">{step.branch}</span>…
             </div>
           )}
 
           {step.type === "dirty" && (
             <>
-              <h3 className="text-sm font-medium mb-2">Uncommitted Changes</h3>
+              <h3 className="text-sm font-medium mb-2">{i18nT("auto.uncommitted_changes", undefined, "Uncommitted Changes")}</h3>
               <p className="text-xs text-[var(--text-secondary)] mb-2">
-                {step.files.length} file{step.files.length !== 1 ? "s" : ""} with uncommitted changes:
+                {step.files.length} file{step.files.length !== 1 ? "s" : ""} {i18nT("auto.with_uncommitted_changes", undefined, "with uncommitted changes:")}
               </p>
               <div className="max-h-32 overflow-y-auto bg-[var(--bg-tertiary)] rounded border border-[var(--border-secondary)] p-2 mb-3">
                 {step.files.map((f) => (
@@ -130,13 +131,13 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                   onClick={onClose}
                   className="px-3 py-1.5 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
                 >
-                  Cancel
+                  {i18nT("auto.cancel", undefined, "Cancel")}
                 </button>
                 <button
                   onClick={() => handleStashAndSwitch(step.branch)}
                   className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
-                  Stash &amp; Switch
+                  {i18nT("auto.stash_switch", undefined, "Stash & Switch")}
                 </button>
               </div>
             </>
@@ -144,22 +145,22 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
 
           {step.type === "ask-pop" && (
             <>
-              <h3 className="text-sm font-medium mb-2">Switched to <span className="font-mono">{step.branch}</span></h3>
+              <h3 className="text-sm font-medium mb-2">{i18nT("auto.switched_to", undefined, "Switched to")} <span className="font-mono">{step.branch}</span></h3>
               <p className="text-xs text-[var(--text-secondary)] mb-3">
-                Your changes were stashed. Pop stash on this branch?
+                {i18nT("auto.your_changes_were_stashed_pop_stash", undefined, "Your changes were stashed. Pop stash on this branch?")}
               </p>
               <div className="flex justify-end gap-2">
                 <button
                   onClick={onClose}
                   className="px-3 py-1.5 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
                 >
-                  No, keep stashed
+                  {i18nT("auto.no_keep_stashed", undefined, "No, keep stashed")}
                 </button>
                 <button
                   onClick={handlePop}
                   className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"
                 >
-                  Pop
+                  {i18nT("auto.pop", undefined, "Pop")}
                 </button>
               </div>
             </>
@@ -167,14 +168,14 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
 
           {step.type === "error" && (
             <>
-              <h3 className="text-sm font-medium mb-2 text-red-400">Error</h3>
+              <h3 className="text-sm font-medium mb-2 text-red-400">{i18nT("auto.error_2", undefined, "Error")}</h3>
               <p className="text-xs text-[var(--text-secondary)] mb-3">{step.message}</p>
               <div className="flex justify-end">
                 <button
                   onClick={onClose}
                   className="px-3 py-1.5 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
                 >
-                  Close
+                  {i18nT("auto.close", undefined, "Close")}
                 </button>
               </div>
             </>

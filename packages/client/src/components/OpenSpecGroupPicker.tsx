@@ -7,6 +7,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { resolveGroupColor, GROUP_PALETTE } from "../lib/openspec-group-palette.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   groups: OpenSpecGroup[];
@@ -122,7 +123,7 @@ export function OpenSpecGroupPicker({
               className="flex items-center gap-1.5 w-full text-left px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
               data-testid="group-option-unassign"
             >
-              Unassign
+              {i18nT("auto.unassign", undefined, "Unassign")}
             </button>
           )}
 
@@ -146,7 +147,7 @@ export function OpenSpecGroupPicker({
                       }
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    placeholder="Group name"
+                    placeholder={i18nT("auto.group_name", undefined, "Group name")}
                     className="flex-1 text-[11px] bg-transparent border border-[var(--border-secondary)] rounded px-1 py-0.5 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-blue-500/50"
                     data-testid="group-create-input"
                   />
@@ -161,7 +162,7 @@ export function OpenSpecGroupPicker({
                   className="flex items-center gap-1.5 w-full text-left px-2 py-1 text-[11px] text-blue-400 hover:bg-[var(--bg-hover)]"
                   data-testid="group-option-create"
                 >
-                  + Create new group…
+                  {i18nT("auto.create_new_group", undefined, "+ Create new group…")}
                 </button>
               )}
             </>

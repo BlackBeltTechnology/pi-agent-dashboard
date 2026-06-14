@@ -6,6 +6,7 @@
 import React from "react";
 import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { rawUrl } from "./raw-url.js";
+import { t as i18nT } from "../../lib/i18n";
 
 interface Props {
   target: ViewTarget;
@@ -15,13 +16,13 @@ export function FallbackPreview({ target }: Props) {
   if (target.kind === "file") {
     return (
       <div className="p-4 text-sm text-[var(--text-secondary)]">
-        We can't preview this file.{" "}
+        {i18nT("auto.we_can_t_preview_this_file", undefined, "We can't preview this file.")}{" "}
         <a
           href={rawUrl(target)}
           download
           className="text-[var(--accent)] underline"
         >
-          Download
+          {i18nT("auto.download", undefined, "Download")}
         </a>
       </div>
     );
@@ -34,7 +35,7 @@ export function FallbackPreview({ target }: Props) {
         rel="noopener noreferrer"
         className="text-[var(--accent)] underline"
       >
-        Open in new tab
+        {i18nT("auto.open_in_new_tab", undefined, "Open in new tab")}
       </a>{" "}
       <span className="text-[var(--text-muted)]">{target.url}</span>
     </div>

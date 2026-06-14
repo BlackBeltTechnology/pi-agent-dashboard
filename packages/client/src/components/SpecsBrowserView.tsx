@@ -1,6 +1,7 @@
 import React, { useCallback } from "react";
 import { MarkdownPreviewView } from "./MarkdownPreviewView.js";
 import { useMainSpecsReader } from "../hooks/useMainSpecsReader.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -32,7 +33,7 @@ export function SpecsBrowserView({ cwd, onBack }: Props) {
             className="text-xs bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[var(--text-secondary)] focus:outline-none focus:border-blue-500/50 max-w-[300px]"
             data-testid="specs-browser-combobox"
           >
-            <option value="" disabled>Jump to spec...</option>
+            <option value="" disabled>{i18nT("auto.jump_to_spec", undefined, "Jump to spec...")}</option>
             {specNames.map((name) => (
               <option key={name} value={name}>{name}</option>
             ))}
@@ -43,7 +44,7 @@ export function SpecsBrowserView({ cwd, onBack }: Props) {
 
       {/* Markdown preview with search */}
       <MarkdownPreviewView
-        title="Main Specs"
+        title={i18nT("auto.main_specs", undefined, "Main Specs")}
         content={content}
         isLoading={isLoading}
         error={error}

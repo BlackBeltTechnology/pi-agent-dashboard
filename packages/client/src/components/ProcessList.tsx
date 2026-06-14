@@ -31,6 +31,7 @@ import React from "react";
 import { Icon } from "@mdi/react";
 import { mdiClose, mdiChevronDown, mdiChevronRight, mdiAlertOutline, mdiRobotOutline, mdiPowerPlugOutline, mdiCogOutline } from "@mdi/js";
 import type { ProcessKind } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { t as i18nT } from "../lib/i18n";
 
 export interface ProcessEntry {
   pid: number;
@@ -209,7 +210,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact, on
                 className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]"
                 title={overflowTitle}
               >
-                <span className="truncate flex-1">+{overflow.length} more processes</span>
+                <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
               </div>
             )}
           </>
@@ -231,7 +232,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact, on
               className="flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)] text-[var(--text-tertiary)]"
               title={overflowTitle}
             >
-              <span className="truncate flex-1">+{overflow.length} more processes</span>
+              <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
             </div>
           )}
         </>

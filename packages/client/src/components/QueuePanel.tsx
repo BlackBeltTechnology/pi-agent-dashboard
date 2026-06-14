@@ -28,6 +28,7 @@ import {
   mdiArrowCollapseUp,
   mdiCloseCircleOutline,
 } from "@mdi/js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   /** The follow-up queue entries from `Session.pendingQueues.followUp`. */
@@ -134,7 +135,7 @@ function FollowupCycler({
       <div className="flex items-center justify-between mb-1.5">
         <div className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] flex items-center gap-1.5">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400/80" aria-hidden />
-          Follow-up — delivered when the agent finishes the turn
+          {i18nT("auto.follow_up_delivered_when_the_agent", undefined, "Follow-up — delivered when the agent finishes the turn")}
           {total > 1 && (
             <span data-testid="queue-followup-position" className="ml-1 text-[var(--text-secondary)]">
               {idx + 1} of {total}
@@ -149,8 +150,8 @@ function FollowupCycler({
                 onClick={() => setCurrentIndex(idx - 1)}
                 disabled={!canPrev || editing}
                 data-testid="queue-followup-prev"
-                aria-label="Previous follow-up entry"
-                title="Previous entry"
+                aria-label={i18nT("auto.previous_follow_up_entry", undefined, "Previous follow-up entry")}
+                title={i18nT("auto.previous_entry", undefined, "Previous entry")}
                 className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
               >
                 <Icon path={mdiChevronUp} size={0.65} />
@@ -160,8 +161,8 @@ function FollowupCycler({
                 onClick={() => setCurrentIndex(idx + 1)}
                 disabled={!canNext || editing}
                 data-testid="queue-followup-next"
-                aria-label="Next follow-up entry"
-                title="Next entry"
+                aria-label={i18nT("auto.next_follow_up_entry", undefined, "Next follow-up entry")}
+                title={i18nT("auto.next_entry", undefined, "Next entry")}
                 className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
               >
                 <Icon path={mdiChevronDown} size={0.65} />
@@ -171,8 +172,8 @@ function FollowupCycler({
                 onClick={() => onClearAll?.()}
                 disabled={editing}
                 data-testid="queue-followup-clear-all"
-                aria-label="Clear all follow-up entries"
-                title="Clear all follow-up"
+                aria-label={i18nT("auto.clear_all_follow_up_entries", undefined, "Clear all follow-up entries")}
+                title={i18nT("auto.clear_all_follow_up", undefined, "Clear all follow-up")}
                 className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
               >
                 <Icon path={mdiCloseCircleOutline} size={0.65} />
@@ -201,13 +202,13 @@ function FollowupCycler({
             className="block w-full text-sm bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[var(--text-primary)] resize-none focus:outline-none focus:border-[var(--border-focus)]"
           />
           <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]">
-            <span>Cmd/Ctrl+Enter to save, Esc to cancel</span>
+            <span>{i18nT("auto.cmd_ctrl_enter_to_save_esc", undefined, "Cmd/Ctrl+Enter to save, Esc to cancel")}</span>
             <button
               type="button"
               onClick={cancelEdit}
               className="ml-auto px-2 py-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
-              Cancel
+              {i18nT("auto.cancel", undefined, "Cancel")}
             </button>
             <button
               type="button"
@@ -215,7 +216,7 @@ function FollowupCycler({
               data-testid="queue-followup-editor-submit"
               className="px-2 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30"
             >
-              Save
+              {i18nT("auto.save", undefined, "Save")}
             </button>
           </div>
         </div>
@@ -232,8 +233,8 @@ function FollowupCycler({
               type="button"
               onClick={startEdit}
               data-testid="queue-followup-edit"
-              aria-label="Edit follow-up entry"
-              title="Edit"
+              aria-label={i18nT("auto.edit_follow_up_entry", undefined, "Edit follow-up entry")}
+              title={i18nT("auto.edit", undefined, "Edit")}
               className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
             >
               <Icon path={mdiPencilOutline} size={0.65} />
@@ -243,7 +244,7 @@ function FollowupCycler({
               onClick={() => onPromote?.(idx)}
               disabled={idx === 0}
               data-testid="queue-followup-promote"
-              aria-label="Promote follow-up entry to head"
+              aria-label={i18nT("auto.promote_follow_up_entry_to_head", undefined, "Promote follow-up entry to head")}
               title={idx === 0 ? "Already at head" : "Promote to head"}
               className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
             >
@@ -253,8 +254,8 @@ function FollowupCycler({
               type="button"
               onClick={handleRemove}
               data-testid="queue-followup-remove"
-              aria-label="Remove follow-up entry"
-              title="Remove"
+              aria-label={i18nT("auto.remove_follow_up_entry", undefined, "Remove follow-up entry")}
+              title={i18nT("auto.remove", undefined, "Remove")}
               className="inline-flex items-center justify-center w-6 h-6 rounded text-[var(--text-tertiary)] hover:text-red-400 hover:bg-[var(--bg-hover)] transition-colors"
             >
               <Icon path={mdiClose} size={0.65} />

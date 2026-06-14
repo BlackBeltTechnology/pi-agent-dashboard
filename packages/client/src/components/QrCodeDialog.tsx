@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { Icon } from "@mdi/react";
 import { mdiContentCopy, mdiCheck, mdiLanDisconnect, mdiLanConnect, mdiCog } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   url?: string;
@@ -89,16 +90,16 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
               </div>
 
               <p className="text-xs text-[var(--text-muted)] mt-3 text-center">
-                Scan to open PI Dashboard or install as an app
+                {i18nT("auto.scan_to_open_pi_dashboard_or", undefined, "Scan to open PI Dashboard or install as an app")}
               </p>
             </>
           ) : (
             <div className="text-center py-4">
               <p className="text-sm text-[var(--text-secondary)] mb-1">
-                Tunnel is set up but not connected.
+                {i18nT("auto.tunnel_is_set_up_but_not", undefined, "Tunnel is set up but not connected.")}
               </p>
               <p className="text-xs text-[var(--text-muted)]">
-                Connect to generate a QR code for mobile access.
+                {i18nT("auto.connect_to_generate_a_qr_code", undefined, "Connect to generate a QR code for mobile access.")}
               </p>
             </div>
           )}
@@ -110,7 +111,7 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
                 onClick={onDisconnect}
                 disabled={busy}
                 className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-red-400 transition-colors disabled:opacity-50"
-                title="Disconnect tunnel"
+                title={i18nT("auto.disconnect_tunnel", undefined, "Disconnect tunnel")}
                 data-testid="qr-disconnect-btn"
               >
                 <Icon path={mdiLanDisconnect} size={0.55} />
@@ -122,7 +123,7 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
                 onClick={onConnect}
                 disabled={busy}
                 className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-green-400 transition-colors disabled:opacity-50"
-                title="Connect tunnel"
+                title={i18nT("auto.connect_tunnel", undefined, "Connect tunnel")}
                 data-testid="qr-connect-btn"
               >
                 <Icon path={mdiLanConnect} size={0.55} />
@@ -133,11 +134,11 @@ export function QrCodeDialog({ url, connected, onClose, onDisconnect, onConnect,
               <button
                 onClick={onSetup}
                 className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                title="Tunnel setup"
+                title={i18nT("auto.tunnel_setup", undefined, "Tunnel setup")}
                 data-testid="qr-setup-btn"
               >
                 <Icon path={mdiCog} size={0.55} />
-                Setup
+                {i18nT("auto.setup", undefined, "Setup")}
               </button>
             )}
           </div>

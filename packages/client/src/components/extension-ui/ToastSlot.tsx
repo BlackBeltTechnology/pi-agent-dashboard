@@ -17,6 +17,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Icon } from "@mdi/react";
 import { mdiCloseCircle, mdiCheckCircle, mdiAlertCircle, mdiInformation } from "@mdi/js";
 import type { DashboardSession, DecoratorDescriptor } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { t as i18nT } from "../../lib/i18n";
 
 const DISPLAY_CAP = 5;
 const DEFAULT_DURATION_MS = 5000;
@@ -147,8 +148,8 @@ export function ToastSlot({ sessions }: { sessions: Map<string, DashboardSession
           <button
             onClick={() => handleDismiss(t.key)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex-shrink-0"
-            title="Dismiss"
-            aria-label="Dismiss"
+            title={i18nT("auto.dismiss", undefined, "Dismiss")}
+            aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
           >
             ×
           </button>

@@ -6,6 +6,7 @@ import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { detectLanguage } from "./lang-detect.js";
 import { ImageLightbox } from "../ImageLightbox.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function ReadToolRenderer({ args, status, result, images, context }: ToolRendererProps) {
   const { resolved: theme, themeName } = useThemeContext();
@@ -30,7 +31,7 @@ export function ReadToolRenderer({ args, status, result, images, context }: Tool
       </div>
 
       {status === "running" && !result && !hasImages && (
-        <div className="text-xs text-[var(--text-muted)] italic">Reading…</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.reading", undefined, "Reading…")}</div>
       )}
 
       {hasImages && (

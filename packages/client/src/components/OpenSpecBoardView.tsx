@@ -67,6 +67,7 @@ import { sourceIcons, deriveDotColor, deriveIconStatusColor, pulseClassForStatus
 import { selectBadgeTimestamp } from "../lib/session-card-time.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
 import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 const UNGROUPED = OPENSPEC_UNGROUPED_KEY;
 
@@ -325,23 +326,23 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] sticky top-0 z-10 flex-wrap">
         <button onClick={onBack} className="text-blue-400 hover:text-blue-300 text-[13px] flex items-center gap-1" data-testid="board-back">
-          <Icon path={mdiArrowLeft} size={0.6} /> Back
+          <Icon path={mdiArrowLeft} size={0.6} /> {i18nT("auto.back", undefined, "Back")}
         </button>
         <span className="text-[var(--text-primary)] font-semibold text-[13px]">
-          OpenSpec <span className="text-[var(--text-tertiary)] font-normal board-crumb-dim">· {folderName} · {data.changes.length} changes</span>
+          {i18nT("auto.openspec", undefined, "OpenSpec")} <span className="text-[var(--text-tertiary)] font-normal board-crumb-dim">· {folderName} · {data.changes.length} changes</span>
         </span>
         <span className="flex-1" />
         <button onClick={() => { onRefresh(); }} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#555]" data-testid="board-refresh">
-          <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />Refresh
+          <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />{i18nT("auto.refresh", undefined, "Refresh")}
         </button>
         <button onClick={onOpenSpecs} className="text-[11px] px-2.5 py-1 rounded-md border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300" data-testid="board-specs">
-          <Icon path={mdiFileDocumentOutline} size={0.5} className="inline mr-0.5" />Specs
+          <Icon path={mdiFileDocumentOutline} size={0.5} className="inline mr-0.5" />{i18nT("auto.specs", undefined, "Specs")}
         </button>
         <button onClick={onOpenArchive} className="text-[11px] px-2.5 py-1 rounded-md border text-purple-400 border-purple-500/40 bg-purple-500/5 hover:text-purple-300" data-testid="board-archive">
-          <Icon path={mdiArchiveOutline} size={0.5} className="inline mr-0.5" />Archive
+          <Icon path={mdiArchiveOutline} size={0.5} className="inline mr-0.5" />{i18nT("auto.archive", undefined, "Archive")}
         </button>
         <button onClick={() => setProposalDialogGroup({ open: true, groupId: UNGROUPED })} className="text-[11px] px-2.5 py-1 rounded-md border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300" data-testid="board-new-proposal">
-          <Icon path={mdiPlus} size={0.5} className="inline mr-0.5" />New proposal
+          <Icon path={mdiPlus} size={0.5} className="inline mr-0.5" />{i18nT("auto.new_proposal", undefined, "New proposal")}
         </button>
       </div>
 
@@ -350,19 +351,19 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter proposals & sessions…"
+          placeholder={i18nT("auto.filter_proposals_sessions", undefined, "Filter proposals & sessions…")}
           className="bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2.5 py-1.5 w-[230px] outline-none focus:border-blue-500/50"
           data-testid="board-filter-text"
         />
         <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
-        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">State</span>
+        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">{i18nT("auto.state", undefined, "State")}</span>
         <div className="flex gap-1">
           {STATE_PILLS.map((p) => (
             <FilterPill key={p.label} active={stateFilter === p.value} onClick={() => setStateFilter(p.value)} testId={`state-pill-${p.label}`}>{p.label}</FilterPill>
           ))}
         </div>
         <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
-        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Session</span>
+        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">{i18nT("auto.session", undefined, "Session")}</span>
         <div className="flex gap-1">
           {SESS_PILLS.map((p) => (
             <FilterPill key={p.label} active={sessFilter === p.value} onClick={() => setSessFilter(p.value)} testId={`sess-pill-${p.label}`}>{p.label}</FilterPill>
@@ -422,7 +423,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
             className="flex-[0_0_200px] max-w-[200px] self-start border border-dashed border-[var(--border-secondary)] rounded-xl text-[var(--text-muted)] text-[12px] text-center p-3.5 hover:text-blue-400 hover:border-blue-400 board-addgroup"
             data-testid="board-add-group"
           >
-            + Add group
+            {i18nT("auto.add_group", undefined, "+ Add group")}
           </button>
         </div>
         <DragOverlay>
@@ -437,7 +438,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       </DndContext>
 
       <div className="px-4 pb-3 text-[var(--text-muted)] text-[11px]">
-        Drag column headers to reorder groups. Drag proposal cards between columns to reassign group. Click a session row to open its chat view.
+        {i18nT("auto.drag_column_headers_to_reorder_groups", undefined, "Drag column headers to reorder groups. Drag proposal cards between columns to reassign group. Click a session row to open its chat view.")}
       </div>
 
       {/* Dialogs */}
@@ -460,7 +461,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       )}
       {addGroupOpen && (
         <DialogPortal>
-          <ModalShell onClose={() => setAddGroupOpen(false)} title="Add group">
+          <ModalShell onClose={() => setAddGroupOpen(false)} title={i18nT("auto.add_group_2", undefined, "Add group")}>
             <GroupCreateForm onSave={async (name, color) => { await handleCreateGroup(name, color); setAddGroupOpen(false); }} onCancel={() => setAddGroupOpen(false)} />
           </ModalShell>
         </DialogPortal>
@@ -578,9 +579,9 @@ function BoardColumn({
         <span className="font-semibold text-[var(--text-primary)] text-[12px] truncate">{name}</span>
         <span className="text-[var(--text-muted)] text-[11px]">{changes.length}</span>
         <span className="ml-auto flex items-center gap-1.5">
-          <button onClick={(e) => { e.stopPropagation(); onNewProposal(); }} title="New proposal in this group" className="text-[var(--text-muted)] hover:text-green-400 text-[13px] font-bold" data-testid={`col-new-proposal-${colKey}`}>＋</button>
+          <button onClick={(e) => { e.stopPropagation(); onNewProposal(); }} title={i18nT("auto.new_proposal_in_this_group", undefined, "New proposal in this group")} className="text-[var(--text-muted)] hover:text-green-400 text-[13px] font-bold" data-testid={`col-new-proposal-${colKey}`}>＋</button>
           {onManage && (
-            <button onClick={(e) => { e.stopPropagation(); onManage(); }} title="Rename · recolor · delete group" className="text-[var(--text-muted)] hover:text-blue-400" data-testid={`col-manage-${colKey}`}>
+            <button onClick={(e) => { e.stopPropagation(); onManage(); }} title={i18nT("auto.rename_recolor_delete_group", undefined, "Rename · recolor · delete group")} className="text-[var(--text-muted)] hover:text-blue-400" data-testid={`col-manage-${colKey}`}>
               <Icon path={mdiCog} size={0.5} />
             </button>
           )}
@@ -591,7 +592,7 @@ function BoardColumn({
         <SortableContext items={changes.map((c) => c.name)} strategy={verticalListSortingStrategy}>
           {changes.length > 0
             ? changes.map((c) => renderCard(c))
-            : <p className="text-[var(--text-muted)] text-[11px] text-center py-3.5">No proposals</p>}
+            : <p className="text-[var(--text-muted)] text-[11px] text-center py-3.5">{i18nT("auto.no_proposals", undefined, "No proposals")}</p>}
         </SortableContext>
       </div>
     </div>
@@ -663,7 +664,7 @@ function ProposalCard(props: {
           <div className="h-1 rounded-[3px] bg-[var(--bg-secondary)] overflow-hidden">
             <i className="block h-full bg-green-500" style={{ width: `${pct}%` }} />
           </div>
-          <div className="text-[9px] text-[var(--text-tertiary)] mt-0.5">{c.completedTasks}/{c.totalTasks} tasks · {pct}%</div>
+          <div className="text-[9px] text-[var(--text-tertiary)] mt-0.5">{c.completedTasks}/{c.totalTasks} {i18nT("auto.tasks_2", undefined, "tasks ·")} {pct}%</div>
         </div>
       )}
 
@@ -682,18 +683,18 @@ function ProposalCard(props: {
           onClick={() => props.onSpawnSession(props.cwd, c.name)}
           className="flex-1 text-[9px] px-1 py-[3px] rounded-md text-green-400 border border-green-500/30 hover:bg-green-500/8 whitespace-nowrap"
           data-testid={`card-new-session-${c.name}`}
-          title="Spawn a session attached to this proposal"
+          title={i18nT("auto.spawn_a_session_attached_to_this", undefined, "Spawn a session attached to this proposal")}
         >
-          <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />New session
+          <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{i18nT("auto.new_session", undefined, "New session")}
         </button>
         {props.isGitRepo && props.gitWorktreeEnabled && (
           <button
             onClick={() => props.onSpawnAttachedWorktree(props.cwd, c.name)}
             className="flex-1 text-[9px] px-1 py-[3px] rounded-md text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/8 whitespace-nowrap"
             data-testid={`card-new-worktree-${c.name}`}
-            title="Spawn a worktree for this proposal"
+            title={i18nT("auto.spawn_a_worktree_for_this_proposal", undefined, "Spawn a worktree for this proposal")}
           >
-            <Icon path={mdiSourceBranchPlus} size={0.4} className="inline mr-0.5" />New worktree
+            <Icon path={mdiSourceBranchPlus} size={0.4} className="inline mr-0.5" />{i18nT("auto.new_worktree", undefined, "New worktree")}
           </button>
         )}
       </div>
@@ -737,16 +738,16 @@ function BoardSessionRow({
         <span className="text-[9px] text-[var(--text-muted)] flex-none">{formatRelativeTime(Date.now() - selectBadgeTimestamp(s))}</span>
         <span className="flex items-center gap-1 flex-none" onClick={(e) => e.stopPropagation()}>
           {showResume && (
-            <button title="Resume / continue session" onClick={() => onResumeSession(s.id, "continue")} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiPlayCircleOutline} size={0.42} /></button>
+            <button title={i18nT("auto.resume_continue_session", undefined, "Resume / continue session")} onClick={() => onResumeSession(s.id, "continue")} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiPlayCircleOutline} size={0.42} /></button>
           )}
           {hasFile && (
-            <button title="Fork session" onClick={() => onResumeSession(s.id, "fork")} className="text-[var(--text-muted)] hover:text-blue-400"><Icon path={mdiSourceFork} size={0.42} /></button>
+            <button title={i18nT("auto.fork_session", undefined, "Fork session")} onClick={() => onResumeSession(s.id, "fork")} className="text-[var(--text-muted)] hover:text-blue-400"><Icon path={mdiSourceFork} size={0.42} /></button>
           )}
           {isHidden
-            ? <button title="Show session" onClick={() => onUnhideSession(s.id)} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiEyeOutline} size={0.42} /></button>
-            : <button title="Hide session" onClick={() => onHideSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiEyeOffOutline} size={0.42} /></button>}
+            ? <button title={i18nT("auto.show_session", undefined, "Show session")} onClick={() => onUnhideSession(s.id)} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiEyeOutline} size={0.42} /></button>
+            : <button title={i18nT("auto.hide_session", undefined, "Hide session")} onClick={() => onHideSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiEyeOffOutline} size={0.42} /></button>}
           <span className="relative">
-            <button title="OpenSpec commands" onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
+            <button title={i18nT("auto.openspec_commands", undefined, "OpenSpec commands")} onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
             {menuOpen && (
               <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()} data-testid="session-os-menu-panel">
                 <SessionOpenSpecActions
@@ -824,7 +825,7 @@ function GroupCreateForm({ onSave, onCancel }: { onSave: (name: string, color: s
   const [color, setColor] = useState(GROUP_PALETTE[0].hex);
   return (
     <div className="space-y-2">
-      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Group name"
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={i18nT("auto.group_name", undefined, "Group name")}
         onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onSave(name.trim(), color); if (e.key === "Escape") onCancel(); }}
         className="w-full text-[12px] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[var(--text-primary)] outline-none focus:border-blue-500/50" data-testid="add-group-name" />
       <div className="flex gap-1.5">
@@ -833,8 +834,8 @@ function GroupCreateForm({ onSave, onCancel }: { onSave: (name: string, color: s
         ))}
       </div>
       <div className="flex gap-1.5 justify-end">
-        <button onClick={onCancel} className="text-[10px] px-2 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)]">Cancel</button>
-        <button disabled={!name.trim()} onClick={() => name.trim() && onSave(name.trim(), color)} className="text-[10px] px-2 py-0.5 rounded border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-40" data-testid="add-group-save">Create</button>
+        <button onClick={onCancel} className="text-[10px] px-2 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)]">{i18nT("auto.cancel", undefined, "Cancel")}</button>
+        <button disabled={!name.trim()} onClick={() => name.trim() && onSave(name.trim(), color)} className="text-[10px] px-2 py-0.5 rounded border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-40" data-testid="add-group-save">{i18nT("auto.create", undefined, "Create")}</button>
       </div>
     </div>
   );
@@ -854,30 +855,30 @@ function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCance
   return (
     <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[60]" onClick={onCancel}>
       <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-[330px]" onClick={(e) => e.stopPropagation()} data-testid="new-proposal-dialog">
-        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">New proposal</h3>
-        <p className="text-[10px] text-[var(--text-muted)] mb-3">Spawns a session running the new-change flow. The created change lands in the chosen group.</p>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{i18nT("auto.new_proposal", undefined, "New proposal")}</h3>
+        <p className="text-[10px] text-[var(--text-muted)] mb-3">{i18nT("auto.spawns_a_session_running_the_new", undefined, "Spawns a session running the new-change flow. The created change lands in the chosen group.")}</p>
         <div className="mb-2.5">
-          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Name</label>
+          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{i18nT("auto.name", undefined, "Name")}</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="kebab-case-name"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
             className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-name" />
         </div>
         <div className="mb-2.5">
-          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Group</label>
+          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{i18nT("auto.group", undefined, "Group")}</label>
           <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-group">
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            <option value={UNGROUPED}>Ungrouped</option>
+            <option value={UNGROUPED}>{i18nT("auto.ungrouped", undefined, "Ungrouped")}</option>
           </select>
         </div>
         {gitWorktreeEnabled && (
           <div className="flex items-center gap-2 mb-2.5">
             <input id="np-wt" type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} data-testid="np-worktree" />
-            <label htmlFor="np-wt" className="text-[12px] text-[var(--text-secondary)]">Create in a new worktree (os/&lt;name&gt;)</label>
+            <label htmlFor="np-wt" className="text-[12px] text-[var(--text-secondary)]">{i18nT("auto.create_in_a_new_worktree_os", undefined, "Create in a new worktree (os/<name>)")}</label>
           </div>
         )}
         <div className="flex gap-2 justify-end mt-3.5">
-          <button onClick={onCancel} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)]">Cancel</button>
-          <button onClick={submit} disabled={!name.trim()} className="text-[11px] px-2.5 py-1 rounded-md border border-blue-500/40 text-blue-400 bg-blue-500/6 hover:text-blue-300 disabled:opacity-40" data-testid="np-create">Create &amp; spawn</button>
+          <button onClick={onCancel} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)]">{i18nT("auto.cancel", undefined, "Cancel")}</button>
+          <button onClick={submit} disabled={!name.trim()} className="text-[11px] px-2.5 py-1 rounded-md border border-blue-500/40 text-blue-400 bg-blue-500/6 hover:text-blue-300 disabled:opacity-40" data-testid="np-create">{i18nT("auto.create_spawn", undefined, "Create & spawn")}</button>
         </div>
       </div>
     </div>

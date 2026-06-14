@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from "react";
 import { fetchWorktreeDiffStat, mergeWorktree } from "../lib/git-api.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -49,7 +50,7 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
   };
 
   return (
-    <Dialog open onClose={onClose} title="Merge worktree" size="lg" testId="merge-confirm-dialog">
+    <Dialog open onClose={onClose} title={i18nT("auto.merge_worktree", undefined, "Merge worktree")} size="lg" testId="merge-confirm-dialog">
         {stat ? (
           <div className="space-y-1">
             <div className="text-[11px] text-[var(--text-muted)]">
@@ -61,9 +62,9 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
             </div>
           </div>
         ) : statError ? (
-          <p className="text-xs text-red-400">Couldn't load diff: {statError}</p>
+          <p className="text-xs text-red-400">{i18nT("auto.couldn_t_load_diff", undefined, "Couldn't load diff:")} {statError}</p>
         ) : (
-          <p className="text-xs text-[var(--text-muted)]">Loading diff…</p>
+          <p className="text-xs text-[var(--text-muted)]">{i18nT("auto.loading_diff", undefined, "Loading diff…")}</p>
         )}
         <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
           <input
@@ -72,14 +73,14 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
             checked={deleteBranch}
             onChange={(e) => setDeleteBranch(e.target.checked)}
           />
-          Delete branch after merge
+          {i18nT("auto.delete_branch_after_merge", undefined, "Delete branch after merge")}
         </label>
         {error && (
           <div className="text-xs text-red-400 space-y-1" data-testid="merge-error">
             <div>{error.code === "merge_conflict" ? "Merge conflict — main checkout was left clean." : error.code === "dirty_main" ? "Main checkout has uncommitted changes." : error.code}</div>
             {error.stderr && (
               <details>
-                <summary className="cursor-pointer text-[var(--text-muted)]">Show stderr</summary>
+                <summary className="cursor-pointer text-[var(--text-muted)]">{i18nT("auto.show_stderr", undefined, "Show stderr")}</summary>
                 <pre className="mt-1 text-[10px] bg-[var(--bg-tertiary)] p-2 rounded whitespace-pre-wrap">{error.stderr}</pre>
               </details>
             )}

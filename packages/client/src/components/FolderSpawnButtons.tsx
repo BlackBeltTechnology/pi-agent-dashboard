@@ -11,6 +11,7 @@
  */
 import { Icon } from "@mdi/react";
 import { mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   /** Disables `+ New Session` while a session is being spawned in this folder. */
@@ -41,9 +42,9 @@ export function FolderSpawnButtons({
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
             : "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70"
         }`}
-        title="New pi session"
+        title={i18nT("auto.new_pi_session", undefined, "New pi session")}
       >
-        <Icon path={mdiPlus} size={0.6} /> New Session
+        <Icon path={mdiPlus} size={0.6} /> {i18nT("auto.new_session_2", undefined, "New Session")}
       </button>
 
       {showWorktree && (
@@ -51,9 +52,9 @@ export function FolderSpawnButtons({
           onClick={(e) => { e.stopPropagation(); onSpawnWorktree!(); }}
           data-testid="folder-spawn-worktree-btn"
           className="w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70"
-          title="New pi session in a git worktree"
+          title={i18nT("auto.new_pi_session_in_a_git", undefined, "New pi session in a git worktree")}
         >
-          <Icon path={mdiSourceBranchPlus} size={0.6} /> New Worktree
+          <Icon path={mdiSourceBranchPlus} size={0.6} /> {i18nT("auto.new_worktree_2", undefined, "New Worktree")}
         </button>
       )}
     </div>

@@ -3,6 +3,7 @@ import { Icon } from "@mdi/react";
 import { mdiServerNetwork, mdiChevronDown, mdiCog } from "@mdi/js";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { listKnownServers } from "../lib/known-servers-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 /** Re-export for backward compat — consumers that imported this type */
 export interface DiscoveredServerInfo {
@@ -114,7 +115,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-        title="Switch server"
+        title={i18nT("auto.switch_server", undefined, "Switch server")}
       >
         <Icon path={mdiServerNetwork} size={0.55} />
         <span className="truncate max-w-[180px]">{displayLabel}</span>
@@ -130,7 +131,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer border-b border-[var(--border-secondary)] mb-1"
             >
               <Icon path={mdiCog} size={0.45} />
-              <span>Manage servers…</span>
+              <span>{i18nT("auto.manage_servers", undefined, "Manage servers…")}</span>
             </button>
           )}
           {entries.map((entry) => {
@@ -171,15 +172,15 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                 </span>
                 {isSwitching ? (
                   <span
-                    aria-label="Switching\u2026"
+                    aria-label={i18nT("auto.switching_u2026", undefined, "Switching\\u2026")}
                     className="shrink-0 w-3 h-3 rounded-full border-2 border-[var(--text-tertiary)] border-t-transparent animate-spin"
                   />
                 ) : isCurrent ? (
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? "bg-green-500" : "bg-red-500"}`} />
                 ) : unreachable ? (
-                  <span className="shrink-0 text-[10px] text-red-400">Unreachable</span>
+                  <span className="shrink-0 text-[10px] text-red-400">{i18nT("auto.unreachable", undefined, "Unreachable")}</span>
                 ) : probe === true ? (
-                  <span className="shrink-0 text-[10px] text-green-500">Available</span>
+                  <span className="shrink-0 text-[10px] text-green-500">{i18nT("auto.available", undefined, "Available")}</span>
                 ) : null}
               </button>
             );

@@ -28,6 +28,7 @@ import { ImageLightbox } from "./ImageLightbox.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { PreviewCard } from "./PreviewCard.js";
 import { InlineTerminalCard } from "./InlineTerminalCard.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   sessionId?: string;
@@ -136,12 +137,12 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
         {timestamp != null && (
           <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
-        <CopyButton text={content} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy as Markdown" />
-        <CopyButton text={getPlainText()} icon={<Icon path={mdiTextBox} size={0.6} />} title="Copy as plain text" />
+        <CopyButton text={content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
+        <CopyButton text={getPlainText()} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
-            title="Fork from here"
+            title={i18nT("auto.fork_from_here", undefined, "Fork from here")}
             className="p-0.5 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
           >
             <Icon path={mdiSourceFork} size={0.6} />
@@ -590,7 +591,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
           <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
             <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
               <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-              Steering
+              {i18nT("auto.steering", undefined, "Steering")}
             </div>
             <MarkdownContent content={steerText} />
           </div>
@@ -625,7 +626,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
 
       {state.messages.length === 0 && !state.streamingText && !(state.pendingPrompt && !(queuedTexts?.includes(state.pendingPrompt.text))) && !(pendingSteering && pendingSteering.length > 0) && (
         <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-          <p>No messages yet</p>
+          <p>{i18nT("auto.no_messages_yet", undefined, "No messages yet")}</p>
         </div>
       )}
     </div>
@@ -634,7 +635,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         data-testid="scroll-to-bottom"
         onClick={scrollToBottom}
         className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
-        title="Scroll to bottom"
+        title={i18nT("auto.scroll_to_bottom", undefined, "Scroll to bottom")}
       >
         <Icon path={mdiChevronDown} size={0.8} className="text-[var(--text-secondary)]" />
       </button>

@@ -5,6 +5,7 @@ import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function MultiselectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -86,7 +87,7 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
                 onChange={toggleAll}
                 className="accent-blue-500"
               />
-              <span>Select all</span>
+              <span>{i18nT("auto.select_all", undefined, "Select all")}</span>
             </label>
             <div className="border-t border-[var(--border-subtle)] my-1" />
           </>
@@ -111,13 +112,13 @@ export function MultiselectRenderer({ params, status, result, onRespond, onCance
           onClick={() => onRespond({ values: Array.from(checked) })}
           className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white transition-colors"
         >
-          Submit{checked.size > 0 ? ` (${checked.size})` : ""}
+          {i18nT("auto.submit", undefined, "Submit")}{checked.size > 0 ? ` (${checked.size})` : ""}
         </button>
         <button
           onClick={onCancel}
           className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
         >
-          Cancel
+          {i18nT("auto.cancel", undefined, "Cancel")}
         </button>
       </div>
     </div>

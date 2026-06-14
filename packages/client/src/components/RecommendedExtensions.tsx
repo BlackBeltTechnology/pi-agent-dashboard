@@ -28,6 +28,7 @@ import type {
   EnrichedRecommendedExtension,
   RecommendedExtensionStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/recommended-extensions.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   scope: "global" | "local";
@@ -127,7 +128,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
     return (
       <div className="mb-4 p-4 bg-surface border border-border rounded-lg flex items-center gap-2 text-muted">
         <Icon path={mdiLoading} size={0.8} spin className="inline" />
-        Loading recommended extensions…
+        {i18nT("auto.loading_recommended_extensions", undefined, "Loading recommended extensions…")}
       </div>
     );
   }
@@ -135,7 +136,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
   if (error && recommended.length === 0) {
     return (
       <div className="mb-4 p-4 bg-danger/10 border border-danger/40 rounded-lg text-danger text-sm">
-        Failed to load recommended extensions: {error}
+        {i18nT("auto.failed_to_load_recommended_extensions", undefined, "Failed to load recommended extensions:")} {error}
       </div>
     );
   }
@@ -152,17 +153,17 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
   return (
     <section className="mb-6">
       <header className="flex items-center justify-between mb-3 gap-3">
-        <h2 className="text-lg font-semibold">Recommended for this dashboard</h2>
+        <h2 className="text-lg font-semibold">{i18nT("auto.recommended_for_this_dashboard", undefined, "Recommended for this dashboard")}</h2>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted">
             {missingRequired > 0 && (
               <span className="text-danger mr-3">
-                ● {missingRequired} required missing
+                ● {missingRequired} {i18nT("auto.required_missing", undefined, "required missing")}
               </span>
             )}
             {missingSuggested > 0 && (
               <span className="text-warning">
-                ★ {missingSuggested} suggested missing
+                ★ {missingSuggested} {i18nT("auto.suggested_missing", undefined, "suggested missing")}
               </span>
             )}
           </span>
@@ -181,7 +182,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
             data-testid="rec-install-all-missing"
           >
             <Icon path={mdiDownloadMultiple} size={0.6} />
-            Install all missing
+            {i18nT("auto.install_all_missing", undefined, "Install all missing")}
             {missingEntries.length > 0 && !allMissingScheduled && (
               <span className="ml-1 text-[10px] opacity-80">({missingEntries.length})</span>
             )}
@@ -220,10 +221,10 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                   {isQueued && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded border border-blue-400/40 bg-blue-400/10 text-blue-400 whitespace-nowrap flex items-center gap-1"
-                      title="Waiting for an earlier package operation to finish"
+                      title={i18nT("auto.waiting_for_an_earlier_package_operation", undefined, "Waiting for an earlier package operation to finish")}
                     >
                       <Icon path={mdiClockOutline} size={0.5} />
-                      Queued
+                      {i18nT("auto.queued", undefined, "Queued")}
                     </span>
                   )}
                   {scopeLabel && (
@@ -292,7 +293,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                       ) : (
                         <Icon path={mdiDelete} size={0.6} />
                       )}
-                      Remove
+                      {i18nT("auto.remove", undefined, "Remove")}
                     </button>
                   ) : showActivate ? (
                     <button
@@ -313,7 +314,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                       ) : (
                         <Icon path={mdiFlashAuto} size={0.6} />
                       )}
-                      Activate
+                      {i18nT("auto.activate", undefined, "Activate")}
                     </button>
                   ) : (
                     <button
@@ -329,7 +330,7 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                       ) : (
                         <Icon path={mdiPlusCircle} size={0.6} />
                       )}
-                      Install
+                      {i18nT("auto.install", undefined, "Install")}
                     </button>
                   )}
                 </div>

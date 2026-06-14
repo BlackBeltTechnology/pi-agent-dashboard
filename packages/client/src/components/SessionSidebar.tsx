@@ -6,6 +6,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { PiLogo } from "./PiLogo.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   sessions: DashboardSession[];
@@ -57,14 +58,14 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onRename, error
   return (
     <div className="w-72 border-r border-[var(--border-primary)] overflow-y-auto flex flex-col">
       <div className="p-3 border-b border-[var(--border-primary)]">
-        <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title="Home">
+        <button onClick={() => navigate("/")} className="flex items-center leading-none text-blue-500 hover:text-blue-400 transition-colors" title={i18nT("auto.home", undefined, "Home")}>
           <PiLogo size={24} />
         </button>
       </div>
 
       {/* Active sessions */}
       {active.length === 0 ? (
-        <div className="p-4 text-sm text-[var(--text-tertiary)]">No active sessions</div>
+        <div className="p-4 text-sm text-[var(--text-tertiary)]">{i18nT("auto.no_active_sessions", undefined, "No active sessions")}</div>
       ) : (
         <ul>
           {active.map((session) => (
@@ -105,8 +106,8 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onRename, error
                 {session.model && <span className="truncate">{session.model}</span>}
               </div>
               <div className="ml-4 mt-0.5 flex items-center gap-3 text-xs text-[var(--text-muted)]">
-                <span title="Tokens in">↓{formatTokens(session.tokensIn)}</span>
-                <span title="Tokens out">↑{formatTokens(session.tokensOut)}</span>
+                <span title={i18nT("auto.tokens_in", undefined, "Tokens in")}>↓{formatTokens(session.tokensIn)}</span>
+                <span title={i18nT("auto.tokens_out", undefined, "Tokens out")}>↑{formatTokens(session.tokensOut)}</span>
                 <span>{formatCost(session.cost)}</span>
                 {session.currentTool && (
                   <span className="text-yellow-500 inline-flex items-center gap-0.5"><Icon path={mdiCog} size={0.5} /> {session.currentTool}</span>
@@ -121,7 +122,7 @@ export function SessionSidebar({ sessions, selectedId, onSelect, onRename, error
       {ended.length > 0 && (
         <details className="border-t border-[var(--border-primary)]">
           <summary className="px-3 py-2 text-xs text-[var(--text-tertiary)] cursor-pointer hover:bg-[var(--bg-hover)]">
-            Ended ({ended.length})
+            {i18nT("auto.ended", undefined, "Ended (")}{ended.length})
           </summary>
           <ul>
             {ended.map((session) => (

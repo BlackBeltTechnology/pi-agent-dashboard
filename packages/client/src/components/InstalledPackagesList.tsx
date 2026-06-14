@@ -40,6 +40,7 @@ import type {
 	PiResource,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { computeDestIdentity } from "../lib/installed-list-helpers.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
 	scope: "global" | "local";
@@ -134,7 +135,7 @@ export function InstalledPackagesList({
 	if (installed.isLoading && safePackages.length === 0) {
 		return (
 			<div className="text-[11px] text-[var(--text-muted)] italic px-2 py-1" data-testid={testId}>
-				Loading…
+				{i18nT("auto.loading", undefined, "Loading…")}
 			</div>
 		);
 	}
@@ -144,7 +145,7 @@ export function InstalledPackagesList({
 				<Icon path={mdiAlertCircle} size={0.45} />
 				<span>{installed.error}</span>
 				<button onClick={installed.refresh} className="ml-auto text-[var(--accent-primary)] hover:underline">
-					Retry
+					{i18nT("auto.retry", undefined, "Retry")}
 				</button>
 			</div>
 		);
@@ -152,7 +153,7 @@ export function InstalledPackagesList({
 	if (safePackages.length === 0) {
 		return (
 			<div className="text-[11px] text-[var(--text-muted)] italic px-2 py-1" data-testid={testId}>
-				(no packages installed at {scope} scope)
+				{i18nT("auto.no_packages_installed_at", undefined, "(no packages installed at")} {scope} scope)
 			</div>
 		);
 	}
@@ -257,7 +258,7 @@ function ContainedResourcesTree({
 	if (!containers) {
 		return (
 			<div className="ml-4 mt-1 text-[10px] text-[var(--text-muted)] italic">
-				(no resource info)
+				{i18nT("auto.no_resource_info", undefined, "(no resource info)")}
 			</div>
 		);
 	}
@@ -268,7 +269,7 @@ function ContainedResourcesTree({
 	if (total === 0) {
 		return (
 			<div className="ml-4 mt-1 text-[10px] text-[var(--text-muted)] italic">
-				(no resources)
+				{i18nT("auto.no_resources", undefined, "(no resources)")}
 			</div>
 		);
 	}
@@ -330,21 +331,21 @@ function PartialSuccessBanner({
 		>
 			<Icon path={mdiAlertCircle} size={0.45} className="text-amber-400 flex-shrink-0 mt-0.5" />
 			<div className="flex-1 min-w-0">
-				<div className="text-amber-400 font-medium">Move partially succeeded</div>
+				<div className="text-amber-400 font-medium">{i18nT("auto.move_partially_succeeded", undefined, "Move partially succeeded")}</div>
 				<div className="text-[var(--text-muted)] truncate" title={state.message}>
-					Installed at destination but failed to remove from {state.fromScope}: {state.message}
+					{i18nT("auto.installed_at_destination_but_failed_to", undefined, "Installed at destination but failed to remove from")} {state.fromScope}: {state.message}
 				</div>
 			</div>
 			<button
 				onClick={onCleanup}
 				className="text-[var(--accent-primary)] hover:underline whitespace-nowrap"
 			>
-				Cleanup origin
+				{i18nT("auto.cleanup_origin", undefined, "Cleanup origin")}
 			</button>
 			<button
 				onClick={onDismiss}
 				className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-				aria-label="Dismiss"
+				aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
 			>
 				<Icon path={mdiCloseCircle} size={0.45} />
 			</button>

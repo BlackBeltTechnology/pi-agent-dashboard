@@ -9,6 +9,7 @@ import {
   subscribeSpawnErrorToasts,
   type SpawnErrorToastEntry,
 } from "../lib/spawn-error-toast-bus.js";
+import { t as i18nT } from "../lib/i18n";
 
 export function SpawnErrorToastHost() {
   const [entries, setEntries] = useState<ReadonlyArray<SpawnErrorToastEntry>>([]);
@@ -35,8 +36,8 @@ export function SpawnErrorToastHost() {
             type="button"
             onClick={() => dismissSpawnErrorToast(e.id)}
             className="text-red-300/70 hover:text-red-100 flex-shrink-0 leading-none"
-            aria-label="Dismiss"
-            title="Dismiss"
+            aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+            title={i18nT("auto.dismiss", undefined, "Dismiss")}
           >
             ×
           </button>

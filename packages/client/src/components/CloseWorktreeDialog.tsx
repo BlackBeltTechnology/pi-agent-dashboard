@@ -22,6 +22,7 @@ import React, { useState } from "react";
 import { removeWorktree } from "../lib/git-api.js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -82,7 +83,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
   };
 
   return (
-    <Dialog open onClose={onClose} title="Close worktree" size="lg" testId="close-worktree-dialog">
+    <Dialog open onClose={onClose} title={i18nT("auto.close_worktree", undefined, "Close worktree")} size="lg" testId="close-worktree-dialog">
         <p className="text-xs text-[var(--text-muted)]">
           <code>{cwd}</code>
         </p>
@@ -90,7 +91,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
         {activeIds && activeIds.length > 0 && (
           <div className="space-y-2" data-testid="close-active-sessions">
             <p className="text-xs text-yellow-400">
-              {activeIds.length} active pi session{activeIds.length === 1 ? "" : "s"} are using this worktree:
+              {activeIds.length} {i18nT("auto.active_pi_session", undefined, "active pi session")}{activeIds.length === 1 ? "" : "s"} {i18nT("auto.are_using_this_worktree", undefined, "are using this worktree:")}
             </p>
             <ul className="text-xs text-[var(--text-secondary)] list-disc list-inside max-h-32 overflow-y-auto">
               {activeIds.map((id) => (
@@ -116,7 +117,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
               {error.code}
               {(error.code === "dirty_worktree" || error.code === "branch_not_merged") && (
                 <span className="ml-2 text-[var(--text-secondary)]">
-                  — uncommitted changes. Enable <code>--force</code> above and click Remove again.
+                  {i18nT("auto.uncommitted_changes_enable", undefined, "— uncommitted changes. Enable")} <code>--force</code> {i18nT("auto.above_and_click_remove_again", undefined, "above and click Remove again.")}
                 </span>
               )}
             </div>
@@ -138,7 +139,7 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
               intent="danger"
               testId="close-end-sessions"
             >
-              End {activeIds.length} session{activeIds.length === 1 ? "" : "s"} and remove worktree
+              {i18nT("auto.end", undefined, "End")} {activeIds.length} session{activeIds.length === 1 ? "" : "s"} {i18nT("auto.and_remove_worktree", undefined, "and remove worktree")}
             </Dialog.Action>
           ) : (
             <Dialog.Action

@@ -23,6 +23,7 @@ import { TasksPopover } from "./TasksPopover.js";
 import { ExploreDialog } from "./ExploreDialog.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { t as i18nT } from "../lib/i18n";
 
 /**
  * ComposerSessionActions — slim inline session-action row mounted inside
@@ -233,11 +234,11 @@ export function ComposerSessionActions({
     >
       {showOpenSpec && (
         <>
-          <GroupLabel testId="composer-openspec-group-label">OpenSpec</GroupLabel>
+          <GroupLabel testId="composer-openspec-group-label">{i18nT("auto.openspec", undefined, "OpenSpec")}</GroupLabel>
           {wf("explore") && (
             <IconButton
               icon={mdiCompassOutline}
-              label="Explore"
+              label={i18nT("auto.explore", undefined, "Explore")}
               onClick={() => setExploreOpen(true)}
               disabled={!!attached || streaming}
               title={streaming ? "Session is streaming" : tips.explore}
@@ -253,21 +254,21 @@ export function ComposerSessionActions({
               <ArtifactChip
                 letter="P"
                 state={artifactChipState("proposal")}
-                title="Open proposal.md"
+                title={i18nT("auto.open_proposal_md", undefined, "Open proposal.md")}
                 testId="composer-artifact-p"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "proposal") : undefined}
               />
               <ArtifactChip
                 letter="D"
                 state={artifactChipState("design")}
-                title="Open design.md"
+                title={i18nT("auto.open_design_md", undefined, "Open design.md")}
                 testId="composer-artifact-d"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "design") : undefined}
               />
               <ArtifactChip
                 letter="S"
                 state={artifactChipState("specs")}
-                title="Open specs"
+                title={i18nT("auto.open_specs", undefined, "Open specs")}
                 testId="composer-artifact-s"
                 onClick={onReadArtifact ? () => onReadArtifact(change.name, "specs") : undefined}
               />
@@ -276,7 +277,7 @@ export function ComposerSessionActions({
                   letter="T"
                   sub={`${change.completedTasks}/${change.totalTasks}`}
                   state={artifactChipState("tasks")}
-                  title="Open task list"
+                  title={i18nT("auto.open_task_list", undefined, "Open task list")}
                   testId="composer-artifact-t"
                   onClick={() => setTasksOpen(true)}
                   disabled={streaming}
@@ -289,7 +290,7 @@ export function ComposerSessionActions({
               {wf("continue") && (
                 <IconButton
                   icon={mdiChevronRight}
-                  label="Continue"
+                  label={i18nT("auto.continue", undefined, "Continue")}
                   onClick={() => onSendPrompt?.(`/skill:openspec-continue-change ${attached}`)}
                   disabled={streaming}
                   testId="composer-continue-btn"
@@ -311,7 +312,7 @@ export function ComposerSessionActions({
           {wf("apply") && attached && (changeState === ChangeState.READY || changeState === ChangeState.IMPLEMENTING) && (
             <IconButton
               icon={mdiPlayCircleOutline}
-              label="Apply"
+              label={i18nT("auto.apply", undefined, "Apply")}
               onClick={() => onSendPrompt?.(`/skill:openspec-apply-change ${attached}`)}
               disabled={streaming}
               testId="composer-apply-btn"
@@ -321,7 +322,7 @@ export function ComposerSessionActions({
           {wf("verify") && attached && changeState === ChangeState.COMPLETE && (
             <IconButton
               icon={mdiCheckCircleOutline}
-              label="Verify"
+              label={i18nT("auto.verify", undefined, "Verify")}
               onClick={() => onSendPrompt?.(`/skill:openspec-verify-change ${attached}`)}
               disabled={streaming}
               testId="composer-verify-btn"
@@ -331,7 +332,7 @@ export function ComposerSessionActions({
           {wf("archive") && (
             <IconButton
               icon={mdiArchiveOutline}
-              label="Archive"
+              label={i18nT("auto.archive", undefined, "Archive")}
               onClick={() => setArchiveConfirm(true)}
               disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
               title={tips.archive}
@@ -345,7 +346,7 @@ export function ComposerSessionActions({
       {showGit && (
         <>
           <Divider />
-          <GroupLabel testId="composer-git-group-label">Git</GroupLabel>
+          <GroupLabel testId="composer-git-group-label">{i18nT("auto.git", undefined, "Git")}</GroupLabel>
           <span
             data-testid="composer-git-group"
             className="inline-flex items-center gap-1 flex-wrap"
@@ -405,7 +406,7 @@ export function ComposerSessionActions({
       {archiveConfirm && attached && (
         <Confirm
           open
-          title="Archive change?"
+          title={i18nT("auto.archive_change", undefined, "Archive change?")}
           message={`Archive "${attached}"?`}
           confirmLabel="Archive"
           onConfirm={() => {

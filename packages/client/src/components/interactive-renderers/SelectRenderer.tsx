@@ -6,6 +6,7 @@ import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
 import { parseOption, isCancelOption } from "./parseOption.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function SelectRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -75,7 +76,7 @@ export function SelectRenderer({ params, status, result, onRespond, onCancel }: 
           );
         })}
         {!hasCancelOption && (
-          <OptionRow title="Cancel" cancel onClick={onCancel} />
+          <OptionRow title={i18nT("auto.cancel", undefined, "Cancel")} cancel onClick={onCancel} />
         )}
       </div>
     </div>

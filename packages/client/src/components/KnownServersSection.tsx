@@ -7,6 +7,7 @@ import { Icon } from "@mdi/react";
 import { mdiPlus, mdiClose, mdiCheck, mdiServerNetwork } from "@mdi/js";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { listKnownServers, addKnownServer, removeKnownServer } from "../lib/known-servers-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface KnownServersSectionProps {
   onChange?: () => void;
@@ -67,7 +68,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
 
   if (loading) {
     return (
-      <div className="text-sm text-[var(--text-muted)]">Loading...</div>
+      <div className="text-sm text-[var(--text-muted)]">{i18nT("auto.loading_2", undefined, "Loading...")}</div>
     );
   }
 
@@ -76,7 +77,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
       {/* Server list */}
       {servers.length === 0 && !showAdd && (
         <div className="text-sm text-[var(--text-muted)] py-1">
-          No remote servers saved. Add servers manually or from network discovery below.
+          {i18nT("auto.no_remote_servers_saved_add_servers", undefined, "No remote servers saved. Add servers manually or from network discovery below.")}
         </div>
       )}
 
@@ -97,7 +98,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
           <button
             onClick={() => handleRemove(s.host, s.port)}
             className="text-[var(--text-muted)] hover:text-red-400 transition-colors p-1 cursor-pointer"
-            title="Remove server"
+            title={i18nT("auto.remove_server", undefined, "Remove server")}
           >
             <Icon path={mdiClose} size={0.5} />
           </button>
@@ -110,7 +111,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Host (e.g. office-mac.local)"
+              placeholder={i18nT("auto.host_e_g_office_mac_local", undefined, "Host (e.g. office-mac.local)")}
               value={addHost}
               onChange={(e) => setAddHost(e.target.value)}
               className="flex-1 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
@@ -118,7 +119,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
             />
             <input
               type="number"
-              placeholder="Port"
+              placeholder={i18nT("auto.port", undefined, "Port")}
               value={addPort}
               onChange={(e) => setAddPort(e.target.value)}
               className="w-20 bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right"
@@ -126,7 +127,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
           </div>
           <input
             type="text"
-            placeholder="Label (optional)"
+            placeholder={i18nT("auto.label_optional", undefined, "Label (optional)")}
             value={addLabel}
             onChange={(e) => setAddLabel(e.target.value)}
             className="w-full bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
@@ -138,14 +139,14 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
               onClick={() => { setShowAdd(false); setError(null); }}
               className="px-2 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-pointer"
             >
-              Cancel
+              {i18nT("auto.cancel", undefined, "Cancel")}
             </button>
             <button
               onClick={handleAdd}
               className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded cursor-pointer"
             >
               <Icon path={mdiCheck} size={0.45} />
-              Add
+              {i18nT("auto.add", undefined, "Add")}
             </button>
           </div>
         </div>
@@ -155,7 +156,7 @@ export function KnownServersSection({ onChange }: KnownServersSectionProps = {})
           className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
         >
           <Icon path={mdiPlus} size={0.5} />
-          Add server manually
+          {i18nT("auto.add_server_manually", undefined, "Add server manually")}
         </button>
       )}
     </div>

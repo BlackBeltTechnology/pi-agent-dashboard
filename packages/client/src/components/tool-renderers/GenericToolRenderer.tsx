@@ -1,6 +1,7 @@
 import React from "react";
 import type { ToolRendererProps } from "./types.js";
 import { LinkifiedText } from "./LinkifiedText.js";
+import { t as i18nT } from "../../lib/i18n";
 
 /**
  * Fallback renderer: shows raw JSON args and tool output.
@@ -15,7 +16,7 @@ export function GenericToolRenderer({ args, result, context }: ToolRendererProps
       <pre className="text-code text-[var(--text-secondary)]">{JSON.stringify(args, null, 2)}</pre>
       {result && (
         <>
-          <div className="text-[var(--text-tertiary)] font-medium text-xs">Output:</div>
+          <div className="text-[var(--text-tertiary)] font-medium text-xs">{i18nT("auto.output", undefined, "Output:")}</div>
           <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)]">
             <LinkifiedText text={result} context={context} />
           </pre>

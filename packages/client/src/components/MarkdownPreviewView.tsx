@@ -3,6 +3,7 @@ import { Icon } from "@mdi/react";
 import { mdiArrowLeft, mdiLoading } from "@mdi/js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { MarkdownSearch } from "./MarkdownSearch.js";
+import { t as i18nT } from "../lib/i18n";
 
 export interface PreviewTab {
   id: string;
@@ -43,7 +44,7 @@ export function MarkdownPreviewView({
           onClick={onBack}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
           data-testid="preview-back"
-          title="Back to chat"
+          title={i18nT("auto.back_to_chat", undefined, "Back to chat")}
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>

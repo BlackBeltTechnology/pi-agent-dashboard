@@ -15,6 +15,7 @@
  */
 import { Icon } from "@mdi/react";
 import { mdiFolderPlus, mdiViewGridPlus } from "@mdi/js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   /** Disables `+ Add Folder` (e.g. while a pin is in flight). */
@@ -43,9 +44,9 @@ export function DashboardSpawnButtons({
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
             : "text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
         }`}
-        title="Add a folder"
+        title={i18nT("auto.add_a_folder", undefined, "Add a folder")}
       >
-        <Icon path={mdiFolderPlus} size={0.6} /> Add Folder
+        <Icon path={mdiFolderPlus} size={0.6} /> {i18nT("auto.add_folder", undefined, "Add Folder")}
       </button>
 
       {onNewWorkspace && (
@@ -53,9 +54,9 @@ export function DashboardSpawnButtons({
           onClick={(e) => { e.stopPropagation(); onNewWorkspace(); }}
           data-testid="dashboard-new-workspace-btn"
           className="w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
-          title="New workspace"
+          title={i18nT("auto.new_workspace_3", undefined, "New workspace")}
         >
-          <Icon path={mdiViewGridPlus} size={0.6} /> New Workspace
+          <Icon path={mdiViewGridPlus} size={0.6} /> {i18nT("auto.new_workspace_2", undefined, "New Workspace")}
         </button>
       )}
     </div>

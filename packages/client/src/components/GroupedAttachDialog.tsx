@@ -12,6 +12,7 @@ import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboa
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { OpenSpecGroupPills } from "./OpenSpecGroupPills.js";
 import { OpenSpecGroupSection } from "./OpenSpecGroupSection.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   changes: OpenSpecChange[];
@@ -91,7 +92,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
   }
 
   return (
-    <Dialog open onClose={onCancel} title="Attach Change" size="sm" testId="grouped-attach-dialog">
+    <Dialog open onClose={onCancel} title={i18nT("auto.attach_change", undefined, "Attach Change")} size="sm" testId="grouped-attach-dialog">
           {/* Pills */}
           <div className="px-3 pt-1">
             <OpenSpecGroupPills
@@ -108,7 +109,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search changes..."
+              placeholder={i18nT("auto.search_changes", undefined, "Search changes...")}
               className="flex-1 text-xs bg-transparent border-none outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
               autoFocus
               data-testid="grouped-attach-search"
@@ -118,7 +119,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-2 pb-2">
             {filtered.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-muted)] text-center py-4">No matching changes</p>
+              <p className="text-[11px] text-[var(--text-muted)] text-center py-4">{i18nT("auto.no_matching_changes", undefined, "No matching changes")}</p>
             ) : (
               <div className="space-y-1">
                 {sortedGroups.map((g) => {
@@ -135,7 +136,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
                     >
                       {items.length > 0
                         ? items.map(renderChangeRow)
-                        : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">No changes in this group</p>}
+                        : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("auto.no_changes_in_this_group", undefined, "No changes in this group")}</p>}
                     </OpenSpecGroupSection>
                   );
                 })}
@@ -149,7 +150,7 @@ export function GroupedAttachDialog({ changes, groups, assignments, onSelect, on
                   >
                     {ungrouped.length > 0
                       ? ungrouped.map(renderChangeRow)
-                      : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">No ungrouped changes</p>}
+                      : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("auto.no_ungrouped_changes", undefined, "No ungrouped changes")}</p>}
                   </OpenSpecGroupSection>
                 )}
               </div>

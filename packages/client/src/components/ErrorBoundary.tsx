@@ -1,4 +1,5 @@
 import React, { Component, type ReactNode } from "react";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   children: ReactNode;
@@ -29,7 +30,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return this.props.fallback ?? (
         <div className="p-2 text-xs text-red-400 bg-red-500/10 rounded border border-red-500/20">
-          Render error: {this.state.error?.message ?? "Unknown error"}
+          {i18nT("auto.render_error", undefined, "Render error:")} {this.state.error?.message ?? "Unknown error"}
         </div>
       );
     }

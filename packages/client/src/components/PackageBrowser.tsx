@@ -11,6 +11,7 @@ import { classifySource } from "../lib/package-classifier.js";
 import { RecommendedExtensions } from "./RecommendedExtensions.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { useI18n } from "../lib/i18n.js";
+import { t as i18nT } from "../lib/i18n";
 
 const TYPE_PILLS = ["extension", "skill", "theme", "prompt"] as const;
 
@@ -216,7 +217,7 @@ export function PackageBrowser({
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleUrlInstall(); }}
-            placeholder="npm:@scope/pkg or git:github.com/user/repo"
+            placeholder={i18nT("auto.npm_scope_pkg_or_git_github", undefined, "npm:@scope/pkg or git:github.com/user/repo")}
             className="w-full pl-7 pr-2 py-1.5 text-xs bg-[var(--bg-surface)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
             data-testid="package-url-input"
           />

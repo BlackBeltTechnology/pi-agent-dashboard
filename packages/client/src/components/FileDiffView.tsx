@@ -9,6 +9,7 @@ import { useSessionDiff } from "../hooks/useSessionDiff.js";
 import { DiffFileTree, type FileSelection } from "./DiffFileTree.js";
 import { DiffPanel } from "./DiffPanel.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface FileDiffViewProps {
   sessionId: string;
@@ -43,13 +44,13 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
         <button
           onClick={onBack}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] text-sm"
-          title="Back to chat"
+          title={i18nT("auto.back_to_chat", undefined, "Back to chat")}
         >
-          <Icon path={mdiArrowLeft} size={0.6} className="inline mr-0.5" />Back
+          <Icon path={mdiArrowLeft} size={0.6} className="inline mr-0.5" />{i18nT("auto.back", undefined, "Back")}
         </button>
-        <span className="text-sm font-medium">Changed Files</span>
+        <span className="text-sm font-medium">{i18nT("auto.changed_files", undefined, "Changed Files")}</span>
         {!data?.isGitRepo && data && data?.vcsKind !== "jj" && (
-          <span className="text-xs text-[var(--text-tertiary)] ml-1">(no git)</span>
+          <span className="text-xs text-[var(--text-tertiary)] ml-1">{i18nT("auto.no_git", undefined, "(no git)")}</span>
         )}
         {data?.vcsKind === "jj" && data?.baseLabel && (
           <span
@@ -66,34 +67,34 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
             onClick={() => setMobileShowTree(true)}
             className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
           >
-            <Icon path={mdiFileTreeOutline} size={0.45} className="inline mr-0.5" />Files
+            <Icon path={mdiFileTreeOutline} size={0.45} className="inline mr-0.5" />{i18nT("auto.files", undefined, "Files")}
           </button>
         )}
         <button
           onClick={refresh}
           className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-          title="Refresh"
+          title={i18nT("auto.refresh", undefined, "Refresh")}
         >
-          <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />Refresh
+          <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />{i18nT("auto.refresh", undefined, "Refresh")}
         </button>
       </div>
 
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center flex-1 text-[var(--text-tertiary)]">
-          Loading file changes...
+          {i18nT("auto.loading_file_changes", undefined, "Loading file changes...")}
         </div>
       )}
 
       {/* Error */}
       {error && !isLoading && (
         <div className="flex flex-col items-center justify-center flex-1 gap-2 text-[var(--text-tertiary)]">
-          <span>Error: {error}</span>
+          <span>{i18nT("auto.error", undefined, "Error:")} {error}</span>
           <button
             onClick={refresh}
             className="text-xs px-3 py-1 rounded border border-[var(--border-primary)] hover:bg-[var(--bg-tertiary)]"
           >
-            <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />Retry
+            <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />{i18nT("auto.retry", undefined, "Retry")}
           </button>
         </div>
       )}
@@ -101,7 +102,7 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
       {/* Empty */}
       {data && data.files.length === 0 && !isLoading && (
         <div className="flex items-center justify-center flex-1 text-[var(--text-tertiary)]">
-          No file changes detected in this session
+          {i18nT("auto.no_file_changes_detected_in_this", undefined, "No file changes detected in this session")}
         </div>
       )}
 
@@ -120,7 +121,7 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
               <DiffPanel file={selectedFile} selection={selection} sessionId={sessionId} />
             ) : (
               <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-                Select a file
+                {i18nT("auto.select_a_file", undefined, "Select a file")}
               </div>
             )}
           </div>
@@ -139,7 +140,7 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
                 <DiffPanel file={selectedFile} selection={selection} sessionId={sessionId} />
               ) : (
                 <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-                  Select a file to view changes
+                  {i18nT("auto.select_a_file_to_view_changes", undefined, "Select a file to view changes")}
                 </div>
               )}
             </div>

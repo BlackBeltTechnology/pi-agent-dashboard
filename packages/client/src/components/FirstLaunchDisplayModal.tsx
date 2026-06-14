@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { DialogPortal } from "./DialogPortal.js";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { t as i18nT } from "../lib/i18n";
 
 type PresetKey = keyof typeof DISPLAY_PRESETS;
 
@@ -67,10 +68,10 @@ export function FirstLaunchDisplayModal({
           onClick={(e) => e.stopPropagation()}
         >
           <h2 id="first-launch-display-title" className="text-base font-semibold text-[var(--text-primary)] mb-2">
-            How much should the chat view show?
+            {i18nT("auto.how_much_should_the_chat_view", undefined, "How much should the chat view show?")}
           </h2>
           <p className="text-xs text-[var(--text-tertiary)] mb-4">
-            You can change this any time in Settings ▸ General ▸ Chat display.
+            {i18nT("auto.you_can_change_this_any_time", undefined, "You can change this any time in Settings ▸ General ▸ Chat display.")}
           </p>
           <div className="space-y-2">
             {OPTIONS.map((opt) => (
@@ -104,7 +105,7 @@ export function FirstLaunchDisplayModal({
               disabled={submitting}
               className="px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
             >
-              Skip
+              {i18nT("auto.skip", undefined, "Skip")}
             </button>
             <button
               type="button"
@@ -112,7 +113,7 @@ export function FirstLaunchDisplayModal({
               disabled={submitting}
               className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded disabled:opacity-50"
             >
-              Continue
+              {i18nT("auto.continue", undefined, "Continue")}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConnectionStatus } from "../hooks/useWebSocket.js";
+import { t as i18nT } from "../lib/i18n";
 
 export interface ConnectionStatusBannerProps {
   status: ConnectionStatus;
@@ -45,14 +46,14 @@ export function ConnectionStatusBanner({
       className="w-full bg-amber-500/15 border-b border-amber-500/40 text-amber-200 px-4 py-2 text-sm flex items-center justify-between gap-2"
     >
       <span className="truncate">
-        Disconnected from <strong>{currentServerHost}</strong>. Retrying…
+        {i18nT("auto.disconnected_from", undefined, "Disconnected from")} <strong>{currentServerHost}</strong>{i18nT("auto.retrying", undefined, ". Retrying…")}
       </span>
       {onOpenServerSelector && (
         <button
           onClick={onOpenServerSelector}
           className="shrink-0 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
         >
-          Switch server
+          {i18nT("auto.switch_server", undefined, "Switch server")}
         </button>
       )}
     </div>

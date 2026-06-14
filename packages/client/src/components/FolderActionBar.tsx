@@ -17,6 +17,7 @@ import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm
 import { WorktreeInitButton } from "./WorktreeInitButton.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -70,11 +71,11 @@ export function FolderActionBar({
       <button
         onClick={(e) => { e.stopPropagation(); onOpenTerminals(); }}
         className="text-[10px] px-1.5 py-0.5 rounded border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70"
-        title="Open terminals view"
+        title={i18nT("auto.open_terminals_view", undefined, "Open terminals view")}
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiConsoleLine} size={0.5} />
-          Terminals({terminalCount})
+          {i18nT("auto.terminals", undefined, "Terminals(")}{terminalCount})
         </span>
       </button>
 
@@ -94,7 +95,7 @@ export function FolderActionBar({
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCodeBraces} size={0.5} />
-          Editor
+          {i18nT("auto.editor", undefined, "Editor")}
           {editorAvailable === false && (
             <Icon path={mdiAlertCircleOutline} size={0.4} className="text-yellow-400" />
           )}
@@ -134,7 +135,7 @@ export function FolderActionBar({
           title={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists`}
         >
           <span className="inline-flex items-center gap-0.5">
-            <Icon path={mdiBroom} size={0.5} /> Clean up broken ({brokenSessionCount})
+            <Icon path={mdiBroom} size={0.5} /> {i18nT("auto.clean_up_broken", undefined, "Clean up broken (")}{brokenSessionCount})
           </span>
         </button>
       )}
@@ -142,7 +143,7 @@ export function FolderActionBar({
         <Confirm
           open
           testId="cleanup-broken-confirm"
-          title="Hide broken sessions?"
+          title={i18nT("auto.hide_broken_sessions", undefined, "Hide broken sessions?")}
           message={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists?`}
           confirmLabel="Hide"
           onConfirm={() => { setConfirmCleanUpOpen(false); onCleanUpBroken?.(); }}
@@ -154,7 +155,7 @@ export function FolderActionBar({
       <button
         onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
         className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
-        title="Pi Resources"
+        title={i18nT("auto.pi_resources", undefined, "Pi Resources")}
       >
         <Icon path={mdiToyBrickOutline} size={0.5} />
       </button>

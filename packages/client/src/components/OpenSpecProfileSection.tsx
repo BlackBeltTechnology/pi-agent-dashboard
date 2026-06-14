@@ -22,6 +22,7 @@ import {
   fetchGlobalOpenSpecConfig,
   type CwdUpdateStatus,
 } from "../lib/openspec-config-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 type Profile = OpenSpecConfig["profile"];
 type LoadStatus = "loading" | "ready" | "error";
@@ -150,15 +151,15 @@ export function OpenSpecProfileSection() {
   return (
     <div data-testid="openspec-profile-settings">
       <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-1 pb-1 border-b border-[var(--border-secondary)]">
-        OpenSpec Workflow Profile
+        {i18nT("auto.openspec_workflow_profile", undefined, "OpenSpec Workflow Profile")}
       </h2>
       <p className="text-xs text-[var(--text-tertiary)] mb-3">
-        Controls which <code>/opsx:</code> workflow buttons appear on session cards and the composer.
+        {i18nT("auto.controls_which", undefined, "Controls which")} <code>/opsx:</code> {i18nT("auto.workflow_buttons_appear_on_session_cards", undefined, "workflow buttons appear on session cards and the composer.")}
       </p>
 
       {loadStatus === "loading" && (
         <p className="text-[11px] text-[var(--text-muted)] mb-2" data-testid="profile-loading">
-          Loading current profile…
+          {i18nT("auto.loading_current_profile", undefined, "Loading current profile…")}
         </p>
       )}
       {loadStatus === "error" && (
@@ -167,14 +168,14 @@ export function OpenSpecProfileSection() {
           data-testid="profile-error"
         >
           <span aria-hidden="true">⚠️</span>
-          <span className="flex-1">Couldn’t load the current profile.</span>
+          <span className="flex-1">{i18nT("auto.couldn_t_load_the_current_profile", undefined, "Couldn’t load the current profile.")}</span>
           <button
             type="button"
             data-testid="profile-load-retry"
             onClick={() => loadConfig()}
             className="px-2 py-1 rounded border border-red-500/40 text-red-300"
           >
-            Retry
+            {i18nT("auto.retry", undefined, "Retry")}
           </button>
         </div>
       )}
@@ -182,17 +183,17 @@ export function OpenSpecProfileSection() {
       {/* Profile radios */}
       <div className="space-y-2" data-testid="profile-options">
         <ProfileOption
-          id="core" label="Core" selected={profile === "core"}
+          id="core" label={i18nT("auto.core", undefined, "Core")} selected={profile === "core"}
           flows="propose · explore · apply · archive"
           onSelect={() => selectProfile("core")}
         />
         <ProfileOption
-          id="expanded" label="Expanded" selected={profile === "expanded"}
+          id="expanded" label={i18nT("auto.expanded", undefined, "Expanded")} selected={profile === "expanded"}
           flows="core + new · continue · ff · verify · sync · bulk-archive · onboard"
           onSelect={() => selectProfile("expanded")}
         />
         <ProfileOption
-          id="custom" label="Custom" selected={profile === "custom"}
+          id="custom" label={i18nT("auto.custom", undefined, "Custom")} selected={profile === "custom"}
           flows="pick any subset"
           onSelect={() => selectProfile("custom")}
         >
@@ -227,9 +228,9 @@ export function OpenSpecProfileSection() {
       <div className="mt-3 flex items-start gap-2 p-2.5 rounded border border-yellow-500/30 bg-yellow-500/[0.06] text-[11px] text-yellow-400 leading-relaxed">
         <span aria-hidden="true">⚠️</span>
         <span>
-          This changes the <b className="text-[var(--text-primary)]">global</b> OpenSpec config for every tool on this machine
+          {i18nT("auto.this_changes_the", undefined, "This changes the")} <b className="text-[var(--text-primary)]">global</b> OpenSpec config for every tool on this machine
           (Claude Code, Cursor, the CLI). Saving does not touch project files — use the Update buttons below to regenerate
-          a project's <code>/opsx:</code> skill files.
+          a project's <code>/opsx:</code> {i18nT("auto.skill_files", undefined, "skill files.")}
         </span>
       </div>
 
@@ -260,7 +261,7 @@ export function OpenSpecProfileSection() {
             {updating === "__all__" ? "Updating…" : "↻ Update all projects"}
           </button>
           {staleCount > 0 && (
-            <span className="text-[11px] text-orange-400">{staleCount} of {statuses.length} projects need update</span>
+            <span className="text-[11px] text-orange-400">{staleCount} of {statuses.length} {i18nT("auto.projects_need_update", undefined, "projects need update")}</span>
           )}
           <span className="flex-1" />
           <button
@@ -276,7 +277,7 @@ export function OpenSpecProfileSection() {
         {expanded && (
           <div className="mt-3 space-y-1.5" data-testid="cwd-list">
             {statuses.length === 0 && (
-              <p className="text-[11px] text-[var(--text-muted)]">No known projects.</p>
+              <p className="text-[11px] text-[var(--text-muted)]">{i18nT("auto.no_known_projects", undefined, "No known projects.")}</p>
             )}
             {statuses.map((s) => {
               const fresh = s.status === "up-to-date";

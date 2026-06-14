@@ -14,6 +14,7 @@ import { useMobile } from "../hooks/useMobile.js";
 import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDialog.js";
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   session?: DashboardSession;
@@ -116,7 +117,7 @@ function MobileAttachButton({ session, openspecChanges, onAttach, onDetach }: {
                   onClick={() => { setOpen(false); onDetach(); }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left min-h-[44px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                 >
-                  Detach
+                  {i18nT("auto.detach", undefined, "Detach")}
                 </button>
               )}
             </>
@@ -169,7 +170,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
         <button
           onClick={onBack}
           className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title="Go back"
+          title={i18nT("auto.go_back", undefined, "Go back")}
           data-testid="back-button"
         >
           <Icon path={mdiArrowLeft} size={0.7} />
@@ -309,7 +310,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   if (!session) {
     return (
       <div className="px-4 py-2 border-b border-[var(--border-primary)] text-sm text-[var(--text-tertiary)]">
-        No session selected
+        {i18nT("auto.no_session_selected", undefined, "No session selected")}
       </div>
     );
   }
@@ -362,7 +363,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={onBack}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title="Go back"
+          title={i18nT("auto.go_back", undefined, "Go back")}
           data-testid="back-button"
         >
           <Icon path={mdiArrowLeft} size={0.65} />
@@ -387,7 +388,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
             <button
               onClick={() => setIsRenaming(true)}
               className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-              title="Rename session"
+              title={i18nT("auto.rename_session", undefined, "Rename session")}
             >
               <Icon path={mdiPencilOutline} size={0.5} />
             </button>
@@ -426,7 +427,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
               <button
                 onClick={onDetachProposal}
                 className="text-[var(--text-muted)] hover:text-red-400 px-0.5"
-                title="Detach change"
+                title={i18nT("auto.detach_change", undefined, "Detach change")}
               >
                 <Icon path={mdiLinkOff} size={0.45} />
               </button>
@@ -436,9 +437,9 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <button
             onClick={() => setOpenspecPickerOpen(true)}
             className="text-[10px] px-1.5 py-0.5 rounded border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 mr-1"
-            title="Attach OpenSpec change"
+            title={i18nT("auto.attach_openspec_change", undefined, "Attach OpenSpec change")}
           >
-            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />Attach
+            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{i18nT("auto.attach", undefined, "Attach")}
           </button>
         )
       )}
@@ -453,19 +454,19 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={onOpenExtensionModulePicker}
           className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 mr-1"
-          title="Extension modules"
+          title={i18nT("auto.extension_modules", undefined, "Extension modules")}
           data-testid="open-extension-modules"
         >
-          <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />Modules
+          <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />{i18nT("auto.modules", undefined, "Modules")}
         </button>
       )}
       {hasFileChanges && onOpenDiffView && (
         <button
           onClick={onOpenDiffView}
           className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mr-1"
-          title="View changed files"
+          title={i18nT("auto.view_changed_files", undefined, "View changed files")}
         >
-          <Icon path={mdiFileCompare} size={0.4} className="inline mr-0.5" />Changed Files
+          <Icon path={mdiFileCompare} size={0.4} className="inline mr-0.5" />{i18nT("auto.changed_files", undefined, "Changed Files")}
         </button>
       )}
       {isEnded ? (
@@ -474,19 +475,19 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
             onClick={() => onResume!("continue")}
             disabled={!!session.resuming}
             className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed mr-1"
-            title="Resume session (continue same session)"
+            title={i18nT("auto.resume_session_continue_same_session", undefined, "Resume session (continue same session)")}
             data-testid="header-resume-button"
           >
-            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />Resume
+            <Icon path={mdiPlayCircleOutline} size={0.4} className="inline mr-0.5" />{i18nT("auto.resume", undefined, "Resume")}
           </button>
           <button
             onClick={() => onResume!("fork")}
             disabled={!!session.resuming}
             className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Fork session (new session from this point)"
+            title={i18nT("auto.fork_session_new_session_from_this", undefined, "Fork session (new session from this point)")}
             data-testid="header-fork-button"
           >
-            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />Fork
+            <Icon path={mdiSourceFork} size={0.4} className="inline mr-0.5" />{i18nT("auto.fork", undefined, "Fork")}
           </button>
         </>
       ) : (
@@ -496,16 +497,16 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
         <button
           onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
-          title="Refresh chat"
+          title={i18nT("auto.refresh_chat", undefined, "Refresh chat")}
         >
           <Icon path={mdiRefresh} size={0.6} className={refreshing ? "animate-spin" : ""} />
         </button>
       )}
       {openspecPickerOpen && onAttachProposal && (
         <SearchableSelectDialog
-          title="Attach OpenSpec Change"
+          title={i18nT("auto.attach_openspec_change_2", undefined, "Attach OpenSpec Change")}
           options={openspecOptions}
-          placeholder="Search changes..."
+          placeholder={i18nT("auto.search_changes", undefined, "Search changes...")}
           emptyMessage="No changes available"
           onSelect={(value) => {
             onAttachProposal(value);

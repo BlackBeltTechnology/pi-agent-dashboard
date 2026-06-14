@@ -20,6 +20,7 @@ import {
   mdiDotsVertical,
 } from "@mdi/js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   id: string;
@@ -112,7 +113,7 @@ export function WorkspaceHeader({
         <span
           onDoubleClick={() => setEditing(true)}
           className="flex-1 min-w-0 text-xs font-semibold text-[var(--text-primary)] truncate cursor-text"
-          title="Double-click to rename"
+          title={i18nT("auto.double_click_to_rename", undefined, "Double-click to rename")}
           data-testid={`workspace-name-${id}`}
         >
           {name}
@@ -128,7 +129,7 @@ export function WorkspaceHeader({
           <button
             onClick={() => setMenuOpen((p) => !p)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-0.5"
-            title="Workspace actions"
+            title={i18nT("auto.workspace_actions", undefined, "Workspace actions")}
             data-testid={`workspace-menu-btn-${id}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -149,14 +150,14 @@ export function WorkspaceHeader({
                 className="w-full text-left px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]"
                 data-testid={`workspace-menu-rename-${id}`}
               >
-                Rename
+                {i18nT("auto.rename", undefined, "Rename")}
               </button>
               <button
                 onClick={confirmDelete}
                 className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-[var(--bg-primary)]"
                 data-testid={`workspace-menu-delete-${id}`}
               >
-                Delete
+                {i18nT("auto.delete", undefined, "Delete")}
               </button>
             </div>
           )}

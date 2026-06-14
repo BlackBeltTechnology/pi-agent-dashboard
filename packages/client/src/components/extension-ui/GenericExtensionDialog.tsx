@@ -25,6 +25,7 @@ import type { ExtensionUiModule, UiAction, UiField, UiSection, UiView } from "@b
 import { DialogPortal } from "../DialogPortal.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { resolveMdiIcon } from "../../lib/mdi-icon-lookup.js";
+import { t as i18nT } from "../../lib/i18n";
 
 interface Props {
   module: ExtensionUiModule;
@@ -81,7 +82,7 @@ function ModuleHeader({ module, onClose }: { module: ExtensionUiModule; onClose:
       <button
         onClick={onClose}
         className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1"
-        aria-label="Close"
+        aria-label={i18nT("auto.close", undefined, "Close")}
         data-testid="extension-ui-close"
       >
         <Icon path={mdiClose} size={0.7} />
@@ -132,7 +133,7 @@ function ActionButton({ action, onDispatch, compact }: { action: UiAction; onDis
       {confirmOpen && action.confirm && (
         <Confirm
           open
-          title="Confirm"
+          title={i18nT("auto.confirm", undefined, "Confirm")}
           testId="confirm-dialog"
           message={action.confirm}
           confirmLabel={action.label}
@@ -172,7 +173,7 @@ function TableView({ view, rows, onDispatch }: { view: UiView; rows: unknown[]; 
               {f.label}
             </th>
           ))}
-          {(view.rowActions?.length ?? 0) > 0 && <th className="text-right px-2 py-1.5">Actions</th>}
+          {(view.rowActions?.length ?? 0) > 0 && <th className="text-right px-2 py-1.5">{i18nT("auto.actions", undefined, "Actions")}</th>}
         </tr>
       </thead>
       <tbody>

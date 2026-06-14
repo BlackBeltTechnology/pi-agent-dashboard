@@ -5,6 +5,7 @@ import { mdiLoading, mdiDownload } from "@mdi/js";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface PackageReadmeDialogProps {
   pkg: NpmPackageResult;
@@ -66,7 +67,7 @@ export function PackageReadmeDialog({
             onClick={onUninstall}
             className="text-[11px] px-3 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10"
           >
-            Uninstall
+            {i18nT("auto.uninstall", undefined, "Uninstall")}
           </button>
         ) : (
           <button
@@ -74,7 +75,7 @@ export function PackageReadmeDialog({
             className="text-[11px] px-3 py-1 rounded bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/80 font-medium"
           >
             <Icon path={mdiDownload} size={0.4} className="inline mr-1" />
-            Install
+            {i18nT("auto.install", undefined, "Install")}
           </button>
         )}
       </div>

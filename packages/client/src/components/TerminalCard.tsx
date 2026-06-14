@@ -4,6 +4,7 @@ import { mdiConsoleLine, mdiClose, mdiPencilOutline } from "@mdi/js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { formatRelativeTime } from "../lib/format.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   terminal: TerminalSession;
@@ -61,7 +62,7 @@ export function TerminalCard({ terminal, selectedId, onSelect, onClose, onRename
               <button
                 onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
                 className="p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                title="Rename terminal"
+                title={i18nT("auto.rename_terminal", undefined, "Rename terminal")}
               >
                 <Icon path={mdiPencilOutline} size={0.45} />
               </button>
@@ -70,7 +71,7 @@ export function TerminalCard({ terminal, selectedId, onSelect, onClose, onRename
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(terminal.id); }}
                 className="p-0.5 text-[var(--text-tertiary)] hover:text-red-400"
-                title="Close terminal (SIGTERM)"
+                title={i18nT("auto.close_terminal_sigterm", undefined, "Close terminal (SIGTERM)")}
               >
                 <Icon path={mdiClose} size={0.45} />
               </button>

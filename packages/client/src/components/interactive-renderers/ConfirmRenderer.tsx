@@ -5,6 +5,7 @@ import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { AnsweredOption } from "./AnsweredOption.js";
+import { t as i18nT } from "../../lib/i18n";
 
 export function ConfirmRenderer({ params, status, result, onRespond, onCancel }: InteractiveRendererProps) {
   const title = params.title as string;
@@ -31,8 +32,8 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           <span className="text-[var(--text-primary)] font-medium"><InlineMarkdown content={title} /></span>
         </div>
         <div className="flex gap-2 ml-6">
-          <AnsweredOption title="Yes" picked={!!confirmed} />
-          <AnsweredOption title="No" picked={!confirmed} />
+          <AnsweredOption title={i18nT("auto.yes", undefined, "Yes")} picked={!!confirmed} />
+          <AnsweredOption title={i18nT("auto.no", undefined, "No")} picked={!confirmed} />
         </div>
       </div>
     );
@@ -52,19 +53,19 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
           onClick={() => onRespond({ confirmed: true })}
           className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors"
         >
-          Yes
+          {i18nT("auto.yes", undefined, "Yes")}
         </button>
         <button
           onClick={() => onRespond({ confirmed: false })}
           className="px-3 py-1 text-xs rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
         >
-          No
+          {i18nT("auto.no", undefined, "No")}
         </button>
         <button
           onClick={onCancel}
           className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
         >
-          Cancel
+          {i18nT("auto.cancel", undefined, "Cancel")}
         </button>
       </div>
     </div>

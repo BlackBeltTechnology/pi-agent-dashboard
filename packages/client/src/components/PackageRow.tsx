@@ -23,6 +23,7 @@ import {
 } from "@mdi/js";
 import type { SourceType } from "../lib/package-classifier.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
+import { t as i18nT } from "../lib/i18n";
 
 export interface PackageRowProps {
 	displayName: string;
@@ -177,7 +178,7 @@ export function PackageRow({
 							<Icon path={mdiCheckCircle} size={0.45} className="text-green-500" />
 							{currentVersion}
 							{latestVersion === null && (
-								<span className="italic">(registry unreachable)</span>
+								<span className="italic">{i18nT("auto.registry_unreachable", undefined, "(registry unreachable)")}</span>
 							)}
 						</span>
 					) : null}
@@ -215,7 +216,7 @@ export function PackageRow({
 							data-testid={testId ? `${testId}-update` : undefined}
 						>
 							{busy ? <Icon path={mdiLoading} size={0.45} spin /> : <Icon path={mdiArrowUpBold} size={0.45} />}
-							Update
+							{i18nT("auto.update", undefined, "Update")}
 						</button>
 					)}
 					{hasMenu && (
@@ -224,7 +225,7 @@ export function PackageRow({
 								ref={menuTriggerRef}
 								onClick={() => setMenuOpen((v) => !v)}
 								className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-								title="More actions"
+								title={i18nT("auto.more_actions", undefined, "More actions")}
 								data-testid={testId ? `${testId}-menu` : undefined}
 							>
 								<Icon path={mdiDotsVertical} size={0.55} />
@@ -253,7 +254,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
 											onClick={() => { setMenuOpen(false); onViewReadme(); }}
 										>
-											View README
+											{i18nT("auto.view_readme", undefined, "View README")}
 										</button>
 									)}
 									{onReset && (
@@ -261,7 +262,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
 											onClick={() => { setMenuOpen(false); onReset(); }}
 										>
-											Reset (reinstall)
+											{i18nT("auto.reset_reinstall", undefined, "Reset (reinstall)")}
 										</button>
 									)}
 									{canUninstall && onUninstall && (
@@ -269,7 +270,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-red-400/10 text-red-400"
 											onClick={() => { setMenuOpen(false); onUninstall(); }}
 										>
-											Uninstall
+											{i18nT("auto.uninstall", undefined, "Uninstall")}
 										</button>
 									)}
 								</div>

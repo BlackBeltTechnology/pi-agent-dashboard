@@ -6,6 +6,7 @@ import type { InteractiveRendererProps } from "./types.js";
 import { InlineMarkdown } from "./InlineMarkdown.js";
 import { parseOption, isCancelOption } from "./parseOption.js";
 import { InputComposer } from "./InputComposer.js";
+import { t as i18nT } from "../../lib/i18n";
 
 /**
  * BatchRenderer — renders a `batch` ask_user request as a single wizard card:
@@ -58,8 +59,8 @@ function answerToText(q: SubQuestion, a: Answer | undefined): React.ReactNode {
         <Icon path={mdiImageMultiple} size={0.5} />+{imgCount}
       </span>
     ) : null;
-    if (a.value === "" && imgCount === 0) return <span className="text-[var(--text-tertiary)] italic">(left blank)</span>;
-    return <span>{a.value === "" ? <span className="text-[var(--text-tertiary)] italic">(no text)</span> : a.value}{pill}</span>;
+    if (a.value === "" && imgCount === 0) return <span className="text-[var(--text-tertiary)] italic">{i18nT("auto.left_blank", undefined, "(left blank)")}</span>;
+    return <span>{a.value === "" ? <span className="text-[var(--text-tertiary)] italic">{i18nT("auto.no_text", undefined, "(no text)")}</span> : a.value}{pill}</span>;
   }
   return null;
 }
@@ -169,7 +170,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
       <div className="px-4 py-4">
         {onReview ? (
           <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium text-[var(--text-primary)] mb-1">Review your answers</div>
+            <div className="text-sm font-medium text-[var(--text-primary)] mb-1">{i18nT("auto.review_your_answers", undefined, "Review your answers")}</div>
             {questions.map((q, i) => (
               <ReviewRow
                 key={i}
@@ -196,14 +197,14 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
             onClick={() => setStep((s) => s - 1)}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)] transition-colors"
           >
-            ← Back
+            {i18nT("auto.back_2", undefined, "← Back")}
           </button>
         ) : (
           <button
             onClick={onCancel}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
           >
-            Cancel
+            {i18nT("auto.cancel", undefined, "Cancel")}
           </button>
         )}
         <div className="flex-1" />
@@ -212,7 +213,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
             onClick={() => onRespond({ answers })}
             className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors inline-flex items-center gap-1"
           >
-            <Icon path={mdiCheck} size={0.5} /> Submit all {questions.length}
+            <Icon path={mdiCheck} size={0.5} /> {i18nT("auto.submit_all", undefined, "Submit all")} {questions.length}
           </button>
         ) : (
           <button
@@ -220,7 +221,7 @@ export function BatchRenderer({ params, status, result, onRespond, onCancel }: I
             disabled={!canAdvance}
             className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
           >
-            Next →
+            {i18nT("auto.next", undefined, "Next →")}
           </button>
         )}
       </div>
@@ -250,7 +251,7 @@ function ReviewRow({
       </div>
       {onEdit && (
         <button onClick={onEdit} className="text-[11px] text-blue-400 hover:text-blue-300 self-center shrink-0">
-          Edit
+          {i18nT("auto.edit", undefined, "Edit")}
         </button>
       )}
     </div>

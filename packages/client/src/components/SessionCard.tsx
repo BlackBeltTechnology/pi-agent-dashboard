@@ -44,6 +44,7 @@ import { SessionSubcard } from "./SessionSubcard.js";
 import { CwdGonePill } from "./CwdGonePill.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
+import { t as i18nT } from "../lib/i18n";
 
 /**
  * @param hasWidgetBarPrompt true when the session has a pending PromptBus
@@ -70,13 +71,13 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
 
   if (session.resuming) {
-    return <span className="text-yellow-400">Resuming…</span>;
+    return <span className="text-yellow-400">{i18nT("auto.resuming", undefined, "Resuming…")}</span>;
   }
 
   if (session.status === "ended") return null;
 
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
-    return <span className="text-purple-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> Waiting for input</span>;
+    return <span className="text-purple-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
   }
 
   if (session.currentTool) {
@@ -84,11 +85,11 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   }
 
   if (session.status === "streaming") {
-    return <span className="text-green-400">Thinking…</span>;
+    return <span className="text-green-400">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
   }
 
   if (session.status === "idle" || session.status === "active") {
-    return <span className="text-[var(--text-tertiary)]">Waiting for input</span>;
+    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
   }
 
   return null;
@@ -245,7 +246,7 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
-          {noGitRepo && <span className="text-[10px]">Init git</span>}
+          {noGitRepo && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
         </button>
       </div>
     );
@@ -256,7 +257,7 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
       <button
         onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
         className="flex items-center gap-1 hover:text-blue-400 transition-colors"
-        title="Switch branch"
+        title={i18nT("auto.switch_branch", undefined, "Switch branch")}
         data-testid="git-branch-btn"
       >
         <Icon path={mdiSourceBranch} size={0.5} />
@@ -665,7 +666,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5 flex-shrink-0"
-            title="Rename session"
+            title={i18nT("auto.rename_session", undefined, "Rename session")}
           >
             <Icon path={mdiPencilOutline} size={0.45} />
           </button>
@@ -681,7 +682,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onUnhide(session.id); }}
             className="text-[var(--text-tertiary)] hover:text-green-400 p-0.5 flex-shrink-0"
-            title="Show session"
+            title={i18nT("auto.show_session", undefined, "Show session")}
             data-testid="session-unhide-btn"
           >
             <Icon path={mdiEyeOutline} size={0.45} />
@@ -690,7 +691,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onHide(session.id); }}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-muted)] p-0.5 flex-shrink-0"
-            title="Hide session"
+            title={i18nT("auto.hide_session", undefined, "Hide session")}
             data-testid="session-hide-btn"
           >
             <Icon path={mdiEyeOffOutline} size={0.45} />
@@ -733,7 +734,7 @@ export function SessionCard({
                 className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 title={session.cwdMissing ? "session's directory no longer exists" : "Resume session (continue same session)"}
               >
-                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />Resume
+                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("auto.resume", undefined, "Resume")}
               </button>
             )}
             <button
@@ -742,7 +743,7 @@ export function SessionCard({
               className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
               title={session.cwdMissing ? "session's directory no longer exists" : "Fork session (new session from this point)"}
             >
-              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />Fork
+              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("auto.fork", undefined, "Fork")}
             </button>
           </>
         )}
@@ -757,7 +758,7 @@ export function SessionCard({
             title={session.cwdMissing ? "session's directory no longer exists" : "+Session clean sibling in same folder"}
             data-testid="session-card-spawn-sibling"
           >
-            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />Session
+            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("auto.session", undefined, "Session")}
           </button>
         )}
         {/* +Worktree — create git worktree (if needed) + spawn session inside
@@ -773,7 +774,7 @@ export function SessionCard({
             title={session.cwdMissing ? "session's directory no longer exists" : "Create git worktree + spawn session inside it"}
             data-testid="session-card-spawn-worktree"
           >
-            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />Worktree
+            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("auto.worktree", undefined, "Worktree")}
           </button>
         )}
       </div>
@@ -1013,7 +1014,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
             className="bg-[var(--bg-secondary)] rounded-t-lg p-4 w-full max-w-lg border-t border-[var(--border-secondary)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">Background processes</h3>
+            <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">{i18nT("auto.background_processes", undefined, "Background processes")}</h3>
             <ProcessList
               processes={[...processes]}
               onKill={onKill}

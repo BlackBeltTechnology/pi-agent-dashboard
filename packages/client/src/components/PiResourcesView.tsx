@@ -9,6 +9,7 @@ import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { InstalledPackagesList } from "./InstalledPackagesList.js";
 import type { PiResource, PiResourceScope, PiPackageInfo, NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   cwd: string;
@@ -119,9 +120,9 @@ function MergedScopeSection({ title, scope, packages, onView }: {
           <>
             {hasLoose && (
               <>
-                <ResourceGroup label="Skills" resources={scope.skills} onView={onView} depth={1} />
-                <ResourceGroup label="Extensions" resources={scope.extensions} onView={onView} depth={1} />
-                <ResourceGroup label="Prompts" resources={scope.prompts} onView={onView} depth={1} />
+                <ResourceGroup label={i18nT("auto.skills", undefined, "Skills")} resources={scope.skills} onView={onView} depth={1} />
+                <ResourceGroup label={i18nT("auto.extensions", undefined, "Extensions")} resources={scope.extensions} onView={onView} depth={1} />
+                <ResourceGroup label={i18nT("auto.prompts", undefined, "Prompts")} resources={scope.prompts} onView={onView} depth={1} />
               </>
             )}
             {contributingPackages.map((pkg) => (
@@ -161,12 +162,12 @@ function PackageItem({ pkg, onView }: { pkg: PiPackageInfo; onView: (r: PiResour
           )}
           {hasResources ? (
             <>
-              <ResourceGroup label="Skills" resources={pkg.resources.skills} onView={onView} depth={2} />
-              <ResourceGroup label="Extensions" resources={pkg.resources.extensions} onView={onView} depth={2} />
-              <ResourceGroup label="Prompts" resources={pkg.resources.prompts} onView={onView} depth={2} />
+              <ResourceGroup label={i18nT("auto.skills", undefined, "Skills")} resources={pkg.resources.skills} onView={onView} depth={2} />
+              <ResourceGroup label={i18nT("auto.extensions", undefined, "Extensions")} resources={pkg.resources.extensions} onView={onView} depth={2} />
+              <ResourceGroup label={i18nT("auto.prompts", undefined, "Prompts")} resources={pkg.resources.prompts} onView={onView} depth={2} />
             </>
           ) : (
-            <p className="text-[10px] text-[var(--text-muted)] italic" style={{ paddingLeft: "40px" }}>(no resources)</p>
+            <p className="text-[10px] text-[var(--text-muted)] italic" style={{ paddingLeft: "40px" }}>{i18nT("auto.no_resources", undefined, "(no resources)")}</p>
           )}
         </>
       )}
@@ -227,17 +228,17 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
           onClick={onBack}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
           data-testid="pi-resources-back"
-          title="Back"
+          title={i18nT("auto.back", undefined, "Back")}
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>
         <span className="text-sm font-medium text-[var(--text-secondary)] truncate">
-          Pi Resources: {dirName}
+          {i18nT("auto.pi_resources_2", undefined, "Pi Resources:")} {dirName}
         </span>
         <button
           onClick={refresh}
           className="ml-auto text-[var(--text-muted)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
-          title="Refresh"
+          title={i18nT("auto.refresh", undefined, "Refresh")}
           data-testid="pi-resources-refresh"
         >
           <Icon path={mdiRefresh} size={0.6} />
@@ -278,7 +279,7 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
               <div className="text-center py-8">
                 <p className="text-sm text-red-400 mb-2">{error}</p>
                 <button onClick={refresh} className="text-xs text-[var(--accent-primary)] hover:underline">
-                  Retry
+                  {i18nT("auto.retry", undefined, "Retry")}
                 </button>
               </div>
             )}
@@ -286,14 +287,14 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
             {data && (
               <>
                 <MergedScopeSection
-                  title="Local"
+                  title={i18nT("auto.local", undefined, "Local")}
                   scope={data.local}
                   packages={data.packages.filter((p) => p.scope === "local" || !p.scope)}
                   onView={handleView}
                 />
                 <div className="mb-4" data-testid="installed-packages-local-section">
                   <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide px-2 mb-1">
-                    Local Packages
+                    {i18nT("auto.local_packages", undefined, "Local Packages")}
                   </h4>
                   <InstalledPackagesList
                     scope="local"
@@ -306,14 +307,14 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
                   />
                 </div>
                 <MergedScopeSection
-                  title="Global"
+                  title={i18nT("auto.global", undefined, "Global")}
                   scope={data.global}
                   packages={data.packages.filter((p) => p.scope === "global")}
                   onView={handleView}
                 />
                 <div className="mb-4" data-testid="installed-packages-global-section">
                   <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide px-2 mb-1">
-                    Global Packages
+                    {i18nT("auto.global_packages", undefined, "Global Packages")}
                   </h4>
                   <InstalledPackagesList
                     scope="global"

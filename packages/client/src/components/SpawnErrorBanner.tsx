@@ -10,6 +10,7 @@
 import React from "react";
 import type { SpawnErrorDetail } from "../hooks/useMessageHandler.js";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface HintEntry {
   label: string;
@@ -101,7 +102,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
           {/* Stderr tail */}
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-red-400/70 hover:text-red-300">Pi stderr</summary>
+              <summary className="cursor-pointer text-red-400/70 hover:text-red-300">{i18nT("auto.pi_stderr", undefined, "Pi stderr")}</summary>
               <pre className="mt-1 text-[10px] text-red-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}
@@ -138,7 +139,7 @@ function TimeoutBanner({ detail, onDismiss }: Props) {
           <span className="font-medium">{label}</span>
           {stderr && (
             <details className="mt-1.5">
-              <summary className="cursor-pointer text-amber-400/70 hover:text-amber-300">Pi stderr</summary>
+              <summary className="cursor-pointer text-amber-400/70 hover:text-amber-300">{i18nT("auto.pi_stderr", undefined, "Pi stderr")}</summary>
               <pre className="mt-1 text-[10px] text-amber-400/60 whitespace-pre-wrap break-all max-h-32 overflow-y-auto font-mono">{stderr}</pre>
             </details>
           )}

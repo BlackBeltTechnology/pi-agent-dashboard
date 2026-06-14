@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { AttachAddon } from "@xterm/addon-attach";
 import "@xterm/xterm/css/xterm.css";
+import { t as i18nT } from "../lib/i18n";
 
 function getTerminalTheme(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
@@ -171,7 +172,7 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
         <button
           onClick={handleClose}
           className="text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1"
-          title="Close terminal (SIGTERM)"
+          title={i18nT("auto.close_terminal_sigterm", undefined, "Close terminal (SIGTERM)")}
         >
           <Icon path={mdiClose} size={0.6} />
         </button>

@@ -42,6 +42,7 @@ import { RECOMMENDED_EXTENSIONS } from "@blackbelt-technology/pi-dashboard-share
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { PluginSettingsHost } from "./PluginSettingsHost.js";
 import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface RowState {
   expanded: boolean;
@@ -104,7 +105,7 @@ function StatusPill({ row }: { row: PluginRow }) {
   if (!status.loaded) {
     return (
       <span className={`px-1.5 py-0.5 text-[10px] rounded ${WARN_BG} ${WARN_FG} border ${WARN_BORDER}`}>
-        not loaded
+        {i18nT("auto.not_loaded", undefined, "not loaded")}
       </span>
     );
   }
@@ -137,7 +138,7 @@ function CopyableErrorBlock({ text, testId }: { text: string; testId: string }) 
             /* clipboard denied — keep button visible */
           }
         }}
-        title="Copy error to clipboard"
+        title={i18nT("auto.copy_error_to_clipboard", undefined, "Copy error to clipboard")}
         className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border ${ERR_BORDER} hover:opacity-80`}
         data-testid={`${testId}-copy`}
       >
@@ -180,7 +181,7 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
           >
             <Icon path={mdiAlert} size={0.5} />
             <span>
-              requires pi extension{" "}
+              {i18nT("auto.requires_pi_extension", undefined, "requires pi extension")}{" "}
               <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
                 {name}
               </code>
@@ -192,7 +193,7 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
                 className={`px-2 py-0.5 rounded text-[10px] ${LINK_BG} ${LINK_BG_HOVER} ${LINK_FG} border ${LINK_BORDER}`}
                 data-testid={`install-piExtension-${name}`}
               >
-                Install
+                {i18nT("auto.install", undefined, "Install")}
               </button>
             ) : (
               <a
@@ -200,7 +201,7 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
                 className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
                 data-testid={`install-piExtension-link-${name}`}
               >
-                Install via Packages tab
+                {i18nT("auto.install_via_packages_tab", undefined, "Install via Packages tab")}
               </a>
             )}
           </div>
@@ -214,7 +215,7 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
         >
           <Icon path={mdiAlert} size={0.5} />
           <span>
-            requires binary on PATH:{" "}
+            {i18nT("auto.requires_binary_on_path", undefined, "requires binary on PATH:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
               {name}
             </code>
@@ -229,7 +230,7 @@ function MissingRequirementsBlock({ row }: { row: PluginRow }) {
         >
           <Icon path={mdiAlert} size={0.5} />
           <span>
-            requires service:{" "}
+            {i18nT("auto.requires_service", undefined, "requires service:")}{" "}
             <code className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
               {name}
             </code>
@@ -414,13 +415,12 @@ export function PluginsSection() {
       >
         <div className="max-w-md w-full mx-4 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded shadow-lg">
           <div className="px-4 py-3 border-b border-[var(--border-secondary)] text-sm font-medium text-[var(--text-primary)]">
-            Cascade required
+            {i18nT("auto.cascade_required", undefined, "Cascade required")}
           </div>
           <div className="px-4 py-3 text-sm text-[var(--text-secondary)] space-y-2">
             <p>
               {c.target ? "Enabling" : "Disabling"}{" "}
-              <strong>{c.displayName}</strong> will also {verb} the following
-              plugin{c.cascade.length > 1 ? "s" : ""}:
+              <strong>{c.displayName}</strong> {i18nT("auto.will_also", undefined, "will also")} {verb} {i18nT("auto.the_following_plugin", undefined, "the following\n              plugin")}{c.cascade.length > 1 ? "s" : ""}:
             </p>
             <ul className="list-disc pl-5 space-y-0.5 text-[var(--text-primary)]">
               {cascadeLabels.map((label, i) => (
@@ -440,7 +440,7 @@ export function PluginsSection() {
               className="px-3 py-1 rounded text-xs bg-[var(--bg-tertiary)] hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] border border-[var(--border-secondary)]"
               data-testid="plugins-cascade-cancel"
             >
-              Cancel
+              {i18nT("auto.cancel", undefined, "Cancel")}
             </button>
             <button
               type="button"
@@ -461,7 +461,7 @@ export function PluginsSection() {
   }
 
   if (loading) {
-    return <div className="text-sm text-[var(--text-muted)]">Loading plugins…</div>;
+    return <div className="text-sm text-[var(--text-muted)]">{i18nT("auto.loading_plugins", undefined, "Loading plugins…")}</div>;
   }
   if (error) {
     return (
@@ -481,7 +481,7 @@ export function PluginsSection() {
         >
           <Icon path={mdiRestart} size={0.6} />
           <span className="flex-1">
-            Plugin changes take effect after a server restart.
+            {i18nT("auto.plugin_changes_take_effect_after_a", undefined, "Plugin changes take effect after a server restart.")}
           </span>
           <button
             type="button"
@@ -501,10 +501,10 @@ export function PluginsSection() {
             className="px-3 py-4 text-sm text-[var(--text-muted)] border border-dashed border-[var(--border-secondary)] rounded"
             data-testid="plugins-empty-state"
           >
-            No plugins installed.
+            {i18nT("auto.no_plugins_installed", undefined, "No plugins installed.")}
             <span className="block mt-1 text-[11px] text-[var(--text-tertiary)]">
-              Plugins are discovered from the monorepo,{" "}
-              <code>~/.pi/dashboard/plugins/</code>, or the bundled set.
+              {i18nT("auto.plugins_are_discovered_from_the_monorepo", undefined, "Plugins are discovered from the monorepo,")}{" "}
+              <code>~/.pi/dashboard/plugins/</code>{i18nT("auto.or_the_bundled_set", undefined, ", or the bundled set.")}
             </span>
           </div>
         )}
@@ -565,7 +565,7 @@ export function PluginsSection() {
                 <div className="px-3 pb-2 flex flex-wrap items-center gap-1.5 text-[10px]">
                   {(row.dependsOn?.length ?? 0) > 0 && (
                     <>
-                      <span className="text-[var(--text-muted)]">depends on:</span>
+                      <span className="text-[var(--text-muted)]">{i18nT("auto.depends_on", undefined, "depends on:")}</span>
                       {row.dependsOn!.map((d) => (
                         <code
                           key={`d-${d}`}
@@ -579,7 +579,7 @@ export function PluginsSection() {
                   )}
                   {(row.dependents?.length ?? 0) > 0 && (
                     <>
-                      <span className="text-[var(--text-muted)] ml-2">required by:</span>
+                      <span className="text-[var(--text-muted)] ml-2">{i18nT("auto.required_by", undefined, "required by:")}</span>
                       {row.dependents!.map((d) => (
                         <code
                           key={`r-${d}`}
@@ -619,7 +619,7 @@ export function PluginsSection() {
                 >
                   <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] mb-2">
                     <Icon path={mdiCogOutline} size={0.5} />
-                    Plugin settings
+                    {i18nT("auto.plugin_settings", undefined, "Plugin settings")}
                   </div>
                   <PluginSettingsHost pluginId={row.id} />
                 </div>
