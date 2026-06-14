@@ -94,7 +94,7 @@ export interface OpenSpecBoardViewProps {
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
-  onReplaceProposal: (sessionId: string, accept: boolean, changeName: string) => void;
+  onReplaceProposal?: (sessionId: string, accept: boolean, changeName: string) => void;
   onBulkArchive: () => void;
   isGitRepo: boolean;
   gitWorktreeEnabled: boolean;
@@ -571,7 +571,7 @@ function ProposalCard(props: {
   onSendPrompt: (sessionId: string, text: string) => void;
   onAttachProposal: (sessionId: string, changeName: string) => void;
   onDetachProposal: (sessionId: string) => void;
-  onReplaceProposal: (sessionId: string, accept: boolean, changeName: string) => void;
+  onReplaceProposal?: (sessionId: string, accept: boolean, changeName: string) => void;
   onBulkArchive: () => void;
   allChanges: OpenSpecChange[];
   groups: OpenSpecGroup[];
@@ -708,7 +708,7 @@ function BoardSessionRow({
                   changes={allChanges}
                   onAttach={(name) => onAttachProposal(s.id, name)}
                   onDetach={() => onDetachProposal(s.id)}
-                  onReplaceProposal={(accept, name) => onReplaceProposal(s.id, accept, name)}
+                  onReplaceProposal={onReplaceProposal ? (accept, name) => onReplaceProposal(s.id, accept, name) : undefined}
                   onSendPrompt={(text) => onSendPrompt(s.id, text)}
                   onReadArtifact={onReadArtifact}
                   onBulkArchive={onBulkArchive}
