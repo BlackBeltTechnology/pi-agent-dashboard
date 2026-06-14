@@ -58,7 +58,7 @@ Node.js HTTP + WebSocket server that:
 - Persists global preferences (pinned directories, session order) in `~/.pi/dashboard/preferences.json`
 - Discovers historical sessions directly from disk via `SessionManager.list()` (DirectoryService)
 - Loads session events on demand directly from disk via `SessionManager.open()` (DirectoryService)
-- Polls OpenSpec CLI per directory every 30s, broadcasting changes to browsers (DirectoryService).
+- Polls OpenSpec CLI per directory every 60s, broadcasting changes to browsers (DirectoryService).
   - **Design-artifact override**: after CLI's per-change `status`, `buildOpenSpecData` post-processes `design` artifact: when CLI says `design: ready`, dashboard checks local fs evidence (R1: `^design.*\.md$` present; R2: `design/*.md` present; R3: `tasks.md` contains Markdown checkbox) + promotes `design.status` to `"done"` if any rule fires. **Promote-only + design-only** — never demotes, never touches other artifact ids, never promotes from `"blocked"`. Change-level `isComplete` re-derived locally; CLI `isComplete: true` never demoted. Same R1/R2/R3 mirrored in `.pi/skills/openspec-shared/scripts/effective-status.sh` so OpenSpec workflow skills + dashboard session-card buttons cannot disagree about next-ready artifact. See change: fix-openspec-design-detection.
 - Serves the built web client as static files (production) or proxies to Vite dev server (dev mode)
 - Writes per-session `.meta.json` sidecar files with dashboard state and cached stats
@@ -716,7 +716,7 @@ See change: add-worktree-lifecycle-actions.
 - Tuning fields below (`pollIntervalSeconds`, `maxConcurrentSpawns`, `changeDetection`, `jitterSeconds`) ignored at runtime when `false`. Values preserved.
 - Runtime-reconfigurable via `PUT /api/config`. Disable transition clears per-cwd `OpenSpecData` cache + broadcasts cleared payload `{ initialized: false, pending: false, changes: [] }` per cwd so client predicate `openspecInitialized === false && pending === false` collapses subcards uniformly. Same broadcast shape covers "no openspec/ dir" + "openspec.enabled === false".
 
-1. Server's DirectoryService polls `openspec` CLI for each known directory (union of pinned dirs + session cwds) at a **configurable interval** (`DashboardConfig.openspec.pollIntervalSeconds`, default 30 s, range 5–3600 s).
+1. Server's DirectoryService polls `openspec` CLI for each known directory (union of pinned dirs + session cwds) at a **configurable interval** (`DashboardConfig.openspec.pollIntervalSeconds`, default 60 s, range 5–3600 s). See change: optimize-openspec-poll-derive-artifacts-locally.
 2. OpenSpec data is keyed by directory (cwd), not by session — one poll per directory regardless of session count.
 3. Changes are broadcast to all connected browsers via `openspec_update { cwd, data }`.
 4. Browsers can request immediate refresh via `openspec_refresh { cwd }`. User-initiated refresh **bypasses the mtime gate** (force-mode) but still respects the concurrency cap — see *Refresh paths* below.
@@ -725,7 +725,7 @@ See change: add-worktree-lifecycle-actions.
 
 #### OpenSpec polling cost model
 
-A naive `for each cwd: list + for each change: status` fan-out explodes quickly: 4 pinned dirs with 63 total active changes → **67 `openspec` CLI spawns per 30 s tick**, each costing ~0.5 s user CPU just for Node + module load. On an 8-core host that produces a rectangular ~10 s plateau at 100 % CPU every cycle.
+A naive `for each cwd: list + for each change: status` fan-out explodes quickly: 4 pinned dirs with 63 total active changes → **67 `openspec` CLI spawns per 60 s tick**, each costing ~0.5 s user CPU just for Node + module load. On an 8-core host that produces a rectangular ~10 s plateau at 100 % CPU every cycle.
 
 The scheduler in `packages/server/src/directory-service.ts` applies four layers of throttling (all configurable under `DashboardConfig.openspec`):
 
@@ -739,7 +739,7 @@ Cache shape (per cwd): `{ listMtimeMs, listResult, changes: Map<name, { mtimeMs,
 Refresh paths split into two camps:
 
 - **User-initiated** (`openspec_refresh` WebSocket message → `refreshOpenSpec(cwd)`) **bypasses** the gate via `pollOne(cwd, true)`. The gate is heuristic; the CLI is authoritative. When the user clicks the refresh icon they expect fresh data, never silently-cached data — force-mode is the manual escape hatch for any future gate blind spot. Cost: `1 + N` spawns per click. Per-click is rare and the user is already waiting.
-- **Internal / periodic** (`pollDirectoryGated(cwd)`, `onDirectoryAdded(cwd)`, `handleOpenSpecBulkArchive` post-archive refresh) **honor** the gate via `pollOne(cwd, false)`. Post-archive refresh on a folder with N active changes used to cost `1 + N` spawns (when these paths went through the user-facing `refreshOpenSpec`); it now costs `1` (list) plus only the few status spawns whose artifact files actually moved.
+- **Internal / periodic** (`pollDirectoryGated(cwd)`, `onDirectoryAdded(cwd)`, `handleOpenSpecBulkArchive` post-archive refresh) **honor** the gate via `pollOne(cwd, false)`. Periodic path DERIVES per-artifact status from local files via `deriveArtifactStatus(changeDir, listEntry, probes)` (`packages/shared/src/openspec-poller.ts`) — no per-change `openspec status` spawn. Spawns at most `1` (`openspec list`) per cwd per tick, independent of change count (was `1 + N`). Derive rules: `proposal` done iff `proposal.md` exists; `design` done iff design evidence probe (R1/R2/R3); `specs` done iff ≥1 `specs/**/*.md` per specs probe; `tasks` done iff `totalTasks > 0` else `blocked`; `isComplete` true iff every artifact done. Parity test asserts derived status equals `buildOpenSpecData(runOpenSpecStatus(...))` artifact-for-artifact. Force-refresh still spawns `openspec status` per change (authoritative). See change: optimize-openspec-poll-derive-artifacts-locally.
 
 All paths still go through the semaphore, so a refresh-button storm cannot overload the host. See changes: `fix-openspec-mtime-gate-toctou` (current contract), `fix-openspec-mtime-gate-blind-spots` (file-aware gate).
 

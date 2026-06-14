@@ -33,6 +33,7 @@ import {
   createFsSpecsEvidenceProbe,
   type SpecsEvidenceProbe,
 } from "./openspec-specs-evidence.js";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const EMPTY_DATA: OpenSpecData = { initialized: false, changes: [] };
@@ -122,6 +123,50 @@ export function buildOpenSpecData(
   });
 
   return { initialized: true, changes };
+}
+
+/**
+ * Pure, local derivation of a change's per-artifact status WITHOUT spawning
+ * `openspec status`. Used on the periodic / gated poll path to replace the
+ * per-change CLI spawn (the spawn storm). Returns the same
+ * `{ artifacts, isComplete }` shape `runOpenSpecStatus` returns, so it flows
+ * through `buildOpenSpecData` unchanged.
+ *
+ * Rules (mirror raw-CLI semantics after `buildOpenSpecData`'s design/specs
+ * promote-only overrides are applied):
+ *   - `proposal`: `done` iff `proposal.md` exists, else `ready`.
+ *   - `design`:   `done` iff the design evidence probe (R1/R2/R3) fires, else `ready`.
+ *   - `specs`:    `done` iff ≥1 `specs/**\/*.md` per the specs evidence probe, else `ready`.
+ *   - `tasks`:    `done` iff `totalTasks > 0`, else `blocked`. The CLI keys the
+ *                 `tasks` artifact on whether tasks were authored, NOT on
+ *                 completion (a 0/21 change still reports `tasks: done`); it
+ *                 reports `blocked` when `totalTasks === 0`.
+ *   - `isComplete`: `true` iff every artifact is `done`.
+ *
+ * Artifact order matches the CLI: proposal, design, specs, tasks. Probes are
+ * injected so this is unit-testable without fs mocks, mirroring the
+ * `buildOpenSpecData` test style.
+ *
+ * See change: optimize-openspec-poll-derive-artifacts-locally.
+ */
+export function deriveArtifactStatus(
+  changeDir: string,
+  listEntry: { completedTasks: number; totalTasks: number },
+  probes: { design: DesignEvidenceProbe; specs: SpecsEvidenceProbe },
+): { artifacts: Array<{ id: string; status: string }>; isComplete: boolean } {
+  const proposalDone = existsSync(path.join(changeDir, "proposal.md"));
+  const designDone = evaluateLocalDesignSatisfaction(changeDir, probes.design);
+  const specsDone = evaluateLocalSpecsSatisfaction(changeDir, probes.specs);
+  const tasksAuthored = (listEntry.totalTasks ?? 0) > 0;
+
+  const artifacts = [
+    { id: "proposal", status: proposalDone ? "done" : "ready" },
+    { id: "design", status: designDone ? "done" : "ready" },
+    { id: "specs", status: specsDone ? "done" : "ready" },
+    { id: "tasks", status: tasksAuthored ? "done" : "blocked" },
+  ];
+  const isComplete = artifacts.every((a) => a.status === "done");
+  return { artifacts, isComplete };
 }
 
 /**

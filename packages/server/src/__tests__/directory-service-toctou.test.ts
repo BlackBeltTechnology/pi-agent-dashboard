@@ -146,34 +146,19 @@ describe("DirectoryService TOCTOU race (fix-openspec-mtime-gate-toctou)", () => 
     const sessionManager = createMockSessionManager();
     service = createDirectoryService(stateStore, sessionManager);
 
-    // First poll. The TOCTOU guard should detect the in-flight write and
-    // refuse to stamp the cache for change-a — so the next gated call must
-    // still spawn the CLI (no stale entry to short-circuit on).
+    // Force-refresh is the only path that spawns `openspec status`
+    // (optimize-openspec-poll-derive-artifacts-locally). The racy mock bumps
+    // tasks.md DURING the CLI call, so the TOCTOU guard detects the in-flight
+    // write and refuses to stamp change-a. The stale CLI status (tasks: ready)
+    // must therefore NOT be cached.
+    await service.refreshOpenSpec(cwd);
+
+    // A subsequent gated poll derives artifact status from local files. If the
+    // TOCTOU guard had failed and stamped the racy entry, this gated tick would
+    // gate-HIT and reuse the poisoned `tasks: ready`. Correct behavior: the
+    // entry was discarded, so the gated tick re-derives `tasks: done`
+    // (totalTasks > 0) from disk.
     await service.pollDirectoryGated(cwd);
-    (runOpenSpecList as any).mockClear();
-    (runOpenSpecStatus as any).mockClear();
-
-    // Now resolve the race: subsequent CLI calls return the post-write status.
-    (runOpenSpecStatus as any).mockImplementation(async () => ({
-      artifacts: [
-        { id: "proposal", status: "done" },
-        { id: "design", status: "done" },
-        { id: "specs", status: "done" },
-        { id: "tasks", status: "done" },
-      ],
-      isComplete: true,
-    }));
-
-    // Bump list-result so the list-step gate sees a change too (otherwise list
-    // would short-circuit on its own cached signal).
-    (runOpenSpecList as any).mockResolvedValue({ changes: [
-      { name: "change-a", status: "in-progress", completedTasks: 0, totalTasks: 1 },
-    ] });
-
-    await service.pollDirectoryGated(cwd);
-    // Status MUST have been re-spawned because the racy entry was discarded.
-    expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
-    expect((runOpenSpecStatus as any).mock.calls[0][1]).toBe("change-a");
     const data = service.getOpenSpecData(cwd);
     const ca = data?.changes.find((c) => c.name === "change-a");
     expect(ca?.artifacts.find((a) => a.id === "tasks")?.status).toBe("done");
@@ -256,16 +241,23 @@ describe("DirectoryService TOCTOU race (fix-openspec-mtime-gate-toctou)", () => 
     const sessionManager = createMockSessionManager();
     service = createDirectoryService(stateStore, sessionManager);
 
-    // Three poll ticks fire while authoring is mid-stream — each races and
-    // gets discarded. None of them should poison the cache with a stale
-    // status (e.g. tasks=ready) that future ticks would reuse.
-    await service.pollDirectoryGated(cwd);
-    await service.pollDirectoryGated(cwd);
-    await service.pollDirectoryGated(cwd);
+    // Three force-refreshes fire while authoring is mid-stream. Force-refresh
+    // is the only path that spawns `openspec status`
+    // (optimize-openspec-poll-derive-artifacts-locally); each races (the mock
+    // bumps tasks.md during the call) and gets discarded by the TOCTOU guard,
+    // so no stale status (e.g. tasks=ready) is ever stamped into the cache.
+    await service.refreshOpenSpec(cwd);
+    await service.refreshOpenSpec(cwd);
+    await service.refreshOpenSpec(cwd);
 
-    // Authoring done. The mock now returns the final "all done" state and
-    // does not bump tasks.md anymore (ffStep === 3 → last branch in the if).
-    // One more gated tick should converge the cache.
+    // Authoring completes: the remaining artifact files land on disk. tasks.md
+    // already carries a checkbox (design R3) and totalTasks > 0.
+    fs.writeFileSync(path.join(changesDir, "change-a", "proposal.md"), "## Why\n");
+    fs.mkdirSync(path.join(changesDir, "change-a", "specs", "cap"), { recursive: true });
+    fs.writeFileSync(path.join(changesDir, "change-a", "specs", "cap", "spec.md"), "## ADDED\n");
+
+    // A gated tick derives the converged all-done state from local files — the
+    // racy force-refreshes left no poisoned entry to gate-HIT on.
     await service.pollDirectoryGated(cwd);
 
     const data = service.getOpenSpecData(cwd);
@@ -297,7 +289,9 @@ describe("DirectoryService TOCTOU race (fix-openspec-mtime-gate-toctou)", () => 
       const stateStore = createMockPreferencesStore();
       const sessionManager = createMockSessionManager();
       service = createDirectoryService(stateStore, sessionManager);
-      await service.pollDirectoryGated(cwd);
+      // Force-refresh is the only path that spawns `openspec status` and can
+      // trigger the TOCTOU discard (optimize-openspec-poll-derive-artifacts-locally).
+      await service.refreshOpenSpec(cwd);
       expect(warnSpy).not.toHaveBeenCalled();
       service.stopPolling();
 
@@ -308,7 +302,7 @@ describe("DirectoryService TOCTOU race (fix-openspec-mtime-gate-toctou)", () => 
       // Reset file mtime so the next poll re-arms the race.
       fs.utimesSync(path.join(changesDir, "change-a", "tasks.md"), new Date(), new Date());
       service = createDirectoryService(createMockPreferencesStore(), createMockSessionManager());
-      await service.pollDirectoryGated(cwd);
+      await service.refreshOpenSpec(cwd);
       expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(warnSpy.mock.calls[0][0]).toMatch(/fix-openspec-mtime-gate-toctou.*change-a/);
     } finally {

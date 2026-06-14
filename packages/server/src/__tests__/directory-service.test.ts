@@ -415,7 +415,10 @@ describe("DirectoryService", () => {
       expect(runOpenSpecStatus).not.toHaveBeenCalled();
     });
 
-    it("mtime advance on one change runs status only for that change", async () => {
+    it("gated re-derivation never spawns status, even when one change's mtime advances", async () => {
+      // New contract (optimize-openspec-poll-derive-artifacts-locally): the
+      // periodic/gated path derives artifact status from local files. It never
+      // spawns `openspec status` per change — only force-refresh does.
       const { runOpenSpecList, runOpenSpecStatus } = await import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js");
       (runOpenSpecList as any).mockResolvedValue({ changes: [
         { name: "change-a", status: "in-progress", completedTasks: 1, totalTasks: 2 },
@@ -437,9 +440,8 @@ describe("DirectoryService", () => {
       await service.pollDirectoryGated(cwd);
       // List is gated by top-level mtime (unchanged) so it's skipped.
       expect(runOpenSpecList).not.toHaveBeenCalled();
-      // Status re-run exactly once, for change-a.
-      expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
-      expect((runOpenSpecStatus as any).mock.calls[0][1]).toBe("change-a");
+      // Status is NEVER spawned on the gated path — change-a is re-derived locally.
+      expect(runOpenSpecStatus).not.toHaveBeenCalled();
     });
 
     it("changeDetection: 'always' bypasses the gate", async () => {
@@ -458,7 +460,8 @@ describe("DirectoryService", () => {
 
       await service.pollDirectoryGated(cwd);
       expect(runOpenSpecList).toHaveBeenCalledTimes(1);
-      expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
+      // Gate bypassed → list re-runs, but status is still derived locally (0 spawns).
+      expect(runOpenSpecStatus).not.toHaveBeenCalled();
     });
 
     it("re-spawns list+status when tasks.md is edited in place (POSIX dir-mtime blind spot)", async () => {
@@ -500,10 +503,9 @@ describe("DirectoryService", () => {
 
       // List re-runs because the tasks.md file mtime is part of the list-step signal.
       expect(runOpenSpecList).toHaveBeenCalledTimes(1);
-      // Status re-runs only for change-a (its effective mtime advanced via tasks.md).
-      expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
-      expect((runOpenSpecStatus as any).mock.calls[0][1]).toBe("change-a");
-      // Cache reflects the new counter.
+      // Status is never spawned on the gated path; change-a is re-derived locally.
+      expect(runOpenSpecStatus).not.toHaveBeenCalled();
+      // Cache reflects the new counter (from the re-run list entry).
       const data = service.getOpenSpecData(cwd);
       const ca = data?.changes.find((c) => c.name === "change-a");
       expect(ca?.completedTasks).toBe(2);

@@ -26,7 +26,7 @@ describe("loadConfig — openspec poll block", () => {
     fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
     const cfg = loadConfig();
     expect(cfg.openspec).toEqual(DEFAULT_OPENSPEC_POLL);
-    expect(cfg.openspec.pollIntervalSeconds).toBe(30);
+    expect(cfg.openspec.pollIntervalSeconds).toBe(60);
     expect(cfg.openspec.maxConcurrentSpawns).toBe(3);
     expect(cfg.openspec.changeDetection).toBe("mtime");
     expect(cfg.openspec.jitterSeconds).toBe(5);
@@ -79,7 +79,7 @@ describe("loadConfig — openspec poll block", () => {
       openspec: { pollIntervalSeconds: "thirty", maxConcurrentSpawns: null, jitterSeconds: undefined },
     }));
     const cfg = loadConfig();
-    expect(cfg.openspec.pollIntervalSeconds).toBe(30);
+    expect(cfg.openspec.pollIntervalSeconds).toBe(60);
     expect(cfg.openspec.maxConcurrentSpawns).toBe(3);
     expect(cfg.openspec.jitterSeconds).toBe(5);
   });
@@ -147,7 +147,7 @@ describe("loadConfig — openspec.enabled (auto-hide-empty-session-subcards)", (
     const cfg = loadConfig();
     expect(cfg.openspec.enabled).toBe(false);
     // sibling fields keep their defaults
-    expect(cfg.openspec.pollIntervalSeconds).toBe(30);
+    expect(cfg.openspec.pollIntervalSeconds).toBe(60);
   });
 
   it("preserves explicit `true`", () => {

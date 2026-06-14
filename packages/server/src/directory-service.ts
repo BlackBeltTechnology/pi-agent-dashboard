@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   buildOpenSpecData,
+  deriveArtifactStatus,
   pollOpenSpecAsync,
   runOpenSpecList,
   runOpenSpecStatus,
@@ -389,6 +390,11 @@ export function createDirectoryService(
     const preCallMtimes = new Map<string, number | undefined>();
     const racyNames = new Set<string>();
 
+    // Per-change evidence probes for the local-derivation path (force === false).
+    // See change: optimize-openspec-poll-derive-artifacts-locally.
+    const designFactory = createFsProbeFactory(cwd);
+    const specsFactory = createFsSpecsProbeFactory(cwd);
+
     await Promise.all((listResult ?? []).map(async (c) => {
       // File-aware effective mtime: catches in-place edits to tasks.md /
       // proposal.md / design.md that POSIX dir-mtime misses. See change:
@@ -406,7 +412,18 @@ export function createDirectoryService(
         return;
       }
 
-      const status = await semaphore.run(() => runOpenSpecStatus(cwd, c.name));
+      // Periodic / gated path (force === false): derive per-artifact status
+      // from local files instead of spawning `openspec status` per change (the
+      // spawn storm). Force-refresh (force === true) keeps the authoritative
+      // CLI spawn. The TOCTOU mtime gate below is unchanged — derivation reads
+      // the same files the gate stats. See change:
+      // optimize-openspec-poll-derive-artifacts-locally.
+      const status = force
+        ? await semaphore.run(() => runOpenSpecStatus(cwd, c.name))
+        : deriveArtifactStatus(path.join(changesRoot, c.name), c, {
+            design: designFactory(c.name),
+            specs: specsFactory(c.name),
+          });
 
       // TOCTOU check. If any tracked artifact path was written between the
       // pre-call stat and now, the CLI's view of disk is stale relative to

@@ -99,7 +99,10 @@ export interface OpenSpecPollConfig {
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   enabled: true,
-  pollIntervalSeconds: 30,
+  // 60s baseline: even after local derivation kills the per-change spawn
+  // storm, a larger interval reduces churn for large change sets.
+  // See change: optimize-openspec-poll-derive-artifacts-locally.
+  pollIntervalSeconds: 60,
   maxConcurrentSpawns: 3,
   changeDetection: "mtime",
   jitterSeconds: 5,

@@ -24,17 +24,27 @@ Keep the CLI for `force=true` (user Refresh) as authoritative.
 deriveArtifactStatus(
   changeDir: string,
   listEntry: { completedTasks: number; totalTasks: number },
-  probes: { design: DesignProbe; specs: SpecsProbe },
-): { artifacts: Array<{ id: string; status: string }>; isComplete?: boolean }
+  probes: { design: DesignEvidenceProbe; specs: SpecsEvidenceProbe },
+): { artifacts: Array<{ id: string; status: string }>; isComplete: boolean }
 ```
 
-Artifact id → status rule:
+Artifact id → status rule (mirrors raw-CLI semantics after the existing
+`buildOpenSpecData` design/specs promote-only overrides are applied):
 - `proposal`: `done` iff `proposal.md` exists, else `ready`.
-- `tasks`: `done` iff `totalTasks > 0 && completedTasks === totalTasks`
-  (cross-checked against `parseTasksMarkdown` count for the parity test).
+- `tasks`: `done` iff `totalTasks > 0`, else `blocked`. (CLI keys the `tasks`
+  artifact on whether tasks were authored, NOT on completion — a 0/21 change
+  still reports `tasks: done`. `blocked` is the CLI's value when `totalTasks ===
+  0`.)
 - `design`: `done` iff design evidence probe (R1/R2/R3) satisfied, else `ready`.
 - `specs`: `done` iff ≥1 `specs/**/*.md` per specs evidence probe, else `ready`.
 - `isComplete`: `true` iff every artifact `done`.
+
+Artifact order matches the CLI: `proposal`, `design`, `specs`, `tasks`.
+
+Derivation produces the SAME shape `buildOpenSpecData` already emits today, so
+routing it through `buildOpenSpecData` leaves output byte-identical: the
+design/specs overrides are idempotent no-ops (they only promote `ready→done`
+when evidence exists, which derivation already did).
 
 Pure + probe-injected → unit-testable without fs mocks, mirroring the existing
 `buildOpenSpecData` style.

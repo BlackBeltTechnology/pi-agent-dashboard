@@ -179,10 +179,12 @@ describe("DirectoryService specs/** mtime watch set", () => {
     fs.writeFileSync(path.join(changeDir, "specs", "cap-a", "spec.md"), "## ADDED\n");
     bumpMtime(path.join(changeDir, "specs", "cap-a", "spec.md"));
 
-    // Second poll: gate must invalidate, runOpenSpecStatus must re-spawn,
-    // and the new state must be reflected.
+    // Second poll: gate must invalidate and the change is re-derived from
+    // local files. The gated path NEVER spawns `openspec status`
+    // (optimize-openspec-poll-derive-artifacts-locally) — the new specs file is
+    // picked up by the local specs-evidence probe.
     await service.pollDirectoryGated(cwd);
-    expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
+    expect(runOpenSpecStatus).not.toHaveBeenCalled();
     {
       const data = service.getOpenSpecData(cwd);
       const foo = data?.changes.find((c) => c.name === "foo");
@@ -226,8 +228,15 @@ describe("DirectoryService specs/** mtime watch set", () => {
     fs.writeFileSync(specPath, "v2");
     bumpMtime(specPath);
 
+    // Gate invalidates on the spec.md mtime bump and re-derives — no status
+    // spawn (optimize-openspec-poll-derive-artifacts-locally). specs stays done
+    // because the file still exists.
     await service.pollDirectoryGated(cwd);
-    expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
+    expect(runOpenSpecStatus).not.toHaveBeenCalled();
+    {
+      const data = service.getOpenSpecData(cwd);
+      expect(data?.changes[0].artifacts.find((a) => a.id === "specs")?.status).toBe("done");
+    }
   });
 
   it("deletion of specs/<cap> invalidates per-change cache", async () => {
@@ -268,8 +277,11 @@ describe("DirectoryService specs/** mtime watch set", () => {
     fs.rmSync(path.join(changeDir, "specs", "cap-a"), { recursive: true });
     bumpMtime(path.join(changeDir, "specs"));
 
+    // Gate invalidates on the specs/ deletion and re-derives — no status spawn
+    // (optimize-openspec-poll-derive-artifacts-locally). specs falls back to
+    // ready because no spec file remains.
     await service.pollDirectoryGated(cwd);
-    expect(runOpenSpecStatus).toHaveBeenCalledTimes(1);
+    expect(runOpenSpecStatus).not.toHaveBeenCalled();
     {
       const data = service.getOpenSpecData(cwd);
       expect(data?.changes[0].artifacts.find((a) => a.id === "specs")?.status).toBe("ready");

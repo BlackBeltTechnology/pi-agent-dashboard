@@ -115,7 +115,7 @@ describe("DirectoryService + watcher dedup", () => {
     fs.rmSync(tmpCwd, { recursive: true, force: true });
   });
 
-  it("two back-to-back watcher fires without mtime change cause at most one openspec status spawn", async () => {
+  it("two back-to-back watcher fires without mtime change cause at most one openspec list spawn (status never spawned)", async () => {
     // First call returns a single demo change; status returns a stub.
     runOpenSpecListMock.mockResolvedValue({
       changes: [{ name: "demo", status: "active", completedTasks: 0, totalTasks: 1 }],
@@ -137,10 +137,12 @@ describe("DirectoryService + watcher dedup", () => {
     const statusAfterFirst = runOpenSpecStatusMock.mock.calls.length;
     const listAfterFirst = runOpenSpecListMock.mock.calls.length;
     expect(listAfterFirst).toBeGreaterThanOrEqual(1);
-    expect(statusAfterFirst).toBeGreaterThanOrEqual(1);
+    // New contract (optimize-openspec-poll-derive-artifacts-locally): the gated
+    // path derives artifact status locally and never spawns `openspec status`.
+    expect(statusAfterFirst).toBe(0);
 
     // Now simulate two watcher fires back-to-back without modifying tasks.md.
-    // The mtime-gate should swallow both — no additional spawns.
+    // The mtime-gate should swallow both — no additional list spawns.
     await service.pollDirectoryGated(tmpCwd);
     await service.pollDirectoryGated(tmpCwd);
 
