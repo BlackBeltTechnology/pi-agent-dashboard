@@ -83,6 +83,21 @@ to transport and lands the emit on a path where `onChangeCallback` may be null.
 Open for reviewer override: if a future refactor unifies the three broadcast
 wrappers into one, P1 becomes strictly better and this should be revisited.
 
+### Implementation refinement (locked): single choke point at `pollDirectoryGated`
+
+All three broadcast wrappers — the periodic tick (`scheduleOpenSpecTick`),
+`onWatcherFired`, and the `onDirectoryAdded` service method — already `await
+pollDirectoryGated(cwd)`. The user-facing `refreshOpenSpec` does **not** (it
+calls `pollOne(cwd, true)` directly), and the only other caller, the
+post-bulk-archive refresh, is guarded by the `cache.data?.initialized === true`
+check (a populated change set is always `initialized:true`, even after archiving
+to zero changes). So a single `emitPendingIfDiscovered(cwd)` call at the top of
+`pollDirectoryGated` realizes P2's shared-helper intent with **one** touch
+point instead of three — eliminating the "easy to miss one" con the design
+flagged — while keeping `pollOne` pure. This is the anticipated
+"wrappers unified into one" case noted above, resolved toward a single helper
+rather than P1's inline emit.
+
 ## Risks
 
 - **Spinner stuck forever** if a `pending` emit is followed by no final

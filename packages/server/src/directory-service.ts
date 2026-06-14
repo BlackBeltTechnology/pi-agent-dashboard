@@ -576,6 +576,26 @@ export function createDirectoryService(
     }
   }
 
+  /**
+   * Broadcast the transitional `{ initialized:false, pending:true }` snapshot
+   * before the slow `openspec list` spawn, for any cwd whose
+   * `<cwd>/openspec/changes/` exists (cheap synchronous stat) but whose cache
+   * does not yet hold authoritative `initialized:true` data. Fires via the
+   * `onChangeCallback` installed by `startPolling` (null no-ops). All three
+   * broadcast wrappers — periodic tick, watcher-fired re-poll, and
+   * `onDirectoryAdded` — funnel through `pollDirectoryGated`, so this single
+   * call covers every path that can surface a newly-present openspec dir while
+   * `pollOne` stays pure (returns data only). The `initialized:true` guard
+   * suppresses repeats on steady-state ticks and the post-bulk-archive refresh.
+   * The final authoritative payload follows from each wrapper when the CLI
+   * returns. See change: emit-openspec-pending-from-poll.
+   */
+  function emitPendingIfDiscovered(cwd: string): void {
+    if (statMtimeOr(path.join(cwd, "openspec", "changes")) === undefined) return; // not pollable → no spinner
+    if (caches.get(cwd)?.data?.initialized === true) return; // already authoritative
+    onChangeCallback?.(cwd, { initialized: false, pending: true, changes: [], hasOpenspecDir: true });
+  }
+
   async function pollDirectoryGated(cwd: string): Promise<OpenSpecData> {
     // Master gate: when `openspec.enabled` is false, never spawn a CLI for the
     // periodic poll path either. See change: auto-hide-empty-session-subcards.
@@ -586,6 +606,7 @@ export function createDirectoryService(
       caches.set(cwd, cache);
       return cleared;
     }
+    emitPendingIfDiscovered(cwd);
     return pollOne(cwd, false);
   }
 

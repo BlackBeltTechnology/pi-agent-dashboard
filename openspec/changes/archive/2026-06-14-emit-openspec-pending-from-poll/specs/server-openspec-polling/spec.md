@@ -14,6 +14,8 @@ This requirement is independent of the cold-boot connect snapshot
 (`buildOpenSpecConnectSnapshot`). It SHALL apply to every poll path that can
 surface a newly-present openspec directory: new-cwd registration
 (`onDirectoryAdded`), the periodic poll tick, and the watcher-fired re-poll.
+These paths all funnel through `pollDirectoryGated`, so the transitional emit
+MAY be realized as a single helper at that choke point.
 The transitional emit closes the gap where a directory whose `openspec/` is
 created **after** the cwd is first registered (e.g. a delayed `openspec init`
 hook in a fresh worktree) would otherwise jump straight from "no data" to
