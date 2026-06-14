@@ -64,7 +64,7 @@ Rejected for this change because:
 |---|---|---|---|
 | First dashboard-spawned pi | yes | yes (once) | true |
 | Same pi, reattach after restart | scrubbed | no (already first-only) | true (captured) |
-| Keeper respawn of same session | scrubbed by keeper | no | true (via `PI_DASHBOARD_SPAWNED`/captured) |
+| Keeper respawn of same session | scrubbed by keeper | no | false (token-only capture); source stays `dashboard` via persisted `.meta.json` (server never downgrades) |
 | Subagent / nested `pi` child | scrubbed by parent bridge | no | **false** (correct — not dashboard-spawned) |
 | User-launched pi (no dashboard) | absent | no | false |
 

@@ -318,6 +318,8 @@ The bridge SHALL determine `dashboardSpawned` by capturing `!!process.env.PI_DAS
 
 This decouples the persistent "was I dashboard-spawned?" signal from the single-use token's lifetime, so scrubbing the token (to stop descendant/respawn leakage) does not regress `source: "dashboard"` labelling for the spawned process.
 
+The capture-once boolean is derived from the SINGLE-USE token ONLY, never from `PI_DASHBOARD_SPAWNED`. `PI_DASHBOARD_SPAWNED=1` is inherited un-scrubbed by descendants (subagents, nested `pi`), so deriving `dashboardSpawned` from it would wrongly mark those children `true`. A keeper respawn therefore captures `dashboardSpawned: false` exactly like a descendant (the token is scrubbed in both cases); the respawned session nonetheless retains `source: "dashboard"` because the source was already stamped and persisted to `.meta.json` on the first launch, and `decideDashboardSource` only ever UPGRADES to `"dashboard"` — it never downgrades an existing dashboard session on a later register that lacks the signal.
+
 #### Scenario: dashboardSpawned stays true across registers after scrub
 - **WHEN** a dashboard-spawned pi's bridge completes its first register (token read + scrubbed)
 - **AND** the bridge later emits a second `session_register` (reattach or in-process change)
@@ -333,7 +335,8 @@ This decouples the persistent "was I dashboard-spawned?" signal from the single-
 - **WHEN** the rpc-keeper respawns pi after a crash/restart
 - **AND** the keeper has deleted `PI_DASHBOARD_SPAWN_TOKEN` from the respawn env but kept `PI_DASHBOARD_SPAWNED=1`
 - **THEN** the respawned pi's `session_register` SHALL NOT include `spawnToken`
-- **AND** the session SHALL retain `source: "dashboard"`
+- **AND** the respawned pi MAY report `dashboardSpawned: false` (token-only capture, scrubbed)
+- **AND** the session SHALL retain `source: "dashboard"` from the first-launch stamp persisted to `.meta.json`, because `decideDashboardSource` never downgrades an already-`"dashboard"` session
 
 ### Requirement: Keeper injects the spawn token into the first pi launch only
 `keeper.cjs spawnPi()` SHALL include `PI_DASHBOARD_SPAWN_TOKEN` in the spawned pi's environment only for the FIRST pi launch of the keeper. For every subsequent respawn within the same keeper, `spawnPi()` SHALL delete `PI_DASHBOARD_SPAWN_TOKEN` from the child environment so the consumed single-use token is never re-reported. The keeper SHALL continue to strip `PI_KEEPER_PI_ARGS` and `PI_KEEPER_PI_CMD`, and SHALL continue to set `PI_DASHBOARD_SPAWNED=1` on every (re)spawn.
