@@ -3,11 +3,14 @@ import { Icon } from "@mdi/react";
 import { mdiPalette, mdiCheck } from "@mdi/js";
 import { useThemeContext } from "./ThemeProvider.js";
 import { THEMES } from "../lib/themes.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 
 export function ThemePicker() {
   const { themeName, setThemeName, resolved } = useThemeContext();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
 
   // Close on outside click
   useEffect(() => {
@@ -24,6 +27,7 @@ export function ThemePicker() {
   return (
     <div className="relative" ref={ref} data-testid="theme-picker">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
         title="Color theme"
@@ -34,7 +38,10 @@ export function ThemePicker() {
 
       {open && (
         <div
-          className="absolute left-0 top-full mt-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-20 min-w-[160px] py-1"
+          style={{ maxHeight }}
+          className={`absolute left-0 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-20 min-w-[160px] py-1 ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
           data-testid="theme-picker-dropdown"
         >
           {THEMES.map((theme) => {

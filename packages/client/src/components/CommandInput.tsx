@@ -4,6 +4,7 @@ import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdi
 import type { CommandInfo, ImageContent, FileEntry, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ChatMessage } from "../lib/event-reducer.js";
 import { useImagePaste } from "../hooks/useImagePaste.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 import { extractRecentUrls } from "../lib/extract-urls.js";
 
@@ -199,6 +200,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const [dismissed, setDismissed] = useState<string | null>(null); // text value when Escape was pressed
   const prevDropdownKeyRef = useRef<string>(""); // tracks mode+filter to reset selectedIndex
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFileQueryRef = useRef<string | null>(null);
 
@@ -275,6 +277,13 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   const dropdownLength = dropdownMode === "command" ? filteredCommands.length
     : dropdownMode === "file" ? (fileItems.length + urlItems.length)
     : 0;
+
+  // Flip the autocomplete dropdown above/below the composer based on viewport
+  // space; clamp height so it never runs off-screen. See change:
+  // fix-popover-viewport-flip.
+  const { flipUp: ddFlipUp, maxHeight: ddMaxHeight } = usePopoverFlip(composerRef, {
+    open: dropdownMode !== null,
+  });
 
   // Reset selectedIndex when dropdown mode or filter changes
   const dropdownKey = dropdownMode ? `${dropdownMode}:${commandFilter}` : "";
@@ -513,10 +522,15 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // Explore dialog can reuse the exact same behavior.
 
   return (
-    <div className="border-t border-[var(--border-primary)] p-3 relative">
+    <div ref={composerRef} className="border-t border-[var(--border-primary)] p-3 relative">
       {/* Autocomplete dropdown */}
       {dropdownMode === "command" && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto shadow-lg z-10">
+        <div
+          style={{ maxHeight: ddMaxHeight }}
+          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
+            ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
           {filteredCommands.map((cmd, i) => (
             <button
               key={cmd.name}
@@ -537,7 +551,12 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       )}
 
       {dropdownMode === "file" && (
-        <div className="absolute bottom-full left-3 right-3 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto shadow-lg z-10">
+        <div
+          style={{ maxHeight: ddMaxHeight }}
+          className={`absolute left-3 right-3 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-xl overflow-y-auto shadow-lg z-10 ${
+            ddFlipUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
           {fileItems.map((file, i) => {
             const name = file.path.split("/").pop() ?? file.path;
             return (

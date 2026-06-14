@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { Icon } from "@mdi/react";
 import { mdiChevronDown, mdiLoading, mdiStar, mdiStarOutline, mdiBrain, mdiEye } from "@mdi/js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 
 // Per-browser view-state persistence (NOT favorites — those persist server-side).
 // See change: enrich-model-selector-capabilities-favorites.
@@ -95,6 +96,8 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
 
   const hasModels = !!models && models.length > 0;
   const favSet = useMemo(() => new Set(favorites ?? []), [favorites]);
@@ -241,6 +244,7 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
   return (
     <div ref={containerRef} className="relative" data-testid="model-selector">
       <button
+        ref={triggerRef}
         onClick={() => hasModels && setOpen(!open)}
         className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
           hasModels
@@ -264,8 +268,10 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
 
       {open && (
         <div
-          className="absolute bottom-full left-0 mb-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden"
-          style={{ width: "20rem" }}
+          className={`absolute left-0 flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg z-50 overflow-hidden ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+          style={{ width: "20rem", maxHeight }}
           data-testid="model-dropdown"
         >
           {/* ── Filters ── */}
@@ -310,7 +316,7 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
           </div>
 
           {/* ── Grouped list ── */}
-          <div ref={listRef} className="max-h-64 overflow-y-auto">
+          <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
             {flat.length === 0 ? (
               <div className="px-3 py-2 text-xs text-[var(--text-muted)]">No models match</div>
             ) : (

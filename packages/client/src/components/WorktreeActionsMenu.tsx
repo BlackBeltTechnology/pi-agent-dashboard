@@ -26,6 +26,7 @@ import { fetchTool } from "../lib/tools-api.js";
 import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
 import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -102,6 +103,8 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   const [sheetOpen, setSheetOpen] = useState(false);
   const [ghAvailable, setGhAvailable] = useState<boolean | undefined>(ghAvailableCache);
   const isMobile = useMobile();
+  const sheetTriggerRef = React.useRef<HTMLButtonElement>(null);
+  const { flipUp: sheetFlipUp, maxHeight: sheetMaxHeight } = usePopoverFlip(sheetTriggerRef, { open: sheetOpen });
 
   useEffect(() => {
     if (ghAvailable !== undefined) return;
@@ -221,6 +224,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
       {isMobile ? (
         <div className="relative">
           <button
+            ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
             title="Worktree actions"
@@ -232,7 +236,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           {sheetOpen && (
             <div
               data-testid="worktree-actions-mobile-sheet"
-              className="absolute top-full right-0 mt-1 z-50 flex flex-col gap-1 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px]"
+              style={{ maxHeight: sheetMaxHeight }}
+              className={`absolute right-0 z-50 flex flex-col gap-1 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded p-1 min-w-[140px] ${
+                sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"
+              }`}
             >
               {buttons.map(renderButton)}
             </div>

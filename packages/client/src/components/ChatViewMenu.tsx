@@ -13,6 +13,7 @@ import {
   type PartialDisplayPrefs,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
 
 type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
@@ -40,6 +41,8 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   const prefs = useDisplayPrefs(sessionId);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { flipUp, maxHeight } = usePopoverFlip(triggerRef, { open });
 
   useEffect(() => {
     if (!open) return;
@@ -92,6 +95,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
   return (
     <div ref={ref} className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
@@ -110,7 +114,13 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
         )}
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 z-30 w-64 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg p-2 text-xs">
+        <div
+          data-testid="chat-view-popover"
+          style={{ maxHeight }}
+          className={`absolute right-0 z-30 w-64 overflow-y-auto bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-lg p-2 text-xs ${
+            flipUp ? "bottom-full mb-1" : "top-full mt-1"
+          }`}
+        >
           <Row label="Token stats bar" value={prefs.tokenStatsBar} marked={isOverridden("tokenStatsBar")} onChange={(v) => patch({ tokenStatsBar: v })} />
           <Row label="Context usage bar" value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
           <Row label="Reasoning blocks" value={prefs.reasoning} marked={isOverridden("reasoning")} onChange={(v) => patch({ reasoning: v })} />

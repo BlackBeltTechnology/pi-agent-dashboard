@@ -22,6 +22,7 @@ import {
 	mdiSwapHorizontal,
 } from "@mdi/js";
 import type { SourceType } from "../lib/package-classifier.js";
+import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 
 export interface PackageRowProps {
 	displayName: string;
@@ -124,6 +125,8 @@ export function PackageRow({
 }: PackageRowProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const menuRef = useRef<HTMLDivElement | null>(null);
+	const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+	const { flipUp: menuFlipUp, maxHeight: menuMaxHeight } = usePopoverFlip(menuTriggerRef, { open: menuOpen });
 
 	useEffect(() => {
 		if (!menuOpen) return;
@@ -218,6 +221,7 @@ export function PackageRow({
 					{hasMenu && (
 						<div ref={menuRef} className="relative">
 							<button
+								ref={menuTriggerRef}
 								onClick={() => setMenuOpen((v) => !v)}
 								className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
 								title="More actions"
@@ -226,7 +230,12 @@ export function PackageRow({
 								<Icon path={mdiDotsVertical} size={0.55} />
 							</button>
 							{menuOpen && (
-								<div className="absolute right-0 top-full mt-1 z-10 min-w-[160px] rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs">
+								<div
+									style={{ maxHeight: menuMaxHeight }}
+									className={`absolute right-0 z-10 min-w-[160px] overflow-y-auto rounded border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-lg py-1 text-xs ${
+										menuFlipUp ? "bottom-full mb-1" : "top-full mt-1"
+									}`}
+								>
 									{showMove && (
 										<button
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
