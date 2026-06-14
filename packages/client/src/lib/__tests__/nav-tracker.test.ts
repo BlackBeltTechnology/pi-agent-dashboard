@@ -5,13 +5,14 @@
  * "is the predecessor a strictly-shallower in-app route?" — unanswerable from
  * the browser history alone.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   resetNavStack,
   recordNavigation,
   predecessor,
   popNav,
   handlePopState,
+  initNavTracker,
 } from "../nav-tracker.js";
 
 describe("nav-tracker", () => {
@@ -69,5 +70,26 @@ describe("nav-tracker", () => {
     recordNavigation("/session/A");
     handlePopState("/session/B");
     expect(predecessor()).toEqual({ url: "/session/A", depth: 1 });
+  });
+
+  it("initNavTracker keeps only one popstate listener across repeated calls", () => {
+    const added = vi.spyOn(window, "addEventListener");
+    const removed = vi.spyOn(window, "removeEventListener");
+    try {
+      const detach1 = initNavTracker();
+      // second init without running detach1 must remove the prior listener
+      const detach2 = initNavTracker();
+      const popstateAdds = added.mock.calls.filter(([e]) => e === "popstate").length;
+      const popstateRemoves = removed.mock.calls.filter(([e]) => e === "popstate").length;
+      expect(popstateAdds).toBe(2);
+      expect(popstateRemoves).toBe(1); // net one active listener
+      detach2();
+      detach1(); // stale detach is a no-op (listener already cleared)
+      const finalRemoves = removed.mock.calls.filter(([e]) => e === "popstate").length;
+      expect(finalRemoves).toBe(2); // exactly one extra remove from detach2
+    } finally {
+      added.mockRestore();
+      removed.mockRestore();
+    }
   });
 });

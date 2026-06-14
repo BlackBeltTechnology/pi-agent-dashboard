@@ -77,9 +77,26 @@ function currentUrl(): string {
   return window.location.pathname + window.location.search;
 }
 
-/** Attach the single popstate listener; returns a detach fn. */
+let activeListener: (() => void) | null = null;
+
+/**
+ * Attach the single popstate listener; returns a detach fn.
+ *
+ * Idempotent: a prior listener (e.g. from a StrictMode double-invoke that did
+ * not run its cleanup) is detached first so only one listener is ever active.
+ */
 export function initNavTracker(): () => void {
+  if (activeListener) {
+    window.removeEventListener("popstate", activeListener);
+    activeListener = null;
+  }
   const listener = () => handlePopState(currentUrl());
   window.addEventListener("popstate", listener);
-  return () => window.removeEventListener("popstate", listener);
+  activeListener = listener;
+  return () => {
+    if (activeListener === listener) {
+      window.removeEventListener("popstate", listener);
+      activeListener = null;
+    }
+  };
 }

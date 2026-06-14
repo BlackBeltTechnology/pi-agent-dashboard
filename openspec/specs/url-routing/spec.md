@@ -300,7 +300,8 @@ The `:artifactId` segment of `/folder/:encodedCwd/openspec/:changeName/:artifact
 - **WHEN** the user navigates proposal → design → specs within one change and presses browser Back twice
 - **THEN** the URL SHALL return first to the design artifact, then to the proposal artifact
 
-#### Scenario: Tab switching never triggers the cold-load fallback
-- **WHEN** the user switches artifact tabs any number of times and then presses the back button
-- **THEN** `window.history.back()` SHALL be used (history length is greater than 1) and the `navigate("/")` cold-load fallback SHALL NOT fire
+#### Scenario: Tab switching pushes history so browser Back walks artifacts
+- **WHEN** the user switches artifact tabs any number of times and then presses the **browser Back** button
+- **THEN** the browser's native `window.history.back()` SHALL step to the previously viewed artifact tab (history length is greater than 1)
+- **AND** the in-app depth-aware back button (`Back navigation button` requirement) SHALL instead move exactly one shell depth up via `computeBackTarget`, never landing on a sibling artifact tab
 
