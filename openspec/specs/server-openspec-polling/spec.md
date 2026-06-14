@@ -144,12 +144,17 @@ The gate SHALL use **file-aware effective mtime** rather than directory mtime al
 - **WHEN** `changeDetection` is `"always"`
 - **THEN** the server SHALL run `openspec list` and all `openspec status` invocations on every poll tick (matching pre-change behavior)
 
-#### Scenario: Force refresh uses the gate (not bypass)
+#### Scenario: Force refresh bypasses the gate
 
-- **WHEN** `openspec_refresh { cwd }` is received, or `refreshOpenSpec(cwd)` is called by server code, or `onDirectoryAdded(cwd)` runs
+- **WHEN** `openspec_refresh { cwd }` is received, or `refreshOpenSpec(cwd)` is called by server code (`force === true`)
+- **THEN** the change-detection gate SHALL be bypassed and the CLI SHALL be invoked authoritatively (the list step plus `openspec status` per change)
+- **AND** force-mode is the manual escape hatch when local derivation and the CLI disagree
+
+#### Scenario: Internal gated paths honor the gate
+
+- **WHEN** the periodic poll, `pollDirectoryGated(cwd)`, or `onDirectoryAdded(cwd)` runs (`force === false`)
 - **THEN** the change-detection gate SHALL be evaluated with the file-aware effective mtime
-- **AND** the CLI SHALL be invoked only for the list step and per-change steps whose effective mtime has advanced
-- **AND** the gate SHALL still be honored — force-mode is no longer required for correctness, because the gate now correctly reflects in-place file edits
+- **AND** the per-change step SHALL run only for changes whose effective mtime has advanced
 
 NOTE: This is a third delta on the same `Change-detection gate to avoid redundant CLI invocations` requirement. Prior deltas: `fix-openspec-mtime-gate-blind-spots` (added `tasks.md`/`proposal.md`/`design.md` to the watch set), `fix-openspec-mtime-gate-toctou` (added the post-call effective-mtime re-check). This delta extends the watch set to `specs/**` and is otherwise additive — every prior scenario remains in force.
 

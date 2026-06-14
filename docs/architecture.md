@@ -721,7 +721,7 @@ See change: add-worktree-lifecycle-actions.
 3. Changes are broadcast to all connected browsers via `openspec_update { cwd, data }`.
 4. Browsers can request immediate refresh via `openspec_refresh { cwd }`. User-initiated refresh **bypasses the mtime gate** (force-mode) but still respects the concurrency cap — see *Refresh paths* below.
 5. New directories (pinned or from new sessions) trigger immediate discovery + polling (eager; bypasses jitter + mtime gate).
-6. Each `OpenSpecChange` carries an optional `isComplete?: boolean` field forwarded straight through from `openspec status --change <name> --json`. It indicates artifact-authoring completeness only — orthogonal to the task tally — and never feeds `deriveChangeState`. The dashboard uses it solely to gate the **Archive anyway** escape hatch (see “OpenSpec session card”).
+6. Each `OpenSpecChange` carries optional `isComplete?: boolean`. Periodic/gated path re-derives `isComplete` locally from `deriveArtifactStatus` (true iff every derived artifact done). Force-refresh path takes `isComplete` from `openspec status --change <name> --json`. Indicates artifact-authoring completeness only — orthogonal to task tally — never feeds `deriveChangeState`. Dashboard uses it solely to gate **Archive anyway** escape hatch (see “OpenSpec session card”). See change: optimize-openspec-poll-derive-artifacts-locally.
 
 #### OpenSpec polling cost model
 

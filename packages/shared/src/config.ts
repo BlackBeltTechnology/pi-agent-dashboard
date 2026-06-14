@@ -87,7 +87,7 @@ export interface OpenSpecPollConfig {
    * field behave exactly as before. See change: auto-hide-empty-session-subcards.
    */
   enabled: boolean;
-  /** Poll interval in seconds. Default 30. Clamped to [5, 3600]. */
+  /** Poll interval in seconds. Default 60. Clamped to [5, 3600]. */
   pollIntervalSeconds: number;
   /** Max concurrent `openspec` CLI invocations across all dirs. Default 3. Clamped to [1, 16]. */
   maxConcurrentSpawns: number;
