@@ -129,9 +129,11 @@ describe("DirectoryService — poll-path pending emit", () => {
 
     const final = await service.pollDirectoryGated(tmpCwd);
 
-    // The transitional pending snapshot was broadcast via onChangeCallback...
-    expect(emits.some((e) => e.data.initialized === false && e.data.pending === true)).toBe(true);
-    // ...and the awaited return value is the authoritative initialized payload.
+    // `pollDirectoryGated` broadcasts exactly the transitional pending snapshot
+    // (the authoritative payload is the awaited return, broadcast by the wrapper).
+    expect(emits).toHaveLength(1);
+    expect(emits[0].data).toMatchObject({ initialized: false, pending: true });
+    // The pending emit precedes the final return value.
     expect(final.initialized).toBe(true);
   });
 
@@ -142,13 +144,16 @@ describe("DirectoryService — poll-path pending emit", () => {
     // First poll: changes/ absent → no pending, not initialized.
     const first = await service.pollDirectoryGated(tmpCwd);
     expect(first.initialized).toBe(false);
-    expect(emits.some((e) => e.data.pending === true)).toBe(false);
+    expect(emits).toHaveLength(0);
 
     // Dir appears later (delayed `openspec init` hook).
     mkChangesDir(tmpCwd);
     const second = await service.pollDirectoryGated(tmpCwd);
 
-    expect(emits.some((e) => e.data.initialized === false && e.data.pending === true)).toBe(true);
+    // Exactly one transitional pending, then the authoritative return — the
+    // section never jumps straight from no-data to initialized.
+    expect(emits).toHaveLength(1);
+    expect(emits[0].data).toMatchObject({ initialized: false, pending: true });
     expect(second.initialized).toBe(true);
   });
 
@@ -187,5 +192,35 @@ describe("DirectoryService — poll-path pending emit", () => {
     // ...then the terminal payload resolves !initialized && !pending → render nothing.
     expect(final.initialized).toBe(false);
     expect(final.pending).not.toBe(true);
+  });
+
+  it("3.4 repeated empty/failed tick still delivers the terminal clear (diff-guard not suppressed)", async () => {
+    vi.useFakeTimers();
+    try {
+      mkChangesDir(tmpCwd);
+      runOpenSpecListMock.mockResolvedValue(null); // persistent CLI failure → { initialized:false }
+      service = createDirectoryService(
+        createMockPrefs([tmpCwd]),
+        createMockSessions(),
+        { pollIntervalSeconds: 0.05, jitterSeconds: 0 },
+        { changeWatcher: createStubWatcher() as any },
+      );
+      service.startPolling((cwd, data) => emits.push({ cwd, data }));
+
+      // Two periodic ticks. Each one emits a transitional pending:true; the
+      // second tick's final payload equals the first's ({ initialized:false }),
+      // so the JSON-diff guard would suppress the clear without the
+      // pending-emitted flag — leaving the spinner stuck.
+      await vi.advanceTimersByTimeAsync(60);
+      await vi.advanceTimersByTimeAsync(60);
+
+      const pendingCount = emits.filter((e) => e.data.pending === true).length;
+      const clearCount = emits.filter((e) => e.data.initialized === false && e.data.pending !== true).length;
+      expect(pendingCount).toBeGreaterThanOrEqual(2);
+      // Every spinner shown is matched by a terminal clear.
+      expect(clearCount).toBe(pendingCount);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

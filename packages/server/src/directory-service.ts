@@ -264,6 +264,12 @@ export function createDirectoryService(
   let piResourcesTimer: ReturnType<typeof setInterval> | null = null;
   let onChangeCallback: ((cwd: string, data: OpenSpecData) => void) | null = null;
   const scheduledPhaseTimers = new Set<ReturnType<typeof setTimeout>>();
+  // cwds for which the current poll cycle broadcast a transitional
+  // `pending:true` that the diff-guarded wrappers must still clear, even when
+  // the final payload's JSON equals the prior cache (e.g. a second
+  // back-to-back empty/failed poll). Without this the spinner would stay stuck
+  // after the pending emit. See change: emit-openspec-pending-from-poll.
+  const pendingEmittedCwds = new Set<string>();
 
   // In-progress session loads for dedup
   const loadingSet = new Set<string>();
@@ -543,7 +549,11 @@ export function createDirectoryService(
       const prevJson = prev ? JSON.stringify(prev) : undefined;
       const next = await pollDirectoryGated(cwd);
       const nextJson = JSON.stringify(next);
-      if (nextJson !== prevJson) onChangeCallback?.(cwd, next);
+      // Force the broadcast when a transitional pending was emitted this cycle,
+      // so the terminal clear always reaches the spinner even if the final
+      // JSON matches the prior cache. See change: emit-openspec-pending-from-poll.
+      const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
+      if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next);
     } catch (err) {
       console.error(`[openspec-watcher] poll failed for ${cwd}:`, err);
     }
@@ -593,6 +603,7 @@ export function createDirectoryService(
   function emitPendingIfDiscovered(cwd: string): void {
     if (statMtimeOr(path.join(cwd, "openspec", "changes")) === undefined) return; // not pollable → no spinner
     if (caches.get(cwd)?.data?.initialized === true) return; // already authoritative
+    pendingEmittedCwds.add(cwd);
     onChangeCallback?.(cwd, { initialized: false, pending: true, changes: [], hasOpenspecDir: true });
   }
 
@@ -649,7 +660,10 @@ export function createDirectoryService(
             const prevJson = prev ? JSON.stringify(prev) : undefined;
             const next = await pollDirectoryGated(cwd);
             const nextJson = JSON.stringify(next);
-            if (nextJson !== prevJson) onChangeCallback?.(cwd, next);
+            // See change: emit-openspec-pending-from-poll — clear the spinner
+            // even when the final JSON equals the prior cache.
+            const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
+            if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next);
           } catch (err) {
             // Swallow — the next tick will retry.
             console.error(`[openspec-poll] tick failed for ${cwd}:`, err);
@@ -774,6 +788,11 @@ export function createDirectoryService(
         discoverSessions(cwd),
         pollDirectoryGated(cwd),
       ]);
+      // The caller (event-wiring `onDirectoryAdded`) broadcasts `openspecData`
+      // unconditionally, so any transitional pending emitted by the gated poll
+      // is already cleared here — drop the flag so the next tick doesn't fire a
+      // stale duplicate broadcast. See change: emit-openspec-pending-from-poll.
+      pendingEmittedCwds.delete(cwd);
       // Attach the per-cwd fs.watch immediately so subsequent edits to
       // tasks.md / proposal.md / design.md / specs/**/*.md trigger a
       // sub-second refresh. Mark only on success; failed attaches (missing
