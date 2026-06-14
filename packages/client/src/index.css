@@ -429,3 +429,19 @@ mark.markdown-search-highlight-active {
 @media (prefers-reduced-motion: reduce) {
   .openspec-stepper-node-current { animation: none; }
 }
+
+/* ── OpenSpec board responsive column layout ──────────────────
+   See change: redesign-openspec-board. Desktop = horizontal kanban
+   scroll; tablet (≤900px) wraps columns to rows; phone (≤540px)
+   stacks columns full-width and lets the top bar wrap. Ported from
+   mockups/board.html. */
+@media (max-width: 900px) {
+  .board-columns { flex-wrap: wrap; overflow-x: visible; }
+  .board-column { flex: 1 1 300px; max-width: none; max-height: none; }
+  .board-column-body { overflow-y: visible; }
+  .board-addgroup { flex: 1 1 100%; max-width: none; }
+}
+@media (max-width: 540px) {
+  .board-crumb-dim { display: none; }
+  .board-column { flex: 1 1 100%; }
+}

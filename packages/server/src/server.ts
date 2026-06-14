@@ -687,6 +687,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       cwd,
       groups: payload.groups,
       assignments: payload.assignments,
+      changeOrder: payload.changeOrder,
     });
     // Refresh OpenSpecData so the joined `groupId` field reflects the new
     // assignments on subscribers that don't consume `openspec_groups_update`

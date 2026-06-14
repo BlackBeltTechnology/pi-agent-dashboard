@@ -23,6 +23,8 @@ import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
 import { PiResourcesView } from "./components/PiResourcesView.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
+import { OpenSpecBoardView } from "./components/OpenSpecBoardView.js";
+import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { SessionHeader } from "./components/SessionHeader.js";
@@ -69,6 +71,7 @@ import { useReadmeFetch } from "./hooks/useReadmeFetch.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import {
   buildOpenSpecArchiveUrl,
+  buildOpenSpecBoardUrl,
   buildOpenSpecPreviewUrl,
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
@@ -333,6 +336,7 @@ export default function App() {
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
+  const [openspecBoardMatch, openspecBoardParams] = useRoute("/folder/:encodedCwd/openspec");
   const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [readmeMatch, readmeParams] = useRoute("/folder/:encodedCwd/readme");
@@ -356,6 +360,7 @@ export default function App() {
   const piResourceFileTitle = piResourceFileSearch.get("title") ?? "";
   // Decoded overlay cwds (memo-free; cheap base64url decode).
   const openspecPreviewCwd = openspecPreviewMatch && openspecPreviewParams ? decodeFolderPath(openspecPreviewParams.encodedCwd) : null;
+  const openspecBoardCwd = openspecBoardMatch && openspecBoardParams ? decodeFolderPath(openspecBoardParams.encodedCwd) : null;
   const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const readmeCwd = readmeMatch && readmeParams ? decodeFolderPath(readmeParams.encodedCwd) : null;
@@ -371,7 +376,7 @@ export default function App() {
   // (hook-outside-provider fix).
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
   const hasShellOverlayRoute =
-    !!openspecPreviewMatch || !!archiveMatch || !!specsMatch ||
+    !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
     !!readmeMatch || !!piResourcesMatch || !!diffMatch ||
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
@@ -423,7 +428,11 @@ export default function App() {
   // change: pluginize-flows-via-registry.
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   const [openspecMap, setOpenspecMap] = useState<Map<string, OpenSpecData>>(new Map());
-  const [openspecGroupsMap, setOpenspecGroupsMap] = useState<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string> }>>(new Map());
+  const [openspecGroupsMap, setOpenspecGroupsMap] = useState<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>(new Map());
+  // Worktree-spawn dialog for the OpenSpec board route (board is a top-level
+  // overlay; SessionList's own dialog isn't in scope here).
+  // See change: redesign-openspec-board.
+  const [boardWorktreeForChange, setBoardWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
   const [rolesMap, setRolesMap] = useState<Map<string, RoleInfo>>(new Map());
   const [spawnResult, setSpawnResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -1097,6 +1106,7 @@ export default function App() {
       onOpenPiResources={handleOpenPiResources}
       onOpenSpecs={(cwd) => navigate(buildOpenSpecSpecsUrl(cwd))}
       onOpenArchive={(cwd) => navigate(buildOpenSpecArchiveUrl(cwd))}
+      onOpenBoard={(cwd) => navigate(buildOpenSpecBoardUrl(cwd))}
       onViewReadme={handleViewReadme}
       onAttachProposal={handleAttachProposal}
       onDetachProposal={handleDetachProposal}
@@ -1171,6 +1181,36 @@ export default function App() {
       }
     />
   );
+
+  // Full-page OpenSpec board overlay element. Shared across the three overlay
+  // render sites (desktop + responsive layouts). See change: redesign-openspec-board.
+  const openspecBoardOverlay = openspecBoardMatch && openspecBoardCwd ? (
+    <OpenSpecBoardView
+      cwd={openspecBoardCwd}
+      data={openspecMap.get(openspecBoardCwd) ?? { initialized: false, pending: false, changes: [], hasOpenspecDir: false }}
+      sessions={Array.from(sessions.values())}
+      openspecMap={openspecMap}
+      groupsState={openspecGroupsMap.get(openspecBoardCwd)}
+      onBack={goBack}
+      onRefresh={() => handleOpenSpecRefresh(openspecBoardCwd)}
+      onReadArtifact={(changeName, artifactId) => handleReadArtifact(openspecBoardCwd, changeName, artifactId)}
+      onNavigateToSession={handleSelect}
+      onOpenSpecs={() => navigate(buildOpenSpecSpecsUrl(openspecBoardCwd))}
+      onOpenArchive={() => navigate(buildOpenSpecArchiveUrl(openspecBoardCwd))}
+      onSpawnSession={handleSpawnSession}
+      onSpawnAttachedWorktree={(c, changeName) => setBoardWorktreeForChange({ cwd: c, changeName })}
+      onResumeSession={handleResumeSession}
+      onHideSession={handleHideSession}
+      onUnhideSession={handleUnhideSession}
+      onSendPrompt={handleSendPromptToSession}
+      onAttachProposal={handleAttachProposal}
+      onDetachProposal={handleDetachProposal}
+      onBulkArchive={() => handleBulkArchive(openspecBoardCwd)}
+      isGitRepo={Array.from(sessions.values()).some((s) => s.cwd === openspecBoardCwd && !!s.gitBranch)}
+      gitWorktreeEnabled={gitWorktreeEnabled}
+      selectedId={selectedId}
+    />
+  ) : null;
 
   const connectionBanner = (
     <>
@@ -1314,7 +1354,9 @@ export default function App() {
           />
         );
       })()}
-      {archiveMatch && archiveCwd ? (
+      {openspecBoardMatch && openspecBoardCwd ? (
+        openspecBoardOverlay
+      ) : archiveMatch && archiveCwd ? (
         <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
       ) : specsMatch && specsCwd ? (
         <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
@@ -1704,6 +1746,8 @@ export default function App() {
               // We pass `_pluginRegistry` explicitly for the same reason the
               // hook does — see change: fix-flows-plugin-polish.
               <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
+            ) : openspecBoardMatch && openspecBoardCwd ? (
+              openspecBoardOverlay
             ) : archiveMatch && archiveCwd ? (
               <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
             ) : specsMatch && specsCwd ? (
@@ -1817,6 +1861,8 @@ export default function App() {
             // Pass `_pluginRegistry` explicitly (see comment on
             // `pluginOverlayMatched` declaration above).
             <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
+          ) : openspecBoardMatch && openspecBoardCwd ? (
+            openspecBoardOverlay
           ) : archiveMatch && archiveCwd ? (
             <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
           ) : specsMatch && specsCwd ? (
@@ -1894,6 +1940,21 @@ export default function App() {
         })()} onMessage={onMessage} />}
         {tunnelSetupMatch && <ZrokInstallGuide onBack={() => navigate("/")} />}
       </div>
+      {boardWorktreeForChange && (
+        <WorktreeSpawnDialog
+          cwd={boardWorktreeForChange.cwd}
+          initialBranch={`os/${boardWorktreeForChange.changeName}`}
+          attachProposal={boardWorktreeForChange.changeName}
+          onCancel={() => setBoardWorktreeForChange(null)}
+          onSpawnStart={(c) => addSpawningCwd(c)}
+          onSpawnAbort={(c) => clearSpawningCwd(c)}
+          onSpawn={(path, opts) => {
+            const placeholderCwd = boardWorktreeForChange.cwd;
+            setBoardWorktreeForChange(null);
+            handleSpawnSession(path, opts?.attachProposal, { ...opts, placeholderCwd });
+          }}
+        />
+      )}
       {pinDialogOpen && (
         <DialogPortal>
           <PinDirectoryDialog

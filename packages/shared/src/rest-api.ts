@@ -680,3 +680,14 @@ export interface SetOpenSpecGroupAssignmentRequest {
   groupId: string | null;
 }
 export type SetOpenSpecGroupAssignmentResponse = ApiResponse<void>;
+
+/** PUT `/api/openspec/groups/change-order?cwd=` — persist the manual ordering
+ *  of changes within one group (or the implicit Ungrouped column).
+ *  See change: redesign-openspec-board. */
+export interface SetOpenSpecChangeOrderRequest {
+  /** Target group id, or `OPENSPEC_UNGROUPED_KEY` for Ungrouped. */
+  groupId: string;
+  /** Ordered list of `changeName` for this group. */
+  order: string[];
+}
+export type SetOpenSpecChangeOrderResponse = ApiResponse<void>;

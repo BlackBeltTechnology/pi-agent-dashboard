@@ -53,7 +53,7 @@ export interface MessageHandlerSetters {
   // pluginize-flows-via-registry.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
-  setOpenspecGroupsMap: React.Dispatch<React.SetStateAction<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string> }>>>;
+  setOpenspecGroupsMap: React.Dispatch<React.SetStateAction<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>>;
   setModelsMap: React.Dispatch<React.SetStateAction<Map<string, ModelInfo[]>>>;
   setRolesMap: React.Dispatch<React.SetStateAction<Map<string, RoleInfo>>>;
   setSpawnResult: React.Dispatch<React.SetStateAction<{ success: boolean; message: string } | null>>;
@@ -379,7 +379,7 @@ export function useMessageHandler(
       case "openspec_groups_update":
         setOpenspecGroupsMap((prev) => {
           const next = new Map(prev);
-          next.set(msg.cwd, { groups: msg.groups, assignments: msg.assignments });
+          next.set(msg.cwd, { groups: msg.groups, assignments: msg.assignments, changeOrder: msg.changeOrder });
           return next;
         });
         break;

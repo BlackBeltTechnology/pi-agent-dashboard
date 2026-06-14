@@ -536,7 +536,20 @@ export interface OpenSpecGroupsFile {
   groups: OpenSpecGroup[];
   /** `changeName` → `groupId`. Unassigned changes have no entry. */
   assignments: Record<string, string>;
+  /**
+   * Persisted manual ordering of changes within each group. Key = `groupId`
+   * (or `OPENSPEC_UNGROUPED_KEY` for the implicit Ungrouped column); value =
+   * ordered list of `changeName`. Absent groups/changes fall back to the
+   * deterministic default sort (in-progress → complete → name). Optional for
+   * backward compatibility with files written before this field existed.
+   * See change: redesign-openspec-board.
+   */
+  changeOrder?: Record<string, string[]>;
 }
+
+/** Sentinel `groupId` key for the implicit Ungrouped column in
+ *  `OpenSpecGroupsFile.changeOrder`. See change: redesign-openspec-board. */
+export const OPENSPEC_UNGROUPED_KEY = "__ungrouped__" as const;
 
 /**
  * Global OpenSpec workflow configuration — the user's enabled commands

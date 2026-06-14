@@ -747,6 +747,16 @@ Live reconfiguration: `PUT /api/config` with an `openspec` block calls `director
 
 Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard...`) emits one line per tick with dir count, queue size, and wall time. Any tick over 5 s logs a WARN hinting at `pollIntervalSeconds` / `maxConcurrentSpawns` as knobs.
 
+### OpenSpec board
+
+Board route `/folder/:encodedCwd/openspec` (`OpenSpecBoardView`) replaces inline `FolderOpenSpecSection` accordion. `FolderOpenSpecSection` now slim nav entry `OpenSpec (N) →` to board route.
+
+Groups = columns. Always-present Ungrouped column. Proposal cards draggable (@dnd-kit): reassign group + reorder within group.
+
+Per-change order persisted in groups.json `changeOrder` keyed by groupId (`__ungrouped__` sentinel = `OPENSPEC_UNGROUPED_KEY`). Mutated via PUT `/api/openspec/groups/change-order` → `store.setChangeOrder`. Broadcast via `openspec_groups_update`. Ordering applied client-side by `orderChangesForGroup` (`openspec-board-order.ts`): persisted names first, unordered appended by `defaultChangeSort`, stale entries ignored.
+
+Worktree delta derived read-only from per-cwd OpenSpec poll. `deriveWorktreeProgress` (`openspec-board-worktree.ts`) reads worktree own OpenSpecData by `session.cwd`, computes `delta` = worktree-done minus main-done. No extra server poll.
+
 ### OpenSpec session card UI
 
 The attached-change row on every session card has four affordances driven by the polled `OpenSpecChange`:

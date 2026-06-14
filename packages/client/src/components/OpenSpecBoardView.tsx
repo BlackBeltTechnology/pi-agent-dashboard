@@ -1,0 +1,835 @@
+/**
+ * Full-page OpenSpec board (kanban). Replaces the inline accordion in
+ * `FolderOpenSpecSection`. Groups render as columns; changes render as
+ * draggable proposal cards carrying a lifecycle stepper, task progress, a
+ * session list (with per-session OpenSpec actions + worktree state), card
+ * actions, a filter bar, and a new-proposal dialog.
+ *
+ * Frontend design source: `openspec/changes/redesign-openspec-board/mockups/board.html`.
+ * See change: redesign-openspec-board.
+ */
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Icon } from "@mdi/react";
+import {
+  mdiArrowLeft,
+  mdiRefresh,
+  mdiArchiveOutline,
+  mdiFileDocumentOutline,
+  mdiPlus,
+  mdiCog,
+  mdiDragVertical,
+  mdiPlay,
+  mdiSourceBranchPlus,
+  mdiSourceFork,
+  mdiPlayCircleOutline,
+  mdiEyeOffOutline,
+  mdiEyeOutline,
+  mdiRobotOutline,
+  mdiDotsHorizontal,
+} from "@mdi/js";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  useDroppable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import type {
+  OpenSpecData,
+  OpenSpecChange,
+  OpenSpecGroup,
+  DashboardSession,
+} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { deriveChangeState, ChangeState, OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
+import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
+import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
+import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
+import { DialogPortal } from "./DialogPortal.js";
+import { TasksPopover } from "./TasksPopover.js";
+import { fetchGroups, createGroup, setAssignment, updateGroup, deleteGroup, setChangeOrder } from "../lib/openspec-groups-api.js";
+import { resolveGroupColor, GROUP_PALETTE } from "../lib/openspec-group-palette.js";
+import { orderChangesForGroup, computeReorder } from "../lib/openspec-board-order.js";
+import { deriveWorktreeProgress } from "../lib/openspec-board-worktree.js";
+import { sourceIcons, deriveDotColor, deriveIconStatusColor, pulseClassForStatus } from "../lib/session-status-visuals.js";
+import { selectBadgeTimestamp } from "../lib/session-card-time.js";
+import { formatRelativeTime, formatTokens } from "../lib/format.js";
+import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
+
+const UNGROUPED = OPENSPEC_UNGROUPED_KEY;
+
+type GroupsState = { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> };
+
+export interface OpenSpecBoardViewProps {
+  cwd: string;
+  data: OpenSpecData;
+  sessions: DashboardSession[];
+  /** Per-cwd OpenSpec data (worktree dirs keyed by session cwd) for worktree delta. */
+  openspecMap: Map<string, OpenSpecData>;
+  /** Externally-pushed groups state (from WS). Board fetches on mount as fallback. */
+  groupsState?: GroupsState;
+  onBack: () => void;
+  onRefresh: () => void;
+  onReadArtifact: (changeName: string, artifactId: string) => void;
+  onNavigateToSession: (sessionId: string) => void;
+  onOpenSpecs: () => void;
+  onOpenArchive: () => void;
+  /** Spawn a session attached to a change (+ optional worktree opts). */
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
+  onResumeSession: (sessionId: string, mode: "continue" | "fork") => void;
+  onHideSession: (sessionId: string) => void;
+  onUnhideSession: (sessionId: string) => void;
+  onSendPrompt: (sessionId: string, text: string) => void;
+  onAttachProposal: (sessionId: string, changeName: string) => void;
+  onDetachProposal: (sessionId: string) => void;
+  onBulkArchive: () => void;
+  isGitRepo: boolean;
+  gitWorktreeEnabled: boolean;
+  selectedId?: string;
+}
+
+const STATE_PILLS: Array<{ value: ChangeState | null; label: string }> = [
+  { value: null, label: "All" },
+  { value: ChangeState.PLANNING, label: "planning" },
+  { value: ChangeState.READY, label: "ready" },
+  { value: ChangeState.IMPLEMENTING, label: "implementing" },
+  { value: ChangeState.COMPLETE, label: "complete" },
+];
+
+type SessStatus = "live" | "waiting" | "ended";
+const SESS_PILLS: Array<{ value: SessStatus | null; label: string }> = [
+  { value: null, label: "Any" },
+  { value: "live", label: "Live" },
+  { value: "waiting", label: "Waiting" },
+  { value: "ended", label: "Ended" },
+];
+
+function sessStatus(s: DashboardSession): SessStatus {
+  if (s.status === "ended") return "ended";
+  if (s.status === "idle") return "waiting";
+  return "live";
+}
+
+const STATE_PILL_CLASS: Record<ChangeState, string> = {
+  [ChangeState.PLANNING]: "text-[var(--text-tertiary)] bg-[var(--bg-tertiary)]",
+  [ChangeState.READY]: "text-cyan-400 bg-cyan-500/12",
+  [ChangeState.IMPLEMENTING]: "text-yellow-400 bg-yellow-500/12",
+  [ChangeState.COMPLETE]: "text-green-400 bg-green-500/12",
+};
+
+export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
+  const {
+    cwd, data, sessions, openspecMap, groupsState, onBack, onRefresh, onReadArtifact,
+    onNavigateToSession, onOpenSpecs, onOpenArchive, onSpawnSession, onSpawnAttachedWorktree,
+    onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onAttachProposal,
+    onDetachProposal, onBulkArchive, isGitRepo, gitWorktreeEnabled, selectedId,
+  } = props;
+
+  const openspecConfig = useOpenSpecConfig(cwd);
+  const [local, setLocal] = useState<GroupsState>(groupsState ?? { groups: [], assignments: {}, changeOrder: {} });
+  const [tasksOpenFor, setTasksOpenFor] = useState<string | null>(null);
+  const [manageGroupId, setManageGroupId] = useState<string | null>(null);
+  const [proposalDialogGroup, setProposalDialogGroup] = useState<{ open: boolean; groupId: string } | null>(null);
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+
+  // Filters
+  const [query, setQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<ChangeState | null>(null);
+  const [sessFilter, setSessFilter] = useState<SessStatus | null>(null);
+
+  // Fetch groups on mount as fallback; sync external WS updates in.
+  useEffect(() => {
+    if (groupsState) { setLocal(groupsState); return; }
+    let cancelled = false;
+    fetchGroups(cwd).then((f) => {
+      if (!cancelled) setLocal({ groups: f.groups, assignments: f.assignments, changeOrder: f.changeOrder ?? {} });
+    }).catch(() => {/* tolerate */});
+    return () => { cancelled = true; };
+  }, [cwd, groupsState]);
+
+  const groups = useMemo(() => [...local.groups].sort((a, b) => a.order - b.order), [local.groups]);
+  const assignments = local.assignments;
+  const changeOrder = local.changeOrder ?? {};
+
+  const resolveGroupKey = useCallback((c: OpenSpecChange): string => {
+    const gid = assignments[c.name] ?? c.groupId ?? null;
+    return gid && groups.some((g) => g.id === gid) ? gid : UNGROUPED;
+  }, [assignments, groups]);
+
+  // Filtering ------------------------------------------------------
+  const q = query.trim().toLowerCase();
+  const sessionsForChange = useCallback(
+    (name: string) => sessions.filter((s) => s.attachedProposal === name),
+    [sessions],
+  );
+  const matchSession = useCallback((s: DashboardSession): boolean => {
+    if (sessFilter && sessStatus(s) !== sessFilter) return false;
+    if (q && !(s.name ?? "").toLowerCase().includes(q)) return false;
+    return true;
+  }, [sessFilter, q]);
+
+  const cardVisible = useCallback((c: OpenSpecChange): boolean => {
+    const sess = sessionsForChange(c.name);
+    if (q) {
+      const nameHit = c.name.toLowerCase().includes(q) || sess.some((s) => (s.name ?? "").toLowerCase().includes(q));
+      if (!nameHit) return false;
+    }
+    if (stateFilter && deriveChangeState(c) !== stateFilter) return false;
+    if (sessFilter && !sess.some((s) => sessStatus(s) === sessFilter)) return false;
+    return true;
+  }, [q, stateFilter, sessFilter, sessionsForChange]);
+
+  // Partition + order changes per column ---------------------------
+  const columns = useMemo(() => {
+    const visible = data.changes.filter(cardVisible);
+    const byKey = new Map<string, OpenSpecChange[]>();
+    for (const c of visible) {
+      const key = resolveGroupKey(c);
+      const list = byKey.get(key) ?? [];
+      list.push(c);
+      byKey.set(key, list);
+    }
+    const cols: Array<{ key: string; group: OpenSpecGroup | null; changes: OpenSpecChange[] }> = [];
+    for (const g of groups) {
+      cols.push({ key: g.id, group: g, changes: orderChangesForGroup(byKey.get(g.id) ?? [], changeOrder[g.id]) });
+    }
+    cols.push({ key: UNGROUPED, group: null, changes: orderChangesForGroup(byKey.get(UNGROUPED) ?? [], changeOrder[UNGROUPED]) });
+    return cols;
+  }, [data.changes, groups, changeOrder, cardVisible, resolveGroupKey]);
+
+  // DnD ------------------------------------------------------------
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const [activeDrag, setActiveDrag] = useState<{ type: "column" | "card"; id: string } | null>(null);
+
+  const persistGroupOrder = useCallback(async (ordered: OpenSpecGroup[]) => {
+    await Promise.all(ordered.map((g, i) => (g.order === i ? null : updateGroup(cwd, g.id, { order: i }))).filter(Boolean) as Promise<unknown>[]);
+  }, [cwd]);
+
+  const handleDragStart = useCallback((e: DragStartEvent) => {
+    const t = e.active.data.current?.type;
+    if (t === "column" || t === "card") setActiveDrag({ type: t, id: String(e.active.id) });
+  }, []);
+
+  const handleDragEnd = useCallback((e: DragEndEvent) => {
+    setActiveDrag(null);
+    const { active, over } = e;
+    if (!over) return;
+    const aType = active.data.current?.type as string | undefined;
+
+    // Column reorder (real groups only) -----------------------------
+    if (aType === "column") {
+      const fromId = String(active.id);
+      const overId = String(over.id);
+      if (fromId === overId) return;
+      const ids = groups.map((g) => g.id);
+      const from = ids.indexOf(fromId);
+      const to = ids.indexOf(overId);
+      if (from < 0 || to < 0) return;
+      const reordered = arrayMove(groups, from, to);
+      setLocal((prev) => ({ ...prev, groups: reordered.map((g, i) => ({ ...g, order: i })) }));
+      void persistGroupOrder(reordered);
+      return;
+    }
+
+    // Card move / reorder -------------------------------------------
+    if (aType === "card") {
+      const movedName = String(active.id);
+      const sourceKey = active.data.current?.groupKey as string;
+      const overType = over.data.current?.type as string | undefined;
+      const targetKey = overType === "card" ? (over.data.current?.groupKey as string) : String(over.id);
+      if (!targetKey) return;
+
+      const targetCol = columns.find((c) => c.key === targetKey);
+      const targetNames = (targetCol?.changes ?? []).map((c) => c.name).filter((n) => n !== movedName);
+      let insertIndex = targetNames.length;
+      if (overType === "card") {
+        const overName = String(over.id);
+        const idx = targetNames.indexOf(overName);
+        if (idx >= 0) insertIndex = idx; // drop before the hovered card
+      }
+
+      const groupChanged = sourceKey !== targetKey;
+      const newTargetOrder = computeReorder(
+        (targetCol?.changes ?? []).map((c) => c.name),
+        movedName,
+        insertIndex + ((targetCol?.changes ?? []).some((c) => c.name === movedName) && insertIndex > (targetCol?.changes ?? []).findIndex((c) => c.name === movedName) ? 1 : 0),
+      );
+
+      // Optimistic local update.
+      setLocal((prev) => {
+        const next: GroupsState = { ...prev, assignments: { ...prev.assignments }, changeOrder: { ...(prev.changeOrder ?? {}) } };
+        if (groupChanged) {
+          if (targetKey === UNGROUPED) delete next.assignments[movedName];
+          else next.assignments[movedName] = targetKey;
+          // prune from source order
+          const srcOrder = (prev.changeOrder?.[sourceKey] ?? columns.find((c) => c.key === sourceKey)?.changes.map((c) => c.name) ?? []).filter((n) => n !== movedName);
+          next.changeOrder![sourceKey] = srcOrder;
+        }
+        next.changeOrder![targetKey] = newTargetOrder;
+        return next;
+      });
+
+      // Persist.
+      void (async () => {
+        try {
+          if (groupChanged) {
+            await setAssignment(cwd, { changeName: movedName, groupId: targetKey === UNGROUPED ? null : targetKey });
+            const srcCol = columns.find((c) => c.key === sourceKey);
+            const srcOrder = (srcCol?.changes ?? []).map((c) => c.name).filter((n) => n !== movedName);
+            await setChangeOrder(cwd, { groupId: sourceKey, order: srcOrder });
+          }
+          await setChangeOrder(cwd, { groupId: targetKey, order: newTargetOrder });
+        } catch {/* tolerate; WS will reconcile */}
+      })();
+    }
+  }, [groups, columns, cwd, persistGroupOrder]);
+
+  // Group mutations ------------------------------------------------
+  const handleCreateGroup = useCallback(async (name: string, color: string) => {
+    const g = await createGroup(cwd, { name, color });
+    setLocal((prev) => ({ ...prev, groups: [...prev.groups, g] }));
+    return g;
+  }, [cwd]);
+  const handleUpdateGroup = useCallback(async (id: string, update: { name?: string; color?: string; order?: number }) => {
+    const g = await updateGroup(cwd, id, update);
+    setLocal((prev) => ({ ...prev, groups: prev.groups.map((x) => (x.id === id ? g : x)) }));
+  }, [cwd]);
+  const handleDeleteGroup = useCallback(async (id: string) => {
+    await deleteGroup(cwd, id);
+    setLocal((prev) => {
+      const trimmed: Record<string, string> = {};
+      for (const [k, v] of Object.entries(prev.assignments)) if (v !== id) trimmed[k] = v;
+      return { ...prev, groups: prev.groups.filter((g) => g.id !== id), assignments: trimmed };
+    });
+  }, [cwd]);
+
+  const folderName = cwd.split("/").filter(Boolean).pop() ?? cwd;
+  const manageGroup = manageGroupId ? groups.find((g) => g.id === manageGroupId) ?? null : null;
+
+  return (
+    <div className="flex flex-col h-full min-h-0 bg-[var(--bg-primary)]" data-testid="openspec-board">
+      {/* Top bar */}
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] sticky top-0 z-10 flex-wrap">
+        <button onClick={onBack} className="text-blue-400 hover:text-blue-300 text-[13px] flex items-center gap-1" data-testid="board-back">
+          <Icon path={mdiArrowLeft} size={0.6} /> Back
+        </button>
+        <span className="text-[var(--text-primary)] font-semibold text-[13px]">
+          OpenSpec <span className="text-[var(--text-tertiary)] font-normal board-crumb-dim">· {folderName} · {data.changes.length} changes</span>
+        </span>
+        <span className="flex-1" />
+        <button onClick={() => { onRefresh(); }} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[#555]" data-testid="board-refresh">
+          <Icon path={mdiRefresh} size={0.5} className="inline mr-0.5" />Refresh
+        </button>
+        <button onClick={onOpenSpecs} className="text-[11px] px-2.5 py-1 rounded-md border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300" data-testid="board-specs">
+          <Icon path={mdiFileDocumentOutline} size={0.5} className="inline mr-0.5" />Specs
+        </button>
+        <button onClick={onOpenArchive} className="text-[11px] px-2.5 py-1 rounded-md border text-purple-400 border-purple-500/40 bg-purple-500/5 hover:text-purple-300" data-testid="board-archive">
+          <Icon path={mdiArchiveOutline} size={0.5} className="inline mr-0.5" />Archive
+        </button>
+        <button onClick={() => setProposalDialogGroup({ open: true, groupId: UNGROUPED })} className="text-[11px] px-2.5 py-1 rounded-md border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300" data-testid="board-new-proposal">
+          <Icon path={mdiPlus} size={0.5} className="inline mr-0.5" />New proposal
+        </button>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex items-center gap-2.5 px-4 py-2 bg-[var(--bg-secondary)] border-b border-[var(--border-primary)] flex-wrap" data-testid="board-filterbar">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter proposals & sessions…"
+          className="bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2.5 py-1.5 w-[230px] outline-none focus:border-blue-500/50"
+          data-testid="board-filter-text"
+        />
+        <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
+        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">State</span>
+        <div className="flex gap-1">
+          {STATE_PILLS.map((p) => (
+            <FilterPill key={p.label} active={stateFilter === p.value} onClick={() => setStateFilter(p.value)} testId={`state-pill-${p.label}`}>{p.label}</FilterPill>
+          ))}
+        </div>
+        <span className="w-px h-[18px] bg-[var(--border-secondary)]" />
+        <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Session</span>
+        <div className="flex gap-1">
+          {SESS_PILLS.map((p) => (
+            <FilterPill key={p.label} active={sessFilter === p.value} onClick={() => setSessFilter(p.value)} testId={`sess-pill-${p.label}`}>{p.label}</FilterPill>
+          ))}
+        </div>
+      </div>
+
+      {/* Board */}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="flex gap-3 p-4 items-start overflow-x-auto flex-1 min-h-0 board-columns" data-testid="board-columns">
+          <SortableContext items={groups.map((g) => g.id)} strategy={horizontalListSortingStrategy}>
+            {columns.map((col) => (
+              <BoardColumn
+                key={col.key}
+                colKey={col.key}
+                group={col.group}
+                changes={col.changes}
+                draggableHeader={col.group != null}
+                isDragging={activeDrag?.type === "column" && activeDrag.id === col.key}
+                onNewProposal={() => setProposalDialogGroup({ open: true, groupId: col.key })}
+                onManage={col.group ? () => setManageGroupId(col.group!.id) : undefined}
+                renderCard={(c) => (
+                  <ProposalCard
+                    key={c.name}
+                    cwd={cwd}
+                    change={c}
+                    groupKey={col.key}
+                    sessions={sessionsForChange(c.name).filter(matchSession)}
+                    openspecMap={openspecMap}
+                    selectedId={selectedId}
+                    onReadArtifact={onReadArtifact}
+                    onOpenTasks={() => setTasksOpenFor(c.name)}
+                    onNavigateToSession={onNavigateToSession}
+                    onSpawnSession={onSpawnSession}
+                    onSpawnAttachedWorktree={onSpawnAttachedWorktree}
+                    onResumeSession={onResumeSession}
+                    onHideSession={onHideSession}
+                    onUnhideSession={onUnhideSession}
+                    onSendPrompt={onSendPrompt}
+                    onAttachProposal={onAttachProposal}
+                    onDetachProposal={onDetachProposal}
+                    onBulkArchive={onBulkArchive}
+                    allChanges={data.changes}
+                    groups={groups}
+                    assignments={assignments}
+                    openspecConfig={openspecConfig}
+                    isGitRepo={isGitRepo}
+                    gitWorktreeEnabled={gitWorktreeEnabled}
+                  />
+                )}
+              />
+            ))}
+          </SortableContext>
+          <button
+            onClick={() => setAddGroupOpen(true)}
+            className="flex-[0_0_200px] max-w-[200px] self-start border border-dashed border-[var(--border-secondary)] rounded-xl text-[var(--text-muted)] text-[12px] text-center p-3.5 hover:text-blue-400 hover:border-blue-400 board-addgroup"
+            data-testid="board-add-group"
+          >
+            + Add group
+          </button>
+        </div>
+      </DndContext>
+
+      <div className="px-4 pb-3 text-[var(--text-muted)] text-[11px]">
+        Drag column headers to reorder groups. Drag proposal cards between columns to reassign group. Click a session row to open its chat view.
+      </div>
+
+      {/* Dialogs */}
+      {tasksOpenFor && (
+        <DialogPortal>
+          <TasksPopover cwd={cwd} change={tasksOpenFor} onClose={() => setTasksOpenFor(null)} />
+        </DialogPortal>
+      )}
+      {manageGroup && (
+        <DialogPortal>
+          <ModalShell onClose={() => setManageGroupId(null)} title={`Manage · ${manageGroup.name}`}>
+            <OpenSpecGroupManager
+              groups={[manageGroup]}
+              onCreateGroup={async (name, color) => { await handleCreateGroup(name, color); }}
+              onUpdateGroup={handleUpdateGroup}
+              onDeleteGroup={async (id) => { await handleDeleteGroup(id); setManageGroupId(null); }}
+            />
+          </ModalShell>
+        </DialogPortal>
+      )}
+      {addGroupOpen && (
+        <DialogPortal>
+          <ModalShell onClose={() => setAddGroupOpen(false)} title="Add group">
+            <GroupCreateForm onSave={async (name, color) => { await handleCreateGroup(name, color); setAddGroupOpen(false); }} onCancel={() => setAddGroupOpen(false)} />
+          </ModalShell>
+        </DialogPortal>
+      )}
+      {proposalDialogGroup?.open && (
+        <DialogPortal>
+          <NewProposalDialog
+            groups={groups}
+            defaultGroupId={proposalDialogGroup.groupId}
+            gitWorktreeEnabled={gitWorktreeEnabled && isGitRepo}
+            onCancel={() => setProposalDialogGroup(null)}
+            onCreate={(name, groupId, worktree) => {
+              setProposalDialogGroup(null);
+              // Spawn a session running the new-change flow. The created change
+              // is assigned to the chosen group optimistically + persisted.
+              if (worktree) {
+                onSpawnAttachedWorktree(cwd, name);
+              } else {
+                onSpawnSession(cwd, name);
+              }
+              if (groupId !== UNGROUPED) {
+                setLocal((prev) => ({ ...prev, assignments: { ...prev.assignments, [name]: groupId } }));
+                setAssignment(cwd, { changeName: name, groupId }).catch(() => {});
+              }
+            }}
+          />
+        </DialogPortal>
+      )}
+    </div>
+  );
+}
+
+// ── Filter pill ───────────────────────────────────────────────────
+function FilterPill({ active, onClick, children, testId }: { active: boolean; onClick: () => void; children: React.ReactNode; testId?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      data-testid={testId}
+      data-active={active ? "true" : undefined}
+      className={`text-[10px] px-2.5 py-[3px] rounded-full border ${active ? "text-blue-400 border-blue-500/50 bg-blue-500/8" : "text-[var(--text-tertiary)] border-[var(--border-secondary)] hover:text-[var(--text-secondary)]"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Column ────────────────────────────────────────────────────────
+function BoardColumn({
+  colKey, group, changes, draggableHeader, isDragging, onNewProposal, onManage, renderCard,
+}: {
+  colKey: string;
+  group: OpenSpecGroup | null;
+  changes: OpenSpecChange[];
+  draggableHeader: boolean;
+  isDragging: boolean;
+  onNewProposal: () => void;
+  onManage?: () => void;
+  renderCard: (c: OpenSpecChange) => React.ReactNode;
+}) {
+  const sortable = useSortable({ id: colKey, data: { type: "column" }, disabled: !draggableHeader });
+  const { setNodeRef: setDropRef } = useDroppable({ id: colKey, data: { type: "column", groupKey: colKey } });
+  const dotColor = group ? resolveGroupColor(group.color) : "var(--text-muted)";
+  const name = group ? group.name : "Ungrouped";
+
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
+      className={`flex-[0_0_300px] max-w-[300px] bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl flex flex-col max-h-full board-column ${sortable.isDragging || isDragging ? "opacity-50" : ""}`}
+      data-testid={`board-column-${colKey}`}
+    >
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--border-primary)]"
+        {...(draggableHeader ? { ...sortable.attributes, ...sortable.listeners } : {})}
+        style={draggableHeader ? { cursor: "grab" } : undefined}
+        data-testid={`board-column-head-${colKey}`}
+      >
+        <span className="w-2.5 h-2.5 rounded-[3px] flex-none" style={{ background: dotColor }} />
+        <span className="font-semibold text-[var(--text-primary)] text-[12px] truncate">{name}</span>
+        <span className="text-[var(--text-muted)] text-[11px]">{changes.length}</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <button onClick={(e) => { e.stopPropagation(); onNewProposal(); }} title="New proposal in this group" className="text-[var(--text-muted)] hover:text-green-400 text-[13px] font-bold" data-testid={`col-new-proposal-${colKey}`}>＋</button>
+          {onManage && (
+            <button onClick={(e) => { e.stopPropagation(); onManage(); }} title="Rename · recolor · delete group" className="text-[var(--text-muted)] hover:text-blue-400" data-testid={`col-manage-${colKey}`}>
+              <Icon path={mdiCog} size={0.5} />
+            </button>
+          )}
+          {draggableHeader && <Icon path={mdiDragVertical} size={0.6} className="text-[var(--text-muted)]" />}
+        </span>
+      </div>
+      <div ref={setDropRef} className="p-2 flex flex-col gap-2 overflow-y-auto board-column-body" data-testid={`board-column-body-${colKey}`}>
+        <SortableContext items={changes.map((c) => c.name)} strategy={verticalListSortingStrategy}>
+          {changes.length > 0
+            ? changes.map((c) => renderCard(c))
+            : <p className="text-[var(--text-muted)] text-[11px] text-center py-3.5">No proposals</p>}
+        </SortableContext>
+      </div>
+    </div>
+  );
+}
+
+// ── Proposal card ─────────────────────────────────────────────────
+function ProposalCard(props: {
+  cwd: string;
+  change: OpenSpecChange;
+  groupKey: string;
+  sessions: DashboardSession[];
+  openspecMap: Map<string, OpenSpecData>;
+  selectedId?: string;
+  onReadArtifact: (changeName: string, artifactId: string) => void;
+  onOpenTasks: () => void;
+  onNavigateToSession: (id: string) => void;
+  onSpawnSession: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnAttachedWorktree: (cwd: string, changeName: string) => void;
+  onResumeSession: (id: string, mode: "continue" | "fork") => void;
+  onHideSession: (id: string) => void;
+  onUnhideSession: (id: string) => void;
+  onSendPrompt: (sessionId: string, text: string) => void;
+  onAttachProposal: (sessionId: string, changeName: string) => void;
+  onDetachProposal: (sessionId: string) => void;
+  onBulkArchive: () => void;
+  allChanges: OpenSpecChange[];
+  groups: OpenSpecGroup[];
+  assignments: Record<string, string>;
+  openspecConfig: ReturnType<typeof useOpenSpecConfig>;
+  isGitRepo: boolean;
+  gitWorktreeEnabled: boolean;
+}) {
+  const { change: c, groupKey, sessions, openspecMap } = props;
+  const sortable = useSortable({ id: c.name, data: { type: "card", groupKey } });
+  const state = deriveChangeState(c);
+  const pct = c.totalTasks > 0 ? Math.round((100 * c.completedTasks) / c.totalTasks) : 0;
+
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
+      className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card ${sortable.isDragging ? "opacity-40" : ""}`}
+      data-testid={`board-card-${c.name}`}
+      {...sortable.attributes}
+      {...sortable.listeners}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
+        <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full ${STATE_PILL_CLASS[state]}`} data-testid="board-card-state">{state.toLowerCase()}</span>
+      </div>
+
+      {/* Lifecycle stepper */}
+      <div className="mt-2" onPointerDown={(e) => e.stopPropagation()}>
+        <OpenSpecStepper
+          variant="compact"
+          change={c}
+          attached={null}
+          hasAnyChanges
+          onReadArtifact={props.onReadArtifact}
+          onOpenTasks={props.onOpenTasks}
+        />
+      </div>
+
+      {/* Task progress */}
+      {c.totalTasks > 0 && (
+        <div className="mt-1.5" data-testid="board-card-progress">
+          <div className="h-1 rounded-[3px] bg-[var(--bg-secondary)] overflow-hidden">
+            <i className="block h-full bg-green-500" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="text-[9px] text-[var(--text-tertiary)] mt-0.5">{c.completedTasks}/{c.totalTasks} tasks · {pct}%</div>
+        </div>
+      )}
+
+      {/* Sessions */}
+      {sessions.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1" data-testid="board-card-sessions">
+          {sessions.map((s) => (
+            <BoardSessionRow key={s.id} {...props} session={s} change={c} />
+          ))}
+        </div>
+      )}
+
+      {/* Card actions */}
+      <div className="flex gap-1.5 mt-2 pt-1.5 border-t border-[var(--border-subtle)]" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => props.onSpawnSession(props.cwd, c.name)}
+          className="flex-1 text-[9px] px-1 py-[3px] rounded-md text-green-400 border border-green-500/30 hover:bg-green-500/8 whitespace-nowrap"
+          data-testid={`card-new-session-${c.name}`}
+          title="Spawn a session attached to this proposal"
+        >
+          <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />New session
+        </button>
+        {props.isGitRepo && props.gitWorktreeEnabled && (
+          <button
+            onClick={() => props.onSpawnAttachedWorktree(props.cwd, c.name)}
+            className="flex-1 text-[9px] px-1 py-[3px] rounded-md text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/8 whitespace-nowrap"
+            data-testid={`card-new-worktree-${c.name}`}
+            title="Spawn a worktree for this proposal"
+          >
+            <Icon path={mdiSourceBranchPlus} size={0.4} className="inline mr-0.5" />New worktree
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Session row ───────────────────────────────────────────────────
+function BoardSessionRow({
+  session: s, change: c, cwd, openspecMap, selectedId, onNavigateToSession,
+  onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onReadArtifact,
+  onAttachProposal, onDetachProposal, onBulkArchive, allChanges, groups, assignments, openspecConfig,
+}: {
+  session: DashboardSession;
+  change: OpenSpecChange;
+} & React.ComponentProps<typeof ProposalCard>) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isHidden = !!s.hidden;
+  const isAlive = s.status !== "ended";
+  const hasFile = !!s.sessionFile;
+  const showResume = hasFile && (!isAlive || isHidden);
+  const iconColor = deriveIconStatusColor(deriveDotColor(s), s.status);
+  const pulse = pulseClassForStatus(s);
+  const isSelected = selectedId === s.id;
+  const wt = deriveWorktreeProgress(s, c.name, c.completedTasks, openspecMap);
+
+  return (
+    <div
+      className={`bg-[var(--bg-secondary)] border rounded-[7px] px-1.5 py-1 cursor-pointer ${isSelected ? "border-blue-500/60" : "border-[var(--border-subtle)] hover:border-blue-500"}`}
+      data-testid="board-session-row"
+      data-selected={isSelected ? "true" : undefined}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={() => onNavigateToSession(s.id)}
+    >
+      {/* Row 1: status + name + age + actions */}
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={`flex-none ${iconColor} ${pulse}`.trimEnd()}>
+          <Icon path={sourceIcons[s.source] ?? mdiRobotOutline} size={0.45} />
+        </span>
+        <span className="text-blue-400 text-[10px] flex-1 min-w-0 truncate" title={s.name || s.id}>{s.name || s.id.slice(0, 8)}</span>
+        <span className="text-[9px] text-[var(--text-muted)] flex-none">{formatRelativeTime(Date.now() - selectBadgeTimestamp(s))}</span>
+        <span className="flex items-center gap-1 flex-none" onClick={(e) => e.stopPropagation()}>
+          {showResume && (
+            <button title="Resume / continue session" onClick={() => onResumeSession(s.id, "continue")} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiPlayCircleOutline} size={0.42} /></button>
+          )}
+          {hasFile && (
+            <button title="Fork session" onClick={() => onResumeSession(s.id, "fork")} className="text-[var(--text-muted)] hover:text-blue-400"><Icon path={mdiSourceFork} size={0.42} /></button>
+          )}
+          {isHidden
+            ? <button title="Show session" onClick={() => onUnhideSession(s.id)} className="text-[var(--text-muted)] hover:text-green-400"><Icon path={mdiEyeOutline} size={0.42} /></button>
+            : <button title="Hide session" onClick={() => onHideSession(s.id)} className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"><Icon path={mdiEyeOffOutline} size={0.42} /></button>}
+          <span className="relative">
+            <button title="OpenSpec commands" onClick={() => setMenuOpen((v) => !v)} className="text-[var(--text-muted)] hover:text-purple-400" data-testid={`session-os-menu-${s.id}`}><Icon path={mdiDotsHorizontal} size={0.5} /></button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50" onClick={(e) => e.stopPropagation()} data-testid="session-os-menu-panel">
+                <SessionOpenSpecActions
+                  session={s}
+                  changes={allChanges}
+                  onAttach={(name) => onAttachProposal(s.id, name)}
+                  onDetach={() => onDetachProposal(s.id)}
+                  onSendPrompt={(text) => onSendPrompt(s.id, text)}
+                  onReadArtifact={onReadArtifact}
+                  onBulkArchive={onBulkArchive}
+                  groups={groups}
+                  assignments={assignments}
+                  openspecConfig={openspecConfig}
+                />
+              </div>
+            )}
+          </span>
+        </span>
+      </div>
+
+      {/* Row 2: phase chip */}
+      {(s.openspecPhase || s.openspecChange) && (
+        <OpenSpecActivityBadge phase={s.openspecPhase ?? undefined} completedTasks={c.completedTasks} totalTasks={c.totalTasks} />
+      )}
+
+      {/* Row 3: stats */}
+      <div className="flex items-center gap-1.5 mt-0.5 text-[9px] text-[var(--text-tertiary)]" onClick={(e) => e.stopPropagation()}>
+        <span className="whitespace-nowrap">{formatTokens(s.tokensIn ?? 0)}↑ {formatTokens(s.tokensOut ?? 0)}↓</span>
+        {s.contextTokens != null && s.contextWindow ? (
+          <span className="w-[26px] h-1 rounded-[3px] bg-[var(--bg-tertiary)] overflow-hidden" title={`context ${Math.round((100 * s.contextTokens) / s.contextWindow)}%`}>
+            <i className="block h-full bg-blue-500" style={{ width: `${Math.min(100, Math.round((100 * s.contextTokens) / s.contextWindow))}%` }} />
+          </span>
+        ) : null}
+        {s.cost != null && s.cost > 0 && <span className="whitespace-nowrap">${s.cost.toFixed(2)}</span>}
+      </div>
+
+      {/* Row 4: worktree marker + delta */}
+      {wt && (
+        <div className="flex items-center gap-1.5 mt-0.5" data-testid="board-session-worktree" title={wt.base ? `Worktree tasks.md — from ${wt.base}` : "Worktree tasks.md — may differ from proposal (main)"}>
+          <span className="text-yellow-400 text-[9px] flex-1 min-w-0 truncate">⎇ {wt.name}</span>
+          {wt.total != null && wt.total > 0 && wt.done != null && (
+            <>
+              <span className="w-[30px] h-1 rounded-[3px] bg-[var(--bg-tertiary)] overflow-hidden flex-none">
+                <i className="block h-full bg-yellow-500" style={{ width: `${Math.round((100 * wt.done) / wt.total)}%` }} />
+              </span>
+              <span className="text-[8px] text-[var(--text-muted)] flex-none">{wt.done}/{wt.total}</span>
+              {wt.delta != null && wt.delta !== 0 && (
+                <span className={`text-[8px] font-bold flex-none ${wt.delta > 0 ? "text-green-400" : "text-orange-400"}`} data-testid="board-session-worktree-delta">
+                  {wt.delta > 0 ? `+${wt.delta}` : `${wt.delta}`}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Modal shell + forms ───────────────────────────────────────────
+function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[60]" onClick={onClose}>
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-80 max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function GroupCreateForm({ onSave, onCancel }: { onSave: (name: string, color: string) => void; onCancel: () => void }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState(GROUP_PALETTE[0].hex);
+  return (
+    <div className="space-y-2">
+      <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Group name"
+        onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) onSave(name.trim(), color); if (e.key === "Escape") onCancel(); }}
+        className="w-full text-[12px] bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-[var(--text-primary)] outline-none focus:border-blue-500/50" data-testid="add-group-name" />
+      <div className="flex gap-1.5">
+        {GROUP_PALETTE.map((p) => (
+          <button key={p.id} onClick={() => setColor(p.hex)} className={`w-5 h-5 rounded-sm border-2 ${color === p.hex ? "border-white/60" : "border-transparent hover:border-white/30"}`} style={{ backgroundColor: p.hex }} />
+        ))}
+      </div>
+      <div className="flex gap-1.5 justify-end">
+        <button onClick={onCancel} className="text-[10px] px-2 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)]">Cancel</button>
+        <button disabled={!name.trim()} onClick={() => name.trim() && onSave(name.trim(), color)} className="text-[10px] px-2 py-0.5 rounded border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 disabled:opacity-40" data-testid="add-group-save">Create</button>
+      </div>
+    </div>
+  );
+}
+
+function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCancel, onCreate }: {
+  groups: OpenSpecGroup[];
+  defaultGroupId: string;
+  gitWorktreeEnabled: boolean;
+  onCancel: () => void;
+  onCreate: (name: string, groupId: string, worktree: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [groupId, setGroupId] = useState(defaultGroupId);
+  const [worktree, setWorktree] = useState(false);
+  const submit = () => { const n = name.trim(); if (n) onCreate(n, groupId, worktree); };
+  return (
+    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[60]" onClick={onCancel}>
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-[330px]" onClick={(e) => e.stopPropagation()} data-testid="new-proposal-dialog">
+        <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">New proposal</h3>
+        <p className="text-[10px] text-[var(--text-muted)] mb-3">Spawns a session running the new-change flow. The created change lands in the chosen group.</p>
+        <div className="mb-2.5">
+          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Name</label>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="kebab-case-name"
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
+            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-name" />
+        </div>
+        <div className="mb-2.5">
+          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Group</label>
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-group">
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            <option value={UNGROUPED}>Ungrouped</option>
+          </select>
+        </div>
+        {gitWorktreeEnabled && (
+          <div className="flex items-center gap-2 mb-2.5">
+            <input id="np-wt" type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} data-testid="np-worktree" />
+            <label htmlFor="np-wt" className="text-[12px] text-[var(--text-secondary)]">Create in a new worktree (os/&lt;name&gt;)</label>
+          </div>
+        )}
+        <div className="flex gap-2 justify-end mt-3.5">
+          <button onClick={onCancel} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)]">Cancel</button>
+          <button onClick={submit} disabled={!name.trim()} className="text-[11px] px-2.5 py-1 rounded-md border border-blue-500/40 text-blue-400 bg-blue-500/6 hover:text-blue-300 disabled:opacity-40" data-testid="np-create">Create &amp; spawn</button>
+        </div>
+      </div>
+    </div>
+  );
+}

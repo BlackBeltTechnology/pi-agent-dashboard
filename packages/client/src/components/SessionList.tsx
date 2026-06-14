@@ -63,7 +63,7 @@ interface Props {
   onSelect: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
-  openspecGroupsMap?: Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string> }>;
+  openspecGroupsMap?: Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>;
   sessionOrderMap?: Map<string, string[]>;
   onReorderSessions?: (cwd: string, sessionIds: string[]) => void;
   onSendPrompt?: (sessionId: string, text: string, images?: ImageContent[]) => void;
@@ -137,6 +137,8 @@ interface Props {
   onAbortTool?: (sessionId: string, toolCallId: string) => void;
   onOpenSpecs?: (cwd: string) => void;
   onOpenArchive?: (cwd: string) => void;
+  /** Navigate to the full-page OpenSpec board for a cwd. See change: redesign-openspec-board. */
+  onOpenBoard?: (cwd: string) => void;
   onViewReadme?: (cwd: string) => void;
   onOpenTerminals?: (cwd: string) => void;
   onOpenEditor?: (cwd: string) => void;
@@ -191,7 +193,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
   const gitWorktreeEnabled = gitWorktreeEnabledProp ?? true;
@@ -677,21 +679,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               data={openspecMap.get(group.cwd)!}
               cwd={group.cwd}
               onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
-              onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(group.cwd, changeName, artifactId) : undefined}
-              sessions={group.sessions}
-              onNavigateToSession={onSelect}
+              onOpenBoard={onOpenBoard}
               onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
               onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
-              onSpawnAttached={onSpawnSession ? (cwd, changeName) => onSpawnSession(cwd, changeName) : undefined}
-              onSpawnAttachedWorktree={onSpawnSession ? (cwd, changeName) => setWorktreeForChange({ cwd, changeName }) : undefined}
-              isGitRepo={group.sessions.some((s) => !!s.gitBranch)}
-              gitWorktreeEnabled={gitWorktreeEnabled}
-              onHideSession={onHideSession ? handleHide : undefined}
-              onUnhideSession={onUnhideSession ? handleUnhide : undefined}
-              onResumeSession={onResume}
-              groups={openspecGroupsMap?.get(group.cwd)?.groups}
-              assignments={openspecGroupsMap?.get(group.cwd)?.assignments}
-              selectedId={selectedId}
             />
           )}
           {/* Elevated spawn buttons: full-width stacked, always visible

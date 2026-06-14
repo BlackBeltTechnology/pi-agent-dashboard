@@ -226,6 +226,35 @@ export function registerOpenSpecGroupRoutes(
     },
   );
 
+  // ── PUT /api/openspec/groups/change-order ────────────────────
+
+  fastify.put<{
+    Querystring: { cwd?: string };
+    Body: { groupId?: unknown; order?: unknown };
+  }>(
+    "/api/openspec/groups/change-order",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { cwd } = request.query;
+      if (rejectInvalidCwd(reply, cwd)) return;
+      const body = request.body ?? {};
+      if (typeof body.groupId !== "string" || body.groupId.length === 0) {
+        reply.code(400);
+        return { success: false, error: "groupId must be a non-empty string" } satisfies ApiResponse;
+      }
+      if (!Array.isArray(body.order) || body.order.some((x) => typeof x !== "string")) {
+        reply.code(400);
+        return { success: false, error: "order must be an array of strings" } satisfies ApiResponse;
+      }
+      try {
+        await store.setChangeOrder(cwd!, body.groupId, body.order as string[]);
+        return { success: true } satisfies ApiResponse;
+      } catch (err) {
+        return handleError(reply, err);
+      }
+    },
+  );
+
   // Silence unused-import warning when types are only used at signature level.
   void (undefined as unknown as FastifyRequest);
 }

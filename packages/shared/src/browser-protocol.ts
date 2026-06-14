@@ -156,6 +156,13 @@ export interface BrowserOpenSpecGroupsUpdateMessage {
   cwd: string;
   groups: OpenSpecGroup[];
   assignments: Record<string, string>;
+  /**
+   * Persisted per-group manual change ordering (`groupId` → ordered
+   * `changeName[]`, with `__ungrouped__` for the implicit column). Absent on
+   * older servers; clients fall back to the default sort.
+   * See change: redesign-openspec-board.
+   */
+  changeOrder?: Record<string, string[]>;
 }
 
 export interface BrowserModelsListMessage {

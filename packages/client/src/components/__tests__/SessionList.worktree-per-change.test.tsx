@@ -1,204 +1,100 @@
 /**
- * Integration test for the per-change `⑂+` worktree-spawn button in
- * `FolderOpenSpecSection`, wired through `SessionList` to
- * `WorktreeSpawnDialog`.
+ * Per-change `New worktree` action on the OpenSpec board proposal card.
  *
- * Flow under test:
- *   1. Folder is a git repo (`s.gitBranch` set) → ⑂+ visible per change.
- *   2. Click ⑂+ → `WorktreeSpawnDialog` opens with `os/<name>` prefill +
- *      `attachProposal=<name>`.
- *   3. Submit → `createWorktree` called → `onSpawnSession` invoked with
- *      `(path, <changeName>, { gitWorktreeBase, attachProposal })`.
+ * The inline `⑂+` button moved from `FolderOpenSpecSection` to the board's
+ * proposal-card action footer. This verifies the card action fires
+ * `onSpawnAttachedWorktree(cwd, changeName)` and is gated by
+ * `isGitRepo` / `gitWorktreeEnabled`. The full dialog→spawn e2e is covered by
+ * `WorktreeSpawnDialog` tests (now wired at the App level for the board).
  *
- * See change: openspec-worktree-spawn-button.
+ * See change: redesign-openspec-board.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import React from "react";
-import { Router } from "wouter";
-import { memoryLocation } from "wouter/memory-location";
 
-// Stub git-api so the dialog's parallel fetches resolve deterministically.
-const { fetchGitHead, fetchWorktrees, fetchBranches, createWorktree } = vi.hoisted(() => ({
-  fetchGitHead: vi.fn(),
-  fetchWorktrees: vi.fn(),
-  fetchBranches: vi.fn(),
-  createWorktree: vi.fn(),
-}));
-vi.mock("../../lib/git-api.js", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/git-api.js")>("../../lib/git-api.js");
-  return { ...actual, fetchGitHead, fetchWorktrees, fetchBranches, createWorktree };
-});
-
-// Stub openspec groups so the section renders without network.
+// Stub openspec groups + config so the board renders without network.
 vi.mock("../../lib/openspec-groups-api.js", () => ({
-  fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {} })),
+  fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {}, changeOrder: {} })),
   createGroup: vi.fn(),
   updateGroup: vi.fn(),
   deleteGroup: vi.fn(),
   setAssignment: vi.fn(),
+  setChangeOrder: vi.fn(),
+}));
+vi.mock("../../lib/openspec-config-api.js", () => ({
+  useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: [] }),
 }));
 
-import { SessionList } from "../SessionList.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { OpenSpecBoardView } from "../OpenSpecBoardView.js";
+import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-function TestRouter({ children }: { children: React.ReactNode }) {
-  const { hook } = memoryLocation({ path: "/", static: true });
-  return <Router hook={hook}>{children}</Router>;
-}
-
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 beforeEach(() => {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
-      media: query,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
+      matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(),
     })),
-  });
-  const store: Record<string, string> = {};
-  vi.stubGlobal("localStorage", {
-    getItem: (k: string) => store[k] ?? null,
-    setItem: (k: string, v: string) => { store[k] = v; },
-    removeItem: (k: string) => { delete store[k]; },
-    clear: () => { for (const k in store) delete store[k]; },
-    get length() { return Object.keys(store).length; },
-    key: (i: number) => Object.keys(store)[i] ?? null,
-  });
-  // Default git-api mocks
-  fetchGitHead.mockResolvedValue({ branch: "main", detached: false, sha: "abc1234" });
-  fetchWorktrees.mockResolvedValue([{ path: "/project/foo", branch: "main", isMain: true, detached: false, bare: false, sha: "" }]);
-  fetchBranches.mockResolvedValue({
-    current: "main",
-    detached: false,
-    branches: [{ name: "main", isRemote: false, isCurrent: true }],
   });
 });
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
-
-function makeSession(over: Partial<DashboardSession> = {}): DashboardSession {
-  return {
-    id: "s1",
-    cwd: "/project/foo",
-    source: "tui",
-    status: "active",
-    startedAt: Date.now() - 60000,
-    tokensIn: 0,
-    tokensOut: 0,
-    cost: 0,
-    gitBranch: "main", // makes isGitRepo===true in SessionList
-    ...over,
-  };
-}
-
-const openspecData: OpenSpecData = {
+const data: OpenSpecData = {
   initialized: true,
   changes: [
-    {
-      name: "add-dark-mode",
-      status: "in-progress",
-      completedTasks: 1,
-      totalTasks: 4,
-      artifacts: [
-        { id: "proposal", status: "done" },
-        { id: "design", status: "ready" },
-        { id: "specs", status: "blocked" },
-        { id: "tasks", status: "blocked" },
-      ],
-    },
+    { name: "add-dark-mode", status: "in-progress", completedTasks: 1, totalTasks: 4, artifacts: [{ id: "proposal", status: "done" }] },
   ],
 };
 
-describe("SessionList — per-change ⑂+ worktree spawn end-to-end", () => {
-  it("click ⑂+ → dialog opens prefilled → submit → onSpawnSession with attachProposal + gitWorktreeBase", async () => {
-    const onSpawnSession = vi.fn();
-    createWorktree.mockResolvedValue({
-      ok: true,
-      path: "/project/foo/.worktrees/os-add-dark-mode",
-      branch: "os/add-dark-mode",
-      excludeAppended: true,
-    });
+function baseProps() {
+  return {
+    cwd: "/project/foo",
+    data,
+    sessions: [],
+    openspecMap: new Map([["/project/foo", data]]),
+    groupsState: { groups: [], assignments: {}, changeOrder: {} },
+    onBack: vi.fn(),
+    onRefresh: vi.fn(),
+    onReadArtifact: vi.fn(),
+    onNavigateToSession: vi.fn(),
+    onOpenSpecs: vi.fn(),
+    onOpenArchive: vi.fn(),
+    onSpawnSession: vi.fn(),
+    onSpawnAttachedWorktree: vi.fn(),
+    onResumeSession: vi.fn(),
+    onHideSession: vi.fn(),
+    onUnhideSession: vi.fn(),
+    onSendPrompt: vi.fn(),
+    onAttachProposal: vi.fn(),
+    onDetachProposal: vi.fn(),
+    onBulkArchive: vi.fn(),
+    isGitRepo: true,
+    gitWorktreeEnabled: true,
+  };
+}
 
-    render(
-      <TestRouter>
-        <ThemeProvider>
-          <SessionList
-            sessions={[makeSession()]}
-            onSelect={() => {}}
-            onSpawnSession={onSpawnSession}
-            openspecMap={new Map([["/project/foo", openspecData]])}
-            gitWorktreeEnabled={true}
-          />
-        </ThemeProvider>
-      </TestRouter>,
-    );
-
-    // Expand the OpenSpec section to surface the change row.
-    fireEvent.click(screen.getByTestId("folder-openspec-header"));
-
-    // ⑂+ button should be visible for the change row.
-    const btn = screen.getByTestId("spawn-attached-worktree-btn-add-dark-mode");
-    fireEvent.click(btn);
-
-    // Dialog opens — wait for fetches to resolve.
-    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
-
-    // Branch input prefilled with `os/<change-name>`.
-    const branchInput = screen.getByTestId("worktree-new-branch-input") as HTMLInputElement;
-    expect(branchInput.value).toBe("os/add-dark-mode");
-
-    // Submit. Spawn callback should fire with attachProposal + gitWorktreeBase.
-    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
-
-    await waitFor(() => expect(onSpawnSession).toHaveBeenCalled());
-    // placeholderCwd is the PARENT repo cwd (worktreeForChange.cwd) so the
-    // placeholder renders under the parent group, not the worktree path.
-    // See change: add-worktree-spawn-placeholder-card.
-    expect(onSpawnSession).toHaveBeenCalledWith(
-      "/project/foo/.worktrees/os-add-dark-mode",
-      "add-dark-mode",
-      { gitWorktreeBase: "main", attachProposal: "add-dark-mode", placeholderCwd: "/project/foo" },
-    );
+describe("OpenSpec board — per-change New worktree action", () => {
+  it("New worktree action fires onSpawnAttachedWorktree with cwd + change name", () => {
+    const props = baseProps();
+    render(<OpenSpecBoardView {...props} />);
+    fireEvent.click(screen.getByTestId("card-new-worktree-add-dark-mode"));
+    expect(props.onSpawnAttachedWorktree).toHaveBeenCalledWith("/project/foo", "add-dark-mode");
   });
 
-  it("⑂+ button hidden when gitWorktreeEnabled=false", () => {
-    render(
-      <TestRouter>
-        <ThemeProvider>
-          <SessionList
-            sessions={[makeSession()]}
-            onSelect={() => {}}
-            onSpawnSession={vi.fn()}
-            openspecMap={new Map([["/project/foo", openspecData]])}
-            gitWorktreeEnabled={false}
-          />
-        </ThemeProvider>
-      </TestRouter>,
-    );
-    fireEvent.click(screen.getByTestId("folder-openspec-header"));
-    expect(screen.queryByTestId("spawn-attached-worktree-btn-add-dark-mode")).toBeNull();
-    // Folder +Worktree button also hidden.
-    expect(screen.queryByTestId("folder-spawn-worktree-btn")).toBeNull();
+  it("New session action fires onSpawnSession with cwd + change name", () => {
+    const props = baseProps();
+    render(<OpenSpecBoardView {...props} />);
+    fireEvent.click(screen.getByTestId("card-new-session-add-dark-mode"));
+    expect(props.onSpawnSession).toHaveBeenCalledWith("/project/foo", "add-dark-mode");
   });
 
-  it("⑂+ button hidden on non-git folder even with flag on", () => {
-    render(
-      <TestRouter>
-        <ThemeProvider>
-          <SessionList
-            sessions={[makeSession({ gitBranch: undefined })]}
-            onSelect={() => {}}
-            onSpawnSession={vi.fn()}
-            openspecMap={new Map([["/project/foo", openspecData]])}
-            gitWorktreeEnabled={true}
-          />
-        </ThemeProvider>
-      </TestRouter>,
-    );
-    fireEvent.click(screen.getByTestId("folder-openspec-header"));
-    expect(screen.queryByTestId("spawn-attached-worktree-btn-add-dark-mode")).toBeNull();
+  it("New worktree action hidden when gitWorktreeEnabled=false", () => {
+    render(<OpenSpecBoardView {...baseProps()} gitWorktreeEnabled={false} />);
+    expect(screen.queryByTestId("card-new-worktree-add-dark-mode")).toBeNull();
+  });
+
+  it("New worktree action hidden on non-git folder even with flag on", () => {
+    render(<OpenSpecBoardView {...baseProps()} isGitRepo={false} />);
+    expect(screen.queryByTestId("card-new-worktree-add-dark-mode")).toBeNull();
   });
 });

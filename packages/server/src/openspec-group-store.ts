@@ -112,11 +112,19 @@ export interface OpenSpecGroupStore {
   deleteGroup(cwd: string, id: string): Promise<void>;
   setAssignment(cwd: string, changeName: string, groupId: string | null): Promise<void>;
   /**
+   * Replace the persisted manual change ordering for one group (or the
+   * implicit Ungrouped column, keyed by `OPENSPEC_UNGROUPED_KEY`). The
+   * order array is stored verbatim; stale entries (changes no longer in the
+   * group) are tolerated and ignored by clients on render.
+   * See change: redesign-openspec-board.
+   */
+  setChangeOrder(cwd: string, groupId: string, order: string[]): Promise<void>;
+  /**
    * Subscribe to debounced post-write broadcasts. Returns an unsubscribe fn.
-   * The callback receives the cwd plus the latest `{ groups, assignments }`.
+   * The callback receives the cwd plus the latest groups/assignments/order.
    */
   subscribe(
-    cb: (cwd: string, payload: { groups: OpenSpecGroup[]; assignments: Record<string, string> }) => void,
+    cb: (cwd: string, payload: { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder: Record<string, string[]> }) => void,
   ): () => void;
   /** Flushes pending broadcasts and clears caches. Tests + shutdown. */
   dispose(): void;
@@ -194,9 +202,17 @@ export function createOpenSpecGroupStore(
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   type Subscriber = (
     cwd: string,
-    payload: { groups: OpenSpecGroup[]; assignments: Record<string, string> },
+    payload: { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder: Record<string, string[]> },
   ) => void;
   const subscribers = new Set<Subscriber>();
+
+  function broadcastPayload(file: OpenSpecGroupsFile) {
+    return {
+      groups: file.groups,
+      assignments: file.assignments,
+      changeOrder: file.changeOrder ?? {},
+    };
+  }
 
   async function tryStat(filePath: string): Promise<{ mtimeMs: number; size: number } | null> {
     try {
@@ -342,7 +358,7 @@ export function createOpenSpecGroupStore(
       // Always emit the freshest cached payload for this cwd, not the file
       // captured when the timer was scheduled — matters for coalesced bursts.
       const latest = cache.get(cwd)?.data ?? file;
-      const payload = { groups: latest.groups, assignments: latest.assignments };
+      const payload = broadcastPayload(latest);
       for (const cb of subscribers) {
         try {
           cb(cwd, payload);
@@ -465,6 +481,21 @@ export function createOpenSpecGroupStore(
     });
   }
 
+  async function setChangeOrder(
+    cwd: string,
+    groupId: string,
+    order: string[],
+  ): Promise<void> {
+    return mutate(cwd, (current) => {
+      const next: OpenSpecGroupsFile = {
+        ...current,
+        schemaVersion: OPENSPEC_GROUPS_SCHEMA_VERSION,
+        changeOrder: { ...(current.changeOrder ?? {}), [groupId]: [...order] },
+      };
+      return { next, result: undefined };
+    });
+  }
+
   function subscribe(cb: Subscriber): () => void {
     subscribers.add(cb);
     return () => subscribers.delete(cb);
@@ -484,6 +515,7 @@ export function createOpenSpecGroupStore(
     updateGroup,
     deleteGroup,
     setAssignment,
+    setChangeOrder,
     subscribe,
     dispose,
   };

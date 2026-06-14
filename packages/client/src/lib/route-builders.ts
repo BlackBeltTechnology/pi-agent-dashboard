@@ -29,6 +29,12 @@ export function buildOpenSpecPreviewUrl(
   return `/folder/${encodeFolderPath(cwd)}/openspec/${encodeURIComponent(changeName)}/${encodeURIComponent(artifactId)}`;
 }
 
+/** `/folder/:encodedCwd/openspec` — full-page OpenSpec board.
+ *  See change: redesign-openspec-board. */
+export function buildOpenSpecBoardUrl(cwd: string): string {
+  return `/folder/${encodeFolderPath(cwd)}/openspec`;
+}
+
 /** `/folder/:encodedCwd/openspec/archive` */
 export function buildOpenSpecArchiveUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/openspec/archive`;

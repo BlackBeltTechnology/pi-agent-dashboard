@@ -11,6 +11,7 @@ import type {
   CreateOpenSpecGroupRequest,
   UpdateOpenSpecGroupRequest,
   SetOpenSpecGroupAssignmentRequest,
+  SetOpenSpecChangeOrderRequest,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
 
@@ -92,4 +93,19 @@ export async function setAssignment(
   if (!res.ok) throw new Error(await parseErrorBody(res));
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "set assignment failed");
+}
+
+/** PUT /api/openspec/groups/change-order?cwd= */
+export async function setChangeOrder(
+  cwd: string,
+  body: SetOpenSpecChangeOrderRequest,
+): Promise<void> {
+  const res = await fetch(groupsUrl(cwd, "/change-order"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await parseErrorBody(res));
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? "set change order failed");
 }
