@@ -9,7 +9,8 @@ import type {
   ExtensionToServerMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { killProcessByPgid } from "./process-scanner.js";
-import type { FileEntry, ImageContent, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FileEntry, ImageContent, PiSessionInfo, MissingToolError } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
@@ -722,10 +723,39 @@ async function handleBashCommand(
   excludeFromContext: boolean,
   eventSink?: (msg: ExtensionToServerMessage) => void,
 ): Promise<void> {
+  // Resolve the shell binary through the tool registry instead of
+  // spawning the literal "sh". On a clean Windows host (no Git-for-Windows
+  // / WSL bash on PATH) resolution fails; we emit a structured
+  // MissingToolError the client renders as an actionable inline error
+  // with a deep-link to Settings → Tools — never a bare ENOENT.
+  // See change: register-bash-and-tool-install-help.
+  const resolved = getDefaultRegistry().resolve("bash");
+  if (!resolved.ok || !resolved.path) {
+    const missingTool: MissingToolError = { kind: "missing-tool", toolName: "bash" };
+    eventSink?.({
+      type: "event_forward",
+      sessionId,
+      event: {
+        eventType: "bash_output",
+        timestamp: Date.now(),
+        data: {
+          command,
+          output: "bash not found — install it from Settings → Tools.",
+          exitCode: 127,
+          excludeFromContext,
+          missingTool,
+        },
+      },
+    });
+    // Do NOT spawn and do NOT send to the LLM — the command never ran.
+    return;
+  }
+
   let output = "";
   let exitCode = 0;
   try {
-    const result = await pi.exec("sh", ["-c", command], { timeout: BASH_TIMEOUT });
+    // Spawn the resolved absolute path directly (no shell, no PATH dep).
+    const result = await pi.exec(resolved.path, ["-c", command], { timeout: BASH_TIMEOUT });
     output = (result.stdout || "") + (result.stderr || "");
     exitCode = result.exitCode ?? 0;
   } catch (err: any) {

@@ -18,7 +18,7 @@ This proposal closes both gaps in a single change because they are coupled at th
 ## Non-Goals
 
 - Bundling binaries into Electron resources. Out of scope; user accepted "registration only" framing.
-- Touching `packages/server/src/process-manager.ts:475` (`sh -c "tail -f /dev/null | pi"`). That wrapper is POSIX `/bin/sh`, not bash; routing it through the bash registration would be a semantic regression.
+- Touching the Unix-headless `sh -c "tail -f /dev/null | pi"` wrapper (now built in the platform spawn machinery under `packages/shared/src/platform/`, formerly at `process-manager.ts:475`). That wrapper is POSIX `/bin/sh`, not bash; routing it through the bash registration would be a semantic regression.
 - Touching `packages/shared/src/platform/shell.ts` interactive-PTY shell selection. That picks the user's `$SHELL` for terminal sessions — a separate concern.
 - Adding `cmd.exe`, `powershell`, or `pwsh` to the registry. They are always present on Windows (user-confirmed) and have no install story.
 - Removing the `managed` strategy slot from binary tools. Cross-cutting concern; see follow-on note below.
@@ -102,7 +102,7 @@ The server source is preferred because the user may be accessing the dashboard f
 
 ## Doctor cross-reference (forward note)
 
-`fix-doctor-stale-managed-install-check` (proposed, not landed at time of writing) deprecates the false "managed install incomplete" Doctor row. Post-landing, Doctor still emits missing-binary advisories for tools the registry reports as `ok: false`. A follow-on change SHOULD consume `installHints` in those Doctor rows for consistency, so the same install guidance appears in Doctor (Electron native menu) and Settings → Tools (web UI).
+`fix-doctor-stale-managed-install-check` (now archived/landed) deprecated the false "managed install incomplete" Doctor row. Post-landing, Doctor still emits missing-binary advisories for tools the registry reports as `ok: false`. A follow-on change SHOULD consume `installHints` in those Doctor rows for consistency, so the same install guidance appears in Doctor (Electron native menu) and Settings → Tools (web UI).
 
 Not implemented here because:
 

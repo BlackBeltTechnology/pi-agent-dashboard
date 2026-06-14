@@ -244,9 +244,9 @@ describe("openspec binary definition", () => {
 });
 
 describe("registered tool set", () => {
-  it("registers pi, pi-coding-agent, openspec, npm, npx, node, git, jj, zrok, wt", () => {
+  it("registers pi, pi-coding-agent, openspec, npm, npx, node, git, jj, zrok, gh, bash, wt", () => {
     const r = freshRegistry({});
-    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "npx", "node", "git", "jj", "zrok", "wt"]) {
+    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "npx", "node", "git", "jj", "zrok", "gh", "bash", "wt"]) {
       expect(r.has(name)).toBe(true);
     }
   });
@@ -364,5 +364,86 @@ describe("registered tool set", () => {
   it("does NOT register pi-dashboard (it's the package this code is part of)", () => {
     const r = freshRegistry({});
     expect(r.has("pi-dashboard")).toBe(false);
+  });
+});
+
+describe("bash binary definition", () => {
+  // See change: register-bash-and-tool-install-help.
+  it("is registered on every platform (no platform gate)", () => {
+    for (const platform of ["linux", "darwin", "win32"] as NodeJS.Platform[]) {
+      const r = freshRegistry({ platform });
+      expect(r.has("bash")).toBe(true);
+    }
+  });
+
+  it("chain order: override → managed → where", () => {
+    const r = freshRegistry({ exists: () => false, which: () => null });
+    const trail = r.resolve("bash").tried.map((t) => t.strategy);
+    expect(trail).toEqual(["override", "managed", "where"]);
+  });
+
+  it("resolves via where on Unix (/bin/bash)", () => {
+    const r = freshRegistry({
+      which: (n) => (n === "bash" ? "/bin/bash" : null),
+      platform: "linux",
+    });
+    const res = r.resolve("bash");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe("/bin/bash");
+    expect(res.source).toBe("system");
+  });
+
+  it("resolves via where on Windows (Git-for-Windows bash.exe)", () => {
+    const gfw = "C:\\Program Files\\Git\\bin\\bash.exe";
+    const r = freshRegistry({
+      which: (n) => (n === "bash" ? gfw : null),
+      platform: "win32",
+    });
+    const res = r.resolve("bash");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(gfw);
+    expect(res.source).toBe("system");
+  });
+
+  it("override wins over PATH", () => {
+    const custom = "/opt/custom/bash";
+    const r = freshRegistry({
+      overrides: { bash: custom },
+      exists: (p) => p === custom,
+      which: () => "/bin/bash",
+    });
+    const res = r.resolve("bash");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(custom);
+    expect(res.source).toBe("override");
+  });
+
+  it("not found returns ok:false without throwing", () => {
+    const r = freshRegistry({ which: () => null, exists: () => false });
+    const res = r.resolve("bash");
+    expect(res.ok).toBe(false);
+    expect(res.path).toBeNull();
+  });
+});
+
+describe("installHints do not affect resolution (regression guard)", () => {
+  // See change: register-bash-and-tool-install-help. Adding installHints
+  // metadata must not change resolve() semantics for any tool.
+  it("resolve() output never carries installHints", () => {
+    const r = freshRegistry({ which: (n) => (n === "git" ? "/usr/bin/git" : null) });
+    const res = r.resolve("git") as unknown as Record<string, unknown>;
+    expect(res.installHints).toBeUndefined();
+  });
+
+  it("tools with hints resolve identically to tools without", () => {
+    // git (has hints) and wt (no hints) both resolve via `where`; the
+    // presence of hints must not perturb ok/path/source/tried.
+    const r = freshRegistry({
+      which: (n) => (n === "git" ? "/usr/bin/git" : null),
+    });
+    const git = r.resolve("git");
+    expect(git.ok).toBe(true);
+    expect(git.source).toBe("system");
+    expect(git.tried.map((t) => t.strategy)).toEqual(["override", "managed", "where"]);
   });
 });

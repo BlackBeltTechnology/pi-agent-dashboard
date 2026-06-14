@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ToolDefinition, Source } from "./types.js";
+import type { ToolDefinition, Source, InstallHints } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import {
   type StrategyDeps,
@@ -42,6 +42,141 @@ function classify(strategyName: string): Source {
 
 // ── Binary definitions ──────────────────────────────────────────────────────
 
+/**
+ * Per-OS install guidance, keyed by tool name. Opaque to resolution —
+ * attached to definitions and surfaced only by `list()` / REST so the
+ * Settings → Tools UI can render an `[Install ▾]` dropdown on missing
+ * rows. Only user-installable binaries appear here; platform utilities
+ * (wmic, powershell, ps, pgrep, …) ship with the OS and have no entry.
+ *
+ * `docsAnchor` values MUST match an `<h2>`/`<h3>` anchor in docs/faq.md
+ * (enforced by install-hints.test.ts). Commands sourced from vendor docs.
+ *
+ * See change: register-bash-and-tool-install-help.
+ */
+const INSTALL_HINTS: Record<string, InstallHints> = {
+  bash: {
+    docsAnchor: "install-bash",
+    darwin: {
+      manual: "Pre-installed at /bin/bash. For a newer version: brew install bash.",
+      commands: { brew: "brew install bash" },
+    },
+    win32: {
+      manual: "bash ships inside Git for Windows — install Git, then use its bundled bash. (WSL bash also works but must be set as an override.)",
+      commands: {
+        winget: "winget install --id Git.Git -e",
+        choco: "choco install git",
+        scoop: "scoop install git",
+      },
+      url: "https://gitforwindows.org/",
+    },
+    linux: {
+      manual: "Pre-installed on virtually every distribution.",
+      commands: { apt: "sudo apt install bash", dnf: "sudo dnf install bash" },
+    },
+  },
+  git: {
+    docsAnchor: "install-git",
+    darwin: {
+      manual: "Bundled with the Xcode Command Line Tools (xcode-select --install).",
+      commands: { brew: "brew install git" },
+      url: "https://git-scm.com/download/mac",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id Git.Git -e",
+        choco: "choco install git",
+        scoop: "scoop install git",
+      },
+      url: "https://git-scm.com/download/win",
+    },
+    linux: {
+      commands: { apt: "sudo apt install git", dnf: "sudo dnf install git" },
+      url: "https://git-scm.com/download/linux",
+    },
+  },
+  node: {
+    docsAnchor: "install-node",
+    darwin: {
+      commands: { brew: "brew install node" },
+      url: "https://nodejs.org/en/download",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id OpenJS.NodeJS -e",
+        choco: "choco install nodejs",
+        scoop: "scoop install nodejs",
+      },
+      url: "https://nodejs.org/en/download",
+    },
+    linux: {
+      manual: "Prefer a version manager (nvm, fnm) or your distro package.",
+      commands: { apt: "sudo apt install nodejs npm" },
+      url: "https://nodejs.org/en/download/package-manager",
+    },
+  },
+  gh: {
+    docsAnchor: "install-gh",
+    darwin: {
+      commands: { brew: "brew install gh" },
+      url: "https://cli.github.com/",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id GitHub.cli -e",
+        choco: "choco install gh",
+        scoop: "scoop install gh",
+      },
+      url: "https://cli.github.com/",
+    },
+    linux: {
+      commands: { apt: "sudo apt install gh", dnf: "sudo dnf install gh" },
+      url: "https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
+    },
+  },
+  jj: {
+    docsAnchor: "install-jj",
+    darwin: {
+      commands: { brew: "brew install jj" },
+      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
+    },
+    win32: {
+      commands: {
+        winget: "winget install jj-vcs.jj",
+        scoop: "scoop install jj",
+        cargo: "cargo install --locked --bin jj jj-cli",
+      },
+      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
+    },
+    linux: {
+      commands: {
+        brew: "brew install jj",
+        cargo: "cargo install --locked --bin jj jj-cli",
+        pacman: "sudo pacman -S jujutsu",
+      },
+      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
+    },
+  },
+  zrok: {
+    docsAnchor: "install-zrok",
+    darwin: {
+      commands: { brew: "brew install zrok" },
+      url: "https://docs.zrok.io/docs/guides/install/",
+    },
+    win32: {
+      manual: "Download the Windows zrok release and add it to PATH.",
+      url: "https://github.com/openziti/zrok/releases/latest",
+    },
+    linux: {
+      commands: {
+        brew: "brew install zrok",
+        script: "curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok",
+      },
+      url: "https://docs.zrok.io/docs/guides/install/linux/",
+    },
+  },
+};
+
 function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
   // The `node` binary gets two Node-specific strategies prepended after
   // override:
@@ -68,6 +203,8 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
     kind: "binary",
     strategies,
     classify,
+    // Opaque UX metadata; undefined for tools with no install story.
+    installHints: INSTALL_HINTS[binaryName],
   };
 }
 
@@ -83,10 +220,11 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
  * (a no-op post-`eliminate-electron-runtime-install` for clean Electron
  * installs, but kept for standalone-CLI callers that may have one).
  *
- * See change: fix-node-resolution-under-electron (task 3.3). This
- * registration is also referenced from the companion proposal
- * `register-bash-and-tool-install-help`, which will layer `installHints`
- * on top once it lands.
+ * See change: fix-node-resolution-under-electron (task 3.3).
+ *
+ * Note: `register-bash-and-tool-install-help` deliberately does NOT attach
+ * `installHints` to `npx` — npx ships with Node, so a user who needs it
+ * installs Node (see the `node` install hints / FAQ `#install-node`).
  */
 function npxBinaryDef(deps?: StrategyDeps): ToolDefinition {
   const strategies: Strategy[] = [
@@ -504,6 +642,12 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   registry.register(npmExecutorDef(deps));
 
   // Native binaries — no interpreter needed.
+  // bash — resolved by the bridge's `!`/`!!` chat-escape. Registered on
+  // every platform; the `where` strategy finds /bin/bash (Unix) or
+  // Git-for-Windows / WSL bash on PATH (Windows). The `managed` slot is
+  // vestigial (bash is never on npm) but kept for chain uniformity.
+  // See change: register-bash-and-tool-install-help.
+  registry.register(binaryDef("bash", deps));
   registry.register(binaryDef("node", deps));
   // npx — registered as a binary with bundled-node prepended so the
   // Electron-bundled npx is found on packaged installs.

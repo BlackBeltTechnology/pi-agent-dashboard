@@ -705,6 +705,18 @@ export interface PiSessionInfo {
   firstMessage?: string;
 }
 
+/**
+ * Structured error payload emitted when a registry-resolved tool is
+ * missing at spawn time. Carries only the tool name; the client fetches
+ * live install hints via /api/tools and renders an inline error with a
+ * deep-link into Settings → Tools.
+ * See change: register-bash-and-tool-install-help.
+ */
+export interface MissingToolError {
+  kind: "missing-tool";
+  toolName: string;
+}
+
 /** Data payload for bash_output dashboard events */
 export interface BashOutputData {
   command: string;
@@ -712,6 +724,13 @@ export interface BashOutputData {
   exitCode: number;
   /** true for !! (silent), false for ! (sent to LLM) */
   excludeFromContext: boolean;
+  /**
+   * Set when the shell binary could not be resolved (e.g. no bash on a
+   * clean Windows host). The client renders MissingToolInlineError
+   * instead of plain output; no command actually ran.
+   * See change: register-bash-and-tool-install-help.
+   */
+  missingTool?: MissingToolError;
 }
 
 /** Data payload for inline_terminal_open dashboard events.

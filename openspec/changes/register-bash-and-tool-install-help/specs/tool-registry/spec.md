@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
-### Requirement: `bash` and `npx` are registered binary tools
+### Requirement: `bash` is a registered binary tool
 
-The registry SHALL ship with `bash` and `npx` definitions of `kind: "binary"`. Both definitions SHALL be registered on every platform (`darwin`, `linux`, `win32`). `bash` is a meaningful concept on all three even when the resolved path differs (`/bin/bash`, `/opt/homebrew/bin/bash`, `C:\Program Files\Git\bin\bash.exe`). `npx` ships with every Node install and is needed by build scripts and chat-escape commands alike. Both definitions SHALL use the stock binary strategy chain: `override`, `managed` (`MANAGED_BIN/<name>`), `where` (delegating to `ToolResolver.which(<name>)`).
+The registry SHALL ship with a `bash` definition of `kind: "binary"`. The definition SHALL be registered on every platform (`darwin`, `linux`, `win32`). `bash` is a meaningful concept on all three even when the resolved path differs (`/bin/bash`, `/opt/homebrew/bin/bash`, `C:\Program Files\Git\bin\bash.exe`). The definition SHALL use the stock binary strategy chain: `override`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`).
 
-**Out-of-scope note**: under Electron, the bundled `node` / `npm` / `npx` live under `process.resourcesPath/node/bin/` and the stock chain does not probe that location — the `npx` row may show "not found" exactly as `node` does today. The fix is tracked in a separate proposal `fix-node-resolution-under-electron` which introduces a `bundledNodeStrategy`. This proposal does not block on it.
+**Already registered — not in this delta**: `npx` is already a registered binary tool (`npxBinaryDef`) with a bundled-Node-aware chain (`override → bundledNode → managedBin → where`), landed by the archived `fix-node-resolution-under-electron` change. This proposal does not modify the `npx` registration.
 
 #### Scenario: bash resolves via PATH on a system with Git-for-Windows
 
@@ -35,19 +35,6 @@ The registry SHALL ship with `bash` and `npx` definitions of `kind: "binary"`. B
 - **AND** `Resolution.source` SHALL equal `"override"`
 - **AND** subsequent strategies SHALL NOT run
 
-#### Scenario: npx resolves via PATH when Node is installed
-
-- **WHEN** `registry.resolve("npx")` runs on a host with Node.js installed
-- **THEN** the `where` strategy SHALL succeed
-- **AND** `Resolution.source` SHALL equal `"system"`
-- **AND** `Resolution.path` SHALL point at an existing executable (`.../npx` on Unix, `.../npx.cmd` on Windows)
-
-#### Scenario: npx not found on a host without Node
-
-- **WHEN** `registry.resolve("npx")` runs on a host where no override is set, no managed install holds `npx`, and `npx` is not on PATH
-- **THEN** every strategy SHALL record `{ ok: false, reason: <descriptive string> }`
-- **AND** `Resolution.ok` SHALL be `false`
-
 ### Requirement: `ToolDefinition.installHints` carries OS-conditional install guidance
 
 `ToolDefinition` SHALL accept an optional `installHints?: InstallHints` field. The registry SHALL treat `installHints` as opaque metadata — it SHALL NOT influence resolution. The field SHALL be surfaced verbatim by `registry.list()` and by any REST endpoint that exposes per-tool data.
@@ -68,20 +55,18 @@ interface PlatformInstallHint {
 }
 ```
 
-#### Scenario: bash and npx registrations ship install hints for every supported OS
+#### Scenario: bash registration ships install hints for every supported OS
 
-- **WHEN** the registry exposes the `bash` and `npx` definitions via `list()` or `/api/tools`
-- **THEN** each definition SHALL include `installHints` with non-empty entries for `darwin`, `win32`, AND `linux`
+- **WHEN** the registry exposes the `bash` definition via `list()` or `/api/tools`
+- **THEN** the definition SHALL include `installHints` with non-empty entries for `darwin`, `win32`, AND `linux`
 - **AND** the bash `win32` entry SHALL list at least one of `winget`, `choco`, `scoop` in `commands`
 - **AND** the bash `darwin` entry MAY use `manual: "Pre-installed on macOS"` instead of `commands` (bash ships with macOS)
 - **AND** the bash `linux` entry MAY use `manual` similarly (bash ships with all mainstream distributions)
-- **AND** the `npx` entries MAY be identical to the `node` entries (npx ships with every Node install)
-- **AND** the `npx` definition's `docsAnchor` MAY equal `"install-node"` so it deep-links to the same FAQ section as `node`
 
 #### Scenario: every user-installable binary tool ships install hints
 
 - **WHEN** the registry exposes its definitions
-- **THEN** the definitions for `bash`, `npx`, `jj`, `gh`, `zrok`, `git`, AND `node` SHALL each include `installHints` for `darwin`, `win32`, AND `linux`
+- **THEN** the definitions for `bash`, `jj`, `gh`, `zrok`, `git`, AND `node` SHALL each include `installHints` for `darwin`, `win32`, AND `linux`
 - **AND** every populated `PlatformInstallHint` SHALL declare at least one of `commands`, `manual`, or `url`
 
 #### Scenario: platform-utility tools do NOT ship install hints
@@ -122,10 +107,10 @@ The bridge extension's `!`/`!!` chat-escape (`packages/extension/src/command-han
 - **THEN** the handler SHALL emit a chat event with payload `{ kind: "missing-tool", toolName: "bash" }`
 - **AND** the handler SHALL NOT invoke `pi.exec` (the spawn call SHALL be skipped, not attempted-then-caught)
 
-#### Scenario: process-manager.ts:475 explicitly NOT migrated
+#### Scenario: Unix-headless sh wrapper explicitly NOT migrated
 
 - **WHEN** auditors review the proposal scope
-- **THEN** the Unix-headless spawn at `packages/server/src/process-manager.ts:475` (`sh -c "tail -f /dev/null | pi"`) SHALL retain the literal `"sh"`
+- **THEN** the Unix-headless spawn that wraps `pi` in `sh -c "tail -f /dev/null | pi"` (built in the platform spawn machinery under `packages/shared/src/platform/`) SHALL retain the literal `"sh"`
 - **AND** this exception SHALL be documented in `design.md` as a deliberate non-target (POSIX `/bin/sh` is the correct contract for that wrapper)
 
 ### Requirement: REST `/api/tools` includes `installHints`
@@ -204,10 +189,4 @@ The registry SHALL ship with definitions for at minimum: `pi` (binary), `pi-codi
 
 - **WHEN** `registry.resolve("bash")` runs
 - **THEN** strategies SHALL be tried in order: `override`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`)
-- **AND** the `managed` slot SHALL be retained for chain uniformity with other binary tools even though `bash` is not currently npm-installable (a follow-on change may revisit this once `fix-doctor-stale-managed-install-check` has landed)
-
-#### Scenario: npx strategy chain
-
-- **WHEN** `registry.resolve("npx")` runs
-- **THEN** strategies SHALL be tried in order: `override`, `managed` (`MANAGED_BIN/npx`), `where` (delegating to `ToolResolver.which("npx")`)
-- **AND** a follow-on proposal (`fix-node-resolution-under-electron`) SHALL extend the chain with a `bundledNodeStrategy` so Electron's bundled `npx` resolves correctly; this scenario describes the chain landing in THIS proposal only
+- **AND** the `managed` slot SHALL be retained for chain uniformity with other binary tools even though `bash` is not currently npm-installable (the archived `fix-doctor-stale-managed-install-check` already deprecated the false "managed install incomplete" Doctor advisory)

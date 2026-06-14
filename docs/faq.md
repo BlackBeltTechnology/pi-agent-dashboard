@@ -2051,3 +2051,161 @@ Cross-refs:
 - packages/client/src/components/OpenSpecProfileSection.tsx
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
+
+## Install bash
+
+Dashboard runs `!`/`!!` chat-escape shell commands through bash.
+
+macOS — pre-installed at /bin/bash.
+
+```bash
+brew install bash
+```
+
+Windows — bash ships inside Git for Windows. WSL bash works as Settings → Tools override.
+
+```bash
+winget install --id Git.Git -e
+choco install git
+scoop install git
+```
+
+Linux — pre-installed on most distributions.
+
+```bash
+sudo apt install bash
+sudo dnf install bash
+```
+
+Vendor docs: https://gitforwindows.org/
+
+## Install git
+
+Dashboard reads branch/worktree state and clones via git.
+
+macOS — bundled with Xcode Command Line Tools: xcode-select --install.
+
+```bash
+brew install git
+```
+
+Windows:
+
+```bash
+winget install --id Git.Git -e
+choco install git
+scoop install git
+```
+
+Linux:
+
+```bash
+sudo apt install git
+sudo dnf install git
+```
+
+Vendor docs: https://git-scm.com/downloads
+
+## Install gh
+
+Dashboard worktree `pr` action calls gh.
+
+macOS:
+
+```bash
+brew install gh
+```
+
+Windows:
+
+```bash
+winget install --id GitHub.cli -e
+choco install gh
+scoop install gh
+```
+
+Linux:
+
+```bash
+sudo apt install gh
+sudo dnf install gh
+```
+
+Vendor docs: https://cli.github.com/
+
+## Install jj
+
+Dashboard surfaces jj workspace state when repo uses Jujutsu.
+
+macOS:
+
+```bash
+brew install jj
+```
+
+Windows:
+
+```bash
+winget install jj-vcs.jj
+scoop install jj
+cargo install --locked --bin jj jj-cli
+```
+
+Linux:
+
+```bash
+brew install jj
+cargo install --locked --bin jj jj-cli
+sudo pacman -S jujutsu
+```
+
+Vendor docs: https://docs.jj-vcs.dev/latest/install-and-setup/
+
+## Install node
+
+Dashboard spawns pi and build scripts via node. npx ships with node.
+
+npx installs with node — no separate step.
+
+macOS:
+
+```bash
+brew install node
+```
+
+Windows:
+
+```bash
+winget install --id OpenJS.NodeJS -e
+choco install nodejs
+scoop install nodejs
+```
+
+Linux — prefer version manager: nvm or fnm.
+
+```bash
+sudo apt install nodejs npm
+```
+
+Vendor docs: https://nodejs.org/en/download
+
+## Install zrok
+
+Dashboard opens persistent public tunnel via zrok.
+
+macOS:
+
+```bash
+brew install zrok
+```
+
+Windows — download release, add to PATH: https://github.com/openziti/zrok/releases/latest
+
+Linux:
+
+```bash
+brew install zrok
+curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
+```
+
+Vendor docs: https://docs.zrok.io/docs/guides/install/

@@ -310,6 +310,11 @@ export function registerSystemRoutes(
       // node_modules/ is read-only). See change:
       // eliminate-electron-runtime-install task 3.2.
       launchSource: parseLaunchSource(process.env),
+      // Host OS the dashboard server runs on. Used by Settings → Tools to
+      // filter install hints to the host (not the browser) OS — a mobile
+      // browser hitting a Linux dashboard must see Linux install commands.
+      // See change: register-bash-and-tool-install-help.
+      platform: process.platform,
       version: version ?? "unknown",
       uptime: Math.floor((Date.now() - serverStartTime) / 1000),
       // ISO timestamp of process start. Used by the Plugins tab to detect

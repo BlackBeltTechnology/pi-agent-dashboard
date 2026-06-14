@@ -11,8 +11,9 @@ import { Icon } from "@mdi/react";
 import {
   mdiCheck, mdiClose, mdiAlert, mdiRefresh, mdiChevronDown, mdiChevronRight,
   mdiContentSaveEdit, mdiDownload, mdiBackspaceOutline,
+  mdiContentCopy, mdiOpenInNew,
 } from "@mdi/js";
-import type { Resolution } from "../lib/tools-api.js";
+import type { Resolution, ToolListEntry, PlatformInstallHint } from "../lib/tools-api.js";
 import {
   fetchTools,
   rescanAll,
@@ -22,13 +23,44 @@ import {
   downloadDiagnostics,
 } from "../lib/tools-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { useHostPlatform, type HostPlatform } from "../hooks/useHostPlatform.js";
+import { copyText } from "../lib/clipboard.js";
+import {
+  OPEN_TOOL_INSTALL_EVENT,
+  consumePendingToolInstall,
+} from "../lib/tool-install-deeplink.js";
 
 export function ToolsSection() {
-  const [tools, setTools] = useState<Resolution[]>([]);
+  const [tools, setTools] = useState<ToolListEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [globalBusy, setGlobalBusy] = useState<"rescan" | "reset" | "export" | null>(null);
+  // Deep-link target: the tool whose `[Install ▾]` dropdown should auto-open
+  // after a MissingToolError inline-error click navigates here.
+  const [installTarget, setInstallTarget] = useState<string | null>(null);
+  const hostOs = useHostPlatform();
+
+  // Deep-link from an inline-chat MissingToolError: scroll the row into
+  // view and flag it so its dropdown opens. Covers both the live event
+  // (settings already open) and the pending target (settings just mounted
+  // after the event fired). See change: register-bash-and-tool-install-help.
+  useEffect(() => {
+    function focusRow(toolName: string) {
+      setInstallTarget(toolName);
+      requestAnimationFrame(() => {
+        document.getElementById(`tool-row-${toolName}`)?.scrollIntoView({ block: "center" });
+      });
+    }
+    function onOpenInstall(e: Event) {
+      const toolName = (e as CustomEvent<{ toolName?: string }>).detail?.toolName;
+      if (toolName) focusRow(toolName);
+    }
+    const pending = consumePendingToolInstall();
+    if (pending) focusRow(pending);
+    window.addEventListener(OPEN_TOOL_INSTALL_EVENT, onOpenInstall);
+    return () => window.removeEventListener(OPEN_TOOL_INSTALL_EVENT, onOpenInstall);
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -156,6 +188,8 @@ export function ToolsSection() {
             <ToolRow
               key={t.name}
               tool={t}
+              hostOs={hostOs}
+              autoOpenInstall={installTarget === t.name}
               busy={busyName === t.name}
               onRescan={() => onRescanOne(t.name)}
               onSetOverride={(p) => onSetOverride(t.name, p)}
@@ -172,24 +206,38 @@ export function ToolsSection() {
 // ── Row ─────────────────────────────────────────────────────────────────────
 
 interface ToolRowProps {
-  tool: Resolution;
+  tool: ToolListEntry;
+  hostOs: HostPlatform | null;
+  autoOpenInstall: boolean;
   busy: boolean;
   onRescan: () => void;
   onSetOverride: (path: string) => void;
   onClearOverride: () => void;
 }
 
-function ToolRow({ tool, busy, onRescan, onSetOverride, onClearOverride }: ToolRowProps) {
+function ToolRow({ tool, hostOs, autoOpenInstall, busy, onRescan, onSetOverride, onClearOverride }: ToolRowProps) {
   const [expanded, setExpanded] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
   const [draftPath, setDraftPath] = useState("");
+
+  // Auto-open the install dropdown when deep-linked from an inline chat error.
+  useEffect(() => {
+    if (autoOpenInstall) setInstallOpen(true);
+  }, [autoOpenInstall]);
 
   const invalidOverride = tool.tried.some(
     (x) => x.strategy === "override" && typeof x.result === "string" && x.result.startsWith("invalid:"),
   );
   const hasOverride = tool.source === "override" || invalidOverride;
 
+  // Install hint for the HOST OS only (not the browser OS). Rendered only
+  // on missing rows. See change: register-bash-and-tool-install-help.
+  const installHint: PlatformInstallHint | undefined =
+    !tool.ok && hostOs ? tool.installHints?.[hostOs] : undefined;
+  const docsAnchor = tool.installHints?.docsAnchor;
+
   return (
-    <div className="py-1.5">
+    <div className="py-1.5" id={`tool-row-${tool.name}`}>
       <div className="flex items-center gap-2 text-xs">
         <button
           className="flex-shrink-0 p-0.5 hover:bg-[var(--bg-hover)] rounded"
@@ -204,6 +252,17 @@ function ToolRow({ tool, busy, onRescan, onSetOverride, onClearOverride }: ToolR
         <span className="font-mono text-[var(--text-secondary)] truncate flex-1" title={tool.path ?? "not found"}>
           {tool.path ?? "not found"}
         </span>
+        {installHint && (
+          <button
+            onClick={() => setInstallOpen((x) => !x)}
+            className="flex-shrink-0 px-1.5 py-0.5 border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)] flex items-center gap-1"
+            title={`How to install ${tool.name}`}
+            aria-expanded={installOpen}
+          >
+            <Icon path={mdiDownload} size={0.55} /> Install
+            <Icon path={mdiChevronDown} size={0.5} />
+          </button>
+        )}
         <button
           onClick={onRescan}
           disabled={busy}
@@ -213,6 +272,10 @@ function ToolRow({ tool, busy, onRescan, onSetOverride, onClearOverride }: ToolR
           <Icon path={mdiRefresh} size={0.55} />
         </button>
       </div>
+
+      {installHint && installOpen && (
+        <InstallDropdown toolName={tool.name} hint={installHint} docsAnchor={docsAnchor} />
+      )}
 
       {expanded && (
         <div className="pl-8 pr-2 pt-2 space-y-2">
@@ -263,6 +326,75 @@ function ToolRow({ tool, busy, onRescan, onSetOverride, onClearOverride }: ToolR
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Install dropdown ──────────────────────────────────────────────
+
+/**
+ * Per-OS install guidance shown under a missing tool row. Lists every
+ * package-manager command (with copy-to-clipboard), the free-form manual
+ * note, and a "Read more in docs" link when a docsAnchor is set.
+ * See change: register-bash-and-tool-install-help.
+ */
+function InstallDropdown({
+  toolName,
+  hint,
+  docsAnchor,
+}: {
+  toolName: string;
+  hint: PlatformInstallHint;
+  docsAnchor?: string;
+}) {
+  const commands = Object.entries(hint.commands ?? {});
+  return (
+    <div
+      role="region"
+      aria-label={`Install ${toolName}`}
+      className="pl-8 pr-2 pt-2 pb-1 space-y-1.5"
+    >
+      {commands.map(([pm, cmd]) => (
+        <div key={pm} className="flex items-center gap-2 text-[11px]">
+          <span className="font-mono text-[var(--text-secondary)] w-16 flex-shrink-0">{pm}</span>
+          <code className="font-mono flex-1 truncate bg-[var(--bg-secondary)] px-1.5 py-0.5 rounded" title={cmd}>
+            {cmd}
+          </code>
+          <button
+            onClick={() => { void copyText(cmd); }}
+            className="flex-shrink-0 px-1.5 py-0.5 border border-[var(--border-secondary)] rounded hover:bg-[var(--bg-hover)]"
+            title={`Copy: ${cmd}`}
+            aria-label={`Copy ${pm} command`}
+          >
+            <Icon path={mdiContentCopy} size={0.5} />
+          </button>
+        </div>
+      ))}
+      {hint.manual && (
+        <div className="text-[11px] text-[var(--text-secondary)]">{hint.manual}</div>
+      )}
+      <div className="flex items-center gap-3 text-[11px]">
+        {hint.url && (
+          <a
+            href={hint.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sky-500 hover:underline inline-flex items-center gap-1"
+          >
+            Download <Icon path={mdiOpenInNew} size={0.45} />
+          </a>
+        )}
+        {docsAnchor && (
+          <a
+            href={`/docs/faq.md#${docsAnchor}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--text-secondary)] hover:underline inline-flex items-center gap-1"
+          >
+            Read more in docs <Icon path={mdiOpenInNew} size={0.45} />
+          </a>
+        )}
+      </div>
     </div>
   );
 }

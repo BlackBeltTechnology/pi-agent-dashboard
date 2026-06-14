@@ -2,6 +2,28 @@ import { describe, it, expect, vi } from "vitest";
 import { createCommandHandler, parseSendPrompt } from "../command-handler.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
+// Mock the tool registry so `!`/`!!` bash resolution is deterministic
+// across hosts. `bashMock` is mutated per-test to simulate found / missing.
+// See change: register-bash-and-tool-install-help.
+const registryMock = vi.hoisted(() => ({
+  bash: { ok: true, path: "/usr/bin/bash" } as { ok: boolean; path: string | null },
+}));
+vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () => ({
+  getDefaultRegistry: () => ({
+    resolve: (name: string) =>
+      name === "bash"
+        ? {
+            name: "bash",
+            ok: registryMock.bash.ok,
+            path: registryMock.bash.path,
+            source: registryMock.bash.ok ? "system" : null,
+            tried: [],
+            resolvedAt: 0,
+          }
+        : { name, ok: false, path: null, source: null, tried: [], resolvedAt: 0 },
+  }),
+}));
+
 describe("CommandHandler", () => {
   function createMockPi() {
     return {
@@ -426,9 +448,11 @@ describe("CommandHandler", () => {
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!!ls -la" });
 
-      expect(exec).toHaveBeenCalledWith("sh", ["-c", "ls -la"], expect.objectContaining({ timeout: 30000 }));
+      // Spawns the registry-resolved absolute path, not the literal "sh".
+      expect(exec).toHaveBeenCalledWith("/usr/bin/bash", ["-c", "ls -la"], expect.objectContaining({ timeout: 30000 }));
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
       expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
         type: "event_forward",
@@ -446,9 +470,10 @@ describe("CommandHandler", () => {
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" };
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
 
-      expect(exec).toHaveBeenCalledWith("sh", ["-c", "ls"], expect.objectContaining({ timeout: 30000 }));
+      expect(exec).toHaveBeenCalledWith("/usr/bin/bash", ["-c", "ls"], expect.objectContaining({ timeout: 30000 }));
       expect(pi.sendUserMessage).toHaveBeenCalled();
       expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
         type: "event_forward",
@@ -457,6 +482,29 @@ describe("CommandHandler", () => {
           data: expect.objectContaining({ command: "ls", excludeFromContext: false }),
         }),
       }));
+    });
+
+    it("emits a MissingToolError and never spawns when bash is unresolved", async () => {
+      // See change: register-bash-and-tool-install-help (task 3.4).
+      registryMock.bash = { ok: false, path: null };
+      const pi = createMockPi();
+      const exec = vi.fn();
+      (pi as any).exec = exec;
+      const eventSink = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" });
+
+      // Never attempts a spawn, never sends to the LLM.
+      expect(exec).not.toHaveBeenCalled();
+      expect(pi.sendUserMessage).not.toHaveBeenCalled();
+      // Emits exactly one bash_output event carrying the missing-tool payload.
+      const bashEvents = eventSink.mock.calls
+        .map((c) => c[0] as any)
+        .filter((m) => m?.event?.eventType === "bash_output");
+      expect(bashEvents).toHaveLength(1);
+      expect(bashEvents[0].event.data.missingTool).toEqual({ kind: "missing-tool", toolName: "bash" });
+      registryMock.bash = { ok: true, path: "/usr/bin/bash" }; // reset
     });
 
     it("should fall through for empty bang commands", async () => {

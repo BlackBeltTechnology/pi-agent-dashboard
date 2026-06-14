@@ -16,6 +16,7 @@ import type { FastifyInstance } from "fastify";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type {
   Resolution,
+  ToolListEntry,
   ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { UnknownToolError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -57,8 +58,12 @@ export function registerToolRoutes(
     "/api/tools",
     { preHandler: networkGuard },
     async () => {
+      // `list()` rows carry each tool's static `installHints` (when
+      // declared) so the Settings → Tools UI can render an `[Install ▾]`
+      // dropdown on missing rows. See change:
+      // register-bash-and-tool-install-help.
       return { success: true, data: { tools: registry.list() } } satisfies ApiResponse<{
-        tools: Resolution[];
+        tools: ToolListEntry[];
       }>;
     },
   );
@@ -93,7 +98,7 @@ export function registerToolRoutes(
         registry.rescan();
       }
       return { success: true, data: { tools: registry.list() } } satisfies ApiResponse<{
-        tools: Resolution[];
+        tools: ToolListEntry[];
       }>;
     },
   );

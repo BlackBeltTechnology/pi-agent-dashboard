@@ -122,6 +122,32 @@ export interface ToolRegistryLike {
   resolve(name: string): Resolution;
 }
 
+/**
+ * Per-OS install guidance for a tool. Pure UX metadata — the registry
+ * never consults it during resolution. Surfaced by `ToolRegistry.list()`
+ * and the REST `/api/tools` endpoint; the Settings → Tools UI renders it
+ * as an `[Install ▾]` dropdown on missing-tool rows.
+ *
+ * See change: register-bash-and-tool-install-help.
+ */
+export interface InstallHints {
+  darwin?: PlatformInstallHint;
+  win32?: PlatformInstallHint;
+  linux?: PlatformInstallHint;
+  /** Anchor under docs/faq.md for human-written install guidance. */
+  docsAnchor?: string;
+}
+
+/** Install guidance for one OS. */
+export interface PlatformInstallHint {
+  /** Package-manager label → install command (e.g. { brew: "brew install jj" }). */
+  commands?: Record<string, string>;
+  /** Free-form fallback when no package manager applies (e.g. "Pre-installed on macOS"). */
+  manual?: string;
+  /** Canonical vendor download URL. */
+  url?: string;
+}
+
 /** Declarative tool registration. */
 export interface ToolDefinition {
   /** Registry key — unique within the registry. */
@@ -159,6 +185,22 @@ export interface ToolDefinition {
    * failure carrying that reason, and the next strategy is tried.
    */
   validate?(resolvedPath: string): { ok: true } | { ok: false; reason: string };
+  /**
+   * Optional per-OS install guidance. Opaque to resolution — `resolve()`
+   * ignores it; only `list()` / REST surface it.
+   * See change: register-bash-and-tool-install-help.
+   */
+  installHints?: InstallHints;
+}
+
+/**
+ * One row of `ToolRegistry.list()`. Extends Resolution with the tool's
+ * static `installHints` so the Resolution shape stays resolution-only
+ * (resolve() never carries hints). Field omitted when the definition
+ * declares no hints. See change: register-bash-and-tool-install-help.
+ */
+export interface ToolListEntry extends Resolution {
+  installHints?: InstallHints;
 }
 
 // ── Errors ──────────────────────────────────────────────────────────────────

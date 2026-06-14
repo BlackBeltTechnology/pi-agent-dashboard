@@ -257,9 +257,36 @@ describe("integration with default tool definitions", () => {
     const res = await fastify.inject({ method: "GET", url: "/api/tools" });
     expect(res.statusCode).toBe(200);
     const names = res.json().data.tools.map((t: any) => t.name).sort();
-    expect(names).toEqual(expect.arrayContaining(["git", "node", "npm", "openspec", "pi", "pi-coding-agent", "zrok"]));
+    expect(names).toEqual(expect.arrayContaining(["git", "node", "npm", "openspec", "pi", "pi-coding-agent", "zrok", "bash"]));
     expect(names).not.toContain("tsx");
     expect(names).not.toContain("pi-dashboard");
+    await fastify.close();
+  });
+
+  it("carries installHints for tools that declare it, omits it otherwise", async () => {
+    // See change: register-bash-and-tool-install-help.
+    const overrides = new OverridesStore({ filePath: tmpOverridesPath(), warn: () => {} });
+    const r = new ToolRegistry({ overrides, platform: "linux" });
+    registerDefaultTools(r, {
+      exists: () => false,
+      which: () => null,
+      npmRootGlobal: () => "",
+    });
+    const fastify = buildServer(r);
+
+    const res = await fastify.inject({ method: "GET", url: "/api/tools" });
+    const tools = res.json().data.tools as any[];
+    const byName = new Map(tools.map((t) => [t.name, t]));
+
+    // git declares hints — present, OS-keyed, with a docsAnchor.
+    const git = byName.get("git");
+    expect(git.installHints).toBeDefined();
+    expect(git.installHints.linux).toBeDefined();
+    expect(git.installHints.docsAnchor).toBe("install-git");
+    // bash declares hints too (the new registration).
+    expect(byName.get("bash").installHints).toBeDefined();
+    // wt declares no hints — field omitted entirely (not null/{}).
+    expect("installHints" in byName.get("wt")).toBe(false);
     await fastify.close();
   });
 });

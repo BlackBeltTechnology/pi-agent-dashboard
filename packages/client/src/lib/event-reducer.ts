@@ -1446,6 +1446,10 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       const output = data.output as string;
       const exitCode = data.exitCode as number;
       const excludeFromContext = data.excludeFromContext as boolean;
+      // Structured missing-tool marker (bash unresolved). Carried into the
+      // message so ChatView renders MissingToolInlineError instead of the
+      // plain output card. See change: register-bash-and-tool-install-help.
+      const missingTool = (data as any).missingTool;
       next.pendingPrompt = undefined;
       next.messages = [
         ...next.messages,
@@ -1454,7 +1458,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           role: "bashOutput" as any,
           content: output,
           timestamp: event.timestamp,
-          args: { command, exitCode, excludeFromContext } as any,
+          args: { command, exitCode, excludeFromContext, missingTool } as any,
         },
       ];
       break;

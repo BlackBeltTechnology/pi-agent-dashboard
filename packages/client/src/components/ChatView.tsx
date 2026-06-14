@@ -11,6 +11,7 @@ import { CopyButton } from "./CopyButton.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { BashOutputCard } from "./BashOutputCard.js";
+import { MissingToolInlineError } from "./chat/MissingToolInlineError.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { formatMessageTime } from "../lib/format.js";
@@ -460,6 +461,14 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
 
         if (msg.role === "bashOutput") {
           const args = msg.args as any;
+          // Missing shell binary: render the actionable inline error with a
+          // deep-link into Settings → Tools instead of the output card.
+          // See change: register-bash-and-tool-install-help.
+          if (args?.missingTool?.kind === "missing-tool") {
+            return (
+              <MissingToolInlineError key={msg.id} toolName={args.missingTool.toolName} />
+            );
+          }
           return (
             <BashOutputCard
               key={msg.id}

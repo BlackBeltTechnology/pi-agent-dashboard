@@ -18,6 +18,7 @@ import {
   type Source,
   type StrategyCtx,
   type ToolDefinition,
+  type ToolListEntry,
   UnknownToolError,
   type TriedEntry,
 } from "./types.js";
@@ -121,9 +122,20 @@ export class ToolRegistry {
     return this.definitions.has(name);
   }
 
-  /** Snapshot of every registered tool's resolution. Triggers resolution as needed. */
-  list(): Resolution[] {
-    return Array.from(this.definitions.keys()).map((n) => this.resolve(n));
+  /**
+   * Snapshot of every registered tool's resolution. Triggers resolution
+   * as needed. Each row carries the definition's static `installHints`
+   * opaquely (omitted when the definition declares none); the hints do
+   * not influence resolution — they ride alongside the Resolution.
+   * See change: register-bash-and-tool-install-help.
+   */
+  list(): ToolListEntry[] {
+    return Array.from(this.definitions.entries()).map(([n, def]) => {
+      const resolution = this.resolve(n);
+      return def.installHints
+        ? { ...resolution, installHints: def.installHints }
+        : resolution;
+    });
   }
 
   /** Resolve a binary/directory/module-path. Uses cached result when present. */

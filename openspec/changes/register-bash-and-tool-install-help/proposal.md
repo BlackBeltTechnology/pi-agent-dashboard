@@ -1,30 +1,30 @@
 ## Why
 
-The dashboard relies on a small set of external CLIs — `jj`, `openspec`, `git`, `bash`, `gh`, `zrok`, `npx` — across the bridge extension, server, build scripts, and assistant chat. Five of the seven are already registered in `ToolRegistry` and surface in Settings → Tools with override + source-badge UX. Two are not:
+The dashboard relies on a small set of external CLIs — `jj`, `openspec`, `git`, `bash`, `gh`, `zrok`, `npx` — across the bridge extension, server, build scripts, and assistant chat. Six of the seven are already registered in `ToolRegistry` and surface in Settings → Tools with override + source-badge UX (`npx` was registered with a bundled-Node-aware chain by the archived `fix-node-resolution-under-electron` change). One is not:
 
-- **`bash`** is hardcoded as the string `"sh"` in `packages/extension/src/command-handler.ts:605`, where `!`/`!!` chat-escapes run user shell commands. On Windows hosts without Git-for-Windows or WSL on PATH, that spawn fails with a bare `ENOENT` that the user cannot map to "install Git for Windows" without reading the server log.
-- **`npx`** appears in build scripts (`packages/electron/scripts/build-windows-zip.sh:192`, `packages/electron/scripts/docker-make.sh:237`, `.github/workflows/_electron-build.yml:447`) and in `!`-escape chat commands a user might run, but is not registered. The `managedRuntimeStrategy` union type at `packages/shared/src/tool-registry/strategies.ts:107` already reserves `"npx"` as a tool-name literal — the registration was anticipated and never closed.
+- **`bash`** is hardcoded as the string `"sh"` in `packages/extension/src/command-handler.ts:728`, where `!`/`!!` chat-escapes run user shell commands. On Windows hosts without Git-for-Windows or WSL on PATH, that spawn fails with a bare `ENOENT` that the user cannot map to "install Git for Windows" without reading the server log.
 
 Two distinct problems compound the silent-failure:
 
-1. **`bash` and `npx` are not in the registry**, so they neither appear in Settings → Tools nor benefit from the override / managed / where strategy chain that every other binary tool uses.
+1. **`bash` is not in the registry**, so it neither appears in Settings → Tools nor benefits from the override / managed / where strategy chain that every other binary tool uses.
 2. **Missing-tool errors carry no install guidance.** When any registered binary tool is missing (`bash`, `jj`, `gh`, `zrok`, `npx`, …) the Settings → Tools row renders `"not found"` with no path forward. Every OS has a canonical install command (`winget install …`, `brew install …`, `apt install …`) but the dashboard knows none of them. Users must leave the app, search the web, and guess.
 
-These are coupled: registering `bash` / `npx` without install help just adds more `"not found"` rows on a clean Windows install. Shipping install hints without `bash` registered leaves the original silent-spawn-failure intact.
+These are coupled: registering `bash` without install help just adds another `"not found"` row on a clean Windows install. Shipping install hints without `bash` registered leaves the original silent-spawn-failure intact.
 
 ## What Changes
 
-### Part 1 — Register `bash` and `npx` in `ToolRegistry`
+### Part 1 — Register `bash` in `ToolRegistry`
 
-- Add `binaryDef("bash")` and `binaryDef("npx")` to `registerDefaultTools` in `packages/shared/src/tool-registry/definitions.ts`. Both use the stock chain (`override → managed → where`).
-- `bash`: the `managed` slot is structurally vestigial (bash is never on npm); kept for chain uniformity. A follow-on proposal may revisit the managed slot's relevance once `fix-doctor-stale-managed-install-check` lands (orthogonal — no conflict).
-- `npx`: ships paired with `node` (same release tarball, same `bin/` directory). The proper fix for finding the Electron-bundled `npx` (and `node`, and `npm`) is a new `bundledNodeStrategy` that probes `process.resourcesPath`. That work is OUT OF SCOPE here — tracked in a separate proposal `fix-node-resolution-under-electron`. This proposal registers `npx` with the stock chain so it appears in Settings → Tools; the resolution-correctness fix lands in the companion proposal. Until then, the `npx` row may show "not found" under Electron exactly as `node` does today (acceptable: it surfaces an existing latent gap rather than introducing one).
-- No platform gate. `bash` is meaningful on every OS (macOS / Linux: `/bin/bash`, `/opt/homebrew/bin/bash`; Windows: Git-for-Windows, WSL, MSYS2). `npx` ships with every Node install. The chain naturally falls through to "not found" when none are present.
+- Add `binaryDef("bash")` to `registerDefaultTools` in `packages/shared/src/tool-registry/definitions.ts`. Uses the stock chain (`override → managed → where`).
+- `bash`: the `managed` slot is structurally vestigial (bash is never on npm); kept for chain uniformity.
+- No platform gate. `bash` is meaningful on every OS (macOS / Linux: `/bin/bash`, `/opt/homebrew/bin/bash`; Windows: Git-for-Windows, WSL, MSYS2). The chain naturally falls through to "not found" when none are present.
+
+**Already done — not in scope.** `npx` is already registered in `definitions.ts` (`npxBinaryDef`) with a bundled-Node-aware strategy chain (`override → bundledNode → managedBin → where`), landed by the archived `fix-node-resolution-under-electron` change. This proposal neither re-registers `npx` nor adds `installHints` to it; a user who needs `npx` installs Node (see the `node` install hints).
 
 ### Part 2 — Migrate the `!`/`!!` escape callsite
 
-- `packages/extension/src/command-handler.ts:605` replaces `pi.exec("sh", ["-c", cmd], …)` with `registry.resolve("bash")` and spawns the resolved absolute path. When `Resolution.ok === false`, the handler emits a structured `MissingToolError` payload (`{ toolName: "bash" }`) instead of attempting the spawn. The chat renderer turns that payload into an inline error component with a deep-link to Settings → Tools.
-- **Explicit non-target**: `packages/server/src/process-manager.ts:475` (`sh -c "tail -f /dev/null | pi"`) stays as `"sh"`. That wrapper uses only POSIX features and runs in a Unix-only code path; `/bin/sh` is the correct contract there, not `bash`. Routing through the bash registration would be a semantic regression.
+- `packages/extension/src/command-handler.ts:728` replaces `pi.exec("sh", ["-c", cmd], …)` with `registry.resolve("bash")` and spawns the resolved absolute path. When `Resolution.ok === false`, the handler emits a structured `MissingToolError` payload (`{ toolName: "bash" }`) instead of attempting the spawn. The chat renderer turns that payload into an inline error component with a deep-link to Settings → Tools.
+- **Explicit non-target**: the Unix-headless `sh -c "tail -f /dev/null | pi"` wrapper (now built in the platform spawn machinery under `packages/shared/src/platform/`, formerly at `process-manager.ts:475`) stays as `"sh"`. That wrapper uses only POSIX features and runs in a Unix-only code path; `/bin/sh` is the correct contract there, not `bash`. Routing through the bash registration would be a semantic regression.
 - **Explicit non-target**: `packages/shared/src/platform/shell.ts` interactive-PTY shell selection. That picks the user's `$SHELL` preference for terminal sessions; it is not a script-exec callsite. Separate proposal if it ever needs registry routing.
 
 ### Part 3 — `installHints` metadata on `ToolDefinition`
@@ -49,7 +49,7 @@ These are coupled: registering `bash` / `npx` without install help just adds mor
   }
   ```
 
-- Populate hints for every existing binary tool that is genuinely user-installable: `bash`, `jj`, `gh`, `zrok`, `git`, `node`, `npx`. The `npx` hints note that it ships with Node.js — its hint set is the same as `node`'s (a user who installs Node gets `npx` for free). Skip platform-utility binaries (`wmic`, `powershell`, `tasklist`, `taskkill`, `ps`, `pgrep`, `wt`) — they ship with the OS and have no install story.
+- Populate hints for every existing binary tool that is genuinely user-installable: `bash`, `jj`, `gh`, `zrok`, `git`, `node`. Skip platform-utility binaries (`wmic`, `powershell`, `tasklist`, `taskkill`, `ps`, `pgrep`, `wt`) — they ship with the OS and have no install story.
 - The registry treats `installHints` as opaque metadata. `resolve()` ignores it; only `list()` surfaces it through the existing `Resolution` snapshot.
 
 ### Part 4 — REST `/api/tools` carries `installHints` through to the client
@@ -71,7 +71,7 @@ These are coupled: registering `bash` / `npx` without install help just adds mor
 
 ### Part 7 — Docs
 
-- Add anchored sections to `docs/faq.md`: `#install-bash`, `#install-jj`, `#install-gh`, `#install-zrok`, `#install-git`, `#install-node`. (No separate `#install-npx` anchor — `npx` ships with `node`; its `docsAnchor` points at `#install-node`.) Each section repeats the per-OS commands the UI already shows AND adds a short "why does the dashboard need this" paragraph plus a link to the vendor's docs. Acts as the single source of human-written install guidance — the UI hints are derived data, the FAQ is the narrative.
+- Add anchored sections to `docs/faq.md`: `#install-bash`, `#install-jj`, `#install-gh`, `#install-zrok`, `#install-git`, `#install-node`. Each section repeats the per-OS commands the UI already shows AND adds a short "why does the dashboard need this" paragraph plus a link to the vendor's docs. Acts as the single source of human-written install guidance — the UI hints are derived data, the FAQ is the narrative.
 
 ### Part 8 — Doctor cross-reference (forward note only)
 
@@ -85,7 +85,7 @@ These are coupled: registering `bash` / `npx` without install help just adds mor
 
 ### Modified Capabilities
 
-- `tool-registry`: Registers `bash` and `npx` as new binary tools. Adds an `installHints` field to the `ToolDefinition` contract and to the REST `/api/tools` response. Specifies that the bridge's `!`/`!!` chat-escape MUST resolve `bash` through the registry (never spawn `"sh"` directly). Specifies the UI contract for `[Install ▾]` actions on missing-tool rows.
+- `tool-registry`: Registers `bash` as a new binary tool. Adds an `installHints` field to the `ToolDefinition` contract and to the REST `/api/tools` response. Specifies that the bridge's `!`/`!!` chat-escape MUST resolve `bash` through the registry (never spawn `"sh"` directly). Specifies the UI contract for `[Install ▾]` actions on missing-tool rows.
 
 ## Impact
 
@@ -96,7 +96,7 @@ These are coupled: registering `bash` / `npx` without install help just adds mor
 
 - **Code (modified files)**:
   - `packages/shared/src/tool-registry/types.ts` — add `InstallHints`, `PlatformInstallHint`; extend `ToolDefinition` with optional `installHints`.
-  - `packages/shared/src/tool-registry/definitions.ts` — register `bash` and `npx`; attach `installHints` to `bash`, `npx`, `jj`, `gh`, `zrok`, `git`, `node`.
+  - `packages/shared/src/tool-registry/definitions.ts` — register `bash`; attach `installHints` to `bash`, `jj`, `gh`, `zrok`, `git`, `node`.
   - `packages/shared/src/tool-registry/registry.ts` — `list()` includes per-tool `installHints` in its result shape (carried through, not transformed).
   - `packages/extension/src/command-handler.ts` — replace `"sh"` literal at the `!`-escape branch with `registry.resolve("bash")` + missing-tool structured-error emission.
   - `packages/extension/src/__tests__/command-handler.test.ts` — new case: missing bash → emits `MissingToolError`, does not spawn.
@@ -109,5 +109,5 @@ These are coupled: registering `bash` / `npx` without install help just adds mor
 - **Migration**: none. `installHints` is additive optional metadata; existing code that does not consume it is unaffected.
 - **Compatibility**: REST `/api/tools` response gains an optional field; existing clients ignore it. The `command-handler.ts` change is a behavior fix (structured error vs. silent ENOENT) — no public-API break.
 - **Rollback**: revert the change directory. The `bash` registration and `installHints` field are additive; reverting restores the prior `"sh"` literal at the `!`-escape callsite.
-- **Cross-reference**: orthogonal to `fix-doctor-stale-managed-install-check`. That proposal deprecates the false "managed install incomplete" Doctor row; this proposal keeps the `managed` strategy slot in `bash` for chain uniformity. A future proposal may unify the two threads.
-- **Cross-reference**: companion to `fix-node-resolution-under-electron`. That proposal introduces a `bundledNodeStrategy` so `node` / `npm` / `npx` resolve correctly under Electron (today's `node` row shows "not found" even though the dashboard is running on the bundled Node). This proposal registers `npx` with the stock chain so the row appears in Settings → Tools; the resolution-correctness fix lands in the companion. Either order of landing is safe — the proposals do not conflict.
+- **Cross-reference**: orthogonal to the archived `fix-doctor-stale-managed-install-check`. That change deprecated the false "managed install incomplete" Doctor row; this proposal keeps the `managed` strategy slot in `bash` for chain uniformity. A future proposal may unify the two threads.
+- **Cross-reference**: the archived `fix-node-resolution-under-electron` already registered `npx` with a `bundledNodeStrategy` (`override → bundledNode → managedBin → where`) so `node` / `npm` / `npx` resolve correctly under Electron. `npx` registration is therefore already complete; this proposal does not touch it.

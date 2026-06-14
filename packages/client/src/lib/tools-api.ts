@@ -11,10 +11,18 @@
  *
  * See change: consolidate-tool-resolution (specs/tool-settings-ui).
  */
-import type { Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
+import type {
+  Resolution,
+  ToolListEntry,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
 import { getApiBase } from "./api-context.js";
 
-export type { Resolution } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
+export type {
+  Resolution,
+  ToolListEntry,
+  InstallHints,
+  PlatformInstallHint,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
   const res = await fetch(`${getApiBase()}${url}`, {
@@ -28,11 +36,13 @@ async function post<T>(url: string, body?: unknown): Promise<T> {
   return json.data as T;
 }
 
-export async function fetchTools(): Promise<Resolution[]> {
+export async function fetchTools(): Promise<ToolListEntry[]> {
   const res = await fetch(`${getApiBase()}/api/tools`);
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "failed to list tools");
-  return (json.data as { tools: Resolution[] }).tools;
+  // Rows carry optional `installHints` (static per-tool install guidance).
+  // See change: register-bash-and-tool-install-help.
+  return (json.data as { tools: ToolListEntry[] }).tools;
 }
 
 export async function fetchTool(name: string): Promise<Resolution> {
@@ -43,14 +53,14 @@ export async function fetchTool(name: string): Promise<Resolution> {
 }
 
 /** Rescan all tools. */
-export async function rescanAll(): Promise<Resolution[]> {
-  const data = await post<{ tools: Resolution[] }>("/api/tools/rescan", {});
+export async function rescanAll(): Promise<ToolListEntry[]> {
+  const data = await post<{ tools: ToolListEntry[] }>("/api/tools/rescan", {});
   return data.tools;
 }
 
 /** Rescan one tool. */
-export async function rescanOne(name: string): Promise<Resolution[]> {
-  const data = await post<{ tools: Resolution[] }>("/api/tools/rescan", { name });
+export async function rescanOne(name: string): Promise<ToolListEntry[]> {
+  const data = await post<{ tools: ToolListEntry[] }>("/api/tools/rescan", { name });
   return data.tools;
 }
 
