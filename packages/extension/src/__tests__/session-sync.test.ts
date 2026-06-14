@@ -35,6 +35,7 @@ function createMockBridgeContext(overrides?: Partial<BridgeContext>): BridgeCont
     lastGitPrNumber: undefined,
     lastSessionName: undefined,
     hasRegisteredOnce: false,
+    dashboardSpawned: false,
     ...overrides,
     // Expose sent messages for assertions
     _sent: sent,
@@ -180,6 +181,41 @@ describe("sendStateSync: spawnToken from env", () => {
       const registerMsg = sent.find((m: any) => m.type === "session_register");
       expect(registerMsg.spawnToken).toBeUndefined();
       expect(registerMsg.registerReason).toBe("spawn");
+    });
+  });
+
+  // See change: fix-spawn-token-env-leak.
+  it("first register emits token + dashboardSpawned:true and scrubs the env var", () => {
+    withEnvVar("tok_first", () => {
+      const bc = createMockBridgeContext({ hasRegisteredOnce: false, dashboardSpawned: true } as any);
+      sendStateSync(bc, () => []);
+      const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
+      expect(registerMsg.spawnToken).toBe("tok_first");
+      expect(registerMsg.dashboardSpawned).toBe(true);
+      // Single-use token scrubbed so descendants can't inherit it.
+      expect(process.env.PI_DASHBOARD_SPAWN_TOKEN).toBeUndefined();
+    });
+  });
+
+  it("second register (reattach) omits token but keeps dashboardSpawned:true via capture-once boolean", () => {
+    // Env already scrubbed (token gone) but the captured boolean persists.
+    withEnvVar(undefined, () => {
+      const bc = createMockBridgeContext({ hasRegisteredOnce: true, dashboardSpawned: true } as any);
+      sendStateSync(bc, () => []);
+      const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
+      expect(registerMsg.spawnToken).toBeUndefined();
+      expect(registerMsg.dashboardSpawned).toBe(true);
+      expect(registerMsg.registerReason).toBe("reattach");
+    });
+  });
+
+  it("descendant child (no token, dashboardSpawned:false) emits neither field", () => {
+    withEnvVar(undefined, () => {
+      const bc = createMockBridgeContext({ hasRegisteredOnce: false, dashboardSpawned: false } as any);
+      sendStateSync(bc, () => []);
+      const registerMsg = (bc as any)._sent.find((m: any) => m.type === "session_register");
+      expect(registerMsg.spawnToken).toBeUndefined();
+      expect(registerMsg.dashboardSpawned).toBeUndefined();
     });
   });
 

@@ -83,6 +83,13 @@ interface BridgeState {
   timers?: ReturnType<typeof setInterval>[];
   /** True when the agent is currently in a turn (between agent_start and agent_end) */
   isAgentStreaming?: boolean;
+  /**
+   * Capture-once "was this pi dashboard-spawned?" boolean. Set on first bridge
+   * activation from `!!process.env.PI_DASHBOARD_SPAWN_TOKEN` BEFORE the token is
+   * scrubbed; persisted here so reload/reattach keeps the value after the env
+   * var is gone. See change: fix-spawn-token-env-leak.
+   */
+  dashboardSpawned?: boolean;
 }
 function getBridgeState(): BridgeState {
   if (!(process as any)[BRIDGE_KEY]) {
@@ -228,6 +235,15 @@ function initBridge(pi: ExtensionAPI) {
   let lastModel: string | undefined;
   let lastThinkingLevel: string | undefined;
   let hasRegisteredOnce = false; // see change: reattach-move-to-front
+  // Capture-once "was this pi dashboard-spawned?" boolean, read BEFORE the
+  // single-use `PI_DASHBOARD_SPAWN_TOKEN` is scrubbed on first register.
+  // Persisted on BridgeState (`prev`) so a reload/reattach — which re-runs
+  // this module after the env was scrubbed — keeps the correct value instead
+  // of regressing to false. See change: fix-spawn-token-env-leak.
+  if (prev.dashboardSpawned === undefined) {
+    prev.dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  }
+  const dashboardSpawned = prev.dashboardSpawned;
   let promptBus: PromptBus | undefined;
 
   // Provider-retry synthesis trackers. pi's ExtensionAPI does not expose
@@ -1135,6 +1151,7 @@ function initBridge(pi: ExtensionAPI) {
       lastGitWorktreeJson,
       lastCwdMissing,
       hasRegisteredOnce,
+      dashboardSpawned,
       selfSpawnedPgids,
     };
   }
@@ -1944,8 +1961,9 @@ function initBridge(pi: ExtensionAPI) {
     } catch { /* ignore */ }
 
     // See change: fix-dashboard-source-mislabelling — sent on every
-    // register so server can re-stamp source after restart.
-    const dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+    // register so server can re-stamp source after restart. Derived from the
+    // capture-once boolean (token may already be scrubbed). See change:
+    // fix-spawn-token-env-leak.
     connection.send({
       type: "session_register",
       sessionId,

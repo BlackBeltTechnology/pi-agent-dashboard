@@ -47,16 +47,23 @@ export function sendStateSync(
   // registers (reattach after dashboard restart, in-process Ctrl+F fork)
   // omit it because the sessionId is already known to the server.
   // See change: spawn-correlation-token (Decision 3).
-  const spawnToken = isFirstRegister ? process.env.PI_DASHBOARD_SPAWN_TOKEN : undefined;
+  //
+  // The token is SINGLE-USE. After reading it on the first register we scrub
+  // `process.env.PI_DASHBOARD_SPAWN_TOKEN` so any pi process this pi later
+  // spawns (subagent, nested `pi`, reload) does NOT inherit and re-report the
+  // consumed token. See change: fix-spawn-token-env-leak.
+  let spawnToken: string | undefined;
+  if (isFirstRegister) {
+    spawnToken = process.env.PI_DASHBOARD_SPAWN_TOKEN;
+    delete process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  }
 
-  // Strong, restart-survival flag: the dashboard injects
-  // `PI_DASHBOARD_SPAWN_TOKEN` into spawned pi processes' env. As long
-  // as this pi is alive, the env var is present and we know we were
-  // dashboard-spawned — even after the dashboard server restarts and
-  // its in-memory spawn counters / pid registry are gone. Sent on every
-  // register (unlike spawnToken which fires only on the first).
-  // See change: fix-dashboard-source-mislabelling (TBD followup).
-  const dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  // Strong, restart-survival flag, derived from the capture-once boolean
+  // (captured at bridge startup BEFORE the token was scrubbed), not a live
+  // env read — the token is intentionally removed after first register.
+  // Sent on every register (unlike spawnToken which fires only on the first).
+  // See change: fix-spawn-token-env-leak.
+  const dashboardSpawned = bc.dashboardSpawned;
 
   bc.connection.send({
     type: "session_register",
@@ -144,7 +151,9 @@ export function handleSessionChange(
   // handleSessionChange always mints a fresh sessionId (new/fork/resume),
   // so registerReason is unconditionally "spawn" — even after the bridge
   // has previously reattached. See change: reattach-move-to-front.
-  const dashboardSpawned = !!process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  // dashboardSpawned from the capture-once boolean (token already scrubbed).
+  // See change: fix-spawn-token-env-leak.
+  const dashboardSpawned = bc.dashboardSpawned;
   bc.connection.send({
     type: "session_register",
     sessionId: bc.sessionId,

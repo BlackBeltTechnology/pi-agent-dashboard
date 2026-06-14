@@ -40,20 +40,28 @@ export interface SessionRegisterMessage {
    * `process.env.PI_DASHBOARD_SPAWN_TOKEN` IFF this is the first register
    * for the bridge process (`bc.hasRegisteredOnce === false`). Subsequent
    * registers (reattach, in-process new/fork/resume) omit it.
-   * See change: spawn-correlation-token.
+   *
+   * SINGLE-USE: the token is scrubbed from `process.env` after its first
+   * read at BOTH boundaries — the rpc keeper (`keeper.cjs` injects it into
+   * the first pi launch only, deletes it on respawn) and the bridge (deletes
+   * `PI_DASHBOARD_SPAWN_TOKEN` after the first register). Descendants
+   * (subagents, nested `pi`, reload) therefore never inherit or re-report it.
+   * See changes: spawn-correlation-token, fix-spawn-token-env-leak.
    */
   spawnToken?: string;
   /**
-   * Strong, restart-survival flag: true when the bridge process has
-   * `PI_DASHBOARD_SPAWN_TOKEN` in its env, which is set only by the
-   * dashboard server when it spawns a headless pi. Unlike `spawnToken`,
+   * Strong, restart-survival flag: true when the bridge process was
+   * dashboard-spawned. Derived from a capture-once boolean (captured from
+   * `PI_DASHBOARD_SPAWN_TOKEN` at bridge startup BEFORE the single-use token
+   * is scrubbed), NOT a live env read — so it stays correct after the token
+   * is removed. Unlike `spawnToken`,
    * this is sent on EVERY register (initial + every reattach), so the
    * server can re-stamp `source: "dashboard"` after its in-memory
    * `pendingDashboardSpawns` counter and `headlessPidRegistry` have
    * been wiped by a restart. Optional for forward-compat with older
    * bridges; absence is interpreted as "unknown" and the server falls
    * back to its legacy FIFO heuristic.
-   * See change: fix-dashboard-source-mislabelling (TBD followup).
+   * See changes: fix-dashboard-source-mislabelling, fix-spawn-token-env-leak.
    */
   dashboardSpawned?: boolean;
   /**

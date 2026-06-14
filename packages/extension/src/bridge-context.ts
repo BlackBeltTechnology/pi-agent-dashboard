@@ -56,6 +56,15 @@ export interface BridgeContext {
    */
   hasRegisteredOnce: boolean;
   /**
+   * Capture-once "was this pi dashboard-spawned?" boolean. Captured ONCE at
+   * bridge startup from `!!process.env.PI_DASHBOARD_SPAWN_TOKEN`, BEFORE the
+   * single-use token is scrubbed on first register. Reused on every register
+   * so scrubbing the token (to stop descendant/respawn leakage) does not
+   * regress `source: "dashboard"` labelling. Descendant children capture
+   * `false` (their env has no token). See change: fix-spawn-token-env-leak.
+   */
+  dashboardSpawned: boolean;
+  /**
    * PIDs (== PGIDs on Unix at spawn time, since `spawnDetached` makes the
    * child a session/process-group leader) of subprocesses the bridge has
    * spawned itself — dashboard server auto-start, RPC keeper sidecar, etc.

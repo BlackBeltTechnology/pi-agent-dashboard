@@ -21,6 +21,7 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
+const { buildPiEnv } = require("./keeper-env.cjs");
 
 // ---------------------------------------------------------------------------
 // Args + paths
@@ -212,6 +213,10 @@ function forwardLine(line) {
 
 const CRASH_WINDOW_MS = 300;
 let piSpawnedAt = 0;
+// Count pi launches so spawnPi() injects the single-use spawn token only on
+// the first launch and scrubs it on every respawn. See change:
+// fix-spawn-token-env-leak.
+let piLaunchCount = 0;
 
 function readPiArgs() {
   // PI_KEEPER_PI_ARGS is a JSON-encoded string array of pi argv tokens.
@@ -264,12 +269,12 @@ function spawnPi() {
   const argv = piCmd ? [...piCmd.slice(1), ...piArgs] : piArgs;
   log(`spawning pi ${exe} ${argv.join(" ")}`);
   // env is inherited from process.env (KeeperManager already set up the
-  // proper PATH and PI_DASHBOARD_SPAWNED). Defensively set the flag again
-  // here in case the keeper is invoked manually. Strip the keeper-internal
-  // PI_KEEPER_PI_ARGS / PI_KEEPER_PI_CMD so they don't leak into pi's env.
-  const env = Object.assign({}, process.env, { PI_DASHBOARD_SPAWNED: "1" });
-  delete env.PI_KEEPER_PI_ARGS;
-  delete env.PI_KEEPER_PI_CMD;
+  // proper PATH and PI_DASHBOARD_SPAWNED). buildPiEnv defensively re-sets
+  // PI_DASHBOARD_SPAWNED=1, strips the keeper-internal PI_KEEPER_PI_ARGS /
+  // PI_KEEPER_PI_CMD, and — on respawn only — scrubs the single-use
+  // PI_DASHBOARD_SPAWN_TOKEN. See change: fix-spawn-token-env-leak.
+  piLaunchCount += 1;
+  const env = buildPiEnv(process.env, piLaunchCount === 1);
 
   // Opt-in capture of pi's stdout/stderr into keeper-<id>.log. Default OFF:
   // pi's output is discarded (stdio "ignore" → /dev/null) so the log can't
