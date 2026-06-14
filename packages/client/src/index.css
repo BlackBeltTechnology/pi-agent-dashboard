@@ -436,7 +436,7 @@ mark.markdown-search-highlight-active {
    stacks columns full-width and lets the top bar wrap. Ported from
    mockups/board.html. */
 @media (max-width: 900px) {
-  .board-columns { flex-wrap: wrap; overflow-x: visible; }
+  .board-columns { flex-wrap: wrap; overflow-x: hidden; overflow-y: auto; }
   .board-column { flex: 1 1 300px; max-width: none; max-height: none; }
   .board-column-body { overflow-y: visible; }
   .board-addgroup { flex: 1 1 100%; max-width: none; }
