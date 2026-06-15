@@ -16,7 +16,7 @@ import { createBrowserGateway } from "../browser-gateway.js";
 import { createMemorySessionManager } from "../memory-session-manager.js";
 import { createMemoryEventStore } from "../memory-event-store.js";
 import type { PiGateway } from "../pi-gateway.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 function makeFakeWs(opts?: { bufferedAmount?: number; readyState?: number }) {
   const ws = new EventEmitter() as EventEmitter & {
