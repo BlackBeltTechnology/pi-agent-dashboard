@@ -21,6 +21,17 @@ export interface SessionOrderManager {
    * See change: top-of-tier-on-status-change.
    */
   moveToFront(cwd: string, sessionId: string): void;
+  /**
+   * Move a session id from `oldKey` to `newKey`. Removes it from `oldKey`
+   * (pruning the entry entirely if its list becomes empty) and inserts it
+   * into `newKey` — at the front when `toFront` is set, else appended.
+   * No-op when `oldKey === newKey`. Used by the deferred order-key
+   * resolution path: a worktree/jj session registers under its raw cwd key
+   * (group identity not yet known) and is re-keyed to the parent key once
+   * `git_info_update` / `jj_state_update` arrives.
+   * See change: fix-worktree-spawn-placeholder-and-ordering.
+   */
+  rekey(oldKey: string, newKey: string, sessionId: string, opts?: { toFront?: boolean }): void;
   /** Get order for a cwd, optionally filtering to only valid IDs. */
   getOrder(cwd: string, validIds?: Set<string>): string[];
   /** Get all cwd→order entries. */
@@ -78,6 +89,31 @@ export function createSessionOrderManager(preferencesStore: PreferencesStore): S
       }
       orderMap[cwd] = orderMap[cwd].filter((id) => id !== sessionId);
       orderMap[cwd].unshift(sessionId);
+      persist();
+    },
+
+    rekey(oldKey: string, newKey: string, sessionId: string, opts?: { toFront?: boolean }): void {
+      if (oldKey === newKey) return;
+      // Remove from old key, pruning the entry if it becomes empty.
+      if (orderMap[oldKey]) {
+        const filtered = orderMap[oldKey].filter((id) => id !== sessionId);
+        if (filtered.length === 0) {
+          delete orderMap[oldKey];
+        } else {
+          orderMap[oldKey] = filtered;
+        }
+      }
+      // Insert into new key (dedupe).
+      if (!orderMap[newKey]) {
+        orderMap[newKey] = [];
+      }
+      const dest = orderMap[newKey].filter((id) => id !== sessionId);
+      if (opts?.toFront) {
+        dest.unshift(sessionId);
+      } else {
+        dest.push(sessionId);
+      }
+      orderMap[newKey] = dest;
       persist();
     },
 

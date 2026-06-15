@@ -141,6 +141,60 @@ describe("SessionOrderManager", () => {
     });
   });
 
+  describe("rekey", () => {
+    it("moves id from old key to front of new key", () => {
+      stateStore = createMockPreferencesStore({ "/repo/.worktrees/x": ["s1"], "/repo": ["s0"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/repo/.worktrees/x", "/repo", "s1", { toFront: true });
+      expect(mgr.getOrder("/repo")).toEqual(["s1", "s0"]);
+    });
+
+    it("prunes the old key entry when it becomes empty", () => {
+      stateStore = createMockPreferencesStore({ "/repo/.worktrees/x": ["s1"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/repo/.worktrees/x", "/repo", "s1", { toFront: true });
+      expect(mgr.getAllOrders()).not.toHaveProperty("/repo/.worktrees/x");
+      expect(mgr.getOrder("/repo")).toEqual(["s1"]);
+    });
+
+    it("keeps remaining ids under old key when not empty", () => {
+      stateStore = createMockPreferencesStore({ "/repo/.worktrees/x": ["s1", "s2"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/repo/.worktrees/x", "/repo", "s1", { toFront: true });
+      expect(mgr.getOrder("/repo/.worktrees/x")).toEqual(["s2"]);
+      expect(mgr.getOrder("/repo")).toEqual(["s1"]);
+    });
+
+    it("is a no-op when oldKey === newKey", () => {
+      stateStore = createMockPreferencesStore({ "/repo": ["s0", "s1"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/repo", "/repo", "s1", { toFront: true });
+      expect(mgr.getOrder("/repo")).toEqual(["s0", "s1"]);
+      expect(stateStore.setSessionOrder).not.toHaveBeenCalled();
+    });
+
+    it("dedupes when id already present under new key", () => {
+      stateStore = createMockPreferencesStore({ "/repo/.worktrees/x": ["s1"], "/repo": ["s1", "s0"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/repo/.worktrees/x", "/repo", "s1", { toFront: true });
+      expect(mgr.getOrder("/repo")).toEqual(["s1", "s0"]);
+    });
+
+    it("appends to new key when toFront not set", () => {
+      stateStore = createMockPreferencesStore({ "/old": ["s1"], "/repo": ["s0"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/old", "/repo", "s1");
+      expect(mgr.getOrder("/repo")).toEqual(["s0", "s1"]);
+    });
+
+    it("persists after rekey", () => {
+      stateStore = createMockPreferencesStore({ "/old": ["s1"] });
+      const mgr = createSessionOrderManager(stateStore);
+      mgr.rekey("/old", "/repo", "s1", { toFront: true });
+      expect(stateStore.setSessionOrder).toHaveBeenCalled();
+    });
+  });
+
   describe("getAllOrders", () => {
     it("returns all cwd orders", () => {
       stateStore = createMockPreferencesStore({ "/a": ["s1"], "/b": ["s2", "s3"] });

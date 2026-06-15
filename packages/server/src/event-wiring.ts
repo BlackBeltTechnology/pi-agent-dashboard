@@ -149,6 +149,38 @@ export function wireEvents(deps: EventWiringDeps): void {
     dispatchPluginRawEvent,
   } = deps;
 
+  /**
+   * Deferred order-key re-resolution. A worktree/jj session registers BEFORE
+   * its group identity (`gitWorktree.mainPath` / `jjState.workspaceRoot`)
+   * arrives, so its id is inserted under the raw cwd key. Once a later
+   * `git_info_update` / `jj_state_update` establishes that identity, the
+   * resolved key changes from the raw cwd to the parent key. This moves the
+   * id to the FRONT of the resolved key (matching the "new session at top"
+   * intent \u2014 the just-spawned session takes the placeholder's slot), prunes
+   * the stale key when empty, and broadcasts a single `sessions_reordered`.
+   * No-op when the key is unchanged (guarded by `rekey`).
+   * See change: fix-worktree-spawn-placeholder-and-ordering.
+   */
+  function maybeRekeyOrder(sessionId: string, oldOrderKey: string | undefined): void {
+    if (!oldOrderKey) return;
+    const session = sessionManager.get(sessionId);
+    if (!session) return;
+    const pinned = preferencesStore.getPinnedDirectories();
+    const newOrderKey = resolveOrderKey(session, pinned);
+    if (newOrderKey === oldOrderKey) return;
+    sessionOrderManager.rekey(oldOrderKey, newOrderKey, sessionId, { toFront: true });
+    const validIds = new Set(
+      sessionManager.listAll()
+        .filter((s) => resolveOrderKey(s, pinned) === newOrderKey)
+        .map((s) => s.id),
+    );
+    browserGateway.broadcastToAll({
+      type: "sessions_reordered",
+      cwd: newOrderKey,
+      sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
+    });
+  }
+
   // Broadcast placeholder session to browsers when auto-created from early events
   piGateway.onSessionCreated = (sessionId) => {
     const session = sessionManager.get(sessionId);
@@ -913,8 +945,14 @@ export function wireEvents(deps: EventWiringDeps): void {
         // cleanly on the DashboardSession.
         gitUpdates.gitWorktree = composedWorktree ?? undefined;
       }
+      // Capture the resolved order key BEFORE applying the update — at this
+      // point `gitWorktree` is not yet set, so the key is the raw worktree
+      // cwd the id was inserted under at register time.
+      const beforeWtSession = sessionManager.get(sessionId);
+      const oldOrderKey = beforeWtSession ? resolveOrderKey(beforeWtSession, preferencesStore.getPinnedDirectories()) : undefined;
       sessionManager.update(sessionId, gitUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, gitUpdates);
+      maybeRekeyOrder(sessionId, oldOrderKey);
     }
 
     if (msg.type === "jj_state_update") {
@@ -922,8 +960,11 @@ export function wireEvents(deps: EventWiringDeps): void {
       // the bridge sends `null`; the session-manager update applies the
       // value verbatim. See change: add-jj-workspace-plugin.
       const jjUpdates = { jjState: msg.jjState ?? undefined };
+      const beforeJjSession = sessionManager.get(sessionId);
+      const oldJjOrderKey = beforeJjSession ? resolveOrderKey(beforeJjSession, preferencesStore.getPinnedDirectories()) : undefined;
       sessionManager.update(sessionId, jjUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, jjUpdates);
+      maybeRekeyOrder(sessionId, oldJjOrderKey);
     }
 
     if (msg.type === "cwd_missing") {

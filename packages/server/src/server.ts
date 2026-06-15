@@ -158,6 +158,12 @@ export interface DashboardServer {
    * See change: replace-proposal-dialog-with-race-handling.
    */
   directoryService: DirectoryService;
+  /**
+   * Per-cwd session order manager. Exposed for in-process tests that assert
+   * order-key placement/re-keying. Not part of the public API.
+   * See change: fix-worktree-spawn-placeholder-and-ordering.
+   */
+  sessionOrderManager: SessionOrderManager;
 }
 
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
@@ -1064,6 +1070,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     browserGateway,
     pendingDashboardSpawns,
     directoryService,
+    sessionOrderManager,
 
     httpPort() {
       const addr = fastify.server.address();

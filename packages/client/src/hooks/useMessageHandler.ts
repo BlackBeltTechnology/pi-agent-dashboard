@@ -12,6 +12,7 @@ import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-sh
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
 import { dispatchInitEvent } from "../lib/worktree-init-bus.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
+import { pathKey, inferPlatform } from "../lib/session-grouping.js";
 import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
 import type {
   ServerToBrowserMessage,
@@ -154,6 +155,24 @@ export function useMessageHandler(
           // because fork dispatches don't add to spawningCwds today.
           clearSpawningCwd(msg.session.cwd);
           navigate(`/session/${msg.session.id}`);
+        } else {
+          // Tier 2.5 (worktree-aware fallback): no spawnRequestId matched and
+          // the session's own cwd is not in spawningCwds — true for worktree
+          // spawns, whose placeholder is keyed by the PARENT cwd, so Tier 2
+          // can never match. Scan pending spawns for a `kind: "spawn"` entry
+          // whose tracked cwd equals this session's cwd and clear its
+          // `placeholderCwd`. First-match-wins. See change:
+          // fix-worktree-spawn-placeholder-and-ordering.
+          const platform = inferPlatform([msg.session.cwd]);
+          const sessionKey = pathKey(msg.session.cwd, platform);
+          for (const [requestId, entry] of pendingSpawnsRef.current) {
+            if (entry.kind === "spawn" && entry.cwd && pathKey(entry.cwd, platform) === sessionKey) {
+              pendingSpawnsRef.current.delete(requestId);
+              clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
+              navigate(`/session/${msg.session.id}`);
+              break;
+            }
+          }
         }
         // Commands/models/roles metadata is now requested server-side on subscribe
         // (see subscription-handler.ts) so it arrives while the browser is subscribed.
