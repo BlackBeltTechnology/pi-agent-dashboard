@@ -716,7 +716,7 @@ See change: add-worktree-lifecycle-actions.
 - Tuning fields below (`pollIntervalSeconds`, `maxConcurrentSpawns`, `changeDetection`, `jitterSeconds`) ignored at runtime when `false`. Values preserved.
 - Runtime-reconfigurable via `PUT /api/config`. Disable transition clears per-cwd `OpenSpecData` cache + broadcasts cleared payload `{ initialized: false, pending: false, changes: [] }` per cwd so client predicate `openspecInitialized === false && pending === false` collapses subcards uniformly. Same broadcast shape covers "no openspec/ dir" + "openspec.enabled === false".
 
-1. Server's DirectoryService polls `openspec` CLI for each known directory (union of pinned dirs + session cwds) at a **configurable interval** (`DashboardConfig.openspec.pollIntervalSeconds`, default 60 s, range 5–3600 s). See change: optimize-openspec-poll-derive-artifacts-locally.
+1. Server's DirectoryService polls `openspec` CLI for each known directory at a **configurable interval** (`DashboardConfig.openspec.pollIntervalSeconds`, default 60 s, range 5–3600 s). Poll work-set = pinned dirs ∪ cwds of non-ended sessions (`computeKnownDirectories()` filters `session.status !== "ended"`). Hiding or ending session drops its cwd from poll set unless pinned. Ended-but-pinned cwds keep polling (pinning independent watch signal). Reopening ended cwd via new session repopulates immediately through `onDirectoryAdded` (eager poll bypasses jitter + mtime gate). See change: scope-openspec-poll-to-active-cwds. See change: optimize-openspec-poll-derive-artifacts-locally.
 2. OpenSpec data is keyed by directory (cwd), not by session — one poll per directory regardless of session count.
 3. Changes are broadcast to all connected browsers via `openspec_update { cwd, data }`.
 4. Browsers can request immediate refresh via `openspec_refresh { cwd }`. User-initiated refresh **bypasses the mtime gate** (force-mode) but still respects the concurrency cap — see *Refresh paths* below.
@@ -1514,6 +1514,8 @@ The Electron installer can optionally ship a curated subset of recommended pi ex
 A regression test (`packages/server/src/__tests__/fix-pty-permissions.test.ts`) asserts the current platform's helper is executable after install.
 
 **Browser-gateway error visibility.** `browser-gateway.ts` distinguishes two failure modes when receiving a WebSocket frame: a `JSON.parse` error (silently dropped — garbage frames are normal on the open internet) and an exception thrown by an individual message handler (logged to stderr as `[browser-gw] handler error type=<msg.type>: <err>`). The connection stays open after handler errors so subsequent messages still flow. This stops failures like a broken `node-pty` `spawn` from manifesting as a silently dead UI button.
+
+**Broadcast fan-out cost.** `browser-gateway.ts::broadcast()` serializes payload once via `JSON.stringify(msg)`, then `ws.send(serialized)` per open socket. Cost O(payload), not O(payload × subscribers). Identical frame to every subscriber. `readyState === OPEN` liveness + `MAX_WS_BUFFER` back-pressure guards preserved per socket. `sendTo()` (single-socket) unchanged. Benefits all ~20 `broadcastToAll` call sites; motivated by large recurring `openspec_update` payloads. See change: scope-openspec-poll-to-active-cwds.
 
 ### Output Buffering
 

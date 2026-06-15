@@ -264,8 +264,16 @@ export function createBrowserGateway(
   }
 
   function broadcast(msg: ServerToBrowserMessage) {
+    // Serialize once per fan-out: O(payload) instead of O(payload ×
+    // subscribers). Matters for large recurring frames such as
+    // `openspec_update` on repos with many changes. Back-pressure and
+    // liveness guards are preserved (mirrors `sendTo`).
+    // See change: scope-openspec-poll-to-active-cwds.
+    const serialized = JSON.stringify(msg);
     for (const [ws] of subscriptions) {
-      sendTo(ws, msg);
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) continue;
+      ws.send(serialized);
     }
   }
 

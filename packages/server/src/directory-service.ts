@@ -277,7 +277,12 @@ export function createDirectoryService(
   function computeKnownDirectories(): string[] {
     const dirs = new Set<string>();
     for (const dir of preferencesStore.getPinnedDirectories()) dirs.add(dir);
-    for (const session of sessionManager.listAll()) dirs.add(session.cwd);
+    // Only non-ended sessions contribute their cwd to the work set. Pinning
+    // remains an explicit "watch this" signal independent of session state
+    // and is handled above. See change: scope-openspec-poll-to-active-cwds.
+    for (const session of sessionManager.listAll()) {
+      if (session.status !== "ended") dirs.add(session.cwd);
+    }
     return Array.from(dirs);
   }
 
