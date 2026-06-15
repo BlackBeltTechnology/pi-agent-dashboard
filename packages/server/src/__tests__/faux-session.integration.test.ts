@@ -116,12 +116,17 @@ async function startFauxSession(
         FAUX_SCRIPT: opts.scenario,
         FAUX_TPS: String(opts.tps ?? 50),
       },
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: ["pipe", "ignore", "ignore"],
     },
   );
 
   const registered = await waitFor(() => sessionId != null, 20000);
   if (!registered || !sessionId) {
+    try {
+      browser.close();
+    } catch {
+      /* ignore */
+    }
     child.kill("SIGKILL");
     fs.rmSync(tmpHome, { recursive: true, force: true });
     throw new Error("faux session did not register within timeout");

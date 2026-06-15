@@ -109,7 +109,11 @@ ws.on("message", (raw) => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text: "hello faux" }),
-    }).then((r) => { if (r.status !== 200) fail("prompt POST status " + r.status); });
+    })
+      .then((r) => {
+        if (r.status !== 200) fail("prompt POST status " + r.status);
+      })
+      .catch((e) => fail("prompt POST failed: " + e.message));
   }
   if (JSON.stringify(messages).includes(MARKER)) {
     done(0, "OK: faux assistant text reached the browser WS");
