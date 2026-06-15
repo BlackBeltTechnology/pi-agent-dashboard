@@ -198,13 +198,18 @@ jobs:
         if: matrix.platform != 'win32'
         run: |
           cd packages/electron
-          bash scripts/download-node.sh v22.18.0 ${{ matrix.platform }} ${{ matrix.node-arch }}
+          # Single source of truth (scripts/_node-version.sh). A hardcoded
+          # v22.18.0 is rejected by node-guard (nodejs#58515 Fastify crash).
+          source scripts/_node-version.sh
+          bash scripts/download-node.sh "$BUNDLED_NODE_VERSION" ${{ matrix.platform }} ${{ matrix.node-arch }}
 
       - name: Download Node.js binary (Windows)
         if: matrix.platform == 'win32'
         shell: pwsh
         run: |
-          $version = "v22.18.0"
+          # Single source of truth (scripts/_node-version.sh). v22.18.0 is
+          # rejected by node-guard (nodejs#58515 Fastify crash).
+          $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
           $arch = "${{ matrix.node-arch }}"
           $url = "https://nodejs.org/dist/$version/node-$version-win-$arch.zip"
           $outDir = "packages/electron/resources/node"
@@ -297,7 +302,9 @@ jobs:
         run: |
           # node-pty has no win32-arm64 prebuilds, so bundle x64 Node.js + native modules
           # Windows ARM64 runs x64 binaries via emulation (WoW64)
-          $version = "v22.18.0"
+          # Single source of truth (scripts/_node-version.sh); v22.18.0 is
+          # rejected by node-guard (nodejs#58515 Fastify crash).
+          $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
           $outDir = "packages/electron/resources/node"
           Remove-Item -Recurse -Force $outDir
           New-Item -ItemType Directory -Force -Path $outDir
