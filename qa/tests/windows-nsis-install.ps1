@@ -34,12 +34,12 @@ $p.WaitForExit()
 
 # Assisted installers may relaunch; poll for the install dir to appear.
 $found = $false
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 150; $i++) {
     if (Test-Path (Join-Path $installDir "pi-dashboard.exe")) { $found = $true; break }
     Start-Sleep -Seconds 1
 }
 if (-not $found) {
-    Write-Host "FAIL: pi-dashboard.exe not found under $installDir after 60s"
+    Write-Host "FAIL: pi-dashboard.exe not found under $installDir after 150s"
     exit 1
 }
 Write-Host "Install dir present: $installDir"

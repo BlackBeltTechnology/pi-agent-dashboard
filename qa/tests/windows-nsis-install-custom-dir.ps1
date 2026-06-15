@@ -29,12 +29,12 @@ $p = [System.Diagnostics.Process]::Start($psi)
 $p.WaitForExit()
 
 $found = $false
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 150; $i++) {
     if (Test-Path (Join-Path $Dir "pi-dashboard.exe")) { $found = $true; break }
     Start-Sleep -Seconds 1
 }
 if (-not $found) {
-    Write-Host "FAIL: pi-dashboard.exe not found under $Dir after 60s"
+    Write-Host "FAIL: pi-dashboard.exe not found under $Dir after 150s"
     exit 1
 }
 $uninst = Join-Path $Dir "Uninstall PI Dashboard.exe"

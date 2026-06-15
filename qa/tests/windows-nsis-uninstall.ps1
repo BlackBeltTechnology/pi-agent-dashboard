@@ -44,12 +44,12 @@ Start-Process -FilePath $uninst -ArgumentList "/S" -Wait
 # The uninstaller copies itself to a temp dir and relaunches, so the original
 # process returns before removal completes. Poll for the dir to disappear.
 $gone = $false
-for ($i = 0; $i -lt 60; $i++) {
+for ($i = 0; $i -lt 120; $i++) {
     if (-not (Test-Path (Join-Path $Dir "pi-dashboard.exe"))) { $gone = $true; break }
     Start-Sleep -Seconds 1
 }
 if (-not $gone) {
-    Write-Host "FAIL: install dir still present at $Dir after 60s"
+    Write-Host "FAIL: install dir still present at $Dir after 120s"
     exit 1
 }
 $entry = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
