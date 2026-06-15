@@ -159,22 +159,30 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
   },
 };
 
-/** Valid settings tab ids in SettingsPanel. */
+/** Valid settings page ids in SettingsPanel (left-nav page layout). */
 export type SettingsTab =
   | "general"
-  | "servers"
-  | "packages"
-  | "providers"
+  | "server"
+  | "sessions"
+  | "remote"
   | "security"
-  | "advanced";
+  | "providers"
+  | "packages"
+  | "plugins"
+  | "openspec"
+  | "developer";
 
 export const VALID_SETTINGS_TABS: SettingsTab[] = [
   "general",
-  "servers",
-  "packages",
-  "providers",
+  "server",
+  "sessions",
+  "remote",
   "security",
-  "advanced",
+  "providers",
+  "packages",
+  "plugins",
+  "openspec",
+  "developer",
 ];
 
 // ── Predicate input classification ──────────────────────────────────────────

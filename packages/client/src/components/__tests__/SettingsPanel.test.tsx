@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { SettingsPanel } from "../SettingsPanel.js";
 
-// Mock wouter
-vi.mock("wouter", () => ({
-  useLocation: () => ["/settings", vi.fn()],
-}));
+// Dual-URL routing is exercised against real wouter + jsdom history (no mock)
+// so route-param / ?tab= resolution and the replace-redirects run for real.
+// See change: reorganize-settings-into-pages.
+function setPath(path: string) {
+  window.history.replaceState({}, "", path);
+}
 
 // Mock model-proxy-api (called by ModelProxySection when proxy is enabled)
 vi.mock("../../lib/model-proxy-api.js", () => ({
@@ -49,36 +51,42 @@ function mockFetchConfig(configOverrides?: any) {
   });
 }
 
+// Click a left-nav page item by its visible label.
+function gotoPage(name: string) {
+  fireEvent.click(screen.getByRole("button", { name }));
+}
+
 describe("SettingsPanel", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    setPath("/settings/general");
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("should load and display config on mount with General tab active", async () => {
+  it("renders the left-nav rail with grouped pages and defaults to General", async () => {
     global.fetch = mockFetchConfig();
 
     render(<SettingsPanel />);
 
     await waitFor(() => {
       expect(screen.getByText("Settings")).toBeTruthy();
-      // Tab bar should be visible
-      expect(screen.getByText("General")).toBeTruthy();
-      expect(screen.getByText("Providers")).toBeTruthy();
-      expect(screen.getByText("Security")).toBeTruthy();
-      expect(screen.getByText("Advanced")).toBeTruthy();
-      // General tab content should be visible by default
-      expect(screen.getByText("Server")).toBeTruthy();
-      expect(screen.getByText("Sessions")).toBeTruthy();
-      expect(screen.getByText("Tunnel")).toBeTruthy();
-      expect(screen.getByText("Developer")).toBeTruthy();
+      expect(screen.getByTestId("settings-nav-rail")).toBeTruthy();
+      // Nav items (one per page).
+      expect(screen.getByRole("button", { name: "General" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Sessions" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Remote Servers" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Security" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "OpenSpec" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Developer" })).toBeTruthy();
+      // General page content: Interface section, default selection.
+      expect(screen.getByText("Interface")).toBeTruthy();
     });
   });
 
-  it("should have fixed header and tab bar outside scroll container", async () => {
+  it("keeps header and nav rail outside the scroll container", async () => {
     global.fetch = mockFetchConfig();
 
     render(<SettingsPanel />);
@@ -86,62 +94,123 @@ describe("SettingsPanel", () => {
     await waitFor(() => screen.getByText("Settings"));
 
     const header = screen.getByTestId("settings-header");
-    const tabBar = screen.getByTestId("settings-tab-bar");
+    const navRail = screen.getByTestId("settings-nav-rail");
     const content = screen.getByTestId("settings-content");
 
-    // Header and tab bar should NOT be inside the scrollable content
     expect(content.contains(header)).toBe(false);
-    expect(content.contains(tabBar)).toBe(false);
+    expect(content.contains(navRail)).toBe(false);
   });
 
-  it("should switch visible content when clicking tabs", async () => {
+  it("marks the active page with aria-current and switches content + URL", async () => {
     global.fetch = mockFetchConfig();
 
     render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
 
-    await waitFor(() => screen.getByText("Server"));
+    expect(screen.getByRole("button", { name: "General" }).getAttribute("aria-current")).toBe("page");
 
-    // General tab content visible by default
-    expect(screen.getByText("Server")).toBeTruthy();
-    expect(screen.queryByText("Memory Limits")).toBeNull();
-
-    // Click Advanced tab
-    fireEvent.click(screen.getByText("Advanced"));
-    expect(screen.getByText("Memory Limits")).toBeTruthy();
-    expect(screen.queryByText("Server")).toBeNull();
-
-    // Click Security tab
-    fireEvent.click(screen.getByText("Security"));
-    expect(screen.getByText("Authentication")).toBeTruthy();
-    expect(screen.queryByText("Memory Limits")).toBeNull();
-
-    // Click back to General
-    fireEvent.click(screen.getByText("General"));
-    expect(screen.getByText("Server")).toBeTruthy();
+    // Switch to Server page.
+    gotoPage("Server");
+    await waitFor(() => {
+      expect(screen.getByText("HTTP Port")).toBeTruthy();
+      expect(window.location.pathname).toBe("/settings/server");
+      expect(screen.getByRole("button", { name: "Server" }).getAttribute("aria-current")).toBe("page");
+    });
   });
 
-  it("should show pointer cursor on settings tabs", async () => {
+  it("redirects bare /settings to /settings/general", async () => {
     global.fetch = mockFetchConfig();
+    setPath("/settings");
 
     render(<SettingsPanel />);
 
-    await waitFor(() => screen.getByText("Settings"));
-
-    expect(screen.getByRole("button", { name: "General" }).className).toContain("cursor-pointer");
-    expect(screen.getByRole("button", { name: "Servers" }).className).toContain("cursor-pointer");
-    expect(screen.getByRole("button", { name: "Packages" }).className).toContain("cursor-pointer");
-    expect(screen.getByRole("button", { name: "Providers" }).className).toContain("cursor-pointer");
-    expect(screen.getByRole("button", { name: "Security" }).className).toContain("cursor-pointer");
-    expect(screen.getByRole("button", { name: "Advanced" }).className).toContain("cursor-pointer");
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(screen.getByText("Interface")).toBeTruthy();
+    });
   });
 
-  it("should show loading state initially", () => {
+  it("renders a canonical page URL directly", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/security");
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Authentication")).toBeTruthy();
+      expect(window.location.pathname).toBe("/settings/security");
+    });
+  });
+
+  it("replace-upgrades legacy ?tab=<id> to the canonical path", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings?tab=security");
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/security");
+      expect(window.location.search).toBe("");
+      expect(screen.getByText("Authentication")).toBeTruthy();
+    });
+  });
+
+  it("aliases legacy ?tab=advanced → developer and ?tab=servers → remote", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings?tab=advanced");
+
+    const { unmount } = render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/developer");
+      expect(screen.getByText("Editor (code-server)")).toBeTruthy();
+    });
+    unmount();
+    cleanup();
+
+    setPath("/settings?tab=servers");
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/remote");
+      expect(screen.getByText("Known Servers")).toBeTruthy();
+    });
+  });
+
+  it("falls back to general for an unknown page id", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/bogus");
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(screen.getByText("Interface")).toBeTruthy();
+    });
+  });
+
+  it("shows loading state initially", () => {
     global.fetch = vi.fn().mockReturnValue(new Promise(() => {})); // never resolves
     render(<SettingsPanel />);
     expect(screen.getByText("Loading settings...")).toBeTruthy();
   });
 
-  it("should save changes from multiple tabs in single operation", async () => {
+  it("renders each section on exactly one page (dedup)", async () => {
+    global.fetch = mockFetchConfig();
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+
+    // Memory Limits lives on Server only.
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("Memory Limits"));
+    expect(screen.queryByText("Editor (code-server)")).toBeNull();
+
+    // Editor lives on Developer only; Memory Limits is gone there.
+    gotoPage("Developer");
+    await waitFor(() => screen.getByText("Editor (code-server)"));
+    expect(screen.queryByText("Memory Limits")).toBeNull();
+  });
+
+  it("saves changes made across multiple pages in a single operation", async () => {
     let savedBody: any;
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && options?.method === "PUT") {
@@ -155,19 +224,26 @@ describe("SettingsPanel", () => {
     });
 
     render(<SettingsPanel />);
-    await waitFor(() => screen.getByText("Server"));
+    await waitFor(() => screen.getByText("Interface"));
 
-    // Change port on General tab
-    const portInput = screen.getAllByDisplayValue("8000")[0];
+    // Change port on the Server page.
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("HTTP Port"));
+    const portInput = screen.getByDisplayValue("8000");
     fireEvent.change(portInput, { target: { value: "9000" } });
 
-    // Switch to Advanced tab and change memory limit
-    fireEvent.click(screen.getByText("Advanced"));
-    await waitFor(() => screen.getByText("Memory Limits"));
+    // Change a memory limit (also Server page) and navigate away/back to prove
+    // the draft survives page changes.
     const maxEventsInput = screen.getByDisplayValue("200");
     fireEvent.change(maxEventsInput, { target: { value: "500" } });
 
-    // Save
+    gotoPage("Sessions");
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/sessions"));
+    gotoPage("Server");
+    await waitFor(() => screen.getByText("HTTP Port"));
+    // Edits preserved after navigating between pages.
+    expect(screen.getByDisplayValue("9000")).toBeTruthy();
+
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
     await waitFor(() => {
@@ -177,7 +253,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("should show 'No changes' when saving without modifications", async () => {
+  it("shows 'No changes' when saving without modifications", async () => {
     global.fetch = mockFetchConfig();
 
     render(<SettingsPanel />);
@@ -191,7 +267,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("should display bypass URLs from auth config on Security tab", async () => {
+  it("displays bypass URLs from auth config on the Security page", async () => {
     const configWithAuth = {
       ...mockConfig,
       auth: {
@@ -202,20 +278,17 @@ describe("SettingsPanel", () => {
       },
     };
     global.fetch = mockFetchConfig(configWithAuth);
+    setPath("/settings/security");
 
     render(<SettingsPanel />);
-
-    await waitFor(() => screen.getByText("Security"));
-    fireEvent.click(screen.getByText("Security"));
 
     await waitFor(() => screen.getByTestId("bypass-urls-textarea"));
 
     const textarea = screen.getByTestId("bypass-urls-textarea");
-    expect(textarea).toBeTruthy();
     expect((textarea as HTMLTextAreaElement).value).toBe("/webhooks/\n/metrics");
   });
 
-  it("should include bypassUrls in save payload when changed on Security tab", async () => {
+  it("includes bypassUrls in the save payload when changed on the Security page", async () => {
     const configWithAuth = {
       ...mockConfig,
       auth: {
@@ -235,11 +308,9 @@ describe("SettingsPanel", () => {
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
+    setPath("/settings/security");
 
     render(<SettingsPanel />);
-    await waitFor(() => screen.getByText("Security"));
-    fireEvent.click(screen.getByText("Security"));
-
     await waitFor(() => screen.getByTestId("bypass-urls-textarea"));
 
     const textarea = screen.getByTestId("bypass-urls-textarea");
@@ -251,7 +322,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("should show restart required message when port changes", async () => {
+  it("shows restart-required message when port changes", async () => {
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && options?.method === "PUT") {
         return Promise.resolve({
@@ -265,13 +336,13 @@ describe("SettingsPanel", () => {
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
+    setPath("/settings/server");
 
     render(<SettingsPanel />);
 
-    await waitFor(() => screen.getAllByTestId("save-btn"));
+    await waitFor(() => screen.getByText("HTTP Port"));
 
-    // Change port (first input with value 8000)
-    const portInput = screen.getAllByDisplayValue("8000")[0];
+    const portInput = screen.getByDisplayValue("8000");
     fireEvent.change(portInput, { target: { value: "9000" } });
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
@@ -280,7 +351,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("should include modelProxy in save payload when changed", async () => {
+  it("includes modelProxy in the save payload when changed on the Providers page", async () => {
     const configWithModelProxy = {
       ...mockConfig,
       modelProxy: { enabled: true, defaultModel: "openai/gpt-4o" },
@@ -302,40 +373,32 @@ describe("SettingsPanel", () => {
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
+    setPath("/settings/providers");
 
     render(<SettingsPanel />);
-    await waitFor(() => screen.getByText("Settings"));
-
-    // Navigate to Providers tab where ModelProxySection is rendered
-    fireEvent.click(screen.getByText("Providers"));
-
-    // Change the default model input
     await waitFor(() => screen.getByTestId("default-model-input"));
+
     const input = screen.getByTestId("default-model-input");
     fireEvent.change(input, { target: { value: "anthropic/claude-3-5-sonnet" } });
 
-    // Save
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
     await waitFor(() => {
       expect(savedBody).toBeTruthy();
-      expect(savedBody.modelProxy).toBeTruthy();
       expect(savedBody.modelProxy.defaultModel).toBe("anthropic/claude-3-5-sonnet");
       expect(savedBody.modelProxy.enabled).toBe(true);
     });
   });
 
-  it("should NOT include modelProxy in save payload when unchanged", async () => {
+  it("does NOT include modelProxy in the save payload when unchanged", async () => {
     const configWithModelProxy = {
       ...mockConfig,
       modelProxy: { enabled: true },
     };
-    let savedBody: any = null;
     let putCalled = false;
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && options?.method === "PUT") {
         putCalled = true;
-        savedBody = JSON.parse(options.body);
         return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
       }
       if (url === "/api/config") {
@@ -350,13 +413,11 @@ describe("SettingsPanel", () => {
     render(<SettingsPanel />);
     await waitFor(() => screen.getAllByTestId("save-btn"));
 
-    // Save without changing anything
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
 
     await waitFor(() => {
       expect(screen.getByText("No changes to save")).toBeTruthy();
     });
-    // No PUT request should have been sent
     expect(putCalled).toBe(false);
   });
 });

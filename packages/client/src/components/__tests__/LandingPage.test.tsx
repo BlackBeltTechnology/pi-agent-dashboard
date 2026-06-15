@@ -48,12 +48,12 @@ function renderPage(props: Partial<React.ComponentProps<typeof LandingPage>> = {
 
 describe("LandingPage onboarding", () => {
   describe("Step 1: credentials", () => {
-    it("pending state shows CTA that navigates to /settings?tab=providers", () => {
+    it("pending state shows CTA that navigates to /settings/providers", () => {
       const { navigate } = renderPage({ providersReady: false });
       const btn = screen.getByTestId("onboarding-step-1-cta");
       expect((btn as HTMLButtonElement).disabled).toBe(false);
       fireEvent.click(btn);
-      expect(navigate).toHaveBeenCalledWith("/settings?tab=providers");
+      expect(navigate).toHaveBeenCalledWith("/settings/providers");
     });
 
     it("done state collapses to checkmark row", () => {

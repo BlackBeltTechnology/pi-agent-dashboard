@@ -4,9 +4,11 @@ import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiContentSave, mdiAlert, mdiPlus, mdiDelete, mdiRestart, mdiUpdate, mdiCheckCircle, mdiCloseCircle, mdiPlay, mdiLoading } from "@mdi/js";
+import { mdiArrowLeft, mdiContentSave, mdiAlert, mdiPlus, mdiDelete, mdiRestart, mdiUpdate, mdiCheckCircle, mdiCloseCircle, mdiPlay, mdiLoading, mdiCog, mdiServer, mdiViewDashboard, mdiWeb, mdiLock, mdiKey, mdiPackageVariant, mdiPuzzle, mdiClipboardText, mdiWrench } from "@mdi/js";
 import { testProvider, type TestProviderResult } from "../lib/providers-api.js";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
+import { SettingsSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { KnownServersSection } from "./KnownServersSection.js";
@@ -138,6 +140,21 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 
+// Legacy page-id aliases applied before validation so old links/bookmarks land
+// on the new page homes. See change: reorganize-settings-into-pages.
+const SETTINGS_PAGE_ALIASES: Record<string, string> = {
+  advanced: "developer",
+  servers: "remote",
+};
+const VALID_PAGES = new Set<string>(VALID_SETTINGS_TABS);
+
+/** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
+function resolveSettingsPage(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const aliased = SETTINGS_PAGE_ALIASES[raw] ?? raw;
+  return VALID_PAGES.has(aliased) ? aliased : null;
+}
+
 export function SettingsPanel({ availableModels, onMessage }: {
   availableModels?: Array<{ provider: string; id: string }>;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
@@ -199,11 +216,32 @@ export function SettingsPanel({ availableModels, onMessage }: {
     },
   );
   const restarting = restart.pending;
-  const [activeTab, setActiveTab] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get("tab");
-    return tab && ["general", "servers", "packages", "plugins", "providers", "security", "advanced"].includes(tab) ? tab : "general";
-  });
+  // Dual-URL routing: canonical `/settings/:page?`, legacy `/settings?tab=<id>`.
+  // A single mounted panel resolves the active page from the URL so the shared
+  // unsaved draft survives page changes. See change: reorganize-settings-into-pages.
+  const [, routeParams] = useRoute("/settings/:page?");
+  const routePage = routeParams?.page;
+  const resolvedRoutePage = resolveSettingsPage(routePage);
+  const activeTab = resolvedRoutePage ?? "general";
+
+  useEffect(() => {
+    // 1) valid route param → nothing to do (already canonical).
+    if (resolvedRoutePage) {
+      if (resolvedRoutePage !== routePage) {
+        navigate(`/settings/${resolvedRoutePage}`, { replace: true });
+      }
+      return;
+    }
+    // 2) a route param was given but invalid → fall back to general.
+    if (routePage) {
+      navigate("/settings/general", { replace: true });
+      return;
+    }
+    // 3) no route param → upgrade legacy ?tab=<id> or default to general.
+    const legacy = new URLSearchParams(window.location.search).get("tab");
+    const resolvedLegacy = resolveSettingsPage(legacy);
+    navigate(`/settings/${resolvedLegacy ?? "general"}`, { replace: true });
+  }, [routePage, resolvedRoutePage, navigate]);
 
   // Windows-only live git/sh source readout from /api/health. null on
   // macOS/Linux (section hidden). See change: embed-git-bash-on-windows.
@@ -449,14 +487,38 @@ export function SettingsPanel({ availableModels, onMessage }: {
     return config.auth;
   };
 
-  const tabs = [
-    { id: "general", label: t("settings.general", undefined, "General") },
-    { id: "servers", label: t("settings.servers", undefined, "Servers") },
-    { id: "packages", label: t("settings.packages", undefined, "Packages") },
-    { id: "plugins", label: t("settings.plugins", undefined, "Plugins") },
-    { id: "providers", label: t("settings.providers", undefined, "Providers") },
-    { id: "security", label: t("settings.security", undefined, "Security") },
-    { id: "advanced", label: t("settings.advanced", undefined, "Advanced") },
+  // Left-nav page groups. See change: reorganize-settings-into-pages.
+  const navGroups: { label: string; items: { id: string; label: string; icon: string }[] }[] = [
+    {
+      label: t("settings.groupDashboard", undefined, "Dashboard"),
+      items: [
+        { id: "general", label: t("settings.general", undefined, "General"), icon: mdiCog },
+        { id: "server", label: i18nT("auto.server", undefined, "Server"), icon: mdiServer },
+        { id: "sessions", label: t("settings.sessions", undefined, "Sessions"), icon: mdiViewDashboard },
+      ],
+    },
+    {
+      label: t("settings.groupNetwork", undefined, "Network"),
+      items: [
+        { id: "remote", label: t("settings.remoteServers", undefined, "Remote Servers"), icon: mdiWeb },
+        { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
+      ],
+    },
+    {
+      label: t("settings.groupExtensions", undefined, "Extensions"),
+      items: [
+        { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
+        { id: "packages", label: t("settings.packages", undefined, "Packages"), icon: mdiPackageVariant },
+        { id: "plugins", label: t("settings.plugins", undefined, "Plugins"), icon: mdiPuzzle },
+        { id: "openspec", label: t("settings.openspec", undefined, "OpenSpec"), icon: mdiClipboardText },
+      ],
+    },
+    {
+      label: t("settings.groupAdvanced", undefined, "Advanced"),
+      items: [
+        { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
+      ],
+    },
   ];
 
   return (
@@ -492,26 +554,6 @@ export function SettingsPanel({ availableModels, onMessage }: {
         </button>
       </div>
 
-      {/* Tab Bar */}
-      <div data-testid="settings-tab-bar" className="flex gap-0 border-b border-[var(--border-primary)] shrink-0 px-4">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer ${
-              activeTab === tab.id
-                ? "text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.id && (
-              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
-            )}
-          </button>
-        ))}
-      </div>
-
       {/* Message */}
       {message && (
         <div className={`px-4 py-2 text-sm shrink-0 ${
@@ -524,534 +566,575 @@ export function SettingsPanel({ availableModels, onMessage }: {
         </div>
       )}
 
-      {/* Tab Content */}
-      <div data-testid="settings-content" className="flex-1 overflow-y-auto">
-        <div className="p-4 space-y-6 max-w-2xl">
+      {/* Body: left nav rail + page content */}
+      <div className="flex-1 flex min-h-0">
+        <nav
+          data-testid="settings-nav-rail"
+          aria-label={t("common.settings", undefined, "Settings")}
+          className="shrink-0 w-full md:w-56 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-[var(--border-primary)] p-2"
+        >
+          {navGroups.map((group) => (
+            <div key={group.label} className="contents md:block">
+              <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+                {group.label}
+              </div>
+              {group.items.map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => navigate("/settings/" + item.id)}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                      active
+                        ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
+                        : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    <Icon path={item.icon} size={0.65} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
 
-          {/* General Tab */}
-          {activeTab === "general" && (
-            <>
-              <Section title={t("settings.interface", undefined, "Interface")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
-                </p>
-                <SelectField
-                  label={t("settings.language", undefined, "Language")}
-                  value={language}
-                  options={LANGUAGE_OPTIONS}
-                  onChange={(v) => setLanguage(v as Language)}
-                />
-              </Section>
+        {/* Page content */}
+        <div data-testid="settings-content" className="flex-1 overflow-y-auto min-w-0">
+          <div className="p-4 space-y-6 max-w-3xl">
 
-              <Section title={i18nT("auto.server", undefined, "Server")}>
-                <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
-                <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
-                <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
-                {config.autoShutdown && (
-                  <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
-                )}
-              </Section>
-
-              <Section title={t("settings.sessions", undefined, "Sessions")}>
-                <SelectField
-                  label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
-                  value={config.spawnStrategy}
-                  options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
-                  onChange={(v) => update((c) => { c.spawnStrategy = v; })}
-                />
-                <div>
+            {activeTab === "general" && (
+              <>
+                <Section title={t("settings.interface", undefined, "Interface")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
+                  </p>
                   <SelectField
-                    label={i18nT("auto.reattach_placement", undefined, "Reattach Placement")}
-                    value={config.reattachPlacement ?? "always"}
-                    options={[
-                      { value: "always", label: "Always move to top (default)" },
-                      { value: "streaming-only", label: "Only when streaming" },
-                      { value: "preserve", label: "Preserve drag order" },
-                    ]}
-                    onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
+                    label={t("settings.language", undefined, "Language")}
+                    value={language}
+                    options={LANGUAGE_OPTIONS}
+                    onChange={(v) => setLanguage(v as Language)}
                   />
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.when_the_dashboard_restarts_and_a", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
+                </Section>
+                <SettingsSectionSlot tab="general" />
+              </>
+            )}
+
+            {activeTab === "server" && (
+              <>
+                <Section title={i18nT("auto.server", undefined, "Server")}>
+                  <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
+                  <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
+                  <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
+                  {config.autoShutdown && (
+                    <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
+                  )}
+                </Section>
+                <Section title={t("settings.tunnel", undefined, "Tunnel")}>
+                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Zrok Tunnel")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
+                  <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
+                    <p className="text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).")}
+                    </p>
+                    <ToggleField
+                      label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
+                      value={config.tunnel.watchdog?.enabled ?? true}
+                      onChange={(v) => update((c) => {
+                        c.tunnel.watchdog = {
+                          enabled: v,
+                          intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
+                          failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
+                          probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
+                        };
+                      })}
+                    />
+                    <NumberField
+                      label={t("settings.probeInterval", undefined, "Probe Interval (seconds)")}
+                      value={Math.round((config.tunnel.watchdog?.intervalMs ?? 60000) / 1000)}
+                      onChange={(v) => update((c) => {
+                        c.tunnel.watchdog = {
+                          enabled: c.tunnel.watchdog?.enabled ?? true,
+                          intervalMs: Math.max(5, v) * 1000,
+                          failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
+                          probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
+                        };
+                      })}
+                    />
+                    <NumberField
+                      label={i18nT("auto.failure_threshold", undefined, "Failure Threshold")}
+                      value={config.tunnel.watchdog?.failureThreshold ?? 2}
+                      onChange={(v) => update((c) => {
+                        c.tunnel.watchdog = {
+                          enabled: c.tunnel.watchdog?.enabled ?? true,
+                          intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
+                          failureThreshold: Math.max(1, v),
+                          probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
+                        };
+                      })}
+                    />
+                    <NumberField
+                      label={t("settings.probeTimeout", undefined, "Probe Timeout (seconds)")}
+                      value={Math.round((config.tunnel.watchdog?.probeTimeoutMs ?? 10000) / 1000)}
+                      onChange={(v) => update((c) => {
+                        c.tunnel.watchdog = {
+                          enabled: c.tunnel.watchdog?.enabled ?? true,
+                          intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
+                          failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
+                          probeTimeoutMs: Math.max(1, v) * 1000,
+                        };
+                      })}
+                    />
+                  </div>
+                </Section>
+                <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
                   </p>
-                </div>
-                <div>
-                  <ToggleField
-                    label={i18nT("auto.put_completed_session_first", undefined, "Put completed session first")}
-                    value={config.completedFirst ?? false}
-                    onChange={(v) => update((c) => { c.completedFirst = v; })}
-                  />
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.when_a_session_finishes_a_turn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
-                  </p>
-                </div>
-                <div>
-                  <ToggleField
-                    label={i18nT("auto.put_question_session_first", undefined, "Put question session first")}
-                    value={config.questionFirst ?? false}
-                    onChange={(v) => update((c) => { c.questionFirst = v; })}
-                  />
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.when_a_session_asks_a_question", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
-                  </p>
-                </div>
-                <div>
                   <NumberField
-                    label={i18nT("auto.ask_user_prompt_timeout_seconds", undefined, "ask_user Prompt Timeout (seconds)")}
-                    value={config.askUserPromptTimeoutSeconds ?? 300}
-                    onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
+                    label={i18nT("auto.max_events_per_session", undefined, "Max Events Per Session")}
+                    value={config.memoryLimits?.maxEventsPerSession ?? 200}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      c.memoryLimits.maxEventsPerSession = v;
+                    })}
                   />
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.how_long_an_interactive_ask_user", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("auto.to_wait_forever_default_300_5", undefined, ") to wait forever. Default: 300 (5 min).")}
-                  </p>
-                </div>
-                <div>
+                  <NumberField
+                    label={i18nT("auto.max_string_truncation_chars", undefined, "Max String Truncation (chars)")}
+                    value={config.memoryLimits?.maxStringFieldSize ?? 4000}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      c.memoryLimits.maxStringFieldSize = v;
+                    })}
+                  />
+                  <NumberField
+                    label={i18nT("auto.max_websocket_buffer_bytes", undefined, "Max WebSocket Buffer (bytes)")}
+                    value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      c.memoryLimits.maxWsBufferBytes = v;
+                    })}
+                  />
+                </Section>
+                <SettingsSectionSlot tab="server" />
+              </>
+            )}
+
+            {activeTab === "sessions" && (
+              <>
+                <Section title={t("settings.sessions", undefined, "Sessions")}>
+                  <SelectField
+                    label={t("settings.spawnStrategy", undefined, "+Session Strategy")}
+                    value={config.spawnStrategy}
+                    options={[{ value: "headless", label: "Headless" }, { value: "tmux", label: "Tmux" }]}
+                    onChange={(v) => update((c) => { c.spawnStrategy = v; })}
+                  />
+                  <div>
+                    <SelectField
+                      label={i18nT("auto.reattach_placement", undefined, "Reattach Placement")}
+                      value={config.reattachPlacement ?? "always"}
+                      options={[
+                        { value: "always", label: "Always move to top (default)" },
+                        { value: "streaming-only", label: "Only when streaming" },
+                        { value: "preserve", label: "Preserve drag order" },
+                      ]}
+                      onChange={(v) => update((c) => { c.reattachPlacement = v as "preserve" | "streaming-only" | "always"; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.when_the_dashboard_restarts_and_a", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
+                    </p>
+                  </div>
+                  <div>
+                    <ToggleField
+                      label={i18nT("auto.put_completed_session_first", undefined, "Put completed session first")}
+                      value={config.completedFirst ?? false}
+                      onChange={(v) => update((c) => { c.completedFirst = v; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.when_a_session_finishes_a_turn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
+                    </p>
+                  </div>
+                  <div>
+                    <ToggleField
+                      label={i18nT("auto.put_question_session_first", undefined, "Put question session first")}
+                      value={config.questionFirst ?? false}
+                      onChange={(v) => update((c) => { c.questionFirst = v; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.when_a_session_asks_a_question", undefined, "When a session asks a question (ask_user), move its card to the top of the active tier. Off keeps the card in place.")}
+                    </p>
+                  </div>
+                  <div>
+                    <NumberField
+                      label={i18nT("auto.ask_user_prompt_timeout_seconds", undefined, "ask_user Prompt Timeout (seconds)")}
+                      value={config.askUserPromptTimeoutSeconds ?? 300}
+                      onChange={(v) => update((c) => { c.askUserPromptTimeoutSeconds = v; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.how_long_an_interactive_ask_user", undefined, "How long an interactive ask_user prompt waits for an answer before auto-cancelling. Use")} <code>-1</code> (or <code>0</code>{i18nT("auto.to_wait_forever_default_300_5", undefined, ") to wait forever. Default: 300 (5 min).")}
+                    </p>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.session_register_timeout_ms", undefined, "+Session register timeout (ms)")}</label>
+                      <input
+                        type="number"
+                        className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
+                          spawnTimeoutInvalid
+                            ? "border-red-500 text-red-400"
+                            : "border-[var(--border-secondary)]"
+                        }`}
+                        value={config.spawnRegisterTimeoutMs ?? 30000}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          const invalid = isNaN(v) || v < 5000 || v > 120000;
+                          setSpawnTimeoutInvalid(invalid);
+                          if (!invalid) update((c) => { c.spawnRegisterTimeoutMs = v; });
+                        }}
+                      />
+                    </div>
+                    {spawnTimeoutInvalid && (
+                      <p className="mt-1 text-xs text-red-400">{i18nT("auto.must_be_an_integer_between_5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
+                    )}
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.how_long_to_wait_for_a", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                    </p>
+                  </div>
+                  <div>
+                    <ToggleField
+                      label={i18nT("auto.show_worktree_spawn_buttons_in_folders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
+                      value={config.gitWorktreeEnabled ?? true}
+                      onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.ui_preference_only_hides_the_folder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("auto.button_and_the_per_change", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("auto.button_on_openspec_rows_the", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("auto.rest_endpoints_stay_reachable_for_tooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
+                    </p>
+                  </div>
+                  {/* Windows-only: bundled-vs-host git & bash. Hidden on
+                      macOS/Linux (gitSourceReadout null). See change:
+                      embed-git-bash-on-windows. */}
+                  {gitSourceReadout && (
+                    <div>
+                      <SelectField
+                        label={i18nT("auto.git_bash_source", undefined, "Git & Bash source (Windows)")}
+                        value={config.windowsGitSource ?? "auto"}
+                        options={[
+                          { value: "auto", label: "Auto — host when installed, else bundled (default)" },
+                          { value: "host", label: "Host only — use the installed Git for Windows" },
+                          { value: "bundled", label: "Bundled only — always use the shipped git" },
+                        ]}
+                        onChange={(v) => update((c) => { c.windowsGitSource = v as "auto" | "host" | "bundled"; })}
+                      />
+                      <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                        {i18nT("auto.currently_active", undefined, "Currently active:")}{" "}
+                        <strong>{gitSourceReadout.source}</strong>
+                        {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
+                        {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
+                        . {i18nT("auto.git_source_takes_effect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.session_register_timeout_ms", undefined, "+Session register timeout (ms)")}</label>
-                    <input
-                      type="number"
-                      className={`w-28 bg-[var(--bg-secondary)] border rounded px-2 py-1 text-sm text-[var(--text-primary)] text-right ${
-                        spawnTimeoutInvalid
-                          ? "border-red-500 text-red-400"
-                          : "border-[var(--border-secondary)]"
-                      }`}
-                      value={config.spawnRegisterTimeoutMs ?? 30000}
+                      <label className="text-sm text-[var(--text-secondary)]">{t("settings.defaultModel", undefined, "Default Model")}</label>
+                    <ModelSelector
+                      current={config.defaultModel || undefined}
+                      models={availableModels}
+                      onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.pwa_display_name", undefined, "PWA Display Name")}</label>
+                      <input
+                        type="text"
+                        className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
+                        placeholder={i18nT("auto.auto_from_hostname", undefined, "(auto from hostname)")}
+                        value={config.dashboardName ?? ""}
+                        onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.shown_on_the_home_screen_app", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("auto.host", undefined, "Host")}</code> {i18nT("auto.header_or_the_server_hostname_distinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
+                    </p>
+                  </div>
+                </Section>
+                <SettingsSectionSlot tab="sessions" />
+              </>
+            )}
+
+            {activeTab === "remote" && (
+              <>
+                <ServersTab />
+                <SettingsSectionSlot tab="remote" />
+              </>
+            )}
+
+            {activeTab === "security" && (
+              <>
+                <Section title={t("settings.auth", undefined, "Authentication")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-3">
+                    {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (tunnel) access. Localhost is always open.")}
+                  </p>
+                  {["github", "google", "keycloak", "oidc"].map((key) => (
+                    <ProviderSection
+                      key={key}
+                      providerKey={key}
+                      provider={config.auth?.providers[key]}
+                      onChange={(p) => update((c) => {
+                        if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
+                        if (p) {
+                          c.auth.providers[key] = p;
+                        } else {
+                          delete c.auth.providers[key];
+                        }
+                      })}
+                    />
+                  ))}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {t("settings.allowedUsers", undefined, "Allowed Users")} <span className="text-[var(--text-tertiary)]">({t("settings.allowedUsersHint", undefined, "one per line: username, email, or *@domain")})</span>
+                    </label>
+                    <textarea
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
+                      rows={3}
+                      placeholder={"octocat\nuser@example.com\n*@company.com"}
+                      value={(config.auth?.allowedUsers || []).join("\n")}
                       onChange={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        const invalid = isNaN(v) || v < 5000 || v > 120000;
-                        setSpawnTimeoutInvalid(invalid);
-                        if (!invalid) update((c) => { c.spawnRegisterTimeoutMs = v; });
+                        const users = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                        update((c) => {
+                          if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
+                          c.auth.allowedUsers = users;
+                        });
                       }}
                     />
                   </div>
-                  {spawnTimeoutInvalid && (
-                    <p className="mt-1 text-xs text-red-400">{i18nT("auto.must_be_an_integer_between_5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
-                  )}
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.how_long_to_wait_for_a", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
-                  </p>
-                </div>
-                <div>
-                  <ToggleField
-                    label={i18nT("auto.show_worktree_spawn_buttons_in_folders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
-                    value={config.gitWorktreeEnabled ?? true}
-                    onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
-                  />
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.ui_preference_only_hides_the_folder", undefined, "UI preference only. Hides the folder")} <code>+Worktree</code> {i18nT("auto.button_and_the_per_change", undefined, "button and the per-change")} <code>⥂2+</code> {i18nT("auto.button_on_openspec_rows_the", undefined, "button on OpenSpec rows. The")} <code>/api/git/worktree*</code> {i18nT("auto.rest_endpoints_stay_reachable_for_tooling", undefined, "REST endpoints stay reachable for tooling. Default on.")}
-                  </p>
-                </div>
-                {/* Windows-only: bundled-vs-host git & bash. Hidden on
-                    macOS/Linux (gitSourceReadout null). See change:
-                    embed-git-bash-on-windows. */}
-                {gitSourceReadout && (
-                  <div>
-                    <SelectField
-                      label={i18nT("auto.git_bash_source", undefined, "Git & Bash source (Windows)")}
-                      value={config.windowsGitSource ?? "auto"}
-                      options={[
-                        { value: "auto", label: "Auto — host when installed, else bundled (default)" },
-                        { value: "host", label: "Host only — use the installed Git for Windows" },
-                        { value: "bundled", label: "Bundled only — always use the shipped git" },
-                      ]}
-                      onChange={(v) => update((c) => { c.windowsGitSource = v as "auto" | "host" | "bundled"; })}
-                    />
-                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.currently_active", undefined, "Currently active:")}{" "}
-                      <strong>{gitSourceReadout.source}</strong>
-                      {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
-                      {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
-                      . {i18nT("auto.git_source_takes_effect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
-                    </p>
-                  </div>
-                )}
-                <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">{t("settings.defaultModel", undefined, "Default Model")}</label>
-                  <ModelSelector
-                    current={config.defaultModel || undefined}
-                    models={availableModels}
-                    onSelect={(v) => update((c) => { c.defaultModel = v; })}
-                  />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm text-[var(--text-secondary)]">{i18nT("auto.pwa_display_name", undefined, "PWA Display Name")}</label>
-                    <input
-                      type="text"
-                      className="w-56 bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-                      placeholder={i18nT("auto.auto_from_hostname", undefined, "(auto from hostname)")}
-                      value={config.dashboardName ?? ""}
-                      onChange={(e) => update((c) => { c.dashboardName = e.target.value; })}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+                      {t("settings.bypassUrls", undefined, "Bypass URL Prefixes")} <span className="text-[var(--text-tertiary)]">({t("settings.bypassUrlsHint", undefined, "one per line — requests to these paths skip auth")})</span>
+                    </label>
+                    <textarea
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
+                      rows={2}
+                      data-testid="bypass-urls-textarea"
+                      placeholder={"/webhooks/\n/metrics"}
+                      value={(config.auth?.bypassUrls || []).join("\n")}
+                      onChange={(e) => {
+                        const urls = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
+                        update((c) => {
+                          if (!c.auth) c.auth = { secret: "", providers: {} };
+                          c.auth.bypassUrls = urls;
+                        });
+                      }}
                     />
                   </div>
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.shown_on_the_home_screen_app", undefined, "Shown on the home screen / app drawer when the dashboard is installed as a PWA. Leave blank to auto-derive from the request")} <code>{i18nT("auto.host", undefined, "Host")}</code> {i18nT("auto.header_or_the_server_hostname_distinguishe", undefined, "header (or the server hostname). Distinguishes installs from multiple machines or tunnels.")}
-                  </p>
-                </div>
-              </Section>
+                </Section>
+                <TrustedNetworksSection
+                  bypassHosts={config.auth?.bypassHosts ?? []}
+                  legacyTrustedNetworks={config.trustedNetworks ?? []}
+                  onChange={(nets) => update((c) => {
+                    if (!c.auth) c.auth = { secret: "", providers: {} };
+                    c.auth.bypassHosts = nets;
+                  })}
+                />
+                <SettingsSectionSlot tab="security" />
+              </>
+            )}
 
-              <Section title={t("settings.tunnel", undefined, "Tunnel")}>
-                <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Zrok Tunnel")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
-                <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
-                  <p className="text-xs text-[var(--text-tertiary)]">
-                    {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).")}
+            {activeTab === "providers" && (
+              <>
+                <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
+                  <ProviderAuthSection />
+                </Section>
+                <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-3">
+                    {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
+                  </p>
+                  {llmProviders.map((provider, index) => (
+                    <LlmProviderCard
+                      key={`${provider.name}-${index}`}
+                      provider={provider}
+                      onChange={(updated) => {
+                        setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
+                      }}
+                      onRemove={() => {
+                        setLlmProviders((prev) => prev.filter((_, i) => i !== index));
+                      }}
+                    />
+                  ))}
+                  <button
+                    onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
+                    className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
+                  >
+                    <Icon path={mdiPlus} size={0.6} />
+                    {t("settings.addProvider", undefined, "Add Provider")}
+                  </button>
+                </Section>
+                <Section title={t("settings.apiProxy", undefined, "API Proxy")}>
+                  <ModelProxySection
+                    config={config.modelProxy ?? {}}
+                    onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
+                    upstreamExtensionDetected={upstreamPiModelProxyInstalled}
+                  />
+                </Section>
+                <SettingsSectionSlot tab="providers" />
+              </>
+            )}
+
+            {activeTab === "packages" && (
+              <>
+                <UnifiedPackagesSection />
+                <GlobalPackagesBrowseAndDialogs />
+                <SettingsSectionSlot tab="packages" />
+              </>
+            )}
+
+            {activeTab === "plugins" && (
+              <>
+                <PluginsSection />
+                <SettingsSectionSlot tab="plugins" />
+              </>
+            )}
+
+            {activeTab === "openspec" && (
+              <>
+                <Section title={t("settings.backgroundPolling", undefined, "Background polling (OpenSpec)")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {i18nT("auto.controls_how_aggressively_the_server_polls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("auto.openspec_list", undefined, "openspec list")}</code> and <code>{i18nT("auto.openspec_status", undefined, "openspec status")}</code> {i18nT("auto.for_each_known_directory_longer_interval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("auto.skips_re_polling_unchanged_proposals_recom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
-                    label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
-                    value={config.tunnel.watchdog?.enabled ?? true}
+                    label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
+                    value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                     onChange={(v) => update((c) => {
-                      c.tunnel.watchdog = {
-                        enabled: v,
-                        intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
-                        failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
-                        probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
-                      };
+                      if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                      c.openspec.enabled = v;
+                    })}
+                  />
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {i18nT("auto.when_off_openspec_is_fully_disabled", undefined, "When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.")}
+                  </p>
+                  {(() => {
+                    const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
+                    return (
+                      <>
+                        <NumberField
+                          label={i18nT("auto.poll_interval_seconds_5_3600", undefined, "Poll Interval (seconds, 5–3600)")}
+                          disabled={openspecOff}
+                          value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
+                          onChange={(v) => update((c) => {
+                            if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                            c.openspec.pollIntervalSeconds = v;
+                          })}
+                        />
+                        <NumberField
+                          label={i18nT("auto.max_concurrent_sessions_1_16", undefined, "Max Concurrent +Sessions (1–16)")}
+                          disabled={openspecOff}
+                          value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
+                          onChange={(v) => update((c) => {
+                            if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                            c.openspec.maxConcurrentSpawns = v;
+                          })}
+                        />
+                        <SelectField
+                          label={i18nT("auto.change_detection", undefined, "Change Detection")}
+                          disabled={openspecOff}
+                          value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
+                          options={[
+                            { value: "mtime", label: "mtime (skip unchanged proposals)" },
+                            { value: "always", label: "always (re-poll every tick)" },
+                          ]}
+                          onChange={(v) => update((c) => {
+                            if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                            c.openspec.changeDetection = v as "mtime" | "always";
+                          })}
+                        />
+                        <NumberField
+                          label={i18nT("auto.jitter_seconds_0_60", undefined, "Jitter (seconds, 0–60)")}
+                          disabled={openspecOff}
+                          value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
+                          onChange={(v) => update((c) => {
+                            if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
+                            c.openspec.jitterSeconds = v;
+                          })}
+                        />
+                      </>
+                    );
+                  })()}
+                </Section>
+                {/* See change: add-openspec-profile-settings. */}
+                <OpenSpecProfileSection />
+                <SettingsSectionSlot tab="openspec" />
+              </>
+            )}
+
+            {activeTab === "developer" && (
+              <>
+                <Section title={t("settings.chatDisplay", undefined, "Chat Display")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {t("settings.chatDisplayAdvancedDescription", undefined, "Controls what is shown in the chat message stream.")}
+                  </p>
+                  <DebugToolsToggle />
+                </Section>
+                {/* Configurable chat display (configurable-chat-display). */}
+                <Section title={t("settings.developer", undefined, "Developer")}>
+                  <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
+                  <ToggleField
+                    label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
+                    value={config.keeperLog?.capturePiOutput ?? false}
+                    onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
+                  />
+                  <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                    {t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
+                  </p>
+                </Section>
+                <DiagnosticsSection />
+                <ToolsSection />
+                <SpawnFailuresSection />
+                <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
+                  <p className="text-xs text-[var(--text-tertiary)] mb-2">
+                    {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
+                  </p>
+                  <TextField
+                    label={i18nT("auto.binary_path_leave_empty_for_auto", undefined, "Binary Path (leave empty for auto-detect)")}
+                    value={config.editor?.binary ?? ""}
+                    onChange={(v) => update((c) => {
+                      if (!c.editor) c.editor = {};
+                      c.editor.binary = v || undefined;
+                    })}
+                    placeholder="code-server"
+                  />
+                  <NumberField
+                    label={i18nT("auto.idle_timeout_minutes", undefined, "Idle Timeout (minutes)")}
+                    value={config.editor?.idleTimeoutMinutes ?? 10}
+                    onChange={(v) => update((c) => {
+                      if (!c.editor) c.editor = {};
+                      c.editor.idleTimeoutMinutes = v;
                     })}
                   />
                   <NumberField
-                    label={t("settings.probeInterval", undefined, "Probe Interval (seconds)")}
-                    value={Math.round((config.tunnel.watchdog?.intervalMs ?? 60000) / 1000)}
+                    label={i18nT("auto.max_concurrent_instances", undefined, "Max Concurrent Instances")}
+                    value={config.editor?.maxInstances ?? 3}
                     onChange={(v) => update((c) => {
-                      c.tunnel.watchdog = {
-                        enabled: c.tunnel.watchdog?.enabled ?? true,
-                        intervalMs: Math.max(5, v) * 1000,
-                        failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
-                        probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
-                      };
+                      if (!c.editor) c.editor = {};
+                      c.editor.maxInstances = v;
                     })}
                   />
-                  <NumberField
-                    label={i18nT("auto.failure_threshold", undefined, "Failure Threshold")}
-                    value={config.tunnel.watchdog?.failureThreshold ?? 2}
+                  <ToggleField
+                    label={i18nT("auto.stop_editors_when_dashboard_exits", undefined, "Stop editors when dashboard exits")}
+                    value={config.editor?.stopOnDashboardExit ?? false}
                     onChange={(v) => update((c) => {
-                      c.tunnel.watchdog = {
-                        enabled: c.tunnel.watchdog?.enabled ?? true,
-                        intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
-                        failureThreshold: Math.max(1, v),
-                        probeTimeoutMs: c.tunnel.watchdog?.probeTimeoutMs ?? 10000,
-                      };
+                      if (!c.editor) c.editor = {};
+                      c.editor.stopOnDashboardExit = v;
                     })}
                   />
-                  <NumberField
-                    label={t("settings.probeTimeout", undefined, "Probe Timeout (seconds)")}
-                    value={Math.round((config.tunnel.watchdog?.probeTimeoutMs ?? 10000) / 1000)}
-                    onChange={(v) => update((c) => {
-                      c.tunnel.watchdog = {
-                        enabled: c.tunnel.watchdog?.enabled ?? true,
-                        intervalMs: c.tunnel.watchdog?.intervalMs ?? 60000,
-                        failureThreshold: c.tunnel.watchdog?.failureThreshold ?? 2,
-                        probeTimeoutMs: Math.max(1, v) * 1000,
-                      };
-                    })}
-                  />
-                </div>
-              </Section>
+                  <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                    {i18nT("auto.leave_off_to_let_tabs_and", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
+                  </p>
+                </Section>
+                <SettingsSectionSlot tab="developer" />
+              </>
+            )}
 
-              {/* Configurable chat display (configurable-chat-display). */}
-              <DisplayPrefsSection />
-
-              <Section title={t("settings.developer", undefined, "Developer")}>
-                <ToggleField label={t("settings.devBuildOnReload", undefined, "Dev Build on Reload")} value={config.devBuildOnReload} onChange={(v) => update((c) => { c.devBuildOnReload = v; })} />
-                <ToggleField
-                  label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
-                  value={config.keeperLog?.capturePiOutput ?? false}
-                  onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
-                />
-                <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                  {t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
-                </p>
-              </Section>
-
-              <DiagnosticsSection />
-              <ToolsSection />
-              <SpawnFailuresSection />
-              {/* Plugin-contributed settings consolidated under Settings ▸ Plugins.
-                  Legacy `claim.tab` rendering removed.
-                  See change: add-plugin-activation-ui (settings-consolidation). */}
-            </>
-          )}
-
-          {/* Servers Tab */}
-          {activeTab === "servers" && (
-            <>
-              <ServersTab />
-              {/* Plugin-contributed settings consolidated under Settings ▸ Plugins. */}
-            </>
-          )}
-
-          {/* Providers Tab */}
-          {activeTab === "providers" && (
-            <>
-              <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
-                <ProviderAuthSection />
-              </Section>
-
-              <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                  {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
-                </p>
-                {llmProviders.map((provider, index) => (
-                  <LlmProviderCard
-                    key={`${provider.name}-${index}`}
-                    provider={provider}
-                    onChange={(updated) => {
-                      setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
-                    }}
-                    onRemove={() => {
-                      setLlmProviders((prev) => prev.filter((_, i) => i !== index));
-                    }}
-                  />
-                ))}
-                <button
-                  onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
-                  className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
-                >
-                  <Icon path={mdiPlus} size={0.6} />
-                  {t("settings.addProvider", undefined, "Add Provider")}
-                </button>
-              </Section>
-              <Section title={t("settings.apiProxy", undefined, "API Proxy")}>
-                <ModelProxySection
-                  config={config.modelProxy ?? {}}
-                  onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
-                  upstreamExtensionDetected={upstreamPiModelProxyInstalled}
-                />
-              </Section>
-              {/* Plugin-contributed settings consolidated under Settings ▸ Plugins. */}
-            </>
-          )}
-
-          {/* Security Tab */}
-          {activeTab === "security" && (
-            <>
-              <Section title={t("settings.auth", undefined, "Authentication")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                  {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (tunnel) access. Localhost is always open.")}
-                </p>
-                {["github", "google", "keycloak", "oidc"].map((key) => (
-                  <ProviderSection
-                    key={key}
-                    providerKey={key}
-                    provider={config.auth?.providers[key]}
-                    onChange={(p) => update((c) => {
-                      if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
-                      if (p) {
-                        c.auth.providers[key] = p;
-                      } else {
-                        delete c.auth.providers[key];
-                      }
-                    })}
-                  />
-                ))}
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    {t("settings.allowedUsers", undefined, "Allowed Users")} <span className="text-[var(--text-tertiary)]">({t("settings.allowedUsersHint", undefined, "one per line: username, email, or *@domain")})</span>
-                  </label>
-                  <textarea
-                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
-                    rows={3}
-                    placeholder={"octocat\nuser@example.com\n*@company.com"}
-                    value={(config.auth?.allowedUsers || []).join("\n")}
-                    onChange={(e) => {
-                      const users = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
-                      update((c) => {
-                        if (!c.auth) c.auth = { secret: "", providers: {}, allowedUsers: [] };
-                        c.auth.allowedUsers = users;
-                      });
-                    }}
-                  />
-                </div>
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                    {t("settings.bypassUrls", undefined, "Bypass URL Prefixes")} <span className="text-[var(--text-tertiary)]">({t("settings.bypassUrlsHint", undefined, "one per line — requests to these paths skip auth")})</span>
-                  </label>
-                  <textarea
-                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1.5 text-sm text-[var(--text-primary)] font-mono resize-y"
-                    rows={2}
-                    data-testid="bypass-urls-textarea"
-                    placeholder={"/webhooks/\n/metrics"}
-                    value={(config.auth?.bypassUrls || []).join("\n")}
-                    onChange={(e) => {
-                      const urls = e.target.value.split("\n").map((s) => s.trim()).filter(Boolean);
-                      update((c) => {
-                        if (!c.auth) c.auth = { secret: "", providers: {} };
-                        c.auth.bypassUrls = urls;
-                      });
-                    }}
-                  />
-                </div>
-              </Section>
-
-              <TrustedNetworksSection
-                bypassHosts={config.auth?.bypassHosts ?? []}
-                legacyTrustedNetworks={config.trustedNetworks ?? []}
-                onChange={(nets) => update((c) => {
-                  if (!c.auth) c.auth = { secret: "", providers: {} };
-                  c.auth.bypassHosts = nets;
-                })}
-              />
-              {/* Plugin-contributed settings consolidated under Settings ▸ Plugins. */}
-            </>
-          )}
-
-          {/* Advanced Tab */}
-          {activeTab === "packages" && (
-            <div className="space-y-6">
-              <UnifiedPackagesSection />
-              <GlobalPackagesBrowseAndDialogs />
-            </div>
-          )}
-
-          {activeTab === "plugins" && (
-            /* Plugins activation list — see change: add-plugin-activation-ui. */
-            <PluginsSection />
-          )}
-
-          {activeTab === "advanced" && (
-            <>
-              <Section title={t("settings.chatDisplay", undefined, "Chat Display")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {t("settings.chatDisplayAdvancedDescription", undefined, "Controls what is shown in the chat message stream.")}
-                </p>
-                <DebugToolsToggle />
-              </Section>
-              <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {t("settings.memoryLimitsDescription", undefined, "Controls for bounding server memory usage. Set to 0 to disable a limit. Requires server restart.")}
-                </p>
-                <NumberField
-                  label={i18nT("auto.max_events_per_session", undefined, "Max Events Per Session")}
-                  value={config.memoryLimits?.maxEventsPerSession ?? 200}
-                  onChange={(v) => update((c) => {
-                    if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
-                    c.memoryLimits.maxEventsPerSession = v;
-                  })}
-                />
-                <NumberField
-                  label={i18nT("auto.max_string_truncation_chars", undefined, "Max String Truncation (chars)")}
-                  value={config.memoryLimits?.maxStringFieldSize ?? 4000}
-                  onChange={(v) => update((c) => {
-                    if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
-                    c.memoryLimits.maxStringFieldSize = v;
-                  })}
-                />
-                <NumberField
-                  label={i18nT("auto.max_websocket_buffer_bytes", undefined, "Max WebSocket Buffer (bytes)")}
-                  value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
-                  onChange={(v) => update((c) => {
-                    if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
-                    c.memoryLimits.maxWsBufferBytes = v;
-                  })}
-                />
-              </Section>
-              <Section title={t("settings.backgroundPolling", undefined, "Background polling (OpenSpec)")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {i18nT("auto.controls_how_aggressively_the_server_polls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("auto.openspec_list", undefined, "openspec list")}</code> and <code>{i18nT("auto.openspec_status", undefined, "openspec status")}</code> {i18nT("auto.for_each_known_directory_longer_interval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("auto.skips_re_polling_unchanged_proposals_recom", undefined, "skips re-polling unchanged proposals (recommended).")}
-                </p>
-                <ToggleField
-                  label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
-                  value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
-                  onChange={(v) => update((c) => {
-                    if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
-                    c.openspec.enabled = v;
-                  })}
-                />
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {i18nT("auto.when_off_openspec_is_fully_disabled", undefined, "When off, OpenSpec is fully disabled: no polling, no OPENSPEC subcards on session cards. Tuning values below remain but are ignored.")}
-                </p>
-                {(() => {
-                  const openspecOff = (config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled) === false;
-                  return (
-                    <>
-                      <NumberField
-                        label={i18nT("auto.poll_interval_seconds_5_3600", undefined, "Poll Interval (seconds, 5–3600)")}
-                        disabled={openspecOff}
-                        value={config.openspec?.pollIntervalSeconds ?? DEFAULT_OPENSPEC_UI.pollIntervalSeconds}
-                        onChange={(v) => update((c) => {
-                          if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
-                          c.openspec.pollIntervalSeconds = v;
-                        })}
-                      />
-                      <NumberField
-                        label={i18nT("auto.max_concurrent_sessions_1_16", undefined, "Max Concurrent +Sessions (1–16)")}
-                        disabled={openspecOff}
-                        value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
-                        onChange={(v) => update((c) => {
-                          if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
-                          c.openspec.maxConcurrentSpawns = v;
-                        })}
-                      />
-                      <SelectField
-                        label={i18nT("auto.change_detection", undefined, "Change Detection")}
-                        disabled={openspecOff}
-                        value={config.openspec?.changeDetection ?? DEFAULT_OPENSPEC_UI.changeDetection}
-                        options={[
-                          { value: "mtime", label: "mtime (skip unchanged proposals)" },
-                          { value: "always", label: "always (re-poll every tick)" },
-                        ]}
-                        onChange={(v) => update((c) => {
-                          if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
-                          c.openspec.changeDetection = v as "mtime" | "always";
-                        })}
-                      />
-                      <NumberField
-                        label={i18nT("auto.jitter_seconds_0_60", undefined, "Jitter (seconds, 0–60)")}
-                        disabled={openspecOff}
-                        value={config.openspec?.jitterSeconds ?? DEFAULT_OPENSPEC_UI.jitterSeconds}
-                        onChange={(v) => update((c) => {
-                          if (!c.openspec) c.openspec = { ...DEFAULT_OPENSPEC_UI };
-                          c.openspec.jitterSeconds = v;
-                        })}
-                      />
-                    </>
-                  );
-                })()}
-              </Section>
-              {/* See change: add-openspec-profile-settings. */}
-              <OpenSpecProfileSection />
-              <Section title={t("settings.editor", undefined, "Editor (code-server)")}>
-                <p className="text-xs text-[var(--text-tertiary)] mb-2">
-                  {t("settings.editorDescription", undefined, "Configure the embedded VS Code editor powered by code-server.")}
-                </p>
-                <TextField
-                  label={i18nT("auto.binary_path_leave_empty_for_auto", undefined, "Binary Path (leave empty for auto-detect)")}
-                  value={config.editor?.binary ?? ""}
-                  onChange={(v) => update((c) => {
-                    if (!c.editor) c.editor = {};
-                    c.editor.binary = v || undefined;
-                  })}
-                  placeholder="code-server"
-                />
-                <NumberField
-                  label={i18nT("auto.idle_timeout_minutes", undefined, "Idle Timeout (minutes)")}
-                  value={config.editor?.idleTimeoutMinutes ?? 10}
-                  onChange={(v) => update((c) => {
-                    if (!c.editor) c.editor = {};
-                    c.editor.idleTimeoutMinutes = v;
-                  })}
-                />
-                <NumberField
-                  label={i18nT("auto.max_concurrent_instances", undefined, "Max Concurrent Instances")}
-                  value={config.editor?.maxInstances ?? 3}
-                  onChange={(v) => update((c) => {
-                    if (!c.editor) c.editor = {};
-                    c.editor.maxInstances = v;
-                  })}
-                />
-                <ToggleField
-                  label={i18nT("auto.stop_editors_when_dashboard_exits", undefined, "Stop editors when dashboard exits")}
-                  value={config.editor?.stopOnDashboardExit ?? false}
-                  onChange={(v) => update((c) => {
-                    if (!c.editor) c.editor = {};
-                    c.editor.stopOnDashboardExit = v;
-                  })}
-                />
-                <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                  {i18nT("auto.leave_off_to_let_tabs_and", undefined, "Leave off to let tabs and dirty buffers survive a dashboard restart.")}
-                </p>
-              </Section>
-            </>
-          )}
-
+          </div>
         </div>
       </div>
     </div>

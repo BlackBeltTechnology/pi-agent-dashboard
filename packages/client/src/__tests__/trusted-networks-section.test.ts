@@ -141,13 +141,14 @@ describe("SettingsPanel source layout (task 3.6)", () => {
     const matches = source.match(/<TrustedNetworksSection\b/g) || [];
     expect(matches).toHaveLength(1);
 
-    // General tab block: from `activeTab === "general"` to the closing `)` before Servers tab.
-    // Assert no TrustedNetworksSection invocation inside it.
+    // General page block: from `activeTab === "general"` to the next page
+    // (`activeTab === "server"`). Assert no TrustedNetworksSection inside it.
+    // See change: reorganize-settings-into-pages.
     const generalStart = source.indexOf('activeTab === "general"');
-    const serversStart = source.indexOf('activeTab === "servers"');
+    const serverStart = source.indexOf('activeTab === "server"');
     expect(generalStart).toBeGreaterThan(-1);
-    expect(serversStart).toBeGreaterThan(generalStart);
-    const generalBlock = source.slice(generalStart, serversStart);
+    expect(serverStart).toBeGreaterThan(generalStart);
+    const generalBlock = source.slice(generalStart, serverStart);
     expect(generalBlock).not.toMatch(/<TrustedNetworksSection\b/);
     expect(generalBlock).not.toMatch(/\+ Add Local Network/);
 

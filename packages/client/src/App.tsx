@@ -334,7 +334,7 @@ export default function App() {
   // cause of half-height rendering and competing FitAddon resizes.
   const [folderTermMatch, folderTermParams] = useRoute("/folder/:encodedCwd/terminals");
   const [folderEditorMatch, folderEditorParams] = useRoute("/folder/:encodedCwd/editor");
-  const [settingsMatch] = useRoute("/settings");
+  const [settingsMatch] = useRoute("/settings/:page?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
@@ -1178,7 +1178,7 @@ export default function App() {
             connected={status === "connected"}
             onSwitch={handleServerSwitch}
             inFlightSwitchKey={inFlightSwitchKey}
-            onManageServers={() => navigate("/settings?tab=servers")}
+            onManageServers={() => navigate("/settings/remote")}
           />
         </div>
       }

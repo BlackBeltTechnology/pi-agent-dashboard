@@ -181,6 +181,23 @@ describe("forTab filter", () => {
     expect(generalClaims.map(c => c.pluginId)).toContain("c");
     expect(generalClaims.map(c => c.pluginId)).not.toContain("b");
   });
+
+  it("renders claims targeting a new page id on that page", () => {
+    const claims = [
+      { ...makeClaim("a", 100, "settings-section"), tab: "developer" },
+    ];
+    expect(forTab(claims, "developer").map(c => c.pluginId)).toContain("a");
+    expect(forTab(claims, "general").map(c => c.pluginId)).not.toContain("a");
+  });
+
+  it("falls back unknown tab ids to general", () => {
+    const claims = [
+      { ...makeClaim("a", 100, "settings-section"), tab: "bogus" },
+    ];
+    // An id outside VALID_SETTINGS_TABS is treated as general.
+    expect(forTab(claims, "general").map(c => c.pluginId)).toContain("a");
+    expect(forTab(claims, "bogus").map(c => c.pluginId)).not.toContain("a");
+  });
 });
 
 describe("forToolName filter", () => {

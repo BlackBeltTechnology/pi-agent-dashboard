@@ -23,6 +23,7 @@ describe("computeBackTarget", () => {
       "/folder/Zm9v/terminals",
       "/folder/Zm9v/editor",
       "/settings",
+      "/settings/remote",
       "/settings?tab=servers",
       "/tunnel-setup",
     ];

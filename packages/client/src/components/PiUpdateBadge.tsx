@@ -20,7 +20,7 @@ export function PiUpdateBadge() {
 
 	return (
 		<button
-			onClick={() => navigate("/settings?tab=packages")}
+			onClick={() => navigate("/settings/packages")}
 			className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 border border-[var(--accent-primary)]/40 transition-colors"
 			title={label}
 			aria-label={label}

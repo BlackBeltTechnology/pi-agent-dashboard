@@ -38,7 +38,7 @@ describe("MissingToolInlineError", () => {
     fireEvent.click(getByText(/Install bash/));
     // Target flagged BEFORE navigation so ToolsSection consumes it on mount.
     expect(requestToolInstall).toHaveBeenCalledWith("bash");
-    expect(navigate).toHaveBeenCalledWith("/settings?tab=general");
+    expect(navigate).toHaveBeenCalledWith("/settings/general");
     // Ordering: requestToolInstall fires before navigate.
     expect(requestToolInstall.mock.invocationCallOrder[0])
       .toBeLessThan(navigate.mock.invocationCallOrder[0]);

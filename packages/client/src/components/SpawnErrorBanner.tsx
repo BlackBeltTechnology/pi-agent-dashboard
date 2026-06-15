@@ -90,7 +90,7 @@ export function SpawnErrorBanner({ detail, onDismiss }: Props) {
               )}
               {hint.cta.action === "log" && (
                 <a
-                  href="/settings#general"
+                  href="/settings/general"
                   className="text-xs text-red-300 underline hover:text-red-200"
                 >
                   {hint.cta.label}

@@ -5,6 +5,7 @@
  * (priority asc, pluginId asc) for deterministic render order.
  */
 import type { SlotId, SlotPredicateInput } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 /** A folder descriptor for sidebar-folder-section filtering. */
@@ -219,9 +220,18 @@ export function forCommand(claims: ClaimEntry[], command: string): ClaimEntry[] 
   return claims.filter(c => c.command === command);
 }
 
-/** Filter settings-section claims by tab. */
+/**
+ * Filter settings-section claims by page id. A claim with no `tab`, or a `tab`
+ * outside the enumerated page-id set, falls back to `general`.
+ * See change: reorganize-settings-into-pages.
+ */
 export function forTab(claims: ClaimEntry[], tab: string): ClaimEntry[] {
-  return claims.filter(c => (c.tab ?? "general") === tab);
+  const valid = new Set<string>(VALID_SETTINGS_TABS);
+  return claims.filter(c => {
+    const claimTab = c.tab ?? "general";
+    const effective = valid.has(claimTab) ? claimTab : "general";
+    return effective === tab;
+  });
 }
 
 /** Filter tool-renderer claims by tool name. */

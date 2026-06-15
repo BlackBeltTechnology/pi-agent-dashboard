@@ -85,7 +85,7 @@ describe("deterministicSerializePlugins", () => {
 
   it("changes when a claim's tab differs", () => {
     const a = [plugin("a", [{ slot: "settings-section", component: "X", tab: "general" }])];
-    const b = [plugin("a", [{ slot: "settings-section", component: "X", tab: "advanced" }])];
+    const b = [plugin("a", [{ slot: "settings-section", component: "X", tab: "developer" }])];
     expect(pluginRegistryHash(a)).not.toEqual(pluginRegistryHash(b));
   });
 });

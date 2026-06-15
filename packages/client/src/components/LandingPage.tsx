@@ -159,7 +159,7 @@ export function LandingPage({
               ctaLabel={t("landing.openSettings", undefined, "Open settings")}
               ctaTestId="onboarding-step-1-cta"
               disabled={false}
-              onClick={() => navigate?.("/settings?tab=providers")}
+              onClick={() => navigate?.("/settings/providers")}
             />
           )}
 
