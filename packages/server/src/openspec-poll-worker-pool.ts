@@ -260,7 +260,9 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     }
   }
 
-  function process(req: PollWorkerRequest): Promise<PollWorkerResponse> {
+  // NB: named `processRequest`, not `process`, so it does not shadow Node's
+  // global `process` (used for `process.execArgv` in `spawnSlot`).
+  function processRequest(req: PollWorkerRequest): Promise<PollWorkerResponse> {
     if (disposed) return Promise.resolve(deriveAndSerialize(req));
     return new Promise<PollWorkerResponse>((resolveOuter) => {
       const p: Pending = {
@@ -305,5 +307,5 @@ export function createOpenSpecPollWorkerPool(opts: PollWorkerPoolOptions = {}): 
     return pending.size;
   }
 
-  return { process, dispose, inFlight };
+  return { process: processRequest, dispose, inFlight };
 }

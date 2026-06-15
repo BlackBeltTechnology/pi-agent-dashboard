@@ -652,7 +652,7 @@ describe("DirectoryService", () => {
       const sessionManager = createMockSessionManager();
       service = createDirectoryService(stateStore, sessionManager);
       await service.refreshOpenSpec("/x");
-      service.reconfigurePolling({ enabled: true, pollIntervalSeconds: 60, maxConcurrentSpawns: 5, changeDetection: "mtime", jitterSeconds: 0 });
+      service.reconfigurePolling({ enabled: true, pollIntervalSeconds: 60, maxConcurrentSpawns: 5, changeDetection: "mtime", jitterSeconds: 0, useWorker: true });
       expect(service.getOpenSpecData("/x")).toBeDefined();
     });
   });
