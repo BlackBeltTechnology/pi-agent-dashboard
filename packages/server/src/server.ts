@@ -30,6 +30,8 @@ import { reconcileSessionOrder } from "./reconcile-session-order.js";
 
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
+import { createHydrationMetrics } from "./hydration-metrics.js";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
 import { writePid, removePid } from "./server-pid.js";
@@ -435,6 +437,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-openspec-change-grouping (task 4.2).
   const openspecGroupStore = createOpenSpecGroupStore();
 
+  // Process-local instrumentation for session hydration. The same instance is
+  // shared with the directory-service (records per `loadSessionEvents`) and the
+  // `/api/health` route (reads `snapshot()`). See change:
+  // instrument-session-hydration-timing.
+  const hydrationMetrics = createHydrationMetrics(20);
+
+  // Event-loop delay histogram, started once at boot. `/api/health` reads
+  // {meanMs,p99Ms,maxMs} then resets the window so each read reflects recent
+  // activity. Negligible libuv-timer overhead. See change above.
+  const eventLoopDelayHistogram = monitorEventLoopDelay({ resolution: 20 });
+  eventLoopDelayHistogram.enable();
+  const readEventLoopDelay = () => {
+    const ms = (ns: number) => (Number.isFinite(ns) ? ns / 1e6 : 0);
+    const snapshot = {
+      meanMs: ms(eventLoopDelayHistogram.mean),
+      p99Ms: ms(eventLoopDelayHistogram.percentile(99)),
+      maxMs: ms(eventLoopDelayHistogram.max),
+    };
+    eventLoopDelayHistogram.reset();
+    return snapshot;
+  };
+
   const directoryService = createDirectoryService(
     preferencesStore,
     sessionManager,
@@ -460,6 +484,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return {};
         }
       },
+      hydrationMetrics,
     },
   );
 
@@ -726,7 +751,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     store: openspecGroupStore,
   });
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });

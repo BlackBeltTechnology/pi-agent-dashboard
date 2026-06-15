@@ -37,6 +37,7 @@ import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./opens
 import { discoverSessionsForCwd } from "./session-discovery.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import { scanPiResources } from "./pi-resource-scanner.js";
+import type { HydrationMetrics } from "./hydration-metrics.js";
 import type { OpenSpecData, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { PreferencesStore } from "./preferences-store.js";
@@ -214,6 +215,12 @@ export interface DirectoryServiceOptions {
    * See change: fix-openspec-taskcheck-delay.
    */
   changeWatcher?: OpenSpecChangeWatcher;
+  /**
+   * Shared in-memory recorder for session-hydration timings. When set,
+   * `loadSessionEvents` records a sample per call and the same instance is
+   * read by `/api/health`. See change: instrument-session-hydration-timing.
+   */
+  hydrationMetrics?: HydrationMetrics;
 }
 
 export function createDirectoryService(
@@ -225,6 +232,9 @@ export function createDirectoryService(
   let cfg: OpenSpecPollConfig = { ...DEFAULT_OPENSPEC_POLL, ...(initialConfig ?? {}) };
   const enrichOpenSpecData = options.enrichOpenSpecData;
   const getOpenSpecGroupAssignments = options.getOpenSpecGroupAssignments;
+  const hydrationMetrics = options.hydrationMetrics;
+  // Reuse the openspec-poll slow-tick convention for the hydration warning.
+  const HYDRATION_SLOW_WARN_MS = 5000;
 
   // Lazy worker pool for the periodic / gated poll path. Constructed on
   // `startPolling()`; disposed on `stopPolling()`. `cfg.useWorker === false`
@@ -291,19 +301,38 @@ export function createDirectoryService(
       return { success: false, events: [], error: "already_loading" };
     }
     loadingSet.add(sessionId);
+    // Instrumentation only — never alters the returned LoadResult. fileBytes
+    // is best-effort (stat may race a delete). entry/event counts default to
+    // 0 on the failure path. See change: instrument-session-hydration-timing.
+    const start = performance.now();
+    let fileBytes = 0;
+    try {
+      fileBytes = fs.statSync(sessionFile).size;
+    } catch {
+      // ignore — fileBytes stays 0
+    }
+    let entryCount = 0;
+    let eventCount = 0;
     try {
       const { loadSessionEntries } = await import("./session-file-reader.js");
       const entries = loadSessionEntries(sessionFile);
+      entryCount = entries.length;
       // Pass persisted contextWindow so replay's stats_update events use the
       // real value instead of inferContextWindow(modelId)'s 200k Claude default.
       const eventMessages = replayEntriesAsEvents(sessionId, entries, knownContextWindow);
       const events = eventMessages.map((m) => m.event);
+      eventCount = events.length;
       return { success: true, events };
     } catch (err: any) {
       const error = err?.code === "ENOENT" ? "file_not_found" : (err?.message ?? "parse_error");
       return { success: false, events: [], error };
     } finally {
       loadingSet.delete(sessionId);
+      const wallMs = performance.now() - start;
+      hydrationMetrics?.record({ sessionId, wallMs, fileBytes, entryCount, eventCount, at: Date.now() });
+      if (wallMs > HYDRATION_SLOW_WARN_MS) {
+        console.warn(`[hydration] slow load: ${Math.round(wallMs)}ms (session=${sessionId} bytes=${fileBytes})`);
+      }
     }
   }
 

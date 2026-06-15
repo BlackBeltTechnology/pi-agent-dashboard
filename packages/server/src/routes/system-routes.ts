@@ -6,6 +6,7 @@ import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
 import type { MetaPersistence } from "../meta-persistence.js";
 import type { DirectoryService } from "../directory-service.js";
+import type { HydrationMetrics } from "../hydration-metrics.js";
 import type { PiGateway } from "../pi-gateway.js";
 import type { ServerConfig } from "../server.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -86,9 +87,15 @@ export function registerSystemRoutes(
     directoryService?: DirectoryService;
     piGateway?: PiGateway;
     browserGateway?: { broadcastToAll: (msg: ServerToBrowserMessage) => void };
+    // Shared hydration-timing recorder; `/api/health` reads its snapshot.
+    // See change: instrument-session-hydration-timing.
+    hydrationMetrics?: HydrationMetrics;
+    // Reads {meanMs,p99Ms,maxMs} from the boot event-loop-delay histogram and
+    // resets its window. See change: instrument-session-hydration-timing.
+    readEventLoopDelay?: () => { meanMs: number; p99Ms: number; maxMs: number };
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -349,6 +356,12 @@ export function registerSystemRoutes(
       // Windows-only: active git/sh source readout for Settings + Diagnostics.
       // null on macOS/Linux. See change: embed-git-bash-on-windows.
       gitSource: getGitSourceReadout(whichSync),
+      // Event-loop delay (ms) over the window since the last /api/health read.
+      // Correlates hydration spikes with real main-loop lag. Additive field.
+      // See change: instrument-session-hydration-timing.
+      eventLoopDelay: readEventLoopDelay?.() ?? { meanMs: 0, p99Ms: 0, maxMs: 0 },
+      // Recent session-hydration timing samples, newest-first. Additive field.
+      hydration: hydrationMetrics?.snapshot() ?? [],
     };
   });
 

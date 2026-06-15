@@ -358,6 +358,12 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 - Failures are logged with full context and surfaced via `/api/health.plugins[]` (`{ id, enabled, loaded, error?, claims }`).
 - Slot consumers wrap each contribution in a React error boundary so a runtime crash in one plugin's component doesn't take down the page.
 
+#### Health endpoint observability
+
+`/api/health` exposes two additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+- `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
+- `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
+
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
 **Future Work — external plugin discovery:** Phase 1 scans `packages/*/package.json` only. The manifest format (`pi-dashboard-plugin` field in any `package.json`) is intentionally **format-compatible with arbitrary npm packages**, which unblocks an eventual progression where stable plugins can be PR'd into upstream packages (e.g. `pi-dashboard-subagents/dashboard/`) and discovered from `node_modules`. The deferred work (trust model, SemVer pinning of the plugin context API, build integration with `node_modules` paths) is documented in `dashboard-plugin-architecture/design.md` §"Future Work: external plugin discovery".
