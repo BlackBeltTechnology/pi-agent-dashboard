@@ -600,7 +600,10 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   }
 
   function renderGroup(group: DirectoryGroup, isPinned: boolean, inWorkspace: boolean = false) {
-    const dirName = truncatePathMiddle(group.cwd, 45);
+    const displayPath = truncatePathMiddle(group.cwd, 45);
+    const lastSlash = displayPath.lastIndexOf('/');
+    const parentPath = lastSlash >= 0 ? displayPath.slice(0, lastSlash + 1) : '';
+    const lastSegment = lastSlash >= 0 ? displayPath.slice(lastSlash + 1) : displayPath;
     const isCollapsed = isFolderCollapsed(group.cwd);
 
     return (
@@ -618,7 +621,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             title={isCollapsed ? "Expand folder" : "Collapse folder"}
           >
             <span className="text-xs font-medium text-[var(--text-secondary)] truncate flex items-center gap-1">
-              <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" /> {dirName}
+              <Icon path={isCollapsed ? mdiFolder : mdiFolderOpen} size={0.5} className="shrink-0" />
+              <span className="truncate">{parentPath}</span>
+              <span className="font-bold text-base truncate">{lastSegment}</span>
             </span>
             <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
             {/* Pin/Unpin toggle. Hidden inside a workspace container — pin
