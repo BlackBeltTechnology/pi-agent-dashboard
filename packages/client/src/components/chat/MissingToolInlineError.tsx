@@ -22,7 +22,7 @@ export function MissingToolInlineError({ toolName }: { toolName: string }) {
     // Flag the target BEFORE navigating so ToolsSection picks it up on
     // mount even if it is not yet listening for the window event.
     requestToolInstall(toolName);
-    navigate("/settings/general");
+    navigate("/settings/developer");
   };
 
   return (

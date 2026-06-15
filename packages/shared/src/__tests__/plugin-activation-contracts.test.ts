@@ -13,6 +13,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { VALID_SETTINGS_TABS } from "../dashboard-plugin/slot-types.js";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
@@ -27,9 +28,10 @@ describe("add-plugin-activation-ui repo-lint", () => {
       "utf-8",
     );
     expect(panel.includes("<SettingsSectionSlot")).toBe(true);
-    // One mount per page id.
-    const mounts = panel.match(/<SettingsSectionSlot tab=/g) ?? [];
-    expect(mounts.length).toBe(10);
+    // One mount per page id; assert exact set matches VALID_SETTINGS_TABS.
+    const mounts = [...panel.matchAll(/<SettingsSectionSlot tab="([^"]+)"/g)].map((m) => m[1]);
+    expect(mounts.length).toBe(VALID_SETTINGS_TABS.length);
+    expect(new Set(mounts)).toEqual(new Set(VALID_SETTINGS_TABS));
   });
 
   it("browser-protocol introduces no new message types in this change", () => {
