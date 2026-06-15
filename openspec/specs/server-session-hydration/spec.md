@@ -1,11 +1,11 @@
 # server-session-hydration Specification
 
 ## Purpose
-TBD - created by archiving change instrument-session-hydration-timing. Update Purpose after archive.
+Measure and surface session-event hydration cost so operators can quantify main-loop stalls caused by `loadSessionEvents` before any optimization (e.g. worker offload) is applied. Scope: per-hydration wall-time sampling, a process-wide event-loop delay measurement, and additive `/api/health` reporting. Measurement only — no change to hydration semantics or the returned `LoadResult`.
 ## Requirements
 ### Requirement: Session hydration is timed and observable
 
-The server SHALL measure the wall-clock duration of every session-event hydration (`loadSessionEvents`) and expose recent timings plus a process-wide event-loop delay measurement, so operators can quantify main-loop stalls caused by hydration before any optimization is applied. Measurement SHALL NOT alter the `LoadResult` returned to the hydration caller and SHALL NOT add fs reads or payload serialization beyond an O(1) record into an in-memory ring buffer.
+The server SHALL measure the wall-clock duration of every session-event hydration (`loadSessionEvents`) and expose recent timings plus a process-wide event-loop delay measurement, so operators can quantify main-loop stalls caused by hydration before any optimization is applied. Measurement SHALL NOT alter the `LoadResult` returned to the hydration caller. Per-call measurement overhead SHALL be bounded to an O(1) record into an in-memory ring buffer plus at most a single best-effort `stat` of the session file (for `fileBytes`); it SHALL NOT serialize large payloads. A failure in the measurement path SHALL NOT propagate to the caller.
 
 #### Scenario: Each hydration records a timing sample
 - **WHEN** `loadSessionEvents` completes (success or failure)

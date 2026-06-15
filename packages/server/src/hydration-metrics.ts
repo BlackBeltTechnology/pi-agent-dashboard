@@ -28,7 +28,9 @@ export interface HydrationMetrics {
 }
 
 export function createHydrationMetrics(capacity: number): HydrationMetrics {
-  const cap = Math.max(1, Math.floor(capacity));
+  // Guard non-finite/invalid input so the eviction check below always runs;
+  // otherwise `buf.length > NaN` is always false and the buffer grows unbounded.
+  const cap = Number.isFinite(capacity) ? Math.max(1, Math.floor(capacity)) : 1;
   const buf: HydrationSample[] = [];
   return {
     record(sample: HydrationSample): void {

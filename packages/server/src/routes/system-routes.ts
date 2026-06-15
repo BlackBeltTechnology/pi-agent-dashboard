@@ -303,6 +303,12 @@ export function registerSystemRoutes(
   // Health endpoint — includes server + agent process metrics
   fastify.get("/api/health", async () => {
     const mem = process.memoryUsage();
+    // Telemetry reads are failure-isolated so a throwing provider can never
+    // turn /api/health into a 500. See change: instrument-session-hydration-timing.
+    let eventLoopDelay = { meanMs: 0, p99Ms: 0, maxMs: 0 };
+    try { eventLoopDelay = readEventLoopDelay?.() ?? eventLoopDelay; } catch { /* keep zeros */ }
+    let hydration: ReturnType<HydrationMetrics["snapshot"]> = [];
+    try { hydration = hydrationMetrics?.snapshot() ?? hydration; } catch { /* keep empty */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -359,9 +365,9 @@ export function registerSystemRoutes(
       // Event-loop delay (ms) over the window since the last /api/health read.
       // Correlates hydration spikes with real main-loop lag. Additive field.
       // See change: instrument-session-hydration-timing.
-      eventLoopDelay: readEventLoopDelay?.() ?? { meanMs: 0, p99Ms: 0, maxMs: 0 },
+      eventLoopDelay,
       // Recent session-hydration timing samples, newest-first. Additive field.
-      hydration: hydrationMetrics?.snapshot() ?? [],
+      hydration,
     };
   });
 

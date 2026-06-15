@@ -1421,6 +1421,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
 
     async stop() {
+      // Stop the event-loop-delay monitor so the libuv timer doesn't linger
+      // after teardown. See change: instrument-session-hydration-timing.
+      try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }
       // Stop mDNS before closing
       try {
         if (mdnsBrowser) { mdnsBrowser.stop(); mdnsBrowser = null; }

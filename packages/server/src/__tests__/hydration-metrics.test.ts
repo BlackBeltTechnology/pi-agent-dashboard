@@ -41,6 +41,15 @@ describe("createHydrationMetrics", () => {
     expect(snap.map((s) => s.sessionId)).toEqual(["c", "b"]);
   });
 
+  it("non-finite capacity falls back to 1 (stays bounded)", () => {
+    const m = createHydrationMetrics(NaN);
+    m.record(makeSample({ sessionId: "a" }));
+    m.record(makeSample({ sessionId: "b" }));
+    const snap = m.snapshot();
+    expect(snap).toHaveLength(1);
+    expect(snap[0].sessionId).toBe("b");
+  });
+
   it("snapshot() returns copies, not internal references", () => {
     const m = createHydrationMetrics(2);
     m.record(makeSample({ sessionId: "a" }));

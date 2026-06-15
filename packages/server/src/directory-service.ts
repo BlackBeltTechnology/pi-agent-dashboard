@@ -328,10 +328,16 @@ export function createDirectoryService(
       return { success: false, events: [], error };
     } finally {
       loadingSet.delete(sessionId);
-      const wallMs = performance.now() - start;
-      hydrationMetrics?.record({ sessionId, wallMs, fileBytes, entryCount, eventCount, at: Date.now() });
-      if (wallMs > HYDRATION_SLOW_WARN_MS) {
-        console.warn(`[hydration] slow load: ${Math.round(wallMs)}ms (session=${sessionId} bytes=${fileBytes})`);
+      // Instrumentation must never change the load outcome — isolate any
+      // recorder/logging throw so it can't reject a successful LoadResult.
+      try {
+        const wallMs = performance.now() - start;
+        hydrationMetrics?.record({ sessionId, wallMs, fileBytes, entryCount, eventCount, at: Date.now() });
+        if (wallMs > HYDRATION_SLOW_WARN_MS) {
+          console.warn(`[hydration] slow load: ${Math.round(wallMs)}ms (session=${sessionId} bytes=${fileBytes})`);
+        }
+      } catch {
+        // swallow — measurement-only path
       }
     }
   }
