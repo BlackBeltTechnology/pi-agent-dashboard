@@ -449,6 +449,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return data;
         }
       },
+      // Worker-path enrichment: fetch only the assignments map so the worker
+      // can apply the join in-thread and emit a fully-joined `serialized`
+      // payload. See change: offload-openspec-poll-to-worker.
+      getOpenSpecGroupAssignments: async (cwd) => {
+        try {
+          const file = await openspecGroupStore.read(cwd);
+          return file.assignments ?? {};
+        } catch {
+          return {};
+        }
+      },
     },
   );
 

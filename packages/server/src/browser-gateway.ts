@@ -82,6 +82,15 @@ export interface BrowserGateway {
   broadcastSessionRemoved(sessionId: string): void;
   sendToSubscribers(sessionId: string, msg: ServerToBrowserMessage): void;
   broadcastToAll(msg: ServerToBrowserMessage): void;
+  /**
+   * Broadcast an `openspec_update` envelope using a pre-stringified `data`
+   * payload (from the OpenSpec poll worker). The envelope JSON is built by
+   * string concatenation so the large `data` is NOT re-serialized on the
+   * main thread — it flows from worker → ws.send in exactly one form.
+   * Mirrors `broadcast()`'s back-pressure + readyState guards.
+   * See change: offload-openspec-poll-to-worker.
+   */
+  broadcastOpenSpecUpdate(cwd: string, dataSerialized: string): void;
   /** Get number of browser subscribers for a session */
   getSubscriberCount(sessionId: string): number;
   /** Track a pending interactive UI request for replay on reconnect */
@@ -270,11 +279,27 @@ export function createBrowserGateway(
     // liveness guards are preserved (mirrors `sendTo`).
     // See change: scope-openspec-poll-to-active-cwds.
     const serialized = JSON.stringify(msg);
+    fanout(serialized);
+  }
+
+  function fanout(serialized: string) {
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) continue;
       ws.send(serialized);
     }
+  }
+
+  /**
+   * Build the `openspec_update` envelope by concatenating the (small) header
+   * with the (large) pre-stringified `data` from the worker. Equivalent to
+   * `JSON.stringify({ type:"openspec_update", cwd, data })` but skips the
+   * `data` re-stringify entirely. See change: offload-openspec-poll-to-worker.
+   */
+  function broadcastOpenSpecUpdateImpl(cwd: string, dataSerialized: string) {
+    const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
+    const serialized = header + dataSerialized + "}";
+    fanout(serialized);
   }
 
   wss.on("connection", (ws, req) => {
@@ -760,6 +785,10 @@ export function createBrowserGateway(
 
     broadcastToAll(msg: ServerToBrowserMessage) {
       broadcast(msg);
+    },
+
+    broadcastOpenSpecUpdate(cwd: string, dataSerialized: string) {
+      broadcastOpenSpecUpdateImpl(cwd, dataSerialized);
     },
 
     getSubscriberCount(sessionId: string): number {

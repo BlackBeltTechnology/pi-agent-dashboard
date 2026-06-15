@@ -64,13 +64,20 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
     console.error("[dashboard] Session discovery failed:", err);
   }
 
-  // Start OpenSpec polling, broadcast changes to browsers
-  directoryService.startPolling((cwd, data) => {
-    browserGateway.broadcastToAll({
-      type: "openspec_update",
-      cwd,
-      data,
-    } as any);
+  // Start OpenSpec polling, broadcast changes to browsers. When the worker
+  // path supplies a pre-serialized payload, fan out by string concat so the
+  // large `data` is stringified exactly once per tick (in the worker).
+  // See change: offload-openspec-poll-to-worker.
+  directoryService.startPolling((cwd, data, serialized) => {
+    if (serialized !== undefined) {
+      browserGateway.broadcastOpenSpecUpdate(cwd, serialized);
+    } else {
+      browserGateway.broadcastToAll({
+        type: "openspec_update",
+        cwd,
+        data,
+      } as any);
+    }
   });
 
   // Initial OpenSpec poll for all known directories.

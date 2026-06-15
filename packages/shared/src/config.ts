@@ -97,6 +97,17 @@ export interface OpenSpecPollConfig {
   changeDetection: "mtime" | "always";
   /** Max per-directory phase jitter in seconds. 0 disables jitter. Default 5. Clamped to [0, 60]. */
   jitterSeconds: number;
+  /**
+   * When `true` (the default) the periodic / gated poll path runs per-change
+   * artifact derivation and payload serialization in a `worker_threads`
+   * worker, off the main event loop. When `false`, derivation runs in-process
+   * exactly as on the pre-worker path — used as a permanent escape hatch for
+   * environments where `worker_threads` is unavailable (e.g. constrained
+   * bundles). The in-process fallback also activates automatically on worker
+   * spawn/crash/timeout regardless of this flag. See change:
+   * offload-openspec-poll-to-worker.
+   */
+  useWorker: boolean;
 }
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
@@ -107,6 +118,7 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   pollIntervalSeconds: 60,
   maxConcurrentSpawns: 3,
   changeDetection: "mtime",
+  useWorker: true,
   jitterSeconds: 5,
 };
 
@@ -458,6 +470,8 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     maxConcurrentSpawns: clampNumber(raw.maxConcurrentSpawns, DEFAULT_OPENSPEC_POLL.maxConcurrentSpawns, 1, 16),
     changeDetection,
     jitterSeconds: clampNumber(raw.jitterSeconds, DEFAULT_OPENSPEC_POLL.jitterSeconds, 0, 60),
+    useWorker:
+      typeof raw.useWorker === "boolean" ? raw.useWorker : DEFAULT_OPENSPEC_POLL.useWorker,
   };
 }
 

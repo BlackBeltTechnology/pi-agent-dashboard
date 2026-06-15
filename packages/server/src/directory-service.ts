@@ -13,6 +13,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import {
   buildOpenSpecData,
   deriveArtifactStatus,
@@ -22,6 +23,14 @@ import {
   createFsProbeFactory,
   createFsSpecsProbeFactory,
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
+import {
+  createOpenSpecPollWorkerPool,
+  type PollWorkerPool,
+} from "./openspec-poll-worker-pool.js";
+import type {
+  PollWorkerRequest,
+  PollWorkerPerChangeIn,
+} from "./openspec-poll-worker.js";
 import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec-change-watcher.js";
@@ -32,6 +41,14 @@ import type { OpenSpecData, OpenSpecChange } from "@blackbelt-technology/pi-dash
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { PreferencesStore } from "./preferences-store.js";
 import type { SessionManager } from "./memory-session-manager.js";
+import {
+  statMtimeOr,
+  effectiveMtimeOr,
+  perChangeArtifactPaths,
+} from "./openspec-poll-fs-helpers.js";
+// Re-export `effectiveMtimeOr` here to preserve the prior public symbol for
+// external importers. See change: offload-openspec-poll-to-worker.
+export { effectiveMtimeOr } from "./openspec-poll-fs-helpers.js";
 
 import type { DiscoveredSession } from "./session-discovery.js";
 export type { DiscoveredSession } from "./session-discovery.js";
@@ -106,7 +123,15 @@ export interface DirectoryService {
   pollDirectoryGated(cwd: string): Promise<OpenSpecData>;
   getPiResources(cwd: string): PiResourcesResult | undefined;
   refreshPiResources(cwd: string): Promise<PiResourcesResult>;
-  startPolling(onChange: (cwd: string, data: OpenSpecData) => void): void;
+  /**
+   * Subscribe to OpenSpec updates. The optional `serialized` arg carries the
+   * worker's pre-stringified `data` (matches `JSON.stringify(data)` byte-for-byte).
+   * Broadcast wiring can pass it straight through to the wire so the payload
+   * is stringified exactly once per tick. Pending / disabled / force-path
+   * emits omit `serialized` and callers re-stringify as needed.
+   * See change: offload-openspec-poll-to-worker.
+   */
+  startPolling(onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void): void;
   stopPolling(): void;
   /** Apply a new OpenSpecPollConfig without losing cache. Safe to call mid-stream. */
   reconfigurePolling(config: OpenSpecPollConfig): void;
@@ -129,74 +154,8 @@ export function phaseOffsetMs(cwd: string, jitterSeconds: number): number {
   return fnv1a32(cwd) % (jitterSeconds * 1000);
 }
 
-// ── mtime helpers ──────────────────────────────────────────────────
-function statMtimeOr(p: string): number | undefined {
-  try {
-    return fs.statSync(p).mtimeMs;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Maximum mtime across a fixed list of paths. Missing paths (ENOENT) are
- * skipped — they don't poison the result. Returns `undefined` only when
- * every input is missing.
- *
- * Used by the change-detection gate to catch in-place file edits that
- * don't bump any parent directory's mtime on POSIX. See change:
- * fix-openspec-mtime-gate-blind-spots.
- */
-export function effectiveMtimeOr(paths: string[]): number | undefined {
-  let max: number | undefined;
-  for (const p of paths) {
-    const m = statMtimeOr(p);
-    if (m === undefined) continue;
-    if (max === undefined || m > max) max = m;
-  }
-  return max;
-}
-
-/**
- * File set tracked by the per-change effective-mtime computation.
- *
- * The base set covers the change directory itself plus the three top-level
- * artifact files. The `specs/` fan-out catches multi-spec authoring:
- *
- *   - `<change>/specs/`               — advances on capability dir create/remove
- *   - `<change>/specs/<cap>/`         — advances when `spec.md` is created inside
- *   - `<change>/specs/<cap>/spec.md`  — advances on in-place edits
- *
- * `readdirSync` is wrapped in try/catch so missing `specs/` (or any fs error)
- * yields an empty fan-out rather than throwing.
- *
- * See change: fix-openspec-specs-mtime-gate-blind-spot.
- */
-function perChangeArtifactPaths(changesRoot: string, name: string): string[] {
-  const dir = path.join(changesRoot, name);
-  const base = [
-    dir,
-    path.join(dir, "tasks.md"),
-    path.join(dir, "proposal.md"),
-    path.join(dir, "design.md"),
-  ];
-  const specsDir = path.join(dir, "specs");
-  const specsExtras: string[] = [specsDir];
-  try {
-    const entries = fs.readdirSync(specsDir, { withFileTypes: true });
-    for (const e of entries) {
-      if (e.isDirectory()) {
-        const capDir = path.join(specsDir, e.name);
-        specsExtras.push(capDir);
-        specsExtras.push(path.join(capDir, "spec.md"));
-      }
-    }
-  } catch {
-    // ENOENT, permission denied, etc. — leave specsExtras with just specsDir
-    // (its own statMtimeOr will return undefined and be excluded from max).
-  }
-  return [...base, ...specsExtras];
-}
+// mtime helpers live in `./openspec-poll-fs-helpers.ts` (shared with the
+// `openspec-poll-worker.ts` worker). See change: offload-openspec-poll-to-worker.
 
 // ── Per-directory cache ────────────────────────────────────────────
 type PerChangeEntry = {
@@ -212,21 +171,42 @@ type DirCache = {
   changes: Map<string, PerChangeEntry>;
   /** Last built OpenSpecData (what we broadcast). */
   data: OpenSpecData | undefined;
+  /**
+   * Pre-stringified payload from the worker. When present and matches
+   * `JSON.stringify(data)`, broadcast wrappers reuse this string so the main
+   * loop never re-stringifies the large payload. Reset to `undefined` on
+   * force-path refresh or any code path that mutates `data` without setting
+   * this. See change: offload-openspec-poll-to-worker.
+   */
+  serialized: string | undefined;
 };
 
 function emptyDirCache(): DirCache {
-  return { listMtimeMs: undefined, listResult: undefined, changes: new Map(), data: undefined };
+  return { listMtimeMs: undefined, listResult: undefined, changes: new Map(), data: undefined, serialized: undefined };
 }
 
 export interface DirectoryServiceOptions {
   /**
    * Optional async post-processor applied to `OpenSpecData` after
    * `buildOpenSpecData` and before caching. Used to inject the per-cwd
-   * `groupId` join from the OpenSpec change-grouping store.
+   * `groupId` join from the OpenSpec change-grouping store. Used by the
+   * force-refresh path (`pollOne(force=true)`). The periodic / gated path
+   * (`pollOne(force=false)`) uses `getOpenSpecGroupAssignments` so the join
+   * can run inside the worker without crossing the main→worker boundary
+   * with a Promise-returning callback.
    * Errors propagate as a logged warning + the unenriched data.
    * See change: add-openspec-change-grouping.
    */
   enrichOpenSpecData?: (cwd: string, data: OpenSpecData) => Promise<OpenSpecData> | OpenSpecData;
+  /**
+   * Optional async fetcher for the per-cwd `groupId` assignments map (change
+   * name → groupId). When set, the periodic / gated poll path resolves
+   * assignments on the main thread (cheap group-store file read) and passes
+   * them into the worker so the worker emits a fully-joined, ready-to-broadcast
+   * payload. Errors fall back to an empty assignments map. See change:
+   * offload-openspec-poll-to-worker.
+   */
+  getOpenSpecGroupAssignments?: (cwd: string) => Promise<Record<string, string>> | Record<string, string>;
   /**
    * Optional override for the per-cwd OpenSpec change watcher. When omitted,
    * a real `fs.watch`-backed watcher is constructed. Tests may inject a
@@ -244,6 +224,22 @@ export function createDirectoryService(
 ): DirectoryService {
   let cfg: OpenSpecPollConfig = { ...DEFAULT_OPENSPEC_POLL, ...(initialConfig ?? {}) };
   const enrichOpenSpecData = options.enrichOpenSpecData;
+  const getOpenSpecGroupAssignments = options.getOpenSpecGroupAssignments;
+
+  // Lazy worker pool for the periodic / gated poll path. Constructed on
+  // `startPolling()`; disposed on `stopPolling()`. `cfg.useWorker === false`
+  // produces an in-process-only pool (no thread spawn). See change:
+  // offload-openspec-poll-to-worker.
+  let workerPool: PollWorkerPool | null = null;
+  function ensureWorkerPool(): PollWorkerPool {
+    if (workerPool) return workerPool;
+    const cpuCount = os.cpus().length || 1;
+    workerPool = createOpenSpecPollWorkerPool({
+      size: Math.max(1, Math.min(cfg.maxConcurrentSpawns, cpuCount)),
+      useWorker: cfg.useWorker !== false,
+    });
+    return workerPool;
+  }
 
   // Per-cwd `fs.watch` on `openspec/changes/`. On a relevant file event
   // (debounced 300 ms) fans into `pollOne(cwd, false)` so the existing
@@ -262,7 +258,7 @@ export function createDirectoryService(
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let piResourcesTimer: ReturnType<typeof setInterval> | null = null;
-  let onChangeCallback: ((cwd: string, data: OpenSpecData) => void) | null = null;
+  let onChangeCallback: ((cwd: string, data: OpenSpecData, serialized?: string) => void) | null = null;
   const scheduledPhaseTimers = new Set<ReturnType<typeof setTimeout>>();
   // cwds for which the current poll cycle broadcast a transitional
   // `pending:true` that the diff-guarded wrappers must still clear, even when
@@ -388,7 +384,65 @@ export function createDirectoryService(
       if (!liveNames.has(key)) cache.changes.delete(key);
     }
 
-    // ── Step 2: per-change status (gated) ──
+    // ── Step 2 + 3 (gated, non-force): dispatch to worker pool ──
+    //
+    // The worker computes pre/post-call mtimes, runs `deriveArtifactStatus`
+    // per change, applies the TOCTOU gate, assembles `buildOpenSpecData`,
+    // joins `groupAssignments`, and serializes the payload — all off the
+    // main event loop. The main thread keeps ownership of the CLI spawn
+    // (above), the spawn semaphore, the cache, and the broadcast.
+    // See change: offload-openspec-poll-to-worker.
+    if (!force) {
+      const perChange: PollWorkerPerChangeIn[] = (listResult ?? []).map((c) => {
+        const cached = cache.changes.get(c.name);
+        return {
+          name: c.name,
+          cached: cached
+            ? {
+                mtimeMs: cached.mtimeMs,
+                artifacts: cached.change.artifacts.map((a) => ({ id: a.id, status: a.status })),
+                ...(cached.change.isComplete !== undefined ? { isComplete: cached.change.isComplete } : {}),
+              }
+            : null,
+        };
+      });
+
+      let groupAssignments: Record<string, string> = {};
+      if (getOpenSpecGroupAssignments) {
+        try {
+          groupAssignments = await Promise.resolve(getOpenSpecGroupAssignments(cwd));
+          if (!groupAssignments || typeof groupAssignments !== "object") groupAssignments = {};
+        } catch (err) {
+          if (typeof process !== "undefined" && /pi-dashboard|openspec-poll/.test(process.env?.DEBUG ?? "")) {
+            // eslint-disable-next-line no-console
+            console.warn(`[directory-service] getOpenSpecGroupAssignments(${cwd}) threw:`, err);
+          }
+          groupAssignments = {};
+        }
+      }
+
+      const req: PollWorkerRequest = {
+        cwd,
+        changesRoot,
+        hasOpenspecDir,
+        gateEnabled,
+        listResult: listResult ?? [],
+        perChange,
+        groupAssignments,
+      };
+      const out = await ensureWorkerPool().process(req);
+      const racySet = new Set(out.racyNames);
+      for (const change of out.data.changes ?? []) {
+        if (racySet.has(change.name)) continue; // preserve prior cache for racy
+        cache.changes.set(change.name, { mtimeMs: out.stampMtimes[change.name], change });
+      }
+      cache.data = out.data;
+      cache.serialized = out.serialized;
+      caches.set(cwd, cache);
+      return out.data;
+    }
+
+    // ── Force path (force === true): per-change `openspec status` CLI ──
     //
     // TOCTOU note: we capture the file-aware effective mtime BEFORE invoking
     // `openspec status` and stamp THAT value into the cache. If a tracked
@@ -401,7 +455,8 @@ export function createDirectoryService(
     const preCallMtimes = new Map<string, number | undefined>();
     const racyNames = new Set<string>();
 
-    // Per-change evidence probes for the local-derivation path (force === false).
+    // Per-change evidence probes for the local-derivation path (kept here as
+    // a defensive fallback; the force branch normally uses `runOpenSpecStatus`).
     // See change: optimize-openspec-poll-derive-artifacts-locally.
     const designFactory = createFsProbeFactory(cwd);
     const specsFactory = createFsSpecsProbeFactory(cwd);
@@ -500,6 +555,11 @@ export function createDirectoryService(
       cache.changes.set(change.name, { mtimeMs: stampMtime, change });
     }
     cache.data = data;
+    // Force path serializes inline on the broadcast wrappers (rare, async
+    // CLI-per-change path). Invalidate any stale worker-serialized form so
+    // wrappers re-stringify against the fresh data. See change:
+    // offload-openspec-poll-to-worker.
+    cache.serialized = undefined;
     caches.set(cwd, cache);
     return data;
   }
@@ -550,15 +610,19 @@ export function createDirectoryService(
   async function onWatcherFired(cwd: string): Promise<void> {
     if (cfg.enabled === false) return;
     try {
-      const prev = caches.get(cwd)?.data;
-      const prevJson = prev ? JSON.stringify(prev) : undefined;
+      // Reuse the worker's pre-serialized payload when available so the
+      // diff is free and `JSON.stringify` runs exactly once per tick.
+      // See change: offload-openspec-poll-to-worker.
+      const prevCache = caches.get(cwd);
+      const prevJson = prevCache?.serialized ?? (prevCache?.data ? JSON.stringify(prevCache.data) : undefined);
       const next = await pollDirectoryGated(cwd);
-      const nextJson = JSON.stringify(next);
+      const nextSerialized = caches.get(cwd)?.serialized;
+      const nextJson = nextSerialized ?? JSON.stringify(next);
       // Force the broadcast when a transitional pending was emitted this cycle,
       // so the terminal clear always reaches the spinner even if the final
       // JSON matches the prior cache. See change: emit-openspec-pending-from-poll.
       const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
-      if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next);
+      if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next, nextSerialized);
     } catch (err) {
       console.error(`[openspec-watcher] poll failed for ${cwd}:`, err);
     }
@@ -661,14 +725,15 @@ export function createDirectoryService(
         const timer = setTimeout(async () => {
           scheduledPhaseTimers.delete(timer);
           try {
-            const prev = caches.get(cwd)?.data;
-            const prevJson = prev ? JSON.stringify(prev) : undefined;
+            const prevCache = caches.get(cwd);
+            const prevJson = prevCache?.serialized ?? (prevCache?.data ? JSON.stringify(prevCache.data) : undefined);
             const next = await pollDirectoryGated(cwd);
-            const nextJson = JSON.stringify(next);
+            const nextSerialized = caches.get(cwd)?.serialized;
+            const nextJson = nextSerialized ?? JSON.stringify(next);
             // See change: emit-openspec-pending-from-poll — clear the spinner
             // even when the final JSON equals the prior cache.
             const pendingWasEmitted = pendingEmittedCwds.delete(cwd);
-            if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next);
+            if (nextJson !== prevJson || pendingWasEmitted) onChangeCallback?.(cwd, next, nextSerialized);
           } catch (err) {
             // Swallow — the next tick will retry.
             console.error(`[openspec-poll] tick failed for ${cwd}:`, err);
@@ -742,8 +807,9 @@ export function createDirectoryService(
       return refreshPiResourcesInternal(cwd);
     },
 
-    startPolling(onChange: (cwd: string, data: OpenSpecData) => void) {
+    startPolling(onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void) {
       onChangeCallback = onChange;
+      // Lazy worker pool spawn happens on first request from `ensureWorkerPool()`.
       installTimers();
     },
 
@@ -754,6 +820,14 @@ export function createDirectoryService(
       // See change: fix-openspec-taskcheck-delay.
       try { changeWatcher.detachAll(); } catch { /* best-effort */ }
       attachedWatcherCwds.clear();
+      // Terminate the OpenSpec poll worker pool (best-effort — callers that
+      // restart polling will respawn it lazily). See change:
+      // offload-openspec-poll-to-worker.
+      if (workerPool) {
+        const p = workerPool;
+        workerPool = null;
+        void p.dispose().catch(() => { /* ignore shutdown errors */ });
+      }
     },
 
     reconfigurePolling(newCfg: OpenSpecPollConfig) {
@@ -761,6 +835,14 @@ export function createDirectoryService(
       const wasEnabled = cfg.enabled;
       cfg = { ...newCfg };
       semaphore.setMax(cfg.maxConcurrentSpawns);
+      // Worker-pool sizing tracks maxConcurrentSpawns. Reconfigure by
+      // tearing down the pool; it respawns lazily with the new size on the
+      // next request. See change: offload-openspec-poll-to-worker.
+      if (workerPool) {
+        const p = workerPool;
+        workerPool = null;
+        void p.dispose().catch(() => { /* ignore */ });
+      }
       // Only re-install timers if they were running and the interval actually changed.
       if (pollTimer && oldInterval !== cfg.pollIntervalSeconds) {
         installTimers();
