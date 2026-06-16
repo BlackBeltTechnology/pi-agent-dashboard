@@ -64,6 +64,13 @@ interface Props {
    * the real user message via `message_end`. See change: add-followup-edit-and-steer-cancel.
    */
   pendingSteering?: string[];
+  /**
+   * Selected session's "history loading" flag. When true and the chat is
+   * empty, render a loading indicator instead of the "No messages yet"
+   * placeholder — distinguishes history-in-flight from a genuinely empty
+   * session. See change: show-chat-history-loading-indicator.
+   */
+  loadingHistory?: boolean;
   // onCancelSteering / onCancelPending omitted: pi exposes no queue-mutation
   // API. Steering bubbles render display-only; cancellation requires upstream
   // pi support (tracked separately). See change: honest-mid-turn-queue-surface.
@@ -186,7 +193,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, queuedTexts, pendingSteering }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, queuedTexts, pendingSteering, loadingHistory }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottom = useRef(true);
   const programmaticScroll = useRef(false);
@@ -633,10 +640,22 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         </div>
       )}
 
+      {/*
+        3-way empty state (see change: show-chat-history-loading-indicator):
+        loading spinner while history is in flight, "No messages yet" for a
+        genuinely-empty session, else nothing (bubbles render above).
+      */}
       {state.messages.length === 0 && !state.streamingText && !(state.pendingPrompt && !(queuedTexts?.includes(state.pendingPrompt.text))) && !(pendingSteering && pendingSteering.length > 0) && (
-        <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-          <p>{i18nT("auto.no_messages_yet", undefined, "No messages yet")}</p>
-        </div>
+        loadingHistory ? (
+          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] gap-2">
+            <Icon path={mdiLoading} size={0.8} className="animate-spin" />
+            <p>{i18nT("auto.loading_conversation", undefined, "Loading conversation…")}</p>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
+            <p>{i18nT("auto.no_messages_yet", undefined, "No messages yet")}</p>
+          </div>
+        )
       )}
     </div>
     {showScrollButton && (

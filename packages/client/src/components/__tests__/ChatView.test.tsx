@@ -234,6 +234,40 @@ describe("ChatView", () => {
     expect(container.textContent).not.toContain("No messages yet");
   });
 
+  // See change: show-chat-history-loading-indicator.
+  describe("history loading 3-way empty state", () => {
+    it("renders the loading indicator (not the placeholder) when loadingHistory and empty", () => {
+      const state = createInitialState();
+      const { container } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} loadingHistory={true} /></ThemeProvider>,
+      );
+      expect(container.textContent).toContain("Loading conversation…");
+      expect(container.textContent).not.toContain("No messages yet");
+      // spinner present
+      expect(container.querySelector(".animate-spin")).not.toBeNull();
+    });
+
+    it("renders 'No messages yet' when not loading and empty (existing behavior)", () => {
+      const state = createInitialState();
+      const { container } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} loadingHistory={false} /></ThemeProvider>,
+      );
+      expect(container.textContent).toContain("No messages yet");
+      expect(container.textContent).not.toContain("Loading conversation…");
+    });
+
+    it("renders bubbles and no spinner when messages are present, regardless of loadingHistory", () => {
+      const state = stateWithMessages([{ id: "1", role: "user", content: "hi" }]);
+      const { container } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} loadingHistory={true} /></ThemeProvider>,
+      );
+      expect(container.textContent).not.toContain("Loading conversation…");
+      expect(container.textContent).not.toContain("No messages yet");
+      // the user bubble's copy buttons confirm bubbles rendered
+      expect(container.querySelector('button[title="Copy as Markdown"]')).not.toBeNull();
+    });
+  });
+
   describe("scroll lock", () => {
     let scrollToSpy: ReturnType<typeof vi.fn>;
 

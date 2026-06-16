@@ -52,6 +52,7 @@ function setup() {
     setDiscoveredServers: vi.fn(),
     setSpawnErrors: vi.fn(),
     setResumeErrors: vi.fn(),
+    setLoadingHistory: vi.fn(),
   };
 
   const deps: any = {
@@ -64,6 +65,7 @@ function setup() {
     lastCreatedTerminalIdRef: { current: null },
     maxSeqMapRef: { current: maxSeqMap },
     selectedSessionIdRef: { current: undefined },
+    loadingHistoryTimersRef: { current: new Map() },
   };
 
   const { result } = renderHook(() => useMessageHandler(setters, deps));
