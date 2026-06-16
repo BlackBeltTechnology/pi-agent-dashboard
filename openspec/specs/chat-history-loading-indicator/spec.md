@@ -1,7 +1,7 @@
 # chat-history-loading-indicator Specification
 
 ## Purpose
-TBD - created by archiving change show-chat-history-loading-indicator. Update Purpose after archive.
+Distinguish "history loading" from "genuinely empty session" in the dashboard chat view. The client tracks a per-session loading flag, set when `subscribe` is sent and cleared when content arrives, replay completes, the load fails, or a safety-net timeout elapses, so a loading indicator (not the "No messages yet" placeholder) shows while persisted history is in flight over a remote link. Client-only; reads the existing `event_replay.isLast` field with no protocol or server change.
 ## Requirements
 ### Requirement: Distinguish loading history from empty session
 

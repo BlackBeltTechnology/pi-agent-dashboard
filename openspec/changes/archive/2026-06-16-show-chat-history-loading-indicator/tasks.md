@@ -24,12 +24,12 @@
 
 ## 4. Tests
 
-- [ ] 4.1 `packages/client/src/components/__tests__/ChatView.test.tsx`: with `loadingHistory={true}` and empty messages → renders the loading indicator, does NOT render "No messages yet".
-- [ ] 4.2 Same file: with `loadingHistory={false}` and empty messages → renders "No messages yet" (existing behavior preserved).
-- [ ] 4.3 Same file: with messages present → renders bubbles regardless of `loadingHistory` (no spinner over content).
-- [ ] 4.4 `useMessageHandler` test: a non-empty `event_replay` batch clears the loading flag for that session.
-- [ ] 4.5 `useMessageHandler` test: an `event_replay{events:[],isLast:true}` (empty session) clears the loading flag (→ ChatView will show "No messages yet").
-- [ ] 4.6 `useMessageHandler` test: `session_updated{dataUnavailable:true}` clears the loading flag.
+- [x] 4.1 `packages/client/src/components/__tests__/ChatView.test.tsx`: with `loadingHistory={true}` and empty messages → renders the loading indicator, does NOT render "No messages yet".
+- [x] 4.2 Same file: with `loadingHistory={false}` and empty messages → renders "No messages yet" (existing behavior preserved).
+- [x] 4.3 Same file: with messages present → renders bubbles regardless of `loadingHistory` (no spinner over content).
+- [x] 4.4 `useMessageHandler` test: a non-empty `event_replay` batch clears the loading flag for that session.
+- [x] 4.5 `useMessageHandler` test: an `event_replay{events:[],isLast:true}` (empty session) clears the loading flag (→ ChatView will show "No messages yet").
+- [x] 4.6 `useMessageHandler` test: `session_updated{dataUnavailable:true}` clears the loading flag.
 
 ## 5. Verification
 

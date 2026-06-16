@@ -597,6 +597,24 @@ export default function App() {
     sessions: Array.from(sessions.values()).map((s) => ({ cwd: s.cwd })),
   };
 
+  // Enter LOADING for a session: set the flag and arm a 15s safety-net
+  // timer (clearing any prior timer). Called from every `subscribe` send
+  // site so cleared / refreshed chats show the spinner during replay, not
+  // the empty placeholder. See change: show-chat-history-loading-indicator.
+  const beginLoadingHistory = useCallback((id: string) => {
+    const existingTimer = loadingHistoryTimersRef.current.get(id);
+    if (existingTimer) clearTimeout(existingTimer);
+    setLoadingHistory((prev) => {
+      const next = new Map(prev);
+      next.set(id, true);
+      return next;
+    });
+    loadingHistoryTimersRef.current.set(
+      id,
+      setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, id), 15000),
+    );
+  }, []);
+
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef },
@@ -744,22 +762,11 @@ export default function App() {
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
       send({ type: "subscribe", sessionId: selectedId, lastSeq: maxSeqMapRef.current.get(selectedId) ?? 0 });
-      // Enter LOADING for this session. Covers the warm (in-memory replay /
-      // reconnect re-subscribe) and cold (disk-load) paths uniformly, since
-      // the warm path never sends an empty `isLast:false` start marker.
-      // Arm a 15s safety-net so a dropped terminal marker can't strand the
-      // spinner. See change: show-chat-history-loading-indicator.
-      const existingTimer = loadingHistoryTimersRef.current.get(selectedId);
-      if (existingTimer) clearTimeout(existingTimer);
-      setLoadingHistory((prev) => {
-        const next = new Map(prev);
-        next.set(selectedId, true);
-        return next;
-      });
-      loadingHistoryTimersRef.current.set(
-        selectedId,
-        setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, selectedId), 15000),
-      );
+      // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
+      // and cold (disk-load) paths uniformly, since the warm path never sends
+      // an empty `isLast:false` start marker.
+      // See change: show-chat-history-loading-indicator.
+      beginLoadingHistory(selectedId);
       // Request model list for this session if we don't have it yet (e.g. after page refresh)
       if (!modelsMap.has(selectedId)) {
         send({ type: "request_models", sessionId: selectedId });
@@ -1296,6 +1303,7 @@ export default function App() {
             subscribedRef.current.delete(selectedId);
             subscribedRef.current.add(selectedId);
             send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
+            beginLoadingHistory(selectedId);
           },
         } : undefined}
         commands={selectedCommands}
@@ -1317,6 +1325,7 @@ export default function App() {
           subscribedRef.current.delete(selectedId);
           subscribedRef.current.add(selectedId);
           send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
+          beginLoadingHistory(selectedId);
         }}
       />
       {/* Mobile info strip */}
