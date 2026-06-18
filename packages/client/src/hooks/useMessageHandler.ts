@@ -150,40 +150,47 @@ export function useMessageHandler(
           }
           return next;
         });
-        // Tier 1: exact correlation by spawnRequestId. Works for both
-        // spawn-from-folder and fork-from-card (closes the no-auto-select-
-        // after-fork UX gap). See change: spawn-correlation-token.
-        if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
-          const entry = pendingSpawnsRef.current.get(msg.spawnRequestId)!;
-          pendingSpawnsRef.current.delete(msg.spawnRequestId);
-          // Clear the placeholder keyed on the group cwd. For a worktree
-          // spawn `placeholderCwd` is the PARENT repo path (where the
-          // session groups), NOT `entry.cwd` (the worktree path).
-          // See change: add-worktree-spawn-placeholder-card.
-          if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
-          navigate(`/session/${msg.session.id}`);
-        } else if (spawningCwdsRef.current.has(msg.session.cwd)) {
-          // Tier 2 (legacy fallback): cwd-based heuristic for older servers
-          // that don't echo spawnRequestId. Only fires for spawn (not fork)
-          // because fork dispatches don't add to spawningCwds today.
-          clearSpawningCwd(msg.session.cwd);
-          navigate(`/session/${msg.session.id}`);
-        } else {
-          // Tier 2.5 (worktree-aware fallback): no spawnRequestId matched and
-          // the session's own cwd is not in spawningCwds — true for worktree
-          // spawns, whose placeholder is keyed by the PARENT cwd, so Tier 2
-          // can never match. Scan pending spawns for a `kind: "spawn"` entry
-          // whose tracked cwd equals this session's cwd and clear its
-          // `placeholderCwd`. First-match-wins. See change:
-          // fix-worktree-spawn-placeholder-and-ordering.
-          const platform = inferPlatform([msg.session.cwd]);
-          const sessionKey = pathKey(msg.session.cwd, platform);
-          for (const [requestId, entry] of pendingSpawnsRef.current) {
-            if (entry.kind === "spawn" && entry.cwd && pathKey(entry.cwd, platform) === sessionKey) {
-              pendingSpawnsRef.current.delete(requestId);
-              clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
-              navigate(`/session/${msg.session.id}`);
-              break;
+        // A hidden session is an auto-hidden headless worker (subagent,
+        // `memory` tool, nested `pi -p`) that shares its parent's cwd. It must
+        // never steal focus OR consume the correlation token minted for the
+        // real visible spawn, so the whole cascade is gated.
+        // See change: suppress-hidden-session-auto-navigation.
+        if (!msg.session.hidden) {
+          // Tier 1: exact correlation by spawnRequestId. Works for both
+          // spawn-from-folder and fork-from-card (closes the no-auto-select-
+          // after-fork UX gap). See change: spawn-correlation-token.
+          if (msg.spawnRequestId && pendingSpawnsRef.current.has(msg.spawnRequestId)) {
+            const entry = pendingSpawnsRef.current.get(msg.spawnRequestId)!;
+            pendingSpawnsRef.current.delete(msg.spawnRequestId);
+            // Clear the placeholder keyed on the group cwd. For a worktree
+            // spawn `placeholderCwd` is the PARENT repo path (where the
+            // session groups), NOT `entry.cwd` (the worktree path).
+            // See change: add-worktree-spawn-placeholder-card.
+            if (entry.kind === "spawn" && entry.cwd) clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
+            navigate(`/session/${msg.session.id}`);
+          } else if (spawningCwdsRef.current.has(msg.session.cwd)) {
+            // Tier 2 (legacy fallback): cwd-based heuristic for older servers
+            // that don't echo spawnRequestId. Only fires for spawn (not fork)
+            // because fork dispatches don't add to spawningCwds today.
+            clearSpawningCwd(msg.session.cwd);
+            navigate(`/session/${msg.session.id}`);
+          } else {
+            // Tier 2.5 (worktree-aware fallback): no spawnRequestId matched and
+            // the session's own cwd is not in spawningCwds — true for worktree
+            // spawns, whose placeholder is keyed by the PARENT cwd, so Tier 2
+            // can never match. Scan pending spawns for a `kind: "spawn"` entry
+            // whose tracked cwd equals this session's cwd and clear its
+            // `placeholderCwd`. First-match-wins. See change:
+            // fix-worktree-spawn-placeholder-and-ordering.
+            const platform = inferPlatform([msg.session.cwd]);
+            const sessionKey = pathKey(msg.session.cwd, platform);
+            for (const [requestId, entry] of pendingSpawnsRef.current) {
+              if (entry.kind === "spawn" && entry.cwd && pathKey(entry.cwd, platform) === sessionKey) {
+                pendingSpawnsRef.current.delete(requestId);
+                clearSpawningCwd(entry.placeholderCwd ?? entry.cwd);
+                navigate(`/session/${msg.session.id}`);
+                break;
+              }
             }
           }
         }

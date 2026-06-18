@@ -47,6 +47,8 @@ The "New" button in a workspace group header SHALL be disabled while at least on
 ### Requirement: Placeholder replaced on session added matching requestId
 When a `session_added` message arrives carrying `spawnRequestId` matching an entry in `pendingSpawns`, the system SHALL: (a) remove that entry from `pendingSpawns` (clearing the placeholder keyed by the entry's `placeholderCwd`), (b) cancel any associated timeout timer, (c) navigate to the new session's URL. The real session card SHALL render in its place via the normal session rendering pipeline.
 
+When `msg.session.hidden === true`, the system SHALL NOT clear any placeholder, SHALL NOT cancel any timeout timer, and SHALL NOT navigate, even if `spawnRequestId` matches a `pendingSpawns` entry. A hidden session is never the visible spawn a placeholder represents.
+
 #### Scenario: session_added with matching spawnRequestId replaces placeholder
 - **WHEN** a `session_added { session, spawnRequestId: "rq_42" }` message arrives
 - **AND** `pendingSpawns` contains an entry with key `rq_42`
@@ -64,6 +66,11 @@ When a `session_added` message arrives carrying `spawnRequestId` matching an ent
 - **THEN** no placeholder SHALL be removed (none was matched)
 - **AND** no auto-navigation SHALL occur
 - **AND** the new session SHALL still render in its group via the normal pipeline
+
+#### Scenario: Hidden session never clears a placeholder or navigates
+- **WHEN** `session_added { session, hidden: true }` arrives, even with a `spawnRequestId` matching a live `pendingSpawns` entry
+- **THEN** the placeholder SHALL NOT be removed, the timeout timer SHALL NOT be cancelled, and the client SHALL NOT navigate
+- **AND** the placeholder SHALL persist until the real visible session arrives or the safety timeout fires
 
 ### Requirement: Placeholder removed on spawn failure matching requestId
 When a `spawn_result` message arrives with `success: false`, the system SHALL look up the `requestId` (when echoed) in `pendingSpawns` and remove that specific placeholder using its `placeholderCwd`. When `requestId` is absent (legacy server), the system SHALL fall back to removing the FIRST placeholder whose `placeholderCwd` matches the failure cwd. An error toast SHALL be displayed.
@@ -103,6 +110,11 @@ The fallback SHALL only fire after exact `spawnRequestId` correlation and any
 cwd-equals-session-cwd match have both missed, SHALL match at most one entry
 (first-match-wins), and SHALL NOT fire for `kind: "resume"` or fork entries.
 
+When `msg.session.hidden === true`, the fallback SHALL NOT run at all — a hidden
+session SHALL NOT clear any placeholder, cancel any timer, or navigate. This
+prevents a headless worker that shares its parent session's `cwd` from consuming
+the cwd-keyed correlation entry that belongs to the real visible spawn.
+
 #### Scenario: Worktree session_added without spawnRequestId clears parent placeholder
 - **WHEN** `session_added { session }` arrives with `session.cwd = /repo/.worktrees/feat-x` and NO `spawnRequestId` matches `pendingSpawns`
 - **AND** `pendingSpawns` contains a `kind: "spawn"` entry with `cwd = /repo/.worktrees/feat-x` and `placeholderCwd = /repo`
@@ -118,6 +130,11 @@ cwd-equals-session-cwd match have both missed, SHALL match at most one entry
 #### Scenario: Fallback ignores resume and fork entries
 - **WHEN** `session_added` arrives with no matching `spawnRequestId` and the only `pendingSpawns` entry sharing the session's cwd has `kind: "resume"`
 - **THEN** the fallback SHALL NOT clear it and SHALL NOT navigate
+
+#### Scenario: Hidden worker sharing parent cwd does not trigger the fallback
+- **WHEN** `session_added { session, hidden: true }` arrives with no matching `spawnRequestId` and a `kind: "spawn"` `pendingSpawns` entry exists whose `cwd` equals the hidden session's `cwd` (the parent's cwd)
+- **THEN** the fallback SHALL NOT remove that entry, SHALL NOT clear its placeholder, SHALL NOT cancel its timer, and SHALL NOT navigate
+- **AND** the entry SHALL remain available to correlate the real visible session
 
 #### Scenario: Path normalization across separators and trailing slash
 - **WHEN** a pending-spawn entry has `cwd = /repo/.worktrees/feat-x/` (trailing slash) and `session.cwd = /repo/.worktrees/feat-x`
