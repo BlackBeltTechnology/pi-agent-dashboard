@@ -227,22 +227,25 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 /**
  * Ids of recommended extensions that ship inside the Electron installer
  * as a pre-bundled source tree. See
- * `packages/electron/scripts/bundle-recommended-extensions.mjs` and
  * `installBundledExtensions()` in `dependency-installer.ts`. Every id
  * MUST also appear in `RECOMMENDED_EXTENSIONS` and MUST have a git-based
- * `source` (enforced by a test).
+ * `source` (enforced by a test) — the pre-bundle path only handles git
+ * sources; npm-sourced extensions install via the recommended-extensions UI.
  *
  * Kept deliberately short — only first-party, source-only, native-dep-free
  * extensions belong here.
  */
 export const BUNDLED_EXTENSION_IDS: readonly string[] = [
-	"pi-anthropic-messages",
-	// @blackbelt-technology/pi-dashboard-subagents was previously bundled via
-	// the git source. It now ships from npm under the @blackbelt-technology
-	// scope and is installed through the recommended-extensions UI (npm: prefix),
-	// not pre-bundled into the Electron installer. The bundling script
-	// (bundle-recommended-extensions.mjs) only handles git sources — npm
-	// sources don't need it. See pi-dashboard-subagents v0.2.0 release.
+	// pi-anthropic-messages was previously bundled via its git source. It was
+	// republished to the @blackbelt-technology npm scope (npm: source so
+	// sourcesMatch recognizes the npm install), so it is no longer pre-bundled
+	// — it installs through the recommended-extensions UI like the other npm
+	// entries. The pre-bundle path only handles git sources.
+	// See change: suppress-hidden-session-auto-navigation (develop regression
+	// follow-up); mirrors the earlier pi-dashboard-subagents v0.2.0 migration.
+	//
+	// @blackbelt-technology/pi-dashboard-subagents was likewise migrated to an
+	// npm: source in v0.2.0 and removed from the pre-bundle set.
 	//
 	// "pi-flows" is intentionally NOT bundled until the upstream repo declares
 	// an SPDX-conformant license (`LICENSE` file or `package.json#license`).

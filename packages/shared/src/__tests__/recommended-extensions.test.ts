@@ -50,11 +50,14 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		expect(entry?.dashboardPlugin).toBe("honcho");
 	});
 
-	it("pi-anthropic-messages is marked required and uses HTTPS git URL", () => {
+	it("pi-anthropic-messages is marked required and uses the npm: source", () => {
+		// Republished to the @blackbelt-technology npm scope; the source MUST be
+		// the npm spec so sourcesMatch recognizes the npm install. See change:
+		// suppress-hidden-session-auto-navigation (develop regression follow-up).
 		const entry = getRecommendedExtension("pi-anthropic-messages");
 		expect(entry).toBeDefined();
 		expect(entry?.status).toBe("required");
-		expect(entry?.source).toContain("https://github.com/BlackBeltTechnology/pi-anthropic-messages.git");
+		expect(entry?.source).toBe("npm:@blackbelt-technology/pi-anthropic-messages");
 		expect(entry?.autowired).toBe(true);
 	});
 
@@ -82,6 +85,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 		const npmEntries = RECOMMENDED_EXTENSIONS.filter((e) => e.source.startsWith("npm:"));
 		expect(npmEntries.map((e) => e.id).sort()).toEqual(
 			[
+				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"pi-memory-honcho",
 				"pi-web-access",
@@ -99,7 +103,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 			expect(entry.source).toMatch(/^https:\/\/github\.com\/[^/]+\/[^/]+\.git$/);
 		}
 		expect(gitEntries.map((e) => e.id).sort()).toEqual(
-			["pi-anthropic-messages", "pi-flows"].sort(),
+			["pi-flows"].sort(),
 		);
 	});
 });
@@ -159,17 +163,14 @@ describe("RecommendedExtension type", () => {
 
 describe("BUNDLED_EXTENSION_IDS manifest", () => {
 	it("contains exactly the v0.x initial bundled set", () => {
-		// pi-flows temporarily removed: upstream repo lacks SPDX license,
-		// blocking the bundle-recommended-extensions.mjs license check.
-		// Re-add when https://github.com/BlackBeltTechnology/pi-flows has
-		// a license declared.
-		// @blackbelt-technology/pi-dashboard-subagents removed when it moved
-		// to an npm: source in v0.2.0 — the bundling script only handles git
-		// sources; npm-sourced extensions install via the recommended-extensions
-		// UI flow, not the pre-bundle path.
-		expect([...BUNDLED_EXTENSION_IDS].sort()).toEqual(
-			["pi-anthropic-messages"].sort(),
-		);
+		// Empty: every previously-bundled extension has migrated to an npm:
+		// source and now installs via the recommended-extensions UI, not the
+		// pre-bundle path (which only handles git sources).
+		// - pi-anthropic-messages: npm rescope. See change:
+		//   suppress-hidden-session-auto-navigation (develop regression follow-up).
+		// - @blackbelt-technology/pi-dashboard-subagents: npm: source in v0.2.0.
+		// - pi-flows: not bundled until upstream declares an SPDX license.
+		expect([...BUNDLED_EXTENSION_IDS]).toEqual([]);
 	});
 
 	it("every bundled id appears in RECOMMENDED_EXTENSIONS", () => {

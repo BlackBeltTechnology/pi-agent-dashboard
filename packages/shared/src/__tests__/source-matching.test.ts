@@ -165,4 +165,34 @@ describe("sourcesMatch", () => {
 			),
 		).toBe(false);
 	});
+
+	it("cross-matches an npm install against a local path whose basename is the unscoped name", () => {
+		// A local checkout (`pi install -l ../pi-anthropic-messages`) of a
+		// package whose manifest source is the npm scope. See change:
+		// suppress-hidden-session-auto-navigation (develop regression follow-up).
+		expect(
+			sourcesMatch(
+				"npm:@blackbelt-technology/pi-anthropic-messages",
+				"../pi-anthropic-messages",
+			),
+		).toBe(true);
+		// order-independent + trailing slash + version suffix tolerated
+		expect(
+			sourcesMatch(
+				"../pi-anthropic-messages/",
+				"npm:@blackbelt-technology/pi-anthropic-messages@0.3.2",
+			),
+		).toBe(true);
+		// unscoped npm name also matches
+		expect(sourcesMatch("npm:pi-web-access", "/abs/path/to/pi-web-access")).toBe(true);
+	});
+
+	it("does not cross-match an npm package against an unrelated local path", () => {
+		expect(
+			sourcesMatch(
+				"npm:@blackbelt-technology/pi-anthropic-messages",
+				"../pi-web-access",
+			),
+		).toBe(false);
+	});
 });

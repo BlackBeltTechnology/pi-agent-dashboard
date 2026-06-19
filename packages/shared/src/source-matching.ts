@@ -132,5 +132,15 @@ export function sourcesMatch(a: string, b: string): boolean {
 		if (unscoped && unscoped === gitKey.repo.toLowerCase()) return true;
 	}
 
+	// Cross-kind: npm ↔ raw (local path). Match the local path basename
+	// against the npm package's unscoped name. Handles a local checkout
+	// (`pi install -l <path>`) of a package whose manifest source is the
+	// npm scope (e.g. pi-anthropic-messages after its npm rescope).
+	if (npmKey && rawKey) {
+		const basename = localPathBasename(rawKey.source);
+		const unscoped = npmKey.name.replace(/^@[^/]+\//, "").toLowerCase();
+		if (basename && unscoped && basename === unscoped) return true;
+	}
+
 	return false;
 }
