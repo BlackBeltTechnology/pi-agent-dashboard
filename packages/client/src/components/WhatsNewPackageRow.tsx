@@ -31,8 +31,9 @@ export interface WhatsNewPackageRowProps {
 	enabled: boolean;
 	/** Display name shown in the dialog header. */
 	dialogDisplayName: string;
-	/** CTA handler invoked by the dialog's Update button. */
-	onUpdate?: () => void;
+	/** CTA handler invoked by the dialog's Update button. Required: the
+	 * `WhatsNewDialog` calls it unconditionally. */
+	onUpdate: () => void;
 }
 
 export function WhatsNewPackageRow({
