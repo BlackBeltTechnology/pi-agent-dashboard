@@ -109,6 +109,9 @@ export function makeOpenSpecPayload(sizeBytes: number): OpenSpecData {
     ],
   };
   const baseLen = JSON.stringify(base).length;
+  // Returned payload is at least baseLen bytes: when sizeBytes <= baseLen the
+  // base is returned unchanged (no negative padding). Callers pass sizeBytes
+  // well above baseLen, so the target serialized size is met in practice.
   if (sizeBytes > baseLen) {
     const pad = sizeBytes - baseLen;
     base.changes[0].name = "synthetic-change" + "x".repeat(pad);
