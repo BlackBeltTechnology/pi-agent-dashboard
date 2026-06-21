@@ -53,6 +53,13 @@ interface PreferencesData {
    * See change: auto-init-worktree-on-spawn.
    */
   autoInitWorktreeOnSpawn?: boolean;
+  /**
+   * First-run marker for `PI_DASHBOARD_PIN_DIRS` seeding. Set true the first
+   * time the store loads; gates env-driven pin seeding so it never re-seeds
+   * after the user has edited pins via the UI (even after unpinning all).
+   * See change: docker-packaging.
+   */
+  pinSeeded?: boolean;
 }
 
 export interface PreferencesStore {
@@ -176,6 +183,25 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     .map((p) => safeRealpathSync(p));
   pinnedDirectories = dedupePreserveOrder(pinnedDirectories);
 
+  // First-run pin seeding from PI_DASHBOARD_PIN_DIRS (docker-packaging).
+  // Seed only when never seeded before AND no pins are persisted, so UI
+  // edits (including unpinning all) always win. The `pinSeeded` marker is
+  // persisted on first load so subsequent runs ignore the env entirely.
+  let pinSeeded: boolean = data.pinSeeded === true;
+  if (!pinSeeded) {
+    if (rawPinned.length === 0) {
+      const seed = (process.env.PI_DASHBOARD_PIN_DIRS ?? "")
+        .split(path.delimiter)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((p) => safeRealpathSync(normalizePath(p)));
+      if (seed.length > 0) {
+        pinnedDirectories = dedupePreserveOrder(seed);
+      }
+    }
+    pinSeeded = true;
+  }
+
   const rawWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
   let workspaces: Workspace[] = rawWorkspaces.map(normalizeWorkspaceOnLoad);
   let displayPrefs: DisplayPrefs | undefined = data.displayPrefs;
@@ -188,6 +214,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
   );
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let dirty =
+    data.pinSeeded !== true ||
     pinnedDirectories.length !== rawPinned.length ||
     pinnedDirectories.some((p, i) => p !== rawPinned[i]) ||
     workspaces.length !== rawWorkspaces.length ||
@@ -205,7 +232,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -217,7 +244,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded } satisfies PreferencesData);
     }
   }
 

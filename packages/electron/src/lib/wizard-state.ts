@@ -16,9 +16,17 @@ function getModeFile() { return path.join(getManagedDir(), "mode.json"); }
 function getPiSettings() { return path.join(os.homedir(), ".pi", "agent", "settings.json"); }
 function getRecommendedStateFile() { return path.join(getManagedDir(), "recommended.json"); }
 
+export type WizardMode = "standalone" | "power-user" | "remote";
+
 export interface ModeConfig {
-  mode: "standalone" | "power-user";
+  mode: WizardMode;
   completedAt: string;
+  /**
+   * Set only when `mode === "remote"`: the dashboard server URL the Electron
+   * shell attaches to directly (e.g. a Docker-hosted server). See change:
+   * docker-packaging.
+   */
+  remoteUrl?: string;
 }
 
 export interface RecommendedWizardState {
@@ -40,14 +48,21 @@ export function readModeFile(): ModeConfig | null {
     if (data?.mode === "standalone" || data?.mode === "power-user") {
       return data as ModeConfig;
     }
+    if (data?.mode === "remote" && typeof data?.remoteUrl === "string" && data.remoteUrl) {
+      return data as ModeConfig;
+    }
   } catch { /* corrupt file */ }
   return null;
 }
 
-/** Persist the chosen mode to ~/.pi-dashboard/mode.json. */
-export function writeModeFile(mode: "standalone" | "power-user"): void {
+/**
+ * Persist the chosen mode to ~/.pi-dashboard/mode.json.
+ * `remoteUrl` is required when `mode === "remote"` and ignored otherwise.
+ */
+export function writeModeFile(mode: WizardMode, remoteUrl?: string): void {
   mkdirSync(getManagedDir(), { recursive: true });
   const config: ModeConfig = { mode, completedAt: new Date().toISOString() };
+  if (mode === "remote" && remoteUrl) config.remoteUrl = remoteUrl;
   writeFileSync(getModeFile(), JSON.stringify(config, null, 2) + "\n");
 }
 

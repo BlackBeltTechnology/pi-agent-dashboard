@@ -72,6 +72,7 @@ if (disableGpu) {
 }
 log("Importing lib modules...");
 import { registerWizardIpc, writeFirstRunMarker } from "./lib/wizard-ipc.js";
+import { readModeFile } from "./lib/wizard-state.js";
 import {
   stopServerIfNeeded,
   loadMinimalConfig,
@@ -414,6 +415,27 @@ async function main(): Promise<void> {
   const config = loadMinimalConfig();
 
   try {
+    // ── State: remote-mode attach (docker-packaging) ─────────────────────────
+    // If the wizard persisted remote mode, attach to the configured URL
+    // directly — skip local discovery, health probing, and spawning. The
+    // shell never started the server, so quit leaves it running.
+    const modeConfig = readModeFile();
+    if (modeConfig?.mode === "remote" && modeConfig.remoteUrl) {
+      const remoteUrl = modeConfig.remoteUrl;
+      log(`[launch-source] remote mode → attach ${remoteUrl}`);
+      updateSplashStatus("Opening remote dashboard…");
+      const win = createMainWindow(remoteUrl);
+      closeSplash();
+      showLoadingPage(win, remoteUrl);
+      createTray(() => mainWindow, quit, {
+        getServerStatus: isManagedServerRunning,
+        onLaunch: (force) => { void requestServerLaunch({ force }); },
+      });
+      startUpdaters();
+      isStartingUp = false;
+      return;
+    }
+
     // ── State: checking-server-health ────────────────────────────────────────
     updateSplashStatus("Checking dashboard server…");
     const source = await selectLaunchSource({

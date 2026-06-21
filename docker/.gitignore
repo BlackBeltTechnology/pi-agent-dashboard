@@ -1,0 +1,3 @@
+# User-specific Docker config — never commit.
+.env
+compose.override.yml

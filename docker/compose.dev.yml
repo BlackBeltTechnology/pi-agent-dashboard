@@ -1,0 +1,28 @@
+# pi-dashboard — development overlay.
+#
+#   docker compose -f compose.yml -f compose.dev.yml up
+#
+# Bind-mounts the dashboard source for live editing and runs the server in
+# --dev mode. To get Vite hot module replacement, start Vite inside the
+# container once it is up:
+#
+#   docker compose -f compose.yml -f compose.dev.yml exec pi-dashboard npm run dev
+#
+# Without Vite running, --dev automatically falls back to the built client.
+# See openspec change docker-packaging.
+
+services:
+  pi-dashboard:
+    # Run the server in dev mode (entrypoint appends env port flags).
+    command: ["start", "--dev"]
+    environment:
+      NODE_ENV: development
+    ports:
+      # Vite HMR.
+      - "5173:5173"
+    volumes:
+      # Live-edit dashboard source from the host.
+      - ..:/app
+      # Anonymous volume keeps the CONTAINER's node_modules (Linux-compiled
+      # node-pty), so host macOS/Windows binaries never shadow them.
+      - /app/node_modules

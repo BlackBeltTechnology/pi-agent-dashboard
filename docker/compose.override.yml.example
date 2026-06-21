@@ -1,0 +1,31 @@
+# Workspace mounts — power-user template.
+#
+# Copy to compose.override.yml (auto-loaded by `docker compose up`) and edit.
+# Prefer docker/up.sh + PI_WORKSPACES for the common case; this file is the
+# no-code escape hatch for read-only mounts, per-project tweaks, etc.
+#
+# RULE: mount each host project at its IDENTICAL absolute path inside the
+# container (host /Users/x/Project/a -> container /Users/x/Project/a), NOT
+# under /workspaces/<name>. Path parity makes container log lines, session
+# CWDs, and git/jj roots read identically to the host — a path copied from a
+# container log resolves on the host. See openspec change docker-packaging,
+# Decision 6.
+
+services:
+  pi-dashboard:
+    volumes:
+      # Read-write project (the normal case).
+      - /Users/x/Project/my-app:/Users/x/Project/my-app
+
+      # A second project.
+      - /Users/x/Project/another:/Users/x/Project/another
+
+      # Read-only mount (append :ro). The dashboard can browse and run pi
+      # sessions but cannot write.
+      - /Users/x/Reference/docs:/Users/x/Reference/docs:ro
+
+    environment:
+      # Auto-pin the mounted dirs on first run (path-separator list, must use
+      # the SAME absolute paths as the mounts above). Honored only when no
+      # pinned dirs are persisted yet — UI edits win afterward.
+      PI_DASHBOARD_PIN_DIRS: "/Users/x/Project/my-app:/Users/x/Project/another"

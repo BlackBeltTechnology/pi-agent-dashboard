@@ -60,6 +60,46 @@ describe("preferences-store", () => {
     store.dispose();
   });
 
+  // ── PI_DASHBOARD_PIN_DIRS first-run seeding (docker-packaging) ──────────
+  describe("PI_DASHBOARD_PIN_DIRS seeding", () => {
+    afterEach(() => {
+      delete process.env.PI_DASHBOARD_PIN_DIRS;
+    });
+
+    it("seeds pinned dirs from env on first run when none persisted", () => {
+      process.env.PI_DASHBOARD_PIN_DIRS = [A_PATH, B_PATH].join(path.delimiter);
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedDirectories()).toEqual([A_PATH, B_PATH]);
+      vi.advanceTimersByTime(1000);
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(data.pinnedDirectories).toEqual([A_PATH, B_PATH]);
+      expect(data.pinSeeded).toBe(true);
+      store.dispose();
+    });
+
+    it("ignores env when pinned dirs already persisted (UI edits win)", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [X_PATH] }));
+      process.env.PI_DASHBOARD_PIN_DIRS = [A_PATH, B_PATH].join(path.delimiter);
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedDirectories()).toEqual([X_PATH]);
+      store.dispose();
+    });
+
+    it("does not re-seed after the user unpinned everything (pinSeeded marker)", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [], pinSeeded: true }));
+      process.env.PI_DASHBOARD_PIN_DIRS = [A_PATH].join(path.delimiter);
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedDirectories()).toEqual([]);
+      store.dispose();
+    });
+
+    it("is a no-op when env is unset", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.getPinnedDirectories()).toEqual([]);
+      store.dispose();
+    });
+  });
+
   it("should not duplicate pinned directories", () => {
     const store = createPreferencesStore(filePath);
     store.pinDirectory("/a");

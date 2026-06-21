@@ -16,12 +16,15 @@ import "./preload/doctor-preload.js";
 export interface WizardApi {
   /** Mark first run complete and persist the marker file. */
   completeWizard: () => Promise<void>;
+  /** Persist the chosen wizard mode (remote requires a verified URL). */
+  persistMode: (mode: "standalone" | "power-user" | "remote", remoteUrl?: string) => Promise<void>;
   /** Open the Doctor diagnostic window. */
   openDoctor: () => void;
 }
 
 const api: WizardApi = {
   completeWizard: () => ipcRenderer.invoke("wizard:complete"),
+  persistMode: (mode, remoteUrl) => ipcRenderer.invoke("wizard:persist-mode", { mode, remoteUrl }),
   openDoctor: () => ipcRenderer.send("wizard:open-doctor"),
 };
 

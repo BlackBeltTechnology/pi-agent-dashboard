@@ -14,6 +14,7 @@ import os from "node:os";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 import { isDashboardRunning } from "./health-check.js";
+import { readModeFile } from "./wizard-state.js";
 import {
   selectLaunchSource,
   spawnFromSource,
@@ -237,6 +238,14 @@ export function loadMinimalConfig(): MinimalConfig {
  * resolver directly so it can wire the watchdog at spawn time.
  */
 export async function ensureServer(): Promise<string> {
+  // Remote mode: attach to the configured URL directly. No discovery, no
+  // health probe, no spawn — and `serverStartedByUs` stays false so quit
+  // never stops the remote server. See change: docker-packaging.
+  const modeConfig = readModeFile();
+  if (modeConfig?.mode === "remote" && modeConfig.remoteUrl) {
+    return modeConfig.remoteUrl;
+  }
+
   const config = loadMinimalConfig();
 
   const status = await isDashboardRunning(config.port);

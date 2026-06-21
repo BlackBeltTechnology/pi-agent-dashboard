@@ -1,0 +1,104 @@
+# pi-dashboard — base compose file.
+#
+#   docker compose up -d            # start
+#   docker compose logs -f          # tail
+#   docker compose down             # stop
+#
+# Copy .env.example to .env to configure. Workspace mounts live in
+# compose.override.yml (see compose.override.yml.example) or docker/up.sh.
+# See openspec change docker-packaging.
+
+services:
+  pi-dashboard:
+    build:
+      # Context is the project root so the Dockerfile can COPY packages/.
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: pi-dashboard:local
+    # tini reaps zombies — the dashboard spawns many child processes.
+    init: true
+    restart: unless-stopped
+
+    ports:
+      # Dashboard web UI + REST + browser WebSocket.
+      - "${DASHBOARD_PORT:-8000}:${DASHBOARD_PORT:-8000}"
+      # Pi gateway. PI_GATEWAY_BIND scopes the HOST publish interface:
+      #   0.0.0.0   -> reachable from other machines (default)
+      #   127.0.0.1 -> reachable only from the Docker host
+      - "${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}:${PI_GATEWAY_PORT:-9999}"
+
+    environment:
+      # Ports (entrypoint maps these to pi-dashboard flags).
+      DASHBOARD_PORT: "${DASHBOARD_PORT:-8000}"
+      PI_GATEWAY_PORT: "${PI_GATEWAY_PORT:-9999}"
+      # Session spawn strategy: headless | tmux. Seeded into config.json on
+      # first run only (UI edits win afterward).
+      PI_SPAWN_STRATEGY: "${PI_SPAWN_STRATEGY:-tmux}"
+      # zrok tunnel. TUNNEL_ENABLED=0 passes --no-tunnel.
+      TUNNEL_ENABLED: "${TUNNEL_ENABLED:-1}"
+      ZROK_TOKEN: "${ZROK_TOKEN:-}"
+      # Provider API keys — seeded into auth.json on first run only.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      # First-run pin seeding (path-separator list of absolute dirs). Honored
+      # by the server only when no pinned dirs are persisted yet.
+      PI_DASHBOARD_PIN_DIRS: "${PI_DASHBOARD_PIN_DIRS:-}"
+
+    volumes:
+      # pi sessions, auth.json, dashboard config/preferences.
+      - pi-state:/home/pi/.pi
+      # zrok enrollment / tunnel state.
+      - zrok-state:/home/pi/.zrok2
+    tmpfs:
+      # Scratch I/O — never persisted.
+      - /tmp
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${DASHBOARD_PORT:-8000}/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+    deploy:
+      resources:
+        limits:
+          memory: "${MEM_LIMIT:-4g}"
+
+volumes:
+  # =====================================================================
+  # Volume performance profiles — uncomment ONE block per named volume.
+  # ---------------------------------------------------------------------
+  # Session JSONL files are append-heavy; access-time writes and full data
+  # journaling dominate latency under many concurrent sessions.
+  # =====================================================================
+
+  pi-state:
+    # --- Profile 1: DEFAULT (named volume) -----------------------------
+    # Works on macOS / Windows (Docker Desktop) and Linux. Good for
+    # development and moderate usage. No special mount options.
+    {}
+
+    # --- Profile 2: PERFORMANCE (Linux, dedicated ext4/xfs partition) --
+    # Fastest persistent option for heavy concurrent JSONL writes.
+    # noatime      : drop access-time writes (pure overhead for logs)
+    # data=writeback: journal metadata only, not data (faster small appends)
+    # barrier=0    : skip write barriers (UPS/battery-backed storage only!)
+    # commit=60    : flush the journal every 60s instead of 5s
+    # driver: local
+    # driver_opts:
+    #   type: ext4
+    #   o: "noatime,data=writeback,barrier=0,commit=60"
+    #   device: /dev/disk/by-label/pi-state   # a real dedicated partition
+
+    # --- Profile 3: EPHEMERAL (tmpfs / RAM-backed) ---------------------
+    # Maximum speed; ALL DATA LOST ON RESTART. CI/CD and throwaway only.
+    # driver: local
+    # driver_opts:
+    #   type: tmpfs
+    #   device: tmpfs
+    #   o: "size=2g,noatime"
+
+  zrok-state:
+    {}

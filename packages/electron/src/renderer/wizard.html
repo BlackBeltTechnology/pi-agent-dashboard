@@ -156,14 +156,13 @@
 
     connectBtn.addEventListener("click", async () => {
       if (!lastVerifiedUrl) return;
-      // For the welcome wizard, "Use this server" is a deliberate manual
-      // path: we close the window and let main.ts attach next launch via
-      // PI_DASHBOARD_URL env (set externally) or the user's known-servers
-      // list. We do NOT persist anything here yet — the full
-      // known-servers integration is a follow-up. For now, mark first-run
-      // done and exit; the user can then point the app at the remote in
-      // their config.
+      // "Use this server" persists remote mode + the verified URL to
+      // mode.json. main.ts reads it on next launch and attaches directly,
+      // skipping local server discovery/spawn. See change: docker-packaging.
       try {
+        if (window.wizardApi && typeof window.wizardApi.persistMode === "function") {
+          await window.wizardApi.persistMode("remote", lastVerifiedUrl);
+        }
         if (window.wizardApi && typeof window.wizardApi.completeWizard === "function") {
           await window.wizardApi.completeWizard();
         }

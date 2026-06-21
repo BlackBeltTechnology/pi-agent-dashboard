@@ -158,6 +158,16 @@ pi-dashboard         # Start dashboard server
 pi-dashboard --dev   # Start with Vite proxy
 ```
 
+### Docker
+
+Self-contained all-in-one image (server + pi agent + code-server + zrok + tmux). Files live in `docker/`. Electron gains a wizard "remote" mode (attach to a Docker-hosted URL). Full guide: [`docker/README.md`](docker/README.md). Per-file map: [`docs/file-index-docker.md`](docs/file-index-docker.md).
+
+```bash
+cd docker && cp .env.example .env && docker compose up -d --build   # build + run
+PI_WORKSPACES="/abs/a:/abs/b" ./up.sh                                # path-identical mounts, auto-pinned
+docker compose -f compose.yml -f compose.dev.yml up                 # dev overlay (Vite HMR)
+```
+
 ## Running Tests
 
 Pipe test output to a tmp file, then grep — avoids re-running to inspect errors:

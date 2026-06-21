@@ -19,6 +19,7 @@ import { ipcMain, type BrowserWindow } from "electron";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { writeModeFile, type WizardMode } from "./wizard-state.js";
 
 /**
  * Mark first run as complete by writing
@@ -41,5 +42,11 @@ export function registerWizardIpc(
 ): void {
   ipcMain.handle("wizard:complete", async () => {
     writeFirstRunMarker();
+  });
+
+  // Persist the chosen wizard mode to mode.json. For "remote", the renderer
+  // passes the verified server URL. See change: docker-packaging.
+  ipcMain.handle("wizard:persist-mode", async (_evt, payload: { mode: WizardMode; remoteUrl?: string }) => {
+    writeModeFile(payload.mode, payload.remoteUrl);
   });
 }

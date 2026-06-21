@@ -15,6 +15,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 | Dashboard server | [`file-index-server.md`](./file-index-server.md) | `src/server/`, `packages/server/` |
 | Web client | [`file-index-client.md`](./file-index-client.md) | `src/client/`, `packages/client/` |
 | Electron app | [`file-index-electron.md`](./file-index-electron.md) | `packages/electron/` |
+| Docker packaging | [`file-index-docker.md`](./file-index-docker.md) | `docker/` |
 | Dashboard plugins | [`file-index-plugins.md`](./file-index-plugins.md) | `packages/dashboard-plugin-runtime/`, `packages/{jj,flows,demo}-plugin/` |
 | Skills, scripts, CI | [`file-index-skills-misc.md`](./file-index-skills-misc.md) | `.pi/skills/`, `scripts/`, `public/`, `.github/`, misc |
 
