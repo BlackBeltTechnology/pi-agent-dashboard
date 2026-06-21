@@ -50,10 +50,14 @@ RUN set -eux; \
       armhf) zrok_arch="armv7" ;; \
       *) echo "unsupported arch: ${deb_arch}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL -o /tmp/zrok.tar.gz \
-      "https://github.com/openziti/zrok/releases/download/v${ZROK_VERSION}/zrok_${ZROK_VERSION}_linux_${zrok_arch}.tar.gz"; \
-    tar -xzf /tmp/zrok.tar.gz -C /usr/local/bin zrok; \
-    rm /tmp/zrok.tar.gz; \
+    asset="zrok_${ZROK_VERSION}_linux_${zrok_arch}.tar.gz"; \
+    base="https://github.com/openziti/zrok/releases/download/v${ZROK_VERSION}"; \
+    curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
+    curl -fsSL -o /tmp/zrok-checksums.sha256 "${base}/checksums.sha256.txt"; \
+    # Verify the downloaded tarball against the published checksum (fail build on mismatch).
+    ( cd /tmp && grep " ${asset}\$" zrok-checksums.sha256 | sha256sum -c - ); \
+    tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok; \
+    rm "/tmp/${asset}" /tmp/zrok-checksums.sha256; \
     zrok version
 
 # ============================ app stage ====================================

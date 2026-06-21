@@ -17,6 +17,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 IFS=':' read -r -a WS <<< "${PI_WORKSPACES:-}"
 
 mounts=()
+pins=()
 for dir in "${WS[@]}"; do
   [ -z "${dir}" ] && continue
   if [ ! -d "${dir}" ]; then
@@ -25,11 +26,14 @@ for dir in "${WS[@]}"; do
   fi
   abs="$(cd "${dir}" && pwd -P)"   # resolve to absolute, real path
   mounts+=("-v" "${abs}:${abs}")   # PATH-IDENTICAL, read-write
+  pins+=("${abs}")                 # only validated, resolved dirs get pinned
   echo "mount: ${abs}" >&2
 done
 
-# Same list drives first-run pin seeding inside the container.
-export PI_DASHBOARD_PIN_DIRS="${PI_WORKSPACES:-}"
+# First-run pin seeding uses the SAME validated+resolved list as the mounts —
+# never the raw PI_WORKSPACES (which may include skipped non-directories).
+PI_DASHBOARD_PIN_DIRS="$(IFS=':'; echo "${pins[*]:-}")"
+export PI_DASHBOARD_PIN_DIRS
 
 # `run --service-ports` applies the published ports plus our extra binds.
 exec docker compose run --rm --service-ports \

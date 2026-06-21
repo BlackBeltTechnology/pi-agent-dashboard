@@ -39,6 +39,18 @@ if (Object.keys(credentials).length === 0) {
   process.exit(0);
 }
 
-mkdirSync(dirname(authPath), { recursive: true });
-writeFileSync(authPath, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+try {
+  mkdirSync(dirname(authPath), { recursive: true });
+  // `wx` makes the create atomic: if another process wrote auth.json between
+  // the existsSync() check above and now, this throws EEXIST instead of
+  // clobbering persisted credentials.
+  writeFileSync(authPath, JSON.stringify(credentials, null, 2), { mode: 0o600, flag: "wx" });
+} catch (err) {
+  if (err && err.code === "EEXIST") {
+    console.log(`[seed-auth] ${authPath} created concurrently \u2014 leaving untouched.`);
+    process.exit(0);
+  }
+  console.error(`[seed-auth] failed to write ${authPath}: ${err && err.message ? err.message : err}`);
+  process.exit(1);
+}
 console.log(`[seed-auth] wrote ${Object.keys(credentials).join(", ")} to ${authPath} (0600).`);

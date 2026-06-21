@@ -62,8 +62,13 @@ describe("preferences-store", () => {
 
   // ── PI_DASHBOARD_PIN_DIRS first-run seeding (docker-packaging) ──────────
   describe("PI_DASHBOARD_PIN_DIRS seeding", () => {
+    let prevEnv: string | undefined;
+    beforeEach(() => {
+      prevEnv = process.env.PI_DASHBOARD_PIN_DIRS;
+    });
     afterEach(() => {
-      delete process.env.PI_DASHBOARD_PIN_DIRS;
+      if (prevEnv === undefined) delete process.env.PI_DASHBOARD_PIN_DIRS;
+      else process.env.PI_DASHBOARD_PIN_DIRS = prevEnv;
     });
 
     it("seeds pinned dirs from env on first run when none persisted", () => {

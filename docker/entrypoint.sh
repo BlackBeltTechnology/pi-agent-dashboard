@@ -28,7 +28,8 @@ node "${SEED_AUTH}"
 CONFIG_FILE="${HOME}/.pi/dashboard/config.json"
 if [ -n "${PI_SPAWN_STRATEGY:-}" ] && [ ! -f "${CONFIG_FILE}" ]; then
   mkdir -p "$(dirname "${CONFIG_FILE}")"
-  printf '{"spawnStrategy":"%s"}\n' "${PI_SPAWN_STRATEGY}" > "${CONFIG_FILE}"
+  # Build JSON with jq so a malformed strategy value can't break config parsing.
+  jq -n --arg s "${PI_SPAWN_STRATEGY}" '{spawnStrategy: $s}' > "${CONFIG_FILE}"
   echo "[entrypoint] seeded spawnStrategy=${PI_SPAWN_STRATEGY} into ${CONFIG_FILE}"
 fi
 
