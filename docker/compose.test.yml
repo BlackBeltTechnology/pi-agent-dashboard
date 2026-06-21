@@ -1,0 +1,79 @@
+# pi-dashboard — disposable test/QA overlay.
+#
+#   ./test-up.sh        # spin up an isolated instance on http://localhost:18000
+#   ./test-down.sh      # tear down + discard all state
+#
+# Layers on compose.yml. Provably cannot collide with a host dashboard:
+#   - isolated $HOME (container)        -> no home-lock fight
+#   - PI_DASHBOARD_NO_MDNS=1            -> no mDNS advertise/browse
+#   - ports 18000 / 18999              -> no clash with host 8000 / 9999
+#   - pi-state -> tmpfs                 -> zero ~/.pi pollution
+#   - HOST_CWD mounted read-only, made writable via an in-container overlay
+#     -> host project files never modified.
+#
+# See openspec change docker-test-harness, design.md.
+
+services:
+  pi-dashboard:
+    # No restart — a QA instance should die when stopped, not respawn.
+    restart: "no"
+
+    # Build the path-parity overlay before launching the base entrypoint.
+    # Bind-mounted (below) so no image rebuild is needed.
+    entrypoint: ["/usr/local/bin/test-entrypoint.sh"]
+
+    # mount -t overlay in the entrypoint needs CAP_SYS_ADMIN. Local QA only;
+    # TEST_COPY_MODE=1 removes the need for this cap (see test-entrypoint.sh).
+    cap_add:
+      - SYS_ADMIN
+
+    # Run as root: the entrypoint must mkdir the path-parity target at / and
+    # mount the overlay (both need root + CAP_SYS_ADMIN). HOME stays /home/pi
+    # (below) so the pi-state tmpfs + auth seeding are unchanged. Throwaway QA
+    # container only — never a deployment profile.
+    user: "root"
+
+    environment:
+      # Isolation knobs (override base values; merged by key).
+      PI_DASHBOARD_NO_MDNS: "1"
+      DASHBOARD_PORT: "18000"
+      PI_GATEWAY_PORT: "18999"
+      PI_GATEWAY_BIND: "127.0.0.1"
+      TUNNEL_ENABLED: "false"
+      # Path-parity overlay target. test-up.sh exports HOST_CWD=$PWD.
+      HOST_CWD: "${HOST_CWD:-}"
+      # Set TEST_COPY_MODE=1 for hosts that forbid SYS_ADMIN (copy, no overlay).
+      TEST_COPY_MODE: "${TEST_COPY_MODE:-}"
+      # Keep the pi user's home so state/auth land in the pi-state tmpfs even
+      # though the process runs as root (see user: above).
+      HOME: "/home/pi"
+      # UI-only by default: no PI_AUTH_*/API keys seeded unless set in .env.
+
+    volumes:
+      # Path-parity: host CWD as the read-only overlay lower layer. The
+      # entrypoint mounts an overlay at the identical absolute path so the
+      # container sees ${HOST_CWD} writable while the host stays untouched.
+      - "${HOST_CWD:-/tmp}:/mnt/test-lower:ro"
+      # Baked VCS fixture sources (read-only). The entrypoint copies these to
+      # the /fixtures tmpfs and inits them as real git/jj repos at start.
+      - "./fixtures:/fixtures-src:ro"
+      # Test entrypoint wrapper (bind-mounted; no image rebuild).
+      - "./test-entrypoint.sh:/usr/local/bin/test-entrypoint.sh:ro"
+
+    tmpfs:
+      # Single tmpfs backs BOTH the overlay upper + work dirs — overlayfs
+      # requires upperdir and workdir on the same filesystem. Capped so a
+      # runaway write can't exhaust RAM. The entrypoint makes upper/ + work/.
+      - "/mnt/test-overlay:size=2g"
+      # Writable, ephemeral home for the initialized VCS fixtures.
+      - "/fixtures:size=256m"
+
+volumes:
+  # Override base pi-state to a RAM-backed tmpfs — ephemeral, wiped each run,
+  # zero ~/.pi pollution on the host. (Profile 3 from compose.yml.)
+  pi-state:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=2g,noatime"

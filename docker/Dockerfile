@@ -15,6 +15,8 @@ FROM node:22-bookworm-slim AS base
 # Pinned tool versions — override at build time with --build-arg.
 ARG CODE_SERVER_VERSION=4.96.4
 ARG ZROK_VERSION=1.0.6
+ARG GH_VERSION=2.62.0
+ARG JJ_VERSION=0.24.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -55,10 +57,45 @@ RUN set -eux; \
     curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
     curl -fsSL -o /tmp/zrok-checksums.sha256 "${base}/checksums.sha256.txt"; \
     # Verify the downloaded tarball against the published checksum (fail build on mismatch).
-    ( cd /tmp && grep " ${asset}\$" zrok-checksums.sha256 | sha256sum -c - ); \
+    # Checksum lines prefix the asset with `./`; match either a space or slash before it.
+    ( cd /tmp && grep -E "[ /]${asset}\$" zrok-checksums.sha256 | sha256sum -c - ); \
     tar -xzf "/tmp/${asset}" -C /usr/local/bin zrok; \
     rm "/tmp/${asset}" /tmp/zrok-checksums.sha256; \
     zrok version
+
+# 1.3b GitHub CLI (pinned). Spawned/probed by the dashboard git panel.
+RUN set -eux; \
+    deb_arch="$(dpkg --print-architecture)"; \
+    case "${deb_arch}" in \
+      amd64) gh_arch="amd64" ;; \
+      arm64) gh_arch="arm64" ;; \
+      armhf) gh_arch="armv6" ;; \
+      *) echo "unsupported arch: ${deb_arch}" >&2; exit 1 ;; \
+    esac; \
+    asset="gh_${GH_VERSION}_linux_${gh_arch}.tar.gz"; \
+    base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"; \
+    curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
+    tar -xzf "/tmp/${asset}" -C /tmp; \
+    install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" /usr/local/bin/gh; \
+    rm -rf "/tmp/${asset}" "/tmp/gh_${GH_VERSION}_linux_${gh_arch}"; \
+    gh --version
+
+# 1.3c jujutsu (pinned). Spawned/probed by the dashboard jj panel. musl
+# static binary runs fine on glibc.
+RUN set -eux; \
+    deb_arch="$(dpkg --print-architecture)"; \
+    case "${deb_arch}" in \
+      amd64) jj_arch="x86_64-unknown-linux-musl" ;; \
+      arm64) jj_arch="aarch64-unknown-linux-musl" ;; \
+      *) echo "unsupported arch: ${deb_arch}" >&2; exit 1 ;; \
+    esac; \
+    asset="jj-v${JJ_VERSION}-${jj_arch}.tar.gz"; \
+    base="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"; \
+    curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
+    # jj tarball stores the binary as ./jj (not bare jj like zrok).
+    tar -xzf "/tmp/${asset}" -C /usr/local/bin ./jj; \
+    rm "/tmp/${asset}"; \
+    jj --version
 
 # ============================ app stage ====================================
 FROM base AS app
@@ -68,15 +105,22 @@ FROM base AS app
 RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cut -d: -f1)"; fi \
  && useradd --create-home --uid 1000 --shell /bin/bash pi
 
-# 1.4 Global pi coding agent.
-RUN npm install -g @mariozechner/pi-coding-agent \
- && pi --version || true
+# 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
+RUN npm install -g @mariozechner/pi-coding-agent openspec \
+ && pi --version || true \
+ && openspec --version || true
 
 WORKDIR /app
 
 # 1.5 Install deps + build the web client. Copy package manifests first for
 # layer caching, then the full source.
 COPY package.json package-lock.json ./
+# Root tsconfigs that every package extends (../../tsconfig.base.json).
+COPY tsconfig.base.json tsconfig.json ./
+# Root scripts/ (postinstall: maybe-patch-package + fix-pty-permissions) and
+# patches/ (replayed by patch-package during install).
+COPY scripts ./scripts
+COPY patches ./patches
 COPY packages ./packages
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts

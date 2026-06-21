@@ -1,0 +1,117 @@
+# pi-dashboard Docker test harness
+
+A **disposable, fully isolated** pi-dashboard for manual browser QA and
+clean-install verification. It runs the exact image `docker-packaging` builds,
+and is structurally incapable of colliding with a dashboard already running on
+your host.
+
+> Layers on `compose.yml`. Adds no new image build — just a compose overlay,
+> an entrypoint wrapper, two scripts, and baked VCS fixtures.
+
+## Quick start
+
+```bash
+# From the project you want to test (its files are mounted, never modified):
+cd /path/to/my-project
+/path/to/pi-agent-dashboard/docker/test-up.sh        # build + run, attached
+
+# Open the dashboard:
+#   http://localhost:18000
+# Manual QA with agent-browser:
+#   agent-browser open http://localhost:18000
+
+# In another terminal, tear everything down (discards all state):
+/path/to/pi-agent-dashboard/docker/test-down.sh
+```
+
+First run builds the image (a few minutes). Subsequent runs reuse it.
+
+## Isolation guarantees
+
+A test instance cannot touch the host dashboard across any collision vector:
+
+| Vector | Host dashboard | Test harness | Mechanism |
+|---|---|---|---|
+| home-lock | holds `~/.pi/dashboard` lock | own `$HOME=/home/pi` | container filesystem |
+| `~/.pi` state | persists | wiped every run | `pi-state` → tmpfs |
+| HTTP port | 8000 | 18000 | published port remap |
+| pi gateway port | 9999 | 18999 (loopback only) | port remap + `PI_GATEWAY_BIND=127.0.0.1` |
+| mDNS advertise/browse | on | off | `PI_DASHBOARD_NO_MDNS=1` |
+| LAN multicast | — | none | default bridge network (NAT) |
+| zrok tunnel | optional | off | `TUNNEL_ENABLED=false` |
+
+Verify after a run: `~/.pi` is byte-identical and your project is untouched.
+
+## Path-parity mount
+
+The directory you launch `test-up.sh` from (`$PWD`) is mounted into the
+container at its **identical absolute path** (`HOST_CWD`), so logs, session
+CWDs, and VCS roots read exactly as they do on the host.
+
+Writes never reach the host. The host directory is the read-only *lower* layer
+of an in-container overlayfs; the *upper* layer is a throwaway tmpfs:
+
+```
+host ${HOST_CWD}  ──(bind, ro)──▶  /mnt/test-lower          (lowerdir)
+tmpfs (size=2g)                    /mnt/test-overlay/upper  (upperdir)
+  └─ same fs (overlay rule)        /mnt/test-overlay/work   (workdir)
+   mount -t overlay overlay -o lower,upper,work  ${HOST_CWD}
+```
+
+Container sees `${HOST_CWD}` writable; reads fall through to the host (ro);
+writes land in the tmpfs upper; teardown discards the upper → host pristine.
+
+### Overlay vs copy-mode
+
+| Mode | Trigger | Capability | Cost |
+|---|---|---|---|
+| overlay (default) | — | needs `CAP_SYS_ADMIN` | instant spin-up; only written bytes use RAM |
+| copy | `TEST_COPY_MODE=1` | none | `cp -a` upfront; RAM-heavy for big trees |
+
+Use copy-mode on hosts that forbid `SYS_ADMIN`:
+
+```bash
+TEST_COPY_MODE=1 ./test-up.sh
+```
+
+## Fixtures vs path-parity mount
+
+Two orthogonal ways to get a workspace; neither required:
+
+- **Baked fixtures** — `/fixtures/sample-git` and `/fixtures/sample-jj` are
+  initialized as real git / jj repos at startup. Pin them from the UI to
+  exercise the VCS panels with zero host coupling.
+- **Path-parity mount** — the "open my real project" path (above). Launch
+  `test-up.sh` from the project; it appears at its identical host path.
+
+## UI-only vs end-to-end (key seeding)
+
+By default **no provider keys are seeded** → panels render and navigate, but
+agents do not run (UI-only QA).
+
+For full agent runs, drop a key into a gitignored `docker/.env`:
+
+```bash
+# docker/.env  (gitignored)
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The base entrypoint seeds it into `auth.json` on first run (use a throwaway
+test key — state is ephemeral anyway).
+
+## Fail-fast smoke check
+
+Before printing the ready URL, the entrypoint probes `GET /api/health` (200)
+and a single `/ws` WebSocket connect. A broken image/build exits non-zero
+**before** you open a browser.
+
+## Files
+
+| File | Role |
+|---|---|
+| `compose.test.yml` | overlay: isolation env, SYS_ADMIN, tmpfs state, mounts, entrypoint |
+| `test-entrypoint.sh` | builds overlay, inits fixtures, smoke check, execs base entrypoint |
+| `test-up.sh` | exports `HOST_CWD=$PWD`, runs compose up, prints URL |
+| `test-down.sh` | `compose down -v` — discards all state |
+| `fixtures/sample-git/` | git fixture source files |
+| `fixtures/sample-jj/` | jj fixture source files |
