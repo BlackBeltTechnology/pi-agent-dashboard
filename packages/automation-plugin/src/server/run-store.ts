@@ -19,10 +19,23 @@ export function runsRootFor(scopeBase: string): string {
   return path.join(scopeBase, ".pi", "automation", "runs");
 }
 
-/** `2026-06-19-<name>` store key for an occurrence at `at`. */
+// Process-lifetime monotonic counter guaranteeing run-id uniqueness even for
+// runs fired in the same millisecond (concurrency: parallel).
+let _runSeq = 0;
+
+/**
+ * Unique store key for one run occurrence at `at`:
+ * `YYYY-MM-DD-HHMMSS-<name>-<seq>`. The date prefix keeps the run dir sortable
+ * + human-readable; the time + seq suffix guarantees uniqueness across
+ * multiple runs of the same automation on the same day (e.g. a 1-minute cron)
+ * and across concurrent parallel runs. See change: add-automation-plugin.
+ */
 export function makeRunId(name: string, at: Date = new Date()): string {
-  const date = at.toISOString().slice(0, 10); // YYYY-MM-DD
-  return `${date}-${name}`;
+  const iso = at.toISOString(); // YYYY-MM-DDTHH:MM:SS.sssZ
+  const date = iso.slice(0, 10);
+  const time = iso.slice(11, 19).replace(/:/g, ""); // HHMMSS
+  const seq = (_runSeq = (_runSeq + 1) % 100000).toString().padStart(5, "0");
+  return `${date}-${time}-${name}-${seq}`;
 }
 
 function runDir(scopeBase: string, runId: string): string {

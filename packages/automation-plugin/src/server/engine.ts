@@ -135,8 +135,48 @@ export function createEngine(deps: EngineDeps): Engine {
   const registry = new TriggerRegistry();
   registry.register(scheduleTrigger);
 
-  // cwd(normalized) → RunContext for register/end correlation.
-  const pending = new Map<string, RunContext>();
+  // cwd(normalized) → FIFO queue of RunContexts awaiting register/end
+  // correlation. Keyed by cwd (the only signal available at
+  // `session_register`) but a QUEUE per cwd so concurrent runs in the same
+  // scope (concurrency: parallel, or mode: local) don't overwrite each
+  // other — registers bind to the oldest undelivered context FIFO, ends
+  // match by sessionId. Mirrors the server-side pending-automation-run
+  // registry's FIFO-per-cwd semantics. See change: add-automation-plugin.
+  const pending = new Map<string, RunContext[]>();
+
+  function enqueuePending(ctx: RunContext): void {
+    const q = pending.get(ctx.cwd) ?? [];
+    q.push(ctx);
+    pending.set(ctx.cwd, q);
+  }
+  function removePending(ctx: RunContext): void {
+    const q = pending.get(ctx.cwd);
+    if (!q) return;
+    const i = q.indexOf(ctx);
+    if (i >= 0) q.splice(i, 1);
+    if (q.length === 0) pending.delete(ctx.cwd);
+  }
+  function firstUndeliveredForCwd(cwd: string): RunContext | undefined {
+    return (pending.get(normalize(cwd)) ?? []).find((c) => !c.delivered);
+  }
+  function findBySession(sessionId: string): RunContext | undefined {
+    for (const q of pending.values()) {
+      const hit = q.find((c) => c.sessionId === sessionId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  function finishAndRelease(ctx: RunContext, fin: { status: "done" | "error"; result?: string; error?: string }): void {
+    const cfg = deps.config();
+    storeFinishRun(ctx.scopeBase, ctx.runId, {
+      status: fin.status,
+      ...(fin.result !== undefined ? { result: fin.result } : {}),
+      ...(fin.error ? { error: fin.error } : {}),
+      retention: cfg.retention,
+    });
+    removePending(ctx);
+    runner.completeRun(ctx.key);
+  }
 
   function scopeBaseFor(a: DiscoveredAutomation): string {
     // The run store lives under the same scope base the automation was found
@@ -190,7 +230,7 @@ export function createEngine(deps: EngineDeps): Engine {
       ...(resolved.error ? { modelError: resolved.error } : {}),
       delivered: false,
     };
-    pending.set(ctx.cwd, ctx);
+    enqueuePending(ctx);
 
     void deps
       .spawnSession({
@@ -201,17 +241,15 @@ export function createEngine(deps: EngineDeps): Engine {
       .then((res) => {
         if (!res.success) {
           warn(`[engine] spawn failed for ${ctx.key}: ${res.message ?? "unknown"}`);
-          storeFinishRun(scopeBase, rec.runId, {
-            status: "error",
-            error: res.message ?? "spawn failed",
-            retention: cfg.retention,
-          });
-          pending.delete(ctx.cwd);
-          runner.completeRun(ctx.key);
+          finishAndRelease(ctx, { status: "error", error: res.message ?? "spawn failed" });
         }
       })
       .catch((e) => {
+        // A rejected spawn promise MUST still finish the run + release the
+        // runner slot, else skip/queue automations deadlock (the prior run
+        // stays "active" forever). See change: add-automation-plugin (CR).
         warn(`[engine] spawn threw for ${ctx.key}: ${e instanceof Error ? e.message : String(e)}`);
+        finishAndRelease(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
       });
 
     log(`[engine] started run ${rec.runId} (${ctx.key}) model=${resolved.model || "(default)"}`);
@@ -248,36 +286,25 @@ export function createEngine(deps: EngineDeps): Engine {
     startRunFor,
 
     pendingForCwd(cwd: string): RunContext | undefined {
-      return pending.get(normalize(cwd));
+      return firstUndeliveredForCwd(cwd);
     },
 
     onSessionRegistered(sessionId: string, cwd: string): void {
-      const ctx = pending.get(normalize(cwd));
-      if (!ctx || ctx.delivered) return;
+      const ctx = firstUndeliveredForCwd(cwd);
+      if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
     onSessionEnded(sessionId: string, result: string): void {
-      // Find the run context by session id.
-      let found: RunContext | undefined;
-      for (const ctx of pending.values()) {
-        if (ctx.sessionId === sessionId) {
-          found = ctx;
-          break;
-        }
-      }
+      const found = findBySession(sessionId);
       if (!found) return;
-      const cfg = deps.config();
-      storeFinishRun(found.scopeBase, found.runId, {
+      finishAndRelease(found, {
         status: found.modelError ? "error" : "done",
         result,
         ...(found.modelError ? { error: found.modelError } : {}),
-        retention: cfg.retention,
       });
-      pending.delete(found.cwd);
-      runner.completeRun(found.key);
       log(`[engine] run ${found.runId} ended (${found.key})`);
     },
 

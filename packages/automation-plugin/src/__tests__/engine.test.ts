@@ -167,6 +167,55 @@ describe("engine run lifecycle", () => {
     expect(runs[0]!.error).toContain("@fast");
   });
 
+  it("isolates concurrent runs in the same cwd (no context overwrite)", () => {
+    // Two parallel runs of the same automation share a cwd (mode: local).
+    // Each must keep its own pending context so register/end bind correctly.
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const a: DiscoveredAutomation = { ...promptAutomation("par", "p"), config: { ...promptAutomation("par", "p").config!, concurrency: "parallel" } };
+    const r1 = engine.startRunFor(a)!;
+    const r2 = engine.startRunFor(a)!;
+    expect(r1.runId).not.toBe(r2.runId);
+
+    // FIFO register binding: first register → r1, second → r2.
+    engine.onSessionRegistered("sessA", repo);
+    engine.onSessionRegistered("sessB", repo);
+    // End out of order — results must land on the right run records.
+    engine.onSessionEnded("sessB", "findings B");
+    engine.onSessionEnded("sessA", "findings A");
+
+    const runs = listRuns(repo, "par");
+    const recA = runs.find((x) => x.runId === r1.runId)!;
+    const recB = runs.find((x) => x.runId === r2.runId)!;
+    expect(fs.readFileSync(path.join(recA.dir, "result.md"), "utf-8")).toContain("findings A");
+    expect(fs.readFileSync(path.join(recB.dir, "result.md"), "utf-8")).toContain("findings B");
+  });
+
+  it("releases the runner slot when a spawn promise rejects (no deadlock)", async () => {
+    const engine = createEngine({
+      spawnSession: async () => {
+        throw new Error("spawn boom");
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const a = promptAutomation("nightly", "x"); // concurrency: skip
+    // First fire via the runner: spawn rejects → run finishes error + slot frees.
+    engine.runner.fire(a);
+    await Promise.resolve();
+    await Promise.resolve();
+    const after1 = listRuns(repo, "nightly");
+    expect(after1).toHaveLength(1);
+    expect(after1[0]!.status).toBe("error");
+    // Slot freed → a subsequent fire is NOT dropped by the skip policy.
+    engine.runner.fire(a);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(listRuns(repo, "nightly")).toHaveLength(2);
+  });
+
   it("arms valid automations via start()", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);
