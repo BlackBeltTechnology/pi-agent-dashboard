@@ -65,13 +65,16 @@ writes land in the tmpfs upper; teardown discards the upper → host pristine.
 
 | Mode | Trigger | Capability | Cost |
 |---|---|---|---|
-| overlay (default) | — | needs `CAP_SYS_ADMIN` | instant spin-up; only written bytes use RAM |
-| copy | `TEST_COPY_MODE=1` | none | `cp -a` upfront; RAM-heavy for big trees |
+| overlay (default) | — | `CAP_SYS_ADMIN` (added via `compose.test.cap.yml`) | instant spin-up; only written bytes use RAM |
+| copy | `TEST_COPY_MODE=1` | none — cap file is not layered | `cp -a` upfront; RAM-heavy for big trees |
 
-Use copy-mode on hosts that forbid `SYS_ADMIN`:
+`test-up.sh` layers `compose.test.cap.yml` (which grants `CAP_SYS_ADMIN`) only in
+overlay mode; with `TEST_COPY_MODE=1` it is omitted, so the container runs with
+no added capability. Use copy-mode on hosts that forbid `SYS_ADMIN`:
 
 ```bash
-TEST_COPY_MODE=1 ./test-up.sh
+cd /path/to/my-project
+TEST_COPY_MODE=1 /path/to/pi-agent-dashboard/docker/test-up.sh
 ```
 
 ## Fixtures vs path-parity mount

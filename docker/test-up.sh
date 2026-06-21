@@ -24,15 +24,23 @@ export PI_GATEWAY_PORT=18999
 export PI_GATEWAY_BIND=127.0.0.1
 export TUNNEL_ENABLED=false
 
+# Overlay mode (default) needs CAP_SYS_ADMIN for the overlay mount; copy mode
+# runs with no added capability. Layer the cap file only when NOT copy mode.
+COMPOSE_FILES=(-f "${SCRIPT_DIR}/compose.yml" -f "${SCRIPT_DIR}/compose.test.yml")
+if [ "${TEST_COPY_MODE:-}" != "1" ]; then
+  COMPOSE_FILES+=(-f "${SCRIPT_DIR}/compose.test.cap.yml")
+  MODE_NOTE="overlay (CAP_SYS_ADMIN)"
+else
+  MODE_NOTE="copy (no added capability)"
+fi
+
 echo "──────────────────────────────────────────────────────────────"
 echo " pi-dashboard test harness"
 echo "   URL:          http://localhost:18000"
-echo "   workspace:    ${HOST_CWD}  (path-identical, read-write overlay)"
-echo "   host files:   never modified — writes land in a tmpfs upper layer"
+echo "   workspace:    ${HOST_CWD}  (path-identical, read-write)"
+echo "   mode:         ${MODE_NOTE}"
+echo "   host files:   never modified — writes land in a throwaway layer"
 echo "   teardown:     ${SCRIPT_DIR}/test-down.sh"
 echo "──────────────────────────────────────────────────────────────"
 
-exec docker compose \
-  -f "${SCRIPT_DIR}/compose.yml" \
-  -f "${SCRIPT_DIR}/compose.test.yml" \
-  up "$@"
+exec docker compose "${COMPOSE_FILES[@]}" up "$@"

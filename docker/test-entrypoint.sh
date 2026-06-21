@@ -26,7 +26,8 @@ if [ -n "${HOST_CWD:-}" ]; then
     # Copy-mode fallback: no overlay, no capability. ${HOST_CWD} is a tmpfs
     # (declared in compose.test.yml) so the copy never touches the host.
     echo "[test-entrypoint] TEST_COPY_MODE=1 → cp -a ${LOWER}/. ${HOST_CWD}"
-    cp -a "${LOWER}/." "${HOST_CWD}/" 2>/dev/null || true
+    # Fail fast: a failed workspace copy means the QA run can't proceed.
+    cp -a "${LOWER}/." "${HOST_CWD}/"
   else
     echo "[test-entrypoint] overlay ${LOWER} (ro) + tmpfs upper → ${HOST_CWD}"
     mkdir -p "${UPPER}" "${WORK}"
@@ -63,7 +64,12 @@ fi
 PORT="${DASHBOARD_PORT:-18000}"
 PIDFILE="${HOME:-/home/pi}/.pi/dashboard/server.pid"
 echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
-/usr/local/bin/entrypoint.sh "$@"
+# The base launcher waits up to 30s for readiness then exits non-zero, but the
+# server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
+# via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
+# return; our own health poll below is the authority on readiness.
+/usr/local/bin/entrypoint.sh "$@" \
+  || echo "[test-entrypoint] base launcher exited non-zero (likely readiness timeout); daemon is detached, polling health..."
 
 # --- 3. Fail-fast smoke check ----------------------------------------------
 smoke_fail() {
@@ -72,16 +78,17 @@ smoke_fail() {
   exit 1
 }
 
-# Confirm HTTP /api/health (launch already polled readiness; brief retry).
+# Confirm HTTP /api/health. Poll generously — a slow jiti cold-start may still
+# be initializing after the base launcher's 30s window elapsed.
 healthy=0
-for _ in $(seq 1 30); do
-  if curl -fsS "http://localhost:${PORT}/api/health" >/dev/null 2>&1; then
+for _ in $(seq 1 90); do
+  if curl --connect-timeout 1 --max-time 2 -fsS "http://localhost:${PORT}/api/health" >/dev/null 2>&1; then
     healthy=1
     break
   fi
   sleep 1
 done
-[ "${healthy}" = "1" ] || smoke_fail "GET /api/health did not return 200 within 30s"
+[ "${healthy}" = "1" ] || smoke_fail "GET /api/health did not return 200 within ~90s"
 echo "[test-entrypoint] health OK"
 
 # One WebSocket connect to /ws (Node 22 ships a global WebSocket client).

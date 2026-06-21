@@ -22,10 +22,9 @@ services:
     # Bind-mounted (below) so no image rebuild is needed.
     entrypoint: ["/usr/local/bin/test-entrypoint.sh"]
 
-    # mount -t overlay in the entrypoint needs CAP_SYS_ADMIN. Local QA only;
-    # TEST_COPY_MODE=1 removes the need for this cap (see test-entrypoint.sh).
-    cap_add:
-      - SYS_ADMIN
+    # NOTE: CAP_SYS_ADMIN (needed only for the overlay mount) is NOT granted
+    # here. test-up.sh layers it via compose.test.cap.yml ONLY in overlay mode;
+    # TEST_COPY_MODE=1 runs with no added capability (spec contract).
 
     # Run as root: the entrypoint must mkdir the path-parity target at / and
     # mount the overlay (both need root + CAP_SYS_ADMIN). HOME stays /home/pi

@@ -1,7 +1,7 @@
 # docker-test-harness Specification
 
 ## Purpose
-TBD - created by archiving change docker-test-harness. Update Purpose after archive.
+Disposable, fully-isolated containerized pi-dashboard for manual browser QA and clean-install verification. Guarantees no collision with a host dashboard across home-lock, mDNS, ports, and `~/.pi` state; provides path-identical workspace mounting onto a throwaway overlay, baked git/jj fixtures, and a fail-fast smoke check.
 ## Requirements
 ### Requirement: Collision-free isolation from the host dashboard
 

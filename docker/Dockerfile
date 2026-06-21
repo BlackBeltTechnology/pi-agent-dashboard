@@ -75,6 +75,10 @@ RUN set -eux; \
     asset="gh_${GH_VERSION}_linux_${gh_arch}.tar.gz"; \
     base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"; \
     curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
+    curl -fsSL -o /tmp/gh-checksums.txt "${base}/gh_${GH_VERSION}_checksums.txt"; \
+    # Verify the tarball against the published checksum (fail build on mismatch).
+    ( cd /tmp && grep -E "[ /]${asset}\$" gh-checksums.txt | sha256sum -c - ); \
+    rm /tmp/gh-checksums.txt; \
     tar -xzf "/tmp/${asset}" -C /tmp; \
     install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" /usr/local/bin/gh; \
     rm -rf "/tmp/${asset}" "/tmp/gh_${GH_VERSION}_linux_${gh_arch}"; \
@@ -91,6 +95,8 @@ RUN set -eux; \
     esac; \
     asset="jj-v${JJ_VERSION}-${jj_arch}.tar.gz"; \
     base="https://github.com/jj-vcs/jj/releases/download/v${JJ_VERSION}"; \
+    # jj releases publish no checksum manifest (only the tarballs), so unlike
+    # zrok/gh there is nothing to verify against; rely on HTTPS + pinned tag.
     curl -fsSL -o "/tmp/${asset}" "${base}/${asset}"; \
     # jj tarball stores the binary as ./jj (not bare jj like zrok).
     tar -xzf "/tmp/${asset}" -C /usr/local/bin ./jj; \
@@ -106,9 +112,11 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
  && useradd --create-home --uid 1000 --shell /bin/bash pi
 
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
+# Install must be fatal; the version probes stay non-fatal (grouped so a
+# non-zero `--version` can't mask an `npm install -g` failure).
 RUN npm install -g @mariozechner/pi-coding-agent openspec \
- && pi --version || true \
- && openspec --version || true
+ && { pi --version || true; } \
+ && { openspec --version || true; }
 
 WORKDIR /app
 

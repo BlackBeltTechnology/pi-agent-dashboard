@@ -1,0 +1,13 @@
+# pi-dashboard test harness — overlay-mode capability layer.
+#
+# Grants CAP_SYS_ADMIN, needed ONLY for the `mount -t overlay` path-parity
+# mount in test-entrypoint.sh. test-up.sh layers this file on top of
+# compose.test.yml in the default (overlay) mode, and OMITS it when
+# TEST_COPY_MODE=1 so copy-mode runs with no added capability.
+#
+# See openspec change docker-test-harness, design.md (Decision 3).
+
+services:
+  pi-dashboard:
+    cap_add:
+      - SYS_ADMIN
