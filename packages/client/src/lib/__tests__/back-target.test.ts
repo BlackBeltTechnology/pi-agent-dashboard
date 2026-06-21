@@ -5,7 +5,7 @@
  * Maps the active route to exactly one shell depth shallower:
  *   - depth 1 (session / folder detail / settings / tunnel) → "/"
  *   - depth 2 /session/:id/diff → /session/:id (URL-computable parent)
- *   - depth 2 ambiguous overlays (openspec/readme/pi-resources/pi-resource/view) → "/"
+ *   - depth 2 ambiguous overlays (openspec/pi-resources/pi-resource/view) → "/"
  *   - depth 0 ("/") → null (no-op)
  */
 import { describe, it, expect } from "vitest";
@@ -45,7 +45,6 @@ describe("computeBackTarget", () => {
       "/folder/Zm9v/openspec/my-change/proposal",
       "/folder/Zm9v/openspec/archive",
       "/folder/Zm9v/openspec/specs",
-      "/folder/Zm9v/readme",
       "/folder/Zm9v/pi-resources",
       "/folder/Zm9v/view?path=%2Ftmp%2Fa.txt",
       "/pi-view?url=https%3A%2F%2Fexample.com",

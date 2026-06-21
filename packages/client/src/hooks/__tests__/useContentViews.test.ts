@@ -1,6 +1,6 @@
 /**
  * After overlay-url-routing: useContentViews is a thin wrapper that turns
- * action callbacks (open pi-resources / view file / view readme) into
+ * action callbacks (open pi-resources / view file) into
  * navigate() calls. There is no internal state to assert anymore.
  *
  * See change: overlay-url-routing.
@@ -19,16 +19,6 @@ describe("useContentViews", () => {
 
     expect(navigate).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/some/cwd")}/pi-resources`);
-  });
-
-  it("handleViewReadme navigates to /folder/:encodedCwd/readme", () => {
-    const navigate = vi.fn();
-    const { result } = renderHook(() => useContentViews({ navigate }));
-
-    act(() => result.current.handleViewReadme("/readme/cwd"));
-
-    expect(navigate).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/readme/cwd")}/readme`);
   });
 
   it("handleViewPiResourceFile navigates to /pi-resource with query string", () => {

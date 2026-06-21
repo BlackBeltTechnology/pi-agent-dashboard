@@ -45,11 +45,6 @@ export function buildOpenSpecSpecsUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/openspec/specs`;
 }
 
-/** `/folder/:encodedCwd/readme` */
-export function buildReadmeUrl(cwd: string): string {
-  return `/folder/${encodeFolderPath(cwd)}/readme`;
-}
-
 /** `/folder/:encodedCwd/pi-resources` */
 export function buildPiResourcesUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/pi-resources`;

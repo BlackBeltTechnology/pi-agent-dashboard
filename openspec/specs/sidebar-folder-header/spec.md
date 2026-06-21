@@ -3,14 +3,12 @@
 ## Purpose
 
 Pinned-folder header in the sidebar uses a two-column gutter + content layout. Left gutter holds the chevron toggle and acts as the drag handle (no overlay icon). Content column hosts the folder name, branch, action bar, plugin slot, and OpenSpec section without redundant left indents. Chevron OR the folder-name row toggles collapse; clicking the branch, pin, readme, or action buttons does not (those stop click propagation).
-
 ## Requirements
-
 ### Requirement: Folder header uses gutter + content two-column layout
 The pinned-folder header in `SessionList.tsx` SHALL render as a two-column flex row:
 
 1. **Left gutter** (`FolderDragGutter`): a `flex flex-col items-center flex-shrink-0 w-3 pt-0.5` column containing the chevron toggle button at the top, followed by an empty `flex-1` spacer that fills the rest of the header height.
-2. **Content column** (`flex-1 min-w-0`): folder icon + name + count + pin button on the first row; branch (`GroupGitInfo`) + readme button on the second row; `FolderActionBar` on the third row; `SidebarFolderSectionSlot` and (when initialized) `FolderOpenSpecSection` below.
+2. **Content column** (`flex-1 min-w-0`): folder icon + name + count + pin button on the first row; branch (`GroupGitInfo`) on the second row; `FolderActionBar` on the third row; `SidebarFolderSectionSlot` and (when initialized) `FolderOpenSpecSection` below.
 
 The previous `ml-5` and `ml-3` indents in `SessionList.tsx` (branch row, action-bar row, OpenSpec wrapper) and in `FolderOpenSpecSection.tsx` (internal change rows, sub-rows) SHALL be removed — the gutter column now provides the single, consistent left offset.
 
@@ -30,24 +28,12 @@ The folder chevron SHALL be a `<button>` inside the gutter that handles `onClick
 
 The gutter `<div>` itself SHALL carry the dnd-kit handle props supplied by `SortablePinnedGroup` via the `FolderDragHandleCtx` context (consumed by `useFolderDragHandle()`). When context is non-null, the gutter SHALL carry `cursor-grab active:cursor-grabbing` and `data-testid="drag-handle-pinned"`. The empty `flex-1` spacer below the chevron is the visible drag area.
 
-The folder-name row (the first content row: folder icon + name + session count) SHALL carry `onClick={() => handleToggleCollapse(...)}` and `cursor-pointer` so clicking the directory name/path toggles collapse, mirroring the chevron. Interactive controls within that row (the pin/unpin toggle) and on subsequent rows (branch `GroupGitInfo`, readme button, `FolderActionBar`) MUST stop click propagation (or live outside the clickable row) so they perform their own action and MUST NOT collapse the folder.
+The folder-name row (the first content row: folder icon + name + session count) SHALL carry `onClick={() => handleToggleCollapse(...)}` and `cursor-pointer` so clicking the directory name/path toggles collapse, mirroring the chevron. Interactive controls within that row (the pin/unpin toggle) and on subsequent rows (branch `GroupGitInfo`, `FolderActionBar`) MUST stop click propagation (or live outside the clickable row) so they perform their own action and MUST NOT collapse the folder.
 
 #### Scenario: Chevron click toggles collapse
 - **WHEN** the user clicks the chevron button (`data-testid="folder-toggle-btn"`)
 - **THEN** the `onToggle` callback SHALL fire exactly once
 - **AND** the surrounding gutter's drag listener SHALL NOT initiate a drag (pointerDown propagation stopped)
-
-#### Scenario: Gutter empty space is the drag handle
-- **WHEN** a folder header is rendered inside a `SortablePinnedGroup`
-- **THEN** the gutter `<div>` SHALL carry `data-testid="drag-handle-pinned"` and class tokens `cursor-grab`, `active:cursor-grabbing`
-
-#### Scenario: Folder name click toggles collapse
-- **WHEN** the user clicks the folder-name row (folder icon + name + count)
-- **THEN** the `onToggleCollapse` callback SHALL fire
-
-#### Scenario: Pin button click does not toggle
-- **WHEN** the user clicks the pin/unpin button inside the folder-name row
-- **THEN** the pin/unpin action SHALL fire AND the `onToggleCollapse` callback SHALL NOT fire (click propagation stopped)
 
 ### Requirement: SortablePinnedGroup exposes drag handle via context, no overlay icon
 `SortablePinnedGroup` SHALL NOT render any visible drag-handle icon overlay. It SHALL expose its dnd-kit `attributes` and `listeners` to descendants via a `FolderDragHandleCtx` React context, with a hook `useFolderDragHandle()` for consumption.
@@ -59,3 +45,4 @@ The folder-name row (the first content row: folder icon + name + session count) 
 #### Scenario: Context provides handle props
 - **WHEN** a descendant calls `useFolderDragHandle()` within a SortablePinnedGroup
 - **THEN** it SHALL return an object combining the dnd-kit `attributes` and `listeners`
+

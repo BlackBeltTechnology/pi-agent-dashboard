@@ -50,7 +50,7 @@ The back action SHALL resolve its target as follows:
 - Otherwise it SHALL navigate explicitly to the computed parent route `computeBackTarget(currentRoute)`:
   - Depth 1 (`/session/:id`, `/folder/:cwd/...`, `/settings`, `/tunnel-setup`) → `/`.
   - Depth 2 `/session/:id/diff` → `/session/:id` (strip the `/diff` segment).
-  - Depth 2 overlays whose URL does not encode their launching detail (`/folder/:cwd/openspec/*`, `/folder/:cwd/readme`, `/folder/:cwd/pi-resources`, `/pi-resource?…`) → `/`.
+  - Depth 2 overlays whose URL does not encode their launching detail (`/folder/:cwd/openspec/*`, `/folder/:cwd/pi-resources`, `/pi-resource?…`) → `/`.
   - Depth 0 → no-op.
 
 The back action SHALL NEVER land on a sibling route of the same depth that was not the launching route (e.g. an unrelated `/session/:id`) and SHALL NEVER navigate outside the dashboard application. The app SHALL maintain the tracked navigation stack by appending each in-app navigation (tagged with its derived depth), overwriting the stack top on `replace`-style navigations, and realigning on `popstate`.
@@ -58,52 +58,8 @@ The back action SHALL NEVER land on a sibling route of the same depth that was n
 #### Scenario: Back from chat returns to cards regardless of prior chats
 - **GIVEN** the user navigated `/` → `/session/A` → `/session/B` (both depth 1)
 - **AND** the viewport is mobile so `/session/B` renders at depth 1
-- **WHEN** the user clicks the back button or completes a swipe-back
-- **THEN** the URL SHALL change to `/` and the session-card list SHALL be displayed
-- **AND** the app SHALL NOT navigate to `/session/A`
-
-#### Scenario: Shrinking a desktop window to mobile then back reaches cards
-- **GIVEN** a session is open at `/session/abc` on a desktop-width window
-- **AND** the browser history predecessor is not the dashboard list (another site, or a sibling session)
-- **WHEN** the window is resized to a mobile viewport and the user invokes back
-- **THEN** the URL SHALL change to `/` and the session-card list SHALL be displayed
-- **AND** the app SHALL NOT leave the dashboard
-
-#### Scenario: Back from a depth-2 overlay returns one depth up, not to a sibling overlay
-- **GIVEN** the user navigated `/session/abc` → `/folder/:cwd/openspec/:c/proposal` (depth 2) → `/folder/:cwd/openspec/archive` (depth 2)
-- **WHEN** the user invokes back from `/folder/:cwd/openspec/archive`
-- **THEN** the app SHALL move one depth up rather than to the sibling `…/openspec/:c/proposal` overlay
-- **AND** when the tracked stack proves the launching detail, the URL SHALL return to `/session/abc`; otherwise it SHALL navigate to `/`
-
-#### Scenario: history.back() fast-path used when predecessor is a shallower in-app route
-- **GIVEN** the user is on `/settings` (depth 1) and navigates to `/folder/:encodedCwd/openspec/:changeName/:artifactId` (depth 2)
-- **WHEN** the user invokes back
-- **THEN** the app SHALL use `window.history.back()` so the URL returns to `/settings`
-- **AND** the SettingsPanel SHALL be rendered
-
-#### Scenario: Session file diff back returns to its session
-- **GIVEN** the user is on `/session/abc/diff` (depth 2)
-- **WHEN** the user invokes back
-- **THEN** the URL SHALL change to `/session/abc` and the chat detail SHALL be displayed
-
-#### Scenario: Back from session detail with empty history
-- **GIVEN** the user is on `/session/abc`
-- **AND** browser history has only one entry (cold load / hard refresh / deep link)
-- **WHEN** the user invokes back
-- **THEN** the URL SHALL change to `/` and the session-card list SHALL be displayed
-
-#### Scenario: Settings opened from a session returns to that session
-- **GIVEN** the user is on `/session/abc` and opens Settings, navigating to `/settings` (depth 1)
-- **WHEN** the user invokes back (Settings header arrow, mobile header arrow, or swipe)
-- **THEN** the app SHALL use `window.history.back()` so the URL returns to `/session/abc`
-- **AND** the chat detail SHALL be displayed
-- **AND** the app SHALL NOT navigate to `/`
-
-#### Scenario: Settings opened by cold load returns to cards
-- **GIVEN** the user lands directly on `/settings` (cold load / hard refresh / deep link)
-- **AND** the tracked navigation stack has no in-app predecessor
-- **WHEN** the user invokes back
-- **THEN** the URL SHALL change to `/` and the session-card list SHALL be displayed
+- **WHEN** the user invokes the depth-aware back action
+- **THEN** the URL SHALL resolve to `/` (cards), not to `/session/A`
 
 ### Requirement: Content-view dismissal stays on the session
 Dismissing a plugin content-view (e.g. the flows-plugin flow YAML preview) SHALL reveal the session's default chat detail at the same `/session/:id` URL and SHALL NOT navigate the application away from the session. The content-view overlays the chat gated by plugin UI state, not by a route; the shell-provided `onClose` for the `content-view` slot SHALL NOT navigate to `/`.
@@ -208,13 +164,6 @@ The client SHALL define a route `/folder/:encodedCwd/openspec/specs` that render
 - **WHEN** user navigates to `/folder/:encodedCwd/openspec/specs`
 - **THEN** SpecsBrowserView SHALL be rendered with the decoded `cwd`
 
-### Requirement: README preview route
-The client SHALL define a route `/folder/:encodedCwd/readme` that renders the README preview for the specified folder.
-
-#### Scenario: Navigate to README URL
-- **WHEN** user navigates to `/folder/:encodedCwd/readme`
-- **THEN** MarkdownPreviewView SHALL be rendered with the README content fetched via `/api/readme?cwd=...`
-
 ### Requirement: Pi resources index route
 The client SHALL define a route `/folder/:encodedCwd/pi-resources` that renders the pi resources browser for the specified folder.
 
@@ -258,13 +207,12 @@ For every full-content-area view owned by the shell (i.e. excluding plugin-contr
 - **AND** a follow-up change covers URL participation for plugin claims
 
 ### Requirement: Sidebar interactions push onto browser history
-Every sidebar action that opens a shell-owned content-area view (OpenSpec artifact letters, README links, pi-resource links, archive browser, specs browser, file-diff toggle) SHALL invoke `navigate(<route>)` with default push semantics. Replace semantics SHALL NOT be used unless explicitly required for an invalid-URL redirect.
+Every sidebar action that opens a shell-owned content-area view (OpenSpec artifact letters, pi-resource links, archive browser, specs browser, file-diff toggle) SHALL invoke `navigate(<route>)` with default push semantics. Replace semantics SHALL NOT be used unless explicitly required for an invalid-URL redirect.
 
 #### Scenario: Sidebar action grows browser history
 - **GIVEN** the user is on any URL with `window.history.length === N`
 - **WHEN** the user clicks any sidebar action that opens a shell-owned content-area view
-- **THEN** `window.history.length` SHALL be `N + 1` after the navigation
-- **AND** clicking back SHALL restore the previous URL
+- **THEN** `window.history.length` SHALL become `N + 1` (push, not replace)
 
 ### Requirement: Plugin-owned overlay routes are dispatched exclusively via `shell-overlay-route`
 

@@ -34,7 +34,7 @@ export function parseRouteDepthInput(url: string): MobileDepthInput {
     } else if (sub === "openspec") {
       // archive / specs / :changeName/:artifactId all count as overlay.
       hasFolderOverlay = true;
-    } else if (segs.length === 3 && (sub === "readme" || sub === "pi-resources")) {
+    } else if (segs.length === 3 && sub === "pi-resources") {
       hasFolderOverlay = true;
     } else if (segs.length === 3 && sub === "view" && !!query.get("path")) {
       hasFolderOverlay = true;

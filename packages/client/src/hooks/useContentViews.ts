@@ -2,7 +2,7 @@
  * Content view action helpers — navigate to URL-driven overlay routes.
  *
  * After overlay-url-routing: this hook no longer owns `useState` for
- * piResourcesState / piResourceFilePreview / readmePreview. The URL is
+ * piResourcesState / piResourceFilePreview. The URL is
  * the single source of truth; the overlay components fetch their own
  * data on mount from the URL params.
  *
@@ -14,7 +14,6 @@ import { useCallback } from "react";
 import {
   buildPiResourcesUrl,
   buildPiResourceFileUrl,
-  buildReadmeUrl,
 } from "../lib/route-builders.js";
 
 export interface UseContentViewsOptions {
@@ -33,13 +32,8 @@ export function useContentViews(options: UseContentViewsOptions) {
     navigate(buildPiResourceFileUrl(filePath, title));
   }, [navigate]);
 
-  const handleViewReadme = useCallback((cwd: string) => {
-    navigate(buildReadmeUrl(cwd));
-  }, [navigate]);
-
   return {
     handleOpenPiResources,
     handleViewPiResourceFile,
-    handleViewReadme,
   };
 }

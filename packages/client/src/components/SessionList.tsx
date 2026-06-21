@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
-import { getApiBase } from "../lib/api-context.js";
 import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
-import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline, mdiFileDocumentOutline } from "@mdi/js";
+import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline } from "@mdi/js";
 import { PiLogo } from "./PiLogo.js";
 import { FolderActionBar } from "./FolderActionBar.js";
 import { FolderSpawnButtons } from "./FolderSpawnButtons.js";
@@ -152,7 +151,6 @@ interface Props {
   onOpenArchive?: (cwd: string) => void;
   /** Navigate to the full-page OpenSpec board for a cwd. See change: redesign-openspec-board. */
   onOpenBoard?: (cwd: string) => void;
-  onViewReadme?: (cwd: string) => void;
   onOpenTerminals?: (cwd: string) => void;
   onOpenEditor?: (cwd: string) => void;
   editorStatuses?: Map<string, { id: string; status: import("@blackbelt-technology/pi-dashboard-shared/editor-types.js").EditorInstanceStatus }>;
@@ -206,7 +204,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onViewReadme, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -258,27 +256,6 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // Detect editors for all unique cwds (sessions + pinned directories)
   const cwds = useMemo(() => [...sessions.map((s) => s.cwd), ...(pinnedDirectories ?? [])], [sessions, pinnedDirectories]);
   const editorMap = useEditors(cwds);
-
-  // Track which directories have README.md
-  const [readmeDirs, setReadmeDirs] = useState<Set<string>>(new Set());
-  const cwdsKey = useMemo(() => [...new Set(cwds)].sort().join(","), [cwds]);
-  useEffect(() => {
-    if (!onViewReadme) return;
-    const uniqueCwds = cwdsKey.split(",").filter(Boolean);
-    if (uniqueCwds.length === 0) return;
-    let cancelled = false;
-    Promise.all(
-      uniqueCwds.map((cwd) =>
-        fetch(`${getApiBase()}/api/readme?cwd=${encodeURIComponent(cwd)}&check=1`)
-          .then((r) => (r.ok ? cwd : null))
-          .catch(() => null)
-      )
-    ).then((results) => {
-      if (cancelled) return;
-      setReadmeDirs(new Set(results.filter((r): r is string => r !== null)));
-    });
-    return () => { cancelled = true; };
-  }, [cwdsKey, onViewReadme]);
 
   const handleOpenEditor = useCallback(async (cwd: string, editorId: string) => {
     const result = await openEditor(cwd, editorId);
@@ -693,16 +670,6 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               cwd={group.cwd}
               onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
-            {onViewReadme && readmeDirs.has(group.cwd) && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onViewReadme(group.cwd); }}
-                className="ml-auto text-[var(--text-muted)] hover:text-blue-400 transition-colors"
-                title={t("sessionList.viewReadme", undefined, "View README.md")}
-                data-testid="view-readme-btn"
-              >
-                <Icon path={mdiFileDocumentOutline} size={0.5} />
-              </button>
-            )}
           </div>
           <div className="mt-1">
             <FolderActionBar

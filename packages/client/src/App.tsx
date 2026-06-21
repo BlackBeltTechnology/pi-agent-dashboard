@@ -69,7 +69,6 @@ import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { clearLoadingHistory } from "./lib/loading-history.js";
 import { useEditors } from "./lib/use-editors.js";
 import { useContentViews } from "./hooks/useContentViews.js";
-import { useReadmeFetch } from "./hooks/useReadmeFetch.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import {
   buildOpenSpecArchiveUrl,
@@ -246,26 +245,6 @@ export function OpenSpecPreview({
 }
 
 /**
- * URL-driven README preview overlay.
- *
- * Fetches `/api/readme?cwd=...` on mount; re-fetches when cwd changes.
- * See change: overlay-url-routing.
- */
-function ReadmePreviewRoute({ cwd, onBack }: { cwd: string; onBack: () => void }) {
-  const r = useReadmeFetch(cwd);
-  const tail = cwd.split("/").pop();
-  return (
-    <MarkdownPreviewView
-      title={`README.md — ${tail ?? cwd}`}
-      content={r.content}
-      isLoading={r.isLoading}
-      error={r.error}
-      onBack={onBack}
-    />
-  );
-}
-
-/**
  * URL-driven pi-resource file preview overlay.
  *
  * Reads `path` and `title` from the URL search string and fetches
@@ -343,7 +322,6 @@ export default function App() {
   const [openspecBoardMatch, openspecBoardParams] = useRoute("/folder/:encodedCwd/openspec");
   const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
-  const [readmeMatch, readmeParams] = useRoute("/folder/:encodedCwd/readme");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
   // `/view` overlay routes (change: render-file-previews).
   const [fileViewMatch, fileViewParams] = useRoute("/folder/:encodedCwd/view");
@@ -367,7 +345,6 @@ export default function App() {
   const openspecBoardCwd = openspecBoardMatch && openspecBoardParams ? decodeFolderPath(openspecBoardParams.encodedCwd) : null;
   const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
-  const readmeCwd = readmeMatch && readmeParams ? decodeFolderPath(readmeParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   // Subagent popout decoded params + parent-session label.
@@ -381,7 +358,7 @@ export default function App() {
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
-    !!readmeMatch || !!piResourcesMatch || !!diffMatch ||
+    !!piResourcesMatch || !!diffMatch ||
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
@@ -494,7 +471,6 @@ export default function App() {
   const {
     handleOpenPiResources,
     handleViewPiResourceFile,
-    handleViewReadme,
   } = useContentViews({ navigate });
 
   // Transactional server switching — see openspec/changes/safe-server-switch.
@@ -930,7 +906,7 @@ export default function App() {
   const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
   const folderTitleCwd = folderEditorCwd ?? folderTermCwd
     ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
-    ?? readmeCwd ?? piResourcesCwd ?? null;
+    ?? piResourcesCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
@@ -1139,7 +1115,6 @@ export default function App() {
       onOpenSpecs={(cwd) => navigate(buildOpenSpecSpecsUrl(cwd))}
       onOpenArchive={(cwd) => navigate(buildOpenSpecArchiveUrl(cwd))}
       onOpenBoard={(cwd) => navigate(buildOpenSpecBoardUrl(cwd))}
-      onViewReadme={handleViewReadme}
       onAttachProposal={handleAttachProposal}
       onDetachProposal={handleDetachProposal}
       onReplaceProposal={handleReplaceProposal}
@@ -1404,8 +1379,6 @@ export default function App() {
           title={piResourceFileTitle}
           onBack={goBack}
         />
-      ) : readmeMatch && readmeCwd ? (
-        <ReadmePreviewRoute cwd={readmeCwd} onBack={goBack} />
       ) : piResourcesMatch && piResourcesCwd ? (
         <PiResourcesView
           cwd={piResourcesCwd}
@@ -1798,8 +1771,6 @@ export default function App() {
                 title={piResourceFileTitle}
                 onBack={goBack}
               />
-            ) : readmeMatch && readmeCwd ? (
-              <ReadmePreviewRoute cwd={readmeCwd} onBack={goBack} />
             ) : piResourcesMatch && piResourcesCwd ? (
               <PiResourcesView
                 cwd={piResourcesCwd}
@@ -1911,8 +1882,6 @@ export default function App() {
               title={piResourceFileTitle}
               onBack={goBack}
             />
-          ) : readmeMatch && readmeCwd ? (
-            <ReadmePreviewRoute cwd={readmeCwd} onBack={goBack} />
           ) : piResourcesMatch && piResourcesCwd && !selectedId ? (
             <PiResourcesView
               cwd={piResourcesCwd}

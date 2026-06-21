@@ -3,7 +3,6 @@ import {
   buildOpenSpecPreviewUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecSpecsUrl,
-  buildReadmeUrl,
   buildPiResourcesUrl,
   buildPiResourceFileUrl,
   buildSessionDiffUrl,
@@ -31,13 +30,12 @@ describe("route-builders", () => {
     });
   });
 
-  describe("buildOpenSpecArchiveUrl / buildOpenSpecSpecsUrl / buildReadmeUrl / buildPiResourcesUrl", () => {
+  describe("buildOpenSpecArchiveUrl / buildOpenSpecSpecsUrl / buildPiResourcesUrl", () => {
     it("each produces a path with encoded cwd and a static tail", () => {
       const cwd = "/proj";
       const enc = encodeFolderPath(cwd);
       expect(buildOpenSpecArchiveUrl(cwd)).toBe(`/folder/${enc}/openspec/archive`);
       expect(buildOpenSpecSpecsUrl(cwd)).toBe(`/folder/${enc}/openspec/specs`);
-      expect(buildReadmeUrl(cwd)).toBe(`/folder/${enc}/readme`);
       expect(buildPiResourcesUrl(cwd)).toBe(`/folder/${enc}/pi-resources`);
     });
   });
