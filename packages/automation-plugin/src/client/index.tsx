@@ -8,8 +8,8 @@
  *
  * Slots claimed:
  *   - sidebar-folder-section → FolderAutomationSection
- *   - command-route /automation → AutomationBoard
- *   - shell-overlay-route → AutomationRunMonitor
+ *   - shell-overlay-route /folder/:encodedCwd/automations → AutomationBoard
+ *   - shell-overlay-route /automation/run/:sid → AutomationRunMonitor
  *   - session-card-badge → AutomationBadge (predicate: isAutomationRun)
  *   - settings-section (general) → AutomationSettings
  *

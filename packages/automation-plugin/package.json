@@ -43,9 +43,9 @@
         "component": "FolderAutomationSection"
       },
       {
-        "slot": "command-route",
+        "slot": "shell-overlay-route",
         "component": "AutomationBoard",
-        "command": "/automation"
+        "path": "/folder/:encodedCwd/automations"
       },
       {
         "slot": "shell-overlay-route",

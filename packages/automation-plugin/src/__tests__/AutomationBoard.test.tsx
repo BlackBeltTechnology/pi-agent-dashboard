@@ -5,8 +5,8 @@
 import React from "react";
 import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { render, cleanup, waitFor, fireEvent } from "@testing-library/react";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+import { encodeFolderPath } from "../client/folder-encoding.js";
 
 const automations: DiscoveredAutomation[] = [
   { name: "nightly", scope: "folder", dir: "/r/.pi/automation/nightly", valid: true },
@@ -24,22 +24,36 @@ vi.mock("../client/api.js", () => ({
   createAutomation: vi.fn(async () => ({ ok: true })),
 }));
 
+import { listAutomations } from "../client/api.js";
 import { AutomationBoard } from "../client/AutomationBoard.js";
 
 afterEach(cleanup);
 beforeEach(() => vi.clearAllMocks());
 
-const session = { id: "s", cwd: "/r", source: "dashboard", status: "active", startedAt: 0 } as DashboardSession;
+const params = { encodedCwd: encodeFolderPath("/r") };
 
 describe("AutomationBoard", () => {
+  it("mounts via the shell-overlay route and scopes to the decoded cwd", async () => {
+    const { getByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("automation-board")).toBeTruthy());
+    expect(vi.mocked(listAutomations)).toHaveBeenCalledWith("/r");
+  });
+
+  it("renders a Back action wired to onBack", async () => {
+    const onBack = vi.fn();
+    const { getByTestId } = render(<AutomationBoard params={params} onBack={onBack} />);
+    fireEvent.click(getByTestId("automation-board-back"));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
   it("lists definitions incl. invalid markers", async () => {
-    const { getByTestId } = render(<AutomationBoard session={session} />);
+    const { getByTestId } = render(<AutomationBoard params={params} />);
     await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
     expect(getByTestId("automation-def-broken").textContent).toContain("invalid");
   });
 
   it("hides archived runs by default and reveals them with the toggle", async () => {
-    const { getByTestId, queryByTestId } = render(<AutomationBoard session={session} />);
+    const { getByTestId, queryByTestId } = render(<AutomationBoard params={params} />);
     await waitFor(() => expect(getByTestId("automation-run-2026-06-19-nightly")).toBeTruthy());
     // Archived run hidden by default.
     expect(queryByTestId("automation-run-2026-06-20-nightly")).toBeNull();

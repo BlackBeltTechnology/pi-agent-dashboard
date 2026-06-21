@@ -29,9 +29,9 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "FolderAutomationSection"
             },
             {
-                "slot": "command-route",
+                "slot": "shell-overlay-route",
                 "component": "AutomationBoard",
-                "command": "/automation"
+                "path": "/folder/:encodedCwd/automations"
             },
             {
                 "slot": "shell-overlay-route",
@@ -57,7 +57,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "automation", priority: 100, slot: "sidebar-folder-section", Component: FolderAutomationSection },
-      { pluginId: "automation", priority: 100, slot: "command-route", command: "/automation", Component: AutomationBoard },
+      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations", Component: AutomationBoard },
       { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/automation/run/:sid", sessionParam: "sid", Component: AutomationRunMonitor },
       { pluginId: "automation", priority: 100, slot: "session-card-badge", Component: AutomationBadge, predicate: isAutomationRun },
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
@@ -322,4 +322,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4ff347e118419bbb62fc7f11f6a839b295b49611d4e2d20d1d435774055ebc94";
+export const PLUGIN_REGISTRY_HASH = "c574d72d4c93072352bbe4c4e215e0ed51a38bf4eb356270ee9116e92f3fac32";
