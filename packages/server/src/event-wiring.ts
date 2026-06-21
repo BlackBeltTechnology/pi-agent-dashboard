@@ -92,6 +92,14 @@ export interface EventWiringDeps {
    */
   pendingWorktreeBaseRegistry?: import("./pending-worktree-base-registry.js").PendingWorktreeBaseRegistry;
   /**
+   * Optional pending-automation-run registry. When provided, the wiring
+   * consumes a pending run stamp on each `session_register` and stamps the
+   * in-memory `DashboardSession.kind="automation"` + `automationRun`, then
+   * persists both to the session's `.meta.json` sidecar.
+   * See change: add-automation-plugin.
+   */
+  pendingAutomationRunRegistry?: import("./pending-automation-run-registry.js").PendingAutomationRunRegistry;
+  /**
    * Optional viewed-session tracker. When provided, the wiring evaluates
    * `isUnreadTrigger(...)` on each forwarded event and stamps
    * `session.unread = true` for sessions no browser is currently viewing.
@@ -143,6 +151,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingDashboardSpawns,
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
+    pendingAutomationRunRegistry,
     viewedSessionTracker,
     pendingClientCorrelations,
     dispatchPluginPiMessage,
@@ -243,6 +252,40 @@ export function wireEvents(deps: EventWiringDeps): void {
         // separately in git_info_update), but stamping gitWorktreeBase on
         // the wire is harmless — clients ignore it (see composeWorktreePayload).
         browserGateway.broadcastSessionUpdated(sessionId, { gitWorktreeBase: base });
+      }
+    }
+
+    // ── automation-run arm ────────────────────────────────────────────
+    // Consume any pending automation-run stamp queued by the automation
+    // plugin's spawn hook for this cwd. Stamps `kind="automation"` +
+    // `automationRun` in memory and persists to `.meta.json` so the
+    // classification + effective board visibility survive restart.
+    // See change: add-automation-plugin.
+    if (pendingAutomationRunRegistry) {
+      const stamp = pendingAutomationRunRegistry.consume(cwd);
+      if (stamp) {
+        sessionManager.update(sessionId, {
+          kind: "automation",
+          automationRun: stamp,
+        });
+        const session = sessionManager.get(sessionId);
+        if (session?.sessionFile) {
+          try {
+            mergeSessionMeta(session.sessionFile, {
+              kind: "automation",
+              automationRun: stamp,
+            });
+          } catch (err) {
+            console.warn(
+              `[event-wiring] failed to persist automationRun to .meta.json for ${sessionId}:`,
+              err,
+            );
+          }
+        }
+        browserGateway.broadcastSessionUpdated(sessionId, {
+          kind: "automation",
+          automationRun: stamp,
+        });
       }
     }
   };

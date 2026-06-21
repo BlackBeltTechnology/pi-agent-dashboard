@@ -257,6 +257,14 @@ export function filterSessions(
   return sessions.filter((s) => {
     if (activeOnly && s.status === "ended") return false;
     if (s.hidden && !showHidden) return false;
+    // Automation runs are off-board unless their effective visibility is
+    // "shown" (per-automation field ?? settings default, default hidden).
+    // The Automation view reads sessions directly, so hidden runs stay
+    // watchable there. Revealed via the same "show hidden" toggle.
+    // See change: add-automation-plugin.
+    if (s.kind === "automation" && s.automationRun?.visibility !== "shown" && !showHidden) {
+      return false;
+    }
     return true;
   });
 }

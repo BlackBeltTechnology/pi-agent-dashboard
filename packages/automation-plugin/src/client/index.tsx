@@ -1,0 +1,33 @@
+/**
+ * Client entry barrel for the automation-plugin.
+ *
+ * Re-exports the React slot-claim components + predicates referenced by the
+ * `pi-dashboard-plugin` manifest's `claims[]`. The vite plugin's
+ * plugin-registry generator resolves each `component` / `predicate` string
+ * in the manifest against this module's named exports — names MUST match.
+ *
+ * Slots claimed:
+ *   - sidebar-folder-section → FolderAutomationSection
+ *   - command-route /automation → AutomationBoard
+ *   - shell-overlay-route → AutomationRunMonitor
+ *   - session-card-badge → AutomationBadge (predicate: isAutomationRun)
+ *   - settings-section (general) → AutomationSettings
+ *
+ * See change: add-automation-plugin.
+ */
+export { isAutomationRun } from "./predicates.js";
+export { AutomationBadge } from "./AutomationBadge.js";
+export { FolderAutomationSection } from "./FolderAutomationSection.js";
+export { AutomationBoard } from "./AutomationBoard.js";
+export { AutomationRunMonitor } from "./AutomationRunMonitor.js";
+export { AutomationSettings } from "./AutomationSettings.js";
+export { CreateAutomationDialog } from "./CreateAutomationDialog.js";
+
+export type {
+  DiscoveredAutomation,
+  AutomationConfig,
+  AutomationScope,
+  RunRecord,
+  RunStatus,
+  Visibility,
+} from "../shared/automation-types.js";

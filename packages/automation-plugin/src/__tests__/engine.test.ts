@@ -1,0 +1,178 @@
+/**
+ * Engine integration tests (injected I/O):
+ *  - prompt + skill spawn paths (§5.2)
+ *  - status transitions + result.md capture (§5.4)
+ *  - effective visibility passed on the spawn stamp (§5.x)
+ * See change: add-automation-plugin.
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { createEngine, buildRunPrompt, effectiveVisibility } from "../server/engine.js";
+import { listRuns } from "../server/run-store.js";
+import type { DiscoveredAutomation } from "../shared/automation-types.js";
+
+let repo: string;
+beforeEach(() => {
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), "auto-engine-"));
+});
+afterEach(() => {
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+function promptAutomation(name: string, promptBody: string): DiscoveredAutomation {
+  const dir = path.join(repo, ".pi", "automation", name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "prompt.md"), promptBody);
+  fs.writeFileSync(
+    path.join(dir, "automation.yaml"),
+    `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: prompt, prompt: ./prompt.md }\nmodel: "@fast"\nmode: local\n`,
+  );
+  return {
+    name,
+    scope: "folder",
+    dir,
+    valid: true,
+    config: {
+      on: { kind: "schedule", cron: "* * * * *" },
+      action: { kind: "prompt", prompt: "./prompt.md" },
+      model: "@fast",
+      mode: "local",
+      sandbox: "workspace-write",
+      concurrency: "skip",
+    },
+  };
+}
+
+function skillAutomation(name: string): DiscoveredAutomation {
+  const dir = path.join(repo, ".pi", "automation", name);
+  fs.mkdirSync(dir, { recursive: true });
+  return {
+    name,
+    scope: "folder",
+    dir,
+    valid: true,
+    config: {
+      on: { kind: "schedule", cron: "* * * * *" },
+      action: { kind: "skill", skill: "$recent-code-bugfix" },
+      model: "anthropic/claude-sonnet-4-5",
+      mode: "local",
+      sandbox: "workspace-write",
+      concurrency: "skip",
+      visibility: "shown",
+    },
+  };
+}
+
+function makeEngine(spawnCalls: any[], roles: Record<string, string> = { fast: "anthropic/claude-haiku-4-5" }) {
+  return createEngine({
+    spawnSession: async (opts) => {
+      spawnCalls.push(opts);
+      return { success: true, spawnToken: `tok-${spawnCalls.length}` };
+    },
+    listScopes: () => [{ base: repo, scope: "folder" }],
+    config: () => ({
+      defaultVisibility: "hidden",
+      retention: 100,
+      defaultModel: "anthropic/claude-sonnet-4-5",
+      scanFolder: true,
+      scanGlobal: false,
+    }),
+    readRoles: () => roles,
+    warn: () => {},
+  });
+}
+
+describe("buildRunPrompt", () => {
+  it("reads prompt.md for prompt actions", () => {
+    const a = promptAutomation("p", "Audit the changelog for omissions.");
+    expect(buildRunPrompt(a)).toBe("Audit the changelog for omissions.");
+  });
+  it("emits the $skill token for skill actions", () => {
+    expect(buildRunPrompt(skillAutomation("s"))).toBe("$recent-code-bugfix");
+  });
+});
+
+describe("effectiveVisibility", () => {
+  it("uses the per-automation override when present", () => {
+    expect(effectiveVisibility(skillAutomation("s"), "hidden")).toBe("shown");
+  });
+  it("falls back to the settings default", () => {
+    expect(effectiveVisibility(promptAutomation("p", "x"), "hidden")).toBe("hidden");
+  });
+});
+
+describe("engine run lifecycle", () => {
+  it("prompt path: spawns with resolved model + hidden stamp, writes running record", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const a = promptAutomation("nightly", "Find regressions.");
+    const r = engine.startRunFor(a);
+    expect(r).not.toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].model).toBe("anthropic/claude-haiku-4-5"); // @fast resolved
+    expect(calls[0].automationRun).toMatchObject({ name: "nightly", visibility: "hidden" });
+
+    const runs = listRuns(repo, "nightly");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe("running");
+  });
+
+  it("skill path: spawns with bare model + shown stamp", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    engine.startRunFor(skillAutomation("bugs"));
+    expect(calls[0].model).toBe("anthropic/claude-sonnet-4-5");
+    expect(calls[0].automationRun.visibility).toBe("shown");
+  });
+
+  it("captures result.md + done status on session end", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const a = promptAutomation("nightly", "Find regressions.");
+    const { runId } = engine.startRunFor(a)!;
+
+    // Simulate the run session registering + ending.
+    engine.onSessionRegistered("sess-1", repo);
+    engine.onSessionEnded("sess-1", "Found 1 regression in auth.");
+
+    const runs = listRuns(repo, "nightly");
+    const done = runs.find((x) => x.runId === runId)!;
+    expect(done.status).toBe("done");
+    const md = fs.readFileSync(path.join(done.dir, "result.md"), "utf-8");
+    expect(md).toContain("Found 1 regression");
+  });
+
+  it("empty findings auto-archive on session end", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    engine.startRunFor(promptAutomation("nightly", "x"));
+    engine.onSessionRegistered("sess-1", repo);
+    engine.onSessionEnded("sess-1", "   ");
+    const runs = listRuns(repo, "nightly");
+    expect(runs[0]!.archived).toBe(true);
+  });
+
+  it("unresolved @role → spawn with default model + run recorded error on end", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls, {}); // no roles → @fast unresolved
+    const a = promptAutomation("nightly", "x");
+    engine.startRunFor(a);
+    expect(calls[0].model).toBe("anthropic/claude-sonnet-4-5"); // fell back to default
+    engine.onSessionRegistered("sess-1", repo);
+    engine.onSessionEnded("sess-1", "result");
+    const runs = listRuns(repo, "nightly");
+    expect(runs[0]!.status).toBe("error");
+    expect(runs[0]!.error).toContain("@fast");
+  });
+
+  it("arms valid automations via start()", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    promptAutomation("nightly", "x");
+    engine.start();
+    expect(engine.scheduler.armedKeys()).toContain("folder:nightly");
+    engine.dispose();
+  });
+});

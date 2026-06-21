@@ -235,6 +235,25 @@ export interface DashboardSession {
    * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel.
    */
   pendingQueues?: { steering: string[]; followUp: string[] };
+  /**
+   * Session classification. Currently the only non-default value is
+   * `"automation"`, stamped on sessions spawned by the automation-plugin's
+   * scheduler. Plain user sessions leave this `undefined`. The board/order
+   * filter treats `kind==="automation"` runs as hidden unless their
+   * `automationRun.visibility` is `"shown"`. Persisted to `.meta.json`.
+   * See change: add-automation-plugin.
+   */
+  kind?: "automation";
+  /**
+   * Automation-run identity, set together with `kind==="automation"`. `name`
+   * is the automation's folder name; `runId` is the per-occurrence run id
+   * (`<date>-<name>` store key). `visibility` carries the run's EFFECTIVE
+   * board visibility (per-automation `visibility` field ?? settings default,
+   * default `"hidden"`) so the board filter can decide inclusion without
+   * re-reading the automation config. Persisted to `.meta.json`.
+   * See change: add-automation-plugin.
+   */
+  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
 }
 
 // ── Extension UI System (Phase 1: management-modal slot) ───────────

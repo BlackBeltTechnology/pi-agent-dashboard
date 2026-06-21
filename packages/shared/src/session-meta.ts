@@ -94,6 +94,21 @@ export interface SessionMeta {
    */
   processDrawerCollapsed?: boolean;
 
+  /**
+   * Session classification mirror of `DashboardSession.kind`. Only
+   * `"automation"` is persisted (set by the automation-plugin run spawn).
+   * See change: add-automation-plugin.
+   */
+  kind?: "automation";
+
+  /**
+   * Automation-run identity mirror of `DashboardSession.automationRun`.
+   * Persisted so a run session restored on cold start keeps its automation
+   * grouping + effective board visibility.
+   * See change: add-automation-plugin.
+   */
+  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;
 }

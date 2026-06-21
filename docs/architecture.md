@@ -446,6 +446,18 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
 
+### Automation Plugin (`add-automation-plugin`)
+
+Automation plugin = `packages/automation-plugin/`. Schedule-triggered background runs.
+
+- Folder format `<scope>/.pi/automation/<name>/automation.yaml` (+`prompt.md` for prompt action). Dual scope: per-folder + global (`~/.pi/automation/`).
+- Central server-owned scheduler arms trigger registry. Phase-1 trigger kind `schedule` (5-field cron).
+- Fired run spawns pi session stamped `kind="automation"` via `ServerPluginContext.spawnSession` hook (gated priority<=100).
+- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/automation/run/:sid`).
+- Run results `runs/<date>-<name>/result.md`. Auto-archive empty. Keep-100 retention.
+- UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
+- See change: add-automation-plugin.
+
 ### Bootstrap & First Run (R3, immutable bundle)
 
 pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.

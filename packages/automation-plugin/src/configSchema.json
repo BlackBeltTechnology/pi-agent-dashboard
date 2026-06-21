@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Automations plugin configuration",
+  "description": "Per-plugin (global) configuration for the automation-plugin. Governs default run visibility, run retention, and which scopes are scanned. Per-automation `automation.yaml` fields override these defaults. See change: add-automation-plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultVisibility": {
+      "type": "string",
+      "enum": ["hidden", "shown"],
+      "default": "hidden",
+      "description": "Effective board visibility applied to automation runs whose `automation.yaml` omits a `visibility` field. `hidden` keeps runs off the main board (still visible in the Automation view); `shown` renders them as normal board cards."
+    },
+    "retentionPerAutomation": {
+      "type": "number",
+      "default": 100,
+      "minimum": 1,
+      "description": "Maximum run records kept per automation. Oldest-first pruning trims beyond this count."
+    },
+    "scanFolderScope": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, scan `<repo>/.pi/automation/` for per-folder automations."
+    },
+    "scanGlobalScope": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, scan `~/.pi/automation/` for global automations."
+    },
+    "defaultModel": {
+      "type": "string",
+      "default": "",
+      "description": "Fallback provider/model id used when an automation's `@role` cannot be resolved at spawn time. Empty means the shell's default model is used."
+    }
+  }
+}

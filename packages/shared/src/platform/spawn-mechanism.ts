@@ -106,6 +106,12 @@ export function buildWtArgs(opts: WtArgsOptions): string[] {
 export interface SessionFlags {
   sessionFile?: string;
   mode?: "continue" | "fork";
+  /**
+   * Optional model id appended as `--model <model>`. Used by the
+   * automation-plugin run spawn to pin a resolved provider/model.
+   * See change: add-automation-plugin.
+   */
+  model?: string;
 }
 
 /**
@@ -118,7 +124,11 @@ export function sessionFlagsToArgv(flags: SessionFlags): string[] {
     return ["--session", flags.sessionFile];
   }
   if (flags.sessionFile && flags.mode === "fork") {
-    return ["--fork", flags.sessionFile];
+    return ["--fork", flags.sessionFile, ...modelFlag(flags)];
   }
-  return [];
+  return [...modelFlag(flags)];
+}
+
+function modelFlag(flags: SessionFlags): string[] {
+  return flags.model ? ["--model", flags.model] : [];
 }

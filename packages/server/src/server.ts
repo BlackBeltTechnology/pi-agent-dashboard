@@ -23,6 +23,9 @@ import { createPendingClientCorrelations } from "./pending-client-correlations.j
 import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
 import { createPendingAttachRegistry } from "./pending-attach-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
+import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
+import { spawnPiSession } from "./process-manager.js";
+import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
 import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
 import { applyReattachPolicy } from "./reattach-placement.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
@@ -428,6 +431,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // hook to write .meta.json#gitWorktreeBase.
   // See change: add-worktree-spawn-dialog.
   const pendingWorktreeBaseRegistry = createPendingWorktreeBaseRegistry();
+  // Pending automation-run stamps (cwd → { name, runId, visibility }).
+  // Populated by the automation-plugin spawn hook, consumed by event-wiring's
+  // session_register hook to stamp kind="automation" + automationRun.
+  // See change: add-automation-plugin.
+  const pendingAutomationRunRegistry = createPendingAutomationRunRegistry();
   // Pending user-initiated resume intents (sessionId → timestamp).
   // Consumed by `sessionManager.onChange` in the ended→alive branch to
   // gate the sessionOrder mutation behind explicit user intent so that
@@ -606,6 +614,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingDashboardSpawns,
     pendingAttachRegistry,
     pendingWorktreeBaseRegistry,
+    pendingAutomationRunRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
     dispatchPluginPiMessage,
@@ -1213,6 +1222,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
               sendToSession: (sessionId, text) =>
                 piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),
+              // Session-spawn hook. Gated to first-party/trusted plugins
+              // (priority <= 100 by convention). Untrusted plugins get a
+              // hook that always rejects. See change: add-automation-plugin.
+              spawnSession: async (opts) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) {
+                  return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
+                }
+                if (opts.automationRun) {
+                  pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
+                }
+                try {
+                  const result = await spawnPiSession(opts.cwd, {
+                    strategy: "headless",
+                    ...(opts.model ? { model: opts.model } : {}),
+                  });
+                  if (result.process && result.pid) {
+                    browserGateway.headlessPidRegistry.register(
+                      result.pid,
+                      opts.cwd,
+                      result.process,
+                      result.spawnToken,
+                      keeperOptsFromSpawnResult(result),
+                    );
+                  }
+                  return {
+                    success: result.success,
+                    message: result.message,
+                    ...(result.spawnToken ? { spawnToken: result.spawnToken } : {}),
+                  };
+                } catch (err) {
+                  return { success: false, message: err instanceof Error ? err.message : String(err) };
+                }
+              },
               registerBrowserHandler: (type, handler) =>
                 browserGateway.registerHandler(type, (msg, ws) =>
                   handler(msg, ws as unknown),

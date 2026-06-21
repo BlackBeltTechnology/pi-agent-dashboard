@@ -18,6 +18,7 @@ export default defineConfig({
       "packages/client",
       "packages/client-utils",
       "packages/dashboard-plugin-runtime",
+      "packages/automation-plugin",
       "packages/flows-plugin",
       "packages/flows-anthropic-bridge-plugin",
       "packages/jj-plugin",

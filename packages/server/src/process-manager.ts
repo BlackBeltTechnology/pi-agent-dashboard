@@ -110,6 +110,12 @@ export interface SessionOptions {
    * See change: spawn-correlation-token.
    */
   spawnToken?: string;
+  /**
+   * Optional model id appended as `--model <model>` on the spawned pi
+   * argv. Used by the automation-plugin run spawn. See change:
+   * add-automation-plugin.
+   */
+  model?: string;
 }
 
 export interface SpawnResult {

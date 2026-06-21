@@ -57,6 +57,39 @@ export type SendToSessionFn = (sessionId: string, text: string) => boolean;
 /** Register a handler for a browser WebSocket message type. */
 export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws: unknown) => void) => void;
 
+/**
+ * Options for the plugin session-spawn hook.
+ * See change: add-automation-plugin.
+ */
+export interface PluginSpawnOptions {
+  /** Working directory the new pi session runs in. */
+  cwd: string;
+  /** Optional model id (resolved provider/model) passed as `--model`. */
+  model?: string;
+  /**
+   * When set, the spawned session is stamped `kind="automation"` +
+   * `automationRun` once it registers (the server queues the stamp keyed
+   * by cwd and applies it on `session_register`). `visibility` carries the
+   * run's effective board visibility.
+   */
+  automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+}
+
+/** Result of a plugin session-spawn request. */
+export interface PluginSpawnResult {
+  success: boolean;
+  message?: string;
+  /** Spawn correlation token (present on success). */
+  spawnToken?: string;
+}
+
+/**
+ * Spawn a new pi session from a plugin server entry. Gated to first-party /
+ * trusted plugins by the host: untrusted plugins receive a hook that
+ * rejects with `success: false`. See change: add-automation-plugin.
+ */
+export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -69,6 +102,12 @@ export interface ServerPluginContext {
   onEvent: OnEventFn;
   /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
   sendToSession: SendToSessionFn;
+  /**
+   * Spawn a new pi session. Gated to first-party/trusted plugins; untrusted
+   * plugins get a hook that always resolves `{ success: false }`.
+   * See change: add-automation-plugin.
+   */
+  spawnSession: SpawnSessionFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
   logger: PluginLogger;
@@ -84,6 +123,7 @@ export interface ServerContextDeps {
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
   sendToSession: SendToSessionFn;
+  spawnSession: SpawnSessionFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
 }
@@ -106,6 +146,7 @@ export function createServerPluginContext(
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
     sendToSession: deps.sendToSession,
+    spawnSession: deps.spawnSession,
 
     getPluginConfig<T>(): T {
       return deps.getPluginConfig(pluginId) as T;
