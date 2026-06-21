@@ -39,6 +39,12 @@ describe("AutomationBoard", () => {
     expect(vi.mocked(listAutomations)).toHaveBeenCalledWith("/r");
   });
 
+  it("rejects an undecodable encodedCwd instead of running unscoped queries", async () => {
+    const { getByTestId } = render(<AutomationBoard params={{ encodedCwd: "!!!not-base64!!!" }} />);
+    await waitFor(() => expect(getByTestId("automation-board-invalid")).toBeTruthy());
+    expect(vi.mocked(listAutomations)).not.toHaveBeenCalled();
+  });
+
   it("renders a Back action wired to onBack", async () => {
     const onBack = vi.fn();
     const { getByTestId } = render(<AutomationBoard params={params} onBack={onBack} />);

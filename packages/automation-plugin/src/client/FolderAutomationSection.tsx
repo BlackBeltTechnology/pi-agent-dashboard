@@ -33,9 +33,15 @@ export function FolderAutomationSection({
 
   useEffect(() => {
     let cancelled = false;
-    listAutomations(folder.cwd).then((a) => {
-      if (!cancelled) setAutomations(a);
-    });
+    listAutomations(folder.cwd)
+      .then((a) => {
+        if (!cancelled) setAutomations(a);
+      })
+      .catch(() => {
+        // Fall back to an empty list so the row still renders as the create
+        // entry point instead of staying null (blank) forever.
+        if (!cancelled) setAutomations([]);
+      });
     return () => {
       cancelled = true;
     };

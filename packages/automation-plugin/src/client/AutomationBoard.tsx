@@ -26,7 +26,11 @@ const STATUS_LABEL: Record<RunRecord["status"], string> = {
 };
 
 export function AutomationBoard({ params, onBack }: AutomationBoardProps): React.ReactElement {
-  const cwd = params?.encodedCwd ? decodeFolderPath(params.encodedCwd) ?? undefined : undefined;
+  // encodedCwd is route-controlled input; reject an undecodable param rather
+  // than falling through to unscoped data calls (breaks the folder contract).
+  const decoded = params?.encodedCwd ? decodeFolderPath(params.encodedCwd) : undefined;
+  const invalidRoute = !!params?.encodedCwd && decoded === null;
+  const cwd = decoded ?? undefined;
   const [automations, setAutomations] = useState<DiscoveredAutomation[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [showAll, setShowAll] = useState(false);
@@ -34,6 +38,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    if (invalidRoute) return;
     let cancelled = false;
     async function load() {
       const a = await listAutomations(cwd);
@@ -48,13 +53,35 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
     return () => {
       cancelled = true;
     };
-  }, [cwd, reloadKey]);
+  }, [cwd, reloadKey, invalidRoute]);
 
   const visibleRuns = useMemo(() => {
     const filtered = showAll ? runs : runs.filter((r) => !r.archived);
     // newest-first for the Triage list.
     return [...filtered].sort((a, b) => b.startedAt - a.startedAt);
   }, [runs, showAll]);
+
+  if (invalidRoute) {
+    return (
+      <div data-testid="automation-board" className="flex flex-col gap-3 p-3 text-sm">
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              type="button"
+              data-testid="automation-board-back"
+              onClick={onBack}
+              className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              ← Back
+            </button>
+          )}
+          <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="automation-board-invalid">
+            Invalid folder route.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="automation-board" className="flex flex-col gap-3 p-3 text-sm">
