@@ -131,7 +131,7 @@
 ## 9. Release & rollout
 
 - [ ] 9.1 Cut a pre-release tag (`v0.5.5-rc1`) after all above is green; confirm Setup.exe attaches to draft release.
-- [ ] 9.2 Manual smoke on a real Windows 11 x64 box (not VM): install via Setup.exe, launch, send a prompt, terminate, uninstall, verify clean uninstall. Capture screenshots for the release notes.
+- [x] 9.2 Manual smoke on a real Windows 11 x64 box (not VM): install via Setup.exe, launch, send a prompt, terminate, uninstall, verify clean uninstall. Capture screenshots for the release notes.
 - [ ] 9.3 Cut the real release (`v0.5.5`) via the `release-cut` skill.
 - [ ] 9.4 Within 48h of release: spot-check GitHub Release download counts (`Setup-*.exe` should outpace `.zip` if the marketing-site reordering took effect).
 - [ ] 9.5 Archive `fix-windows-portable-exe` proposal (its §4 Drop path is taken by this change; §3 Fix path is moot).

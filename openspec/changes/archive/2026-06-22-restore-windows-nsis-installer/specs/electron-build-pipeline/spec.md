@@ -60,33 +60,48 @@ The Windows installer SHALL be produced by `electron-builder --win nsis` extende
 - **WHEN** the app is installed via Setup.exe on Windows
 - **THEN** the on-disk layout SHALL be compatible with `electron-updater`'s NSIS differ channel (wiring of the channel itself is out of scope for this requirement; see `fix-electron-auto-update-pipeline`)
 
-### Requirement: CI produces Windows x64 NSIS installer
-The CI `windows-latest` x64 leg SHALL produce a Setup.exe installer AND a ZIP archive. It SHALL NOT produce a portable.exe (the 7-Zip SFX portable target was removed by this change).
+### Requirement: CI build matrix
+A GitHub Actions workflow SHALL build Electron installers for all target platforms AND every supported (platform, arch) tuple. The matrix SHALL include exactly one row per published artifact; missing rows are a regression.
 
-#### Scenario: CI produces Windows x64 artifacts
+#### Scenario: CI produces macOS arm64 DMG
+- **WHEN** the CI workflow runs on `macos-14` runner
+- **THEN** it SHALL produce a `.dmg` for arm64
+- **AND** the matrix row SHALL declare `platform: darwin, arch: arm64, node-arch: arm64`
+
+#### Scenario: CI produces macOS x64 DMG
+- **WHEN** the CI workflow runs on the GitHub-hosted Intel x86_64 macOS runner (currently `macos-15-intel`; was `macos-13` until its retirement on 2025-12-08)
+- **THEN** it SHALL produce a `.dmg` for x64
+- **AND** the matrix row SHALL declare `platform: darwin, arch: x64, node-arch: x64`
+- **AND** the row SHALL NOT be omitted on the grounds that `forge.config.ts` declares `packagerConfig.arch: "universal"` — the workflow's `--arch=${{ matrix.arch }}` CLI flag overrides packagerConfig and the universal hint is a no-op in the current pipeline
+- **AND** when GitHub retires `macos-15-intel` (announced end-of-life 2027-08), the team MUST migrate to a universal-binary build OR a self-hosted Intel runner OR drop x64 macOS support — there will be no GitHub-hosted Intel x86_64 replacement after that date
+
+#### Scenario: CI produces Linux x64 artifacts
+- **WHEN** the CI workflow runs on `ubuntu-latest` runner
+- **THEN** it SHALL produce an `.AppImage` and `.deb` for x64
+
+#### Scenario: CI produces Linux arm64 artifacts
+- **WHEN** the CI workflow runs on `ubuntu-24.04-arm` runner
+- **THEN** it SHALL produce a `.deb` for arm64
+- **AND** AppImage SHALL be skipped (appimagetool has no arm64 build)
+
+#### Scenario: CI produces Windows x64 NSIS installer
 - **WHEN** the CI workflow runs on `windows-latest` runner with `arch: x64`
-- **THEN** it SHALL produce `PI-Dashboard-Setup-${version}-x64.exe` (NSIS) AND `PI-Dashboard-win32-x64.zip` (ZIP)
-- **AND** it SHALL NOT invoke any `electron-builder --win portable` step
+- **THEN** it SHALL produce a `PI-Dashboard-Setup-${version}-x64.exe` (NSIS) and a ZIP archive
+- **AND** it SHALL NOT produce a portable `.exe` (the 7-Zip SFX portable target was removed by this change)
 
-### Requirement: CI produces Windows arm64 NSIS installer
-The CI `windows-latest` arm64 leg SHALL produce a Setup.exe installer AND a ZIP archive. arm64 NSIS support is provided by electron-builder's native arm64 NSIS templating.
-
-#### Scenario: CI produces Windows arm64 artifacts
+#### Scenario: CI produces Windows arm64 NSIS installer
 - **WHEN** the CI workflow runs on `windows-latest` runner with `arch: arm64`
-- **THEN** it SHALL produce `PI-Dashboard-Setup-${version}-arm64.exe` (NSIS) AND `PI-Dashboard-win32-arm64.zip` (ZIP)
-- **AND** it SHALL NOT invoke any `electron-builder --win portable` step
+- **THEN** it SHALL produce a `PI-Dashboard-Setup-${version}-arm64.exe` (NSIS) and a ZIP archive
+- **AND** it SHALL NOT produce a portable `.exe`
+- **AND** arm64 NSIS support SHALL be provided by electron-builder's native arm64 NSIS templating
 
-## REMOVED Requirements
+#### Scenario: CI installs Linux build dependencies
+- **WHEN** the CI workflow runs on any Linux runner
+- **THEN** it SHALL install `dpkg`, `fakeroot`, `libarchive-tools`, `libfuse2`, and `squashfs-tools` before building
 
-### Requirement: Windows portable .exe artifact
-**Reason:** The 7-Zip SFX portable target accumulated three structural problems (SFX path drift across launches, SmartScreen blocks unsigned SFX before extraction, ephemeral `%LOCALAPPDATA%\Temp\<random>\` working dir incompatible with the per-user managed-dir bootstrap model). The use case ("single-file no-installer experience") is now served by Setup.exe (real installer) and `.zip` (extract-and-run).
-
-**Migration:** Users on portable.exe migrate to either Setup.exe or `.zip`. Their `~/.pi/` user data is untouched in either path. The active `fix-windows-portable-exe` proposal's §4 (Drop path) is taken by this change; that proposal SHALL be archived once this lands.
-
-The following scenarios are removed:
-- `Scenario: CI produces Windows x64 NSIS installer` clause "and a portable `.exe`" (replaced by the modified scenario above).
-- `Scenario: CI produces Windows arm64 ZIP and portable` (entire scenario; replaced by the modified arm64 scenario above).
-- All `out/make/portable/` artifact paths in upload globs.
+#### Scenario: Per-(platform, arch) artifact upload
+- **WHEN** any matrix row completes successfully
+- **THEN** its artifacts SHALL be uploaded with name `electron-${platform}-${arch}` so the `github-release` job can collect every distributable
 
 ## ADDED Requirements
 
