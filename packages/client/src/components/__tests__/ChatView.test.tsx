@@ -412,6 +412,7 @@ describe("ChatView", () => {
       expect(scrollEl.querySelector('[data-turn="0"]')).not.toBeNull();
 
       // Escape button must appear
+      expect(container.querySelector('[data-testid="scroll-to-bottom"]')).not.toBeNull();
       setScrollPosition(scrollEl, 950, 1500, 400);
       const state2 = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
