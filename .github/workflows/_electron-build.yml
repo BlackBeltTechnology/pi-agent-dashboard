@@ -494,13 +494,8 @@ jobs:
       #     exec here — needs a windows-11-arm runner) and NON-FATAL because
       #     first-run bootstrap is network/time-sensitive. Harden to fatal once
       #     observed stably green.
-      - name: Smoke-test NSIS Setup.exe
+      - name: Smoke-test NSIS Setup.exe (install/uninstall)
         if: matrix.platform == 'win32'
-        # Non-fatal: the installer artifact is the deliverable (built + uploaded
-        # above). Smoke exercises silent /S install semantics, which are
-        # finickier than the interactive install users actually run. Surface
-        # failures without reding the build. Harden once stably green.
-        continue-on-error: true
         shell: pwsh
         run: |
           $arch = "${{ matrix.arch }}"
@@ -512,63 +507,15 @@ jobs:
           }
           $setupPath = $setup.FullName
           Write-Host "Smoke-testing $setupPath"
-          # Hard gates: install -> per-user-only -> branding.
+          # Headless-safe HARD gates. Launch / server-start is intentionally NOT
+          # tested here: pi-dashboard.exe is a GUI-subsystem binary and
+          # GitHub-hosted runners have no interactive desktop session, so the
+          # Electron main process never reaches the server-spawn step (verified:
+          # process stays alive, server.log never created, stdout/stderr empty).
+          # Launch + server-start validation runs on a VM (qa/tests/07-electron-
+          # bootstrap-v2.ps1 + windows-nsis-launch.ps1 via the
+          # automate-windows-remote-qa harness) or by manual install on a desktop.
           ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
           ./qa/tests/windows-nsis-no-permachine.ps1
           ./qa/tests/windows-nsis-branding.ps1 -Setup $setupPath
-          # Launch smoke: x64 only, non-fatal (isolated subprocess so its exit
-          # code does not terminate this step).
-          if ($arch -eq "x64") {
-            pwsh -NoProfile -File ./qa/tests/windows-nsis-launch.ps1 -TimeoutSec 180
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "::warning::NSIS launch smoke failed (non-fatal; first-run bootstrap is network/time-sensitive)"
-            }
-          } else {
-            Write-Host "Skipping launch smoke on $arch (x64 runner cannot exec arm64 binary; needs windows-11-arm)."
-          }
-          # Hard gate: uninstall removes app, preserves user data.
-          ./qa/tests/windows-nsis-uninstall.ps1
-
-  # arm64 NSIS launch smoke. The build legs run on x64 (windows-latest), where
-  # the arm64 Electron shell (pi-dashboard.exe) cannot launch. Download the
-  # arm64 artifact and smoke it natively on a windows-11-arm runner. Build path
-  # is unchanged — this is additive. See change: restore-windows-nsis-installer.
-  smoke-win-arm64:
-    name: arm64 NSIS smoke (windows-11-arm)
-    needs: build
-    if: ${{ inputs.legs == 'all' || inputs.legs == 'win32' || contains(inputs.legs, 'win32-arm64') }}
-    runs-on: windows-11-arm
-    # Non-fatal smoke job (informational) — see the win32 smoke step note.
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-      - name: Download arm64 electron artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: electron-win32-arm64${{ inputs.artifact_name_suffix }}
-          path: artifact
-      - name: Smoke-test arm64 NSIS Setup.exe (native arm64)
-        shell: pwsh
-        run: |
-          $setup = Get-ChildItem -Recurse artifact -Filter "PI-Dashboard-Setup-*-arm64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $setup) {
-            Write-Host "::error::arm64 Setup.exe not found in downloaded artifact"
-            Get-ChildItem -Recurse artifact -ErrorAction SilentlyContinue | Format-Table
-            exit 1
-          }
-          $setupPath = $setup.FullName
-          Write-Host "Smoke-testing $setupPath on native arm64"
-          # Hard gates: install -> per-user-only -> branding -> uninstall.
-          ./qa/tests/windows-nsis-install.ps1 -Setup $setupPath
-          ./qa/tests/windows-nsis-no-permachine.ps1
-          ./qa/tests/windows-nsis-branding.ps1 -Setup $setupPath
-          # Launch smoke runs natively here (arm64 host). Non-fatal: first-run
-          # bootstrap is network/time-sensitive. Isolated subprocess so its exit
-          # code does not terminate this step. Harden to fatal once stably green.
-          pwsh -NoProfile -File ./qa/tests/windows-nsis-launch.ps1 -TimeoutSec 180
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::warning::arm64 launch smoke failed (non-fatal; first-run bootstrap is network/time-sensitive)"
-          }
           ./qa/tests/windows-nsis-uninstall.ps1

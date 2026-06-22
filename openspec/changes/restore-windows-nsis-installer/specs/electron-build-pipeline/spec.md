@@ -91,24 +91,18 @@ The following scenarios are removed:
 ## ADDED Requirements
 
 ### Requirement: CI smoke-tests the NSIS installer on the build runner
-The `windows-latest` legs that build Setup.exe SHALL smoke-test it on the same runner, after the build, via a `.github/workflows/_electron-build.yml` step (`if: matrix.platform == 'win32'`). Because the installer is per-user (`/S` needs no admin), the smoke runs unprivileged on the runner with no VM and no external QA harness. Install, registry, and uninstall assertions SHALL be hard gates (fail the job). The x64 leg SHALL also run the launch assertion inline. The arm64 Electron shell cannot execute on the x64 build runner, so a separate `smoke-win-arm64` job (`runs-on: windows-11-arm`, `needs: build`) SHALL download the arm64 artifact and run the full install→launch→uninstall smoke natively on arm64. Launch assertions MAY be non-fatal while first-run bootstrap timing is being characterised.
+The `windows-latest` legs that build Setup.exe SHALL smoke-test it on the same runner, after the build, via a `.github/workflows/_electron-build.yml` step (`if: matrix.platform == 'win32'`). Because the installer is per-user (`/S` needs no admin), the smoke runs unprivileged with no VM and no external QA harness. The step SHALL run install, no-per-machine, branding, and uninstall assertions as **hard gates** (fail the job). It SHALL NOT launch the app: `pi-dashboard.exe` is a GUI-subsystem binary and GitHub-hosted runners have no interactive desktop session, so the Electron main process never reaches the server-spawn step (observed: process stays alive, `~/.pi/dashboard/server.log` never created, stdout/stderr empty). Launch + server-start validation is therefore out of scope for the build-runner smoke; it runs on a VM with a real desktop (`qa/tests/07-electron-bootstrap-v2.ps1` + `windows-nsis-launch.ps1` via the `automate-windows-remote-qa` harness) or by manual install.
 
-#### Scenario: x64 leg runs full install→uninstall smoke
-- **WHEN** the `windows-latest` x64 leg finishes building `PI-Dashboard-Setup-${version}-x64.exe`
+#### Scenario: each win32 leg runs install→uninstall hard gates
+- **WHEN** a `windows-latest` win32 leg finishes building `PI-Dashboard-Setup-${version}-${arch}.exe`
 - **THEN** the workflow SHALL run `qa/tests/windows-nsis-install.ps1`, `windows-nsis-no-permachine.ps1`, `windows-nsis-branding.ps1`, and `windows-nsis-uninstall.ps1` as hard gates against the built artifact
-- **AND** it SHALL run `qa/tests/windows-nsis-launch.ps1` (asserting `/api/health` returns 200), allowed to be non-fatal
 - **AND** a hard-gate failure SHALL fail the job
+- **AND** the workflow SHALL NOT attempt to launch the app on the runner (no display; GUI Electron cannot start the server headlessly)
 
-#### Scenario: arm64 build leg runs non-launch smoke inline
-- **WHEN** the `windows-latest` arm64 leg finishes building `PI-Dashboard-Setup-${version}-arm64.exe`
-- **THEN** the inline smoke step SHALL run the install, no-per-machine, branding, and uninstall scripts (arch-independent file/registry ops) as hard gates
-- **AND** it SHALL skip the inline launch assertion (an arm64 binary cannot execute on the x64 runner)
-
-#### Scenario: arm64 launch smoke runs natively on windows-11-arm
-- **WHEN** the build job produces the `electron-win32-arm64` artifact
-- **THEN** the `smoke-win-arm64` job (`runs-on: windows-11-arm`, `needs: build`) SHALL download that artifact and run `qa/tests/windows-nsis-install.ps1`, `windows-nsis-no-permachine.ps1`, `windows-nsis-branding.ps1`, and `windows-nsis-uninstall.ps1` as hard gates against the arm64 Setup.exe
-- **AND** it SHALL run `qa/tests/windows-nsis-launch.ps1` natively (allowed non-fatal)
-- **AND** the build path SHALL remain unchanged (arm64 still cross-built on `windows-latest`, bundling x64 Node for WoW64)
+#### Scenario: launch / server-start validated off the build runner
+- **WHEN** launch / server-start needs verification (e.g. the nodejs#58515 Node-version regression)
+- **THEN** it SHALL be validated on a VM with a desktop session via `qa/tests/07-electron-bootstrap-v2.ps1` / `windows-nsis-launch.ps1`, or by manual install
+- **AND** the build-runner smoke SHALL NOT be relied upon for server-start coverage
 
 ### Requirement: NSIS install location is bootstrap-agnostic
 The NSIS install location SHALL NOT be hardcoded anywhere in the bootstrap, server, or shared code. The bootstrap state machine SHALL resolve the running install location dynamically via `app.getPath('exe')` and `process.resourcesPath`. This guarantees the existing `selectLaunchSource()` resolver in `packages/electron/src/lib/launch-source.ts` works identically for the per-user default (`%LOCALAPPDATA%\Programs\PI Dashboard\`) and any user-chosen path like `D:\MyApps\PI Dashboard\`.

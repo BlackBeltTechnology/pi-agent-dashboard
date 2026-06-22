@@ -159,19 +159,15 @@ NSIS was removed in v0.5.0 by `simplify-electron-bootstrap-derived-state`. This 
 
 - The win32 legs already run on real Windows (`windows-latest`). The artifact under test sits on the runner's disk — testing it there is the cheapest possible loop.
 - **Per-user install unlocks this.** `/S` per-user install writes to `%LOCALAPPDATA%` and HKCU — no admin, no UAC — so it runs unprivileged on the runner. A per-machine installer would need an elevated step and is one more reason D2 chose per-user.
-- Install / registry / uninstall assertions are deterministic and offline — hard gates that fail the job, giving real regression protection for the installer mechanics this change ships.
+- Install / registry / branding / uninstall assertions are deterministic and offline — hard gates that fail the job, giving real regression protection for the installer mechanics this change ships.
 
-**arm64 launch needs a native arm64 host — separate job, build path unchanged.**
+**Launch / server-start is NOT tested on the build runner (no desktop session).**
 
-- The `windows-latest` build runner is x64, so the arm64 Electron shell (`pi-dashboard.exe`, arm64) cannot launch there. The inline smoke step runs launch only on the x64 leg; the arm64 build leg runs every non-launch assertion inline.
-- A dedicated `smoke-win-arm64` job (`runs-on: windows-11-arm`, `needs: build`) downloads the `electron-win32-arm64` artifact and runs the full install→launch→uninstall smoke **natively on arm64**. This is additive — the build still cross-builds arm64 on `windows-latest` (deliberately bundling x64 Node + native modules for WoW64 emulation; see the win32 build steps). Moving the build host was rejected: the x64 cross-build is the proven path and the bundling logic targets x64-under-emulation by design.
+- `pi-dashboard.exe` is a GUI-subsystem binary. GitHub-hosted Windows runners run the job under a service account with no interactive desktop, so the Electron main process never reaches the code that spawns the dashboard server. Verified empirically: across multiple runs the process stays alive, `~/.pi/dashboard/server.log` is never created, and the redirected stdout/stderr are empty (a GUI-subsystem exe doesn't connect to the parent's stdio anyway). So a runner-based launch assertion always times out — it tests the runner's lack of a display, not the app.
+- **Earlier attempts removed.** A non-fatal x64 launch step and a dedicated `smoke-win-arm64` job (`runs-on: windows-11-arm`) were tried; both produced misleading red/flaky signals with no real coverage (same headless limitation, plus flaky assisted-`/S` install under arm64 emulation). Both are dropped.
+- **Where launch is actually validated:** on a VM with a real desktop session — `qa/tests/07-electron-bootstrap-v2.ps1` (existing ZIP launch test) and `windows-nsis-launch.ps1` via the `automate-windows-remote-qa` harness — or by manual install on a desktop. This is also the authoritative test for the nodejs#58515 Node-version fix (#136).
 
-**Trade accepted: non-fatal launch initially.**
-
-- Launch (both x64 inline and arm64 job) is non-fatal at first because first-run bootstrap (pi download + managed-dir reconciliation) is network/time-sensitive and could flake the release matrix. Run via an isolated `pwsh -File` subprocess so its exit code does not terminate the step; surface failures as `::warning::`. Harden to a hard gate once observed stably green.
-- `smoke-win-arm64` depends on `windows-11-arm` GitHub-hosted runner availability.
-
-**Rejected: VM-only QA via `automate-windows-remote-qa`.** That harness doesn't exist yet (`qa/remote/` absent) and would gate this change on an unrelated proposal. The same `windows-nsis-*.ps1` scripts run both inline on CI now and under the VM harness later — no duplicate logic.
+**Rejected: gating on `automate-windows-remote-qa`.** That VM harness doesn't exist yet (`qa/remote/` absent); the change ships its install/uninstall hard gates on the runner now, and the same `windows-nsis-*.ps1` scripts (including `windows-nsis-launch.ps1`) plug into the VM harness when it lands — no duplicate logic.
 
 ## State machine impact
 
