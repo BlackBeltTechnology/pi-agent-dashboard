@@ -1,7 +1,7 @@
 # ui-animation-energy Specification
 
 ## Purpose
-TBD - created by archiving change throttle-idle-ui-animations. Update Purpose after archive.
+Idle/hidden-state energy discipline for the web client. CSS animations MUST pause while the document is hidden, so a tray-hidden or backgrounded window does not drive continuous compositing. Decorative infinite animations (selected-card neon ring, card status stripes) MUST avoid per-frame rasterization and blur in steady state, animating only via compositor-only properties (`transform`) over static, once-rasterized gradients. The terminal cursor MUST NOT blink.
 ## Requirements
 ### Requirement: Pause animations when the document is hidden
 

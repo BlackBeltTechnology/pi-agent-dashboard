@@ -4,6 +4,12 @@ import { applyAppHiddenClass, useAppHidden } from "../useAppHidden.js";
 
 afterEach(() => {
   document.documentElement.classList.remove("app-hidden");
+  // Restore the global visibilityState override so it doesn't leak into other
+  // tests (jsdom default is "visible").
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => "visible",
+  });
 });
 
 function setVisibility(state: DocumentVisibilityState): void {
