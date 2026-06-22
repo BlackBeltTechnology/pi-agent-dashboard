@@ -49,19 +49,34 @@ import { t as i18nT } from "../lib/i18n";
 /**
  * @param hasWidgetBarPrompt true when the session has a pending PromptBus
  *   request whose component type is registered with `placement: "widget-bar"`.
- *   In that case the purple `card-input-pulse` class is suppressed — a
+ *   In that case the purple `card-input-stripes` class is suppressed — a
  *   widget-bar slot owns the prompt's render, not the chat. Plugin-agnostic;
  *   the shell only knows about `placement`, not specific component type ids.
  *   See change: fix-flows-plugin-polish (B1).
  */
 export function getCardPulseClass(session: DashboardSession, hasWidgetBarPrompt = false): string {
-  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-pulse";
+  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-stripes";
   if (session.status === "streaming" || session.resuming) return "card-working-pulse";
-  // Unread state — gray scrolling stripes. Lower priority than the two above
+  // Unread state — cyan scrolling stripes. Lower priority than the two above
   // so streaming/ask_user keep their stronger colors.
   // See change: session-card-unread-stripes.
   if (session.unread) return "card-unread-pulse";
   return "";
+}
+
+/**
+ * Map the card's state marker class (kept on the <li> as the state signal) to
+ * the color class for its `.card-stripes-fx` overlay, which actually paints the
+ * compositor-only scrolling stripes behind card content.
+ * See change: throttle-idle-ui-animations.
+ */
+const STRIPE_FX_CLASS: Record<string, string> = {
+  "card-working-pulse": "card-stripes-running",
+  "card-unread-pulse": "card-stripes-unread",
+  "card-input-stripes": "card-stripes-input",
+};
+export function getCardStripeFxClass(pulseClass: string): string {
+  return STRIPE_FX_CLASS[pulseClass] ?? "";
 }
 
 export function ActivityIndicator({ session }: { session: DashboardSession }) {
@@ -462,9 +477,14 @@ export function SessionCard({
   const isMobile = useMobile();
   const prefs = useDisplayPrefs(session.id);
   const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying });
-  // Suppress purple `card-input-pulse` when a widget-bar slot owns the
+  // Suppress purple `card-input-stripes` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
+  // State marker class stays on the <li>; the matching color class drives the
+  // compositor-only `.card-stripes-fx` overlay rendered behind card content.
+  // See change: throttle-idle-ui-animations.
+  const pulseClass = getCardPulseClass(session, hasWidgetBarPrompt);
+  const stripeFxClass = getCardStripeFxClass(pulseClass);
   // OpenSpec workflow config gates which action buttons render in the
   // OPENSPEC subcard. See change: redesign-session-card-and-composer
   // (config-driven-workflow).
@@ -491,10 +511,11 @@ export function SessionCard({
       <li
         data-session-id={session.id}
         onClick={() => onSelect(session.id)}
-        className={`px-4 py-3 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg transition-all duration-200 ${
+        className={`relative isolate px-4 py-3 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg transition-all duration-200 ${
           isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
-        } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${getCardPulseClass(session, hasWidgetBarPrompt)}`}
+        } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       >
+        {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
         {/* Line 1: source icon (colored by status) + name + age */}
         <div className="flex items-center gap-2">
           <span
@@ -600,13 +621,17 @@ export function SessionCard({
     <li
       data-session-id={session.id}
       onClick={() => onSelect(session.id)}
-      className={`px-2 py-2 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 ${
+      className={`relative isolate px-2 py-2 cursor-pointer rounded-xl shadow-md shadow-[var(--shadow-card)] border hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 ${
         isSelected
           ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
           : "border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
-      } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${getCardPulseClass(session, hasWidgetBarPrompt)}`}
+      } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       data-testid="session-card-desktop"
     >
+      {isSelected ? <div className="card-glow-fx card-glow-fx-outer" aria-hidden="true" /> : null}
+      {isSelected ? <div className="card-glow-fx" aria-hidden="true" /> : null}
+      {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
+      {isSelected ? <div className="card-ring-fx" aria-hidden="true" /> : null}
       <div className="flex gap-1.5">
       {/* Left gutter: a status-tinted capsule rail with a circular icon chip
           at the top. The rail is a 6px-wide rounded vertical bar centered in

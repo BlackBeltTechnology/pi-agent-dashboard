@@ -4,6 +4,7 @@ import { useWebSocket } from "./hooks/useWebSocket.js";
 import { setInitSender } from "./lib/worktree-init-bus.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { useAppHidden } from "./hooks/useAppHidden.js";
 import { SessionList } from "./components/SessionList.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
@@ -270,6 +271,10 @@ function PiResourceFileRoute({
 
 export default function App() {
   const { t } = useI18n();
+  // Pause all CSS animations while the window is hidden to the tray /
+  // backgrounded, so the renderer + GPU stop continuous compositing.
+  // See change: throttle-idle-ui-animations.
+  useAppHidden();
   const [wsUrl, setWsUrl] = useState(getInitialWsUrl);
   const { send, onMessage, status } = useWebSocket(wsUrl);
   // Worktree-init bus needs a way to send subscribe/unsubscribe

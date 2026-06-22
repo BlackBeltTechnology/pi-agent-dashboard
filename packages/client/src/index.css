@@ -176,89 +176,77 @@ body {
 .markdown-content strong { font-weight: 700; }
 .markdown-content em { font-style: italic; }
 
-/* Card working pulse — drifting 45° amber stripes layered with a breathing tint
-   for streaming/resuming sessions. Two background layers, two animations on
-   coprime-ish periods (2s stripes, 3s pulse) so the card never visually locks.
+/* ── Session-card status stripes ──────────────────────────────
+   Drifting 45° stripes signal card state: running=yellow, unread=cyan,
+   ask_user=purple. See change: throttle-idle-ui-animations.
 
-   IMPORTANT: do NOT set background-size on the stripe layer. A diagonal
-   repeating-linear-gradient at 45° with 20px stops has a natural repeat
-   period of 20/√2 ≈ 14.142px along each axis. Any fixed background-size
-   that isn't an integer multiple of that period creates visible seams at
-   tile boundaries (especially obvious when the card has internal divider
-   lines). Letting the gradient fill the element naturally keeps the pattern
-   continuous across the whole card. The animation distance must also be a
-   pattern-period multiple for a seamless loop. */
-/* NOTE: stripes at `linear-gradient(45deg, …)` run along the (+1,+1) diagonal.
-   Translating background-position by (+x, +x) shifts the pattern ALONG the stripe
-   direction — visually invariant, zero perceived motion. To see motion we must
-   shift ACROSS the stripes. Scrolling purely horizontally (Δx, 0) gives the
-   classic barber-pole appearance. Period along x for a 20px diagonal gradient
-   is 20√2 ≈ 28.2843 px; we animate by 4 periods for a clearly visible drift. */
-@keyframes card-working-stripes-scroll {
-  0%   { background-position:         0px 0,  0 0; }
-  100% { background-position: 56.5685px 0,  0 0; } /* 2 × (20√2) px across stripes */
+   Compositor-only: the static repeating-linear-gradient lives on a
+   `.card-stripes-fx` overlay (rendered behind card content; the card root is
+   `relative isolate`) and SCROLLS via `transform: translateX` — NOT
+   `background-position`, which forces a per-frame repaint of every active card.
+   The overlay clips its translated tile to the card's rounded rect via
+   `overflow: hidden`; the dropdown menu lives unclipped on the card root, so
+   this never clips the menu. The state class on the card <li>
+   (`card-working-pulse` / `card-unread-pulse` / `card-input-stripes`) stays as
+   the state signal; the overlay carries the matching color class.
+
+   Geometry: a 45° repeating-linear-gradient with 20px stops has a horizontal
+   (across-stripe) period of 20√2 ≈ 28.2843px. translateX by exactly one period
+   loops seamlessly; the overlay is widened one period on each side so the
+   translate never reveals a gap. Translating ACROSS the stripes (Δx, 0) gives
+   the barber-pole drift; translating ALONG them (45°) would be invisible. */
+@keyframes card-stripe-scroll {
+  to { transform: translateX(28.2843px); } /* 1 × (20√2) px across stripes */
 }
 @keyframes card-working-opacity-pulse {
   0%, 100% { opacity: 0.6; }
   50%      { opacity: 1;   }
 }
-.card-working-pulse {
-  background-image:
-    repeating-linear-gradient(
-      45deg,
-      transparent 0 10px,
-      rgba(234, 179, 8, 0.10) 10px 20px
-    ),
-    linear-gradient(rgba(234, 179, 8, 0.06), rgba(234, 179, 8, 0.06));
-  /* Tile size = 1 diagonal period (20√2 ≈ 28.2843 px) so the pattern
-     repeats seamlessly; background-position animates across multiple
-     full periods for a clean loop. Size the flat tint layer the same as
-     the stripes so the single shorthand background-size applies cleanly. */
-  background-size: 28.2843px 28.2843px, auto;
-  background-repeat: repeat, no-repeat;
-  /* Coprime-ish periods (2s stripes, 3s pulse) so the two effects never
-     visually lock into a single rhythm — keeps the card feeling ambient
-     rather than mechanically pumping. */
+.card-stripes-fx {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+.card-stripes-fx::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -28.2843px;
+  right: -28.2843px;
+  /* No background-size: let the repeating-linear-gradient fill naturally so its
+     20px/45° period never seams (a fixed tile that isn't a clean multiple of the
+     diagonal period creates visible bands). Seamless looping comes from
+     translateX by exactly one horizontal period (28.2843px), not background-size. */
+  /* Coprime-ish periods (2s scroll, 3s pulse) so the two effects never lock
+     into one rhythm — keeps the card ambient rather than mechanically pumping. */
   animation:
-    card-working-stripes-scroll 2s linear infinite,
+    card-stripe-scroll 2s linear infinite,
     card-working-opacity-pulse 3s ease-in-out infinite;
+}
+/* running — amber (yellow-500) */
+.card-stripes-running::before {
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 10px, rgba(234, 179, 8, 0.10) 10px 20px),
+    linear-gradient(rgba(234, 179, 8, 0.06), rgba(234, 179, 8, 0.06));
+}
+/* unread — cyan (cyan-400) */
+.card-stripes-unread::before {
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 10px, rgba(34, 211, 238, 0.18) 10px 20px),
+    linear-gradient(rgba(34, 211, 238, 0.07), rgba(34, 211, 238, 0.07));
+}
+/* ask_user — purple (purple-500 rgb(168 85 247)) */
+.card-stripes-input::before {
+  background-image:
+    repeating-linear-gradient(45deg, transparent 0 10px, rgba(168, 85, 247, 0.18) 10px 20px),
+    linear-gradient(rgba(168, 85, 247, 0.07), rgba(168, 85, 247, 0.07));
 }
 @media (prefers-reduced-motion: reduce) {
-  .card-working-pulse { animation: none; }
-  .card-unread-pulse { animation: none; }
-}
-
-/* Card unread pulse — cyan scrolling stripes for sessions with unviewed activity.
-   Same geometry & animation timing as card-working-pulse; only the colors
-   change to a cool, distinctive cyan (Tailwind cyan-400) so the visual reads
-   as "alive, with something fresh for you" rather than "work happening now."
-   Cyan owns its own corner of the dashboard palette — distant from yellow
-   (streaming), purple (ask_user), green (alive dot), red (errors).
-   See change: session-card-unread-stripes. */
-.card-unread-pulse {
-  background-image:
-    repeating-linear-gradient(
-      45deg,
-      transparent 0 10px,
-      rgba(34, 211, 238, 0.18) 10px 20px
-    ),
-    linear-gradient(rgba(34, 211, 238, 0.07), rgba(34, 211, 238, 0.07));
-  background-size: 28.2843px 28.2843px, auto;
-  background-repeat: repeat, no-repeat;
-  /* Reuse the working-pulse keyframes verbatim — the visual difference comes
-     entirely from color; geometry and motion are identical. */
-  animation:
-    card-working-stripes-scroll 2s linear infinite,
-    card-working-opacity-pulse 3s ease-in-out infinite;
-}
-
-/* Card input pulse — purple tint for sessions waiting for user input (ask_user) */
-@keyframes card-input-pulse {
-  0%, 100% { background-color: transparent; }
-  50% { background-color: rgba(168, 85, 247, 0.08); }
-}
-.card-input-pulse {
-  animation: card-input-pulse 3s ease-in-out infinite;
+  .card-stripes-fx::before { animation: none; }
 }
 
 /* Collapsible group animation — grid row trick for auto-height transitions */
@@ -331,81 +319,153 @@ mark.markdown-search-highlight-active {
   animation: flow-edge-dash 0.8s linear infinite;
 }
 
+/* ── Pause all animations while the window is hidden ──────────
+   App.tsx (useAppHidden) toggles `app-hidden` on the document root from
+   `document.visibilityState`. Freezing the compositor stops continuous
+   per-frame painting for a tray-hidden / backgrounded window without
+   unmounting anything; animations resume instantly on visible.
+   See change: throttle-idle-ui-animations. */
+:root.app-hidden *,
+:root.app-hidden *::before,
+:root.app-hidden *::after { animation-play-state: paused !important; }
+
 /* ── Selected-card iridescent ring ────────────────────────────
    See change: redesign-session-card-and-composer (1.1–1.5).
    Mounted via `.card-selected-ring` class on the desktop card root
    when isSelected === true. Coexists with the static blue fallback
    border + the existing pulse classes (card-working-pulse, etc.). */
-@property --neon-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-@keyframes neon-rotate { to { --neon-angle: 360deg; } }
+/* Rotate a static gradient via transform (compositor-only, rasterized once)
+   instead of animating the registered @property --neon-angle, which
+   re-rasterized the conic gradient every frame. See change:
+   throttle-idle-ui-animations. */
+@keyframes neon-rotate { to { transform: rotate(360deg); } }
 
 .card-selected-ring {
   position: relative;
   isolation: isolate;
 }
 .card-selected-ring > * { position: relative; z-index: 2; }
-.card-selected-ring::before {
-  content: "";
+/* Double rotating glow — two `.card-glow-fx` overlays. overflow:hidden clips
+   each rotating conic to a small halo band so the rotation stays CONTAINED (an
+   unclipped rotating square would have to cover the card diagonal and would
+   balloon into colored blobs bleeding across the page on wide cards). filter:
+   blur on the LAYER then spreads a soft halo just beyond the card. An inner
+   layer (.card-glow-fx, tight + sharper) plus a wider outer layer
+   (.card-glow-fx-outer, larger blur, lower opacity) read as a double glow
+   border. Both sit behind the crisp rim (z-index -2/-3 < -1). */
+.card-glow-fx {
   position: absolute;
-  inset: -1px;
+  inset: -2px;
   border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--neon-angle, 0deg),
-    rgb(59 130 246 / var(--neon-rim-alpha)),
-    rgb(139 92 246 / var(--neon-rim-alpha)),
-    rgb(236 72 153 / var(--neon-rim-alpha)),
-    rgb(34 211 238 / var(--neon-rim-alpha)),
-    rgb(59 130 246 / var(--neon-rim-alpha))
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
+  overflow: hidden;
   pointer-events: none;
-  z-index: 1;
-  animation: neon-rotate 13s linear infinite;
+  z-index: -2;
+  filter: blur(var(--neon-glow-blur));
+  opacity: var(--neon-glow-opacity);
+  /* Query container so the rotating child can size to the LARGER edge (cqmax)
+     and cover the card diagonal at every rotation angle. */
+  container-type: size;
 }
-.card-selected-ring::after {
+.card-glow-fx-outer {
+  inset: -7px;
+  z-index: -3;
+  filter: blur(calc(var(--neon-glow-blur) * 2));
+  opacity: calc(var(--neon-glow-opacity) * 0.7);
+}
+.card-glow-fx::before {
   content: "";
   position: absolute;
-  inset: -3px;
-  border-radius: inherit;
+  /* Square = 2× the layer's larger edge, centered. 2·max ≥ the W×H diagonal, so
+     a full rotation never sweeps an uncovered gap on wide cards (a proportional
+     200%×200% box shrinks to 2H wide at 90° and gaps when W ≫ H). */
+  left: 50%;
+  top: 50%;
+  width: 200cqmax;
+  height: 200cqmax;
+  margin-left: -100cqmax;
+  margin-top: -100cqmax;
   background: conic-gradient(
-    from var(--neon-angle, 0deg),
+    from 0deg,
     rgb(59 130 246 / var(--neon-glow-alpha)),
     rgb(139 92 246 / var(--neon-glow-alpha)),
     rgb(236 72 153 / var(--neon-glow-alpha)),
     rgb(34 211 238 / var(--neon-glow-alpha)),
     rgb(59 130 246 / var(--neon-glow-alpha))
   );
-  filter: blur(var(--neon-glow-blur));
-  opacity: var(--neon-glow-opacity);
-  pointer-events: none;
-  z-index: 0;
+  transform-origin: center;
+  will-change: transform;
   animation: neon-rotate 13s linear infinite;
 }
+
+/* Crisp rim — a `.card-ring-fx` overlay (rendered behind card content on the
+   `relative isolate` card root). overflow:hidden + border-radius clips the
+   oversized rotating conic to the card's rounded rect (the clip is on the
+   STATIC layer, so it does not rotate), and the xor mask on that static layer
+   carves the interior so only the 1px rim band shows the spinning gradient.
+   The dropdown menu lives unclipped on the card root, so this never clips it. */
+.card-ring-fx {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: -1;
+  padding: 1px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  container-type: size;
+}
+.card-ring-fx::before {
+  content: "";
+  position: absolute;
+  /* Square covering the card diagonal at every angle (see .card-glow-fx note). */
+  left: 50%;
+  top: 50%;
+  width: 200cqmax;
+  height: 200cqmax;
+  margin-left: -100cqmax;
+  margin-top: -100cqmax;
+  background: conic-gradient(
+    from 0deg,
+    rgb(59 130 246 / var(--neon-rim-alpha)),
+    rgb(139 92 246 / var(--neon-rim-alpha)),
+    rgb(236 72 153 / var(--neon-rim-alpha)),
+    rgb(34 211 238 / var(--neon-rim-alpha)),
+    rgb(59 130 246 / var(--neon-rim-alpha))
+  );
+  transform-origin: center;
+  will-change: transform;
+  animation: neon-rotate 13s linear infinite;
+}
+/* Keep the decorative FX layers behind card content even on selected cards,
+   where `.card-selected-ring > *` would otherwise lift them to z-index 2 and
+   force position: relative. Declared after that rule so source order wins. */
+.card-stripes-fx,
+.card-ring-fx,
+.card-glow-fx {
+  position: absolute;
+}
+.card-stripes-fx,
+.card-ring-fx { z-index: -1; }
+.card-glow-fx { z-index: -2; }
+.card-glow-fx-outer { z-index: -3; }
 
 @keyframes neon-breathe {
   0%, 100% { opacity: 0.35; }
   50%      { opacity: 0.65; }
 }
 @supports not (background: conic-gradient(from 0deg, red, blue)) {
-  .card-selected-ring::before {
+  .card-ring-fx::before {
     background: rgba(96, 165, 250, 0.5);
     animation: none;
   }
-  .card-selected-ring::after {
-    animation: neon-breathe 6s ease-in-out infinite;
-  }
+  .card-glow-fx { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card-selected-ring::before,
-  .card-selected-ring::after { animation: none; }
+  .card-ring-fx::before,
+  .card-glow-fx::before { animation: none; }
 }
 
 /* ── OpenSpec stepper node opaque base ────────────────────────

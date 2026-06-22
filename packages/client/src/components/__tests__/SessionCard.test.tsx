@@ -214,11 +214,11 @@ describe("SessionCard", () => {
     expect(card.className).not.toContain("card-working-pulse");
   });
 
-  it("should apply card-input-pulse when currentTool is ask_user", () => {
+  it("should apply card-input-stripes when currentTool is ask_user", () => {
     const session = makeSession({ status: "streaming", currentTool: "ask_user" });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("card-input-pulse");
+    expect(card.className).toContain("card-input-stripes");
     expect(card.className).not.toContain("card-working-pulse");
   });
 
@@ -227,7 +227,7 @@ describe("SessionCard", () => {
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain("card-working-pulse");
-    expect(card.className).not.toContain("card-input-pulse");
+    expect(card.className).not.toContain("card-input-stripes");
   });
 
   // Unread / gray stripes — see change: session-card-unread-stripes.
@@ -237,7 +237,7 @@ describe("SessionCard", () => {
     const card = container.firstChild as HTMLElement;
     expect(card.className).toContain("card-unread-pulse");
     expect(card.className).not.toContain("card-working-pulse");
-    expect(card.className).not.toContain("card-input-pulse");
+    expect(card.className).not.toContain("card-input-stripes");
   });
 
   it("should NOT apply card-unread-pulse when unread is false", () => {
@@ -266,7 +266,7 @@ describe("SessionCard", () => {
     const session = makeSession({ status: "streaming", currentTool: "ask_user", unread: true });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("card-input-pulse");
+    expect(card.className).toContain("card-input-stripes");
     expect(card.className).not.toContain("card-unread-pulse");
     expect(card.className).not.toContain("card-working-pulse");
   });

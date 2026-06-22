@@ -52,7 +52,10 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, Monaco, monospace",
       theme: getTerminalTheme(),
-      cursorBlink: true,
+      // No cursor blink — avoids a recurring per-second repaint while a terminal
+      // tab is open and idle. Matches InlineTerminalCard. See change:
+      // throttle-idle-ui-animations.
+      cursorBlink: false,
       allowProposedApi: true,
     });
 
