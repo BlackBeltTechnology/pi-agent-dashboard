@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from "react";
+import React, { useRef, useLayoutEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from "react";
 import { Icon } from "@mdi/react";
 import { mdiContentCopy, mdiTextBox, mdiLoading, mdiChevronDown, mdiSourceFork, mdiClose } from "@mdi/js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
@@ -195,25 +195,11 @@ export interface ChatViewHandle {
 
 export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, queuedTexts, pendingSteering, loadingHistory }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isNearBottom = useRef(true);
-  const programmaticScroll = useRef(false);
-  // Race-safe across multi-batch event_replay: when ChatView itself initiates a
-  // scroll, the resulting onScroll can fire after another replay batch has grown
-  // scrollHeight, making handleScroll misread the geometry as "user scrolled up".
-  // markProgrammatic() raises programmaticScroll for ~150ms so handleScroll
-  // ignores any onScroll attributable to our own scrollTo call.
-  const programmaticTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const markProgrammatic = useCallback(() => {
-    programmaticScroll.current = true;
-    if (programmaticTimeout.current) clearTimeout(programmaticTimeout.current);
-    programmaticTimeout.current = setTimeout(() => {
-      programmaticScroll.current = false;
-      programmaticTimeout.current = null;
-    }, 150);
-  }, []);
-  useEffect(() => () => {
-    if (programmaticTimeout.current) clearTimeout(programmaticTimeout.current);
-  }, []);
+  // True when the user wants the chat to chase new content. Flips to false on
+  // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
+  // session restore when the saved position was away from the bottom. Re-arms
+  // when the user clicks the scroll-to-bottom button or scrolls back to the end.
+  const stickToBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   // Effective display prefs for this session (configurable-chat-display).
   const prefs = useDisplayPrefs(sessionId);
@@ -225,15 +211,10 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   const bubbleWide = isMobile ? "w-[95%]" : "w-[95%]";
 
   const handleScroll = useCallback(() => {
-    // Suppress scroll measurements caused by our own programmatic scrollTo. The
-    // onScroll event lags scrollTo and can fire after the next replay batch has
-    // grown scrollHeight; measuring then would falsely conclude the user scrolled
-    // away from the bottom. Only real user gestures should reach this code path.
-    if (programmaticScroll.current) return;
     const el = scrollRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
-    isNearBottom.current = nearBottom;
+    stickToBottomRef.current = nearBottom;
     setShowScrollButton(!nearBottom);
     // Persist scroll position for this session
     if (sessionId) {
@@ -244,23 +225,27 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    isNearBottom.current = true;
+    // Smooth when quiet, instant when streaming/tool output is active so the
+    // animation cannot race with incoming chunks and re-introduce jumps.
+    const isStreaming = Boolean(state.streamingText || state.streamingThinking || pendingSteering?.length);
+    el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? "instant" : "smooth" });
+    stickToBottomRef.current = true;
     setShowScrollButton(false);
     if (sessionId) {
       scrollStateMap.set(sessionId, { scrollTop: el.scrollHeight, nearBottom: true });
     }
-  }, [sessionId]);
+  }, [sessionId, state.streamingText, state.streamingThinking, pendingSteering]);
 
-  // Save scroll state when leaving, restore when arriving
-  useEffect(() => {
+  // Save scroll state when leaving, restore when arriving. Layout effect keeps
+  // the restored position synchronized with the first paint so there is no flash.
+  useLayoutEffect(() => {
     if (sessionId !== prevSessionRef.current) {
       // Save outgoing session scroll position
       const prevId = prevSessionRef.current;
       if (prevId && scrollRef.current) {
         scrollStateMap.set(prevId, {
           scrollTop: scrollRef.current.scrollTop,
-          nearBottom: isNearBottom.current,
+          nearBottom: stickToBottomRef.current,
         });
       }
       prevSessionRef.current = sessionId;
@@ -269,37 +254,27 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       const saved = sessionId ? scrollStateMap.get(sessionId) : undefined;
       if (saved && !saved.nearBottom) {
         // Scroll-locked: restore exact position
-        isNearBottom.current = false;
+        stickToBottomRef.current = false;
         setShowScrollButton(true);
-        requestAnimationFrame(() => {
-          markProgrammatic();
-          scrollRef.current?.scrollTo(0, saved.scrollTop);
-        });
+        scrollRef.current?.scrollTo(0, saved.scrollTop);
       } else {
-        // Near bottom or first visit: scroll to end
-        isNearBottom.current = true;
+        // Near bottom or first visit: scroll to end and follow new content
+        stickToBottomRef.current = true;
         setShowScrollButton(false);
-        requestAnimationFrame(() => {
-          markProgrammatic();
-          scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
-        });
+        scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
       }
     }
   }, [sessionId]);
 
-  // Auto-scroll on new content when near bottom. We deliberately do NOT gate on
-  // programmaticScroll here — repeated replay batches must keep chasing the tail.
-  // The flag is only consulted inside handleScroll to ignore the spurious onScroll
-  // events that follow each scrollTo. scrollToTurn opts out by setting
-  // isNearBottom.current = false, which still gates this effect.
-  useEffect(() => {
-    if (isNearBottom.current) {
-      requestAnimationFrame(() => {
-        markProgrammatic();
-        scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
-      });
+  // Auto-scroll on new content when the user has not escaped the bottom.
+  // Layout effect keeps the DOM and scroll position synchronized before paint,
+  // eliminating the per-line jumps caused by async scrollTo calls.
+  useLayoutEffect(() => {
+    if (stickToBottomRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
     }
-  }, [state.messages.length, state.streamingText, state.pendingPrompt, markProgrammatic]);
+  }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering]);
 
   // Group consecutive repeated tool calls for cleaner display.
   // Also drop user messages flagged `retriedFrom` (manual Retry button
@@ -321,23 +296,21 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       if (!container) return;
       const el = container.querySelector(`[data-turn="${turnIndex}"]`) as HTMLElement | null;
       if (!el) return;
-      // Suppress auto-scroll during programmatic navigation
-      programmaticScroll.current = true;
-      isNearBottom.current = false;
+      // Escape sticky bottom so streaming does not pull the user away from the
+      // navigated turn.
+      stickToBottomRef.current = false;
       setShowScrollButton(true);
       // Use getBoundingClientRect for reliable position calculation
       const containerRect = container.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const targetTop = container.scrollTop + (elRect.top - containerRect.top);
       container.scrollTo({ top: targetTop, behavior: "instant" });
-      // Re-enable auto-scroll after a delay
-      setTimeout(() => { programmaticScroll.current = false; }, 200);
     },
   }), []);
 
   return (
     <div className="flex-1 relative overflow-hidden flex flex-col">
-    <div ref={scrollRef} onScroll={handleScroll} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
+    <div ref={scrollRef} onScroll={handleScroll} style={{ overflowAnchor: "auto" }} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {
         // Collapsed group of repeated tool calls
         if ((item as ToolCallGroup).type === "group") {

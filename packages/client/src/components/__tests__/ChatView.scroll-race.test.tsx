@@ -41,16 +41,15 @@ function stateWith(n: number) {
   return s;
 }
 
-/** Flush one animation frame — auto-scroll effect schedules its scrollTo via rAF */
+/** Flush one animation frame — some React updates still flush through rAF in tests */
 async function flushRaf() {
   await act(async () => {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   });
 }
 
-describe("ChatView scroll race during multi-batch replay", () => {
-  it("ignores racing onScroll events while a programmatic scroll is in flight", async () => {
-    // Mount with empty state
+describe("ChatView sticky scroll", () => {
+  it("keeps the scroll-to-bottom button hidden after programmatic auto-scroll", async () => {
     const { container, rerender } = render(
       <ThemeProvider>
         <ChatView state={createInitialState()} toolContext={defaultToolContext} />
@@ -58,28 +57,23 @@ describe("ChatView scroll race during multi-batch replay", () => {
     );
     await flushRaf();
 
-    // Simulate replay batch arriving: messages.length grows → auto-scroll effect
-    // schedules a programmatic scrollTo and marks the suppression flag.
+    // Simulate content streaming in while the user is already at the bottom
+    const scrollEl = getScrollContainer(container);
+    setScrollPosition(scrollEl, 950, 1000, 400);
+    fireEvent.scroll(scrollEl); // sets stickToBottomRef = true
+
+    setScrollPosition(scrollEl, 950, 1500, 400);
     rerender(
       <ThemeProvider>
         <ChatView state={stateWith(50)} toolContext={defaultToolContext} />
       </ThemeProvider>,
     );
-    await flushRaf(); // run the rAF callback that performs scrollTo and sets the flag
 
-    // While the flag is set, fire a racing onScroll event with geometry that
-    // *would* normally indicate "user scrolled up": scrollHeight grew (next
-    // batch already arrived) but scrollTop is still old. handleScroll must
-    // ignore this measurement.
-    const scrollEl = getScrollContainer(container);
-    setScrollPosition(scrollEl, 100, 5000, 400);
-    fireEvent.scroll(scrollEl);
-
-    // Button must remain hidden — the spurious "scrolled away" write was suppressed
+    // Programmatic auto-scroll must not surface the escape button
     expect(container.querySelector('[data-testid="scroll-to-bottom"]')).toBeNull();
   });
 
-  it("real user scroll-up after the suppression window shows the button", async () => {
+  it("lets the user escape sticky bottom immediately on scroll-up", async () => {
     const { container, rerender } = render(
       <ThemeProvider>
         <ChatView state={createInitialState()} toolContext={defaultToolContext} />
@@ -87,20 +81,53 @@ describe("ChatView scroll race during multi-batch replay", () => {
     );
     await flushRaf();
 
+    // Start at bottom, then scroll up
+    const scrollEl = getScrollContainer(container);
+    setScrollPosition(scrollEl, 0, 1000, 400);
+    fireEvent.scroll(scrollEl);
+    setScrollPosition(scrollEl, 0, 1000, 400);
+    fireEvent.scroll(scrollEl);
+
+    expect(container.querySelector('[data-testid="scroll-to-bottom"]')).not.toBeNull();
+
+    // More content arrives; scroll must stay where the user left it
+    const previousTop = scrollEl.scrollTop;
     rerender(
       <ThemeProvider>
         <ChatView state={stateWith(50)} toolContext={defaultToolContext} />
       </ThemeProvider>,
     );
+
+    expect(scrollEl.scrollTop).toBe(previousTop);
+  });
+
+  it("re-arms sticky bottom when the user scrolls back to the end", async () => {
+    const { container, rerender } = render(
+      <ThemeProvider>
+        <ChatView state={createInitialState()} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
     await flushRaf();
 
-    // Wait past the 150 ms suppression window
-    await new Promise<void>((r) => setTimeout(r, 200));
-
     const scrollEl = getScrollContainer(container);
-    setScrollPosition(scrollEl, 100, 5000, 400);
+    // Escape
+    setScrollPosition(scrollEl, 0, 1000, 400);
     fireEvent.scroll(scrollEl);
-
     expect(container.querySelector('[data-testid="scroll-to-bottom"]')).not.toBeNull();
+
+    // Return to bottom
+    setScrollPosition(scrollEl, 950, 1000, 400);
+    fireEvent.scroll(scrollEl);
+    expect(container.querySelector('[data-testid="scroll-to-bottom"]')).toBeNull();
+
+    // New content should now be chased again
+    setScrollPosition(scrollEl, 950, 1500, 400);
+    rerender(
+      <ThemeProvider>
+        <ChatView state={stateWith(50)} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+
+    expect(scrollEl.scrollTop).toBe(1500);
   });
 });

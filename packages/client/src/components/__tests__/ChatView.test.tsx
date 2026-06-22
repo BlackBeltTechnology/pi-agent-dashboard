@@ -287,45 +287,51 @@ describe("ChatView", () => {
       return container.querySelector("[class*='overflow-y-auto']")!;
     }
 
-    it("auto-scrolls when near bottom (default behavior)", async () => {
+    it("auto-scrolls when near bottom (default behavior)", () => {
       const state = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
       ]);
-      const { rerender } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+      const { container, rerender } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>,
+      );
 
-      // isNearBottom defaults to true, so adding a message should trigger scrollTo
-      scrollToSpy.mockClear();
+      const scrollEl = getScrollContainer(container);
+      // Start at the bottom of current content
+      setScrollPosition(scrollEl, 1000, 1000, 400);
+      fireEvent.scroll(scrollEl);
+
+      // Content grows; layout-effect auto-scroll should snap to the new tail
+      setScrollPosition(scrollEl, 1000, 1500, 400);
       const state2 = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
         { id: "2", role: "assistant", content: "Hi" },
       ]);
       rerender(<ThemeProvider><ChatView state={state2} toolContext={defaultToolContext} /></ThemeProvider>);
 
-      // scrollTo is called inside requestAnimationFrame — flush it
-      await vi.waitFor(() => {
-        expect(scrollToSpy).toHaveBeenCalled();
-      });
+      expect(scrollEl.scrollTop).toBe(1500);
     });
 
     it("does NOT auto-scroll when scrolled away from bottom", () => {
       const state = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
       ]);
-      const { container, rerender } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+      const { container, rerender } = render(
+        <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>,
+      );
 
       const scrollEl = getScrollContainer(container);
       // Simulate user scrolling up: far from bottom
       setScrollPosition(scrollEl, 0, 1000, 400);
       fireEvent.scroll(scrollEl);
 
-      scrollToSpy.mockClear();
       const state2 = stateWithMessages([
         { id: "1", role: "user", content: "Hello" },
         { id: "2", role: "assistant", content: "Hi" },
       ]);
       rerender(<ThemeProvider><ChatView state={state2} toolContext={defaultToolContext} /></ThemeProvider>);
 
-      expect(scrollToSpy).not.toHaveBeenCalled();
+      // Scroll position must stay where the user left it
+      expect(scrollEl.scrollTop).toBe(0);
     });
 
     it("shows scroll-to-bottom button when not near bottom", () => {
@@ -380,6 +386,60 @@ describe("ChatView", () => {
       expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
       // Button should be hidden after click
       expect(container.querySelector('[data-testid="scroll-to-bottom"]')).toBeNull();
+    });
+
+    it("scrollToTurn disables sticky bottom so streaming does not pull the view away", async () => {
+      const state = stateWithMessages([{ id: "1", role: "user", content: "Hello" }]);
+      state.messages[0] = { ...state.messages[0], turnIndex: 0 };
+      const chatRef = React.createRef<import("../ChatView.js").ChatViewHandle>();
+      const { container, rerender } = render(
+        <ThemeProvider>
+          <ChatView ref={chatRef} state={state} toolContext={defaultToolContext} />
+        </ThemeProvider>,
+      );
+
+      // Start at bottom, then navigate to a turn
+      const scrollEl = getScrollContainer(container);
+      setScrollPosition(scrollEl, 950, 1000, 400);
+      fireEvent.scroll(scrollEl);
+
+      await act(async () => {
+        chatRef.current?.scrollToTurn(0);
+      });
+
+      // Ref is wired and the navigated element exists
+      expect(chatRef.current).not.toBeNull();
+      expect(scrollEl.querySelector('[data-turn="0"]')).not.toBeNull();
+
+      // Escape button must appear
+      setScrollPosition(scrollEl, 950, 1500, 400);
+      const state2 = stateWithMessages([
+        { id: "1", role: "user", content: "Hello" },
+        { id: "2", role: "assistant", content: "Hi" },
+      ]);
+      rerender(
+        <ThemeProvider>
+          <ChatView ref={chatRef} state={state2} toolContext={defaultToolContext} />
+        </ThemeProvider>,
+      );
+
+      expect(scrollEl.scrollTop).toBe(950);
+    });
+
+    it("clicking scroll-to-bottom button uses instant scroll while streaming", () => {
+      const state = createInitialState();
+      state.streamingText = "Streaming...";
+      const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+
+      const scrollEl = getScrollContainer(container);
+      setScrollPosition(scrollEl, 0, 1000, 400);
+      fireEvent.scroll(scrollEl);
+
+      scrollToSpy.mockClear();
+      const btn = container.querySelector('[data-testid="scroll-to-bottom"]')!;
+      fireEvent.click(btn);
+
+      expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "instant" }));
     });
   });
 
