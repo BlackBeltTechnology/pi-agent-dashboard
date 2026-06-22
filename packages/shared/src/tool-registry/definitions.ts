@@ -17,6 +17,7 @@ import type { ToolRegistry } from "./registry.js";
 import {
   type StrategyDeps,
   bareImportStrategy,
+  bundledGitBashStrategy,
   bundledNodeStrategy,
   managedBinStrategy,
   managedModuleStrategy,
@@ -36,6 +37,7 @@ function classify(strategyName: string): Source {
   if (strategyName === "npm-global") return "npm-global";
   if (strategyName === "bare-import") return "bare-import";
   if (strategyName === "bundled-node") return "bundled";
+  if (strategyName === "bundled-git-bash") return "bundled";
   // `where` and anything else — resolved via PATH — classifies as system.
   return "system";
 }
@@ -187,6 +189,7 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
   // Both fast-fail when their root is absent, so non-Electron / non-managed
   // callers fall straight through to PATH lookup without extra fs cost.
   const isNode = binaryName === "node";
+  const isBash = binaryName === "bash";
   const strategies = [
     overrideStrategy(binaryName, deps),
     ...(isNode
@@ -195,6 +198,10 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
           managedRuntimeStrategy("node", deps),
         ]
       : []),
+    // bash resolves the Windows bundled git shell (sh.exe == GNU bash)
+    // before PATH lookup. No-op on Unix. See change:
+    // resolve-bundled-bash-on-windows.
+    ...(isBash ? [bundledGitBashStrategy(deps)] : []),
     managedBinStrategy(binaryName, deps),
     whereStrategy(binaryName, deps),
   ];

@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ToolResolver, isAppImageSelfHit } from "../platform/binary-lookup.js";
+import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
 import { getManagedNodeBinDir } from "../platform/managed-node-path.js";
 import * as npm from "../platform/npm.js";
@@ -302,6 +303,38 @@ export function bundledNodeStrategy(
       }
       if (exists(candidate)) return { ok: true, path: candidate };
       return { ok: false, reason: `missing: ${candidate}` };
+    },
+  };
+}
+
+/**
+ * Windows-only: resolve `bash` to the bundled dugite-native shell at
+ * `<resourcesPath>/git/usr/bin/sh.exe`. dugite-native ships GNU bash under
+ * the name `sh` (no `bash.exe`), so `where bash` misses even though the
+ * shell is on PATH. This strategy surfaces it as a `bundled` hit so the
+ * Tools panel shows bash ✓ instead of "not found".
+ *
+ * Fast-fails on non-win32 → chain falls through to `where` (finds
+ * /bin/bash on Unix). Uses {@link resolveBundledGitDir} (cmd/git.exe
+ * marker) for the bundle root.
+ *
+ * See change: resolve-bundled-bash-on-windows.
+ */
+export function bundledGitBashStrategy(deps?: StrategyDeps): Strategy {
+  const { exists } = d(deps);
+  return {
+    name: "bundled-git-bash",
+    run(ctx): StrategyResult {
+      if (ctx.platform !== "win32") return { ok: false, reason: "not win32" };
+      const gitDir = resolveBundledGitDir({
+        platform: ctx.platform,
+        resourcesPath: ctx.env?.resourcesPath,
+        exists,
+      });
+      if (!gitDir) return { ok: false, reason: "no bundled git tree" };
+      const sh = path.win32.join(gitDir, "usr", "bin", "sh.exe");
+      if (exists(sh)) return { ok: true, path: sh };
+      return { ok: false, reason: `missing: ${sh}` };
     },
   };
 }

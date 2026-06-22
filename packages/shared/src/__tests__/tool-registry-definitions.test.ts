@@ -20,6 +20,7 @@ function freshRegistry(opts: {
   npmRootGlobal?: () => string;
   overrides?: Record<string, string>;
   platform?: NodeJS.Platform;
+  resourcesPath?: string;
   /**
    * Test-isolated module resolver. Defaults to null-returning so the
    * production resolver (which walks the repo's real node_modules) does
@@ -37,6 +38,7 @@ function freshRegistry(opts: {
   const r = new ToolRegistry({
     overrides: store,
     platform: opts.platform ?? "linux",
+    env: opts.resourcesPath ? { resourcesPath: opts.resourcesPath } : undefined,
   });
   registerDefaultTools(r, {
     exists: opts.exists ?? (() => false),
@@ -376,10 +378,26 @@ describe("bash binary definition", () => {
     }
   });
 
-  it("chain order: override → managed → where", () => {
+  it("chain order: override → bundled-git-bash → managed → where", () => {
     const r = freshRegistry({ exists: () => false, which: () => null });
     const trail = r.resolve("bash").tried.map((t) => t.strategy);
-    expect(trail).toEqual(["override", "managed", "where"]);
+    expect(trail).toEqual(["override", "bundled-git-bash", "managed", "where"]);
+  });
+
+  // See change: resolve-bundled-bash-on-windows.
+  it("resolves bundled git sh.exe on Windows before PATH", () => {
+    const sh = "C:\\res\\git\\usr\\bin\\sh.exe";
+    const marker = "C:\\res\\git\\cmd\\git.exe";
+    const r = freshRegistry({
+      platform: "win32",
+      resourcesPath: "C:\\res",
+      exists: (p) => p === sh || p === marker,
+      which: () => null,
+    });
+    const res = r.resolve("bash");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(sh);
+    expect(res.source).toBe("bundled");
   });
 
   it("resolves via where on Unix (/bin/bash)", () => {
