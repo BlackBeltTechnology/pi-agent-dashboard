@@ -24,24 +24,24 @@
   verify: with a stub extension, budget cap halts continuation.
 
 ## 4. Client — Screen A (create/edit)
-- [ ] 4.1 Replace single-input create in `FolderGoalsSection.tsx` +
+- [x] 4.1 Replace single-input create in `FolderGoalsSection.tsx` +
   `GoalsBoardClaim.tsx` with the form: objective, editable criteria, judge
   picker, budget, self-judge toggle. → verify: component test submits full
   payload to `createGoal`.
-- [ ] 4.2 Wire judge-model options from the dashboard's known model list. →
+- [x] 4.2 Wire judge-model options from the dashboard's known model list. →
   verify: picker renders models; cross-model badge reflects ≠ executor.
 
 ## 5. Client — Screen C (detail) + B (board) + D (chip)
-- [ ] 5.1 Detail: loop-control bar via existing `plugin_action`
+- [x] 5.1 Detail: loop-control bar via existing `plugin_action`
   (pause/resume/done/subgoal/clear), dual budget gauges, editable criteria. →
   verify: clicking Pause dispatches `action:"pause"`.
-- [ ] 5.2 Detail: judge verdict timeline from `goal.verdicts`. → verify: renders
+- [x] 5.2 Detail: judge verdict timeline from `goal.verdicts`. → verify: renders
   newest-first, empty state when absent.
-- [ ] 5.3 Board: enriched `GoalCard` (ring, verdict, criteria progress, spend
+- [x] 5.3 Board: enriched `GoalCard` (ring, verdict, criteria progress, spend
   bar). → verify: card test shows live ring + verdict.
-- [ ] 5.4 Chip: `GoalControl` shows `⚑ turns/budget · verdict` + inline pause +
+- [x] 5.4 Chip: `GoalControl` shows `⚑ turns/budget · verdict` + inline pause +
   open. → verify: chip test renders live state, pause dispatches.
-- [ ] 5.5 Delete affordance (detail control bar + board card overflow) with
+- [x] 5.5 Delete affordance (detail control bar + board card overflow) with
   confirm, calling existing `deleteGoal()`. → verify: confirm calls
   `DELETE /api/folders/goals/:id`; cancel sends nothing; post-delete navigates to
   board.
