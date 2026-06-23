@@ -63,6 +63,7 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { createGoalStore } from "./goal-store.js";
 import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
+import { decideBudgetHalt } from "./goal-budget-guard.js";
 import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
 import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
@@ -633,6 +634,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const GOAL_STATUS_MESSAGE = "goal_status";
     const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
     arr.push((msg) => accumulator.handle(msg));
+
+    // Dashboard-side budget enforcement (degraded tier): once a linked goal's
+    // live turnsUsed reaches GoalRecord.budget.maxTurns, dispatch /goal pause.
+    // Deduped per session so an already-capped loop isn't re-paused every
+    // snapshot. See change: sophisticate-goal-authoring-and-control (task 3.2).
+    const budgetPaused = new Set<string>();
+    arr.push((msg) => {
+      const m = msg as { sessionId?: string; payload?: { status?: string; turnsUsed?: number } };
+      if (!m.sessionId || !m.payload || typeof m.payload.status !== "string") return;
+      const sessionId = m.sessionId;
+      if (m.payload.status !== "active") {
+        budgetPaused.delete(sessionId);
+        return;
+      }
+      if (budgetPaused.has(sessionId)) return;
+      const sess = sessionManager.get(sessionId);
+      if (!sess?.goalId || !sess.cwd) return;
+      const cwd = sess.cwd;
+      const goalId = sess.goalId;
+      void goalStore
+        .list(cwd)
+        .then((goals) => {
+          const goal = goals.find((g) => g.id === goalId);
+          const decision = decideBudgetHalt(
+            { status: "active", turnsUsed: m.payload!.turnsUsed ?? 0 },
+            goal?.budget,
+          );
+          if (decision.halt && decision.command) {
+            budgetPaused.add(sessionId);
+            piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: decision.command });
+          }
+        })
+        .catch((err) => console.warn(`[goal-budget-guard] budget check failed for ${goalId}:`, err));
+    });
     pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
   }
 

@@ -16,10 +16,10 @@
   verify: unit test feeds 60 snapshots, expects 50 retained, newest last.
 
 ## 3. Server — loop coupling (probe-gated, Decision 2)
-- [ ] 3.1 Probe `@ricoyudog/pi-goal-hermes` command surface; record tier
+- [x] 3.1 Probe `@ricoyudog/pi-goal-hermes` command surface; record tier
   (full / criteria-only+dashboard-budget / intent-only). → verify: probe unit
   test with each simulated surface picks the right tier.
-- [ ] 3.2 In the chosen tier, extend `goalCommandFor` / dispatch to push budget +
+- [x] 3.2 In the chosen tier, extend `goalCommandFor` / dispatch to push budget +
   judge, OR enforce budget dashboard-side (suppress continuation past cap). →
   verify: with a stub extension, budget cap halts continuation.
 
