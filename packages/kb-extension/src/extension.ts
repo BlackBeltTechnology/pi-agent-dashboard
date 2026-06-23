@@ -14,6 +14,9 @@
  * except the opt-in DOX nudge.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+/** Minimal structural shape of the extension context we use (cwd). */
+type Ctx = { cwd?: string };
 import { Type } from "typebox";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { agentsChain } from "@blackbelt-technology/pi-dashboard-kb";
@@ -58,8 +61,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
       limit: Type.Optional(Type.Number({ default: 10 })),
       doc_type: Type.Optional(Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")])),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const cwd = (ctx as { cwd?: string })?.cwd ?? process.cwd();
+    async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md" }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+      const cwd = ctx?.cwd ?? process.cwd();
       reindexNow(state, cwd); // freshness
       const { store, cfg } = getKb(state, cwd);
       const hits = store.search(params.query as string, {
@@ -83,8 +86,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
       node: Type.String({ description: "heading_path or file path" }),
       depth: Type.Optional(Type.Number({ default: 2 })),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const cwd = (ctx as { cwd?: string })?.cwd ?? process.cwd();
+    async execute(_id: string, params: { node: string; depth?: number }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+      const cwd = ctx?.cwd ?? process.cwd();
       const { store } = getKb(state, cwd);
       const nodes = store.neighbors(params.node as string, (params.depth as number) ?? 2);
       return { content: [{ type: "text", text: JSON.stringify(nodes, null, 2) }], details: { nodes: nodes.length } };
@@ -99,8 +102,8 @@ export default function kbExtension(pi: ExtensionAPI): void {
       path: Type.String(),
       section: Type.Optional(Type.String({ description: "heading_path breadcrumb" })),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const cwd = (ctx as { cwd?: string })?.cwd ?? process.cwd();
+    async execute(_id: string, params: { path: string; section?: string }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
+      const cwd = ctx?.cwd ?? process.cwd();
       const { store, cfg } = getKb(state, cwd);
       const root = cfg.resolvedSources[0]?.id ?? "";
       const chunk = store.getChunk(root, params.path as string, params.section as string | undefined);
