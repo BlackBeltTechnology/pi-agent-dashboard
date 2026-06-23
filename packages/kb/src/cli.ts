@@ -37,6 +37,20 @@ function parse(argv: string[]): Flags {
   return f;
 }
 
+/** Validate a positive-integer flag; exit 2 with a clear message on garbage. */
+function posInt(v: unknown, name: string): number | undefined {
+  if (v === undefined) return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1) { console.error(`${name} must be a positive integer (got ${String(v)})`); process.exit(2); }
+  return n;
+}
+/** Validate an enum flag against an allowlist; exit 2 on unknown value. */
+function enumFlag(v: unknown, allowed: string[], name: string): string | undefined {
+  if (v === undefined || v === true) return undefined;
+  if (!allowed.includes(v as string)) { console.error(`${name} must be one of ${allowed.join("|")} (got ${String(v)})`); process.exit(2); }
+  return v as string;
+}
+
 function cfgFrom(flags: Flags): ResolvedConfig {
   const cwd = (flags.cwd as string) ?? process.cwd();
   const cfg = loadConfig(cwd, { configPath: flags.config as string | undefined });
@@ -172,11 +186,13 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
     } else if (cmd === "search") {
       const q = flags._[1];
       if (!q) { console.error("search needs a query"); process.exit(2); }
+      const limit = posInt(flags.limit, "--limit");
+      const docType = enumFlag(flags["doc-type"], ["doc", "agents", "source-md"], "--doc-type");
       if (!flags["no-reindex"]) runIndex(cfg, store, sources); // auto incremental freshness
       const so: SearchOpts = {
-        limit: flags.limit ? Number(flags.limit) : 10,
+        limit: limit ?? 10,
         root: flags.root as string | undefined,
-        docType: flags["doc-type"] as DocType | undefined,
+        docType: docType as DocType | undefined,
         fieldWeights: cfg.ranking.fieldWeights,
         proximityBoost: cfg.ranking.proximityBoost,
         diversity: cfg.ranking.diversity,
@@ -190,13 +206,20 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       if (flags.json) console.log(JSON.stringify(hits, null, 2));
       else for (const h of hits) console.log(`${h.score.toFixed(2)}  ${h.path}  ::  ${h.headingPath}${h.akaPaths ? `  (+${h.akaPaths.length} dup)` : ""}${h.parent ? `  [parent: ${h.parent.headingPath}]` : ""}\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`);
     } else if (cmd === "neighbors") {
-      const n = store.neighbors(flags._[1], flags.depth ? Number(flags.depth) : 2, flags.rel as any);
+      const depth = posInt(flags.depth, "--depth") ?? 2;
+      const rel = enumFlag(flags.rel, ["child_of", "links_to", "references", "has_tag"], "--rel");
+      const n = store.neighbors(flags._[1], depth, rel as any);
       console.log(flags.json ? JSON.stringify(n, null, 2) : n.map((x) => `${x.type}\t${x.name}`).join("\n"));
     } else if (cmd === "backlinks") {
       const n = store.backlinks(flags._[1]);
       console.log(flags.json ? JSON.stringify(n, null, 2) : n.map((x) => `${x.type}\t${x.name}`).join("\n"));
     } else if (cmd === "get") {
-      const c = store.getChunk(sources[0]?.id ?? "", flags._[1], flags.section as string | undefined);
+      // search every resolved root (not just the first) for the path
+      let c = null;
+      for (const s of sources) {
+        c = store.getChunk(s.id, flags._[1], flags.section as string | undefined);
+        if (c) break;
+      }
       console.log(c ? c.body : `(not found: ${flags._[1]})`);
     } else if (cmd === "eval") {
       const gf = flags.golden as string | undefined;

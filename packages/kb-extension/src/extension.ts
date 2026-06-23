@@ -63,11 +63,15 @@ export default function kbExtension(pi: ExtensionAPI): void {
     }),
     async execute(_id: string, params: { query: string; limit?: number; doc_type?: "doc" | "agents" | "source-md" }, _signal: AbortSignal | undefined, _onUpdate: unknown, ctx: Ctx) {
       const cwd = ctx?.cwd ?? process.cwd();
+      const query = typeof params.query === "string" ? params.query : "";
+      if (!query.trim()) return { content: [{ type: "text", text: "[]" }], details: { hits: 0 } };
+      const limit = Number.isFinite(Number(params.limit)) ? Math.min(100, Math.max(1, Math.trunc(Number(params.limit)))) : 10;
+      const docType = ["doc", "agents", "source-md"].includes(params.doc_type as string) ? params.doc_type : undefined;
       reindexNow(state, cwd); // freshness
       const { store, cfg } = getKb(state, cwd);
-      const hits = store.search(params.query as string, {
-        limit: (params.limit as number) ?? 10,
-        docType: params.doc_type as any,
+      const hits = store.search(query, {
+        limit,
+        docType: docType as any,
         fieldWeights: cfg.ranking.fieldWeights,
         proximityBoost: cfg.ranking.proximityBoost,
         diversity: cfg.ranking.diversity,

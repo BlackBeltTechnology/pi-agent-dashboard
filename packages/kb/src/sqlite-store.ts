@@ -99,10 +99,21 @@ export class SqliteFtsStore implements KbStore {
     const expanded = expandQuery(query, opts);
     const m = toMatch(expanded);
     if (!m) return [];
-    const w = opts.fieldWeights ?? { headingPath: 8, heading: 4, body: 1 };
-    const limit = opts.limit ?? 10;
+    // Coerce numerics that get interpolated into SQL (bm25 weights, LIMIT) to
+    // finite, bounded numbers — never trust raw config/flag values in a SQL string.
+    const num = (v: unknown, dflt: number, min: number, max: number): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt;
+    };
+    const fw = opts.fieldWeights;
+    const w = {
+      headingPath: num(fw?.headingPath, 8, 0, 1000),
+      heading: num(fw?.heading, 4, 0, 1000),
+      body: num(fw?.body, 1, 0, 1000),
+    };
+    const limit = num(opts.limit, 10, 1, 1000);
     const wantDedup = opts.dedup !== false;
-    const fetch = wantDedup ? limit * 4 : limit;
+    const fetch = Math.min(4000, wantDedup ? limit * 4 : limit);
     const where: string[] = ["chunks MATCH ?"];
     const args: any[] = [m];
     if (opts.root) { where.push("root = ?"); args.push(opts.root); }

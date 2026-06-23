@@ -176,6 +176,15 @@ describe("config layering", () => {
     expect(cfg.dbAbsPath).toBe(join(dir, "custom/index.db"));
   });
 
+  it("deep-merges nested config keys (partial ranking keeps default fieldWeights)", () => {
+    const p = join(dir, "nested.json");
+    writeFileSync(p, JSON.stringify({ sources: [{ kind: "filesystem", ref: "docs" }], ranking: { proximityBoost: false } }));
+    const cfg = loadConfig(dir, { configPath: p });
+    expect(cfg.ranking.proximityBoost).toBe(false); // from project
+    expect(cfg.ranking.fieldWeights.headingPath).toBe(10); // preserved from defaults (not wiped)
+    expect(cfg.ranking.diversity.enabled).toBe(true); // preserved from defaults
+  });
+
   it("validator rejects bad sources and bad mode", () => {
     const p = join(dir, "bad.json");
     writeFileSync(p, JSON.stringify({ sources: [{ ref: 5 }] }));
@@ -345,7 +354,11 @@ describe("source resolvers + trust", () => {
     expect(canonicalSource(spec)).toBe(canonicalSource(spec));
   });
 
-  it("https resolver fetches a single .md from a local server (trusted)", async () => {
+  // Exercises the resolver's fetch → cache → write path against a loopback server.
+  // A local HTTPS listener needs a self-signed cert; the fetch/cache logic is
+  // scheme-agnostic, so we use http:// loopback to test the mechanism, not to
+  // assert any "https-only" contract.
+  it("https resolver fetches + caches a single .md (fetch path, loopback)", async () => {
     const body = "# Fetched\nRemote markdown content long enough to remain a chunk after merge.\n";
     const srv: Server = createServer((_req, res) => { res.writeHead(200, { "content-type": "text/markdown" }); res.end(body); });
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
