@@ -8,7 +8,7 @@ Investigation traced the failure to four pipeline gaps:
 
 2. **Releases are drafts.** `release-cut` skill leaves the GitHub Release as a draft (`publish.yml:706` `draft: true`). The default `electron-updater` GitHub provider queries `/releases/latest` which excludes drafts and pre-releases.
 
-3. **macOS unsigned.** Squirrel.Mac requires a Developer-ID-signed, notarised `.app` to apply an in-place update. Unsigned updates are silently rejected at the staging step. Our DMGs are unsigned (per `docs/plan/electron-app.md` D12 placeholder for Windows; macOS signing was never wired despite being technically required for updates).
+3. **macOS unsigned.** Squirrel.Mac requires a Developer-ID-signed, notarised `.app` to apply an in-place update. Unsigned updates are silently rejected at the staging step. Our DMGs are unsigned (per `docs/research/electron-app.md` D12 placeholder for Windows; macOS signing was never wired despite being technically required for updates).
 
 4. **Errors swallowed.** `app-updater.ts:48` `onError` is `() => {}`. Every 404, parse error, signature error, network error vanishes. The user sees no signal; we get no telemetry. This is the reason gap #1-3 went unnoticed for so long.
 

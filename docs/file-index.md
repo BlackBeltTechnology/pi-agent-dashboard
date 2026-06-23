@@ -25,6 +25,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 |---|---|
 | [`faq.md`](./faq.md) | Recurring how-to questions. Answers point at README.md + docs/ sources. |
 | [`chat-display-preferences.md`](./chat-display-preferences.md) | `DisplayPrefs` storage, merge rule, transport, migration, first-launch. See change: configurable-chat-display. |
+| [`research/README.md`](./research/README.md) | Single home for forward-looking research, exploration, plans, and roadmaps that outlive their change. Indexed table inside. Change rationale stays in the change's design.md; promote here only when reusable past archive. |
 
 ## Adding a new file
 

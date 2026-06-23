@@ -6,7 +6,7 @@ is implemented today** — it is a forward-looking spec, not a description of
 current behavior.
 
 Context: a subset of these commands is referenced in
-[`docs/plans/plano-pi-integration.md`](./plano-pi-integration.md) as part of
+[`docs/research/plano-pi-integration.md`](./plano-pi-integration.md) as part of
 the broader Plano routing/orchestration integration. This file isolates the
 *command-palette UX* concern from the routing concern so the autocomplete
 work can ship independently.
@@ -81,5 +81,5 @@ above commands — showing it implies it works.
 - `packages/client/src/components/CommandInput.tsx` — autocomplete logic,
   `BUILTIN_COMMANDS`
 - `packages/client/src/App.tsx` — `BUILTIN_SLASH_COMMANDS`, `wrappedHandleSend`
-- `docs/plans/plano-pi-integration.md` — broader routing/orchestration plan
+- `docs/research/plano-pi-integration.md` — broader routing/orchestration plan
   that motivates `/roles` and `Ctrl+A`

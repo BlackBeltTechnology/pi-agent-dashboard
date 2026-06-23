@@ -343,6 +343,8 @@ In a git worktree, use the worktree parent's `.pi/skills` (opsx/OpenSpec skills)
 
 When creating OpenSpec change artifacts, always place them at `openspec/changes/<name>/` — never nest under subdirectories like `active/` or `archive/`. Prefer using `openspec change new <name>` CLI to scaffold the directory structure correctly.
 
+When a proposal is backed by non-trivial research, put the rationale in the change's `design.md`. If the research outlives the change (reusable findings, option evals, roadmaps), save it under `docs/research/` and reference it from `proposal.md` — `design.md` is archived with the change, `docs/research/` is not. Index new research docs in `docs/research/README.md`.
+
 ## Diagram Style
 
 When creating diagrams, use Mermaid syntax (```mermaid blocks) instead of ASCII box drawings. This applies to explore mode, design documents, and all other artifacts.

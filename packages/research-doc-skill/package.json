@@ -1,0 +1,32 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-research-doc-skill",
+  "version": "0.5.4",
+  "description": "Pi skill that produces a structured research/decision document in docs/research/ by fanning out parallel @fast web-search subagents, gathering codebase context, and synthesizing into a stable doc skeleton. Use when research backs an OpenSpec proposal and will outlive the change.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/research-doc-skill"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "pi-dashboard",
+    "research",
+    "websearch",
+    "openspec"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/research-doc-synthesis"
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "README.md"
+  ]
+}

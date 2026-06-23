@@ -54,7 +54,7 @@
 
 - [ ] 7.1 Update `docs/file-index-plugins.md`: amend the `packages/jj-plugin/` row to mention server-driven fold-back, client-local dialogs, WS progress events; add new file rows for `fold-back.ts`, `workspace-forget.ts`, `preflight.ts`, the three new dialog components under `client/dialogs/`, and the shared `error-codes.ts` / `ws-events.ts` files. Note: routes stay in `packages/server/src/routes/jj-routes.ts` (no new file there).
 - [ ] 7.2 Update `docs/architecture.md` (or add a new section) documenting the plugin → server-endpoint → WS-progress flow as the canonical pattern for plugin-driven server operations with multi-phase UX
-- [ ] 7.3 Update `docs/plans/openspec-jj-bridge.md` to mark Decision 5 reversed and reference this change
+- [ ] 7.3 Update `docs/research/openspec-jj-bridge.md` to mark Decision 5 reversed and reference this change
 - [ ] 7.4 Add a row to `AGENTS.md` "Key Files" only if `packages/jj-plugin/src/server/fold-back.ts` becomes architecturally backbone — otherwise leave AGENTS.md alone (per Documentation Update Protocol)
 
 ## 8. Validation and rollout

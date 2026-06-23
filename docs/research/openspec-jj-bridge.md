@@ -412,7 +412,7 @@ The bridge SHALL NOT modify any source file in `packages/jj-plugin/` nor `packag
 | Spec | `openspec/changes/add-openspec-jj-bridge/specs/openspec-jj-bridge/spec.md` |
 | Foundation (archived) | `openspec/changes/archive/2026-05-02-add-jj-workspace-plugin/` |
 | Visual aids | `docs/diagrams/openspec-jj-bridge/` |
-| This plan | `docs/plans/openspec-jj-bridge.md` |
+| This plan | `docs/research/openspec-jj-bridge.md` |
 
 | Diagram | Type | Location |
 |---|---|---|
