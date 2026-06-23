@@ -34,7 +34,13 @@ function probeFreePort(): Promise<number> {
 //     container publishes + listens on exactly what Playwright probes.
 async function resolvePort(envKey: string, attachDefault: number): Promise<number> {
   const existing = process.env[envKey];
-  if (existing) return Number(existing);
+  if (existing !== undefined && existing !== "") {
+    const parsed = Number(existing);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65_535) {
+      throw new Error(`Invalid ${envKey}: "${existing}". Expected an integer port in [1, 65535].`);
+    }
+    return parsed;
+  }
   if (USE_RUNNING) return attachDefault;
   const port = await probeFreePort();
   process.env[envKey] = String(port); // propagate to worker processes at spawn

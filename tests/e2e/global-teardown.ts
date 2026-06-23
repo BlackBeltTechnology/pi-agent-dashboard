@@ -8,11 +8,20 @@ export default async function globalTeardown(): Promise<void> {
 
   // test-down.sh re-derives the compose project from $PWD, so it MUST run from
   // the same workspace dir test-up.sh used as HOST_CWD (recorded in the marker).
-  let workspace: string | undefined;
+  let workspace: string;
   try {
-    workspace = JSON.parse(fs.readFileSync(MARKER_PATH, "utf8")).workspace;
-  } catch {
-    // best-effort: fall back to default cwd
+    const marker = JSON.parse(fs.readFileSync(MARKER_PATH, "utf8")) as { workspace?: unknown };
+    if (typeof marker.workspace !== "string" || marker.workspace.length === 0) {
+      throw new Error("missing or invalid workspace");
+    }
+    workspace = marker.workspace;
+  } catch (error) {
+    // test-down.sh derives the compose project from $PWD; a wrong/undefined cwd
+    // would target the wrong project and leak the managed harness. Fail loud.
+    throw new Error(
+      `Cannot determine teardown workspace from ${MARKER_PATH}; refusing fallback cwd.`,
+      { cause: error as Error },
+    );
   }
 
   try {

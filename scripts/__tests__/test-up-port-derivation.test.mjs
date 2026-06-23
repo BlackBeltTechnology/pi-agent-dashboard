@@ -176,11 +176,15 @@ describe.skipIf(!hasDocker())("compose interpolation (requires docker)", () => {
         encoding: "utf8",
       },
     );
-    // Published host port == in-container listen port (no drift).
+    // Published host port == in-container listen port (no drift), dashboard.
     expect(out).toMatch(/published:\s*"?18042"?/);
     expect(out).toMatch(/target:\s*18042/);
     // Container env DASHBOARD_PORT tracks the exported value.
     expect(out).toMatch(/DASHBOARD_PORT:\s*"?18042"?/);
+    // Same for the gateway port — guards against the gateway env re-hardcoding.
+    expect(out).toMatch(/published:\s*"?19042"?/);
+    expect(out).toMatch(/target:\s*19042/);
+    expect(out).toMatch(/PI_GATEWAY_PORT:\s*"?19042"?/);
   });
 });
 

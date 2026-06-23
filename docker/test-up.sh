@@ -26,6 +26,16 @@ STATE_FILE="${HOST_CWD}/.pi-test-harness.json"
 export COMPOSE_PROJECT_NAME
 COMPOSE_PROJECT_NAME="$(derive_project "$HOST_CWD")"
 
+# Hash-derive a free port pair from HOST_CWD, probing within disjoint windows.
+derive_ports() {
+  local h base_dash base_gw
+  h="$(derive_hash "$HOST_CWD")"
+  base_dash=$(( DASH_LO + h % 1000 ))
+  base_gw=$(( GW_LO + h % 1000 ))
+  DASHBOARD_PORT="$(find_free_in_window "$base_dash" "$DASH_LO" "$DASH_HI")" || exit 1
+  PI_GATEWAY_PORT="$(find_free_in_window "$base_gw" "$GW_LO" "$GW_HI")" || exit 1
+}
+
 # Resolve the dashboard + gateway host ports. Three paths:
 #   both vars exported  -> use verbatim, skip probing (e2e harness contract)
 #   exactly one set     -> usage error (no half-derived state)
@@ -40,12 +50,13 @@ elif [ -f "$STATE_FILE" ] && [ -n "$(docker compose -p "$COMPOSE_PROJECT_NAME" p
   # recorded ports instead of hunting a new pair.
   DASHBOARD_PORT="$(sed -n 's/.*"dashboardPort"[: ]*\([0-9][0-9]*\).*/\1/p' "$STATE_FILE")"
   PI_GATEWAY_PORT="$(sed -n 's/.*"gatewayPort"[: ]*\([0-9][0-9]*\).*/\1/p' "$STATE_FILE")"
+  # Malformed/empty state on a running project: don't reuse garbage — re-derive.
+  if ! [[ "$DASHBOARD_PORT" =~ ^[0-9]+$ && "$PI_GATEWAY_PORT" =~ ^[0-9]+$ ]]; then
+    echo "parallelize-test-harness: malformed $STATE_FILE, re-deriving ports" >&2
+    derive_ports
+  fi
 else
-  HASH="$(derive_hash "$HOST_CWD")"
-  base_dash=$(( DASH_LO + HASH % 1000 ))
-  base_gw=$(( GW_LO + HASH % 1000 ))
-  DASHBOARD_PORT="$(find_free_in_window "$base_dash" "$DASH_LO" "$DASH_HI")" || exit 1
-  PI_GATEWAY_PORT="$(find_free_in_window "$base_gw" "$GW_LO" "$GW_HI")" || exit 1
+  derive_ports
 fi
 export DASHBOARD_PORT PI_GATEWAY_PORT
 export PI_GATEWAY_BIND=127.0.0.1

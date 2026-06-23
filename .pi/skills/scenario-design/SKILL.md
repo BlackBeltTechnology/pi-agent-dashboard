@@ -34,7 +34,7 @@ break the system, not confirm it works. A scenario is only as good as it is
 
 Every scenario MUST resolve three concrete slots:
 
-```
+```text
    ┌─────────────┬──────────────────────┬────────────────────────────┐
    │  INPUT      │  TRIGGER             │  EXPECTED OBSERVABLE OUTCOME │
    │  concrete   │  the condition /     │  a measurable, visible fact  │
@@ -106,7 +106,7 @@ the unfillable slot named (see Gate). Do not invent the missing value.
 
 Whether an unfillable Triple blocks or just annotates depends on stage:
 
-```
+```text
    stage = proposal | design   →  HARD gate
    stage = apply               →  SOFT gate
    (no --stage)                →  infer: tasks.md absent ⇒ proposal/design (hard)
@@ -138,7 +138,7 @@ Every scenario carries a **level** tag fixing where it would be authored. Honour
 the AGENTS.md hard rule: rendered-UI assertions are Playwright only; qa/ stays
 CLI/process smoke.
 
-```
+```text
    ┌────────────────────────────┬──────────────────────────────────────────┐
    │ Scenario nature            │ Level → location                          │
    ├────────────────────────────┼──────────────────────────────────────────┤
