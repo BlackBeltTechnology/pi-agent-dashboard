@@ -43,6 +43,17 @@ npm i -D playwright && npx playwright install chromium
 
 Without it, `score_mockup` returns the rubric plus manual-capture guidance.
 
+## Expert UX designer mode
+
+The skill acts as an expert UX designer: **every decision is grounded in an
+externally documented, public-facing design rule** (Nielsen's 10 heuristics,
+Laws of UX, Gestalt, WCAG 2.2, GOV.UK/USWDS/Material patterns) — never invented.
+The full citable rule corpus is bundled at
+[`references/ux-best-practices.md`](references/ux-best-practices.md): the source
+hierarchy (licensing-safe), universal laws, per-component pattern rules, the
+5-step expert evaluation protocol, and a 22-item checkable rubric seed used by
+`score_mockup` / `validate_mockup`.
+
 ## The design contract
 
 `ui-contract.md` is the single source of truth for cross-screen consistency:

@@ -20,6 +20,8 @@
     "mockup",
     "wireframe",
     "design-system",
+    "ux",
+    "accessibility",
     "ui"
   ],
   "pi": {
@@ -34,6 +36,7 @@
     "src/",
     "!src/__tests__",
     ".pi/skills/",
+    "references/",
     "README.md"
   ],
   "peerDependencies": {
