@@ -3,8 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
+  PI_GATEWAY_PORT,
   TEST_UP,
   USE_RUNNING,
   waitForHealth,
@@ -39,12 +41,16 @@ export default async function globalSetup(): Promise<void> {
   // the in-container browser reach guarded endpoints like directory listing).
   // Without it, scenario specs cannot pin a folder or spawn a session. Blank
   // any host provider keys so they never leak into the disposable container.
+  // Override-as-a-pair: the container binds + listens on exactly the port
+  // Playwright probes (D1 override path), keeping baseURL in sync.
   const env = {
     ...process.env,
     PI_E2E_SEED: "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
+    DASHBOARD_PORT: String(DASHBOARD_PORT),
+    PI_GATEWAY_PORT: String(PI_GATEWAY_PORT),
   };
   let child;
   try {

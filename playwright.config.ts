@@ -1,8 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
+import { BASE_URL } from "./tests/e2e/lifecycle.js";
 
-// Browser-E2E suite. Targets the disposable Docker test harness on :18000.
+// Browser-E2E suite. Targets the disposable Docker test harness. The port is
+// dynamic (probed in managed mode, PW_E2E_PORT when attaching) and resolved
+// once in tests/e2e/lifecycle.ts so baseURL matches the container.
 // Lifecycle (boot/teardown of the container) lives in tests/e2e/global-*.ts.
-// See openspec change add-playwright-e2e + tests/e2e/README.md.
+// See openspec change add-playwright-e2e, parallelize-test-harness + tests/e2e/README.md.
 export default defineConfig({
   testDir: "tests/e2e",
   // Container boot is slow; first run may build the image. Keep generous.
@@ -17,7 +20,7 @@ export default defineConfig({
   globalSetup: "./tests/e2e/global-setup.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
   use: {
-    baseURL: "http://localhost:18000",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },

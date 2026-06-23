@@ -3,10 +3,12 @@
  *
  * Sibling of the OpenSpec / Automations folder nav slots: shows
  * `Goals (N) →` (opens the goals board for this folder) plus a `+ Goal`
- * create affordance (inline objective capture → POST → navigate to board).
+ * create affordance that opens the shared `CreateGoalDialog` modal (parity
+ * with the automation plugin's `CreateAutomationDialog`).
  *
  * Plugin-local: navigates the shell in-app via wouter's `useLocation`; no
- * core/shell edit. See change: add-goals-folder-page (tasks 3.1, 3.2).
+ * core/shell edit. See change: add-goals-folder-page (tasks 3.1, 3.2);
+ * redesign-goal-create-dialog (task 2.1).
  */
 import React, { useState } from "react";
 import { useLocation } from "wouter";
@@ -14,8 +16,8 @@ import { Icon } from "@mdi/react";
 import { mdiArrowRight, mdiPlus, mdiRefresh } from "@mdi/js";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { useGoals } from "./useGoals.js";
-import { createGoal, goalsBoardUrl } from "./goals-api.js";
-import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
+import { goalsBoardUrl } from "./goals-api.js";
+import { CreateGoalDialog } from "./CreateGoalDialog.js";
 
 export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
   const cwd = folder?.cwd;
@@ -24,13 +26,6 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
   const [creating, setCreating] = useState(false);
 
   if (!cwd) return null;
-
-  const submit = async (payload: GoalFormPayload): Promise<void> => {
-    await createGoal(cwd, payload);
-    setCreating(false);
-    refetch();
-    navigate(goalsBoardUrl(cwd));
-  };
 
   return (
     <div data-testid="folder-goals-section" onClick={(e) => e.stopPropagation()}>
@@ -62,9 +57,11 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
         </button>
       </div>
       {creating && (
-        <div className="mt-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2" data-testid="folder-goal-create">
-          <GoalForm onSubmit={submit} onCancel={() => setCreating(false)} />
-        </div>
+        <CreateGoalDialog
+          cwd={cwd}
+          onClose={() => setCreating(false)}
+          onCreated={() => { refetch(); navigate(goalsBoardUrl(cwd)); }}
+        />
       )}
     </div>
   );

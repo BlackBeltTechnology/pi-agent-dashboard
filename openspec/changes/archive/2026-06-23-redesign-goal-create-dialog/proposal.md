@@ -31,8 +31,12 @@ while the user is authoring.
   Remove the `goals-board-create` inline container; the `goals-board-new` button now opens the dialog.
 - Update the goal-plugin client tests (`GoalsBoardClaim.test.tsx`, `FolderGoalsSection.test.tsx`)
   to assert the dialog opens/closes and that `GoalForm` submits through it; add a `CreateGoalDialog.test.tsx`.
-- Mockup `mockups/goal/index.html` Screen A already reflects this (modal dialog, fields synced to
-  shipped `GoalForm`, opens from both surfaces) — referenced as the visual source of truth.
+- Mockup `mockups/goal/index.html` Screen A is the visual source of truth (modal dialog, fields
+  synced to shipped `GoalForm`, opens from both surfaces). Verified via the `frontend-mockup-loop`
+  (GROUND against shipped `GoalForm` + `CreateAutomationDialog` overlay tokens; TEST screenshot pass
+  in dark + light themes). Loop fixes applied: dropped the non-spec `Goals ›` header crumb to match
+  the bare `<h2>` of `CreateAutomationDialog`; added `aria-label`s to the icon-only ✕ / + Add /
+  remove buttons (a11y floor); marked the two teaching hints mockup-only in the legend.
 
 ## Capability
 
@@ -46,6 +50,6 @@ shared modal dialog. No field, payload, or backend change.
 - **No backend / API change** — `createGoal` and `POST /api/folders/:cwd/goals` are untouched.
 - **No board layout, goal-card, or goal-detail changes.**
 - **No edit flow** — `CreateGoalDialog` is create-only for now (edit remains future work; the
-  mockup's Screen A labels it "Create / Edit" but this change ships create-only).
+  mockup's Screen A is titled "Create goal" / header "New goal" — create-only, matching this change).
 - The mockup's re-added teaching hints (judge-rationale, criterion→`/subgoal`) are
   **mockup-only**; adding them to `GoalForm` is a separate follow-up, not this change.

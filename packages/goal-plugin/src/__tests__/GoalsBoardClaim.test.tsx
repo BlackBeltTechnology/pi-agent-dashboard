@@ -30,9 +30,17 @@ function goalFixture(over: Partial<GoalRecord> = {}): GoalRecord {
 
 let deletes: string[];
 function mockFetch(goals: GoalRecord[]) {
+  // Stateful: a POST appends a goal so a subsequent refetch yields a new card.
+  const live = [...goals];
   return vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "DELETE") { deletes.push(url); return { ok: true, json: async () => ({ success: true }) } as Response; }
-    return { ok: true, json: async () => ({ success: true, data: goals }) } as Response;
+    if (init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      const created = goalFixture({ id: `g-${live.length + 1}`, objective: body.objective, sessionIds: [], driverSessionId: undefined });
+      live.push(created);
+      return { ok: true, json: async () => ({ success: true, data: created }) } as Response;
+    }
+    return { ok: true, json: async () => ({ success: true, data: live }) } as Response;
   });
 }
 
@@ -79,5 +87,24 @@ describe("GoalsBoardClaim", () => {
     fireEvent.click(getByTestId("goal-card-delete"));
     await new Promise((r) => setTimeout(r, 20));
     expect(deletes.length).toBe(0);
+  });
+
+  it("+ New Goal opens the shared dialog, not an inline panel", async () => {
+    const { getByTestId, queryByTestId } = renderBoard([]);
+    await waitFor(() => getByTestId("goals-board-new"));
+    expect(queryByTestId("goals-board-create")).toBeNull();
+    fireEvent.click(getByTestId("goals-board-new"));
+    expect(getByTestId("goal-create-dialog")).toBeTruthy();
+    expect(getByTestId("goal-form")).toBeTruthy();
+  });
+
+  it("creating through the dialog yields a new goal card", async () => {
+    const { getByTestId, getAllByTestId } = renderBoard([]);
+    await waitFor(() => getByTestId("goals-board-new"));
+    fireEvent.click(getByTestId("goals-board-new"));
+    fireEvent.change(getByTestId("goal-form-objective"), { target: { value: "Ship importer" } });
+    fireEvent.click(getByTestId("goal-form-submit"));
+    await waitFor(() => getAllByTestId("goal-card"));
+    expect(getByTestId("goal-card").textContent).toContain("Ship importer");
   });
 });

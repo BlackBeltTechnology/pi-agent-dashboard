@@ -6,7 +6,9 @@
 # Layers on compose.yml. Provably cannot collide with a host dashboard:
 #   - isolated $HOME (container)        -> no home-lock fight
 #   - PI_DASHBOARD_NO_MDNS=1            -> no mDNS advertise/browse
-#   - ports 18000 / 18999              -> no clash with host 8000 / 9999
+#   - ports dynamic per worktree        -> no clash with host 8000 / 9999
+#     (default window 18000 / 18999; test-up.sh hash-derives + probes a free
+#      pair from HOST_CWD, exports DASHBOARD_PORT / PI_GATEWAY_PORT)
 #   - pi-state -> tmpfs                 -> zero ~/.pi pollution
 #   - HOST_CWD mounted read-only, made writable via an in-container overlay
 #     -> host project files never modified.
@@ -35,8 +37,8 @@ services:
     environment:
       # Isolation knobs (override base values; merged by key).
       PI_DASHBOARD_NO_MDNS: "1"
-      DASHBOARD_PORT: "18000"
-      PI_GATEWAY_PORT: "18999"
+      DASHBOARD_PORT: "${DASHBOARD_PORT:-18000}"
+      PI_GATEWAY_PORT: "${PI_GATEWAY_PORT:-18999}"
       PI_GATEWAY_BIND: "127.0.0.1"
       TUNNEL_ENABLED: "false"
       # Path-parity overlay target. test-up.sh exports HOST_CWD=$PWD.

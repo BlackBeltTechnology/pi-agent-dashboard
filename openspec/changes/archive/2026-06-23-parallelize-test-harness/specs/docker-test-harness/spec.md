@@ -1,8 +1,5 @@
-# docker-test-harness Specification
+## MODIFIED Requirements
 
-## Purpose
-Disposable, fully-isolated containerized pi-dashboard for manual browser QA and clean-install verification. Guarantees no collision with a host dashboard across home-lock, mDNS, ports, and `~/.pi` state; provides path-identical workspace mounting onto a throwaway overlay, baked git/jj fixtures, and a fail-fast smoke check.
-## Requirements
 ### Requirement: Collision-free isolation from the host dashboard
 
 A test instance launched via the harness SHALL NOT collide with a dashboard already running on the host across any of the four collision vectors: the single-dashboard-per-home lock, mDNS discovery, network ports, and the `~/.pi` state directory. The harness SHALL ALSO NOT collide with any other harness instance running on the same host (e.g. a second instance launched from a parallel git worktree).
@@ -48,53 +45,3 @@ A test instance launched via the harness SHALL NOT collide with a dashboard alre
 - **WHEN** the harness runs and is torn down with `test-down.sh`
 - **THEN** all session, auth, and config state written during the run is discarded with the tmpfs volume
 - **AND** the host's `~/.pi` directory is byte-identical before and after the run
-
-### Requirement: Path-identical workspace mounting onto a throwaway overlay
-
-The harness SHALL mount the host current working directory into the container at the identical absolute path, writable, while guaranteeing the host directory is never modified.
-
-#### Scenario: Container paths match host paths
-
-- **WHEN** `test-up.sh` is run from host directory `/Users/robson/Project/foo`
-- **THEN** the container exposes that directory at the identical path `/Users/robson/Project/foo`
-- **AND** the dashboard's working directory, session CWDs, and VCS roots for that workspace read identically to the host paths in logs and UI
-
-#### Scenario: Writes do not touch host files
-
-- **WHEN** an agent or process inside the container writes to or deletes files under the mounted path
-- **THEN** the writes land in the tmpfs overlay upper layer
-- **AND** the host directory's contents are byte-identical before the run and after teardown
-
-#### Scenario: Copy-mode fallback when SYS_ADMIN is unavailable
-
-- **WHEN** the harness runs with `TEST_COPY_MODE=1`
-- **THEN** the overlay mount is skipped and the host directory is copied to a tmpfs at the identical path
-- **AND** the container requires no `CAP_SYS_ADMIN`
-- **AND** host files remain untouched
-
-### Requirement: Fail-fast smoke check before ready
-
-The harness SHALL run a minimal health probe at startup and fail fast if the instance is not serving, before a human is directed to a browser.
-
-#### Scenario: Healthy instance prints its URL
-
-- **WHEN** the image is built correctly and the instance starts
-- **THEN** the entrypoint confirms HTTP `GET /api/health` returns 200 and one WebSocket connect succeeds
-- **AND** `test-up.sh` prints `http://localhost:18000`
-
-#### Scenario: Broken build fails before the browser step
-
-- **WHEN** the dashboard fails to serve (broken image/build)
-- **THEN** the smoke check exits non-zero
-- **AND** no ready URL is printed
-
-### Requirement: Baked VCS fixtures for panel testing
-
-The image SHALL bake a sample git repository and a sample jj repository so VCS panels can be exercised without mounting any host directory.
-
-#### Scenario: Fixtures available as workspaces
-
-- **WHEN** the harness starts without a path-parity mount
-- **THEN** `/fixtures/sample-git` and `/fixtures/sample-jj` are present and pinnable as workspaces
-- **AND** each is a valid initialized repository in its respective VCS
-

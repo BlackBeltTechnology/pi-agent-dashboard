@@ -27,6 +27,8 @@ packages/electron/.vite
 site/.astro/
 *.tsbuildinfo
 .worktrees/
+# Per-worktree test-harness state (ports + compose project). See change: parallelize-test-harness.
+.pi-test-harness.json
 # Playwright E2E outputs (tests/e2e). See change: add-playwright-e2e.
 playwright-report/
 test-results/
