@@ -68,4 +68,9 @@ it("result.md == assistant reply and excludes the injected prompt", () => {
 it("no assistant output -> empty result.md -> auto-archived", () => {
   const rec = captureAndFinish("2026-06-23-pong", PROMPT, [inputEvent, promptEcho, agentEnd]);
   expect(rec?.archived).toBe(true);
+  const md = fs.readFileSync(
+    path.join(base, ".pi", "automation", "runs", "2026-06-23-pong", "result.md"),
+    "utf-8",
+  );
+  expect(md).toBe("");
 });
