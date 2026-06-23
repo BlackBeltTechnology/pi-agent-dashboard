@@ -50,10 +50,12 @@ describe("FolderGoalsSection", () => {
     expect(history[history.length - 1]).toBe(goalsBoardUrl(cwd));
   });
 
-  it("+ Goal reveals an objective input and creates on Enter", async () => {
+  it("+ Goal opens the shared dialog (no inline panel) and creates on Enter", async () => {
     const { hook, history } = memoryLocation({ path: "/", record: true });
-    const { getByTestId, getByPlaceholderText } = renderSlot(hook);
+    const { getByTestId, queryByTestId, getByPlaceholderText } = renderSlot(hook);
     fireEvent.click(getByTestId("folder-goal-new-btn"));
+    expect(getByTestId("goal-create-dialog")).toBeTruthy();
+    expect(queryByTestId("folder-goal-create")).toBeNull();
     const input = getByPlaceholderText("Goal objective…");
     fireEvent.change(input, { target: { value: "Ship goals" } });
     fireEvent.keyDown(input, { key: "Enter" });

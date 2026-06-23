@@ -349,7 +349,7 @@
     <!-- ───────────────────────── SCREEN A ───────────────────────── -->
     <section class="screen active" id="a">
       <h2>Screen A — Create goal (modal dialog)</h2>
-      <p class="legend">Both the sidebar <b>+ Goal</b> and the board <b>+ New Goal</b> open this same modal <code>GoalForm</code> dialog — parity with the automation <code>CreateAutomationDialog</code> (no more inline panel). Fields mirror the shipped <code>GoalForm</code>.</p>
+      <p class="legend">Both the sidebar <b>+ Goal</b> and the board <b>+ New Goal</b> open this same modal <code>GoalForm</code> dialog — parity with the automation <code>CreateAutomationDialog</code> (no more inline panel). Fields mirror the shipped <code>GoalForm</code>; the two teaching hints below are <b>mockup-only</b> (a separate follow-up, not this change).</p>
       <div class="opens">
         opens from
         <span class="trig">FolderGoalsSection · + Goal</span>
@@ -362,9 +362,8 @@
         </div>
         <div class="dialog">
           <div class="panel-head">
-            <span class="crumb">Goals ›</span>
             <span class="title">New goal · Documents</span>
-            <button class="icon-btn">✕</button>
+            <button class="icon-btn" aria-label="Close dialog">✕</button>
           </div>
           <div class="body">
             <div class="field">
@@ -375,12 +374,12 @@
             <div class="field">
               <div class="row">
                 <label class="label" style="flex:1; margin:0">Acceptance criteria</label>
-                <button class="addbtn" style="margin:0; padding:2px 8px">+ Add</button>
+                <button class="addbtn" style="margin:0; padding:2px 8px" aria-label="Add criterion">+ Add</button>
               </div>
               <div style="margin-top:8px">
-                <div class="crit"><input type="text" value="All importer unit + integration tests pass" /><span class="x">✕</span></div>
-                <div class="crit"><input type="text" value="Handles a 10k-row CSV in under 5s" /><span class="x">✕</span></div>
-                <div class="crit"><input type="text" value="Schema docs updated" /><span class="x">✕</span></div>
+                <div class="crit"><input type="text" value="All importer unit + integration tests pass" /><span class="x" role="button" aria-label="Remove criterion">✕</span></div>
+                <div class="crit"><input type="text" value="Handles a 10k-row CSV in under 5s" /><span class="x" role="button" aria-label="Remove criterion">✕</span></div>
+                <div class="crit"><input type="text" value="Schema docs updated" /><span class="x" role="button" aria-label="Remove criterion">✕</span></div>
               </div>
               <div class="hint">Each criterion maps to a <code>/subgoal</code> the judge factors into its done/continue verdict. Empty → the judge uses the objective alone.</div>
             </div>

@@ -15,9 +15,9 @@ import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiChevronRight, mdiChevronDown, mdi
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useGoals, statusMeta } from "./useGoals.js";
-import { createGoal, deleteGoal, decodeFolderPath, goalDetailUrl } from "./goals-api.js";
+import { deleteGoal, decodeFolderPath, goalDetailUrl } from "./goals-api.js";
 import { deriveSnapshot } from "./goal-state.js";
-import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
+import { CreateGoalDialog } from "./CreateGoalDialog.js";
 
 const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
   { id: "all", label: "All" },
@@ -159,13 +159,6 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
     [goals, filter],
   );
 
-  const submit = async (payload: GoalFormPayload): Promise<void> => {
-    if (!cwd) return;
-    await createGoal(cwd, payload);
-    setCreating(false);
-    refetch();
-  };
-
   const remove = async (goal: GoalRecord): Promise<void> => {
     if (!cwd) return;
     if (!window.confirm(`Delete goal “${goal.objective}”? Linked sessions are unlinked.`)) return;
@@ -199,10 +192,12 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
         </button>
       </div>
 
-      {creating && (
-        <div className="px-3 py-2 border-b border-[var(--border-subtle)]" data-testid="goals-board-create">
-          <GoalForm onSubmit={submit} onCancel={() => setCreating(false)} />
-        </div>
+      {creating && cwd && (
+        <CreateGoalDialog
+          cwd={cwd}
+          onClose={() => setCreating(false)}
+          onCreated={() => refetch()}
+        />
       )}
 
       <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-1.5 flex-shrink-0">

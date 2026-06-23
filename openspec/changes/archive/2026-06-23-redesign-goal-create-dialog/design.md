@@ -71,8 +71,13 @@ moves into `CreateGoalDialog` (preferred — the dialog owns the POST, mirrors
 ## Mockup source of truth
 
 `mockups/goal/index.html` Screen A — modal dialog, fields synced to shipped `GoalForm`,
-caption "opens from both `+ Goal` and `+ New Goal` → one shared dialog". `mockups/goal/compare.html`
-shows the before/after.
+caption "opens from both `+ Goal` and `+ New Goal` → one shared dialog".
+
+Token/consistency control plane: `mockups/goal/ui-contract.md` — the `frontend-mockup-loop`
+contract grounding every screen value to a dashboard theme token (no raw hex). Records the dialog
+invariants this change ships: overlay recipe, bare-title header (no breadcrumb), input + primary/
+secondary button recipes, icon-button `aria-label` rule. `CreateGoalDialog.tsx` maps 1:1 to these
+recipes on promote (zero apply-gap).
 
 ## Risks
 
