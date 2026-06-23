@@ -119,6 +119,24 @@ describe("engine run lifecycle", () => {
     expect(runs[0]!.status).toBe("running");
   });
 
+  it("forwards mode + sandbox to the spawn hook", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    // promptAutomation uses mode: local, sandbox: workspace-write.
+    engine.startRunFor(promptAutomation("nightly", "x"));
+    expect(calls[0].mode).toBe("local");
+    expect(calls[0].sandbox).toBe("workspace-write");
+    // skill fixture uses worktree by default? no — both use local; assert the
+    // value flows through verbatim from config.
+    const calls2: any[] = [];
+    const engine2 = makeEngine(calls2);
+    const base = skillAutomation("wt");
+    const wt: DiscoveredAutomation = { ...base, config: { ...base.config!, mode: "worktree", sandbox: "read-only" } };
+    engine2.startRunFor(wt);
+    expect(calls2[0].mode).toBe("worktree");
+    expect(calls2[0].sandbox).toBe("read-only");
+  });
+
   it("skill path: spawns with bare model + shown stamp", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);

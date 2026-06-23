@@ -67,6 +67,19 @@ export interface PluginSpawnOptions {
   /** Optional model id (resolved provider/model) passed as `--model`. */
   model?: string;
   /**
+   * Run isolation mode requested by the caller. `worktree` asks the host to
+   * run in an isolated git checkout; `local` runs in `cwd` directly. See
+   * change: redesign-automation-editor-and-board (4.2 limitation: worktree
+   * lifecycle not yet implemented in the host hook — falls back to `local`).
+   */
+  mode?: "worktree" | "local";
+  /**
+   * Sandbox level requested by the caller. See change:
+   * redesign-automation-editor-and-board (4.2 limitation: pi exposes no
+   * sandbox CLI flag, so this cannot be enforced at spawn yet).
+   */
+  sandbox?: "read-only" | "workspace-write" | "full-access";
+  /**
    * When set, the spawned session is stamped `kind="automation"` +
    * `automationRun` once it registers (the server queues the stamp keyed
    * by cwd and applies it on `session_register`). `visibility` carries the

@@ -1303,6 +1303,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (opts.automationRun) {
                   pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
                 }
+                // mode/sandbox threading (change: redesign-automation-editor-and-board).
+                // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
+                // enforce these. `worktree` would need ephemeral worktree
+                // create+cleanup wired to run-end correlation (discard/merge
+                // policy unspecified); pi exposes no `--sandbox` flag so the
+                // sandbox level cannot be applied at spawn. Both fall back to
+                // running in-place at `opts.cwd`. Log non-default requests so
+                // the gap is visible until the host gains support.
+                if (opts.mode === "worktree" || (opts.sandbox && opts.sandbox !== "workspace-write")) {
+                  console.warn(
+                    `[plugin-spawn] mode=${opts.mode ?? "local"} sandbox=${opts.sandbox ?? "(default)"} requested but not yet enforced by the host hook; running in-place at ${opts.cwd}`,
+                  );
+                }
                 try {
                   const result = await spawnPiSession(opts.cwd, {
                     strategy: "headless",

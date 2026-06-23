@@ -22,6 +22,8 @@ import type {
   DiscoveredAutomation,
   AutomationScope,
   Visibility,
+  RunMode,
+  Sandbox,
 } from "../shared/automation-types.js";
 import { TriggerRegistry } from "./trigger-registry.js";
 import { scheduleTrigger } from "./schedule-trigger.js";
@@ -67,6 +69,10 @@ export interface SpawnLike {
   (opts: {
     cwd: string;
     model?: string;
+    /** Run isolation mode (worktree|local). Honored by the host spawn hook. */
+    mode?: RunMode;
+    /** Sandbox level requested for the run. Honored by the host spawn hook. */
+    sandbox?: Sandbox;
     automationRun?: { name: string; runId: string; visibility?: Visibility };
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
@@ -251,6 +257,8 @@ export function createEngine(deps: EngineDeps): Engine {
       .spawnSession({
         cwd: runCwd,
         ...(resolved.model ? { model: resolved.model } : {}),
+        mode: automation.config.mode,
+        sandbox: automation.config.sandbox,
         automationRun: { name: automation.name, runId: rec.runId, visibility: vis },
       })
       .then((res) => {

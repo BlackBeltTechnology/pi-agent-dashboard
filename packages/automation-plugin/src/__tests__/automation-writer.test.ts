@@ -63,6 +63,29 @@ describe("writeAutomation", () => {
     expect(fs.existsSync(path.join(dir, "prompt.md"))).toBe(false);
   });
 
+  it("create (default intent) rejects an existing-name collision", () => {
+    writeAutomation({ scopeBase: base, name: "dup", config: promptConfig, promptBody: "a" });
+    expect(() =>
+      writeAutomation({ scopeBase: base, name: "dup", config: promptConfig, promptBody: "b" }),
+    ).toThrow(/already exists/);
+  });
+
+  it("update overwrites an existing automation in place", () => {
+    writeAutomation({ scopeBase: base, name: "edit-me", config: promptConfig, promptBody: "old body" });
+    const updated: AutomationConfig = { ...promptConfig, model: "@coding" };
+    writeAutomation({ scopeBase: base, name: "edit-me", config: updated, promptBody: "new body", intent: "update" });
+    const dir = path.join(base, ".pi", "automation", "edit-me");
+    expect(fs.readFileSync(path.join(dir, "prompt.md"), "utf-8")).toContain("new body");
+    const parsed = parseAutomationYaml(fs.readFileSync(path.join(dir, "automation.yaml"), "utf-8"), KNOWN);
+    expect(parsed.config?.model).toBe("@coding");
+  });
+
+  it("update of a missing automation fails", () => {
+    expect(() =>
+      writeAutomation({ scopeBase: base, name: "ghost", config: promptConfig, promptBody: "x", intent: "update" }),
+    ).toThrow(/does not exist/);
+  });
+
   it("deleteAutomation removes the dir", () => {
     writeAutomation({ scopeBase: base, name: "gone", config: promptConfig, promptBody: "x" });
     expect(deleteAutomation(base, "gone")).toBe(true);

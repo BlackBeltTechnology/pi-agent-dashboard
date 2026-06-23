@@ -17,6 +17,13 @@ export interface WriteAutomationInput {
   config: AutomationConfig;
   /** Prompt body written to prompt.md when action.kind === "prompt". */
   promptBody?: string;
+  /**
+   * Write intent. `create` (default) rejects an existing name so a create
+   * never silently clobbers; `update` requires the automation to already
+   * exist and overwrites it in place. See change:
+   * redesign-automation-editor-and-board.
+   */
+  intent?: "create" | "update";
 }
 
 export interface WriteAutomationResult {
@@ -37,6 +44,14 @@ export function writeAutomation(input: WriteAutomationInput): WriteAutomationRes
     throw new Error(`invalid automation name: "${input.name}"`);
   }
   const dir = path.join(input.scopeBase, ".pi", "automation", input.name);
+  const intent = input.intent ?? "create";
+  const existed = fs.existsSync(path.join(dir, "automation.yaml"));
+  if (intent === "create" && existed) {
+    throw new Error(`automation "${input.name}" already exists in this scope`);
+  }
+  if (intent === "update" && !existed) {
+    throw new Error(`automation "${input.name}" does not exist in this scope`);
+  }
   fs.mkdirSync(dir, { recursive: true });
 
   const config: AutomationConfig = { ...input.config };
