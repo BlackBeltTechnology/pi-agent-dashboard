@@ -305,6 +305,8 @@ jobs:
             "@blackbelt-technology/pi-dashboard-automation-plugin"
             "@blackbelt-technology/pi-image-fit"
             "@blackbelt-technology/frontend-mockup-loop"
+            "@blackbelt-technology/pi-dashboard-kb"
+            "@blackbelt-technology/pi-dashboard-kb-extension"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"

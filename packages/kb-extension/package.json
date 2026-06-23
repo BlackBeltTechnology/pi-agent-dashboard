@@ -1,0 +1,36 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-kb-extension",
+  "version": "0.0.0",
+  "description": "Isolated pi extension: registers kb_search/kb_neighbors/kb_get tools and a tool_result hook that reindexes markdown on edit and (opt-in) nudges DOX AGENTS.md row upkeep.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/kb-extension"
+  },
+  "publishConfig": { "access": "public" },
+  "keywords": ["pi-package", "pi-extension", "knowledge-base", "dox"],
+  "pi": {
+    "extensions": ["src/extension.ts"]
+  },
+  "files": ["src/", "!src/__tests__", "README.md"],
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-kb": "^0.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@mariozechner/pi-coding-agent": { "optional": true }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
