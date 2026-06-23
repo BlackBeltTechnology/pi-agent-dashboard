@@ -34,12 +34,16 @@ export default async function globalSetup(): Promise<void> {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pi-e2e-ws-"));
   const logPath = path.join(path.dirname(MARKER_PATH), "test-up.log");
   const logFd = fs.openSync(logPath, "a");
-
-  const child = spawn("bash", [TEST_UP, "-d"], {
-    cwd: workspace,
-    detached: true,
-    stdio: ["ignore", logFd, logFd],
-  });
+  let child;
+  try {
+    child = spawn("bash", [TEST_UP, "-d"], {
+      cwd: workspace,
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+    });
+  } finally {
+    fs.closeSync(logFd);
+  }
   child.unref();
 
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.

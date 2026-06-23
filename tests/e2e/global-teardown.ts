@@ -7,7 +7,11 @@ export default async function globalTeardown(): Promise<void> {
   if (USE_RUNNING || !fs.existsSync(MARKER_PATH)) return;
 
   try {
-    execFileSync("bash", [TEST_DOWN], { stdio: "inherit" });
+    execFileSync("bash", [TEST_DOWN], {
+      stdio: "inherit",
+      timeout: 120_000,
+      killSignal: "SIGTERM",
+    });
   } finally {
     fs.rmSync(MARKER_PATH, { force: true });
   }
