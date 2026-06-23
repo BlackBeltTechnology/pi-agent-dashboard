@@ -3,8 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
+  PI_GATEWAY_PORT,
   TEST_UP,
   USE_RUNNING,
   waitForHealth,
@@ -40,6 +42,13 @@ export default async function globalSetup(): Promise<void> {
       cwd: workspace,
       detached: true,
       stdio: ["ignore", logFd, logFd],
+      // Override-as-a-pair: the container binds + listens on exactly the port
+      // Playwright probes (D1 override path), keeping baseURL in sync.
+      env: {
+        ...process.env,
+        DASHBOARD_PORT: String(DASHBOARD_PORT),
+        PI_GATEWAY_PORT: String(PI_GATEWAY_PORT),
+      },
     });
   } finally {
     fs.closeSync(logFd);
