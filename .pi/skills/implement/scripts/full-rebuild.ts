@@ -2,6 +2,10 @@
  * Full rebuild after an openspec-apply or multi-component change.
  * Runs: build client → restart server → reload all bridges (in order).
  *
+ * Deploys the checked-out dev version to the local running instance. NOT a
+ * feature-implementation step — worktree / Docker-isolated work does not run this.
+ * For the implementation-phase code-review gate, see review-changes.ts.
+ *
  * Invoke:  npx tsx ./scripts/full-rebuild.ts
  *
  * Cross-platform — uses npm CLI (npm is cross-platform).

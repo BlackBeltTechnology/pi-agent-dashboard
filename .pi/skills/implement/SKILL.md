@@ -47,9 +47,25 @@ Full rebuild (after `openspec-apply` or multi-component change):
 npx tsx ./scripts/full-rebuild.ts
 ```
 
+> `full-rebuild.ts` **deploys the checked-out dev version to the local running instance** (build + restart + reload). It is NOT a feature-implementation step — worktree / Docker-isolated feature work does not run it. The code-review gate is separate (below).
+
 > Scripts are TypeScript (cross-platform). All invocations use `npx tsx` so they work identically on Linux, macOS, and Windows. `tsx` is already a project dep.
 
 Full matrix with edge cases (dev-mode fallback, fault-tolerant restart, single-restart-path rule) lives in [`references/rebuild-matrix.md`](references/rebuild-matrix.md).
+
+## Review gate — before commit (server-independent)
+
+At implementation completion, before committing, run the advisory CodeRabbit gate on the diff. **Worktree-safe and server-independent** — no build, no restart; reviews the current working tree, so it works in a git worktree and alongside the Docker-isolated instance:
+
+```bash
+npx tsx ./scripts/review-changes.ts                    # uncommitted diff (default)
+npx tsx ./scripts/review-changes.ts -t committed --base main   # vs base branch
+SKIP_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts   # skip
+```
+
+**Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for severity triage + the fix loop.
+
+> openspec-apply: run this after the last task completes (before suggesting archive/commit). It runs in the worktree without touching the main server.
 
 ## The discipline — write less code, write the right code
 

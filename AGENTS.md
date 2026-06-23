@@ -311,6 +311,16 @@ npm run build
 curl -X POST http://localhost:8000/api/restart
 npm run reload
 ```
+`full-rebuild.ts` = **deploy** the checked-out dev version to the local running instance. NOT a feature-implementation step; worktree / Docker-isolated work does not run it.
+
+### Code-review gate (implementation phase)
+At implementation completion, before commit, run the advisory CodeRabbit gate on the diff. **Server-independent + worktree-safe** (no build, no restart) — works in a git worktree and alongside the Docker-isolated instance:
+```bash
+npx tsx .pi/skills/implement/scripts/review-changes.ts          # uncommitted diff (default)
+npx tsx .pi/skills/implement/scripts/review-changes.ts -t committed --base main
+SKIP_CR_REVIEW=1 npx tsx .pi/skills/implement/scripts/review-changes.ts   # skip
+```
+Warn-and-continue, never blocks: CodeRabbit is cloud rate-limited (no local model); on limit / missing CLI / auth failure it defers to a later cycle and exits 0. Fix Critical/Warning, then commit. Triage + fix loop: `code-review` skill.
 
 ### Check current mode
 ```bash
