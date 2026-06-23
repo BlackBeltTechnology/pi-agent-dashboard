@@ -26,3 +26,7 @@ packages/electron/.vite
 site/.astro/
 *.tsbuildinfo
 .worktrees/
+# Playwright E2E outputs (tests/e2e). See change: add-playwright-e2e.
+playwright-report/
+test-results/
+.playwright/
