@@ -10,7 +10,15 @@ import path from "node:path";
 import { createGoalStore, type GoalStore } from "../goal-store.js";
 import { createGoalVerdictAccumulator, type SessionGoalLookup } from "../goal-verdict-accumulator.js";
 
-const flush = () => new Promise((r) => setTimeout(r, 30));
+/** Poll until a condition is met, with timeout. */
+async function waitFor(fn: () => Promise<boolean>, ms = 500): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (await fn()) return;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+const flush = () => waitFor(async () => true, 30);
 
 describe("goal-verdict-accumulator", () => {
   let dataDir: string;
@@ -34,7 +42,7 @@ describe("goal-verdict-accumulator", () => {
     const g = await store.create(cwd, { objective: "judged" });
     const acc = createGoalVerdictAccumulator({ store, lookupSession: lookupFor("s1", g.id) });
     acc.handle({ sessionId: "s1", payload: { status: "active", turnsUsed: 1, maxTurns: 20, lastVerdict: "continue", lastReason: null } });
-    await flush();
+    await waitFor(async () => ((await store.list(cwd))[0]?.verdicts?.length ?? 0) >= 1);
     const cur = (await store.list(cwd))[0]!;
     expect(cur.verdicts).toHaveLength(1);
     expect(cur.verdicts![0]).toMatchObject({ turn: 1, verdict: "continue", note: "continue" });
@@ -54,7 +62,7 @@ describe("goal-verdict-accumulator", () => {
     const snap = { status: "active", turnsUsed: 2, maxTurns: 20, lastVerdict: "continue", lastReason: null };
     acc.handle({ sessionId: "s1", payload: snap });
     acc.handle({ sessionId: "s1", payload: { ...snap } });
-    await flush();
+    await waitFor(async () => ((await store.list(cwd))[0]?.verdicts?.length ?? 0) >= 1);
     expect((await store.list(cwd))[0]!.verdicts).toHaveLength(1);
   });
 
@@ -63,7 +71,7 @@ describe("goal-verdict-accumulator", () => {
     const acc = createGoalVerdictAccumulator({ store, lookupSession: lookupFor("s1", g.id) });
     acc.handle({ sessionId: "s1", payload: { status: "paused", turnsUsed: 3, maxTurns: 20, lastVerdict: null, lastReason: "budget" } });
     acc.handle({ sessionId: "s1", payload: { status: "done", turnsUsed: 4, maxTurns: 20, lastVerdict: "satisfied", lastReason: null } });
-    await flush();
+    await waitFor(async () => ((await store.list(cwd))[0]?.verdicts?.length ?? 0) >= 2);
     const v = (await store.list(cwd))[0]!.verdicts!;
     expect(v.map((x) => x.verdict)).toEqual(["paused", "satisfied"]);
     expect(v[0]!.note).toBe("budget"); // falls back to lastReason when no verdict
@@ -75,7 +83,7 @@ describe("goal-verdict-accumulator", () => {
     acc.handle({ sessionId: "s1", payload: { status: "active", turnsUsed: 5, maxTurns: 20, lastVerdict: "continue", lastReason: null } });
     acc.handle({ sessionId: "s1", payload: { status: "cleared", turnsUsed: 0, maxTurns: 20, lastVerdict: null, lastReason: null } });
     acc.handle({ sessionId: "s1", payload: { status: "active", turnsUsed: 0, maxTurns: 20, lastVerdict: "continue", lastReason: null } });
-    await flush();
+    await waitFor(async () => ((await store.list(cwd))[0]?.verdicts?.length ?? 0) >= 2);
     const v = (await store.list(cwd))[0]!.verdicts!;
     expect(v.map((x) => x.turn)).toEqual([5, 0]);
   });

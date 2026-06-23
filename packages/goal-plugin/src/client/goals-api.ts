@@ -134,7 +134,8 @@ export async function fetchJudgeModels(signal?: AbortSignal): Promise<string[]> 
   if (!res.ok) throw new Error(await parseError(res));
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "fetch models failed");
-  return (json.data?.labels as string[] | undefined) ?? [];
+  const labels = json.data?.labels;
+  return Array.isArray(labels) ? labels.filter((l: unknown): l is string => typeof l === "string") : [];
 }
 
 export async function unlinkSession(cwd: string, id: string, sessionId: string): Promise<void> {

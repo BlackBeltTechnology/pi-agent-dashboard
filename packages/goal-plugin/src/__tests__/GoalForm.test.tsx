@@ -17,7 +17,8 @@ beforeEach(() => {
     json: async () => ({ success: true, data: { labels: ["anthropic/claude", "openai/gpt-5"] } }),
   }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+const originalFetch = globalThis.fetch;
+afterEach(() => { cleanup(); vi.restoreAllMocks(); globalThis.fetch = originalFetch; });
 
 describe("GoalForm", () => {
   it("submits a full payload (objective + criteria + budget + judge)", async () => {

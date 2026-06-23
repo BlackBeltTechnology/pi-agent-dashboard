@@ -44,16 +44,31 @@ export function probeGoalCommandSurface(surface?: GoalCommandSurface | null): Go
  * tier can't accept it (caller degrades to dashboard-side enforcement / intent).
  * Command grammar is provisional — the upgrade seam for a vendored extension.
  */
+/** Strip whitespace, slashes, quotes, and control chars that could break a
+ *  slash-command argument. Returns `null` if nothing usable remains. */
+function sanitizeArg(raw: string): string | null {
+  const clean = raw.replace(/[\s/"'`\\\x00-\x1f]+/g, "").trim();
+  return clean.length > 0 ? clean : null;
+}
+
 export function goalConfigCommand(
   tier: GoalCommandTier,
   config: { budget?: GoalBudget; judge?: GoalJudge },
 ): string | null {
   if (tier !== "full") return null;
   const parts: string[] = ["/goal config"];
-  if (config.judge) parts.push(`--judge ${config.judge.provider}/${config.judge.modelId}`);
-  if (config.budget?.maxTurns !== undefined) parts.push(`--max-turns ${config.budget.maxTurns}`);
-  if (config.budget?.maxSpendUsd !== undefined) parts.push(`--max-spend ${config.budget.maxSpendUsd}`);
-  if (parts.length === 1) return null; // nothing to configure
+  if (config.judge) {
+    const provider = sanitizeArg(config.judge.provider);
+    const modelId = sanitizeArg(config.judge.modelId);
+    if (provider && modelId) parts.push(`--judge ${provider}/${modelId}`);
+  }
+  if (config.budget?.maxTurns !== undefined && Number.isFinite(config.budget.maxTurns) && config.budget.maxTurns > 0) {
+    parts.push(`--max-turns ${config.budget.maxTurns}`);
+  }
+  if (config.budget?.maxSpendUsd !== undefined && Number.isFinite(config.budget.maxSpendUsd) && config.budget.maxSpendUsd > 0) {
+    parts.push(`--max-spend ${config.budget.maxSpendUsd}`);
+  }
+  if (parts.length === 1) return null;
   return parts.join(" ");
 }
 

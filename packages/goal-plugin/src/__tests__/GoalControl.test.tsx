@@ -76,10 +76,13 @@ describe("GoalControl (demoted link chip)", () => {
   it("renders live turns + verdict from the snapshot", () => {
     const session = { id: "s2", cwd: "/repo", source: "dashboard", goalId: "g1" } as unknown as DashboardSession;
     emitActive("s2");
-    const { getByTestId } = renderControl(session);
-    expect(getByTestId("goal-control").textContent).toContain("3/20");
-    expect(getByTestId("goal-control").textContent).toContain("continue");
-    clearSessionEvents("s2");
+    try {
+      const { getByTestId } = renderControl(session);
+      expect(getByTestId("goal-control").textContent).toContain("3/20");
+      expect(getByTestId("goal-control").textContent).toContain("continue");
+    } finally {
+      clearSessionEvents("s2");
+    }
   });
 
   it("dispatches a pause plugin_action from the inline control", () => {
@@ -87,10 +90,13 @@ describe("GoalControl (demoted link chip)", () => {
     setSender((m) => sent.push(m));
     const session = { id: "s3", cwd: "/repo", source: "dashboard", goalId: "g1" } as unknown as DashboardSession;
     emitActive("s3");
-    const { getByTestId } = renderControl(session);
-    fireEvent.click(getByTestId("goal-control-pause"));
-    expect(sent).toContainEqual(expect.objectContaining({ pluginId: "goal", sessionId: "s3", action: "pause" }));
-    setSender(null);
-    clearSessionEvents("s3");
+    try {
+      const { getByTestId } = renderControl(session);
+      fireEvent.click(getByTestId("goal-control-pause"));
+      expect(sent).toContainEqual(expect.objectContaining({ pluginId: "goal", sessionId: "s3", action: "pause" }));
+    } finally {
+      setSender(null);
+      clearSessionEvents("s3");
+    }
   });
 });

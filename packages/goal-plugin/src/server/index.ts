@@ -116,6 +116,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       payload?: Record<string, unknown>;
     };
     if (m.pluginId !== GOAL_PLUGIN_ID || !m.sessionId) return;
+    // intent-only tier: record on GoalRecord only, no loop coupling.
+    if (commandTier === "intent-only") {
+      logger.info(`goal action "${m.action}" suppressed (tier: intent-only)`);
+      return;
+    }
     const command = m.action ? goalCommandFor(m.action, m.payload, commandTier) : null;
     if (!command) {
       logger.warn(`unknown or malformed goal action: ${m.action}`);

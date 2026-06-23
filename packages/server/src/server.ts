@@ -641,16 +641,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // snapshot. See change: sophisticate-goal-authoring-and-control (task 3.2).
     const budgetPaused = new Set<string>();
     arr.push((msg) => {
-      const m = msg as { sessionId?: string; payload?: { status?: string; turnsUsed?: number } };
+      const m = msg as { sessionId?: string; payload?: { status?: string; turnsUsed?: unknown } };
       if (!m.sessionId || !m.payload || typeof m.payload.status !== "string") return;
       const sessionId = m.sessionId;
       if (m.payload.status !== "active") {
         budgetPaused.delete(sessionId);
         return;
       }
+      const turnsUsed = m.payload.turnsUsed;
+      if (typeof turnsUsed !== "number" || !Number.isFinite(turnsUsed)) return;
+      // Add to dedup set BEFORE the async lookup to close the race window.
+      // Removed again if the lookup shows no halt.
       if (budgetPaused.has(sessionId)) return;
+      budgetPaused.add(sessionId);
       const sess = sessionManager.get(sessionId);
-      if (!sess?.goalId || !sess.cwd) return;
+      if (!sess?.goalId || !sess.cwd) { budgetPaused.delete(sessionId); return; }
       const cwd = sess.cwd;
       const goalId = sess.goalId;
       void goalStore
@@ -658,15 +663,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         .then((goals) => {
           const goal = goals.find((g) => g.id === goalId);
           const decision = decideBudgetHalt(
-            { status: "active", turnsUsed: m.payload!.turnsUsed ?? 0 },
+            { status: "active", turnsUsed },
             goal?.budget,
           );
           if (decision.halt && decision.command) {
-            budgetPaused.add(sessionId);
             piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: decision.command });
+          } else {
+            budgetPaused.delete(sessionId); // no halt → allow future checks
           }
         })
-        .catch((err) => console.warn(`[goal-budget-guard] budget check failed for ${goalId}:`, err));
+        .catch((err) => { budgetPaused.delete(sessionId); console.warn(`[goal-budget-guard] budget check failed for ${goalId}:`, err); });
     });
     pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
   }

@@ -152,6 +152,7 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
   const { goals, loading, error, refetch } = useGoals(cwd);
   const [filter, setFilter] = useState<"all" | GoalRecordStatus>("all");
   const [creating, setCreating] = useState(false);
+  const [mutErr, setMutErr] = useState<string | null>(null);
 
   const visible = useMemo(
     () => (filter === "all" ? goals : goals.filter((g) => g.status === filter)),
@@ -170,9 +171,10 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
     if (!window.confirm(`Delete goal “${goal.objective}”? Linked sessions are unlinked.`)) return;
     try {
       await deleteGoal(cwd, goal.id);
+      setMutErr(null);
       refetch();
-    } catch {
-      /* surfaced via refetch error state on next load */
+    } catch (e) {
+      setMutErr(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
@@ -218,6 +220,7 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
         {error && <div className="text-xs text-red-400">{error}</div>}
+        {mutErr && <div className="text-xs text-red-400" data-testid="goals-board-mutation-error">{mutErr}</div>}
         {!error && loading && goals.length === 0 && (
           <div className="text-xs text-[var(--text-muted)]">Loading goals…</div>
         )}

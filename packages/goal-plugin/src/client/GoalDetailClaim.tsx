@@ -86,7 +86,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
   const addSubgoal = (): void => {
     const text = subgoalDraft.trim();
-    if (!text || !goal) return;
+    if (!text || !goal || busy) return;
     dispatch("subgoal", { goal: text });
     void run(() => updateGoal(cwd, goal.id, { criteria: [...goal.criteria, { text, done: false }] }));
     setSubgoalDraft("");

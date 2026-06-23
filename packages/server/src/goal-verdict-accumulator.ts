@@ -67,6 +67,7 @@ export function createGoalVerdictAccumulator(deps: GoalVerdictAccumulatorDeps): 
   function handle(msg: unknown): void {
     const m = msg as GoalStatusMessage;
     if (!m.sessionId || !m.payload || typeof m.payload.status !== "string") return;
+    if (typeof m.payload.turnsUsed !== "number" || !Number.isFinite(m.payload.turnsUsed)) return;
     const { sessionId, payload } = m;
 
     // A cleared loop resets tracking so a future run starts fresh.
