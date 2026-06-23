@@ -48,7 +48,7 @@ npx tsx ./scripts/full-rebuild.ts
 ```
 
 > `full-rebuild.ts` **deploys the checked-out dev version to the local running instance** (build + restart + reload). It is NOT a feature-implementation step — worktree / Docker-isolated feature work does not run it. The code-review gate is separate (below).
-
+>
 > Scripts are TypeScript (cross-platform). All invocations use `npx tsx` so they work identically on Linux, macOS, and Windows. `tsx` is already a project dep.
 
 Full matrix with edge cases (dev-mode fallback, fault-tolerant restart, single-restart-path rule) lives in [`references/rebuild-matrix.md`](references/rebuild-matrix.md).

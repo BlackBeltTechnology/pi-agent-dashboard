@@ -92,7 +92,7 @@ Create a task list for Critical + Warning items.
 
 When the user requests implement+review, or autonomously before committing a non-trivial change:
 
-```
+```text
 1. Implement the change
 2. coderabbit review --agent -t uncommitted   → collect findings
 3. Triage: Critical + Warning → task list

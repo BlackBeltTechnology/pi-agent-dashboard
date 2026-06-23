@@ -49,7 +49,8 @@ if (findings.length === 0) {
 
 console.log(`→ review: ${findings.length} finding(s), ${mustFix.length} Critical/Warning`);
 for (const f of mustFix) {
-  console.log(`   • [${f.severity}] ${(f.comment ?? '').split('\n')[0].slice(0, 120)}`);
+  const summary = f.codegenInstructions ?? f.comment ?? '';
+  console.log(`   • [${f.severity}] ${summary.split('\n')[0].slice(0, 120)}`);
 }
 if (mustFix.length > 0) {
   console.warn(

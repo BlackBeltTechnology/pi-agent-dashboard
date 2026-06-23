@@ -2,7 +2,7 @@
  * Pure parsing helpers for CodeRabbit `--agent` NDJSON output.
  * Extracted from review-changes.ts so it can be unit-tested.
  */
-export type Finding = { type?: string; severity?: string; comment?: string };
+export type Finding = { type?: string; severity?: string; comment?: string; codegenInstructions?: string };
 
 const MUST_FIX = /critical|major|high|warn|error/i;
 
