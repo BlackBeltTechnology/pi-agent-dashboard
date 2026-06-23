@@ -113,8 +113,10 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   attachWatchers();
 
   // Per-run transcript buffer (run sessionId → captured assistant text),
-  // flushed to result.md on `agent_end`. Best-effort tolerant extraction.
+  // flushed to result.md on `agent_end`. `runPrompt` holds the injected
+  // action prompt per session so capture can defensively exclude it.
   const runText = new Map<string, string[]>();
+  const runPrompt = new Map<string, string>();
   let rescanTimer: ReturnType<typeof setTimeout> | null = null;
 
   ctx.onEvent((sessionId, rawEvent) => {
@@ -139,17 +141,21 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       if (pendingRun && !pendingRun.delivered) {
         engine.onSessionRegisteredForRun(sessionId, stampedRunId);
         runText.set(sessionId, []);
-        if (pendingRun.promptText) ctx.sendToSession(sessionId, pendingRun.promptText);
+        if (pendingRun.promptText) {
+          runPrompt.set(sessionId, pendingRun.promptText);
+          ctx.sendToSession(sessionId, pendingRun.promptText);
+        }
       }
     }
 
     // Buffer assistant text + flush on agent_end for tracked run sessions.
     if (runText.has(sessionId)) {
-      const text = extractAssistantText(event);
+      const text = extractAssistantText(event, runPrompt.get(sessionId));
       if (text) runText.get(sessionId)!.push(text);
       if (event?.eventType === "agent_end") {
         const result = (runText.get(sessionId) ?? []).join("\n\n").trim();
         runText.delete(sessionId);
+        runPrompt.delete(sessionId);
         engine.onSessionEnded(sessionId, result);
       }
     }
@@ -169,24 +175,50 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 }
 
 /**
- * Tolerant assistant-text extraction over a raw forwarded pi event. Returns
- * non-empty text only for assistant/message output events. Phase-1 capture.
+ * Assistant-text extraction over a raw forwarded pi event.
+ *
+ * Capture is anchored to the `turn_end` event — the live-verified event that
+ * carries the FINALIZED assistant message for a turn
+ * (`data.message.role === "assistant"`). Verified against a live Gemini run
+ * (task 1.1): the run session forwards assistant output as
+ * `message_start` (empty) → `message_update`* (streaming) → `turn_end`
+ * (complete message) → `agent_end`, with NO assistant `message_end`; only
+ * USER messages emit `message_end`. Anchoring on `turn_end` therefore
+ * captures the reply exactly once and never the injected prompt (which
+ * arrives as an `input` event + a user `message_start`/`message_end`).
+ *
+ * Content is the real array-of-blocks shape — only `{ type: "text" }` blocks
+ * are concatenated, so `thinking` blocks are excluded; a string `content`
+ * (older shape) is also accepted. The explicit-assistant-role guard rejects
+ * any non-assistant `turn_end`. Defensively excludes any captured text equal
+ * to the run's injected `promptText` (belt-and-suspenders against future
+ * event-shape drift). See change: fix-automation-result-capture.
  */
-function extractAssistantText(
+export function extractAssistantText(
   event: { eventType?: string; data?: Record<string, unknown> } | undefined,
+  promptText?: string,
 ): string | null {
   if (!event?.data) return null;
+  if (event.eventType !== "turn_end") return null;
   const d = event.data as Record<string, unknown>;
-  const role = (d.role ?? (d.message as Record<string, unknown> | undefined)?.role) as string | undefined;
-  if (role && role !== "assistant") return null;
-  const candidate =
-    (typeof d.text === "string" && d.text) ||
-    (typeof d.content === "string" && d.content) ||
-    (typeof (d.message as Record<string, unknown> | undefined)?.content === "string" &&
-      ((d.message as Record<string, unknown>).content as string)) ||
-    null;
-  const trimmed = candidate?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
+  const message = d.message as Record<string, unknown> | undefined;
+  const role = (message?.role ?? d.role) as string | undefined;
+  if (role !== "assistant") return null;
+  const trimmed = concatText(message?.content ?? d.content ?? d.text).trim();
+  if (trimmed.length === 0) return null;
+  if (promptText && trimmed === promptText.trim()) return null;
+  return trimmed;
+}
+
+/** Concatenate the text of `{type:"text"}` content blocks; pass through strings. */
+function concatText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((b): b is { type?: string; text?: string } => !!b && typeof b === "object")
+    .filter((b) => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join("");
 }
 
 export default registerPlugin;

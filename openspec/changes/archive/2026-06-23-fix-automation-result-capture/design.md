@@ -53,3 +53,31 @@ No change to buffering/flush/auto-archive. Only the per-event predicate (what co
 - Unit test: feed `[injected-prompt echo event, assistant reply event, agent_end]` → `result.md` == reply, excludes prompt.
 - Unit test: feed `[injected-prompt echo event, agent_end]` (no assistant reply) → empty → run auto-archived.
 - Live: re-run the PONG automation; `result.md` == `PONG`.
+
+## Live finding (task 1.1) — anchor is `turn_end`, NOT `message_end`
+
+The Decision 1 hypothesis (capture on assistant `message_end`) was WRONG. Live
+instrumentation of `ctx.onEvent` against a Gemini PONG run in the Docker test
+harness shows the run session forwards assistant output as:
+
+```
+message_start { message:{ role:"assistant", content:[] } }
+message_update { message:{ role:"assistant", content:[{type:"thinking",...}] } }   (×N, streaming)
+message_update { message:{ role:"assistant", content:[{type:"thinking",...},{type:"text",text:"PONG"}] } }
+turn_end       { message:{ role:"assistant", content:[{type:"thinking",...},{type:"text",text:"PONG"}] } }
+agent_end      { messages:[ ... ] }
+```
+
+Key facts:
+- NO assistant `message_end` is emitted. Only USER messages emit
+  `message_start`/`message_end`. The original code captured nothing because it
+  required `message_end` (which only carried the user prompt, rejected by role)
+  and could not read array `content`.
+- The injected prompt is delivered as an `input` event PLUS a user
+  `message_start`/`message_end` — never a `turn_end`.
+- `turn_end` carries the FINALIZED assistant message exactly once per turn.
+
+Resolution: anchor capture on `turn_end` + `role==="assistant"`, concatenating
+`{type:"text"}` blocks (so `thinking` blocks drop). `message_update` is ignored
+(streaming dup). Verified live: `result.md` == `PONG`, prompt absent,
+`GET /api/plugins/automation/result` → `{"result":"PONG\n"}`.
