@@ -88,6 +88,19 @@ Some tests are not behaviour tests — they're repo-wide lints. They fail if the
 
 If one of these fails, the message will tell you which file violated the rule. **Fix the file, don't loosen the lint.** These exist because a previous regression caused real pain (every lint has an associated change in `docs/file-index*.md`).
 
+## Test-isolation guard aborts the run
+
+Running `npx vitest run` (or a workspace test) directly ABORTS with:
+`Unhandled Error: [test-isolation] process.env.HOME (/Users/...) equals the real user home`.
+
+The guard stops tests reading/mutating `~/.pi/`. Fix: set an ephemeral HOME before running.
+
+```bash
+HOME=$(mktemp -d) npx vitest run packages/automation-plugin
+```
+
+The run then prints `[test-isolation] HOME=/var/folders/.../tmp.XXXX (real=/Users/...)` and proceeds. The `run-tests-triage.ts` script already isolates HOME; this matters only when invoking vitest by hand.
+
 ## When you can't find the failure
 
 ```bash

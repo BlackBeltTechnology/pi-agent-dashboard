@@ -150,6 +150,20 @@ Fallback (worktree busy with active pi sessions):
 Summarize: change name, PR number + merge SHA, CI status, CodeRabbit rounds, branch +
 worktree removed. Note QA/manual tasks were marked done for **post-merge** verification.
 
+## Pitfalls / failure recovery
+
+Git/worktree/PR/CodeRabbit gotchas hit during ship. Each has a known fix.
+
+- **`gh pr create --body "$(...)"` / `git commit -m "$(...)"` with backticks → "bad substitution".** Bash evals backticks inside `$()`. Write the body/message to a file → `--body-file /tmp/pr-body.md` / `git commit -F /tmp/commit-msg.txt`.
+- **Worktree branch collision.** Git forbids the same branch checked out in two worktrees — ops that check out `develop` FAIL when the parent repo has `develop`. Merge from the parent repo, or `gh pr merge` without switching + `git push origin --delete <branch>`.
+- **`git worktree add <path> origin/<x>` → DETACHED HEAD.** Files written detached VANISH on next checkout. Pass the origin-stripped local branch name, not `origin/<x>`.
+- **Worktree PR misalignment** (local carries `develop` merges but MISSES the PR feature commit; push rejected non-ff). Feature commit lives only on `origin/<pr-branch>` → `git reset --hard origin/<pr-branch>` THEN `git merge origin/develop`. Never force-push a misaligned branch.
+- **Conflict: `docs/file-index-*.md`** → `git checkout origin/develop -- docs/file-index-*.md`, then re-apply only your rows (union-keep silently drops develop's edits).
+- **Conflict: `package-lock.json`** → `git checkout --theirs package-lock.json && npm install --package-lock-only`. Never hand-merge.
+- **`mergeStateStatus=DIRTY` won't start CI** → merge `develop`, resolve, push → flips to MERGEABLE.
+- **CodeRabbit "pass" is an ACK, not a review.** Rate-limited it posts a green "pass" with 0 comments ("~11min"). Auto-review is INCREMENTAL; plain `@coderabbitai review` no-ops on already-reviewed commits → wait ~11 min then `@coderabbitai full review`.
+- **Fetch inline CodeRabbit comments via `gh api repos/.../pulls/<n>/comments`** (NOT the reviews endpoint). Failed-to-post comments land in the review body under "Comments failed to post (N)".
+
 ## Guardrails
 
 - **Stop if non-QA tasks remain** — never mark real work done to force a ship.

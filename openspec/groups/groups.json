@@ -118,7 +118,10 @@
     "fix-automation-slot-parity-and-routing": "ui",
     "add-goals-folder-page": "ui",
     "throttle-idle-ui-animations": "ui",
-    "fix-automation-result-capture": "ui"
+    "fix-automation-result-capture": "ui",
+    "redesign-goal-create-dialog": "ui",
+    "distill-session-knowledge": "ui",
+    "automation-ui-mockup-parity": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -126,14 +129,15 @@
       "selectable-tool-output-links"
     ],
     "ui": [
-      "fix-automation-result-capture",
+      "redesign-goal-create-dialog",
+      "distill-session-knowledge",
+      "automation-ui-mockup-parity",
       "add-end-user-docs"
     ],
     "next-phase": [
       "add-dashboard-slash-commands",
       "add-honcho-docker-integration-tests",
       "add-hyperframes-skills",
-      "docker-packaging",
       "external-dashboard-plugins",
       "filter-oauth-incompatible-models",
       "fix-jj-workspace-root-probe",

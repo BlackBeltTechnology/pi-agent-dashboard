@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Goal mockup · Before ↔ After</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --text-muted:#585858; --border-primary:#252525; --border-secondary:#333;
+    --border-subtle:rgba(255,255,255,.06);
+    --indigo:#818cf8; --indigo-strong:#6366f1; --indigo-bg:rgba(99,102,241,.08);
+    --red:#ef4444; --amber:#fbbf24; --green:#4ade80; --green5:#22c55e;
+    --blue:#60a5fa;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .topbar { display:flex; align-items:center; gap:12px; padding:10px 16px;
+    border-bottom:1px solid var(--border-primary); background:var(--bg-secondary);
+    position:sticky; top:0; z-index:10; }
+  .topbar h1 { font-size:14px; margin:0; font-weight:600; }
+  .topbar .sub { color:var(--text-tertiary); font-size:11px; }
+  .wrap { max-width:1280px; margin:20px auto; padding:0 16px 60px; }
+
+  /* ── What-changed panel ── */
+  .legend { border:1px solid var(--border-primary); border-radius:12px;
+    background:var(--bg-secondary); padding:16px 18px; margin-bottom:22px; }
+  .legend h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--text-tertiary); margin:0 0 12px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+  @media (max-width:780px){ .cols { grid-template-columns:1fr; } }
+  .grp h3 { font-size:11px; margin:0 0 8px; display:flex; align-items:center; gap:7px;
+    text-transform:uppercase; letter-spacing:.04em; }
+  .badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:5px;
+    letter-spacing:.03em; border:1px solid; }
+  .badge.lost { color:var(--red); border-color:rgba(239,68,68,.4);
+    background:rgba(239,68,68,.1); }
+  .badge.changed { color:var(--blue); border-color:rgba(96,165,250,.4);
+    background:rgba(96,165,250,.1); }
+  ul.items { list-style:none; margin:0; padding:0; }
+  ul.items li { padding:6px 0 6px 16px; position:relative; font-size:12px;
+    color:var(--text-secondary); border-bottom:1px dashed var(--border-subtle); }
+  ul.items li:last-child { border-bottom:none; }
+  ul.items li::before { content:""; position:absolute; left:0; top:12px;
+    width:6px; height:6px; border-radius:50%; }
+  .grp.lost li::before { background:var(--red); }
+  .grp.changed li::before { background:var(--blue); }
+  ul.items b { color:var(--text-primary); font-weight:600; }
+  ul.items .q { color:var(--amber); font-style:italic; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+    background:var(--bg-tertiary); padding:1px 5px; border-radius:4px;
+    color:var(--text-secondary); }
+  .note { font-size:11px; color:var(--text-muted); margin-top:14px;
+    padding-top:12px; border-top:1px solid var(--border-subtle); }
+
+  /* ── Side-by-side frames ── */
+  .frames { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:980px){ .frames { grid-template-columns:1fr; } }
+  .frame { border:1px solid var(--border-primary); border-radius:12px;
+    overflow:hidden; background:var(--bg-secondary); }
+  .frame > .head { display:flex; align-items:center; gap:8px; padding:8px 14px;
+    border-bottom:1px solid var(--border-primary); background:var(--bg-primary);
+    font-size:12px; }
+  .frame > .head .tag { font-size:9px; font-weight:700; padding:2px 8px;
+    border-radius:5px; border:1px solid; }
+  .frame.before .tag { color:var(--text-tertiary);
+    border-color:var(--border-secondary); background:var(--bg-tertiary); }
+  .frame.after .tag { color:var(--indigo); border-color:var(--indigo-strong);
+    background:var(--indigo-bg); }
+  .frame .head .meta { color:var(--text-muted); font-size:10px; margin-left:auto;
+    font-family:ui-monospace,monospace; }
+  iframe { width:100%; height:1000px; border:0; display:block; background:var(--bg-primary); }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Goal mockup <span class="sub">· Before ↔ After (Screen A shown; switch tabs inside each frame)</span></h1>
+  </div>
+
+  <div class="wrap">
+    <div class="legend">
+      <h2>What changed in <code>mockups/goal/index.html</code></h2>
+      <div class="cols">
+        <div class="grp lost">
+          <h3><span class="badge lost">LOST</span> Informative content dropped</h3>
+          <ul class="items">
+            <li><b>Judge-model rationale</b> hint: <span class="q">"A different model than the executor avoids Ralph-loop 'talked itself into done.'"</span></li>
+            <li><b>Criterion → <code>/subgoal</code></b> hint: <span class="q">"Each criterion maps to a /subgoal the judge factors into its done/continue verdict."</span></li>
+            <li><b>Budget hints</b>: <span class="q">"default 20"</span> and <span class="q">"stops loop at cap"</span></li>
+            <li><b>Judge-option annotations</b>: <code>(cross-model)</code> / <code>(same as executor)</code> on the select options</li>
+            <li><b>Criteria done-state</b>: the <code>☐ / ☑</code> + strikethrough display (now plain editable inputs)</li>
+            <li><b>"Judge &amp; budget"</b> section divider</li>
+          </ul>
+        </div>
+        <div class="grp changed">
+          <h3><span class="badge changed">CHANGED</span> Intentional (your directive + sync to shipped code)</h3>
+          <ul class="items">
+            <li><b>Inline panel → modal dialog</b> (your "make it a dialog"; mirrors <code>CreateAutomationDialog</code>)</li>
+            <li><b>"Turn budget" → "Max turns"</b>, <b>"Spend cap" → "Max spend ($)"</b> (match shipped <code>GoalForm</code>)</li>
+            <li><b>self-judge switch → checkbox</b> with label <code>Self-judge (judge with the executor model)</code></li>
+            <li><b>"Create goal" → "Create"</b> (match <code>GoalForm</code> submit label)</li>
+            <li><b>Stale tags swept</b>: <code>partial wiring</code>, <code>needs new wiring</code>, <code>new</code>, <code>partial</code> — all shipped in <code>sophisticate-goal-authoring-and-control</code></li>
+            <li><b>Opens from both</b> <code>+ Goal</code> (sidebar) and <code>+ New Goal</code> (board) → one shared dialog</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note">
+        The <span style="color:var(--red)">LOST</span> items were not asked-for removals — they were design-rationale hints absent from the shipped
+        <code>GoalForm</code>, so syncing the mockup to code dropped them. Worth re-adding the judge-rationale + criterion/subgoal hints if you want the
+        mockup to teach the "why," not just mirror the fields.
+      </div>
+    </div>
+
+    <div class="frames">
+      <div class="frame before">
+        <div class="head"><span class="tag">BEFORE</span> inline panel
+          <span class="meta">git 119e05c9 · before.html</span></div>
+        <iframe src="before.html" title="Before — original goal mockup"></iframe>
+      </div>
+      <div class="frame after">
+        <div class="head"><span class="tag">AFTER</span> modal dialog + code-synced
+          <span class="meta">working tree · index.html</span></div>
+        <iframe src="index.html" title="After — adapted goal mockup"></iframe>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

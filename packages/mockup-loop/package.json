@@ -1,0 +1,52 @@
+{
+  "name": "@blackbelt-technology/frontend-mockup-loop",
+  "version": "0.1.0",
+  "description": "Pi extension + skill for a ground→contract→mockup→test→fix→learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/mockup-loop"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-skill",
+    "frontend",
+    "mockup",
+    "wireframe",
+    "design-system",
+    "ui"
+  ],
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ],
+    "skills": [
+      ".pi/skills/frontend-mockup-loop"
+    ]
+  },
+  "files": [
+    "src/",
+    "!src/__tests__",
+    ".pi/skills/",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

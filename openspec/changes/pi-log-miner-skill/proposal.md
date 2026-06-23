@@ -1,3 +1,9 @@
+> **SUPERSEDED** by `distill-session-knowledge` (2026-06-23). This proposal builds a
+> heavyweight Honcho/Docker/pgvector summarization stack (0/75 tasks, untouched since
+> 2026-04-15). The successor takes a lean approach — extract verified signals from
+> session JSONL and route them into already-installed sinks (skill_manage + memory +
+> context-mode FTS5), no new infrastructure. Kept for reference; do not implement.
+
 ## Why
 
 Pi conversation logs contain rich institutional knowledge — architectural decisions, debugging insights, failure patterns, subtle side-effects — that is lost once a session ends. There is no way to extract, search, or share this knowledge across sessions or team members.

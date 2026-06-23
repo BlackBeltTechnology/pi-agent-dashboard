@@ -233,34 +233,6 @@
   .btn.primary { color:#fff; background:var(--indigo-strong);
     border-color:var(--indigo-strong); }
 
-  /* ── Modal dialog — mirrors CreateAutomationDialog
-     (fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4) ── */
-  .dialog-backdrop { position:relative; min-height:540px; border-radius:12px;
-    border:1px solid var(--border-primary); overflow:hidden;
-    display:flex; align-items:center; justify-content:center; padding:16px;
-    background:var(--bg-primary); }
-  /* faint goals-board peeking behind, then the bg-black/40 dim */
-  .dialog-backdrop .behind { position:absolute; inset:0; padding:14px;
-    opacity:.5; filter:saturate(.7); pointer-events:none; }
-  .dialog-backdrop .behind .bline { height:46px; border-radius:10px;
-    border:1px solid var(--border-subtle); background:var(--bg-tertiary);
-    margin-bottom:12px; }
-  .dialog-backdrop::before { content:""; position:absolute; inset:0;
-    background:rgba(0,0,0,.45); }
-  .dialog { position:relative; z-index:1; width:100%; max-width:512px;
-    max-height:90%; overflow:auto; border-radius:10px; background:var(--bg-primary);
-    border:1px solid var(--border-primary);
-    box-shadow:0 24px 60px rgba(0,0,0,.55); }
-  .dialog .body { padding:16px; }
-  .crit input[type=text] { flex:1; }
-  .switch-row { display:flex; align-items:center; gap:8px; margin-top:10px;
-    font-size:11px; color:var(--text-secondary); }
-  .opens { display:flex; align-items:center; gap:8px; margin-bottom:12px;
-    font-size:11px; color:var(--text-muted); flex-wrap:wrap; }
-  .opens .trig { font-size:11px; padding:3px 9px; border-radius:6px;
-    border:1px solid var(--indigo-strong); color:var(--indigo);
-    background:var(--indigo-bg); }
-
   /* ── Board cards ── */
   .filters { display:flex; gap:6px; padding:10px 14px;
     border-bottom:1px solid var(--border-subtle); }
@@ -334,11 +306,13 @@
     <h1>Goal plugin <span class="sub">· OpenSpec-styled authoring + control mockups</span></h1>
     <span class="spacer"></span>
     <span class="tag exists">surfaces existing</span>
+    <span class="tag partial">partial wiring</span>
+    <span class="tag new">needs new wiring</span>
     <button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark'">◑ theme</button>
   </div>
 
   <div class="tabs">
-    <button class="tab active" data-s="a">A · Create dialog</button>
+    <button class="tab active" data-s="a">A · Create / Edit</button>
     <button class="tab" data-s="b">B · Goals board</button>
     <button class="tab" data-s="c">C · Goal detail</button>
     <button class="tab" data-s="d">D · Session chip</button>
@@ -348,76 +322,68 @@
 
     <!-- ───────────────────────── SCREEN A ───────────────────────── -->
     <section class="screen active" id="a">
-      <h2>Screen A — Create goal (modal dialog)</h2>
-      <p class="legend">Both the sidebar <b>+ Goal</b> and the board <b>+ New Goal</b> open this same modal <code>GoalForm</code> dialog — parity with the automation <code>CreateAutomationDialog</code> (no more inline panel). Fields mirror the shipped <code>GoalForm</code>.</p>
-      <div class="opens">
-        opens from
-        <span class="trig">FolderGoalsSection · + Goal</span>
-        <span class="trig">GoalsBoardClaim · + New Goal</span>
-        → one shared dialog
-      </div>
-      <div class="dialog-backdrop">
-        <div class="behind">
-          <div class="bline"></div><div class="bline"></div><div class="bline"></div>
+      <h2>Screen A — Create / Edit goal</h2>
+      <p class="legend">Replaces today's single "Goal objective…" text box. Captures the full judged-loop definition up front.</p>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="crumb">Goals ›</span>
+          <span class="title">New goal · Documents</span>
+          <button class="icon-btn">✕</button>
         </div>
-        <div class="dialog">
-          <div class="panel-head">
-            <span class="crumb">Goals ›</span>
-            <span class="title">New goal · Documents</span>
-            <button class="icon-btn">✕</button>
+        <div class="body">
+          <div class="field">
+            <label class="label">Objective <span class="tag exists">surfaces existing</span></label>
+            <input type="text" value="Ship the v2 CSV importer end to end" />
           </div>
-          <div class="body">
-            <div class="field">
-              <label class="label">Objective</label>
-              <input type="text" autofocus value="Ship the v2 CSV importer end to end" />
-            </div>
 
-            <div class="field">
-              <div class="row">
-                <label class="label" style="flex:1; margin:0">Acceptance criteria</label>
-                <button class="addbtn" style="margin:0; padding:2px 8px">+ Add</button>
-              </div>
-              <div style="margin-top:8px">
-                <div class="crit"><input type="text" value="All importer unit + integration tests pass" /><span class="x">✕</span></div>
-                <div class="crit"><input type="text" value="Handles a 10k-row CSV in under 5s" /><span class="x">✕</span></div>
-                <div class="crit"><input type="text" value="Schema docs updated" /><span class="x">✕</span></div>
-              </div>
-              <div class="hint">Each criterion maps to a <code>/subgoal</code> the judge factors into its done/continue verdict. Empty → the judge uses the objective alone.</div>
-            </div>
+          <div class="field">
+            <label class="label">Acceptance criteria <span class="tag exists">surfaces existing → /subgoal</span></label>
+            <div class="crit"><span class="box">☐</span><span class="txt">All importer unit + integration tests pass</span><span class="x">✕</span></div>
+            <div class="crit"><span class="box">☐</span><span class="txt">Handles a 10k-row CSV in under 5s</span><span class="x">✕</span></div>
+            <div class="crit"><span class="box done">☑</span><span class="txt done">Schema docs updated</span><span class="x">✕</span></div>
+            <button class="addbtn">+ add criterion</button>
+            <div class="hint">Each criterion maps to a <code>/subgoal</code> the judge factors into its done/continue verdict.</div>
+          </div>
 
-            <div class="field" style="display:grid; grid-template-columns:1fr 1fr; gap:12px">
-              <div>
-                <label class="label">Max turns</label>
-                <input type="number" value="20" placeholder="20" />
-              </div>
-              <div>
-                <label class="label">Max spend ($)</label>
-                <input type="number" placeholder="—" />
-              </div>
-            </div>
+          <div class="divider">Judge &amp; budget</div>
 
-            <div class="field">
-              <div class="row">
-                <label class="label" style="flex:1; margin:0">Judge model</label>
-                <span class="pill cross">cross-model</span>
-              </div>
-              <select style="margin-top:6px">
-                <option>Extension default</option>
-                <option selected>anthropic/claude-haiku-4-5</option>
+          <div class="field row" style="gap:16px; align-items:flex-start;">
+            <div style="flex:2">
+              <label class="label">Judge model <span class="tag new">needs new wiring</span></label>
+              <select>
+                <option>anthropic/claude-haiku-4-5  (cross-model)</option>
                 <option>openai/gpt-5-mini</option>
-                <option>anthropic/claude-opus-4-8</option>
+                <option>anthropic/claude-opus-4-8  (same as executor)</option>
               </select>
-              <div class="hint">A different model than the executor avoids Ralph-loop “talked itself into done.”</div>
-              <label class="switch-row">
-                <input type="checkbox" />
-                Self-judge (judge with the executor model)
-              </label>
+              <div class="hint">A different model than the executor avoids Ralph-loop "talked itself into done."</div>
             </div>
+            <div>
+              <label class="label">&nbsp;</label>
+              <span class="pill cross">✓ cross-model</span>
+            </div>
+          </div>
 
-            <div class="actions">
-              <button class="btn">Cancel</button>
-              <button class="btn primary">Create</button>
+          <div class="field row" style="gap:24px;">
+            <div>
+              <label class="label">Turn budget <span class="tag partial">partial</span></label>
+              <input type="number" class="num" value="20" />
+              <div class="hint">default 20</div>
             </div>
+            <div>
+              <label class="label">Spend cap <span class="tag partial">partial</span></label>
+              <input type="text" class="num" value="$5.00" />
+              <div class="hint">stops loop at cap</div>
+            </div>
+            <div style="align-self:center; margin-top:14px;">
+              <span class="switch"><span class="track"></span>
+                <span style="font-size:11px;color:var(--text-secondary)">Allow same-model self-judge <span class="tag new">new</span></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn">Cancel</button>
+            <button class="btn primary">Create goal</button>
           </div>
         </div>
       </div>
@@ -510,7 +476,7 @@
               <span class="sdot streaming"></span>
               <span class="state-pill" data-state="PURSUING">● Pursuing</span>
               <span class="spacer"></span>
-              <span class="pill cross">judge: claude-haiku-4-5 · cross-model</span>
+              <span class="pill cross">judge: claude-haiku-4-5 · cross-model <span class="tag new">new</span></span>
             </div>
 
             <!-- Goal-loop stepper -->
@@ -541,7 +507,7 @@
                 <div class="bar" style="max-width:none"><i style="width:35%"></i></div>
               </div>
               <div class="gauge">
-                <div class="g-label"><span>Spend cap</span><span>$2.10 / $5.00</span></div>
+                <div class="g-label"><span>Spend cap <span class="tag partial">partial</span></span><span>$2.10 / $5.00</span></div>
                 <div class="bar spend" style="max-width:none"><i style="width:42%"></i></div>
               </div>
             </div>
@@ -552,7 +518,7 @@
             <div class="crit"><span class="box done">☑</span><span class="txt done">Schema docs updated</span><span class="x">✕</span></div>
             <button class="addbtn">+ add criterion</button>
 
-            <div class="section-h">Judge verdict timeline</div>
+            <div class="section-h">Judge verdict timeline <span class="tag new">needs new wiring</span></div>
             <div class="timeline">
               <div class="tl"><span class="t">turn 7 · 11:42</span> <span class="v">judge: <b style="color:var(--amber)">continue</b> — "2 of 3 criteria still open; tests failing"</span></div>
               <div class="tl"><span class="t">turn 6 · 11:39</span> <span class="v">judge: <b style="color:var(--amber)">continue</b> — "importer scaffolded, no tests yet"</span></div>
@@ -599,7 +565,7 @@
             </div>
           </div>
           <div class="note">
-            State pill + status dot + glow match the session card. <span class="verdict ring">turns 7/20</span> + verdict, inline ⏸ <span class="tag exists">/goal pause</span>, → opens detail <span class="tag exists">exists</span>.
+            State pill + status dot + glow match the session card. <span class="verdict ring">turns 7/20</span> + verdict <span class="tag new">new</span>, inline ⏸ <span class="tag exists">/goal pause</span>, → opens detail <span class="tag exists">exists</span>.
           </div>
         </div>
       </div>
