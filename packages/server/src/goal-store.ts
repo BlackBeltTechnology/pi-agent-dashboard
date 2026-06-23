@@ -18,10 +18,13 @@ import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import {
   GOALS_SCHEMA_VERSION,
+  GOAL_VERDICTS_CAP,
   type GoalRecord,
   type GoalRecordStatus,
   type GoalCriterion,
   type GoalBudget,
+  type GoalJudge,
+  type GoalVerdict,
   type GoalsFile,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -42,6 +45,7 @@ export interface GoalCreateBody {
   objective: string;
   criteria?: GoalCriterion[];
   budget?: GoalBudget;
+  judge?: GoalJudge;
 }
 
 export interface GoalUpdateBody {
@@ -49,6 +53,7 @@ export interface GoalUpdateBody {
   criteria?: GoalCriterion[];
   status?: GoalRecordStatus;
   budget?: GoalBudget;
+  judge?: GoalJudge;
   driverSessionId?: string;
 }
 
@@ -69,6 +74,8 @@ export interface GoalStore {
   linkSession(cwd: string, id: string, sessionId: string): Promise<GoalRecord>;
   /** Remove a session from a goal. Clears driverSessionId if it pointed at it. */
   unlinkSession(cwd: string, id: string, sessionId: string): Promise<GoalRecord>;
+  /** Append a judge verdict to a goal (FIFO-capped at GOAL_VERDICTS_CAP). */
+  appendVerdict(cwd: string, id: string, verdict: GoalVerdict): Promise<GoalRecord>;
   subscribe(cb: (cwd: string, payload: { goals: GoalRecord[] }) => void): () => void;
   dispose(): void;
 }
@@ -188,6 +195,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
         criteria: body.criteria ?? [],
         status: "pursuing",
         ...(body.budget !== undefined ? { budget: body.budget } : {}),
+        ...(body.judge !== undefined ? { judge: body.judge } : {}),
         sessionIds: [],
         createdAt: now,
         updatedAt: now,
@@ -209,6 +217,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
         ...(body.criteria !== undefined ? { criteria: body.criteria } : {}),
         ...(body.status !== undefined ? { status: body.status } : {}),
         ...(body.budget !== undefined ? { budget: body.budget } : {}),
+        ...(body.judge !== undefined ? { judge: body.judge } : {}),
         ...(body.driverSessionId !== undefined ? { driverSessionId: body.driverSessionId } : {}),
         updatedAt: Date.now(),
       };
@@ -268,6 +277,19 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     });
   }
 
+  async function appendVerdict(cwd: string, id: string, verdict: GoalVerdict): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const verdicts = [...(target.verdicts ?? []), verdict].slice(-GOAL_VERDICTS_CAP);
+      const updated: GoalRecord = { ...target, verdicts, updatedAt: Date.now() };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
   function subscribe(cb: Subscriber): () => void {
     subscribers.add(cb);
     return () => subscribers.delete(cb);
@@ -288,6 +310,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     delete: del,
     linkSession,
     unlinkSession,
+    appendVerdict,
     subscribe,
     dispose,
   };

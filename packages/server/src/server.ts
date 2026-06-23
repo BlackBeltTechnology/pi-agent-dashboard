@@ -62,6 +62,7 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { createGoalStore } from "./goal-store.js";
+import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
 import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
 import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
@@ -612,6 +613,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const h of pluginRawEventSubs) {
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
     }
+  }
+
+  // Main-server consumer of goal_status snapshots: accumulates bounded judge
+  // verdict history onto the owning GoalRecord. The goal-plugin server can't
+  // reach the GoalStore, so retention lives here. Registered as a peer of the
+  // plugin's own goal_status handler (both fire via dispatchPluginPiMessage).
+  // See change: sophisticate-goal-authoring-and-control (task 2.2).
+  {
+    const accumulator = createGoalVerdictAccumulator({
+      store: goalStore,
+      lookupSession: (sessionId) => {
+        const s = sessionManager.get(sessionId);
+        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
+      },
+    });
+    // Protocol message type mirrored by the goal-plugin bridge → server.
+    // Kept as a literal to avoid a server→goal-plugin package dependency.
+    const GOAL_STATUS_MESSAGE = "goal_status";
+    const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
+    arr.push((msg) => accumulator.handle(msg));
+    pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
   }
 
   // Wire up event forwarding from pi gateway to browser gateway

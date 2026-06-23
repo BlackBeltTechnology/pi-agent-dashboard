@@ -1,17 +1,17 @@
 # Tasks
 
 ## 1. Data model (shared)
-- [ ] 1.1 Add `GoalJudge`, `GoalVerdict` types + `judge?`/`verdicts?` to
+- [x] 1.1 Add `GoalJudge`, `GoalVerdict` types + `judge?`/`verdicts?` to
   `GoalRecord` in `packages/shared/src/types.ts`. → verify: `tsc` clean,
   existing `GoalsFile` fixtures still parse.
-- [ ] 1.2 Decide on `schemaVersion` (bump only if normalization added). → verify:
+- [x] 1.2 Decide on `schemaVersion` (bump only if normalization added). → verify:
   goal-store load test with a pre-change file passes unchanged.
 
 ## 2. Server — persistence + REST
-- [ ] 2.1 Validate `judge` on POST/PATCH in `goal-routes.ts` (clamp-or-reject,
+- [x] 2.1 Validate `judge` on POST/PATCH in `goal-routes.ts` (clamp-or-reject,
   mirror `parseBudget`). → verify: route test rejects malformed judge, accepts
   valid, ignores absent.
-- [ ] 2.2 Append `GoalVerdict` to the record when a driver session's
+- [x] 2.2 Append `GoalVerdict` to the record when a driver session's
   `goal_status` snapshot advances `(turnsUsed, lastVerdict)`; FIFO-cap at 50. →
   verify: unit test feeds 60 snapshots, expects 50 retained, newest last.
 

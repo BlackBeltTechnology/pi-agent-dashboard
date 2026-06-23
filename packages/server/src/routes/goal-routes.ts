@@ -5,8 +5,8 @@
  * known-cwd set, mirroring `openspec-group-routes.ts`):
  *
  *   GET    /api/folders/goals?cwd=C                  list GoalRecord[]
- *   POST   /api/folders/goals?cwd=C                  create { objective, criteria?, budget? }
- *   PATCH  /api/folders/goals/:id?cwd=C              update status/objective/criteria/budget
+ *   POST   /api/folders/goals?cwd=C                  create { objective, criteria?, budget?, judge? }
+ *   PATCH  /api/folders/goals/:id?cwd=C              update status/objective/criteria/budget/judge
  *   DELETE /api/folders/goals/:id?cwd=C              delete (clears goalId on linked sessions)
  *   POST   /api/folders/goals/:id/sessions?cwd=C     link { sessionId } | spawn { spawn:true, model? }
  *   DELETE /api/folders/goals/:id/sessions/:sid?cwd=C unlink
@@ -18,7 +18,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
-import type { ApiResponse, GoalCriterion, GoalBudget, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ApiResponse, GoalCriterion, GoalBudget, GoalJudge, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GoalNotFoundError, type GoalStore } from "../goal-store.js";
 
 export interface GoalRoutesDeps {
@@ -106,6 +106,19 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
     return budget;
   }
 
+  /** Returns `undefined` when absent, a validated judge, or `null` when present-but-malformed. */
+  function parseJudge(raw: unknown): GoalJudge | undefined | null {
+    if (raw === undefined) return undefined;
+    if (typeof raw !== "object" || raw === null) return null;
+    const j = raw as { provider?: unknown; modelId?: unknown; sameModel?: unknown };
+    if (typeof j.provider !== "string" || j.provider.trim().length === 0) return null;
+    if (typeof j.modelId !== "string" || j.modelId.trim().length === 0) return null;
+    if (j.sameModel !== undefined && typeof j.sameModel !== "boolean") return null;
+    const judge: GoalJudge = { provider: j.provider.trim(), modelId: j.modelId.trim() };
+    if (j.sameModel !== undefined) judge.sameModel = j.sameModel;
+    return judge;
+  }
+
   // ── GET list ─────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/folders/goals",
@@ -125,7 +138,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
   // ── POST create ──────────────────────────────────────────────
   fastify.post<{
     Querystring: { cwd?: string };
-    Body: { objective?: unknown; criteria?: unknown; budget?: unknown };
+    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown };
   }>(
     "/api/folders/goals",
     { preHandler: networkGuard },
@@ -148,11 +161,17 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         reply.code(400);
         return { success: false, error: "budget must be { maxTurns?, maxSpendUsd? } numbers" } satisfies ApiResponse;
       }
+      const judge = parseJudge(body.judge);
+      if (judge === null) {
+        reply.code(400);
+        return { success: false, error: "judge must be { provider, modelId, sameModel? }" } satisfies ApiResponse;
+      }
       try {
         const created = await store.create(cwd!, {
           objective,
           ...(criteria !== undefined ? { criteria } : {}),
           ...(budget !== undefined ? { budget } : {}),
+          ...(judge !== undefined ? { judge } : {}),
         });
         reply.code(201);
         return { success: true, data: created } satisfies ApiResponse;
@@ -166,7 +185,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
   fastify.patch<{
     Params: { id: string };
     Querystring: { cwd?: string };
-    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; status?: unknown };
+    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown; status?: unknown };
   }>(
     "/api/folders/goals/:id",
     { preHandler: networkGuard },
@@ -175,7 +194,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (rejectInvalidCwd(reply, cwd)) return;
       const { id } = request.params;
       const body = request.body ?? {};
-      const update: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; status?: GoalRecordStatus } = {};
+      const update: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus } = {};
       if (body.objective !== undefined) {
         if (typeof body.objective !== "string") {
           reply.code(400);
@@ -202,6 +221,12 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         return { success: false, error: "budget must be { maxTurns?, maxSpendUsd? } numbers" } satisfies ApiResponse;
       }
       if (budget !== undefined) update.budget = budget;
+      const judge = parseJudge(body.judge);
+      if (judge === null) {
+        reply.code(400);
+        return { success: false, error: "judge must be { provider, modelId, sameModel? }" } satisfies ApiResponse;
+      }
+      if (judge !== undefined) update.judge = judge;
       try {
         const updated = await store.update(cwd!, id, update);
         return { success: true, data: updated } satisfies ApiResponse;
