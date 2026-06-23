@@ -47,9 +47,9 @@
   board.
 
 ## 6. Docs + verification
-- [ ] 6.1 Add/update `docs/file-index-plugins.md` rows for every changed file
+- [x] 6.1 Add/update `docs/file-index-plugins.md` rows for every changed file
   (caveman style, via subagent).
-- [ ] 6.2 Full plugin test pass green (`npm test` for goal-plugin + server
+- [x] 6.2 Full plugin test pass green (`npm test` for goal-plugin + server
   goal-routes). → verify: tee→grep no FAIL.
 - [ ] 6.3 Manual: build + restart + reload; create a goal with criteria/budget/
   judge, confirm board/detail/chip render and pause works.
