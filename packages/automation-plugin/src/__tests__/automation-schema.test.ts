@@ -88,6 +88,45 @@ model: x
     expect(error).toContain("action");
   });
 
+  it("parses a multi-event openspec automation (kind not registered, but in taxonomy)", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: openspec, events: [change.archived, change.validated] }
+action: { kind: prompt, prompt: ./p.md }
+model: x
+`,
+      KNOWN,
+    );
+    expect(error).toBeUndefined();
+    expect(config?.on.kind).toBe("openspec");
+    expect(config?.on.events).toEqual(["change.archived", "change.validated"]);
+  });
+
+  it("rejects a multi-type category with no selected events", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: openspec }
+action: { kind: prompt, prompt: ./p.md }
+model: x
+`,
+      KNOWN,
+    );
+    expect(config).toBeUndefined();
+    expect(error).toContain("events");
+  });
+
+  it("rejects an empty events array", () => {
+    const { error } = parseAutomationYaml(
+      `
+on: { kind: openspec, events: [] }
+action: { kind: prompt, prompt: ./p.md }
+model: x
+`,
+      KNOWN,
+    );
+    expect(error).toContain("events");
+  });
+
   it("rejects an invalid enum value", () => {
     const { error } = parseAutomationYaml(
       `

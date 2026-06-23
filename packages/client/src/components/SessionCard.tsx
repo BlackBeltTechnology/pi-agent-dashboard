@@ -10,7 +10,14 @@ import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
   deriveRailBgColor,
+  getCardPulseClass,
+  getCardStripeFxClass,
 } from "../lib/session-status-visuals.js";
+
+// Re-export the relocated card-state helpers so existing test imports that
+// reference them from SessionCard resolve unchanged.
+// See change: port-session-card-state-visuals-to-openspec-board.
+export { getCardPulseClass, getCardStripeFxClass } from "../lib/session-status-visuals.js";
 
 // Re-export for any downstream consumers that historically imported these
 // from SessionCard. See change: add-session-status-to-folder-proposal-rows.
@@ -45,39 +52,6 @@ import { CwdGonePill } from "./CwdGonePill.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 import { t as i18nT } from "../lib/i18n";
-
-/**
- * @param hasWidgetBarPrompt true when the session has a pending PromptBus
- *   request whose component type is registered with `placement: "widget-bar"`.
- *   In that case the purple `card-input-stripes` class is suppressed — a
- *   widget-bar slot owns the prompt's render, not the chat. Plugin-agnostic;
- *   the shell only knows about `placement`, not specific component type ids.
- *   See change: fix-flows-plugin-polish (B1).
- */
-export function getCardPulseClass(session: DashboardSession, hasWidgetBarPrompt = false): string {
-  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-stripes";
-  if (session.status === "streaming" || session.resuming) return "card-working-pulse";
-  // Unread state — cyan scrolling stripes. Lower priority than the two above
-  // so streaming/ask_user keep their stronger colors.
-  // See change: session-card-unread-stripes.
-  if (session.unread) return "card-unread-pulse";
-  return "";
-}
-
-/**
- * Map the card's state marker class (kept on the <li> as the state signal) to
- * the color class for its `.card-stripes-fx` overlay, which actually paints the
- * compositor-only scrolling stripes behind card content.
- * See change: throttle-idle-ui-animations.
- */
-const STRIPE_FX_CLASS: Record<string, string> = {
-  "card-working-pulse": "card-stripes-running",
-  "card-unread-pulse": "card-stripes-unread",
-  "card-input-stripes": "card-stripes-input",
-};
-export function getCardStripeFxClass(pulseClass: string): string {
-  return STRIPE_FX_CLASS[pulseClass] ?? "";
-}
 
 export function ActivityIndicator({ session }: { session: DashboardSession }) {
   // Suppress chat-routed indicators when a widget-bar slot owns the prompt.

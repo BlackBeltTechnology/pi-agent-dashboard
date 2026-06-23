@@ -7,6 +7,7 @@ The following pi.events → eventType mappings SHALL be used:
 - `flow:flow-started` → `flow_started`
 - `flow:agent-started` → `flow_agent_started`
 - `flow:agent-complete` → `flow_agent_complete`
+- `flow:agent-error` → `flow_agent_error`
 - `flow:subagent-tool-call` → `flow_tool_call`
 - `flow:subagent-tool-result` → `flow_tool_result`
 - `flow:assistant-text` → `flow_assistant_text`
@@ -26,6 +27,10 @@ The following pi.events → eventType mappings SHALL be used:
 #### Scenario: Agent complete event forwarded
 - **WHEN** pi-flows emits `flow:agent-complete` with `{ agentName, stepId, result }`
 - **THEN** the bridge SHALL send an `event_forward` message with `eventType: "flow_agent_complete"` and the event data
+
+#### Scenario: Agent error event forwarded
+- **WHEN** pi-flows emits `flow:agent-error` with `{ agentName, stepId, text }`
+- **THEN** the bridge SHALL send an `event_forward` message with `eventType: "flow_agent_error"` and the event data
 
 #### Scenario: Tool call event forwarded
 - **WHEN** pi-flows emits `flow:subagent-tool-call` with `{ agentName, toolName, input }`

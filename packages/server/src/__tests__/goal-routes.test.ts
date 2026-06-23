@@ -92,6 +92,51 @@ describe("goal REST routes", () => {
     expect(body.data.status).toBe("pursuing");
   });
 
+  it("POST → accepts a valid judge and persists it", async () => {
+    await setup();
+    const res = await fastify.inject({
+      method: "POST",
+      url: `/api/folders/goals?${q()}`,
+      payload: { objective: "Ship it", judge: { provider: "anthropic", modelId: "claude", sameModel: true } },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.payload);
+    expect(body.data.judge).toEqual({ provider: "anthropic", modelId: "claude", sameModel: true });
+  });
+
+  it("POST → 400 for malformed judge (missing modelId)", async () => {
+    await setup();
+    const res = await fastify.inject({
+      method: "POST",
+      url: `/api/folders/goals?${q()}`,
+      payload: { objective: "x", judge: { provider: "anthropic" } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(await store.list(cwd)).toEqual([]);
+  });
+
+  it("POST → ignores absent judge", async () => {
+    await setup();
+    const res = await fastify.inject({
+      method: "POST",
+      url: `/api/folders/goals?${q()}`,
+      payload: { objective: "x" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.payload).data.judge).toBeUndefined();
+  });
+
+  it("PATCH → 400 for malformed judge (missing provider)", async () => {
+    await setup();
+    const g = await store.create(cwd, { objective: "x" });
+    const res = await fastify.inject({
+      method: "PATCH",
+      url: `/api/folders/goals/${g.id}?${q()}`,
+      payload: { judge: { modelId: "claude" } },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("POST → 400 without objective", async () => {
     await setup();
     const res = await fastify.inject({ method: "POST", url: `/api/folders/goals?${q()}`, payload: {} });

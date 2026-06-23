@@ -12,6 +12,7 @@ export const FLOW_EVENT_MAP: Record<string, string> = {
   "flow:flow-started": "flow_started",
   "flow:agent-started": "flow_agent_started",
   "flow:agent-complete": "flow_agent_complete",
+  "flow:agent-error": "flow_agent_error",
   "flow:subagent-tool-call": "flow_tool_call",
   "flow:subagent-tool-result": "flow_tool_result",
   "flow:assistant-text": "flow_assistant_text",

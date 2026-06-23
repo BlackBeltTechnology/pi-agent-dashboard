@@ -39,6 +39,10 @@ export function replayEntriesAsEvents(
 ): EventForwardMessage[] {
   const messages: EventForwardMessage[] = [];
   const openToolCalls = new Set<string>(); // track tool calls without results
+  // Persisted flow-run events (change: replay-persisted-flow-runs). Collected
+  // during the loop, then emitted sorted by seq so the client's idempotent
+  // reduceFlowEvent rebuilds the flow card identically to the live path.
+  const flowEventRecords: Array<{ seq: number; eventType: string; data: unknown; ts: number }> = [];
 
   let currentModel = "";
 
@@ -48,6 +52,21 @@ export function replayEntriesAsEvents(
 
     if (entry.type === "model_change") {
       currentModel = entry.modelId ?? "";
+    }
+
+    // Persisted flow-run event: { seq, eventType, data, flowRunId }. eventType
+    // is already the dashboard protocol name — re-forward verbatim, no re-map.
+    // Duck-typed: no import from pi-flows. Malformed records skipped.
+    if (entry.type === "custom" && entry.customType === "flow-event") {
+      const rec = entry.data as { seq?: unknown; eventType?: unknown; data?: unknown } | undefined;
+      if (rec && typeof rec.eventType === "string") {
+        flowEventRecords.push({
+          seq: typeof rec.seq === "number" ? rec.seq : 0,
+          eventType: rec.eventType,
+          data: rec.data,
+          ts,
+        });
+      }
     }
 
     if (entry.type === "message" && entry.message) {
@@ -154,6 +173,15 @@ export function replayEntriesAsEvents(
       result: "",
       isError: false,
     }));
+  }
+
+  // Emit persisted flow-run events sorted by seq (defensive: file order already
+  // matches seq, but parallel agents emit concurrently). Appended after message
+  // replay — flow and message reducers are independent, so relative order does
+  // not matter; only seq order WITHIN flow events does.
+  flowEventRecords.sort((a, b) => a.seq - b.seq);
+  for (const rec of flowEventRecords) {
+    messages.push(makeEvent(sessionId, rec.eventType, rec.ts, (rec.data ?? {}) as Record<string, unknown>));
   }
 
   return messages;

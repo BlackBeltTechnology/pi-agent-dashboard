@@ -12,6 +12,7 @@ import type {
   GoalRecord,
   GoalCriterion,
   GoalBudget,
+  GoalJudge,
   GoalRecordStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -71,7 +72,7 @@ export async function fetchGoals(cwd: string, signal?: AbortSignal): Promise<Goa
 
 export async function createGoal(
   cwd: string,
-  body: { objective: string; criteria?: GoalCriterion[]; budget?: GoalBudget },
+  body: { objective: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge },
 ): Promise<GoalRecord> {
   const res = await fetch(url(cwd), {
     method: "POST",
@@ -84,7 +85,7 @@ export async function createGoal(
 export async function updateGoal(
   cwd: string,
   id: string,
-  body: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; status?: GoalRecordStatus },
+  body: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus },
 ): Promise<GoalRecord> {
   const res = await fetch(url(cwd, `/${encodeURIComponent(id)}`), {
     method: "PATCH",
@@ -117,6 +118,24 @@ export async function spawnSession(cwd: string, id: string, model?: string): Pro
     body: JSON.stringify({ spawn: true, ...(model ? { model } : {}) }),
   });
   if (!res.ok) throw new Error(await parseError(res));
+}
+
+// ── Judge-model list (dashboard's known/favorite models) ──────────
+/** Parse a `provider/modelId` label into a GoalJudge-compatible pair. */
+export function parseModelLabel(label: string): { provider: string; modelId: string } {
+  const slash = label.indexOf("/");
+  if (slash <= 0) return { provider: "", modelId: label };
+  return { provider: label.slice(0, slash), modelId: label.slice(slash + 1) };
+}
+
+/** Fetch the dashboard's favorite/known model labels for the judge picker. */
+export async function fetchJudgeModels(signal?: AbortSignal): Promise<string[]> {
+  const res = await fetch("/api/favorite-models", { signal });
+  if (!res.ok) throw new Error(await parseError(res));
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? "fetch models failed");
+  const labels = json.data?.labels;
+  return Array.isArray(labels) ? labels.filter((l: unknown): l is string => typeof l === "string") : [];
 }
 
 export async function unlinkSession(cwd: string, id: string, sessionId: string): Promise<void> {

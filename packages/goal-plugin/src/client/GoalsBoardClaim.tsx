@@ -11,12 +11,13 @@
 import React, { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiChevronRight, mdiChevronDown } from "@mdi/js";
+import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiChevronRight, mdiChevronDown, mdiTrashCanOutline } from "@mdi/js";
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useGoals, statusMeta } from "./useGoals.js";
-import { createGoal, decodeFolderPath, goalDetailUrl } from "./goals-api.js";
+import { createGoal, deleteGoal, decodeFolderPath, goalDetailUrl } from "./goals-api.js";
 import { deriveSnapshot } from "./goal-state.js";
+import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
 
 const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
   { id: "all", label: "All" },
@@ -25,29 +26,54 @@ const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
   { id: "achieved", label: "Achieved" },
 ];
 
-/** Reactive live-turn rollup for a goal's driver session (task 2.1). */
+/** Small circular turn-progress ring for the driver session (task 5.3). */
+function TurnRing({ used, max }: { used: number; max: number }): React.ReactElement {
+  const pct = max > 0 ? Math.min(1, used / max) : 0;
+  const r = 7;
+  const c = 2 * Math.PI * r;
+  return (
+    <span data-testid="goal-turn-ring" title={`${used}/${max} turns`} className="inline-flex items-center">
+      <svg width="18" height="18" viewBox="0 0 18 18" className="-rotate-90">
+        <circle cx="9" cy="9" r={r} fill="none" stroke="var(--border-subtle)" strokeWidth="2" />
+        <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={c} strokeDashoffset={c * (1 - pct)} className="text-indigo-400" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
+/** Reactive live-turn rollup for a goal's driver session (task 5.3): ring +
+ *  turns text + latest live verdict. */
 function GoalLiveProgress({ sessionId }: { sessionId?: string }): React.ReactElement | null {
   const events = useSessionEvents(sessionId ?? "");
   if (!sessionId) return null;
   const snap = deriveSnapshot(events);
   if (!snap) return null;
   return (
-    <span className="text-[10px] font-mono text-[var(--text-tertiary)]" data-testid="goal-live-progress">
-      {snap.status === "paused" ? "⏸" : "●"} {snap.turnsUsed}/{snap.maxTurns}
+    <span className="inline-flex items-center gap-1" data-testid="goal-live-progress">
+      <TurnRing used={snap.turnsUsed} max={snap.maxTurns} />
+      <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
+        {snap.status === "paused" ? "⏸" : "●"} {snap.turnsUsed}/{snap.maxTurns}
+      </span>
+      {snap.lastVerdict && (
+        <span className="text-[9px] px-1 py-px rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)]" data-testid="goal-card-verdict">
+          {snap.lastVerdict}
+        </span>
+      )}
     </span>
   );
 }
 
-function GoalCard({ goal, onOpen }: { goal: GoalRecord; onOpen: () => void }): React.ReactElement {
+function GoalCard({ goal, onOpen, onDelete }: { goal: GoalRecord; onOpen: () => void; onDelete: () => void }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const meta = statusMeta(goal.status);
   const doneCriteria = goal.criteria.filter((c) => c.done).length;
+  const lastVerdict = goal.verdicts && goal.verdicts.length > 0 ? goal.verdicts[goal.verdicts.length - 1] : undefined;
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3" data-testid="goal-card">
       <div className="flex items-start gap-2">
         <button onClick={onOpen} className="flex-1 text-left min-w-0" data-testid="goal-card-open">
           <div className="text-sm text-[var(--text-primary)] font-medium truncate">{goal.objective}</div>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className={`text-[10px] px-1.5 py-px rounded-full border ${meta.cls}`}>
               {meta.dot} {meta.label}
             </span>
@@ -57,7 +83,20 @@ function GoalCard({ goal, onOpen }: { goal: GoalRecord; onOpen: () => void }): R
                 {doneCriteria}/{goal.criteria.length} criteria
               </span>
             )}
+            {!goal.driverSessionId && lastVerdict && (
+              <span className="text-[9px] px-1 py-px rounded-full border border-[var(--border-subtle)] text-[var(--text-tertiary)]" data-testid="goal-card-verdict">
+                {lastVerdict.verdict}
+              </span>
+            )}
           </div>
+          {goal.budget?.maxSpendUsd !== undefined && (
+            <div className="mt-1.5" data-testid="goal-card-spend">
+              <div className="h-1 rounded bg-[var(--border-subtle)] overflow-hidden">
+                <div className="h-full bg-emerald-400/60" style={{ width: "0%" }} />
+              </div>
+              <span className="text-[9px] text-[var(--text-muted)]">budget ${goal.budget.maxSpendUsd}</span>
+            </div>
+          )}
         </button>
         {goal.sessionIds.length > 0 && (
           <button
@@ -69,6 +108,14 @@ function GoalCard({ goal, onOpen }: { goal: GoalRecord; onOpen: () => void }): R
             {goal.sessionIds.length}
           </button>
         )}
+        <button
+          onClick={onDelete}
+          className="text-[var(--text-muted)] hover:text-red-400"
+          title="Delete goal"
+          data-testid="goal-card-delete"
+        >
+          <Icon path={mdiTrashCanOutline} size={0.55} />
+        </button>
       </div>
       {goal.criteria.length > 0 && (
         <ul className="mt-2 space-y-0.5">
@@ -105,25 +152,29 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
   const { goals, loading, error, refetch } = useGoals(cwd);
   const [filter, setFilter] = useState<"all" | GoalRecordStatus>("all");
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [createErr, setCreateErr] = useState<string | null>(null);
+  const [mutErr, setMutErr] = useState<string | null>(null);
 
   const visible = useMemo(
     () => (filter === "all" ? goals : goals.filter((g) => g.status === filter)),
     [goals, filter],
   );
 
-  const submit = async (): Promise<void> => {
-    const objective = draft.trim();
-    if (!objective || !cwd) return;
-    setCreateErr(null);
+  const submit = async (payload: GoalFormPayload): Promise<void> => {
+    if (!cwd) return;
+    await createGoal(cwd, payload);
+    setCreating(false);
+    refetch();
+  };
+
+  const remove = async (goal: GoalRecord): Promise<void> => {
+    if (!cwd) return;
+    if (!window.confirm(`Delete goal “${goal.objective}”? Linked sessions are unlinked.`)) return;
     try {
-      await createGoal(cwd, { objective });
-      setDraft("");
-      setCreating(false);
+      await deleteGoal(cwd, goal.id);
+      setMutErr(null);
       refetch();
     } catch (e) {
-      setCreateErr(e instanceof Error ? e.message : "Failed to create goal");
+      setMutErr(e instanceof Error ? e.message : "Delete failed");
     }
   };
 
@@ -149,21 +200,10 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
       </div>
 
       {creating && (
-        <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-2" data-testid="goals-board-create">
-          <input
-            autoFocus
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Goal objective…"
-            className="flex-1 text-sm px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] outline-none focus:border-indigo-400"
-            onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") setCreating(false); }}
-          />
-          <button className="text-xs px-2 py-1 rounded border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 disabled:opacity-50" disabled={!draft.trim()} onClick={() => void submit()}>
-            Create
-          </button>
+        <div className="px-3 py-2 border-b border-[var(--border-subtle)]" data-testid="goals-board-create">
+          <GoalForm onSubmit={submit} onCancel={() => setCreating(false)} />
         </div>
       )}
-      {createErr && <div className="px-3 py-1 text-xs text-red-400" data-testid="goals-board-create-error">{createErr}</div>}
 
       <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-1.5 flex-shrink-0">
         {FILTERS.map((f) => (
@@ -180,6 +220,7 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
 
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
         {error && <div className="text-xs text-red-400">{error}</div>}
+        {mutErr && <div className="text-xs text-red-400" data-testid="goals-board-mutation-error">{mutErr}</div>}
         {!error && loading && goals.length === 0 && (
           <div className="text-xs text-[var(--text-muted)]">Loading goals…</div>
         )}
@@ -189,7 +230,7 @@ export function GoalsBoardClaim({ params, onBack }: GoalsBoardClaimProps): React
           </div>
         )}
         {visible.map((g) => (
-          <GoalCard key={g.id} goal={g} onOpen={() => navigate(goalDetailUrl(cwd, g.id))} />
+          <GoalCard key={g.id} goal={g} onOpen={() => navigate(goalDetailUrl(cwd, g.id))} onDelete={() => void remove(g)} />
         ))}
       </div>
     </div>

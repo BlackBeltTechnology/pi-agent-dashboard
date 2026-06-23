@@ -136,6 +136,34 @@ describe("goal-store", () => {
     });
   });
 
+  describe("appendVerdict()", () => {
+    it("appends verdicts newest-last and FIFO-caps at 50", async () => {
+      const g = await store.create(cwdA, { objective: "judged" });
+      for (let i = 0; i < 60; i++) {
+        await store.appendVerdict(cwdA, g.id, { turn: i, at: i, verdict: "continue" });
+      }
+      const cur = (await store.list(cwdA))[0]!;
+      expect(cur.verdicts).toHaveLength(50);
+      expect(cur.verdicts![0]!.turn).toBe(10); // oldest 10 dropped
+      expect(cur.verdicts![49]!.turn).toBe(59); // newest retained
+    });
+
+    it("throws GoalNotFoundError for unknown id", async () => {
+      await expect(
+        store.appendVerdict(cwdA, "nope", { turn: 1, at: 1, verdict: "continue" }),
+      ).rejects.toBeInstanceOf(GoalNotFoundError);
+    });
+  });
+
+  describe("judge field", () => {
+    it("persists judge on create and update", async () => {
+      const g = await store.create(cwdA, { objective: "j", judge: { provider: "p", modelId: "m" } });
+      expect(g.judge).toEqual({ provider: "p", modelId: "m" });
+      const u = await store.update(cwdA, g.id, { judge: { provider: "p2", modelId: "m2", sameModel: true } });
+      expect(u.judge).toEqual({ provider: "p2", modelId: "m2", sameModel: true });
+    });
+  });
+
   describe("subscribe()", () => {
     it("fires after a mutation with the cwd + goals payload", async () => {
       const events: { cwd: string; goals: unknown[] }[] = [];

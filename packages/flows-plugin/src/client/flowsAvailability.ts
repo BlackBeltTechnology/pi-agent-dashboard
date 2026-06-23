@@ -18,11 +18,35 @@
  */
 import {
   getSessionData,
+  getSessionEvents,
   subscribeSessionDataKey,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CommandInfo, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isFlowEvent } from "../reducer.js";
 
 const availability = new Map<string, boolean>();
+
+// Per-session memo for "has this session seen any flow event?". Keyed on the
+// session-events array reference (stable until the next publish) so the scan
+// runs only when the event list grows; once true it stays true (flow events
+// are append-only). Lets the FLOWS subcard reattach on cold load after replay,
+// where the `flowsList`/`commandsList` availability signal is NOT replayed and
+// is closed-by-default. See change: replay-persisted-flow-runs (task 5.5).
+const flowEventMemo = new Map<string, { ref: readonly unknown[]; has: boolean }>();
+
+/**
+ * True when the session's replayed/live event stream contains any `flow_*`
+ * event. Synchronous, cheap (ref-memoized + sticky-true), safe to call from
+ * the `shouldRenderFlowsSubcard` predicate.
+ */
+export function sessionHasFlowEvents(sessionId: string): boolean {
+  const events = getSessionEvents(sessionId);
+  const cached = flowEventMemo.get(sessionId);
+  if (cached && (cached.has || cached.ref === events)) return cached.has;
+  const has = events.some((e) => isFlowEvent((e as { eventType: string }).eventType));
+  flowEventMemo.set(sessionId, { ref: events, has });
+  return has;
+}
 
 /**
  * Sync readable accessor for `shouldRenderFlowsSubcard`. Returns `false`
@@ -99,5 +123,6 @@ function uninstall(): void {
  */
 export function __resetFlowsAvailabilityForTests(): void {
   availability.clear();
+  flowEventMemo.clear();
   uninstall();
 }

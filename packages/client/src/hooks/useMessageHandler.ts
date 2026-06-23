@@ -41,6 +41,7 @@ export interface SpawnErrorDetail {
 import { applyPluginConfigUpdate, getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import {
   publishSessionEvent,
+  publishSessionEvents,
   clearSessionEvents,
   publishSessionData,
   intentStore,
@@ -452,6 +453,15 @@ export function useMessageHandler(
           next.set(msg.sessionId, current);
           return next;
         });
+        // Mirror the replayed batch into the plugin-runtime per-session event
+        // store so plugin slot consumers (flows card, goal chip) reading
+        // `useSessionEvents` rehydrate on cold load — the live `event` path
+        // publishes per event, so the replay path must too. Reuse `shouldReset`
+        // (full-sweep) to clear before republishing so a re-replay does not
+        // duplicate; continuation batches append.
+        // See change: replay-persisted-flow-runs.
+        if (shouldReset) clearSessionEvents(msg.sessionId);
+        publishSessionEvents(msg.sessionId, msg.events.map((e) => e.event));
         // If we reset, also reset maxSeq tracking so a subsequent batch isn't
         // misclassified. We rebuild it below from this batch's events.
         if (shouldReset) {

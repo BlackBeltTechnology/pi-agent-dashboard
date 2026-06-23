@@ -161,3 +161,73 @@ describe("OpenSpecBoardView", () => {
     expect(p.onNavigateToSession).toHaveBeenCalledWith("s1");
   });
 });
+
+// ── Status stripes + auto-scroll (port-session-card-state-visuals-to-openspec-board)
+describe("OpenSpecBoardView status stripes", () => {
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  afterEach(() => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
+  function rowStripe() {
+    return screen.getByTestId("board-session-row").querySelector(".card-stripes-fx");
+  }
+
+  it("running session row carries card-stripes-running", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ status: "streaming" })] })} />);
+    expect(rowStripe()?.className).toContain("card-stripes-running");
+  });
+
+  it("unread session row carries card-stripes-unread", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ status: "idle", unread: true })] })} />);
+    expect(rowStripe()?.className).toContain("card-stripes-unread");
+  });
+
+  it("ask_user session row carries card-stripes-input", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ status: "streaming", currentTool: "ask_user" })] })} />);
+    expect(rowStripe()?.className).toContain("card-stripes-input");
+  });
+
+  it("idle session row renders no stripe overlay", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ status: "idle" })] })} />);
+    expect(rowStripe()).toBeNull();
+  });
+
+  it("proposal card aggregates to the most-urgent child (ask_user wins)", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [
+      makeSession({ id: "a", status: "streaming" }),
+      makeSession({ id: "b", status: "idle", currentTool: "ask_user" }),
+    ] })} />);
+    const card = screen.getByTestId("board-card-add-auth");
+    // The card's own overlay is its first child; row overlays live deeper.
+    const cardOverlay = card.querySelector(":scope > .card-stripes-fx");
+    expect(cardOverlay?.className).toContain("card-stripes-input");
+  });
+
+  it("all-ended proposal renders no card-level stripe", () => {
+    render(<OpenSpecBoardView {...props({ sessions: [makeSession({ status: "ended" })] })} />);
+    const card = screen.getByTestId("board-card-add-auth");
+    expect(card.querySelector(":scope > .card-stripes-fx")).toBeNull();
+  });
+
+  it("selecting an unclicked session scrolls its row into view", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const { rerender } = render(<OpenSpecBoardView {...props({ selectedId: undefined })} />);
+    scrollIntoView.mockClear();
+    rerender(<OpenSpecBoardView {...props({ selectedId: "s1" })} />);
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("clicking a visible row does not jump scroll", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    const p = props({ selectedId: undefined });
+    const { rerender } = render(<OpenSpecBoardView {...p} />);
+    scrollIntoView.mockClear();
+    // User clicks the row, then the parent re-renders with that id selected.
+    fireEvent.click(screen.getByTestId("board-session-row"));
+    rerender(<OpenSpecBoardView {...props({ ...p, selectedId: "s1" })} />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+});

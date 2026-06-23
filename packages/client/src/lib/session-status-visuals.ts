@@ -134,3 +134,60 @@ export function deriveRailBgColor(
   // Unknown status: fall back to muted.
   return "bg-[var(--bg-surface)]";
 }
+
+/**
+ * Card-level state marker. Drives the `.card-stripes-fx` overlay color on the
+ * sidebar `SessionCard` and the OpenSpec board's `BoardSessionRow`.
+ *
+ * @param hasWidgetBarPrompt true when the session has a pending PromptBus
+ *   request whose component type is registered with `placement: "widget-bar"`.
+ *   In that case the purple `card-input-stripes` class is suppressed — a
+ *   widget-bar slot owns the prompt's render, not the chat.
+ *   See change: fix-flows-plugin-polish (B1).
+ */
+export function getCardPulseClass(session: DashboardSession, hasWidgetBarPrompt = false): string {
+  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-stripes";
+  if (session.status === "streaming" || session.resuming) return "card-working-pulse";
+  // Unread state — cyan scrolling stripes. Lower priority than the two above
+  // so streaming/ask_user keep their stronger colors.
+  // See change: session-card-unread-stripes.
+  if (session.unread) return "card-unread-pulse";
+  return "";
+}
+
+/**
+ * Map the card's state marker class to the color class for its
+ * `.card-stripes-fx` overlay, which paints the compositor-only scrolling
+ * stripes behind card content.
+ * See change: throttle-idle-ui-animations.
+ */
+const STRIPE_FX_CLASS: Record<string, string> = {
+  "card-working-pulse": "card-stripes-running",
+  "card-unread-pulse": "card-stripes-unread",
+  "card-input-stripes": "card-stripes-input",
+};
+export function getCardStripeFxClass(pulseClass: string): string {
+  return STRIPE_FX_CLASS[pulseClass] ?? "";
+}
+
+/**
+ * Aggregate stripe class for a proposal card from its child sessions. Returns
+ * the single most-urgent `card-stripes-*` class via precedence:
+ *   any ask_user → card-stripes-input (purple, highest)
+ *   else any streaming/resuming → card-stripes-running (yellow)
+ *   else any unread → card-stripes-unread (cyan)
+ *   else "" (no overlay — completion signalled elsewhere)
+ * See change: port-session-card-state-visuals-to-openspec-board.
+ */
+export function deriveProposalCardState(sessions: DashboardSession[]): string {
+  let hasRunning = false;
+  let hasUnread = false;
+  for (const s of sessions) {
+    if (s.currentTool === "ask_user") return "card-stripes-input";
+    if (s.status === "streaming" || s.resuming) hasRunning = true;
+    else if (s.unread) hasUnread = true;
+  }
+  if (hasRunning) return "card-stripes-running";
+  if (hasUnread) return "card-stripes-unread";
+  return "";
+}

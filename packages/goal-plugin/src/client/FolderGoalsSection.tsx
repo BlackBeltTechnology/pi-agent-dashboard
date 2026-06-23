@@ -15,35 +15,21 @@ import { mdiArrowRight, mdiPlus, mdiRefresh } from "@mdi/js";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { useGoals } from "./useGoals.js";
 import { createGoal, goalsBoardUrl } from "./goals-api.js";
+import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
 
 export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
   const { goals, refetch } = useGoals(cwd);
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
   if (!cwd) return null;
 
-  const submit = async (): Promise<void> => {
-    const objective = draft.trim();
-    if (!objective || busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await createGoal(cwd, { objective });
-      setDraft("");
-      setCreating(false);
-      refetch();
-      navigate(goalsBoardUrl(cwd));
-    } catch (e) {
-      // Keep the input open so the user can retry; show why it failed.
-      setErr(e instanceof Error ? e.message : "Failed to create goal");
-    } finally {
-      setBusy(false);
-    }
+  const submit = async (payload: GoalFormPayload): Promise<void> => {
+    await createGoal(cwd, payload);
+    setCreating(false);
+    refetch();
+    navigate(goalsBoardUrl(cwd));
   };
 
   return (
@@ -76,26 +62,10 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
         </button>
       </div>
       {creating && (
-        <div className="flex items-center gap-1 mt-1" data-testid="folder-goal-create">
-          <input
-            autoFocus
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Goal objective…"
-            className="flex-1 min-w-0 text-[10px] px-1.5 py-px rounded bg-[var(--bg-secondary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] outline-none focus:border-indigo-400"
-            onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") setCreating(false); }}
-          />
-          <button
-            className="text-[9px] px-1.5 py-px rounded border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 disabled:opacity-50"
-            disabled={!draft.trim() || busy}
-            onClick={() => void submit()}
-          >
-            Create
-          </button>
+        <div className="mt-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2" data-testid="folder-goal-create">
+          <GoalForm onSubmit={submit} onCancel={() => setCreating(false)} />
         </div>
       )}
-      {err && <div className="mt-1 text-[10px] text-red-400" data-testid="folder-goal-error">{err}</div>}
     </div>
   );
 }

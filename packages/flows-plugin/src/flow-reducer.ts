@@ -264,6 +264,26 @@ export function reduceFlowEvent(
       return { ...flowState, agents };
     }
 
+    case "flow_agent_error": {
+      if (!flowState) return null;
+      const agentName = data.agentName as string;
+      const stepId = data.stepId as string | undefined;
+      const text = data.text as string;
+      if (!text) return flowState;
+      const agents = new Map(flowState.agents);
+      const [key, existing] = findAgent(agents, agentName, stepId);
+      if (key && existing) {
+        // Append an error entry to the agent timeline. Status is owned by
+        // flow_agent_complete — do not change it here.
+        const detailHistory: FlowDetailEntry[] = [
+          ...existing.detailHistory,
+          { kind: "error", text },
+        ];
+        agents.set(key, { ...existing, detailHistory });
+      }
+      return { ...flowState, agents };
+    }
+
     case "flow_loop_iteration": {
       if (!flowState) return null;
       const loopTarget = data.loopTarget as string;

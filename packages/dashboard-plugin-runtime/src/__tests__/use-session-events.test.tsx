@@ -6,8 +6,8 @@ import React from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, act, cleanup } from "@testing-library/react";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { PluginContextProvider, useSessionEvents, publishSessionEvent } from "../index.js";
-import { __resetSessionEventsStoreForTests } from "../session-events-store.js";
+import { PluginContextProvider, useSessionEvents, publishSessionEvent, publishSessionEvents } from "../index.js";
+import { __resetSessionEventsStoreForTests, getSessionEvents, subscribeSessionEvents } from "../session-events-store.js";
 
 function makeEvent(seq: number, eventType = "tool_start"): DashboardEvent {
   return {
@@ -120,6 +120,26 @@ describe("useSessionEvents", () => {
     const refAfterRerender = snaps[snaps.length - 1];
 
     expect(refAfterRerender).toBe(refAfterFirst);
+  });
+
+  it("publishSessionEvents appends a batch with exactly one notification", () => {
+    let notifyCount = 0;
+    const unsub = subscribeSessionEvents("B", () => { notifyCount++; });
+    publishSessionEvents("B", [makeEvent(1), makeEvent(2), makeEvent(3)]);
+    expect(getSessionEvents("B").map((e) => (e as { seq: number }).seq)).toEqual([1, 2, 3]);
+    expect(notifyCount).toBe(1);
+    // empty batch is a no-op: no extra notification, stable reference
+    const ref = getSessionEvents("B");
+    publishSessionEvents("B", []);
+    expect(notifyCount).toBe(1);
+    expect(getSessionEvents("B")).toBe(ref);
+    unsub();
+  });
+
+  it("publishSessionEvents appends onto events already published singly", () => {
+    publishSessionEvent("C", makeEvent(1));
+    publishSessionEvents("C", [makeEvent(2), makeEvent(3)]);
+    expect(getSessionEvents("C").map((e) => (e as { seq: number }).seq)).toEqual([1, 2, 3]);
   });
 
   it("throws when called outside PluginContextProvider", () => {

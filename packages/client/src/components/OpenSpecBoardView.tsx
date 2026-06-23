@@ -8,7 +8,7 @@
  * Frontend design source: `openspec/changes/redesign-openspec-board/mockups/board.html`.
  * See change: redesign-openspec-board.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@mdi/react";
 import {
   mdiArrowLeft,
@@ -63,7 +63,7 @@ import { fetchGroups, createGroup, setAssignment, updateGroup, deleteGroup, setC
 import { resolveGroupColor, GROUP_PALETTE } from "../lib/openspec-group-palette.js";
 import { orderChangesForGroup, computeReorder } from "../lib/openspec-board-order.js";
 import { deriveWorktreeProgress } from "../lib/openspec-board-worktree.js";
-import { sourceIcons, deriveDotColor, deriveIconStatusColor, pulseClassForStatus } from "../lib/session-status-visuals.js";
+import { sourceIcons, deriveDotColor, deriveIconStatusColor, pulseClassForStatus, getCardPulseClass, getCardStripeFxClass, deriveProposalCardState } from "../lib/session-status-visuals.js";
 import { selectBadgeTimestamp } from "../lib/session-card-time.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
 import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
@@ -151,6 +151,40 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<ChangeState | null>(null);
   const [sessFilter, setSessFilter] = useState<SessStatus | null>(null);
+
+  // Auto-scroll the active board item into view, mirroring SessionList. The
+  // board gets its own small effect (its trigger set differs from the
+  // sidebar's re-sort fingerprint): scroll on external selection change or
+  // when a session transitions into ask_user, but NOT on a user row click.
+  // See change: port-session-card-state-visuals-to-openspec-board.
+  const boardScrollRef = useRef<HTMLDivElement | null>(null);
+  const lastClickedRef = useRef<string | null>(null);
+  const firstMountRef = useRef(true);
+  const prevSelectedIdRef = useRef<string | undefined>(selectedId);
+  const askUserFingerprint = useMemo(
+    () => sessions.filter((s) => s.currentTool === "ask_user").map((s) => s.id).sort().join(","),
+    [sessions],
+  );
+  useEffect(() => {
+    const isFirstMount = firstMountRef.current;
+    firstMountRef.current = false;
+    // Only treat as a click when the selection actually changed to the clicked
+    // id. A re-run driven by askUserFingerprint (selectedId unchanged) must NOT
+    // inherit a stale click marker, or attention scrolls get suppressed.
+    const selectedChanged = prevSelectedIdRef.current !== selectedId;
+    prevSelectedIdRef.current = selectedId;
+    const wasClick = selectedChanged && lastClickedRef.current === selectedId;
+    lastClickedRef.current = null;
+    if (!selectedId) return;
+    if (wasClick && !isFirstMount) return;
+    const escaped = (window.CSS && typeof window.CSS.escape === "function")
+      ? window.CSS.escape(selectedId)
+      : selectedId.replace(/"/g, '\\"');
+    const el = boardScrollRef.current?.querySelector(`[data-session-id="${escaped}"]`);
+    if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
+      (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
+    }
+  }, [selectedId, askUserFingerprint]);
 
   // Fetch groups on mount as fallback; sync external WS updates in.
   useEffect(() => {
@@ -373,7 +407,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
 
       {/* Board */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-3 p-4 items-start overflow-x-auto flex-1 min-h-0 board-columns" data-testid="board-columns">
+        <div ref={boardScrollRef} className="flex gap-3 p-4 items-start overflow-x-auto flex-1 min-h-0 board-columns" data-testid="board-columns">
           <SortableContext items={groups.map((g) => g.id)} strategy={horizontalListSortingStrategy}>
             {columns.map((col) => (
               <BoardColumn
@@ -394,6 +428,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
                     sessions={sessionsForChange(c.name).filter(matchSession)}
                     openspecMap={openspecMap}
                     selectedId={selectedId}
+                    lastClickedRef={lastClickedRef}
                     onReadArtifact={onReadArtifact}
                     onOpenTasks={() => setTasksOpenFor(c.name)}
                     onNavigateToSession={onNavigateToSession}
@@ -607,6 +642,7 @@ function ProposalCard(props: {
   sessions: DashboardSession[];
   openspecMap: Map<string, OpenSpecData>;
   selectedId?: string;
+  lastClickedRef: React.MutableRefObject<string | null>;
   onReadArtifact: (changeName: string, artifactId: string) => void;
   onOpenTasks: () => void;
   onNavigateToSession: (id: string) => void;
@@ -631,16 +667,20 @@ function ProposalCard(props: {
   const sortable = useSortable({ id: c.name, data: { type: "card", groupKey } });
   const state = deriveChangeState(c);
   const pct = c.totalTasks > 0 ? Math.round((100 * c.completedTasks) / c.totalTasks) : 0;
+  // Aggregate the most-urgent child-session state into one card-level stripe.
+  // See change: port-session-card-state-visuals-to-openspec-board.
+  const cardStripeFx = deriveProposalCardState(sessions);
 
   return (
     <div
       ref={sortable.setNodeRef}
       style={{ transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition }}
-      className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card cursor-grab active:cursor-grabbing ${sortable.isDragging ? "opacity-40" : ""}`}
+      className={`relative isolate bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-[10px] px-2.5 py-2 board-card cursor-grab active:cursor-grabbing ${sortable.isDragging ? "opacity-40" : ""}`}
       data-testid={`board-card-${c.name}`}
       {...sortable.attributes}
       {...sortable.listeners}
     >
+      {cardStripeFx ? <div className={`card-stripes-fx ${cardStripeFx}`} aria-hidden="true" /> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
         <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full ${STATE_PILL_CLASS[state]}`} data-testid="board-card-state">{state.toLowerCase()}</span>
@@ -704,7 +744,7 @@ function ProposalCard(props: {
 
 // ── Session row ───────────────────────────────────────────────────
 function BoardSessionRow({
-  session: s, change: c, cwd, openspecMap, selectedId, onNavigateToSession,
+  session: s, change: c, cwd, openspecMap, selectedId, lastClickedRef, onNavigateToSession,
   onResumeSession, onHideSession, onUnhideSession, onSendPrompt, onReadArtifact,
   onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, allChanges, groups, assignments, openspecConfig,
 }: {
@@ -720,15 +760,20 @@ function BoardSessionRow({
   const pulse = pulseClassForStatus(s);
   const isSelected = selectedId === s.id;
   const wt = deriveWorktreeProgress(s, c.name, c.completedTasks, openspecMap);
+  // Status-stripe overlay identical to the sidebar SessionCard.
+  // See change: port-session-card-state-visuals-to-openspec-board.
+  const stripeFx = getCardStripeFxClass(getCardPulseClass(s));
 
   return (
     <div
-      className={`bg-[var(--bg-secondary)] border rounded-[7px] px-1.5 py-1 cursor-pointer ${isSelected ? "border-blue-500/60" : "border-[var(--border-subtle)] hover:border-blue-500"}`}
+      className={`relative isolate bg-[var(--bg-secondary)] border rounded-[7px] px-1.5 py-1 cursor-pointer ${isSelected ? "border-blue-500/60" : "border-[var(--border-subtle)] hover:border-blue-500"}`}
       data-testid="board-session-row"
+      data-session-id={s.id}
       data-selected={isSelected ? "true" : undefined}
       onPointerDown={(e) => e.stopPropagation()}
-      onClick={() => onNavigateToSession(s.id)}
+      onClick={() => { lastClickedRef.current = s.id; onNavigateToSession(s.id); }}
     >
+      {stripeFx ? <div className={`card-stripes-fx ${stripeFx}`} aria-hidden="true" /> : null}
       {/* Row 1: status + name + age + actions */}
       <div className="flex items-center gap-1.5 min-w-0">
         <span className={`flex-none ${iconColor} ${pulse}`.trimEnd()}>

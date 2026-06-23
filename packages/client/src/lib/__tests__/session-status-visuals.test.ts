@@ -8,6 +8,9 @@ import {
   deriveIconStatusColor,
   pulseClassForStatus,
   deriveRailBgColor,
+  getCardPulseClass,
+  getCardStripeFxClass,
+  deriveProposalCardState,
 } from "../session-status-visuals.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -203,5 +206,74 @@ describe("deriveRailBgColor", () => {
         false,
       ),
     ).toBe("bg-red-500/40");
+  });
+});
+
+describe("getCardPulseClass / getCardStripeFxClass", () => {
+  it("ask_user → input stripes (highest precedence)", () => {
+    const s = makeSession({ currentTool: "ask_user", status: "streaming", unread: true });
+    expect(getCardPulseClass(s)).toBe("card-input-stripes");
+    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-input");
+  });
+  it("streaming → working/running stripes", () => {
+    const s = makeSession({ status: "streaming", unread: true });
+    expect(getCardPulseClass(s)).toBe("card-working-pulse");
+    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-running");
+  });
+  it("resuming → working/running stripes", () => {
+    const s = makeSession({ status: "idle", resuming: true });
+    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-running");
+  });
+  it("unread → unread stripes", () => {
+    const s = makeSession({ status: "idle", unread: true });
+    expect(getCardPulseClass(s)).toBe("card-unread-pulse");
+    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-unread");
+  });
+  it("idle → no stripes", () => {
+    const s = makeSession({ status: "idle" });
+    expect(getCardPulseClass(s)).toBe("");
+    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("");
+  });
+  it("hasWidgetBarPrompt suppresses ask_user input stripes", () => {
+    const s = makeSession({ currentTool: "ask_user", status: "idle" });
+    expect(getCardPulseClass(s, true)).toBe("");
+  });
+});
+
+describe("deriveProposalCardState", () => {
+  it("ask_user beats running beats unread beats none", () => {
+    expect(
+      deriveProposalCardState([
+        makeSession({ status: "idle", unread: true }),
+        makeSession({ status: "streaming" }),
+        makeSession({ currentTool: "ask_user", status: "idle" }),
+      ]),
+    ).toBe("card-stripes-input");
+    expect(
+      deriveProposalCardState([
+        makeSession({ status: "idle", unread: true }),
+        makeSession({ status: "streaming" }),
+      ]),
+    ).toBe("card-stripes-running");
+    expect(
+      deriveProposalCardState([makeSession({ status: "idle", unread: true })]),
+    ).toBe("card-stripes-unread");
+    expect(deriveProposalCardState([makeSession({ status: "idle" })])).toBe("");
+  });
+  it("empty array → no stripes", () => {
+    expect(deriveProposalCardState([])).toBe("");
+  });
+  it("all-ended → no stripes", () => {
+    expect(
+      deriveProposalCardState([
+        makeSession({ status: "ended" }),
+        makeSession({ status: "ended" }),
+      ]),
+    ).toBe("");
+  });
+  it("resuming child counts as running", () => {
+    expect(
+      deriveProposalCardState([makeSession({ status: "idle", resuming: true })]),
+    ).toBe("card-stripes-running");
   });
 });

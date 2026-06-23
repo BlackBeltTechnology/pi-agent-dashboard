@@ -17,9 +17,12 @@
  * automations ~1 s after boot is operationally negligible.
  */
 const ENGINE_INIT_DELAY_MS = 1000;
+import os from "node:os";
+import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { Visibility } from "../shared/automation-types.js";
+import type { AutomationScope, Visibility } from "../shared/automation-types.js";
 import { mountAutomationRoutes } from "./routes.js";
+import type { Engine } from "./engine.js";
 
 const PLUGIN_ID = "automation";
 
@@ -31,11 +34,17 @@ interface AutomationPluginConfig {
   defaultModel?: string;
 }
 
+/** Shared holder so the synchronously-mounted run route can reach the engine
+ *  once it inits (~1 s after boot). */
+let engineRef: Engine | null = null;
+
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("automation-plugin server entry activated");
   // Mount REST routes synchronously (must register before fastify.listen).
   // Handler bodies lazy-import heavy modules so this stays cheap.
-  mountAutomationRoutes(ctx.fastify);
+  mountAutomationRoutes(ctx.fastify, {
+    runNow: ({ scope, cwd, name }) => runNowViaEngine(scope, cwd, name),
+  });
   // Detach: do not block server boot on engine init / heavy imports, and
   // delay past the immediate post-boot window so short integration tests
   // (which boot + assert + tear down within ~1 s) never race the engine's
@@ -49,8 +58,6 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 }
 
 async function initEngine(ctx: ServerPluginContext): Promise<void> {
-  const os = await import("node:os");
-  const path = await import("node:path");
   const { createEngine } = await import("./engine.js");
   const { createAutomationWatcher } = await import("./automation-watcher.js");
   const { logger } = ctx;
@@ -99,6 +106,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     log: (m) => logger.info(m),
     warn: (m) => logger.warn(m),
   });
+  engineRef = engine;
 
   const watcher = createAutomationWatcher({
     onChange: () => engine.refresh(),
@@ -231,6 +239,31 @@ function concatText(content: unknown): string {
     .filter((b) => b.type === "text" && typeof b.text === "string")
     .map((b) => b.text as string)
     .join("");
+}
+
+/**
+ * Manual single-run trigger for the Run-now board action. Scans the target
+ * scope for the named automation and fires exactly one run via the engine.
+ */
+async function runNowViaEngine(
+  scope: AutomationScope,
+  cwd: string | undefined,
+  name: string,
+): Promise<{ ok: boolean; runId?: string; error?: string }> {
+  const eng = engineRef;
+  if (!eng) return { ok: false, error: "engine not ready" };
+  const base = scope === "global" ? os.homedir() : cwd ? path.resolve(cwd) : process.cwd();
+  // Lazy import keeps the scanner out of the cheap route-mount path.
+  const { scanAutomations } = await import("./scanner.js");
+  const found = scanAutomations(
+    scope === "global"
+      ? { homeDir: base, scanGlobal: true, scanFolder: false }
+      : { repoRoot: base, scanFolder: true, scanGlobal: false },
+    eng.registry.kinds(),
+  ).find((a) => a.name === name && a.scope === scope && a.valid);
+  if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
+  const r = eng.startRunFor(found);
+  return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
 }
 
 export default registerPlugin;

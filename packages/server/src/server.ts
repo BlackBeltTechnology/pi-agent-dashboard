@@ -62,6 +62,8 @@ import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { createGoalStore } from "./goal-store.js";
+import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
+import { decideBudgetHalt } from "./goal-budget-guard.js";
 import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
 import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
@@ -612,6 +614,67 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const h of pluginRawEventSubs) {
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
     }
+  }
+
+  // Main-server consumer of goal_status snapshots: accumulates bounded judge
+  // verdict history onto the owning GoalRecord. The goal-plugin server can't
+  // reach the GoalStore, so retention lives here. Registered as a peer of the
+  // plugin's own goal_status handler (both fire via dispatchPluginPiMessage).
+  // See change: sophisticate-goal-authoring-and-control (task 2.2).
+  {
+    const accumulator = createGoalVerdictAccumulator({
+      store: goalStore,
+      lookupSession: (sessionId) => {
+        const s = sessionManager.get(sessionId);
+        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
+      },
+    });
+    // Protocol message type mirrored by the goal-plugin bridge → server.
+    // Kept as a literal to avoid a server→goal-plugin package dependency.
+    const GOAL_STATUS_MESSAGE = "goal_status";
+    const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
+    arr.push((msg) => accumulator.handle(msg));
+
+    // Dashboard-side budget enforcement (degraded tier): once a linked goal's
+    // live turnsUsed reaches GoalRecord.budget.maxTurns, dispatch /goal pause.
+    // Deduped per session so an already-capped loop isn't re-paused every
+    // snapshot. See change: sophisticate-goal-authoring-and-control (task 3.2).
+    const budgetPaused = new Set<string>();
+    arr.push((msg) => {
+      const m = msg as { sessionId?: string; payload?: { status?: string; turnsUsed?: unknown } };
+      if (!m.sessionId || !m.payload || typeof m.payload.status !== "string") return;
+      const sessionId = m.sessionId;
+      if (m.payload.status !== "active") {
+        budgetPaused.delete(sessionId);
+        return;
+      }
+      const turnsUsed = m.payload.turnsUsed;
+      if (typeof turnsUsed !== "number" || !Number.isFinite(turnsUsed)) return;
+      // Add to dedup set BEFORE the async lookup to close the race window.
+      // Removed again if the lookup shows no halt.
+      if (budgetPaused.has(sessionId)) return;
+      budgetPaused.add(sessionId);
+      const sess = sessionManager.get(sessionId);
+      if (!sess?.goalId || !sess.cwd) { budgetPaused.delete(sessionId); return; }
+      const cwd = sess.cwd;
+      const goalId = sess.goalId;
+      void goalStore
+        .list(cwd)
+        .then((goals) => {
+          const goal = goals.find((g) => g.id === goalId);
+          const decision = decideBudgetHalt(
+            { status: "active", turnsUsed },
+            goal?.budget,
+          );
+          if (decision.halt && decision.command) {
+            piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: decision.command });
+          } else {
+            budgetPaused.delete(sessionId); // no halt → allow future checks
+          }
+        })
+        .catch((err) => { budgetPaused.delete(sessionId); console.warn(`[goal-budget-guard] budget check failed for ${goalId}:`, err); });
+    });
+    pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
   }
 
   // Wire up event forwarding from pi gateway to browser gateway
@@ -1302,6 +1365,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 if (opts.automationRun) {
                   pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
+                }
+                // mode/sandbox threading (change: redesign-automation-editor-and-board).
+                // DOCUMENTED LIMITATION (task 4.2): the host hook does not yet
+                // enforce these. `worktree` would need ephemeral worktree
+                // create+cleanup wired to run-end correlation (discard/merge
+                // policy unspecified); pi exposes no `--sandbox` flag so the
+                // sandbox level cannot be applied at spawn. Both fall back to
+                // running in-place at `opts.cwd`. Log non-default requests so
+                // the gap is visible until the host gains support.
+                if (opts.mode === "worktree" || (opts.sandbox && opts.sandbox !== "workspace-write")) {
+                  console.warn(
+                    `[plugin-spawn] mode=${opts.mode ?? "local"} sandbox=${opts.sandbox ?? "(default)"} requested but not yet enforced by the host hook; running in-place at ${opts.cwd}`,
+                  );
                 }
                 try {
                   const result = await spawnPiSession(opts.cwd, {

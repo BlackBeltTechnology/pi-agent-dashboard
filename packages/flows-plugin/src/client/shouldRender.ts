@@ -16,11 +16,15 @@
  * See change: add-flows-subcard.
  */
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getFlowsAvailabilitySync } from "./flowsAvailability.js";
+import { getFlowsAvailabilitySync, sessionHasFlowEvents } from "./flowsAvailability.js";
 
 export function shouldRenderFlowsSubcard(
   session: DashboardSession | null | undefined,
 ): boolean {
   if (!session) return false;
-  return getFlowsAvailabilitySync(session.id);
+  // Available flows (live `flowsList`/`commandsList`) OR a flow already ran in
+  // this session (replayed/live flow events). The latter keeps the subcard
+  // visible on cold load when the availability signal has not been re-published.
+  // See change: replay-persisted-flow-runs (task 5.5).
+  return getFlowsAvailabilitySync(session.id) || sessionHasFlowEvents(session.id);
 }

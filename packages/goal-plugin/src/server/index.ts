@@ -21,12 +21,34 @@ import {
   GOAL_STATUS_EVENT_TYPE,
   type GoalStatusSnapshot,
 } from "../shared/goal-types.js";
+import {
+  probeGoalCommandSurface,
+  goalConfigCommand,
+  type GoalCommandSurface,
+  type GoalCommandTier,
+} from "./probe.js";
+import type { GoalBudget, GoalJudge } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+/**
+ * Detect the running extension's command surface. The extension is not
+ * vendored, so we can't import its grammar; we baseline to the commands the
+ * bridge already round-trips today (`/goal`, `/subgoal`) → dashboard-budget
+ * tier. Upgrade seam: when a future extension advertises a config command,
+ * flip `acceptsConfig` here (or detect it) to reach the `full` tier.
+ */
+function detectGoalCommandSurface(): GoalCommandSurface {
+  return { acceptsSubgoal: true };
+}
 
 /** Per-session latest snapshot cache. */
 const snapshots = new Map<string, GoalStatusSnapshot>();
 
 /** Map a control action + payload to the `/goal …` command text the extension handles. */
-function goalCommandFor(action: string, payload?: Record<string, unknown>): string | null {
+function goalCommandFor(
+  action: string,
+  payload?: Record<string, unknown>,
+  tier: GoalCommandTier = "intent-only",
+): string | null {
   switch (action) {
     case "set": {
       const goal = typeof payload?.goal === "string" ? payload.goal.trim() : "";
@@ -41,6 +63,15 @@ function goalCommandFor(action: string, payload?: Record<string, unknown>): stri
     case "done":
     case "clear":
       return `/goal ${action}`;
+    case "config": {
+      // Full-tier only (upgrade seam): push judge + budget into the loop.
+      // Degraded/intent tiers return null — budget enforced dashboard-side,
+      // judge recorded as intent on the GoalRecord.
+      return goalConfigCommand(tier, {
+        budget: payload?.budget as GoalBudget | undefined,
+        judge: payload?.judge as GoalJudge | undefined,
+      });
+    }
     default:
       return null;
   }
@@ -48,7 +79,8 @@ function goalCommandFor(action: string, payload?: Record<string, unknown>): stri
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const { logger, broadcastToSubscribers, registerPiHandler, registerBrowserHandler, sendToSession } = ctx;
-  logger.info("goal-plugin server entry activated");
+  const commandTier = probeGoalCommandSurface(detectGoalCommandSurface());
+  logger.info(`goal-plugin server entry activated (command tier: ${commandTier})`);
 
   function broadcastSnapshot(sessionId: string, snapshot: GoalStatusSnapshot): void {
     broadcastToSubscribers({
@@ -84,7 +116,12 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       payload?: Record<string, unknown>;
     };
     if (m.pluginId !== GOAL_PLUGIN_ID || !m.sessionId) return;
-    const command = m.action ? goalCommandFor(m.action, m.payload) : null;
+    // intent-only tier: record on GoalRecord only, no loop coupling.
+    if (commandTier === "intent-only") {
+      logger.info(`goal action "${m.action}" suppressed (tier: intent-only)`);
+      return;
+    }
+    const command = m.action ? goalCommandFor(m.action, m.payload, commandTier) : null;
     if (!command) {
       logger.warn(`unknown or malformed goal action: ${m.action}`);
       return;

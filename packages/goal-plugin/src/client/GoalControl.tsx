@@ -1,20 +1,23 @@
 /**
- * GoalControl — session-card-action-bar slot.
+ * GoalControl — session-card-action-bar slot (Screen D rich chip).
  *
- * Demoted (add-goals-folder-page, task 2.2): goal creation + live controls
- * (set / pause / resume / done / clear) now live at the folder level — the
- * `Goals (N) → / + Goal` nav slot and the goals board/detail pages. On the
- * session card this is a **read-only link chip** that navigates to the
- * owning goal's detail page. The "Set a goal…" input no longer appears here.
+ * For a session linked to a folder-scoped goal, renders a compact live chip:
+ * `⚑ turns/budget · verdict` plus an inline Pause control and an open-detail
+ * affordance. Loop control round-trips through the existing `plugin_action`
+ * channel (`goalCommandFor` → `/goal …`); open navigates to the goal detail
+ * route. Renders nothing when the session has no owning `goalId`.
  *
- * Renders nothing when the session has no owning `goalId`.
- *
- * See change: add-goals-folder-page (task 2.2). Original control: see change
- * add-goal-continuation-plugin.
+ * See change: sophisticate-goal-authoring-and-control (task 5.4).
+ * Original demoted link chip: see change add-goals-folder-page (task 2.2).
  */
 import React from "react";
 import { useLocation } from "wouter";
+import { Icon } from "@mdi/react";
+import { mdiPause, mdiOpenInNew } from "@mdi/js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useSessionEvents, sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { deriveSnapshot } from "./goal-state.js";
+import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
 import { goalDetailUrl } from "./goals-api.js";
 
 export function GoalControl({
@@ -23,16 +26,39 @@ export function GoalControl({
   session: DashboardSession;
 }): React.ReactElement | null {
   const [, navigate] = useLocation();
+  const events = useSessionEvents(session.id);
   if (!session.goalId || !session.cwd) return null;
 
+  const snap = deriveSnapshot(events);
+  const turns = snap ? `${snap.turnsUsed}/${snap.maxTurns}` : "—";
+  const verdict = snap?.lastVerdict;
+  const active = snap?.status === "active";
+
   return (
-    <button
-      data-testid="goal-control-link"
-      onClick={(e) => { e.stopPropagation(); navigate(goalDetailUrl(session.cwd, session.goalId!)); }}
-      className="text-[9px] px-1.5 py-px rounded border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 inline-flex items-center gap-1"
-      title="Open this session's goal"
+    <span
+      data-testid="goal-control"
+      className="inline-flex items-center gap-1 text-[9px] px-1.5 py-px rounded border border-indigo-500/30 text-indigo-400"
+      title={snap ? `Goal ${snap.status} · ${turns}${verdict ? ` · ${verdict}` : ""}` : "Open this session's goal"}
     >
-      ⚑ Goal →
-    </button>
+      <span>⚑ {turns}{verdict ? ` · ${verdict}` : ""}</span>
+      {active && (
+        <button
+          data-testid="goal-control-pause"
+          onClick={(e) => { e.stopPropagation(); sendPluginAction(GOAL_PLUGIN_ID, session.id, "pause", undefined); }}
+          className="hover:text-amber-300"
+          title="Pause loop"
+        >
+          <Icon path={mdiPause} size={0.45} />
+        </button>
+      )}
+      <button
+        data-testid="goal-control-link"
+        onClick={(e) => { e.stopPropagation(); navigate(goalDetailUrl(session.cwd, session.goalId!)); }}
+        className="hover:text-indigo-300"
+        title="Open this session's goal"
+      >
+        <Icon path={mdiOpenInNew} size={0.45} />
+      </button>
+    </span>
   );
 }

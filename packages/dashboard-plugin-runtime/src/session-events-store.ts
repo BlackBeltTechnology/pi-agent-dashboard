@@ -36,6 +36,21 @@ export function publishSessionEvent(sessionId: string, event: DashboardEvent): v
 }
 
 /**
+ * Publish a batch of events for a session in one shot: a single array
+ * rebuild plus a single notify. Used by the `event_replay` cold-load path
+ * so plugin slot consumers rehydrate without N separate appends (O(N)
+ * instead of O(N²) per-append) or N subscriber notifications. No-op for an
+ * empty batch (preserves the stable reference). See change:
+ * replay-persisted-flow-runs.
+ */
+export function publishSessionEvents(sessionId: string, newEvents: readonly DashboardEvent[]): void {
+  if (newEvents.length === 0) return;
+  const current = events.get(sessionId) ?? EMPTY_EVENTS;
+  events.set(sessionId, Object.freeze([...current, ...newEvents]));
+  notify(sessionId);
+}
+
+/**
  * Clear events for a session. Used on `session_state_reset` (the
  * shell's reducer also resets) so plugins re-derive from a fresh
  * stream after a replay.

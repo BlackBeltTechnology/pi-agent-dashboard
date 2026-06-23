@@ -19,6 +19,20 @@ import type {
   Sandbox,
   Visibility,
 } from "../shared/automation-types.js";
+import {
+  TRIGGER_TAXONOMY,
+  onKindForCategory,
+  categoryForOnKind,
+} from "./trigger-registry.js";
+
+/** On-disk `on.kind` values the taxonomy recognizes (schedule, openspec, …). */
+const TAXONOMY_KINDS = new Set(
+  TRIGGER_TAXONOMY.map((c) => onKindForCategory(c.category)),
+);
+/** Categories that require a non-empty `on.events[]`. */
+const MULTI_TYPE_CATEGORIES = new Set(
+  TRIGGER_TAXONOMY.filter((c) => c.multiType).map((c) => c.category),
+);
 
 const MODES: RunMode[] = ["worktree", "local"];
 const SANDBOXES: Sandbox[] = ["read-only", "workspace-write", "full-access"];
@@ -69,8 +83,29 @@ export function parseAutomationYaml(
   if (typeof kind !== "string" || kind.length === 0) {
     return { error: "`on.kind` must be a non-empty string" };
   }
-  if (!knownKinds.has(kind)) {
+  // A kind is valid when it is registered (armable) OR advertised in the
+  // static taxonomy (parseable-but-dormant until its handler registers).
+  if (!knownKinds.has(kind) && !TAXONOMY_KINDS.has(kind)) {
     return { error: `unknown trigger kind: "${kind}"` };
+  }
+  // Multi-type categories (e.g. openspec, git, file) require a non-empty
+  // `events: string[]`; single-type categories (scheduled, webhook) do not.
+  const category = categoryForOnKind(kind);
+  let events: string[] | undefined;
+  if (on.events !== undefined) {
+    if (
+      !Array.isArray(on.events) ||
+      on.events.length === 0 ||
+      !on.events.every((e) => typeof e === "string" && e.length > 0)
+    ) {
+      return { error: "`on.events` must be a non-empty array of event-type strings" };
+    }
+    events = on.events as string[];
+  }
+  if (MULTI_TYPE_CATEGORIES.has(category) && !events) {
+    return {
+      error: `trigger category "${category}" requires a non-empty \`on.events\` selection`,
+    };
   }
 
   // ── action ───────────────────────────────────────────────────────────
@@ -103,14 +138,23 @@ export function parseAutomationYaml(
     visibility = doc.visibility as Visibility;
   }
 
+  let disabled: boolean | undefined;
+  if (doc.disabled !== undefined) {
+    if (typeof doc.disabled !== "boolean") {
+      return { error: "`disabled` must be a boolean" };
+    }
+    disabled = doc.disabled;
+  }
+
   const config: AutomationConfig = {
-    on: { ...on, kind },
+    on: { ...on, kind, ...(events ? { events } : {}) },
     action: actionResult.value,
     model,
     mode: mode.value,
     sandbox: sandbox.value,
     concurrency: concurrency.value,
     ...(visibility ? { visibility } : {}),
+    ...(disabled ? { disabled } : {}),
   };
   return { config };
 }

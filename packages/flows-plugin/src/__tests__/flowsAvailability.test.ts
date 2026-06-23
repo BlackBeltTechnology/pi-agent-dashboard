@@ -6,12 +6,16 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   getFlowsAvailabilitySync,
   setFlowsAvailability,
+  sessionHasFlowEvents,
   installFlowsAvailabilitySubscriber,
   __resetFlowsAvailabilityForTests,
 } from "../client/flowsAvailability.js";
+import { shouldRenderFlowsSubcard } from "../client/shouldRender.js";
 import {
   publishSessionData,
   clearSessionData,
+  publishSessionEvent,
+  clearSessionEvents,
   __resetSessionDataStoreForTests,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 
@@ -28,6 +32,25 @@ describe("flows-plugin: flowsAvailability cache", () => {
 
   it("returns false for unknown sessions (closed-by-default)", () => {
     expect(getFlowsAvailabilitySync("unknown-id")).toBe(false);
+  });
+
+  it("sessionHasFlowEvents reflects flow events in the session-events store", () => {
+    const sid = "flow-evt-1";
+    expect(sessionHasFlowEvents(sid)).toBe(false);
+    publishSessionEvent(sid, { eventType: "message_start", timestamp: 1, data: {} } as never);
+    expect(sessionHasFlowEvents(sid)).toBe(false); // non-flow event ignored
+    publishSessionEvent(sid, { eventType: "flow_started", timestamp: 2, data: {} } as never);
+    expect(sessionHasFlowEvents(sid)).toBe(true);
+    clearSessionEvents(sid);
+  });
+
+  it("shouldRenderFlowsSubcard is true when a flow ran even with availability closed", () => {
+    const sid = "flow-evt-2";
+    const session = { id: sid } as never;
+    expect(shouldRenderFlowsSubcard(session)).toBe(false);
+    publishSessionEvent(sid, { eventType: "flow_started", timestamp: 1, data: {} } as never);
+    expect(shouldRenderFlowsSubcard(session)).toBe(true);
+    clearSessionEvents(sid);
   });
 
   it("set then get round-trips", () => {

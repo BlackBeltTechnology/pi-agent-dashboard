@@ -588,6 +588,31 @@ export interface GoalBudget {
   maxSpendUsd?: number;
 }
 
+/** Judge-model selection for a goal's loop. Cross-model by default; `sameModel`
+ *  opts into self-judge (judge == executor). See change:
+ *  sophisticate-goal-authoring-and-control. */
+export interface GoalJudge {
+  provider: string;
+  modelId: string;
+  sameModel?: boolean;
+}
+
+/** A single judge verdict recorded for a goal's driver loop, derived from
+ *  advances in the `goal_status` snapshot stream. FIFO-capped on the record.
+ *  See change: sophisticate-goal-authoring-and-control. */
+export interface GoalVerdict {
+  /** Continuation turn this verdict was observed at. */
+  turn: number;
+  /** Wall-clock ms when appended. */
+  at: number;
+  verdict: "continue" | "satisfied" | "paused";
+  note?: string;
+}
+
+/** Max retained verdicts per GoalRecord (FIFO; oldest dropped past this).
+ *  See change: sophisticate-goal-authoring-and-control. */
+export const GOAL_VERDICTS_CAP = 50 as const;
+
 /** Folder-scoped goal record. Dashboard owns the durable definition
  *  (objective, criteria, status intent, linked sessions); the
  *  @ricoyudog/pi-goal-hermes extension stays source of truth for live loop
@@ -602,6 +627,10 @@ export interface GoalRecord {
   criteria: GoalCriterion[];
   status: GoalRecordStatus;
   budget?: GoalBudget;
+  /** Judge-model selection (optional; absent = extension default cross-model). */
+  judge?: GoalJudge;
+  /** Bounded per-turn judge verdict history (FIFO, cap `GOAL_VERDICTS_CAP`). */
+  verdicts?: GoalVerdict[];
   /** Sessions opened in service of this goal (drivers + workers, incl. hidden). */
   sessionIds: string[];
   /** Session running the pi-goal-hermes loop, when known. */

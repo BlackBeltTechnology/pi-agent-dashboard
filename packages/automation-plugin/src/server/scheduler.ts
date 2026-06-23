@@ -73,6 +73,10 @@ export function createScheduler(deps: SchedulerDeps): Scheduler {
 
   function armOne(automation: DiscoveredAutomation): void {
     if (!automation.valid || !automation.config) return; // isolate invalid
+    if (automation.config.disabled) {
+      log(`[scheduler] skipping disabled ${automationKey(automation)}`);
+      return; // valid but disabled — dormant until re-enabled
+    }
     const kind = automation.config.on.kind;
     const type = deps.registry.get(kind);
     if (!type) {

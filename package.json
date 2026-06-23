@@ -71,7 +71,9 @@
     "site:dev": "npm --prefix site run dev",
     "site:build": "npm --prefix site run build",
     "site:preview": "npm --prefix site run preview",
-    "screenshots": "npm --prefix site run screenshots"
+    "screenshots": "npm --prefix site run screenshots",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "engines": {
     "node": ">=22.19.0 <26"
@@ -86,6 +88,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.75.5",
+    "@playwright/test": "^1.57.0",
     "jsdom": "^29.0.2",
     "patch-package": "^8.0.1",
     "tsx": "^4.21.0",
