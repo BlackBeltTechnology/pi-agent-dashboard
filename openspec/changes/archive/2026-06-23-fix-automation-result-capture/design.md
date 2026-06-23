@@ -60,7 +60,7 @@ The Decision 1 hypothesis (capture on assistant `message_end`) was WRONG. Live
 instrumentation of `ctx.onEvent` against a Gemini PONG run in the Docker test
 harness shows the run session forwards assistant output as:
 
-```
+```text
 message_start { message:{ role:"assistant", content:[] } }
 message_update { message:{ role:"assistant", content:[{type:"thinking",...}] } }   (×N, streaming)
 message_update { message:{ role:"assistant", content:[{type:"thinking",...},{type:"text",text:"PONG"}] } }

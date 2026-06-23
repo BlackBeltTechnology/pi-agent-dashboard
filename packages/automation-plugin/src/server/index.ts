@@ -139,11 +139,23 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     if (stampedRunId) {
       const pendingRun = engine.pendingForRunId(stampedRunId);
       if (pendingRun && !pendingRun.delivered) {
-        engine.onSessionRegisteredForRun(sessionId, stampedRunId);
-        runText.set(sessionId, []);
-        if (pendingRun.promptText) {
-          runPrompt.set(sessionId, pendingRun.promptText);
-          ctx.sendToSession(sessionId, pendingRun.promptText);
+        // Deliver the prompt BEFORE marking the run delivered: if
+        // sendToSession throws, leave the run undelivered (a later event
+        // retries) and clear the half-initialized buffers instead of
+        // stranding a "delivered" run that never received its prompt.
+        try {
+          if (pendingRun.promptText) {
+            runPrompt.set(sessionId, pendingRun.promptText);
+            ctx.sendToSession(sessionId, pendingRun.promptText);
+          }
+          engine.onSessionRegisteredForRun(sessionId, stampedRunId);
+          runText.set(sessionId, []);
+        } catch (err) {
+          runPrompt.delete(sessionId);
+          runText.delete(sessionId);
+          logger.warn(
+            `automation prompt delivery failed for runId=${stampedRunId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }

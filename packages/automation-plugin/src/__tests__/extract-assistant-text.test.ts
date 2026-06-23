@@ -94,4 +94,24 @@ describe("extractAssistantText", () => {
     expect(extractAssistantText(assistantTurn([{ type: "text", text: "   " }]))).toBeNull();
     expect(extractAssistantText(assistantTurn([]))).toBeNull();
   });
+
+  it("returns null for malformed events (undefined / missing data)", () => {
+    expect(extractAssistantText(undefined)).toBeNull();
+    expect(extractAssistantText({ eventType: "turn_end" })).toBeNull();
+  });
+
+  it("captures root-level assistant fallback shapes (data.role + data.content/text)", () => {
+    expect(
+      extractAssistantText({
+        eventType: "turn_end",
+        data: { role: "assistant", content: [{ type: "text", text: "PONG" }] },
+      }),
+    ).toBe("PONG");
+    expect(
+      extractAssistantText({
+        eventType: "turn_end",
+        data: { role: "assistant", text: "PONG" },
+      }),
+    ).toBe("PONG");
+  });
 });
