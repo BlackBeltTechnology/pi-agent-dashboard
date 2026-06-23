@@ -162,13 +162,14 @@ indexing, near-duplicate dedup, and project/global configuration.
 
 ## Impact
 
-- **New publishable npm package** `@blackbelt-technology/pi-dashboard-kb`
-  (`packages/kb`): `KbStore` + indexer/search library and a `kb` bin. Becomes the
-  repo's **7th published package** — the release pipeline (`npm publish -ws
-  --include-workspace-root`) and `release-cut` version-bump set must include it.
-  Plus two SKILLs under `.pi/skills/kb-search/` and `.pi/skills/kb-setup/`, and
-  (Phase 2) an **isolated** standalone pi extension. No changes to
-  `src/extension/bridge.ts`.
+- **New publishable npm packages**: `@blackbelt-technology/pi-dashboard-kb`
+  (`packages/kb`, `KbStore` + indexer/search library + `kb` bin) and
+  `@blackbelt-technology/pi-dashboard-kb-extension` (`packages/kb-extension`,
+  the isolated Phase-2 pi extension). They become the repo's **7th and 8th
+  published packages** — the release pipeline (`npm publish -ws
+  --include-workspace-root`) and `release-cut` version-bump set include them.
+  Plus two SKILLs under `packages/kb/skill/kb-search/` and `.../kb-setup/`.
+  No changes to `src/extension/bridge.ts`.
 - **Setup is config-file + CLI, not a dashboard UI.** `kb init` (CLI) +
   `kb-setup` (SKILL) scaffold and validate `knowledge_base.json`; a dashboard
   settings panel / web graph view stays with the deferred server plugin.

@@ -14,7 +14,10 @@ export interface IndexSource {
 export interface IndexOptions {
   force?: boolean;
   indexAgentsFiles?: boolean; // AGENTS.md / CLAUDE.md
-  includeSourceMarkdown?: boolean; // *.md anywhere (vs only doc roots) — here: all *.md
+  includeSourceMarkdown?: boolean; // *.md in source dirs → doc_type 'source-md'
+  include?: string[]; // glob patterns to include
+  exclude?: string[]; // glob patterns to exclude
+  extensions?: string[]; // e.g. [".md"]
 }
 export interface IndexStats {
   scanned: number;
@@ -25,6 +28,22 @@ export interface IndexStats {
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb)(\/|$)/;
+
+/** Minimal glob → RegExp (supports **, *, ?). Good enough for include/exclude. */
+function globToRe(g: string): RegExp {
+  const body = g
+    .replace(/[.+^$(){}|\\]/g, "\\$&")
+    .replace(/\*\*\//g, "«GS»")
+    .replace(/\*\*/g, "«G»")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]")
+    .replace(/«GS»/g, "(.*/)?")
+    .replace(/«G»/g, ".*");
+  return new RegExp("(^|/)" + body + "$");
+}
+function matchAny(pats: RegExp[], rel: string): boolean {
+  return pats.some((re) => re.test(rel));
+}
 
 function walk(dir: string, base: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -37,17 +56,24 @@ function walk(dir: string, base: string, out: string[] = []): string[] {
   return out;
 }
 
-function docTypeOf(rel: string): DocType {
+function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
   const base = rel.split("/").pop() ?? "";
   if (base === "AGENTS.md" || base === "CLAUDE.md") return "agents";
+  if (includeSourceMarkdown && /(^|\/)(src|lib|app|packages)\//.test(rel)) return "source-md";
   return "doc";
 }
 
 export function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions = {}): IndexStats {
+  const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : /\.(md|mdx|markdown)$/i;
+  const inc = opts.include?.map(globToRe);
+  const exc = opts.exclude?.map(globToRe);
+  const includeSourceMd = opts.includeSourceMarkdown !== false;
   const files = walk(src.dir, src.dir).filter((abs) => {
     const rel = relative(src.dir, abs);
     if (src.include && !src.include(rel)) return false;
-    if (docTypeOf(rel) === "agents" && opts.indexAgentsFiles === false) return false;
+    if (inc && !matchAny(inc, rel)) return false;
+    if (exc && matchAny(exc, rel)) return false;
+    if (docTypeOf(rel, includeSourceMd) === "agents" && opts.indexAgentsFiles === false) return false;
     return true;
   });
 
@@ -70,7 +96,7 @@ export function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions
       }
       // changed → replace
       store.deleteByPath(src.root, rel);
-      const { chunks, wikilinks, mdLinks, frontmatter } = chunkMarkdown({ root: src.root, path: rel, text: buf.toString("utf8"), docType: docTypeOf(rel) });
+      const { chunks, wikilinks, mdLinks, frontmatter } = chunkMarkdown({ root: src.root, path: rel, text: buf.toString("utf8"), docType: docTypeOf(rel, includeSourceMd) });
       // file node
       store.addNode({ type: "file", name: rel, path: rel });
       for (const c of chunks) {

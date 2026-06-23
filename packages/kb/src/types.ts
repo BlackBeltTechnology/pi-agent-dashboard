@@ -40,7 +40,11 @@ export interface KbHit {
   score: number; // lower = more relevant (BM25 convention)
   snippet: string;
   akaPaths?: string[]; // duplicate copies collapsed by dedup
+  parent?: KbHit | null; // small-to-big: parent section/file context (expand.parent)
 }
+
+/** A pluggable reranker: rescoring BM25 top-k. Default = none (no-op). */
+export type Reranker = (query: string, candidates: KbHit[]) => Promise<KbHit[]> | KbHit[];
 
 export interface SearchOpts {
   limit?: number;
@@ -48,6 +52,15 @@ export interface SearchOpts {
   docType?: DocType;
   dedup?: boolean; // exact-content collapse (default true)
   fieldWeights?: { headingPath: number; heading: number; body: number };
+  rootPriority?: Record<string, number>; // root id → priority (higher = preferred on dedup)
+  proximityBoost?: boolean; // Tier A: in-order/proximity aux ranker
+  diversity?: { enabled: boolean; lambda: number }; // Tier A: lexical MMR
+  expandParent?: boolean; // Tier B: attach parent section/file context
+  expandGraph?: boolean; // Tier B: pull neighbors/backlinks (opt-in)
+  rerank?: boolean; // Tier C: cross-encoder rerank (off by default; no-op without model)
+  reranker?: Reranker; // injected reranker; if absent, --rerank is a clean no-op
+  queryExpansion?: "off" | "prf" | "synonym" | "agent";
+  synonyms?: Record<string, string[]>; // curated glossary for synonym expansion
 }
 
 export interface FileState {
@@ -80,6 +93,7 @@ export interface KbStore {
   neighbors(node: string, depth: number, rel?: GraphEdge["rel"]): GraphNode[];
   backlinks(node: string): GraphNode[];
   getChunk(root: string, path: string, headingPath?: string): Chunk | null;
+  getChunkById(root: string, chunkId: string): Chunk | null;
 
   // stats
   counts(): { files: number; chunks: number; nodes: number; edges: number };

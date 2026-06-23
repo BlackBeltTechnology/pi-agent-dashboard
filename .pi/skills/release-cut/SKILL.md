@@ -4,8 +4,8 @@ description: >
   Cut a new pi-agent-dashboard release. Promotes `## [Unreleased]` in
   CHANGELOG.md to a versioned section, bumps all workspace package.json
   versions per SemVer, commits, tags `v<version>`, and pushes — which
-  triggers the Release workflow that publishes **6 npm packages** (root +
-  shared/extension/server/web/image-fit via `npm publish -ws --include-workspace-root`)
+  triggers the Release workflow that publishes **8 npm packages** (root +
+  shared/extension/server/web/image-fit/kb/kb-extension via `npm publish -ws --include-workspace-root`)
   and the Electron artifacts
   and creates a draft GitHub Release. Use when the user says "cut a
   release", "release vX.Y.Z", "publish a new version", "tag a release".
