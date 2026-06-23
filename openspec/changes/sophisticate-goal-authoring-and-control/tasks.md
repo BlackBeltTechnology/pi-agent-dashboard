@@ -51,5 +51,5 @@
   (caveman style, via subagent).
 - [x] 6.2 Full plugin test pass green (`npm test` for goal-plugin + server
   goal-routes). → verify: tee→grep no FAIL.
-- [ ] 6.3 Manual: build + restart + reload; create a goal with criteria/budget/
+- [x] 6.3 Manual: build + restart + reload; create a goal with criteria/budget/
   judge, confirm board/detail/chip render and pause works.
