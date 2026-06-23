@@ -77,8 +77,12 @@ export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const dialog = byTestId(page, "pinDirectoryDialog");
   await dialog.waitFor({ state: "visible" });
   await dialog.getByRole("textbox").fill(absPath);
-  // PathPicker confirm needs the target listed under its parent dir.
-  const leaf = absPath.split("/").filter(Boolean).pop() ?? "";
+  // PathPicker confirm needs the target listed under its parent dir. Escape
+  // regex metacharacters so a dir name like `a.b` matches literally.
+  const leaf = (absPath.split("/").filter(Boolean).pop() ?? "").replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
   await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
   await dialog.getByRole("button", { name: /^select$/i }).click();
   await dialog.waitFor({ state: "hidden" });
