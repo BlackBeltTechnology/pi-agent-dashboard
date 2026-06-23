@@ -106,9 +106,29 @@ export const DEFAULTS: KbConfig = {
   dbPath: ".pi/dashboard/kb/index.db",
 };
 
+// Nested object keys that need one-level field fill-in (not wholesale replace),
+// so a partial `{ranking:{proximityBoost:false}}` keeps default fieldWeights/diversity.
+const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "ranking", "expand", "rerank", "queryExpansion"] as const;
+
+/** Layer configs left→right, deep-merging the known nested object keys. */
+export function mergeConfig(...layers: Array<Partial<KbConfig> | null | undefined>): Partial<KbConfig> {
+  const out: Record<string, unknown> = {};
+  for (const layer of layers) {
+    if (!layer) continue;
+    for (const [k, v] of Object.entries(layer)) {
+      if ((NESTED_KEYS as readonly string[]).includes(k) && v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object") {
+        out[k] = { ...(out[k] as object), ...(v as object) };
+      } else {
+        out[k] = v;
+      }
+    }
+  }
+  return out as Partial<KbConfig>;
+}
+
 /** Validate a parsed config shape; throw with a precise message on violation. */
 export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfig {
-  const merged: KbConfig = { ...DEFAULTS, ...c } as KbConfig;
+  const merged: KbConfig = mergeConfig(DEFAULTS, c) as KbConfig;
   const err = (msg: string) => new Error(`invalid KB ${origin}: ${msg}`);
   if (!Array.isArray(merged.sources)) throw err("sources must be an array");
   for (const s of merged.sources) {
@@ -143,7 +163,7 @@ export function loadConfig(cwd: string, opts: { configPath?: string } = {}): Res
   const project = opts.configPath ? readJson(opts.configPath) : readJson(projectConfigPath(cwd));
   const global = readJson(globalConfigPath());
   const origin: ResolvedConfig["origin"] = project ? "project" : global ? "global" : "defaults";
-  const merged = validateConfig({ ...DEFAULTS, ...(global ?? {}), ...(project ?? {}) }, origin);
+  const merged = validateConfig(mergeConfig(DEFAULTS, global, project), origin);
 
   // legacy roots[] → filesystem sources
   const fromRoots: SourceConfig[] = (merged.roots ?? []).map((r) => ({ kind: "filesystem", ref: r.path, priority: r.priority }));

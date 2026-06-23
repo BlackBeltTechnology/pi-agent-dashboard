@@ -3,7 +3,7 @@
 // deterministic, no LLM/embedding. The detect-don't-write rule: `dox init`
 // and `--fix` only fill PATH columns / prune orphans; the LLM authors purposes.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import type { KbStore } from "./types.js";
 
@@ -29,10 +29,12 @@ export interface AgentsEntry {
 export function agentsChain(cwd: string, targetPath: string, opts: AgentsChainOpts = {}): { chain: AgentsEntry[]; manifest: string | null } {
   const names = opts.claudeMd ? [...AGENTS_FILES, "CLAUDE.md"] : AGENTS_FILES;
   const target = isAbsolute(targetPath) ? targetPath : resolve(cwd, targetPath);
-  // collect ancestor dirs from target up to cwd
+  // collect ancestor dirs from target up to cwd. Use a path-boundary check
+  // (sep-aware) so a sibling like `/foo-bar` is not treated as inside `/foo`.
+  const withinCwd = (p: string) => p === cwd || p.startsWith(cwd + sep);
   const dirs: string[] = [];
-  let d = existsSync(target) && statSync(target).isDirectory() ? target : dirname(target);
-  for (let cur = d; cur.startsWith(cwd); cur = dirname(cur)) {
+  const d = existsSync(target) && statSync(target).isDirectory() ? target : dirname(target);
+  for (let cur = d; withinCwd(cur); cur = dirname(cur)) {
     dirs.push(cur);
     if (cur === cwd) break;
   }

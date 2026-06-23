@@ -7,7 +7,7 @@
 // (`parseSourceKind`/`computeIdentity`) — reimplemented here to keep this
 // publishable package self-contained (no kb→server dependency).
 import { createHash } from "node:crypto";
-import { execSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
+import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -154,15 +154,17 @@ export const gitResolver: SourceResolver = {
     const ref = gitRefOf(spec);
     const hasGit = existsSync(join(cloneDir, ".git"));
     const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
+    // execFileSync (argv array, no shell) — never interpolate url/ref/pin into a
+    // shell string (command-injection-safe even with hostile refs).
+    const git = (args: string[]) => execFileSync("git", args, { stdio: "pipe" });
     if (!hasGit) {
       mkdirSync(ctx.cacheDir, { recursive: true });
-      const branch = ref ? `--branch ${JSON.stringify(ref)}` : "";
-      execSync(`git clone --depth 1 ${branch} ${JSON.stringify(url)} ${JSON.stringify(cloneDir)}`, { stdio: "pipe" });
+      git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
     } else if (shouldPull) {
-      if (ref) execSync(`git -C ${JSON.stringify(cloneDir)} fetch --depth 1 origin ${JSON.stringify(ref)} && git -C ${JSON.stringify(cloneDir)} checkout ${JSON.stringify(ref)}`, { stdio: "pipe" });
-      else execSync(`git -C ${JSON.stringify(cloneDir)} pull --ff-only`, { stdio: "pipe" });
+      if (ref) { git(["-C", cloneDir, "fetch", "--depth", "1", "origin", ref]); git(["-C", cloneDir, "checkout", ref]); }
+      else git(["-C", cloneDir, "pull", "--ff-only"]);
     }
-    const rev = execSync(`git -C ${JSON.stringify(cloneDir)} rev-parse --short HEAD`, { encoding: "utf8" }).trim();
+    const rev = execFileSync("git", ["-C", cloneDir, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
     const dir = spec.subdir ? join(cloneDir, spec.subdir) : cloneDir;
     return { id: spec.ref, dir, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd), revision: rev };
   },
@@ -186,8 +188,8 @@ export const httpsResolver: SourceResolver = {
         const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
         const archivePath = join(dest, "archive" + (url.endsWith(".zip") ? ".zip" : ".tar.gz"));
         writeFileSync(archivePath, buf);
-        if (url.endsWith(".zip")) execSync(`unzip -o ${JSON.stringify(archivePath)} -d ${JSON.stringify(dest)}`, { stdio: "pipe" });
-        else execSync(`tar xzf ${JSON.stringify(archivePath)} -C ${JSON.stringify(dest)}`, { stdio: "pipe" });
+        if (url.endsWith(".zip")) execFileSync("unzip", ["-o", archivePath, "-d", dest], { stdio: "pipe" });
+        else execFileSync("tar", ["xzf", archivePath, "-C", dest], { stdio: "pipe" });
       } else {
         const text = await (await fetch(url)).text();
         writeFileSync(join(dest, url.split("/").pop() || "index.md"), text);
@@ -197,9 +199,6 @@ export const httpsResolver: SourceResolver = {
     return { id: spec.ref, dir: dest, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd) };
   },
 };
-
-function rmSyncAll(p: string): void { /* unused placeholder kept for clarity */ void p; }
-void rmSyncAll;
 
 const RESOLVERS: Record<KbSourceKind, SourceResolver> = {
   filesystem: filesystemResolver,

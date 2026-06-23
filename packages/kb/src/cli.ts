@@ -123,7 +123,7 @@ function main() {
 
   if (cmd === "agents") {
     const cwd = (flags.cwd as string) ?? process.cwd();
-    const { chain, manifest } = agentsChain(cwd, flags._[1] ?? cwd, { claudeMd: true, fallbackManifest: !!flags["fallback-manifest"] || true });
+    const { chain, manifest } = agentsChain(cwd, flags._[1] ?? cwd, { claudeMd: true, fallbackManifest: flags["no-fallback-manifest"] ? false : true });
     if (flags.json) console.log(JSON.stringify({ chain: chain.map((c) => c.rel), manifest }, null, 2));
     else if (chain.length) for (const c of chain) console.log(c.rel);
     else if (manifest) console.log(manifest);

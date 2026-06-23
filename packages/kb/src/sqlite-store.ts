@@ -152,8 +152,9 @@ export class SqliteFtsStore implements KbStore {
       const rer = opts.reranker;
       if (rer) {
         const reranked = rer(query, hits);
-        hits = reranked instanceof Promise ? [] : reranked;
-        // note: async rerank is NOT awaited here (sync API); callers pass sync rerankers.
+        // search() is sync; only a sync reranker can reorder here. An async
+        // reranker (Promise) is ignored — keep BM25 order rather than wipe hits.
+        if (!(reranked instanceof Promise)) hits = reranked;
       }
       // no reranker present → clean no-op, BM25 order preserved
     }
