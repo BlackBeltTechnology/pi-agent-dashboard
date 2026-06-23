@@ -19,12 +19,13 @@ export const DEFAULT_DEBOUNCE_MS = 800;
 export interface ReindexState {
   timers: Map<string, ReturnType<typeof setTimeout>>;
   nudged: Set<string>; // dedup keys already nudged this session
-  store: SqliteFtsStore | null;
-  cfg: ResolvedConfig | null;
+  // KB handles cached PER cwd — a dashboard session may switch project folders;
+  // a single shared store would index the wrong DB after a switch.
+  kb: Map<string, { store: SqliteFtsStore; cfg: ResolvedConfig }>;
 }
 
 export function createReindexState(): ReindexState {
-  return { timers: new Map(), nudged: new Set(), store: null, cfg: null };
+  return { timers: new Map(), nudged: new Set(), kb: new Map() };
 }
 
 function stalenessPath(cwd: string): string {
@@ -85,12 +86,15 @@ export function nudgeText(decision: NudgeDecision, editedPath: string): string |
 
 /** Lazily open (and cache) the KB store + config for a cwd. */
 export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore; cfg: ResolvedConfig } {
-  if (!state.cfg) state.cfg = loadConfig(cwd);
-  if (!state.store) {
-    state.store = new SqliteFtsStore(state.cfg.dbAbsPath);
-    state.store.init();
+  let entry = state.kb.get(cwd);
+  if (!entry) {
+    const cfg = loadConfig(cwd);
+    const store = new SqliteFtsStore(cfg.dbAbsPath);
+    store.init();
+    entry = { store, cfg };
+    state.kb.set(cwd, entry);
   }
-  return { store: state.store, cfg: state.cfg };
+  return entry;
 }
 
 /** Reindex filesystem sources now (called after debounce). Hash-gated via the
@@ -118,7 +122,8 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
 
 /** Close any cached store (on session_shutdown). */
 export function closeKb(state: ReindexState): void {
-  if (state.store) { try { state.store.close(); } catch { /* */ } state.store = null; }
+  for (const { store } of state.kb.values()) { try { store.close(); } catch { /* */ } }
+  state.kb.clear();
   for (const t of state.timers.values()) clearTimeout(t);
   state.timers.clear();
 }

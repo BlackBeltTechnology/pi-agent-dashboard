@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
 import {
-  createReindexState, reindexNow, decideNudge, nudgeText, acknowledgeRows, getKb,
+  createReindexState, reindexNow, decideNudge, nudgeText, acknowledgeRows, getKb, closeKb,
 } from "../reindex.js";
 
 // Build a temp project with a KB config so reindex logic can open a real store.
@@ -39,7 +39,7 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
     expect(hits[0]?.path).toMatch(/guide\.md$/);
     // old content gone
     expect(store.search("initial content padded", { limit: 3 }).length).toBe(0);
-    state.store?.close();
+    closeKb(state);
   });
 });
 
