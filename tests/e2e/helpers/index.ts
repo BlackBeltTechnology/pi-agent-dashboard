@@ -11,13 +11,35 @@ export const TESTIDS = {
   // Sessions (scenario backlog).
   sessionCardDesktop: "session-card-desktop",
   sessionSearchInput: "session-search-input",
+  // Pin folder + spawn (scenario 5.1 — authoritative WS round-trip).
+  // Empty-state path: the LandingPage onboarding CTAs drive the same actions
+  // (open pin dialog / spawn) and are the deterministic affordances on a
+  // fresh container. Step CTAs are gated on `providersReady` (seeded key).
+  onboardingStep2Cta: "onboarding-step-2-cta", // "Add folder" → opens pin dialog
+  onboardingStep3Cta: "onboarding-step-3-cta", // "Start session" → spawns
+  pinDirectoryDialog: "pin-directory-dialog",
+  // Accumulated-state path: once a folder/session exists the LandingPage
+  // onboarding view is gone and the sidebar exposes these instead. The
+  // ensureGitSession() helper falls back to them when the onboarding CTAs
+  // are absent (specs share one container, so state persists across specs).
+  dashboardAddFolderBtn: "dashboard-add-folder-btn", // sidebar "Add Folder"
+  folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerJjGroup: "composer-jj-group",
   gitInitBtn: "git-init-btn",
-  // Terminal (scenario backlog).
+  // Git branch indicator on a session card — renders once the bridge reports
+  // session.gitBranch (proves git status read from the repo). Scenario 5.2.
+  gitBranchBtn: "git-branch-btn",
+  // Terminal (scenario 5.4). open-inline-terminal-button lives in the selected
+  // session's composer (CommandInput); terminal-card mounts in the chat stream.
   terminalCard: "terminal-card",
   openInlineTerminalButton: "open-inline-terminal-button",
+  // Top-level / folder route containers (scenario 5.6 navigation).
+  settingsContent: "settings-content",
+  openspecBoard: "openspec-board",
+  archiveBrowser: "archive-browser",
+  specsBrowser: "specs-browser",
 } as const;
 
 export function byTestId(page: Page, key: keyof typeof TESTIDS): Locator {
@@ -28,4 +50,67 @@ export function byTestId(page: Page, key: keyof typeof TESTIDS): Locator {
 export async function gotoDashboard(page: Page): Promise<void> {
   await page.goto("/");
   await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+}
+
+// Baked git fixture, materialized as a real repo by docker/test-entrypoint.sh
+// at this path inside the container.
+export const FIXTURE_GIT = "/fixtures/sample-git";
+
+async function visible(loc: Locator): Promise<boolean> {
+  return loc.isVisible().catch(() => false);
+}
+
+/**
+ * Open the pin-directory dialog, type an absolute path, confirm.
+ * Uses whichever "add folder" affordance the current state exposes:
+ * the onboarding step-2 CTA (fresh container) or the sidebar button
+ * (a folder/session already exists). Requires PI_E2E_SEED=1 so the
+ * onboarding gate is cleared and the directory-listing endpoint is reachable.
+ */
+export async function pinDirectory(page: Page, absPath: string): Promise<void> {
+  const onboardingCta = byTestId(page, "onboardingStep2Cta");
+  if (await visible(onboardingCta)) {
+    await onboardingCta.click();
+  } else {
+    await byTestId(page, "dashboardAddFolderBtn").first().click();
+  }
+  const dialog = byTestId(page, "pinDirectoryDialog");
+  await dialog.waitFor({ state: "visible" });
+  await dialog.getByRole("textbox").fill(absPath);
+  // PathPicker confirm needs the target listed under its parent dir.
+  const leaf = absPath.split("/").filter(Boolean).pop() ?? "";
+  await dialog.getByRole("option", { name: new RegExp(leaf) }).waitFor({ state: "visible" });
+  await dialog.getByRole("button", { name: /^select$/i }).click();
+  await dialog.waitFor({ state: "hidden" });
+}
+
+/**
+ * Idempotently guarantee a session spawned in the baked git fixture, returning
+ * its card locator. Reuses an existing card if one is already present (specs
+ * share one container), otherwise pins FIXTURE_GIT and spawns. The spawned
+ * `pi` process registers over the bridge `/ws`, which is what makes the card
+ * appear — independent of credential validity (no model call at spawn).
+ */
+export async function ensureGitSession(page: Page): Promise<Locator> {
+  await gotoDashboard(page);
+  const card = byTestId(page, "sessionCardDesktop").first();
+  // Bounded wait, not an instant check: a card from an earlier spec (specs
+  // share one container) may still be hydrating after navigation. Reuse it
+  // rather than spawning a duplicate.
+  const reused = await card
+    .waitFor({ state: "visible", timeout: 4_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (reused) return card;
+
+  await pinDirectory(page, FIXTURE_GIT);
+
+  const spawnCta = byTestId(page, "onboardingStep3Cta");
+  if (await visible(spawnCta)) {
+    await spawnCta.click();
+  } else {
+    await byTestId(page, "folderSpawnSessionBtn").first().click();
+  }
+  await card.waitFor({ state: "visible", timeout: 60_000 });
+  return card;
 }

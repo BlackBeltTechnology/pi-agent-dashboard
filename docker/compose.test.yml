@@ -47,6 +47,11 @@ services:
       # though the process runs as root (see user: above).
       HOME: "/home/pi"
       # UI-only by default: no PI_AUTH_*/API keys seeded unless set in .env.
+      # PI_E2E_SEED=1 (set by tests/e2e/global-setup.ts) makes test-entrypoint
+      # seed a fake provider credential + open the network guard so Playwright
+      # scenario specs clear the onboarding gate and reach guarded endpoints.
+      # Default empty → manual test-up.sh QA stays UI-only.
+      PI_E2E_SEED: "${PI_E2E_SEED:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

@@ -51,6 +51,25 @@ PW_E2E_USE_RUNNING=1 npm run test:e2e   # attach, assert :18000 healthy, no tear
 `globalSetup` only verifies health; `globalTeardown` is a no-op. You own the
 container lifecycle.
 
+**Scenario specs need the seed flag in the fast path.** Specs that pin a folder
+or spawn a session (e.g. `session-spawn.spec.ts`) require the onboarding gate
+cleared and the network guard opened. Managed mode sets `PI_E2E_SEED=1`
+automatically; for the fast path, boot the container with it yourself:
+
+```bash
+PI_E2E_SEED=1 docker/test-up.sh             # seed fake credential + trust
+PW_E2E_USE_RUNNING=1 npm run test:e2e
+```
+
+`PI_E2E_SEED=1` makes `docker/test-entrypoint.sh` seed a fake (never-valid)
+anthropic OAuth credential — flips `providersReady` so the LandingPage step
+CTAs unlock — and seed `trustedNetworks` (RFC1918 private blocks) so the in-container
+browser (docker-gateway source IP, non-loopback) clears the network guard for
+directory listing / providers. A spawned session registers over the bridge
+before any model call, so card-appearance does not depend on key validity.
+Without the flag the harness stays UI-only and scenario specs fail at the pin
+step.
+
 ## Layout
 
 | Path | Purpose |
@@ -60,6 +79,7 @@ container lifecycle.
 | `tests/e2e/global-teardown.ts` | Tear down when managed; no-op in fast path |
 | `tests/e2e/lifecycle.ts` | Shared paths, health poll, marker, `PW_E2E_USE_RUNNING` |
 | `tests/e2e/smoke.spec.ts` | Wiring proof: shell renders + no disconnect banner |
+| `tests/e2e/session-spawn.spec.ts` | Scenario 5.1: pin git fixture → spawn → card appears (authoritative WS round-trip). Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/helpers/` | `gotoDashboard(page)` + testid→locator map |
 
 ## Conventions

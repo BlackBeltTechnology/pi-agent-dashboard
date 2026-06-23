@@ -57,6 +57,43 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
   fi
 fi
 
+# --- 1c. E2E credential + network seed (gated; BEFORE base entrypoint) ------
+# Playwright scenario specs (tests/e2e/*.spec.ts beyond smoke) need to clear
+# the LandingPage onboarding gate (step 1 = providersReady) AND let the
+# in-container browser — whose source IP is the docker gateway, NOT loopback —
+# pass createNetworkGuard for guarded endpoints (directory listing, providers).
+# Seeded here, before the base entrypoint, so seed-auth.js + config seeding
+# both no-op (files already exist). Gated behind PI_E2E_SEED so manual
+# test-up.sh QA stays UI-only. Disposable, RAM-backed, localhost-published
+# container only — trust scoped to RFC1918 (docker SNAT gateway source IP).
+if [ "${PI_E2E_SEED:-}" = "1" ]; then
+  PI_DIR="${HOME:-/home/pi}/.pi"
+  mkdir -p "${PI_DIR}/agent" "${PI_DIR}/dashboard"
+  if [ ! -f "${PI_DIR}/agent/auth.json" ]; then
+    # Fake OAuth credential for a provider with a local OAuth handler
+    # (anthropic). /api/provider-auth/status reports authenticated:true →
+    # providersReady true. Never valid: a spawned session registers over the
+    # bridge BEFORE any model call, so card-appearance is independent of key
+    # validity.
+    EXP=$(( ($(date +%s) + 31536000) * 1000 ))
+    printf '{"anthropic":{"type":"oauth","access":"e2e-fake","refresh":"e2e-fake","expires":%s}}\n' "${EXP}" \
+      > "${PI_DIR}/agent/auth.json"
+    chmod 600 "${PI_DIR}/agent/auth.json"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded fake anthropic oauth → auth.json"
+  fi
+  if [ ! -f "${PI_DIR}/dashboard/config.json" ]; then
+    # `trustedNetworks` is the SOURCE field; loadConfig() merges it into the
+    # derived `resolvedTrustedNetworks` that createNetworkGuard reads. Seeding
+    # the derived field directly is ignored (recomputed at load). Trust the
+    # RFC1918 private blocks — docker published-port traffic is SNAT'd through
+    # the bridge gateway (Linux 172.17.x, Docker Desktop 192.168.65.x), always
+    # private. Narrower than 0.0.0.0/0; still clears the in-container browser.
+    printf '{"spawnStrategy":"%s","trustedNetworks":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]}\n' "${PI_SPAWN_STRATEGY:-tmux}" \
+      > "${PI_DIR}/dashboard/config.json"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) → config.json"
+  fi
+fi
+
 # --- 2. Launch the dashboard daemon via the base entrypoint ----------------
 # The base entrypoint seeds auth/config, starts tmux, then runs
 # `pi-dashboard start` — which spawns a DETACHED server daemon (pidfile below)
