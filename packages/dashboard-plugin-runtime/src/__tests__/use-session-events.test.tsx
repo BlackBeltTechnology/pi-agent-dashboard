@@ -126,7 +126,7 @@ describe("useSessionEvents", () => {
     let notifyCount = 0;
     const unsub = subscribeSessionEvents("B", () => { notifyCount++; });
     publishSessionEvents("B", [makeEvent(1), makeEvent(2), makeEvent(3)]);
-    expect(getSessionEvents("B").map((e) => (e as { seq: number }).seq)).toEqual([1, 2, 3]);
+    expect(getSessionEvents("B").map((e) => (e as unknown as { seq: number }).seq)).toEqual([1, 2, 3]);
     expect(notifyCount).toBe(1);
     // empty batch is a no-op: no extra notification, stable reference
     const ref = getSessionEvents("B");
@@ -139,7 +139,7 @@ describe("useSessionEvents", () => {
   it("publishSessionEvents appends onto events already published singly", () => {
     publishSessionEvent("C", makeEvent(1));
     publishSessionEvents("C", [makeEvent(2), makeEvent(3)]);
-    expect(getSessionEvents("C").map((e) => (e as { seq: number }).seq)).toEqual([1, 2, 3]);
+    expect(getSessionEvents("C").map((e) => (e as unknown as { seq: number }).seq)).toEqual([1, 2, 3]);
   });
 
   it("throws when called outside PluginContextProvider", () => {

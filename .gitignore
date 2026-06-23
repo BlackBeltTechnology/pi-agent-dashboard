@@ -8,6 +8,7 @@ dist/
 .pi/proposal-queue.json
 .pi/flows/agents/
 .pi/flows/results/
+.pi/dashboard/kb/
 # Stale TS compile output inside src/ directories.
 # Plugins ship .tsx directly via package.json exports; .js/.d.ts artifacts
 # from accidental tsc runs pollute the source tree and shadow real .tsx in

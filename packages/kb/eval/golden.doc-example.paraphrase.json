@@ -1,0 +1,11 @@
+[
+  { "q": "create a brand new account the moment somebody signs in", "expect": "backend/authentication-guide.md" },
+  { "q": "switch the app to a night friendly appearance", "expect": "frontend/theming.md" },
+  { "q": "surface a domain rule breach back to the caller", "expect": "backend/error-handling-guide.md" },
+  { "q": "make sure the chosen day is allowed before submit", "expect": "frontend/hooks/validation-hooks.md" },
+  { "q": "reconcile mismatch between stored shape and the api shape", "expect": "integration-testing/type-safety.md" },
+  { "q": "the results table flakes during automated checks", "expect": "e2e-testing/troubleshooting.md" },
+  { "q": "selector id used to locate widgets on the page", "expect": "frontend/model-screen-layout.md" },
+  { "q": "kick off creation in another context when something is saved", "expect": "backend/interceptors.md" },
+  { "q": "recompute many records after a single edit", "expect": "backend/interceptors.md" }
+]

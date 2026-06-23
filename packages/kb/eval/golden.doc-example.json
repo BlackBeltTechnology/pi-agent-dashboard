@@ -1,0 +1,22 @@
+[
+  { "q": "automatically provision a user on first login", "expect": "backend/authentication-guide.md" },
+  { "q": "extract claims and attributes from the auth token", "expect": "backend/authentication-guide.md" },
+  { "q": "define a modeled business error and throw it", "expect": "backend/error-handling-guide.md" },
+  { "q": "reference of API error codes and response structure", "expect": "backend/error-handling-guide.md" },
+  { "q": "validate a date or datetime field on a form", "expect": "frontend/hooks/validation-hooks.md" },
+  { "q": "run asynchronous validation against the backend", "expect": "frontend/hooks/validation-hooks.md" },
+  { "q": "change the dark mode color palette", "expect": "frontend/theming.md" },
+  { "q": "override a component style in the theme", "expect": "frontend/theming.md" },
+  { "q": "convert between entity layer and service layer types", "expect": "integration-testing/type-safety.md" },
+  { "q": "the adaptTo pattern for type mismatches", "expect": "integration-testing/type-safety.md" },
+  { "q": "data grid test is failing intermittently", "expect": "e2e-testing/troubleshooting.md" },
+  { "q": "capture screenshots and video when a test fails", "expect": "e2e-testing/troubleshooting.md" },
+  { "q": "format of the data-testid for UI elements", "expect": "frontend/model-screen-layout.md" },
+  { "q": "page container types in the UI model json", "expect": "frontend/model-screen-layout.md" },
+  { "q": "backend computed transient attribute JQL escape hatch", "expect": "backend/interceptors.md" },
+  { "q": "decoupled service creation CQRS pattern with interceptor", "expect": "backend/interceptors.md" },
+  { "q": "intercept update and batch process related entities", "expect": "backend/interceptors.md" },
+  { "q": "register an operation call interceptor component", "expect": "backend/interceptors.md" },
+  { "q": "how to do data denormalization in an interceptor", "expect": "backend/interceptors.md" },
+  { "q": "best practices for testing authentication interceptors", "expect": "backend/authentication-guide.md" }
+]
