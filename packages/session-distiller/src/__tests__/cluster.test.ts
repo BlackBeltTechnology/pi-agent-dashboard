@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { mergeIntoStore, promote, type CandidateStore } from "../cluster.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mergeIntoStore, promote, loadStore, type CandidateStore } from "../cluster.js";
 import type { FaultCandidate } from "../types.js";
 
 function fault(sessionId: string, sig = "fault:bash:enoent"): FaultCandidate {
@@ -35,6 +38,13 @@ describe("clustering + recurrence gate (tasks 4.1, 4.2)", () => {
     const { promoted, remaining } = promote(store, 3);
     expect(promoted.map((p) => p.signature)).toEqual(["fault:bash:enoent"]);
     expect(Object.keys(remaining)).toEqual(["fault:read:notfound"]);
+  });
+
+  it("throws on a corrupt candidates store instead of silently resetting", () => {
+    const dir = mkdtempSync(join(tmpdir(), "distill-store-"));
+    const p = join(dir, "candidates.json");
+    writeFileSync(p, "{ not valid json");
+    expect(() => loadStore(p)).toThrow(/corrupt/i);
   });
 
   it("auto-promotes once a later run pushes the count to N", () => {

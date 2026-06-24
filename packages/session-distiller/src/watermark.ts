@@ -47,7 +47,8 @@ export function writeWatermark(cwd: string, lastTimestamp: string, root = defaul
 
 /** Encode a cwd to its pi session-directory name. */
 export function sessionDirName(cwd: string): string {
-  return "--" + cwd.replace(/^\//, "").replace(/\//g, "-") + "--";
+  // Handle both POSIX (/) and Windows (\) separators.
+  return "--" + cwd.replace(/^[/\\]/, "").replace(/[/\\]/g, "-") + "--";
 }
 
 export function sessionsRoot(cwd: string): string {
@@ -72,7 +73,9 @@ export function listNewerSessions(
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".jsonl")) continue;
     const ts = timestampFromName(name) ?? isoFromMtime(join(dir, name));
-    if (Date.parse(ts) > sinceMs) refs.push({ path: join(dir, name), timestamp: ts });
+    const tsMs = Date.parse(ts);
+    if (Number.isNaN(tsMs)) continue; // skip unparseable timestamps rather than mis-compare
+    if (tsMs > sinceMs) refs.push({ path: join(dir, name), timestamp: ts });
   }
   refs.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   return refs;

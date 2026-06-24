@@ -64,8 +64,9 @@ export function segment(
     const timeBoundary =
       lastTs !== undefined && gapMs(lastTs, turn.timestamp) > gapThresholdMs;
     const taskBoundary = startsNewTask(turn, prev);
+    const nameBoundary = prev !== undefined && turn.name !== prev.name;
 
-    if (current.length > 0 && (timeBoundary || taskBoundary)) flush();
+    if (current.length > 0 && (timeBoundary || taskBoundary || nameBoundary)) flush();
 
     current.push(turn);
     lastTs = turn.timestamp;

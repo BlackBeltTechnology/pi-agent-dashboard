@@ -44,18 +44,16 @@ function passingCheck(r: ToolResult | undefined): boolean {
   return !!r && !r.isError && PASS_RE.test(r.text);
 }
 
-/** A passing check or a following user confirmation closes an episode well. */
+/**
+ * Verified-good is judged by the episode's TERMINAL state, not by any earlier
+ * passing output — an episode that later ends in an error is NOT verified-good.
+ */
 export function episodeVerifiedGood(turns: Turn[]): boolean {
-  for (const t of turns) {
-    for (const r of t.toolResults) {
-      if (passingCheck(r)) return true;
-    }
-  }
   const last = turns[turns.length - 1];
   if (last?.role === "user" && last.text && !isCorrection(last.text)) return true;
-  // any tool result that is non-error at the very end counts as good-enough
   const lastResult = [...turns].reverse().find((t) => t.toolResults.length)?.toolResults.at(-1);
-  return !!lastResult && !lastResult.isError;
+  if (!lastResult) return false;
+  return passingCheck(lastResult) || !lastResult.isError;
 }
 
 /** Task 3.1 — fault/correction: isError=true then retry same tool isError=false. */

@@ -102,22 +102,45 @@ export function run(opts: RunOptions): RunResult {
 
 // --- CLI ---
 
-function parseArgs(argv: string[]): RunOptions & { json?: boolean } {
+function requireValue(flag: string, value: string | undefined): string {
+  if (value === undefined) throw new Error(`Missing value for ${flag}`);
+  return value;
+}
+
+export function parseArgs(argv: string[]): RunOptions & { json?: boolean } {
   const out: RunOptions & { json?: boolean } = { cwd: process.cwd() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--apply") out.apply = true;
     else if (a === "--json") out.json = true;
-    else if (a === "--cwd") out.cwd = argv[++i];
-    else if (a === "--n") out.n = Number(argv[++i]);
-    else if (a === "--sessions-dir") out.sessionsDir = argv[++i];
+    else if (a === "--cwd") out.cwd = requireValue(a, argv[++i]);
+    else if (a === "--sessions-dir") out.sessionsDir = requireValue(a, argv[++i]);
+    else if (a === "--n") {
+      const n = Number(requireValue(a, argv[++i]));
+      if (!Number.isInteger(n) || n < 1) throw new Error(`--n must be a positive integer, got "${n}"`);
+      out.n = n;
+    } else throw new Error(`Unknown argument: ${a}`);
   }
   return out;
 }
 
 export function main(argv = process.argv.slice(2)): void {
-  const opts = parseArgs(argv);
-  const result = run(opts);
+  let opts: RunOptions & { json?: boolean };
+  try {
+    opts = parseArgs(argv);
+  } catch (e) {
+    process.stderr.write(`Error: ${(e as Error).message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  let result: ReturnType<typeof run>;
+  try {
+    result = run(opts);
+  } catch (e) {
+    process.stderr.write(`Error: ${(e as Error).message}\n`);
+    process.exitCode = 1;
+    return;
+  }
   if (opts.json) {
     process.stdout.write(JSON.stringify(result.plan, null, 2) + "\n");
     return;

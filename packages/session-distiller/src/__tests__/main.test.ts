@@ -3,7 +3,7 @@ import { mkdtempSync, copyFileSync, writeFileSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run } from "../main.js";
+import { run, parseArgs } from "../main.js";
 import { candidatesPath } from "../cluster.js";
 import { readWatermark } from "../watermark.js";
 
@@ -29,6 +29,23 @@ function placeSession(ts: string, sid: string) {
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "distill-main-root-"));
   sessions = mkdtempSync(join(tmpdir(), "distill-main-sess-"));
+});
+
+describe("CLI flag validation", () => {
+  it("rejects a non-positive-integer --n", () => {
+    expect(() => parseArgs(["--n", "x"])).toThrow(/positive integer/i);
+    expect(() => parseArgs(["--n", "0"])).toThrow(/positive integer/i);
+  });
+  it("rejects a missing flag value", () => {
+    expect(() => parseArgs(["--cwd"])).toThrow(/missing value/i);
+  });
+  it("rejects an unknown argument", () => {
+    expect(() => parseArgs(["--bogus"])).toThrow(/unknown argument/i);
+  });
+  it("parses a valid invocation", () => {
+    const o = parseArgs(["--cwd", "/repo", "--n", "3", "--apply", "--json"]);
+    expect(o).toMatchObject({ cwd: "/repo", n: 3, apply: true, json: true });
+  });
 });
 
 describe("orchestrator run (tasks 4.5, integration)", () => {

@@ -36,6 +36,35 @@ describe("segmentation (task 2.4)", () => {
     expect(eps.length).toBeGreaterThan(3);
   });
 
+  it("splits on a session_info.name change", () => {
+    const mkUser = (text: string, name: string, ts: string) => ({
+      role: "user" as const,
+      text,
+      timestamp: ts,
+      name,
+      toolCalls: [],
+      toolResults: [],
+    });
+    const traj = {
+      sessionId: "s",
+      cwd: "",
+      startedAt: "",
+      turns: [
+        mkUser("work on alpha", "alpha", "2026-06-20T10:00:00.000Z"),
+        mkUser("keep going", "alpha", "2026-06-20T10:00:01.000Z"),
+        mkUser("now beta task", "beta", "2026-06-20T10:00:02.000Z"),
+      ],
+      pairs: [],
+    };
+    // suppress the user-task boundary by making messages corrections-only? no:
+    // here every user msg is a fresh task too, but the name change still must split.
+    const eps = segment(traj, 60_000);
+    expect(eps.length).toBeGreaterThanOrEqual(2);
+    // the beta turn must not share an episode with alpha turns
+    const betaEp = eps.find((e) => e.turns.some((t) => t.name === "beta"))!;
+    expect(betaEp.turns.every((t) => t.name === "beta")).toBe(true);
+  });
+
   it("recognizes correction lexicon", () => {
     expect(isCorrection("no, do it differently")).toBe(true);
     expect(isCorrection("actually use forks")).toBe(true);

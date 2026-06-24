@@ -61,6 +61,8 @@ export interface Turn {
   thinking?: string;
   toolCalls: ToolCall[];
   toolResults: ToolResult[];
+  /** session_info.name in effect at this turn (drives name-change segmentation) */
+  name?: string;
 }
 
 /** A call paired to its result (result undefined => unpaired). */

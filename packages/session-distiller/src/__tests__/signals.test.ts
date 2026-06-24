@@ -11,8 +11,9 @@ import {
   detectProcedures,
   verificationGate,
   extractSignals,
+  episodeVerifiedGood,
 } from "../signals.js";
-import type { Candidate, Trajectory } from "../types.js";
+import type { Candidate, Trajectory, Turn } from "../types.js";
 
 const FIXTURE = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -74,6 +75,20 @@ describe("procedure detector (task 3.4)", () => {
     const procs = detectProcedures(traj, eps);
     expect(procs.length).toBe(1);
     expect(procs[0].toolSequence.length).toBeGreaterThan(5);
+  });
+});
+
+describe("episodeVerifiedGood judges the terminal state", () => {
+  const result = (text: string, isError: boolean): Turn => ({
+    role: "toolResult",
+    toolCalls: [],
+    toolResults: [{ toolCallId: "x", text, isError }],
+  });
+  it("is false when an early pass is followed by a terminal error", () => {
+    expect(episodeVerifiedGood([result("tests pass", false), result("boom", true)])).toBe(false);
+  });
+  it("is true when the terminal result is non-error", () => {
+    expect(episodeVerifiedGood([result("boom", true), result("ok", false)])).toBe(true);
   });
 });
 

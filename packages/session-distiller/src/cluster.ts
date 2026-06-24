@@ -30,8 +30,13 @@ export function loadStore(path: string): CandidateStore {
   if (!existsSync(path)) return {};
   try {
     return JSON.parse(readFileSync(path, "utf-8")) as CandidateStore;
-  } catch {
-    return {};
+  } catch (e) {
+    // Never silently reset: a later saveStore(remaining) would persist the empty
+    // store and wipe accumulated clusters. Abort so the user can recover.
+    throw new Error(
+      `Corrupt candidates store at ${path}: ${(e as Error).message}. ` +
+        `Refusing to overwrite (would lose accumulated cross-session clusters).`,
+    );
   }
 }
 

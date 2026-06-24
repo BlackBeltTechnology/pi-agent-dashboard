@@ -67,7 +67,7 @@ function toTurn(ev: RawEvent): Turn | undefined {
   if (text) turn.text = text;
 
   for (const b of blocks) {
-    if (b && b.type === "toolCall" && typeof b.id === "string") {
+    if (b && b.type === "toolCall" && typeof b.id === "string" && typeof b.name === "string") {
       turn.toolCalls.push({ id: b.id, name: b.name, arguments: b.arguments });
     }
   }
@@ -86,7 +86,10 @@ export function buildTrajectory(events: RawEvent[]): Trajectory {
     if (ev.type === "session_info" && ev.name) name = ev.name;
     if (ev.type === "message") {
       const turn = toTurn(ev);
-      if (turn) turns.push(turn);
+      if (turn) {
+        turn.name = name; // session_info.name in effect at this turn
+        turns.push(turn);
+      }
     }
   }
 

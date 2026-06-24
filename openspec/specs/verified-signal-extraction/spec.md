@@ -33,3 +33,15 @@ terminal state SHALL be dropped.
 - **THEN** the miner SHALL emit a procedure candidate
 - **AND** a shorter or unverified span SHALL NOT produce one
 
+#### Scenario: User correction captured after an assistant action
+
+- **WHEN** a `user` message matching the correction lexicon follows an assistant action
+- **THEN** the miner SHALL emit a correction candidate `{correction, precededBy, rule}`
+- **AND** a correction that establishes a reusable rule SHALL set `rule=true`
+
+#### Scenario: Documentation candidate deferred to recurrence
+
+- **WHEN** an assistant turn contains a recurring summary (headings/bullets)
+- **THEN** the miner SHALL emit a documentation candidate anchored on cross-session frequency
+- **AND** the verification gate SHALL retain it for the recurrence gate rather than dropping it
+
