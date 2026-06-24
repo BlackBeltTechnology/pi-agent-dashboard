@@ -1,0 +1,13 @@
+{
+  "system": "shadcn",
+  "label": "shadcn/ui boolean rubric",
+  "checks": [
+    { "id": "tokens", "text": "Colors, radii, and spacing trace to shadcn CSS variables (no raw hex/px literals)." },
+    { "id": "radius", "text": "Corner rounding uses --radius scale, consistent across cards/buttons/inputs." },
+    { "id": "neutral-palette", "text": "Neutral, restrained palette — no default-average purple gradient hero." },
+    { "id": "contrast", "text": "Text meets WCAG AA contrast in both light and dark." },
+    { "id": "focus-ring", "text": "Interactive elements show a visible --ring focus state." },
+    { "id": "hierarchy", "text": "One clear focal point per screen; intentional emphasis." },
+    { "id": "spacing-rhythm", "text": "Spacing rhythm from the 4/8px scale, not eyeballed gaps." }
+  ]
+}

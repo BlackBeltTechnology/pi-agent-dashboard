@@ -1,0 +1,13 @@
+{
+  "system": "fluent-2",
+  "label": "Fluent 2 boolean rubric",
+  "checks": [
+    { "id": "tokens", "text": "Colors map to Fluent alias tokens (brand/neutral/status), no off-token hex." },
+    { "id": "segoe", "text": "Type uses the Segoe UI font stack." },
+    { "id": "radius", "text": "Corner rounding uses the Fluent border-radius scale (2/4/6/8)." },
+    { "id": "spacing", "text": "Spacing uses the Fluent spacing ramp (4/8/12/16/20/24)." },
+    { "id": "depth", "text": "Surfaces use Fluent depth/shadow ramps, not arbitrary shadows." },
+    { "id": "touch-target", "text": "Interactive targets are at least 44px." },
+    { "id": "contrast", "text": "Foreground tokens meet WCAG AA against their background tokens." }
+  ]
+}

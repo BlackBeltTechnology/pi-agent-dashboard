@@ -1,0 +1,31 @@
+{
+  "$description": "Apple Human Interface Guidelines — hand-authored rule pack in DTCG-shaped envelope. Apple publishes no machine-readable token JSON; semantic colors resolve at OS runtime. Values below approximate iOS light-mode system semantics for an HTML preview. See rules.md for the full rule pack.",
+  "color": {
+    "label": { "$type": "color", "$value": "rgba(0, 0, 0, 1)" },
+    "secondary-label": { "$type": "color", "$value": "rgba(60, 60, 67, 0.6)" },
+    "tertiary-label": { "$type": "color", "$value": "rgba(60, 60, 67, 0.3)" },
+    "system-background": { "$type": "color", "$value": "#ffffff" },
+    "secondary-system-background": { "$type": "color", "$value": "#f2f2f7" },
+    "separator": { "$type": "color", "$value": "rgba(60, 60, 67, 0.29)" },
+    "system-blue": { "$type": "color", "$value": "#007aff" },
+    "system-green": { "$type": "color", "$value": "#34c759" },
+    "system-red": { "$type": "color", "$value": "#ff3b30" }
+  },
+  "typography": {
+    "font-family": { "$type": "fontFamily", "$value": "-apple-system, \"SF Pro Text\", \"SF Pro Display\", system-ui, sans-serif" },
+    "body": { "$type": "dimension", "$value": "17px" },
+    "headline": { "$type": "dimension", "$value": "17px" },
+    "title-3": { "$type": "dimension", "$value": "20px" },
+    "caption-1": { "$type": "dimension", "$value": "12px" }
+  },
+  "spacing": {
+    "1": { "$type": "dimension", "$value": "4px" },
+    "2": { "$type": "dimension", "$value": "8px" },
+    "3": { "$type": "dimension", "$value": "16px" },
+    "4": { "$type": "dimension", "$value": "20px" },
+    "5": { "$type": "dimension", "$value": "24px" }
+  },
+  "sizing": {
+    "min-touch-target": { "$type": "dimension", "$value": "44px" }
+  }
+}

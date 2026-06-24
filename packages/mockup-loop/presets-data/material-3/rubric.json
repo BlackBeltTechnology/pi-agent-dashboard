@@ -1,0 +1,13 @@
+{
+  "system": "material-3",
+  "label": "Material Design 3 boolean rubric",
+  "checks": [
+    { "id": "sys-color", "text": "Colors map to M3 system color roles (primary, surface, on-surface, etc.), no raw hex outside the token set." },
+    { "id": "8dp-grid", "text": "Spacing aligns to the 8dp grid (4dp allowed for fine adjustments)." },
+    { "id": "corner-shape", "text": "Corner rounding uses M3 shape scale (small 8 / medium 12 / large 16)." },
+    { "id": "touch-target-48", "text": "Touch targets are at least 48dp." },
+    { "id": "tonal-elevation", "text": "Elevation expressed via M3 tonal/surface tints, not arbitrary drop shadows." },
+    { "id": "state-layers", "text": "Interactive components show M3 state layers (hover/focus/pressed)." },
+    { "id": "contrast", "text": "On-color roles meet WCAG AA against their container." }
+  ]
+}

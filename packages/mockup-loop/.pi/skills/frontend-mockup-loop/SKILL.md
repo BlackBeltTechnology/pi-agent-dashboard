@@ -21,8 +21,60 @@ enforces every time:
 2. a **consistent token system** (the ui-contract),
 3. a **screenshot feedback loop** (eyes on output).
 
-This skill is paired with an extension that registers three tools:
-`serve_mockup`, `score_mockup`, `init_ui_contract`.
+This skill is paired with an extension that registers five tools:
+`serve_mockup`, `score_mockup`, `init_ui_contract`, `list_design_systems`,
+`validate_mockup`.
+
+## Select a design system (optional)
+
+The loop runs design-system **agnostic** by default (generic anti-slop rubric).
+To target a specific system, pick a preset and pass its id to the tools'
+`system` param. v1 presets (`list_design_systems` enumerates them):
+
+| id | system | platform | substrate |
+|---|---|---|---|
+| `shadcn` | shadcn/ui + Tailwind | web | HTML + Tailwind |
+| `mui` | Material UI | web | HTML |
+| `material-3` | Material Design 3 | web | HTML |
+| `fluent-2` | Fluent 2 | web | HTML |
+| `apple-hig` | Apple HIG | iOS | HTML approximation → SwiftUI on promote |
+
+With a system selected: `init_ui_contract{system}` writes that system's DTCG
+token contract (from a bundled, offline snapshot; `refresh:true` re-fetches
+upstream), `score_mockup{system}` swaps in the system's boolean rubric, and
+`validate_mockup{system,dir}` runs the gated pipeline.
+
+### Gate vs advisory
+
+Validation is layered. **Gates** block `pass`; **advisory** layers only score
+and drive the fix loop (LLM visual scores skew positive — never hard-block):
+
+- **L1 token-lint** — static; HARD GATE when a linter applies (off-token color
+  literals fail shadcn/material-3).
+- **L2 a11y floor** — rendered axe + WCAG contrast; HARD GATE, every system.
+- **L3 named-system auditor** — `hig-doctor` / `material3-mcp` etc., advisory,
+  shelled out only if installed (absent → skipped + noted, never errors).
+- **L4 vision rubric** — per-preset boolean checks; `score = pass/N` computed in
+  code, advisory.
+
+`validate_mockup` returns `{ gates, advisory, pass }`; `pass` is gate-only.
+
+### Apple HIG in a browser-first loop
+
+Apple publishes no token JSON, so `apple-hig` ships a hand-authored rule pack
+(`presets-data/apple-hig/rules.md`). Render an **HTML approximation** of the iOS
+screen so `serve_mockup` can serve it and `hig-doctor` (if installed) can audit
+it — no SwiftUI/Xcode required in-loop:
+
+- SF Pro stack: `font-family: -apple-system, "SF Pro Text", system-ui`.
+- 44×44pt minimum tap targets; 8pt spacing grid.
+- Safe areas: `padding: env(safe-area-inset-top) … env(safe-area-inset-bottom)`.
+- Bottom tab bar, **≤5 items**; iOS semantic colors (label, systemBackground,
+  systemBlue), no hardcoded brand hex on system chrome.
+
+On **PROMOTE**, optionally emit real SwiftUI — validated on source by
+`hig-doctor` / `orchard-hig` (no live browser preview; real-device fidelity
+needs macOS/Xcode). SwiftUI is never required for the in-loop preview.
 
 ## Act as an expert UX designer
 
@@ -113,10 +165,17 @@ the change's notes.
 
 - `serve_mockup{dir, port?, stop?}` — Node static server on 0.0.0.0; returns
   local + LAN URLs. Zero external deps.
-- `score_mockup{url, widths?, outDir?}` — Playwright breakpoint screenshots +
+- `score_mockup{url, widths?, outDir?, system?}` — Playwright breakpoint screenshots +
   scoring rubric. Falls back to install guidance if Playwright is absent
   (`npm i -D playwright && npx playwright install chromium`).
-- `init_ui_contract{path?, force?}` — scaffold the token-referencing contract.
+- `init_ui_contract{path?, force?, system?, refresh?}` — scaffold the
+  token-referencing contract. With `system`, write that preset's DTCG contract
+  (offline snapshot; `refresh` re-fetches upstream first). No `system` →
+  generic blank template (unchanged).
+- `list_design_systems{}` — enumerate the preset registry (id, label, platform,
+  substrate, validators).
+- `validate_mockup{system, url?, dir?}` — run L1+L2 (gates) + L3+L4 (advisory);
+  returns `{ gates, advisory, pass }`. Pass `dir` so L1/L2 can scan the source.
 
 ## Pitfalls
 
