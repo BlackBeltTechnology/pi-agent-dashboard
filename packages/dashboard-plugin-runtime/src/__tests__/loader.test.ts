@@ -22,6 +22,7 @@ function makeFakeContext(): ServerPluginContext {
     onEvent: () => () => {},
     sendToSession: () => true,
     spawnSession: async () => ({ success: false }),
+    abortSession: () => false,
     registerBrowserHandler: () => {},
     getPluginConfig: () => ({} as never),
     updatePluginConfig: async () => {},
