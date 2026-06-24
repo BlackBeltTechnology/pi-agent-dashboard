@@ -273,6 +273,46 @@ describe("engine run lifecycle", () => {
     expect(engine.pendingForRunId(runId)).toBeUndefined();
   });
 
+  it("stopRun aborts the session and finalizes once; later end is a no-op", () => {
+    const calls: any[] = [];
+    const aborts: string[] = [];
+    const engine = createEngine({
+      spawnSession: async (opts) => {
+        calls.push(opts);
+        return { success: true };
+      },
+      abortSession: (id) => {
+        aborts.push(id);
+        return true;
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
+    engine.onSessionRegisteredForRun("sess-1", runId);
+
+    expect(engine.stopRun(runId)).toBe(true);
+    expect(aborts).toEqual(["sess-1"]);
+    const runs = listRuns(repo, "nightly");
+    const rec = runs.find((r) => r.runId === runId)!;
+    expect(rec.status).toBe("error");
+    expect(rec.error).toContain("stopped");
+    expect(rec.archived).toBeUndefined();
+
+    // A later agent_end for that session must NOT re-finalize or duplicate.
+    engine.onSessionEnded("sess-1", "late findings");
+    const after = listRuns(repo, "nightly");
+    expect(after).toHaveLength(1);
+    expect(after[0]!.status).toBe("error");
+  });
+
+  it("stopRun on an unknown/finalized run is a no-op returning false", () => {
+    const engine = makeEngine([]);
+    expect(engine.stopRun("does-not-exist")).toBe(false);
+  });
+
   it("arms valid automations via start()", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { startRun, finishRun, listRuns, pruneRuns, makeRunId } from "../server/run-store.js";
+import { startRun, finishRun, listRuns, pruneRuns, makeRunId, countFindings } from "../server/run-store.js";
 
 let base: string;
 beforeEach(() => {
@@ -33,6 +33,22 @@ describe("run-store", () => {
     startRun(base, "nightly", { runId: "2026-06-19-nightly" });
     const done = finishRun(base, "2026-06-19-nightly", { status: "done", result: "   " });
     expect(done?.archived).toBe(true);
+    expect(done?.findings).toBe(0);
+  });
+
+  it("counts top-level bullet lines as findings on finish", () => {
+    startRun(base, "nightly", { runId: "2026-06-19-nightly" });
+    const done = finishRun(base, "2026-06-19-nightly", {
+      status: "done",
+      result: "Summary\n- bug one\n- bug two\n  - nested (ignored)\n* bug three",
+    });
+    expect(done?.findings).toBe(3);
+    expect(done?.archived).toBeUndefined();
+  });
+
+  it("countFindings: top-level bullets only, 0 when empty", () => {
+    expect(countFindings("")).toBe(0);
+    expect(countFindings("- a\n* b\n   - nested\nprose")).toBe(2);
   });
 
   it("records an error status + message", () => {

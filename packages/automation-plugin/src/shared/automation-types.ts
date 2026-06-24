@@ -104,4 +104,8 @@ export interface RunRecord {
   sessionId?: string;
   /** Last error message when `status==="error"`. */
   error?: string;
+  /** Findings count derived from `result.md` on finish (top-level bullet
+   *  lines). `0` for an auto-archived empty run. Absent on old records.
+   *  See change: automation-ui-mockup-parity. */
+  findings?: number;
 }

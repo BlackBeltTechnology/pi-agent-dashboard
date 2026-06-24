@@ -150,6 +150,33 @@ describe("CreateAutomationDialog (redesign)", () => {
     expect((getByTestId("trigger-cat-git") as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("segmented Action control writes the chosen action kind", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "sk" } });
+    fireEvent.click(getByTestId("create-action-kind-skill"));
+    fireEvent.change(getByTestId("create-skill"), { target: { value: "$recent-code-bugfix" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.action).toEqual({
+      kind: "skill",
+      skill: "$recent-code-bugfix",
+    });
+  });
+
+  it("renders next-run as a relative duration and writes raw cron", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    expect(getByTestId("create-next-run").textContent).toMatch(/in \d/);
+  });
+
+  it("renders the header subtitle, armed chip, and footer caption", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    expect(getByTestId("editor-subtitle").textContent).toContain("/repo");
+    fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
+    await waitFor(() => expect(getByTestId("armed-chip")).toBeTruthy());
+    expect(getByTestId("editor-footer-caption").textContent).toContain("weekly-brief/automation.yaml");
+    expect(getByTestId("editor-footer-caption").textContent).toContain("prompt.md");
+  });
+
   it("shows inline sandbox help in Advanced", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.click(getByTestId("create-advanced-toggle"));

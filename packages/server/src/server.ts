@@ -1402,6 +1402,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
               },
+              // Session-abort hook. Gated to first-party/trusted plugins
+              // (priority <= 100), mirroring `spawnSession`. Untrusted plugins
+              // get a hook that returns false without sending anything.
+              // See change: automation-ui-mockup-parity.
+              abortSession: (sessionId) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
+              },
               registerBrowserHandler: (type, handler) =>
                 browserGateway.registerHandler(type, (msg, ws) =>
                   handler(msg, ws as unknown),

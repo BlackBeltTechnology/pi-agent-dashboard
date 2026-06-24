@@ -44,6 +44,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // Handler bodies lazy-import heavy modules so this stays cheap.
   mountAutomationRoutes(ctx.fastify, {
     runNow: ({ scope, cwd, name }) => runNowViaEngine(scope, cwd, name),
+    stopRun: ({ runId }) => stopRunViaEngine(runId),
   });
   // Detach: do not block server boot on engine init / heavy imports, and
   // delay past the immediate post-boot window so short integration tests
@@ -100,6 +101,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 
   const engine = createEngine({
     spawnSession: (opts) => ctx.spawnSession(opts),
+    abortSession: (id) => ctx.abortSession(id),
     listScopes,
     config: pluginConfig,
     homeDir,
@@ -264,6 +266,15 @@ async function runNowViaEngine(
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
   const r = eng.startRunFor(found);
   return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
+}
+
+/** Stop a running run via the engine (abort session + finalize idempotently). */
+function stopRunViaEngine(runId: string): { ok: boolean; error?: string } {
+  const eng = engineRef;
+  if (!eng) return { ok: false, error: "engine not ready" };
+  return eng.stopRun(runId)
+    ? { ok: true }
+    : { ok: false, error: `run "${runId}" not running or already finished` };
 }
 
 export default registerPlugin;
