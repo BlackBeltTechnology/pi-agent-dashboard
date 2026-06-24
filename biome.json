@@ -25,7 +25,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": false,
+      "preset": "none",
       "suspicious": {
         "noDoubleEquals": "error",
         "noDuplicateCase": "error",
