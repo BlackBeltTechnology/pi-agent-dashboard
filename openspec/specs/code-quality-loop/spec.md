@@ -1,13 +1,15 @@
-# code-quality-loop — delta
+# code-quality-loop Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change add-code-quality-skill. Update Purpose after archive.
+## Requirements
 ### Requirement: Biome-backed static analysis configuration
 
 The project SHALL provide a single `biome.json` that configures Biome for the
 monorepo. The formatter SHALL be disabled by default; when enabled it SHALL use
 space indentation. VCS integration SHALL be enabled with `clientKind: git`,
-`useIgnoreFile: true`, and `defaultBranch: main`. The config SHALL ignore build
+`useIgnoreFile: true`, and `defaultBranch: develop` (the repo's integration
+branch; there is no `main`). The config SHALL ignore build
 output (`dist/`, `**/dist/`, `*.tsbuildinfo`), generated plugin-registry output,
 and `openspec/changes/archive/**`. Rules SHALL be organized into tiers (high-signal
 Tier A, noisy-but-valuable Tier B, style/complexity Tier C), with accessibility
@@ -92,3 +94,4 @@ regressions while warn-tier rules annotate without failing the build.
 
 - **WHEN** a Tier A rule has graduated to `error` and a PR reintroduces a violation of it
 - **THEN** the CI Biome step SHALL exit non-zero and block the PR.
+

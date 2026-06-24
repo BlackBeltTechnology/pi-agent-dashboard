@@ -15,6 +15,19 @@ import type { RunRecord, RunStatus } from "../shared/automation-types.js";
 
 export const DEFAULT_RETENTION = 100;
 
+/**
+ * Findings count heuristic: number of top-level markdown bullet lines in
+ * `result.md` (lines starting with `- ` or `* ` at column 0). `0` when the
+ * text is empty. See change: automation-ui-mockup-parity.
+ */
+export function countFindings(result: string): number {
+  let n = 0;
+  for (const line of result.split("\n")) {
+    if (/^[-*] +\S/.test(line)) n++;
+  }
+  return n;
+}
+
 export function runsRootFor(scopeBase: string): string {
   return path.join(scopeBase, ".pi", "automation", "runs");
 }
@@ -95,10 +108,12 @@ export function finishRun(
   fs.writeFileSync(path.join(dir, "result.md"), result + (result ? "\n" : ""));
 
   const archived = result.length === 0;
+  const findings = archived ? 0 : countFindings(result);
   const rec: RunRecord = {
     ...existing,
     status: opts.status,
     endedAt: (opts.at ?? new Date()).getTime(),
+    findings,
     ...(archived ? { archived: true } : {}),
     ...(opts.error ? { error: opts.error } : {}),
   };

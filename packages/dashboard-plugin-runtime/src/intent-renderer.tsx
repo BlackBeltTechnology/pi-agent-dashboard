@@ -164,10 +164,9 @@ export function IntentRenderer({
   // typing per-primitive — actual prop validation is the primitive's job.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const C = Component as React.ComponentType<any>;
-  return <C {...allProps} key={intent.key} />;
-
   // Note: isValidElement isn't currently called but kept imported for
   // possible future use (e.g. detecting already-resolved React elements in
   // props during diff/HMR).
   void isValidElement;
+  return <C {...allProps} key={intent.key} />;
 }

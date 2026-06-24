@@ -28,4 +28,4 @@
 
 ## 6. Deferred (out of scope v1)
 
-- [ ] 6.1 pi commit-time hook that fires `review-changes.ts` even when not run manually → verify: hook runs on commit; advisory only.
+- [~] 6.1 **DEFERRED (out of scope v1):** pi commit-time hook that fires `review-changes.ts` even when not run manually → verify: hook runs on commit; advisory only. Tracked for a future change; not blocking this ship.

@@ -24,5 +24,8 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      # Hard-gates Tier A (error-severity) regressions; Tier B/C (warn) only annotate.
+      - name: Biome static analysis (Tier A gate, warn-tier annotate)
+        run: npx biome lint . --reporter=github
       - run: npm test
       - run: npm run build

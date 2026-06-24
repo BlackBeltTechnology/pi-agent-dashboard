@@ -103,6 +103,15 @@ export interface PluginSpawnResult {
  */
 export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
 
+/**
+ * Abort a running pi session by id. Gated to first-party / trusted plugins by
+ * the host (same trust gate as `spawnSession`): untrusted plugins receive a
+ * hook that returns `false` without sending anything. Returns `true` when the
+ * abort control message was dispatched to a connected session.
+ * See change: automation-ui-mockup-parity.
+ */
+export type AbortSessionFn = (sessionId: string) => boolean;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -121,6 +130,12 @@ export interface ServerPluginContext {
    * See change: add-automation-plugin.
    */
   spawnSession: SpawnSessionFn;
+  /**
+   * Abort a running session. Gated to first-party/trusted plugins; untrusted
+   * plugins get a hook that returns `false`. See change:
+   * automation-ui-mockup-parity.
+   */
+  abortSession: AbortSessionFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
   logger: PluginLogger;
@@ -137,6 +152,7 @@ export interface ServerContextDeps {
   onEvent: OnEventFn;
   sendToSession: SendToSessionFn;
   spawnSession: SpawnSessionFn;
+  abortSession: AbortSessionFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
 }
@@ -160,6 +176,7 @@ export function createServerPluginContext(
     onEvent: deps.onEvent,
     sendToSession: deps.sendToSession,
     spawnSession: deps.spawnSession,
+    abortSession: deps.abortSession,
 
     getPluginConfig<T>(): T {
       return deps.getPluginConfig(pluginId) as T;

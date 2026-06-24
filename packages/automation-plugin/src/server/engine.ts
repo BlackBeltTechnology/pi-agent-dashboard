@@ -87,6 +87,8 @@ export interface EngineConfig {
 
 export interface EngineDeps {
   spawnSession: SpawnLike;
+  /** Host-provided session abort. Returns false when not connected/untrusted. */
+  abortSession?: (sessionId: string) => boolean;
   /** Scope targets to scan/arm (global + per-folder). */
   listScopes: () => ScopeTarget[];
   config: () => EngineConfig;
@@ -117,6 +119,13 @@ export interface Engine {
   refresh(): void;
   /** Spawn-side of a fire — exposed for tests. Returns the run id or null. */
   startRunFor(automation: DiscoveredAutomation): { runId: string } | null;
+  /**
+   * Stop a `running` run: abort its session via the host hook and finalize the
+   * run record once. Idempotent vs `onSessionEnded` — a subsequent end event
+   * for that session is a no-op. Returns false when the run is unknown/already
+   * finalized. See change: automation-ui-mockup-parity.
+   */
+  stopRun(runId: string): boolean;
   /** Run-context lookup by cwd (used by the register correlation). */
   pendingForCwd(cwd: string): RunContext | undefined;
   /** Run-context lookup by runId (exact, race-free correlation). */
@@ -330,6 +339,29 @@ export function createEngine(deps: EngineDeps): Engine {
       ctx.sessionId = sessionId;
       ctx.delivered = true;
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
+    },
+
+    stopRun(runId: string): boolean {
+      // Find the live pending context for this run (any state). A run already
+      // finalized has been removed from `pending`, so this returns false and
+      // the call is a no-op — idempotent against a prior stop or agent_end.
+      let ctx: RunContext | undefined;
+      for (const q of pending.values()) {
+        const hit = q.find((c) => c.runId === runId);
+        if (hit) {
+          ctx = hit;
+          break;
+        }
+      }
+      if (!ctx) return false;
+      if (ctx.sessionId && deps.abortSession) deps.abortSession(ctx.sessionId);
+      // Finalize once. A non-empty result marker keeps the stopped run out of
+      // the auto-archive (empty) bucket so it stays visible in Triage.
+      // removePending makes the later onSessionEnded a no-op (findBySession
+      // won't find it) — idempotent vs the agent_end capture path.
+      finishAndRelease(ctx, { status: "error", result: "_(stopped by user)_", error: "stopped by user" });
+      log(`[engine] run ${ctx.runId} stopped (${ctx.key})`);
+      return true;
     },
 
     onSessionEnded(sessionId: string, result: string): void {

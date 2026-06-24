@@ -37,6 +37,12 @@ export interface AutomationRouteHooks {
     cwd?: string;
     name: string;
   }) => Promise<{ ok: boolean; runId?: string; error?: string }>;
+  /** Stop a `running` run (abort its session + finalize the record). */
+  stopRun?: (args: {
+    scope: AutomationScope;
+    cwd?: string;
+    runId: string;
+  }) => { ok: boolean; error?: string };
 }
 
 export function mountAutomationRoutes(
@@ -63,6 +69,28 @@ export function mountAutomationRoutes(
       return { error: res.error ?? "run failed" };
     }
     return { ok: true, ...(res.runId ? { runId: res.runId } : {}) };
+  });
+
+  fastify.post("/api/plugins/automation/stop", async (req, reply) => {
+    const body = (req.body ?? {}) as { scope?: AutomationScope; cwd?: string; runId?: string };
+    if (!body.runId) {
+      reply.code(400);
+      return { error: "runId required" };
+    }
+    if (!hooks.stopRun) {
+      reply.code(503);
+      return { error: "automation engine not ready" };
+    }
+    const res = hooks.stopRun({
+      scope: body.scope ?? "folder",
+      ...(body.cwd ? { cwd: body.cwd } : {}),
+      runId: body.runId,
+    });
+    if (!res.ok) {
+      reply.code(400);
+      return { error: res.error ?? "stop failed" };
+    }
+    return { ok: true };
   });
 
   fastify.get("/api/plugins/automation/trigger-kinds", async () => {

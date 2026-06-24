@@ -74,6 +74,15 @@ export function registerOpenSpecRoutes(
         delivery: (raw?.delivery as OpenSpecConfig["delivery"]) ?? "both",
         workflows: Array.isArray(raw?.workflows) ? (raw!.workflows as string[]) : [],
       };
+      // The openspec CLI cannot persist an "expanded" profile: it has no such
+      // preset and `getProfileWorkflows` treats every non-"custom" profile as
+      // core on `openspec update`, dropping the extra workflows. So the dashboard
+      // stores "expanded" as custom + EXPANDED_WORKFLOWS. Re-surface the alias
+      // here so the Settings radio reflects the user's actual choice.
+      // See change: fix-openspec-expanded-profile-update.
+      if (data.profile === "custom" && isExpandedWorkflowSet(data.workflows)) {
+        data.profile = "expanded";
+      }
       configCache.set(cwd, { ts: now, data });
       return { success: true, data } satisfies ApiResponse;
     },
@@ -86,6 +95,33 @@ export function registerOpenSpecRoutes(
   // `openspec/` IS that global config dir.
   // See change: add-openspec-profile-settings.
   const GLOBAL_OPENSPEC_DIR = path.dirname(openSpecConfigFilePath()); // ~/.config/openspec
+
+  // True when `workflows` is exactly the EXPANDED_WORKFLOWS set (order-agnostic).
+  // Used to re-surface a custom-persisted expanded profile as the "expanded"
+  // alias on read. See change: fix-openspec-expanded-profile-update.
+  const EXPANDED_SET = new Set(EXPANDED_WORKFLOWS);
+  function isExpandedWorkflowSet(workflows: string[]): boolean {
+    if (workflows.length !== EXPANDED_SET.size) return false;
+    const seen = new Set(workflows);
+    if (seen.size !== EXPANDED_SET.size) return false;
+    for (const w of seen) if (!EXPANDED_SET.has(w)) return false;
+    return true;
+  }
+
+  // openspec's `update` degrades a literal "expanded" profile to the 4 core
+  // workflows (the CLI has no expanded preset). The dashboard now persists
+  // expanded AS custom+EXPANDED_WORKFLOWS, but configs written by older builds
+  // (or external tools) may still hold the literal "expanded" on disk — in which
+  // case `openspec update` would silently regenerate only the 4 core skills.
+  // Heal such a config in place before any update so the CLI honors all 11.
+  // See change: fix-openspec-expanded-profile-update.
+  async function healExpandedProfileConfig(cwd: string): Promise<void> {
+    const raw = (await configListOrAsync({ cwd }, null)) as { profile?: string } | null;
+    if (raw?.profile === "expanded") {
+      writeOpenSpecConfigFile({ profile: "custom", workflows: [...EXPANDED_WORKFLOWS] });
+      configCache.clear();
+    }
+  }
 
   // Known cwds = union(active session cwds, pinned dirs), filtered to only
   // OpenSpec-initialized projects (`<cwd>/openspec/` exists). Directories
@@ -141,7 +177,14 @@ export function registerOpenSpecRoutes(
         const workflows = profile === "expanded"
           ? [...EXPANDED_WORKFLOWS]
           : Array.isArray(body.workflows) ? body.workflows : [];
-        const res = writeOpenSpecConfigFile({ profile, workflows });
+        // openspec's `getProfileWorkflows` only honors an explicit workflow list
+        // when the persisted profile is "custom"; a literal "expanded" degrades
+        // to the 4 core workflows on `openspec update`, so the expanded skills
+        // never land in projects. Persist "expanded" AS custom + the full set so
+        // `openspec update` materializes all 11 skills; the GET handler maps it
+        // back to the "expanded" alias. See change: fix-openspec-expanded-profile-update.
+        const persistedProfile = profile === "expanded" ? "custom" : profile;
+        const res = writeOpenSpecConfigFile({ profile: persistedProfile, workflows });
         if (!res.success) {
           reply.code(500);
           return { success: false, error: res.error ?? "write failed" } satisfies ApiResponse;
@@ -166,6 +209,10 @@ export function registerOpenSpecRoutes(
         reply.code(400);
         return { success: false, error: "cwd or all required" } satisfies ApiResponse;
       }
+      // Self-heal a stale literal "expanded" profile to custom+11 BEFORE running
+      // the CLI, otherwise `openspec update` regenerates only the 4 core skills.
+      // See change: fix-openspec-expanded-profile-update.
+      await healExpandedProfileConfig(targets[0] ?? process.cwd());
       // Profile is global — the post-update signature is the same for every cwd.
       const sig = await currentGlobalSignature(targets[0] ?? process.cwd());
       const results: Array<{ cwd: string; success: boolean; error?: string }> = [];

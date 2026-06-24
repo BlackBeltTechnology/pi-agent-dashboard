@@ -115,7 +115,12 @@ describe("openspec profile-config REST routes", () => {
     expect(mock.writeOpenSpecConfigFile).not.toHaveBeenCalled();
   });
 
-  it("expanded profile writes JSON with profile 'expanded' and the 11-workflow set", async () => {
+  // The openspec CLI's getProfileWorkflows() only honors an explicit workflow
+  // list when the persisted profile is "custom"; a literal "expanded" silently
+  // degrades to the 4 core workflows on `openspec update`. So the dashboard
+  // must persist "expanded" AS custom + the 11-workflow set.
+  // See change: fix-openspec-expanded-profile-update.
+  it("expanded profile persists AS custom with the full 11-workflow set", async () => {
     await setup();
     const res = await fastify.inject({
       method: "POST", url: "/api/openspec/config",
@@ -123,7 +128,7 @@ describe("openspec profile-config REST routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(mock.writeOpenSpecConfigFile).toHaveBeenCalledWith(
-      expect.objectContaining({ profile: "expanded" }),
+      expect.objectContaining({ profile: "custom" }),
     );
     const arg = mock.writeOpenSpecConfigFile.mock.calls[0][0];
     expect(arg.workflows).toHaveLength(11);
@@ -192,6 +197,33 @@ describe("openspec profile-config REST routes", () => {
     // Only the successful cwd got a recorded signature.
     expect(signatures["/proj/b"]).toBeDefined();
     expect(signatures["/proj/a"]).toBeUndefined();
+  });
+
+  it("heals a stale literal 'expanded' config to custom+11 before updating", async () => {
+    // Disk still holds the broken literal "expanded" (older build / external CLI).
+    // The update endpoint must rewrite it to custom+11 so `openspec update`
+    // honors all workflows. See change: fix-openspec-expanded-profile-update.
+    mock.globalProfile = "expanded";
+    mock.globalWorkflows = ["propose", "explore", "new", "continue", "ff", "apply", "verify", "sync", "archive", "bulk-archive", "onboard"];
+    await setup();
+    const res = await fastify.inject({
+      method: "POST", url: "/api/openspec/update", payload: { cwd: "/proj/a" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mock.writeOpenSpecConfigFile).toHaveBeenCalledWith(
+      expect.objectContaining({ profile: "custom" }),
+    );
+    expect(mock.update).toHaveBeenCalledWith({ cwd: "/proj/a" });
+  });
+
+  it("does NOT rewrite the config when profile is already custom", async () => {
+    mock.globalProfile = "custom";
+    mock.globalWorkflows = ["propose", "apply"];
+    await setup();
+    await fastify.inject({
+      method: "POST", url: "/api/openspec/update", payload: { cwd: "/proj/a" },
+    });
+    expect(mock.writeOpenSpecConfigFile).not.toHaveBeenCalled();
   });
 
   it("returns 400 when neither cwd nor all is provided", async () => {
@@ -285,6 +317,29 @@ describe("openspec profile-config REST routes", () => {
     expect(body.data.workflows).toHaveLength(11);
     // Async (non-blocking) read path was used.
     expect(mock.configListAsyncCalls).toBe(1);
+  });
+
+  it("GET config re-surfaces custom+expanded-set as the 'expanded' alias", async () => {
+    // Disk stores "expanded" as custom + the 11 workflows (CLI constraint), so
+    // the read path must map it back to "expanded" for the Settings radio.
+    // See change: fix-openspec-expanded-profile-update.
+    mock.globalProfile = "custom";
+    mock.globalWorkflows = ["propose", "explore", "new", "continue", "ff", "apply", "verify", "sync", "archive", "bulk-archive", "onboard"];
+    await setup();
+    const res = await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload);
+    expect(body.data.profile).toBe("expanded");
+    expect(body.data.workflows).toHaveLength(11);
+  });
+
+  it("GET config keeps a genuine custom subset as 'custom'", async () => {
+    mock.globalProfile = "custom";
+    mock.globalWorkflows = ["propose", "apply", "archive"];
+    await setup();
+    const res = await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
+    const body = JSON.parse(res.payload);
+    expect(body.data.profile).toBe("custom");
   });
 
   it("GET config warm read is served from cache without spawning again", async () => {

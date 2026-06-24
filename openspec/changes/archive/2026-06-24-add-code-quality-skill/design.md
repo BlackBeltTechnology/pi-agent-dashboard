@@ -129,4 +129,4 @@ decided in Phase 0):
 - **Whole-repo formatter on day 1** — rejected: 1712-file reformat diff buries
   every real fix.
 - **Custom git-diff script as primary** — rejected: native `--changed` covers
-  branch-vs-main; script kept only as a documented fallback.
+  branch-vs-develop; script kept only as a documented fallback.

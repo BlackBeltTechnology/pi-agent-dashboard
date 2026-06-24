@@ -27,6 +27,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 |---|---|
 | [`faq.md`](./faq.md) | Recurring how-to questions. Answers point at README.md + docs/ sources. |
 | [`chat-display-preferences.md`](./chat-display-preferences.md) | `DisplayPrefs` storage, merge rule, transport, migration, first-launch. See change: configurable-chat-display. |
+| [`code-quality.md`](./code-quality.md) | Biome ratchet system. tier ladder. graduation criterion. rollout phases. oracle. rough edge. See change: add-code-quality-skill. |
 
 ## Adding a new file
 

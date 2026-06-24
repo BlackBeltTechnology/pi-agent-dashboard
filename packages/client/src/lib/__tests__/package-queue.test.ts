@@ -143,7 +143,7 @@ describe("package-queue", () => {
 
   it("409 retries once then succeeds", async () => {
     let nextOp = 1;
-    const fetchMock = makeFetchMock(async ({}, idx) => {
+    const fetchMock = makeFetchMock(async (_, idx) => {
       if (idx === 0) return jsonResponse({ success: false, error: "busy" }, 409);
       return jsonResponse({ success: true, data: { operationId: `op-${nextOp++}` } });
     });
@@ -162,7 +162,7 @@ describe("package-queue", () => {
   });
 
   it("second consecutive 409 surfaces error and advances queue", async () => {
-    const fetchMock = makeFetchMock(async ({}, idx) => {
+    const fetchMock = makeFetchMock(async (_, idx) => {
       if (idx < 2) return jsonResponse({ success: false, error: "busy" }, 409);
       return jsonResponse({ success: true, data: { operationId: "op-b" } });
     });
@@ -180,7 +180,7 @@ describe("package-queue", () => {
   });
 
   it("non-409 error surfaces error immediately and advances", async () => {
-    const fetchMock = makeFetchMock(async ({}, idx) => {
+    const fetchMock = makeFetchMock(async (_, idx) => {
       if (idx === 0) return jsonResponse({ success: false, error: "boom" }, 500);
       return jsonResponse({ success: true, data: { operationId: "op-b" } });
     });

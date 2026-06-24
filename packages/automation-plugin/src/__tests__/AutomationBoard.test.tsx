@@ -25,8 +25,8 @@ const automations: DiscoveredAutomation[] = [
   { name: "broken", scope: "folder", dir: "/r/.pi/automation/broken", valid: false, error: "bad kind" },
 ];
 const runs: RunRecord[] = [
-  { runId: "2026-06-19-nightly", name: "nightly", status: "done", dir: "/d1", startedAt: 1 },
-  { runId: "2026-06-20-nightly", name: "nightly", status: "done", dir: "/d2", startedAt: 2, archived: true },
+  { runId: "2026-06-19-nightly", name: "nightly", status: "done", dir: "/d1", startedAt: 2, findings: 3 },
+  { runId: "2026-06-20-nightly", name: "nightly", status: "done", dir: "/d2", startedAt: 1, archived: true, findings: 0 },
 ];
 
 const { deleteAutomation } = vi.hoisted(() => ({ deleteAutomation: vi.fn(async () => true) }));
@@ -39,16 +39,22 @@ vi.mock("../client/api.js", () => ({
   updateAutomation: vi.fn(async () => ({ ok: true })),
   deleteAutomation,
   runAutomationNow: vi.fn(async () => ({ ok: true })),
+  stopAutomationRun: vi.fn(async () => ({ ok: true })),
   getAutomationDefinition: vi.fn(async () => ({ config: nightlyConfig, promptBody: "x" })),
   listTriggerKinds: vi.fn(async () => []),
   isGitCapable: vi.fn(async () => false),
 }));
 
-import { listAutomations } from "../client/api.js";
+import { listAutomations, listRuns as listRunsMock } from "../client/api.js";
 import { AutomationBoard } from "../client/AutomationBoard.js";
 
 afterEach(cleanup);
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Reset the default impl so a per-test mockImplementation override (Stop
+  // test) does not leak into later tests.
+  vi.mocked(listRunsMock).mockImplementation(async (scope: string) => (scope === "folder" ? runs : []));
+});
 
 const params = { encodedCwd: encodeFolderPath("/r") };
 
@@ -79,20 +85,73 @@ describe("AutomationBoard", () => {
     expect(getByTestId("automation-enabled-nightly").textContent).toBe("enabled");
   });
 
-  it("shows full actions for valid cards and only Edit/Delete for invalid", async () => {
+  it("shows full actions for valid cards and only Edit/Delete (under overflow) for invalid", async () => {
     const { getByTestId, queryByTestId } = render(<AutomationBoard params={params} />);
     await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
-    // valid → run/toggle/edit/delete
+    // valid → run/toggle direct; edit/delete under the ⋯ overflow
     expect(getByTestId("run-now-nightly")).toBeTruthy();
     expect(getByTestId("toggle-nightly")).toBeTruthy();
+    expect(queryByTestId("edit-nightly")).toBeNull();
+    fireEvent.click(getByTestId("overflow-nightly"));
     expect(getByTestId("edit-nightly")).toBeTruthy();
     expect(getByTestId("delete-nightly")).toBeTruthy();
-    // invalid → only edit/delete
+    // invalid → no run/toggle; only edit/delete under overflow
     expect(queryByTestId("run-now-broken")).toBeNull();
     expect(queryByTestId("toggle-broken")).toBeNull();
+    fireEvent.click(getByTestId("overflow-broken"));
     expect(getByTestId("edit-broken")).toBeTruthy();
     expect(getByTestId("delete-broken")).toBeTruthy();
     expect(getByTestId("automation-error-broken").textContent).toContain("bad kind");
+  });
+
+  it("applies session-card visuals: rail, status dot, headless icon, status pill", async () => {
+    const { getByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
+    // enabled (valid, not disabled, not running) → green palette
+    expect(getByTestId("automation-rail-nightly").className).toContain("bg-green-500/40");
+    expect(getByTestId("automation-dot-nightly").className).toContain("bg-green-500");
+    expect(getByTestId("automation-source-icon-nightly")).toBeTruthy();
+    expect(getByTestId("automation-enabled-nightly").textContent).toBe("enabled");
+    // invalid → red palette
+    expect(getByTestId("automation-rail-broken").className).toContain("bg-red-500/40");
+    expect(getByTestId("automation-enabled-broken").textContent).toBe("invalid");
+  });
+
+  it("shows mode meta on the card and the repo crumb in the header", async () => {
+    const { getByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("automation-mode-nightly")).toBeTruthy());
+    expect(getByTestId("automation-mode-nightly").textContent).toContain("local");
+    expect(getByTestId("automation-repo-crumb").textContent).toBe("r");
+  });
+
+  it("renders a per-card last-run summary with findings + result link", async () => {
+    const { getByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("automation-last-run-nightly")).toBeTruthy());
+    const text = getByTestId("automation-last-run-nightly").textContent ?? "";
+    expect(text).toContain("done");
+    expect(text).toContain("3 findings");
+    expect(getByTestId("last-run-link-nightly").textContent).toContain("result");
+  });
+
+  it("shows Stop (not Run now) for a running automation and calls /stop", async () => {
+    const { stopAutomationRun } = await import("../client/api.js");
+    const runningRuns: RunRecord[] = [
+      { runId: "2026-06-21-nightly", name: "nightly", status: "running", dir: "/d3", startedAt: 3 },
+    ];
+    const api = await import("../client/api.js");
+    vi.mocked(api.listRuns).mockImplementation(async (scope: string) => (scope === "folder" ? runningRuns : []));
+    const { getByTestId, queryByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("stop-nightly")).toBeTruthy());
+    expect(queryByTestId("run-now-nightly")).toBeNull();
+    fireEvent.click(getByTestId("stop-nightly"));
+    await waitFor(() => expect(stopAutomationRun).toHaveBeenCalledWith("folder", "/r", "2026-06-21-nightly"));
+  });
+
+  it("runs table shows findings + status-specific link", async () => {
+    const { getByTestId } = render(<AutomationBoard params={params} />);
+    await waitFor(() => expect(getByTestId("run-findings-2026-06-19-nightly")).toBeTruthy());
+    expect(getByTestId("run-findings-2026-06-19-nightly").textContent).toContain("3 findings");
+    expect(getByTestId("run-result-2026-06-19-nightly").textContent).toContain("result");
   });
 
   it("recent-runs table renders rows with a result link; archived filter preserved", async () => {
@@ -107,12 +166,14 @@ describe("AutomationBoard", () => {
   it("delete requires confirmation and calls the DELETE route with scope+name", async () => {
     const confirmSpy = vi.spyOn(window, "confirm");
     const { getByTestId } = render(<AutomationBoard params={params} />);
-    await waitFor(() => expect(getByTestId("delete-nightly")).toBeTruthy());
+    await waitFor(() => expect(getByTestId("overflow-nightly")).toBeTruthy());
 
+    fireEvent.click(getByTestId("overflow-nightly"));
     confirmSpy.mockReturnValueOnce(false);
     fireEvent.click(getByTestId("delete-nightly"));
     expect(deleteAutomation).not.toHaveBeenCalled();
 
+    fireEvent.click(getByTestId("overflow-nightly"));
     confirmSpy.mockReturnValueOnce(true);
     fireEvent.click(getByTestId("delete-nightly"));
     await waitFor(() => expect(deleteAutomation).toHaveBeenCalledWith("folder", "/r", "nightly"));

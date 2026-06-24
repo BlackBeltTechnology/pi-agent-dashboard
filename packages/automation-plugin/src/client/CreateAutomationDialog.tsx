@@ -15,6 +15,13 @@
  * See change: add-automation-plugin, redesign-automation-editor-and-board.
  */
 import React, { useEffect, useMemo, useState } from "react";
+import { Icon } from "@mdi/react";
+import {
+  mdiCalendarClock,
+  mdiSourceBranch,
+  mdiClipboardTextOutline,
+  mdiFlashOutline,
+} from "@mdi/js";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
@@ -54,6 +61,27 @@ type VisibilityChoice = "default" | Visibility;
 type ModelMode = "role" | "model";
 
 const DEFAULT_ROLE_KEYS = ["fast", "planning", "coding", "compact", "vision", "research"];
+
+/** Trigger category → leading icon for the level-1 pills. */
+const CATEGORY_ICON: Record<string, string> = {
+  scheduled: mdiCalendarClock,
+  git: mdiSourceBranch,
+  openspec: mdiClipboardTextOutline,
+};
+
+/** Humanize a future duration as "in 18h 12m" / "in 3d 4h" / "in 45m". */
+function relativeFuture(target: Date, now: Date = new Date()): string {
+  let secs = Math.round((target.getTime() - now.getTime()) / 1000);
+  if (secs <= 0) return "now";
+  const d = Math.floor(secs / 86400);
+  secs -= d * 86400;
+  const h = Math.floor(secs / 3600);
+  secs -= h * 3600;
+  const m = Math.floor(secs / 60);
+  if (d > 0) return `in ${d}d ${h}h`;
+  if (h > 0) return `in ${h}h ${m}m`;
+  return `in ${m}m`;
+}
 const SANDBOX_HELP: Record<Sandbox, string> = {
   "read-only": "No writes — the run can read the workspace but not modify it.",
   "workspace-write": "Write inside the workspace only (no changes outside the folder).",
@@ -184,7 +212,7 @@ export function CreateAutomationDialog({
   const effectiveCron = rawCronMode ? cron : buildCron(freq, time, dow);
   const nextRun = useMemo(() => {
     const next = nextFire(effectiveCron, new Date());
-    return next ? next.toLocaleString() : null;
+    return next ? relativeFuture(next) : null;
   }, [effectiveCron]);
 
   const model = modelMode === "role" ? roleValue.trim() : modelValue.trim();
@@ -256,12 +284,17 @@ export function CreateAutomationDialog({
         className="w-full max-w-lg max-h-[90vh] overflow-auto rounded-lg bg-[var(--bg-primary)] p-4 space-y-4 text-sm"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-semibold">{editing ? "Edit Automation" : "Create Automation"}</h2>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex flex-col">
+            <h2 className="text-base font-semibold">{editing ? "Edit Automation" : "Create Automation"}</h2>
+            <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-subtitle">
+              {scope === "global" ? "global · ~/.pi/automation" : `folder · ${cwd ?? "(this repo)"}`}
+            </p>
+          </div>
           {!submitDisabled && (
             <span
               data-testid="armed-chip"
-              className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)]"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(52,211,153,0.14)] text-[#6ee7b7]"
             >
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
               armed on save
@@ -288,16 +321,16 @@ export function CreateAutomationDialog({
             </p>
           )}
           <Field label="Scope">
-            <select
+            <Segmented
+              testid="create-scope"
               value={scope}
-              onChange={(e) => setScope(e.target.value as AutomationScope)}
-              data-testid="create-scope"
               disabled={editing}
-              className="input disabled:opacity-60"
-            >
-              <option value="folder">folder (this repo)</option>
-              <option value="global">global (~/.pi/automation)</option>
-            </select>
+              onChange={(v) => setScope(v as AutomationScope)}
+              options={[
+                { value: "folder", label: "folder (this repo)" },
+                { value: "global", label: "global (~/.pi/automation)" },
+              ]}
+            />
           </Field>
         </Group>
 
@@ -314,13 +347,14 @@ export function CreateAutomationDialog({
                   data-testid={`trigger-cat-${c.category}`}
                   disabled={planned}
                   onClick={() => setCategory(c.category)}
-                  className={`px-2 py-1 text-xs rounded border ${
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${
                     selected
-                      ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)]"
+                      ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)] bg-[var(--accent-soft,rgba(99,102,241,0.12))]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                   } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
                   title={planned ? "Coming soon" : c.label}
                 >
+                  <Icon path={CATEGORY_ICON[c.category] ?? mdiFlashOutline} size={0.55} />
                   {c.label}
                   {planned && <span className="ml-1 text-[9px]">soon</span>}
                 </button>
@@ -400,19 +434,27 @@ export function CreateAutomationDialog({
               >
                 {rawCronMode ? "use schedule helper" : "edit raw cron"}
               </button>
-              <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-next-run">
-                {nextRun ? `Next run: ${nextRun}` : "Invalid cron expression"}
+              <p className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" data-testid="create-next-run">
+                {nextRun ? (
+                  <>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
+                    Next run: {nextRun}
+                  </>
+                ) : (
+                  "Invalid cron expression"
+                )}
               </p>
             </div>
           ) : (
             <div className="space-y-1" data-testid="trigger-events">
               <p className="text-[10px] text-[var(--text-muted)]">Select one or more event types:</p>
+              <div className="grid grid-cols-2 gap-1">
               {activeCategory?.events.map((ev) => {
                 const planned = ev.status === "planned";
                 return (
                   <label
                     key={ev.event}
-                    className={`flex items-center gap-2 text-xs ${planned ? "opacity-40" : ""}`}
+                    className={`flex items-center gap-2 text-xs rounded border border-[var(--border-secondary)] px-1.5 py-1 ${planned ? "opacity-40" : ""}`}
                   >
                     <input
                       type="checkbox"
@@ -427,6 +469,7 @@ export function CreateAutomationDialog({
                   </label>
                 );
               })}
+              </div>
               {eventsMissing && (
                 <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="events-missing">
                   Select at least one event type.
@@ -439,15 +482,15 @@ export function CreateAutomationDialog({
         {/* ── ACTION ───────────────────────────────────────────── */}
         <Group title="Action">
           <Field label="Action">
-            <select
+            <Segmented
+              testid="create-action-kind"
               value={actionKind}
-              onChange={(e) => setActionKind(e.target.value as "prompt" | "skill")}
-              data-testid="create-action-kind"
-              className="input"
-            >
-              <option value="prompt">prompt</option>
-              <option value="skill">skill</option>
-            </select>
+              onChange={(v) => setActionKind(v as "prompt" | "skill")}
+              options={[
+                { value: "prompt", label: "prompt" },
+                { value: "skill", label: "skill" },
+              ]}
+            />
           </Field>
           {actionKind === "prompt" ? (
             <Field label="Prompt (durable, saved to prompt.md)">
@@ -607,6 +650,11 @@ export function CreateAutomationDialog({
           </p>
         )}
 
+        <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-footer-caption">
+          Writes .pi/automation/{name.trim() || "<name>"}/automation.yaml
+          {actionKind === "prompt" ? " + prompt.md" : ""}
+        </p>
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-3 py-1 text-xs rounded border border-[var(--border-secondary)]">
             Cancel
@@ -637,10 +685,52 @@ function mapKindToCategory(kind: string): string {
 
 function Group({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <section data-testid={`group-${title.toLowerCase()}`} className="space-y-2">
+    <section
+      data-testid={`group-${title.toLowerCase()}`}
+      className="space-y-2 rounded-lg border border-[var(--border-secondary)] p-3"
+    >
       <h3 className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** Segmented control — a row of pill buttons writing a single value. */
+function Segmented<T extends string>({
+  testid,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  testid: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+  disabled?: boolean;
+}): React.ReactElement {
+  return (
+    <div data-testid={testid} className="inline-flex rounded border border-[var(--border-secondary)] p-0.5">
+      {options.map((o) => {
+        const selected = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            data-testid={`${testid}-${o.value}`}
+            disabled={disabled}
+            onClick={() => onChange(o.value)}
+            className={`px-2 py-0.5 text-[11px] rounded ${
+              selected
+                ? "bg-[var(--accent,#6366f1)] text-white"
+                : "text-[var(--text-secondary)]"
+            } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

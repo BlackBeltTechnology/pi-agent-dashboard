@@ -1,0 +1,88 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "defaultBranch": "develop"
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!dist",
+      "!**/*.tsbuildinfo",
+      "!**/plugin-registry.generated.*",
+      "!openspec/changes/archive/**",
+      "!**/*.css",
+      "!**/__tests__/fixtures/**"
+    ]
+  },
+  "formatter": {
+    "enabled": false,
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "suspicious": {
+        "noDoubleEquals": "error",
+        "noDuplicateCase": "error",
+        "noFallthroughSwitchClause": "error",
+        "noSelfCompare": "error",
+        "noExplicitAny": "warn"
+      },
+      "correctness": {
+        "noUnreachable": "error",
+        "noConstantCondition": "error",
+        "noEmptyPattern": "error",
+        "noUnsafeOptionalChaining": "error",
+        "useValidForDirection": "error",
+        "useValidTypeof": "error",
+        "useExhaustiveDependencies": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedImports": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtmlWithChildren": "error"
+      },
+      "style": {
+        "useConst": "warn",
+        "useImportType": "warn",
+        "useTemplate": "warn"
+      },
+      "complexity": {
+        "useOptionalChain": "warn",
+        "noExcessiveCognitiveComplexity": "warn"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/client/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useAltText": "warn",
+            "useValidAriaProps": "warn",
+            "useValidAriaValues": "warn",
+            "useAriaPropsForRole": "warn",
+            "useButtonType": "warn",
+            "useValidAnchor": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
+}

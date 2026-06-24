@@ -162,6 +162,26 @@ export async function runAutomationNow(
   }
 }
 
+/** Stop a running automation run (abort its session + finalize the record). */
+export async function stopAutomationRun(
+  scope: AutomationScope,
+  cwd: string | undefined,
+  runId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${BASE}/stop`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope, runId, ...(cwd ? { cwd } : {}) }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    if (res.ok && json.ok) return { ok: true };
+    return { ok: false, error: json.error ?? `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function deleteAutomation(
   scope: AutomationScope,
   cwd: string | undefined,

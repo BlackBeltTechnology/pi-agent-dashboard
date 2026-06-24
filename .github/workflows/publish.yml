@@ -303,7 +303,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
             "@blackbelt-technology/pi-dashboard-goal-plugin"
             "@blackbelt-technology/pi-dashboard-automation-plugin"
-            "@blackbelt-technology/pi-image-fit"
+            "@blackbelt-technology/pi-image-fit-extension"
             "@blackbelt-technology/frontend-mockup-loop"
             "@blackbelt-technology/pi-dashboard-kb"
             "@blackbelt-technology/pi-dashboard-kb-extension"
