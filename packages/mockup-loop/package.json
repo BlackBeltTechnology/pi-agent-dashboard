@@ -35,10 +35,15 @@
   "files": [
     "src/",
     "!src/__tests__",
+    "presets-data/",
     ".pi/skills/",
     "references/",
     "README.md"
   ],
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "eslint-plugin-tailwindcss": "^3.17.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"

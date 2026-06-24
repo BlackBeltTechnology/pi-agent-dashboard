@@ -34,3 +34,6 @@ playwright-report/
 test-results/
 .playwright/
 doc-example/
+
+# kb knowledge base index
+/.pi/dashboard/kb/index.db

@@ -1,0 +1,30 @@
+{"type":"session","version":3,"id":"sess1","timestamp":"2026-06-20T10:00:00.000Z","cwd":"/repo"}
+{"type":"model_change","id":"m1","parentId":null,"timestamp":"2026-06-20T10:00:01.000Z","provider":"anthropic","modelId":"claude-opus-4-8"}
+{"type":"session_info","id":"si1","timestamp":"2026-06-20T10:00:02.000Z","name":"harvest-work"}
+{"type":"message","id":"u1","timestamp":"2026-06-20T10:00:03.000Z","message":{"role":"user","content":[{"type":"text","text":"Add the standalone jsonl reader to the package."}]}}
+{"type":"message","id":"a1","timestamp":"2026-06-20T10:00:04.000Z","message":{"role":"assistant","content":[{"type":"text","text":"I will add it."},{"type":"toolCall","id":"c1","name":"write","arguments":{"path":"reader.ts"}}]}}
+{"type":"message","id":"r1","timestamp":"2026-06-20T10:00:05.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"write","isError":false,"content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"a2","timestamp":"2026-06-20T10:00:06.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c2","name":"bash","arguments":{"command":"npm test"}}]}}
+{"type":"message","id":"r2","timestamp":"2026-06-20T10:00:07.000Z","message":{"role":"toolResult","toolCallId":"c2","toolName":"bash","isError":true,"content":[{"type":"text","text":"error: cannot find module"}]}}
+{"type":"message","id":"a3","timestamp":"2026-06-20T10:00:08.000Z","message":{"role":"assistant","content":[{"type":"thinking","text":"missing dep"},{"type":"toolCall","id":"c3","name":"bash","arguments":{"command":"npm test"}}]}}
+{"type":"message","id":"r3","timestamp":"2026-06-20T10:00:09.000Z","message":{"role":"toolResult","toolCallId":"c3","toolName":"bash","isError":false,"content":[{"type":"text","text":"tests pass"}]}}
+{"type":"message","id":"u2","timestamp":"2026-06-20T10:00:10.000Z","message":{"role":"user","content":[{"type":"text","text":"no, actually use the forks pool instead"}]}}
+{"type":"message","id":"a4","timestamp":"2026-06-20T10:00:11.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c4","name":"edit","arguments":{"path":"vitest.config.ts"}}]}}
+{"type":"message","id":"r4","timestamp":"2026-06-20T10:00:12.000Z","message":{"role":"toolResult","toolCallId":"c4","toolName":"edit","isError":false,"content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"u3","timestamp":"2026-06-20T10:00:13.000Z","message":{"role":"user","content":[{"type":"text","text":"Now build the trajectory segmenter."}]}}
+{"type":"message","id":"a5","timestamp":"2026-06-20T10:00:14.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c5","name":"ask_user","arguments":{"title":"Which boundary rule?"}}]}}
+{"type":"message","id":"r5","timestamp":"2026-06-20T10:00:15.000Z","message":{"role":"toolResult","toolCallId":"c5","toolName":"ask_user","isError":false,"content":[{"type":"text","text":"Use top-level user messages as boundaries"}]}}
+{ this is : not json ]
+{"type":"message","id":"u4","timestamp":"2026-06-20T10:00:16.000Z","message":{"role":"user","content":[{"type":"text","text":"Finally, add unit tests for everything."}]}}
+{"type":"message","id":"a6","timestamp":"2026-06-20T10:00:17.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c6","name":"read","arguments":{"path":"a"}}]}}
+{"type":"message","id":"r6","timestamp":"2026-06-20T10:00:18.000Z","message":{"role":"toolResult","toolCallId":"c6","toolName":"read","isError":false,"content":[{"type":"text","text":"x"}]}}
+{"type":"message","id":"a7","timestamp":"2026-06-20T10:00:19.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c7","name":"write","arguments":{"path":"b"}}]}}
+{"type":"message","id":"r7","timestamp":"2026-06-20T10:00:20.000Z","message":{"role":"toolResult","toolCallId":"c7","toolName":"write","isError":false,"content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"a8","timestamp":"2026-06-20T10:00:21.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c8","name":"write","arguments":{"path":"c"}}]}}
+{"type":"message","id":"r8","timestamp":"2026-06-20T10:00:22.000Z","message":{"role":"toolResult","toolCallId":"c8","toolName":"write","isError":false,"content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"a9","timestamp":"2026-06-20T10:00:23.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c9","name":"bash","arguments":{"command":"ls"}}]}}
+{"type":"message","id":"r9","timestamp":"2026-06-20T10:00:24.000Z","message":{"role":"toolResult","toolCallId":"c9","toolName":"bash","isError":false,"content":[{"type":"text","text":"ok"}]}}
+{"type":"message","id":"a10","timestamp":"2026-06-20T10:00:25.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c10","name":"bash","arguments":{"command":"npm test"}}]}}
+{"type":"message","id":"r10","timestamp":"2026-06-20T10:00:26.000Z","message":{"role":"toolResult","toolCallId":"c10","toolName":"bash","isError":false,"content":[{"type":"text","text":"tests pass"}]}}
+{"type":"message","id":"a11","timestamp":"2026-06-20T10:00:27.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c11","name":"bash","arguments":{"command":"git add -A"}}]}}
+{"type":"message","id":"r11","timestamp":"2026-06-20T10:00:28.000Z","message":{"role":"toolResult","toolCallId":"c11","toolName":"bash","isError":false,"content":[{"type":"text","text":"ok"}]}}

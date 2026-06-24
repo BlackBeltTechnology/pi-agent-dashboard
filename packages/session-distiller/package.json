@@ -1,0 +1,14 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-session-distiller",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Offline miner: distill reusable artifacts from pi session JSONL logs",
+  "type": "module",
+  "exports": {
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "distill-session-knowledge": "bin/distill.mjs"
+  }
+}

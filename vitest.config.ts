@@ -12,9 +12,11 @@ export default defineConfig({
   test: {
     projects: [
       "packages/shared",
+      "packages/session-distiller",
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",
+      "packages/mockup-loop",
       "packages/client",
       "packages/client-utils",
       "packages/dashboard-plugin-runtime",

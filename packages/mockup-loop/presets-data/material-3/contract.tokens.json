@@ -1,0 +1,34 @@
+{
+  "$description": "Material Design 3 system tokens normalized to DTCG. Source: M3 --md-sys-* baseline (light) color roles + 8dp spacing grid. Refresh: regenerate from the Material 3 baseline token set.",
+  "color": {
+    "primary": { "$type": "color", "$value": "#6750a4" },
+    "on-primary": { "$type": "color", "$value": "#ffffff" },
+    "primary-container": { "$type": "color", "$value": "#eaddff" },
+    "on-primary-container": { "$type": "color", "$value": "#21005d" },
+    "secondary": { "$type": "color", "$value": "#625b71" },
+    "on-secondary": { "$type": "color", "$value": "#ffffff" },
+    "tertiary": { "$type": "color", "$value": "#7d5260" },
+    "error": { "$type": "color", "$value": "#b3261e" },
+    "surface": { "$type": "color", "$value": "#fef7ff" },
+    "on-surface": { "$type": "color", "$value": "#1d1b20" },
+    "surface-variant": { "$type": "color", "$value": "#e7e0ec" },
+    "on-surface-variant": { "$type": "color", "$value": "#49454f" },
+    "outline": { "$type": "color", "$value": "#79747e" }
+  },
+  "shape": {
+    "corner-small": { "$type": "dimension", "$value": "8px" },
+    "corner-medium": { "$type": "dimension", "$value": "12px" },
+    "corner-large": { "$type": "dimension", "$value": "16px" }
+  },
+  "spacing": {
+    "1": { "$type": "dimension", "$value": "4px" },
+    "2": { "$type": "dimension", "$value": "8px" },
+    "3": { "$type": "dimension", "$value": "16px" },
+    "4": { "$type": "dimension", "$value": "24px" },
+    "5": { "$type": "dimension", "$value": "32px" },
+    "6": { "$type": "dimension", "$value": "48px" }
+  },
+  "sizing": {
+    "min-touch-target": { "$type": "dimension", "$value": "48px" }
+  }
+}

@@ -16,6 +16,7 @@
 | `.pi/skills/code-quality/SKILL.md` | code-quality skill. Biome analyze→fix→test. changed-files (goal-loop) + whole-repo (cleanup) modes. oracle `npm run quality:changed`. safe/unsafe fix policy. grandfather rough edge. See change: add-code-quality-skill. |
 | `.pi/skills/code-review/references/` | Language guides + architecture/performance/security review references |
 | `.pi/skills/code-review/SKILL.md` | Skill: comprehensive code review with severity labels |
+| `.pi/skills/distill-session-knowledge/SKILL.md` | Skill. Offline-mine pi session JSONL into verified reusable artifacts. Dry-run default. Routes to skill_manage / memory / docs+ctx_index. Wraps `packages/session-distiller` orchestrator. |
 | `.pi/skills/nano-banana-imagegen/references/` | Prompting guide, example prompts |
 | `.pi/skills/nano-banana-imagegen/SKILL.md` | Skill: AI image generation/editing via Google Gemini (nano-banana CLI) |
 | `.pi/skills/openspec-shared/scripts/effective-status.sh` | Bash wrapper around `openspec status --change <name> --json`; applies same R1/R2/R3 promotion as dashboard so OpenSpec workflow skills (`openspec-{continue,ff,apply,verify}-change`) + dashboard session-card buttons cannot disagree about change's next-ready artifact. Inlines rule logic via `find` + `grep -E`; `jq` for JSON mutation; falls back to raw CLI output if `jq` absent. **Repo-lint** `packages/shared/src/__tests__/no-raw-openspec-status-in-skills.test.ts` blocks raw `openspec status ... --json` calls in any of four governed skills (opt-out: `ban:openspec-status-ok`). Parity test: `packages/shared/src/__tests__/openspec-effective-status-script.test.ts`. See change: fix-openspec-design-detection. |
@@ -23,6 +24,20 @@
 | `.pi/skills/spec-coherence-check/references/proposal-queue-schema.md` | JSON schema for `.pi/proposal-queue.json` |
 | `.pi/skills/spec-coherence-check/SKILL.md` | Skill: sweep proposals for staleness, conflicts, obsolescence |
 | `biome.json` | Biome 2.5.1 config. formatter off. vcs defaultBranch develop. tier ladder (Tier A error, Tier B/C warn). a11y override client. test override noExplicitAny off. ignores css + dist + archive + fixtures. See change: add-code-quality-skill. |
+| `packages/session-distiller/bin/distill.mjs` | CLI launcher. Spawns `tsx` over `src/main.ts`. |
+| `packages/session-distiller/package.json` | Private workspace manifest. name `@blackbelt-technology/pi-dashboard-session-distiller`. bin `distill-session-knowledge`. `private=true`, not published. |
+| `packages/session-distiller/src/cluster.ts` | Cross-session cluster + recurrence gate. `mergeIntoStore`, `promote`, `loadStore`/`saveStore`. Promote when distinct sessionIds >= N (default 3). `candidates.json` store. |
+| `packages/session-distiller/src/distill.ts` | Distill artifact + confidence decay. `distill`, `computeConfidence`, `CONFIDENCE_FLOOR`. Provenance `{sessionIds, model, date, confidence}`. Decay by age/model-change; workarounds decay fastest. |
+| `packages/session-distiller/src/jsonl-reader.ts` | Standalone JSONL reader. `parseSessionText`, `readSession`, `sessionHeader`. Skips+counts malformed lines. |
+| `packages/session-distiller/src/main.ts` | Orchestrator. `run()`, `main()` CLI. Pipeline harvest→segment→extract→cluster→promote→distill→route. Dry-run default; `--apply` persists watermark+store. |
+| `packages/session-distiller/src/route.ts` | Dedup + route + dry-run plan. `buildRoutePlan`, `sinkFor`, `summarizePlan`. procedure→skill_manage; fault/correction→memory(failure); decision→memory(project); doc→docs. Rule correction flags +AGENTS.md patch. |
+| `packages/session-distiller/src/segment.ts` | Segment trajectory into task episodes. `segment`, `isCorrection`. Boundaries: fresh user task, name change, time gap. Correction lexicon excluded from boundaries. |
+| `packages/session-distiller/src/signals.ts` | Five signal detectors + verification gate. `detectFaults`/`detectDecisions`/`detectCorrections`/`detectProcedures`/`detectDocumentation`, `extractSignals`. Drops unverified non-doc candidates. |
+| `packages/session-distiller/src/trajectory.ts` | Normalize events to trajectory. `buildTrajectory`, `pairToolCalls`. Pairs `toolCall.id` to `toolResult.toolCallId`. |
+| `packages/session-distiller/src/types.ts` | Shared types. `RawEvent`, `Trajectory`, `Turn`, `ToolPair`, `Episode`, `Candidate` union (fault/decision/correction/procedure/documentation). |
+| `packages/session-distiller/src/watermark.ts` | Watermark + session listing. `readWatermark`/`writeWatermark`, `listNewerSessions`, `timestampFromName`, `sessionDirName`, `cwdHash`. State under `~/.pi/agent/distill-session-knowledge/<cwd-hash>/`. |
+| `packages/session-distiller/tsconfig.json` | Extends `tsconfig.base`. rootDir `src`. |
+| `packages/session-distiller/vitest.config.ts` | Vitest project config. node env, forks pool. Registered in root `vitest.config.ts` `test.projects`. |
 | `playwright.config.ts` | Playwright config, repo root. testDir `tests/e2e`, `use.baseURL` imports `BASE_URL` from lifecycle.ts (no literal :18000), single chromium project. globalSetup/globalTeardown = `tests/e2e/global-*.ts`. expect timeout 10s, globalTimeout 15min, retries CI?1:0, reporter list+html. Opt-in browser E2E; not in `npm test`. See change: add-playwright-e2e. See change: parallelize-test-harness. |
 | `public/manifest.json` | PWA web app manifest for installability |
 | `public/sw.js` | Minimal service worker for PWA installability. Passes `/api/*` requests through to network (returns without `respondWith`); only non-`/api/` requests get synthetic `503 "Offline"` fallback. See change: fix-openspec-profile-load-race. |
