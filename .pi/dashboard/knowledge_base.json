@@ -1,0 +1,86 @@
+{
+  "sources": [
+    {
+      "kind": "filesystem",
+      "ref": "docs"
+    },
+    {
+      "kind": "filesystem",
+      "ref": "openspec"
+    },
+    {
+      "kind": "filesystem",
+      "ref": "packages"
+    },
+    {
+      "kind": "filesystem",
+      "ref": ".pi"
+    }
+  ],
+  "sourceCacheDir": "~/.pi/dashboard/kb/sources",
+  "include": [
+    "**/*.md"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/.worktrees/**",
+    "**/archive/**"
+  ],
+  "extensions": [
+    ".md"
+  ],
+  "maxFileCount": null,
+  "maxDepth": null,
+  "respectGitignore": true,
+  "tokenizer": "porter unicode61",
+  "trigram": false,
+  "indexAgentsFiles": true,
+  "includeSourceMarkdown": true,
+  "chunking": {
+    "minHeadingsForStructural": 1,
+    "minChunkChars": 120,
+    "maxChunkChars": 4000,
+    "breadcrumbInBody": true
+  },
+  "dedup": {
+    "exactContentCollapse": true,
+    "preferHigherPriorityRoot": true
+  },
+  "graph": {
+    "wikilinks": true,
+    "headingTree": true,
+    "frontmatter": true
+  },
+  "directoryLevelAgents": {
+    "enabled": false,
+    "claudeMd": true,
+    "mode": "pull",
+    "fallbackManifest": true
+  },
+  "doxEnforcement": false,
+  "ranking": {
+    "fieldWeights": {
+      "headingPath": 10,
+      "heading": 3,
+      "body": 1
+    },
+    "proximityBoost": true,
+    "diversity": {
+      "enabled": true,
+      "lambda": 0.7
+    }
+  },
+  "expand": {
+    "parent": true,
+    "graph": false
+  },
+  "rerank": {
+    "enabled": false,
+    "model": "ms-marco-MiniLM-L-6-v2",
+    "candidateK": 50
+  },
+  "queryExpansion": {
+    "mode": "off"
+  },
+  "dbPath": ".pi/dashboard/kb/index.db"
+}

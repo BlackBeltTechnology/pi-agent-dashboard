@@ -55,7 +55,10 @@ export default function kbExtension(pi: ExtensionAPI): void {
     description:
       "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. Returns {path, headingPath, score, snippet, akaPaths, parent}.",
     promptSnippet: "Search the local markdown KB for ranked sections",
-    promptGuidelines: ["Use kb_search before answering project-specific factual questions from memory."],
+    promptGuidelines: [
+      "Call kb_search FIRST for any project-specific factual / 'where is X' / 'how does Y work' question — before ctx_search, memory_search, grep, or reading source.",
+      "kb_search indexes repo markdown (docs/, openspec/, packages/, .pi/). ctx_search/memory_search index session memory, not docs — different corpus. Fall through to grep/source only when kb_search returns nothing relevant.",
+    ],
     parameters: Type.Object({
       query: Type.String({ description: "Entities / terms / error strings to search" }),
       limit: Type.Optional(Type.Number({ default: 10 })),

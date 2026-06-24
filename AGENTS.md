@@ -7,6 +7,10 @@ Web-based dashboard for monitoring and interacting with pi agent sessions remote
 
 ## STOP — Docs-First Gate
 
+**For any project-specific factual / "where is X" / "how does Y work" question: call `kb_search` FIRST — before `ctx_search`, `memory_search`, `grep`, or any source read.** `kb_search` indexes the repo markdown (`docs/`, `openspec/`, `packages/`, `.pi/`). It is the fastest correct map of this codebase. Fall through to grep/source only when `kb_search` returns nothing relevant. (`ctx_search` = session capture, not repo docs; different corpus.)
+
+> **"What files relate to X" / per-file lookups:** do NOT rely on `kb_search` ranking — the `file-index-<area>.md` rows are huge dense single-line table rows that BM25 buries under tighter spec chunks. Instead `kb get docs/file-index-<area>.md` (pick the area split from `docs/file-index.md`) and read the rows directly, or delegate the harvest to an `Explore` subagent per the Investigation Protocol.
+
 **Before any build / run / install / setup / release / "how do I X" question: `grep -i <keyword> docs/faq.md README.md docs/` FIRST. No source reads until that returns nothing.**
 
 If you read a script, config, or source file before grepping docs on a how-to, what-is question, you violated the protocol. Re-grep, then answer.
@@ -222,6 +226,8 @@ make clean              # Destroy all cloned VMs
 **Before reading source, consult `docs/file-index.md` and the relevant `docs/file-index-<area>.md` split.** The index is the cheapest map of the codebase — every architecturally significant file has a one-line purpose plus change-history pointers. Reading source blind wastes tokens and risks hallucination.
 
 **For "how do I X" / build / run / setup questions: grep `README.md` + `docs/` first.** These already document every supported workflow (build, install, release, QA, troubleshooting). Reading source before checking docs wastes tokens and produces wrong answers (e.g. claiming a feature is missing when it ships). Check `docs/faq.md` for recurring questions.
+
+**Search order: `kb_search` first** (indexes `docs/ openspec/ packages/ .pi/` — FTS5+BM25 over repo markdown), then the steps below if it misses. Prefer `kb_search` over `ctx_search`/`memory_search` for repo-fact lookups; those index session memory, not documents.
 
 Workflow for any non-trivial "where is X" / "how does Y work" question:
 
