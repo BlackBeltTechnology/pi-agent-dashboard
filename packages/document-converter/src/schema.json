@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://blackbelt.technology/pi-dashboard/document-frontmatter.schema.json",
+  "title": "Unified document frontmatter",
+  "description": "Shared bus contract read/written by frontmatter-filler, markdown-table-profiler, document_converter, ingest, and kb. Mirrors src/schema.ts; keep both in sync.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "template": { "type": "string" },
+    "document_id": { "type": "string" },
+    "document_type": { "type": "string" },
+    "document_title": { "type": "string" },
+    "document_name": { "type": "string" },
+    "project_name": { "type": "string" },
+    "project_description": { "type": "string" },
+    "author": { "type": "string" },
+    "client_name": { "type": "string" },
+    "company_info": { "type": "string" },
+    "contact_info": { "type": "string" },
+    "version": { "type": "string" },
+    "language": { "type": "string", "description": "Canonical language code (en, hu, de, ...)." },
+    "toc_heading": { "type": "string" },
+    "enable_cover_page": { "type": "boolean" },
+    "enable_toc": { "type": "boolean" },
+    "logos": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "diagram_format": { "type": "string", "enum": ["png", "svg"] },
+    "diagram_width": { "type": "number" },
+    "diagram_scale": { "type": "number" },
+    "nano_banana": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "style": { "type": "string", "description": "Named style from nano-banana-styles.yaml." }
+      },
+      "additionalProperties": false
+    },
+    "table_profiles": {
+      "type": "object",
+      "description": "profile-id (tbl_<hash>_<lang>) -> { columns, widths }.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["columns", "widths"],
+        "properties": {
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "widths": { "type": "array", "items": { "type": "number" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Ingest-written origin record; kb traces chunks back via this.",
+      "required": ["source_path", "sha256", "doc_type", "converted_at"],
+      "properties": {
+        "source_path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "doc_type": { "type": "string", "enum": ["pdf", "docx", "pptx", "xlsx", "md"] },
+        "converted_at": { "type": "string", "format": "date-time" },
+        "page": { "type": "number" },
+        "slide": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

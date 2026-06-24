@@ -18,6 +18,7 @@ Per-area maps of every architecturally significant file in pi-agent-dashboard. L
 | Docker packaging | [`file-index-docker.md`](./file-index-docker.md) | `docker/` |
 | Dashboard plugins | [`file-index-plugins.md`](./file-index-plugins.md) | `packages/dashboard-plugin-runtime/`, `packages/{jj,flows,demo}-plugin/` |
 | Knowledge base | [`file-index-kb.md`](./file-index-kb.md) | `packages/kb/`, `packages/kb-extension/` |
+| Document converter | [`file-index-document-converter.md`](./file-index-document-converter.md) | `packages/document-converter/` (TS facade + vendored Python engine + pi-doc-engine Docker image) |
 | Skills, scripts, CI | [`file-index-skills-misc.md`](./file-index-skills-misc.md) | `.pi/skills/`, `scripts/`, `public/`, `.github/`, `packages/session-distiller/`, misc |
 
 ## Standalone topic docs

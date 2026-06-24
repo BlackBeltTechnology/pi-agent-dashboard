@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     projects: [
       "packages/shared",
+      "packages/document-converter",
       "packages/session-distiller",
       "packages/server",
       "packages/extension",

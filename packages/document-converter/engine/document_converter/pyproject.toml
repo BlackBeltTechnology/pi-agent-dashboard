@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "document-converter"
+version = "0.6.0"
+description = "Convert Markdown files with Mermaid diagrams to DOCX format with professional styling"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["markdown", "docx", "mermaid", "document-conversion", "documentation", "pandoc"]
+authors = [
+    {name = "Test Automation Team", email = "team@example.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Documentation",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Utilities",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "pypandoc>=1.11",         # Markdown to DOCX conversion with better formatting
+    "python-docx>=1.0.0",     # DOCX manipulation for templates
+    "Pillow>=10.0.0",         # Image handling (for Mermaid diagrams)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "build>=0.10.0",
+    "twine>=4.0.0",
+]
+all = [
+    "pypandoc>=1.11",
+    "python-docx>=1.0.0",
+    "Pillow>=10.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/document-converter"
+Documentation = "https://github.com/yourusername/document-converter/blob/main/README.md"
+Repository = "https://github.com/yourusername/document-converter"
+Issues = "https://github.com/yourusername/document-converter/issues"
+Changelog = "https://github.com/yourusername/document-converter/blob/main/CHANGELOG.md"
+
+[project.scripts]
+document-converter = "document_converter.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --cov=document_converter --cov-report=term-missing"
+
+[tool.hatch.version]
+path = "src/document_converter/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/document_converter"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+]

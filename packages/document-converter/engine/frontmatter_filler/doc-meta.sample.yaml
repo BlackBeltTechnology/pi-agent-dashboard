@@ -1,0 +1,106 @@
+# Sample frontmatter-filler config.
+# Place as `.doc-meta.yaml` or `.agents/doc-meta.yaml` at the project root.
+# The script walks up from each source file to find the nearest config.
+
+# -----------------------------------------------------------------------------
+# DEFAULTS — applied to every markdown file in scope.
+# -----------------------------------------------------------------------------
+defaults:
+  # Document-conversion template-selection keys
+  template: default
+  enable_cover_page: true
+  enable_toc: true
+
+  # Logos block — paths are resolved RELATIVE TO THIS CONFIG FILE,
+  # then rewritten per-file to a relative path reaching that location.
+  logos:
+    company: images/thefence-logo.png
+
+  # Identity / branding
+  client_name: "XS Matrix Security Solutions Ltd. (TheFence™)"
+  company_info: "BlackBelt Technology Zrt"
+  contact_info: "Contact: robert.csakany@blackbelt.hu"
+  author: "Robert Csakany (robert.csakany@blackbelt.hu)"
+
+  # Defaults for every doc unless overridden
+  version: "Draft"
+
+  # Diagram render settings consumed by document-conversion
+  diagram_format: png
+  diagram_width: 1200
+  diagram_scale: 2
+
+# -----------------------------------------------------------------------------
+# LANGUAGE PACKS — detected from filename (*.hu.md, *.en.md) or --language.
+# Higher priority than `defaults`. Override any key declared in defaults.
+# -----------------------------------------------------------------------------
+languages:
+  en:
+    toc_heading: "Table of Contents"
+    document_type: "TECHNICAL SPECIFICATION"
+  hu:
+    toc_heading: "Tartalomjegyzék"
+    document_type: "MŰSZAKI SPECIFIKÁCIÓ"
+  de:
+    toc_heading: "Inhaltsverzeichnis"
+    document_type: "TECHNISCHE SPEZIFIKATION"
+  fr:
+    toc_heading: "Table des matières"
+    document_type: "SPÉCIFICATION TECHNIQUE"
+
+# -----------------------------------------------------------------------------
+# FILE-LEVEL OVERRIDES — fnmatch-style glob, relative to THIS config file.
+# Every matching entry is merged (later declarations win on conflicts).
+# -----------------------------------------------------------------------------
+files:
+  "spec/DAPP-specifikacio-v1.0*.md":
+    document_id: DAPP-SPEC
+    version: "Version 1.0"
+    project_name: "DAPP — Functional & Architectural Specification"
+    project_description: "Consolidated v1.0 handover document"
+
+  "spec/DAPP-domain-architecture-v0.2*.md":
+    document_id: DAPP-ARC
+    version: "Version 0.2"
+    project_name: "DAPP — Domain Architecture"
+    project_description: "JUDO-aligned architecture blueprint (v0.2)"
+
+  "spec/DAPP-model-spec-v0.1*.md":
+    document_id: DAPP-MOD
+    version: "Version 0.1"
+    project_name: "DAPP — ESM Model Specification"
+    project_description: "JUDO ESM YAML model (v0.1)"
+
+  "spec/DAPP-operations-spec-v0.1*.md":
+    document_id: DAPP-OPS
+    version: "Version 0.1"
+    project_name: "DAPP — Custom Operations Specification"
+    project_description: "Custom Java operations contracts (v0.1)"
+
+  "spec/DAPP-extractor-lifecycle-v0.1*.md":
+    document_id: DAPP-EXT
+    version: "Version 0.1"
+    project_name: "DAPP — Extractor Image Lifecycle"
+    project_description: "Extractor container images & Docker management (v0.1)"
+
+  "spec/DAPP-connector-lifecycle-v0.1*.md":
+    document_id: DAPP-CON
+    version: "Version 0.1"
+    project_name: "DAPP — Connector Image Lifecycle"
+    project_description: "Inbound & outbound connector container images (v0.1)"
+
+  "spec/DAPP-ui-spec-v0.1*.md":
+    document_id: DAPP-UI
+    version: "Version 0.1"
+    project_name: "DAPP — UI Specification"
+    project_description: "JUDO-native UI screen mapping (v0.1)"
+
+  "spec/notes/JUDO-capabilities-for-DAPP*.md":
+    document_id: DAPP-JUDO
+    version: "Version 0.1"
+    project_name: "DAPP — JUDO Capability Cheat-sheet"
+    project_description: "Platform capabilities & constraints feeding the DAPP spec"
+    # Override document_type per language for a "NOTE" feel
+    document_type_override:
+      en: "TECHNICAL NOTE"
+      hu: "MŰSZAKI JEGYZET"

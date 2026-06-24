@@ -1,0 +1,59 @@
+# Nano-banana Mermaid render styles (document-conversion skill)
+#
+# Named visual styles for rendering Mermaid diagrams as nano-banana (Gemini)
+# images instead of mmdc. Reference one from a Markdown file's frontmatter:
+#
+#   nano_banana:
+#     enabled: true
+#     style: ros-3d      # name below, or omit to use `default`
+#
+# `style` may also be an inline prompt string instead of a name.
+#
+# Each style provides:
+#   description : human note (ignored by the renderer)
+#   prompt      : positive STYLE BLOCK appended after the diagram description
+#   negative    : NEGATIVE list (what to avoid)
+#   model       : default nano-banana model for this style
+#   background  : white | transparent (white embeds cleanly in DOCX/PDF pages)
+#   width       : generation hint passed to the model prompt
+
+default: ros-3d
+
+styles:
+  # ROS / Zenit pptx look — photorealistic 3D glossy blocks.
+  # Adapted from Projektek/Zenit/IKEA/Brand_Palette_Style.md §4.7
+  # (white background variant for document embedding).
+  ros-3d:
+    description: "ROS pptx 3D diagram blocks (navy/steel/orange glossy cuboids)"
+    model: gemini-3-pro-image
+    background: white
+    width: 1600
+    prompt: |
+      STYLE: photorealistic 3D render of glossy rounded blocks / cuboids with soft
+      realistic shadows, depth and cinematic studio lighting, modern enterprise look.
+      Blocks in deep navy #1F3A5F, steel-blue #4472C4 and orange #F47A20 with subtle
+      reflective tops and bevelled edges; connector arrows as sleek glossy 3D tubes;
+      small glossy orange numbered spheres for sequence steps. Crisp, perfectly
+      legible white or navy sans-serif labels spelled EXACTLY as written in the
+      diagram source, with correct accents. Clean flat WHITE (#FFFFFF) background,
+      objects evenly lit and well spaced. Wide composition with generous margins.
+    negative: |
+      no flat vector, no 2D, no cartoon, no neon, no watermark, no logo, no extra
+      or duplicated or garbled text, no misspellings, no checkerboard, no clutter.
+
+  # Clean flat-design alternative.
+  flat:
+    description: "Clean flat enterprise diagram (no 3D)"
+    model: gemini-3-pro-image
+    background: white
+    width: 1600
+    prompt: |
+      STYLE: clean modern flat-design diagram, rounded rectangle nodes with thin
+      borders, soft drop shadows, a restrained enterprise palette of navy #1F3A5F,
+      steel-blue #4472C4 and a single orange #F47A20 accent on a flat WHITE
+      background. Thin straight connector arrows. Crisp, perfectly legible
+      sans-serif labels spelled EXACTLY as written in the diagram source. Balanced
+      layout with generous whitespace.
+    negative: |
+      no 3D render, no photorealism, no gradients-heavy look, no neon, no watermark,
+      no logo, no extra or garbled text, no misspellings, no clutter.
