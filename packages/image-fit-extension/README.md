@@ -1,4 +1,4 @@
-# @blackbelt-technology/pi-image-fit
+# @blackbelt-technology/pi-image-fit-extension
 
 Pi extension that resizes oversize images at Read-time so they fit model
 byte and pixel ceilings.
@@ -24,7 +24,7 @@ pi target.
 ## Install
 
 ```bash
-pi install @blackbelt-technology/pi-image-fit
+pi install @blackbelt-technology/pi-image-fit-extension
 ```
 
 The next pi session loads the extension. No dashboard or other workspace

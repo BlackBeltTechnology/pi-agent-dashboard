@@ -694,7 +694,7 @@ Per-package npm setup (6 packages; `@blackbelt-technology/pi-dashboard-electron`
 - `@blackbelt-technology/pi-dashboard-extension`
 - `@blackbelt-technology/pi-dashboard-server`
 - `@blackbelt-technology/pi-dashboard-web`
-- `@blackbelt-technology/pi-image-fit`
+- `@blackbelt-technology/pi-image-fit-extension`
 
 Steps per package: npmjs.com → package → Settings → Trusted Publisher → GitHub Actions. Fields:
 - Organization: `BlackBeltTechnology`

@@ -208,8 +208,8 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		dashboardPlugin: "honcho",
 	},
 	{
-		id: "@blackbelt-technology/pi-image-fit",
-		source: "npm:@blackbelt-technology/pi-image-fit",
+		id: "@blackbelt-technology/pi-image-fit-extension",
+		source: "npm:@blackbelt-technology/pi-image-fit-extension",
 		displayName: "pi-image-fit",
 		fallbackDescription:
 			"Transparently downsizes oversize images before they reach the " +

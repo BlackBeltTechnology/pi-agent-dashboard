@@ -15,7 +15,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
-				"@blackbelt-technology/pi-image-fit",
+				"@blackbelt-technology/pi-image-fit-extension",
 				"pi-flows",
 				"pi-memory-honcho",
 				"pi-web-access",
@@ -90,7 +90,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"pi-memory-honcho",
 				"pi-web-access",
 				"@blackbelt-technology/pi-dashboard-subagents",
-				"@blackbelt-technology/pi-image-fit",
+				"@blackbelt-technology/pi-image-fit-extension",
 			].sort(),
 		);
 	});
@@ -138,7 +138,7 @@ describe("getRecommendedByStatus", () => {
 			[
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
-				"@blackbelt-technology/pi-image-fit",
+				"@blackbelt-technology/pi-image-fit-extension",
 				"pi-memory-honcho",
 			].sort(),
 		);

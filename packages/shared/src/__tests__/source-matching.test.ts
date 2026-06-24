@@ -161,7 +161,7 @@ describe("sourcesMatch", () => {
 		expect(
 			sourcesMatch(
 				"https://github.com/BlackBeltTechnology/pi-anthropic-messages.git",
-				"npm:@blackbelt-technology/pi-image-fit",
+				"npm:@blackbelt-technology/pi-image-fit-extension",
 			),
 		).toBe(false);
 	});
