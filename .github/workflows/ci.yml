@@ -24,5 +24,7 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+      - name: Biome static analysis (soft warn)
+        run: npx biome lint . --reporter=github
       - run: npm test
       - run: npm run build

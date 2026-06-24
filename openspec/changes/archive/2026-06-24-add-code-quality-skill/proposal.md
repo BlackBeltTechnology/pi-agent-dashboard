@@ -37,7 +37,8 @@ Two facts shape the design:
 - **New Biome config** (`biome.json`) — `formatter.enabled: false` initially
   (avoid reformatting 1712 files), `indentStyle: "space"` for when it is enabled,
   `vcs` integration (`clientKind: git`, `useIgnoreFile: true`,
-  `defaultBranch: "main"`), ignores for `dist/`, `**/dist/`, `*.tsbuildinfo`,
+  `defaultBranch: "develop"` — the repo's integration branch; no `main` exists),
+  ignores for `dist/`, `**/dist/`, `*.tsbuildinfo`,
   generated plugin-registry output, and `openspec/changes/archive/**`. Rules
   organized into a **tier ladder** (see design.md): Tier A high-signal rules,
   Tier B noisy-but-valuable rules, Tier C style/complexity, plus a11y scoped to
@@ -45,7 +46,7 @@ Two facts shape the design:
 
 - **New npm scripts** (`package.json`):
   - `lint:biome` → `biome lint .` (whole-repo analyze)
-  - `fix:changed` → `biome check --changed --write` (safe autofix on diff vs main)
+  - `fix:changed` → `biome check --changed --write` (safe autofix on diff vs develop)
   - `quality:changed` → `biome check --changed --error-on-warnings --write && tsc --noEmit && npm test` — **the goal-loop oracle** (single exit code)
   - `quality:report` → `biome lint . --reporter=github` (whole-repo, advisory)
   - `lint` stays `tsc --noEmit` (CI already depends on it).
@@ -79,7 +80,7 @@ Two facts shape the design:
 - Enabling the Biome **formatter** repo-wide (deferred to avoid a 1712-file diff).
 - A **count-ratchet** baseline script for un-zeroable rules (e.g. `noExplicitAny`)
   — added later only if a warn-tier rule proves un-zeroable.
-- A custom git-diff script — native `--changed` covers the branch-vs-main case;
+- A custom git-diff script — native `--changed` covers the branch-vs-develop case;
   the script is a documented fallback only if merge-base or line-level filtering
   is needed.
 - Replacing `tsc --noEmit` as the type gate — kept as-is.

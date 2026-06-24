@@ -56,6 +56,10 @@
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
     "lint": "tsc --noEmit",
+    "lint:biome": "biome lint .",
+    "fix:changed": "biome check --changed --write",
+    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm test",
+    "quality:report": "biome lint . --reporter=github",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",
     "link:local": "npm link --workspace=@blackbelt-technology/pi-dashboard-server",
@@ -87,6 +91,7 @@
     "appdmg": "^0.6.6"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.1",
     "@earendil-works/pi-ai": "^0.75.5",
     "@playwright/test": "^1.57.0",
     "jsdom": "^29.0.2",
