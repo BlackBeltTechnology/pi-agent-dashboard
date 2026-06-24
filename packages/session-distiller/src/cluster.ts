@@ -18,6 +18,14 @@ export interface HeldCluster {
   signal: SignalClass;
   sessionIds: string[]; // distinct, accumulated across runs
   sample: Candidate; // a representative candidate for distillation
+  /** newest session timestamp (ISO) in which this cluster was seen; drives recency */
+  lastSeen: string;
+}
+
+function maxIso(a: string, b: string | undefined): string {
+  if (!b) return a;
+  if (!a) return b;
+  return Date.parse(b) > Date.parse(a) ? b : a;
 }
 
 export type CandidateStore = Record<string, HeldCluster>;
@@ -45,21 +53,32 @@ export function saveStore(path: string, store: CandidateStore): void {
   writeFileSync(path, JSON.stringify(store, null, 2));
 }
 
-/** Merge a run's candidates into the store, unioning distinct sessionIds. */
-export function mergeIntoStore(store: CandidateStore, candidates: Candidate[]): CandidateStore {
+/**
+ * Merge a run's candidates into the store, unioning distinct sessionIds and
+ * tracking per-cluster recency. `timestamps` maps sessionId -> session ISO time
+ * so each cluster carries its OWN newest sighting (not a run-global max).
+ */
+export function mergeIntoStore(
+  store: CandidateStore,
+  candidates: Candidate[],
+  timestamps?: Map<string, string>,
+): CandidateStore {
   const next: CandidateStore = { ...store };
   for (const c of candidates) {
+    const ts = timestamps?.get(c.sessionId);
     const held = next[c.signature];
     if (held) {
-      if (!held.sessionIds.includes(c.sessionId)) {
-        next[c.signature] = { ...held, sessionIds: [...held.sessionIds, c.sessionId] };
-      }
+      const sessionIds = held.sessionIds.includes(c.sessionId)
+        ? held.sessionIds
+        : [...held.sessionIds, c.sessionId];
+      next[c.signature] = { ...held, sessionIds, lastSeen: maxIso(held.lastSeen, ts) };
     } else {
       next[c.signature] = {
         signature: c.signature,
         signal: c.signal,
         sessionIds: [c.sessionId],
         sample: c,
+        lastSeen: ts ?? "",
       };
     }
   }

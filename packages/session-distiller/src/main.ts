@@ -58,6 +58,7 @@ export function run(opts: RunOptions): RunResult {
   const refs = listNewerSessions(opts.cwd, wm.lastTimestamp, dir);
 
   const candidates: Candidate[] = [];
+  const timestamps = new Map<string, string>(); // sessionId -> session ISO time
   let malformed = 0;
   let maxTs = wm.lastTimestamp;
 
@@ -66,6 +67,7 @@ export function run(opts: RunOptions): RunResult {
     malformed += m;
     const traj = buildTrajectory(events);
     const episodes = segment(traj);
+    timestamps.set(traj.sessionId, ref.timestamp);
     candidates.push(...extractSignals(traj, episodes));
     if (Date.parse(ref.timestamp) > Date.parse(maxTs || "1970-01-01")) {
       maxTs = ref.timestamp;
@@ -73,12 +75,15 @@ export function run(opts: RunOptions): RunResult {
   }
 
   const storePath = candidatesPath(opts.cwd, root);
-  const merged = mergeIntoStore(loadStore(storePath), candidates);
+  const merged = mergeIntoStore(loadStore(storePath), candidates, timestamps);
   const { promoted, remaining } = promote(merged, n);
 
   const clustersBySignature = new Map(promoted.map((c) => [c.signature, c]));
-  const lastSeen = maxTs ? new Date(maxTs) : now;
-  const artifacts = promoted.map((c) => distill(c, { n, now, lastSeen }));
+  // Per-cluster recency: each artifact decays from ITS OWN newest sighting,
+  // not a run-global max (avoids a recent unrelated session refreshing a stale cluster).
+  const artifacts = promoted.map((c) =>
+    distill(c, { n, now, lastSeen: c.lastSeen ? new Date(c.lastSeen) : now }),
+  );
   const plan = buildRoutePlan(artifacts, {
     dryRun: !opts.apply,
     clustersBySignature,

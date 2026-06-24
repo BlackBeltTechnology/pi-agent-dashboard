@@ -37,6 +37,12 @@ describe("jsonl-reader (task 2.1)", () => {
     expect(malformed).toBe(1);
   });
 
+  it("counts parseable-but-shapeless JSON as malformed", () => {
+    const { events, malformed } = parseSessionText('{"type":"ok"}\n42\n{"foo":1}\n');
+    expect(events.map((e) => e.type)).toEqual(["ok"]);
+    expect(malformed).toBe(2); // 42 and {foo:1} lack a string `type`
+  });
+
   it("returns empty result for a missing file", () => {
     expect(readSession("/nonexistent/x.jsonl")).toEqual({ events: [], malformed: 0 });
   });

@@ -6,6 +6,7 @@ const cluster: HeldCluster = {
   signature: "fault:bash:enoent",
   signal: "fault",
   sessionIds: ["s1", "s2", "s3"],
+  lastSeen: "",
   sample: {
     signal: "fault",
     sessionId: "s1",

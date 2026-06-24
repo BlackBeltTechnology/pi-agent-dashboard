@@ -25,6 +25,18 @@ describe("clustering + recurrence gate (tasks 4.1, 4.2)", () => {
     expect(store["fault:bash:enoent"].sessionIds).toEqual(["s1", "s2"]);
   });
 
+  it("tracks per-cluster recency (lastSeen) from session timestamps", () => {
+    const ts = new Map([
+      ["s1", "2026-06-20T10:00:00.000Z"],
+      ["s2", "2026-06-22T10:00:00.000Z"],
+    ]);
+    let store: CandidateStore = {};
+    store = mergeIntoStore(store, [fault("s1")], ts);
+    store = mergeIntoStore(store, [fault("s2")], ts);
+    // newest sighting wins, regardless of merge order
+    expect(store["fault:bash:enoent"].lastSeen).toBe("2026-06-22T10:00:00.000Z");
+  });
+
   it("does not double-count the same session", () => {
     let store: CandidateStore = {};
     store = mergeIntoStore(store, [fault("s1"), fault("s1")]);

@@ -69,6 +69,11 @@ export function listNewerSessions(
 ): SessionFileRef[] {
   if (!existsSync(dir)) return [];
   const sinceMs = since ? Date.parse(since) : -Infinity;
+  if (since && Number.isNaN(sinceMs)) {
+    // A malformed watermark would make every `> sinceMs` false and silently
+    // process 0 sessions. Fail loud so the watermark can be repaired.
+    throw new Error(`Invalid watermark timestamp: ${since}`);
+  }
   const refs: SessionFileRef[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".jsonl")) continue;

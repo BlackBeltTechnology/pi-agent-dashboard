@@ -9,6 +9,7 @@ function cluster(signal: SignalClass, signature: string, extra: Record<string, u
     signature,
     signal,
     sessionIds: ["s1", "s2", "s3"],
+    lastSeen: "",
     sample: { signal, sessionId: "s1", signature, verified: true, ...extra } as never,
   };
 }

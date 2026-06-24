@@ -6,6 +6,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import type { RawEvent, ReadResult } from "./types.js";
 
+/** A parsed line is a usable event only if it is an object with a string `type`. */
+function isRawEvent(o: unknown): o is RawEvent {
+  return !!o && typeof o === "object" && typeof (o as { type?: unknown }).type === "string";
+}
+
 /** Parse JSONL text into ordered events + a malformed-line count. */
 export function parseSessionText(content: string): ReadResult {
   const events: RawEvent[] = [];
@@ -14,7 +19,9 @@ export function parseSessionText(content: string): ReadResult {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      events.push(JSON.parse(trimmed) as RawEvent);
+      const obj: unknown = JSON.parse(trimmed);
+      if (isRawEvent(obj)) events.push(obj);
+      else malformed++; // parseable JSON but not a valid event shape
     } catch {
       malformed++;
     }
