@@ -1,0 +1,32 @@
+{
+  "$description": "Material UI (MUI) default light theme normalized to DTCG. Source: @mui/material createTheme() defaults. Refresh: regenerate from the MUI default theme object (palette, spacing unit 8, shape.borderRadius 4).",
+  "color": {
+    "primary-main": { "$type": "color", "$value": "#1976d2" },
+    "primary-contrast": { "$type": "color", "$value": "#ffffff" },
+    "secondary-main": { "$type": "color", "$value": "#9c27b0" },
+    "error-main": { "$type": "color", "$value": "#d32f2f" },
+    "warning-main": { "$type": "color", "$value": "#ed6c02" },
+    "info-main": { "$type": "color", "$value": "#0288d1" },
+    "success-main": { "$type": "color", "$value": "#2e7d32" },
+    "text-primary": { "$type": "color", "$value": "rgba(0, 0, 0, 0.87)" },
+    "text-secondary": { "$type": "color", "$value": "rgba(0, 0, 0, 0.6)" },
+    "background-default": { "$type": "color", "$value": "#ffffff" },
+    "background-paper": { "$type": "color", "$value": "#ffffff" },
+    "divider": { "$type": "color", "$value": "rgba(0, 0, 0, 0.12)" }
+  },
+  "shape": {
+    "border-radius": { "$type": "dimension", "$value": "4px" }
+  },
+  "spacing": {
+    "unit": { "$type": "dimension", "$value": "8px" },
+    "1": { "$type": "dimension", "$value": "8px" },
+    "2": { "$type": "dimension", "$value": "16px" },
+    "3": { "$type": "dimension", "$value": "24px" },
+    "4": { "$type": "dimension", "$value": "32px" },
+    "5": { "$type": "dimension", "$value": "40px" },
+    "6": { "$type": "dimension", "$value": "48px" }
+  },
+  "typography": {
+    "font-family": { "$type": "fontFamily", "$value": "\"Roboto\", \"Helvetica\", \"Arial\", sans-serif" }
+  }
+}

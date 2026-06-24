@@ -1,0 +1,31 @@
+{
+  "$description": "Fluent 2 (Fluent UI) web light theme normalized to DTCG. Source: @fluentui/tokens webLightTheme (global + alias tokens). Refresh: regenerate from @fluentui/tokens.",
+  "color": {
+    "brand-background": { "$type": "color", "$value": "#0f6cbd" },
+    "brand-background-hover": { "$type": "color", "$value": "#115ea3" },
+    "neutral-foreground-1": { "$type": "color", "$value": "#242424" },
+    "neutral-foreground-2": { "$type": "color", "$value": "#424242" },
+    "neutral-background-1": { "$type": "color", "$value": "#ffffff" },
+    "neutral-background-2": { "$type": "color", "$value": "#fafafa" },
+    "neutral-stroke-1": { "$type": "color", "$value": "#d1d1d1" },
+    "status-danger-background": { "$type": "color", "$value": "#c50f1f" },
+    "status-success-background": { "$type": "color", "$value": "#0e700e" }
+  },
+  "borderRadius": {
+    "small": { "$type": "dimension", "$value": "2px" },
+    "medium": { "$type": "dimension", "$value": "4px" },
+    "large": { "$type": "dimension", "$value": "6px" },
+    "xlarge": { "$type": "dimension", "$value": "8px" }
+  },
+  "spacing": {
+    "xs": { "$type": "dimension", "$value": "4px" },
+    "s": { "$type": "dimension", "$value": "8px" },
+    "m": { "$type": "dimension", "$value": "12px" },
+    "l": { "$type": "dimension", "$value": "16px" },
+    "xl": { "$type": "dimension", "$value": "20px" },
+    "xxl": { "$type": "dimension", "$value": "24px" }
+  },
+  "typography": {
+    "font-family-base": { "$type": "fontFamily", "$value": "\"Segoe UI\", \"Segoe UI Web (West European)\", -apple-system, sans-serif" }
+  }
+}

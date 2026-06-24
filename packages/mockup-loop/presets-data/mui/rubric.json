@@ -1,0 +1,13 @@
+{
+  "system": "mui",
+  "label": "Material UI boolean rubric",
+  "checks": [
+    { "id": "palette", "text": "Colors come from the MUI palette (primary/secondary/error/etc.), no off-palette hex." },
+    { "id": "spacing-8", "text": "Spacing is a multiple of the 8px spacing unit." },
+    { "id": "border-radius", "text": "Surfaces use the 4px theme.shape.borderRadius (or a consistent multiple)." },
+    { "id": "elevation", "text": "Paper/Card surfaces use MUI elevation shadows, not arbitrary shadows." },
+    { "id": "typography", "text": "Type uses the Roboto-based MUI typography scale." },
+    { "id": "touch-target", "text": "Interactive targets are at least 48px (MUI default min)." },
+    { "id": "contrast", "text": "Text meets WCAG AA contrast against its surface." }
+  ]
+}

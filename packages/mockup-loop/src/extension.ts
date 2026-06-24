@@ -29,6 +29,9 @@ import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
+import { listPresets, resolvePreset } from "./presets/registry.js";
+import { loadContract, refreshContract } from "./presets/contract.js";
+import { loadRubric, validateMockup } from "./presets/validators.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Module state — running mockup servers, keyed by bound port.
@@ -266,21 +269,40 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       outDir: Type.Optional(
         Type.String({ description: "Where to write PNGs. Default a fresh temp dir." }),
       ),
+      system: Type.Optional(
+        Type.String({ description: "Design-system preset id (e.g. shadcn, apple-hig). Swaps the generic rubric for that system's boolean rubric. See list_design_systems." }),
+      ),
     }),
-    async execute(_id: string, params: { url: string; widths?: number[]; outDir?: string }): ToolReturn {
+    async execute(_id: string, params: { url: string; widths?: number[]; outDir?: string; system?: string }): ToolReturn {
       const widths = params.widths?.length ? params.widths : [375, 768, 1440];
-      const rubric = [
-        "",
-        "SCORING RUBRIC — fill each (PASS/FAIL + one-line reason):",
-        "  [ ] Contrast (WCAG AA) — light AND dark",
-        "  [ ] Responsive — no overflow/clipping at any width; touch targets >=44px on mobile",
-        "  [ ] Hierarchy — one clear focal point, intentional emphasis",
-        "  [ ] Spacing — rhythm from the token scale, not eyeballed gaps",
-        "  [ ] Token fidelity — colors/radii/spacing trace to ui-contract.md tokens",
-        "  [ ] Anti-slop — not the default-average look (generic Inter + purple gradient + centered hero)",
-        "  [ ] Console — no errors/warnings",
-        "Loop FIX→re-score until every line is PASS in both themes.",
-      ].join("\n");
+      let rubric: string;
+      if (params.system) {
+        const r = resolvePreset(params.system);
+        if ("error" in r) {
+          return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
+        }
+        const checks = loadRubric(r.preset.id);
+        rubric = [
+          "",
+          `SCORING RUBRIC — ${r.preset.label} (answer each PASS/FAIL + one-line reason):`,
+          ...checks.map((c) => `  [ ] ${c.text}`),
+          `Score = passCount / ${checks.length} (computed in code — do not emit a float yourself).`,
+          "Loop FIX→re-score until every check passes.",
+        ].join("\n");
+      } else {
+        rubric = [
+          "",
+          "SCORING RUBRIC — fill each (PASS/FAIL + one-line reason):",
+          "  [ ] Contrast (WCAG AA) — light AND dark",
+          "  [ ] Responsive — no overflow/clipping at any width; touch targets >=44px on mobile",
+          "  [ ] Hierarchy — one clear focal point, intentional emphasis",
+          "  [ ] Spacing — rhythm from the token scale, not eyeballed gaps",
+          "  [ ] Token fidelity — colors/radii/spacing trace to ui-contract.md tokens",
+          "  [ ] Anti-slop — not the default-average look (generic Inter + purple gradient + centered hero)",
+          "  [ ] Console — no errors/warnings",
+          "Loop FIX→re-score until every line is PASS in both themes.",
+        ].join("\n");
+      }
 
       let pw: any = null;
       try {
@@ -353,14 +375,50 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       "Scaffold a ui-contract.md design control plane (cross-screen consistency source of truth) if absent. The contract references design tokens only — no raw hex/px. Use before mocking up so every screen shares one system.",
     parameters: Type.Object({
       path: Type.Optional(
-        Type.String({ description: "Target file path. Default ./ui-contract.md" }),
+        Type.String({ description: "Target file path. Default ./ui-contract.md (or ./ui-contract.tokens.json when --system is set)." }),
       ),
       force: Type.Optional(
         Type.Boolean({ description: "Overwrite if it already exists." }),
       ),
+      system: Type.Optional(
+        Type.String({ description: "Design-system preset id (e.g. shadcn, mui, material-3, fluent-2, apple-hig). Writes that system's DTCG contract instead of the blank template. See list_design_systems." }),
+      ),
+      refresh: Type.Optional(
+        Type.Boolean({ description: "Re-fetch upstream tokens and rewrite the bundled snapshot before writing (token-publishing systems only)." }),
+      ),
     }),
-    async execute(_id: string, params: { path?: string; force?: boolean }): ToolReturn {
+    async execute(_id: string, params: { path?: string; force?: boolean; system?: string; refresh?: boolean }): ToolReturn {
       try {
+        // ── system-specific DTCG contract ──────────────────────────────────
+        if (params.system) {
+          const r = resolvePreset(params.system);
+          if ("error" in r) {
+            return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
+          }
+          const target = path.resolve(params.path ?? "ui-contract.tokens.json");
+          if (fs.existsSync(target) && !params.force) {
+            return {
+              content: [{ type: "text", text: `${target} already exists. Pass force:true to overwrite.` }],
+              details: { created: false, path: target, system: r.preset.id },
+            };
+          }
+          if (params.refresh) {
+            try {
+              await refreshContract(r.preset.id);
+            } catch (err) {
+              return { content: [{ type: "text", text: `refresh failed: ${String(err)}` }], details: { system: r.preset.id } };
+            }
+          }
+          const contract = loadContract(r.preset.id);
+          await fsp.mkdir(path.dirname(target), { recursive: true });
+          await fsp.writeFile(target, JSON.stringify(contract, null, 2) + "\n", "utf8");
+          return {
+            content: [{ type: "text", text: `Wrote ${r.preset.label} DTCG contract to ${target} (${r.preset.contractSource}). Generate mockups to this system's conventions, then validate_mockup{system:"${r.preset.id}"}.` }],
+            details: { created: true, path: target, system: r.preset.id },
+          };
+        }
+
+        // ── back-compat: blank template ────────────────────────────────────
         const target = path.resolve(params.path ?? "ui-contract.md");
         if (fs.existsSync(target) && !params.force) {
           return {
@@ -379,6 +437,63 @@ export default function frontendMockupLoop(pi: ExtensionAPI): void {
       } catch (err) {
         return { content: [{ type: "text", text: `init_ui_contract failed: ${String(err)}` }], details: {} };
       }
+    },
+  });
+
+  // ── list_design_systems ────────────────────────────────────────────────
+  pi.registerTool({
+    name: "list_design_systems",
+    label: "List Design Systems",
+    description:
+      "Enumerate the selectable design-system presets (id, label, platform, substrate, validator layers). Pass an id to init_ui_contract/score_mockup/validate_mockup via their `system` param to target that system.",
+    parameters: Type.Object({}),
+    async execute(): ToolReturn {
+      const presets = listPresets().map((p) => ({
+        id: p.id,
+        label: p.label,
+        platform: p.platform,
+        substrate: p.substrate,
+        validators: p.validators.map((v) => `${v.layer}:${v.tool}${v.gate ? " (gate)" : ""}${v.bundled ? "" : " (optional)"}`),
+      }));
+      const text =
+        "Design systems:\n" +
+        presets
+          .map((p) => `  ${p.id} — ${p.label} [${p.platform}, ${p.substrate}]\n      ${p.validators.join(", ")}`)
+          .join("\n");
+      return { content: [{ type: "text", text }], details: { presets } };
+    },
+  });
+
+  // ── validate_mockup ────────────────────────────────────────────────────
+  pi.registerTool({
+    name: "validate_mockup",
+    label: "Validate Mockup",
+    description:
+      "Run the layered validation pipeline for a design system: L1 token-lint + L2 a11y/contrast floor (hard GATES), L3 named-system auditor + L4 boolean rubric (ADVISORY). Returns { gates, advisory, pass }. `pass` is determined by gates only; advisory layers score and drive the fix loop. Pass `dir` (the served mockup directory) so L1/L2 can scan files.",
+    parameters: Type.Object({
+      system: Type.String({ description: "Design-system preset id. See list_design_systems." }),
+      url: Type.Optional(Type.String({ description: "URL of the running mockup (from serve_mockup), for context." })),
+      dir: Type.Optional(Type.String({ description: "Directory of the mockup source files to lint/scan (L1/L2)." })),
+    }),
+    async execute(_id: string, params: { system: string; url?: string; dir?: string }): ToolReturn {
+      const r = resolvePreset(params.system);
+      if ("error" in r) {
+        return { content: [{ type: "text", text: r.error }], details: { error: r.error } };
+      }
+      const dir = params.dir ? path.resolve(params.dir) : undefined;
+      const result = validateMockup({ preset: r.preset, dir });
+      const fmt = (l: { layer: string; tool: string; status: string; gate: boolean; messages: string[] }) =>
+        `  ${l.layer} ${l.tool}${l.gate ? " (gate)" : " (advisory)"}: ${l.status.toUpperCase()}\n      ${l.messages.join("\n      ")}`;
+      const text = [
+        `validate_mockup — ${r.preset.label}: ${result.pass ? "PASS" : "BLOCKED"}`,
+        "GATES:",
+        fmt(result.gates.l1),
+        fmt(result.gates.l2),
+        "ADVISORY:",
+        fmt(result.advisory.l3),
+        fmt(result.advisory.l4),
+      ].join("\n");
+      return { content: [{ type: "text", text }], details: { ...result } };
     },
   });
 

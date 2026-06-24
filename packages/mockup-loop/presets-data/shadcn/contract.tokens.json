@@ -1,0 +1,31 @@
+{
+  "$description": "shadcn/ui default theme — CSS custom properties normalized to DTCG. Source: ui.shadcn.com default (neutral) theme. Refresh: regenerate from the shadcn CSS variables block.",
+  "color": {
+    "background": { "$type": "color", "$value": "hsl(0 0% 100%)" },
+    "foreground": { "$type": "color", "$value": "hsl(0 0% 3.9%)" },
+    "card": { "$type": "color", "$value": "hsl(0 0% 100%)" },
+    "card-foreground": { "$type": "color", "$value": "hsl(0 0% 3.9%)" },
+    "primary": { "$type": "color", "$value": "hsl(0 0% 9%)" },
+    "primary-foreground": { "$type": "color", "$value": "hsl(0 0% 98%)" },
+    "secondary": { "$type": "color", "$value": "hsl(0 0% 96.1%)" },
+    "secondary-foreground": { "$type": "color", "$value": "hsl(0 0% 9%)" },
+    "muted": { "$type": "color", "$value": "hsl(0 0% 96.1%)" },
+    "muted-foreground": { "$type": "color", "$value": "hsl(0 0% 45.1%)" },
+    "accent": { "$type": "color", "$value": "hsl(0 0% 96.1%)" },
+    "destructive": { "$type": "color", "$value": "hsl(0 84.2% 60.2%)" },
+    "border": { "$type": "color", "$value": "hsl(0 0% 89.8%)" },
+    "input": { "$type": "color", "$value": "hsl(0 0% 89.8%)" },
+    "ring": { "$type": "color", "$value": "hsl(0 0% 3.9%)" }
+  },
+  "radius": {
+    "base": { "$type": "dimension", "$value": "0.5rem" }
+  },
+  "spacing": {
+    "1": { "$type": "dimension", "$value": "4px" },
+    "2": { "$type": "dimension", "$value": "8px" },
+    "3": { "$type": "dimension", "$value": "12px" },
+    "4": { "$type": "dimension", "$value": "16px" },
+    "6": { "$type": "dimension", "$value": "24px" },
+    "8": { "$type": "dimension", "$value": "32px" }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "system": "apple-hig",
+  "label": "Apple HIG boolean rubric",
+  "checks": [
+    { "id": "touch-44", "text": "All tap targets are at least 44x44pt." },
+    { "id": "tab-bar-5", "text": "Bottom tab bar has 5 or fewer items." },
+    { "id": "dynamic-type", "text": "Text uses relative/Dynamic-Type-friendly sizing, not fixed unscalable px." },
+    { "id": "safe-areas", "text": "Layout respects safe-area insets (env(safe-area-inset-*))." },
+    { "id": "semantic-colors", "text": "Colors use iOS semantic system colors (label, systemBackground, systemBlue), no hardcoded brand hex for system chrome." },
+    { "id": "sf-pro", "text": "Type uses the SF Pro / -apple-system font stack." },
+    { "id": "spacing-grid", "text": "Spacing aligns to the 8pt grid." }
+  ]
+}
