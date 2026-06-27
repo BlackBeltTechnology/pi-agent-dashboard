@@ -9,6 +9,7 @@ import type { NetworkGuard } from "./route-deps.js";
 import { listDirectories, createDirectory, classifyPaths, parseFlagsQuery } from "../browse.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
 import { isAllowed } from "../lib/path-containment.js";
+import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -227,7 +228,14 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
+      // Layers ①/② (cwd + git common root) serve any type. Layer ③ — artifact
+      // roots — is image-only and real-path contained; it covers agent
+      // screenshots that live outside every cwd and git root.
+      // See change: serve-agent-artifact-previews.
+      if (
+        !(await isAllowed(resolved, { anchors: [cwd] })) &&
+        !(await isImageUnderArtifactRoot(resolved))
+      ) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }

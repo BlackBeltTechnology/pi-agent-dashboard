@@ -52,7 +52,7 @@ export function within(p: string, base: string): boolean {
  * ancestor and re-append the non-existent tail, so a probe path still gets its
  * real (symlink-collapsed) prefix without throwing.
  */
-async function safeRealpath(p: string): Promise<string> {
+export async function safeRealpath(p: string): Promise<string> {
   try {
     return await fs.realpath(p);
   } catch {
