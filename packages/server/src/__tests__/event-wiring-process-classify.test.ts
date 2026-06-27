@@ -46,7 +46,7 @@ describe("process_list classification — server wiring", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
-      host: "127.0.0.1",
+      host: "0.0.0.0",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

@@ -1502,7 +1502,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
-      console.log(`Dashboard server running at http://localhost:${config.port}`);
+      console.log(`Dashboard server running at http://${config.host}:${config.port}`);
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────

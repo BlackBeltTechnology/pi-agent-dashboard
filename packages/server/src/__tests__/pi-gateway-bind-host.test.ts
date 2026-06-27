@@ -18,6 +18,16 @@ function waitForOpen(ws: WebSocket): Promise<void> {
   });
 }
 
+/** Poll gateway.address() until the async listen resolves a port. */
+async function waitForBind(gateway: { address(): number | null }): Promise<number> {
+  for (let i = 0; i < 100; i++) {
+    const port = gateway.address();
+    if (port !== null) return port;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("gateway did not bind a port");
+}
+
 /** First non-internal IPv4 address, or null when host has none. */
 function nonLoopbackIPv4(): string | null {
   for (const addrs of Object.values(os.networkInterfaces())) {
@@ -27,8 +37,6 @@ function nonLoopbackIPv4(): string | null {
   }
   return null;
 }
-
-let portCounter = 19720;
 
 describe("pi-gateway bind host", () => {
   let gateway: ReturnType<typeof createPiGateway>;
@@ -43,8 +51,8 @@ describe("pi-gateway bind host", () => {
 
     const sessionManager = createMemorySessionManager();
     gateway = createPiGateway(sessionManager, { pingInterval: 0 });
-    const port = portCounter++;
-    gateway.start(port, "127.0.0.1");
+    gateway.start(0, "127.0.0.1");
+    const port = await waitForBind(gateway);
 
     // Loopback reachable.
     const loop = new WebSocket(`ws://127.0.0.1:${port}`);
@@ -63,8 +71,8 @@ describe("pi-gateway bind host", () => {
 
     const sessionManager = createMemorySessionManager();
     gateway = createPiGateway(sessionManager, { pingInterval: 0 });
-    const port = portCounter++;
-    gateway.start(port, "0.0.0.0");
+    gateway.start(0, "0.0.0.0");
+    const port = await waitForBind(gateway);
 
     const lanWs = new WebSocket(`ws://${lan}:${port}`);
     await expect(waitForOpen(lanWs)).resolves.toBeUndefined();

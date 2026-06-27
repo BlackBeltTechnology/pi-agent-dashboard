@@ -91,7 +91,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     if (arg === "--port" && next) {
       flags.port = parseInt(next, 10);
       i++;
-    } else if (arg === "--host" && next) {
+    } else if (arg === "--host" && next && !next.startsWith("--")) {
       flags.host = next;
       i++;
     } else if (arg === "--pi-port" && next) {
