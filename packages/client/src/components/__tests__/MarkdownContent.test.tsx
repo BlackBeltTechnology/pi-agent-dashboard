@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, act, fireEvent, cleanup } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React, { useState } from "react";
-import { MarkdownContent, tableToMarkdown, tableToTsv, isFencedBlockComplete } from "../MarkdownContent.js";
-import { ThemeProvider } from "../ThemeProvider.js";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SessionAssetsProvider } from "../../lib/SessionAssetsContext.js";
+import { extractFrontmatter, formatRelativeDate, inferType } from "../FrontmatterProperties.js";
+import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } from "../MarkdownContent.js";
+import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
 // Each test renders a MarkdownContent into the document; the lightbox
@@ -599,5 +600,139 @@ describe("MarkdownContent", () => {
     const codeBlock = container.querySelector("code");
     expect(codeBlock).not.toBeNull();
     expect(codeBlock!.textContent).toContain("│ A │ B │");
+  });
+});
+
+describe("extractFrontmatter", () => {
+  it("returns raw + body for a leading block", () => {
+    const r = extractFrontmatter("---\ntitle: X\n---\n\n# Heading");
+    expect(r).not.toBeNull();
+    expect(r!.raw).toBe("title: X");
+    expect(r!.body.trim()).toBe("# Heading");
+  });
+
+  it("returns null when there is no leading block", () => {
+    expect(extractFrontmatter("# Heading\n\nbody")).toBeNull();
+  });
+
+  it("ignores a mid-document --- (thematic break)", () => {
+    expect(extractFrontmatter("# Heading\n\n---\n\nmore")).toBeNull();
+  });
+
+  it("tolerates CRLF and trailing space on the closing fence", () => {
+    const r = extractFrontmatter("---\r\na: 1\r\n--- \r\nbody");
+    expect(r).not.toBeNull();
+    expect(r!.raw).toBe("a: 1");
+  });
+});
+
+describe("inferType", () => {
+  it("classifies primitives and shapes", () => {
+    expect(inferType(null)).toBe("empty");
+    expect(inferType("")).toBe("empty");
+    expect(inferType(true)).toBe("bool");
+    expect(inferType(42)).toBe("num");
+    expect(inferType([1, 2])).toBe("list");
+    expect(inferType({ a: 1 })).toBe("obj");
+    expect(inferType("https://x.com")).toBe("link");
+    expect(inferType("2026-06-20")).toBe("date");
+    expect(inferType(new Date())).toBe("date");
+    expect(inferType("short")).toBe("text");
+    expect(inferType("x".repeat(80))).toBe("para");
+  });
+});
+
+describe("formatRelativeDate", () => {
+  const now = new Date("2026-06-27T00:00:00Z");
+  it("formats past dates", () => {
+    expect(formatRelativeDate("2026-06-20", now)).toBe("7 days ago");
+  });
+  it("formats future dates", () => {
+    expect(formatRelativeDate("2026-09-25", now)).toMatch(/in 3 months/);
+  });
+  it("returns null for unparseable input", () => {
+    expect(formatRelativeDate("not-a-date", now)).toBeNull();
+  });
+});
+
+describe("MarkdownContent — frontmatter rendering", () => {
+  const fm = (extra = "") =>
+    `---\ntitle: Hello\nstatus: draft\nversion: 1.2\ntags:\n  - a\n  - b\npublished: true\nupdated: 2026-06-20\nmetadata:\n  author: me\nsite: https://example.com${extra}\n---\n\n# Body Heading\n\nSome text.`;
+
+  function renderFm(content: string, frontmatter?: "hide" | "properties") {
+    return render(
+      <ThemeProvider>
+        <MarkdownContent content={content} frontmatter={frontmatter} />
+      </ThemeProvider>,
+    );
+  }
+
+  it("does not mangle the body (hide)", () => {
+    const { container } = renderFm("---\ntitle: X\n---\n\n# Heading", "hide");
+    const h1 = container.querySelector("h1");
+    expect(h1?.textContent).toBe("Heading");
+    expect(container.querySelectorAll("hr").length).toBe(0);
+    expect(container.textContent).not.toContain("title: X");
+  });
+
+  it("default prop hides frontmatter (no panel)", () => {
+    const { queryByText, container } = renderFm("---\ntitle: X\n---\n\n# Heading");
+    expect(queryByText("Properties")).toBeNull();
+    expect(container.textContent).not.toContain("title: X");
+  });
+
+  it("properties mode renders a collapsed panel with field count, expands on click", () => {
+    const { getByText, queryByText } = renderFm(fm(), "properties");
+    expect(getByText("Properties")).toBeTruthy();
+    expect(getByText(/8 fields/)).toBeTruthy();
+    // collapsed: rows not visible
+    expect(queryByText("title")).toBeNull();
+    fireEvent.click(getByText("Properties"));
+    expect(getByText("title")).toBeTruthy();
+  });
+
+  it("renders typed values: number monospace, chips, bool, date with relative suffix", () => {
+    const { getByText, container } = renderFm(fm(), "properties");
+    fireEvent.click(getByText("Properties"));
+    // number monospace
+    const num = getByText("1.2");
+    expect(num.className).toMatch(/font-mono/);
+    // chips
+    expect(getByText("a")).toBeTruthy();
+    expect(getByText("b")).toBeTruthy();
+    // boolean
+    expect(getByText("true")).toBeTruthy();
+    // date with relative suffix
+    expect(container.textContent).toMatch(/2026-06-20/);
+    expect(container.textContent).toMatch(/ago/);
+  });
+
+  it("promotes status to a colored badge", () => {
+    const { getByText } = renderFm(fm(), "properties");
+    fireEvent.click(getByText("Properties"));
+    const badge = getByText("draft");
+    expect(badge.className).toMatch(/border/);
+    expect(badge.querySelector("span")).not.toBeNull();
+  });
+
+  it("renders a nested object as a sub-grid", () => {
+    const { getByText } = renderFm(fm(), "properties");
+    fireEvent.click(getByText("Properties"));
+    expect(getByText("author")).toBeTruthy();
+    expect(getByText("me")).toBeTruthy();
+  });
+
+  it("degrades malformed YAML to a warning banner without breaking the body", () => {
+    const bad = "---\nthis: : : not valid\n  - broken\n---\n\n# Body Heading";
+    const { getByText, container } = renderFm(bad, "properties");
+    fireEvent.click(getByText("Properties"));
+    expect(getByText(/Invalid YAML/)).toBeTruthy();
+    expect(container.querySelector("h1")?.textContent).toBe("Body Heading");
+  });
+
+  it("renders no panel when there is no frontmatter (properties mode)", () => {
+    const { queryByText, container } = renderFm("# Just a heading\n\ntext", "properties");
+    expect(queryByText("Properties")).toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Just a heading");
   });
 });

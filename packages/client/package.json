@@ -52,9 +52,11 @@
     "react-syntax-highlighter": "^16.1.1",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
+    "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "wouter": "^3.9.0"
+    "wouter": "^3.9.0",
+    "yaml": "^2.6.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

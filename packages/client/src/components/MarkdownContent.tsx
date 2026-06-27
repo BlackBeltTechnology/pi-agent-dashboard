@@ -1,25 +1,27 @@
-import React, { useRef, useCallback, useMemo, useEffect } from "react";
+import { mdiContentCopy, mdiTable } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import rehypeRaw from "rehype-raw";
-import rehypeKatex from "rehype-katex";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { useThemeContext } from "./ThemeProvider.js";
-import { getSyntaxTheme } from "../lib/syntax-theme.js";
-import { Icon } from "@mdi/react";
-import { mdiContentCopy, mdiTable } from "@mdi/js";
-import { CopyButton } from "./CopyButton.js";
-import { wrapAsciiTables } from "../lib/wrap-ascii-tables.js";
-import { MermaidBlock } from "./MermaidBlock.js";
-import { useSessionAssets } from "../lib/SessionAssetsContext.js";
-import { ImageLightbox } from "./ImageLightbox.js";
-import { tokenize } from "../lib/linkify-tool-output.js";
-import { FileLink } from "./tool-renderers/FileLink.js";
-import { UrlLink } from "./tool-renderers/UrlLink.js";
-import { ErrorBoundary } from "./ErrorBoundary.js";
-import type { ToolContext } from "./tool-renderers/types.js";
 import { t as i18nT } from "../lib/i18n";
+import { tokenize } from "../lib/linkify-tool-output.js";
+import { useSessionAssets } from "../lib/SessionAssetsContext.js";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import { wrapAsciiTables } from "../lib/wrap-ascii-tables.js";
+import { CopyButton } from "./CopyButton.js";
+import { ErrorBoundary } from "./ErrorBoundary.js";
+import { extractFrontmatter, FrontmatterProperties } from "./FrontmatterProperties.js";
+import { ImageLightbox } from "./ImageLightbox.js";
+import { MermaidBlock } from "./MermaidBlock.js";
+import { useThemeContext } from "./ThemeProvider.js";
+import { FileLink } from "./tool-renderers/FileLink.js";
+import type { ToolContext } from "./tool-renderers/types.js";
+import { UrlLink } from "./tool-renderers/UrlLink.js";
 
 interface Props {
   content: string;
@@ -31,6 +33,15 @@ interface Props {
    * See change: unify-file-link-openability.
    */
   context?: ToolContext;
+  /**
+   * Controls rendering of a leading YAML frontmatter block. `remark-frontmatter`
+   * always strips the block from the markdown body (so it never mangles into a
+   * heading), regardless of this prop. "hide" (default) renders nothing in its
+   * place — preserves chat behavior. "properties" renders an Obsidian-style
+   * Properties panel above the body. File/spec/skill surfaces opt in.
+   * See change: improve-frontmatter-rendering.
+   */
+  frontmatter?: "hide" | "properties";
 }
 
 /**
@@ -356,7 +367,7 @@ function PiAssetImg(props: React.ImgHTMLAttributes<HTMLImageElement>) {
   );
 }
 
-export const MarkdownContent = React.memo(function MarkdownContent({ content, context }: Props) {
+export const MarkdownContent = React.memo(function MarkdownContent({ content, context, frontmatter = "hide" }: Props) {
   // ASCII table monospace fixer — disabled pending further refinement
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
@@ -371,10 +382,13 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
   //   }
   // });
 
+  const fm = frontmatter === "properties" ? extractFrontmatter(processedContent) : null;
+
   return (
     <div ref={containerRef} className="markdown-content text-sm">
+      {fm && <FrontmatterProperties raw={fm.raw} />}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
+        remarkPlugins={[remarkGfm, remarkMath, remarkFrontmatter]}
         // Plugin order matters:
         //  - rehypeRaw FIRST so embedded HTML in markdown source is parsed
         //    before rehype-katex emits its own KaTeX HTML (KaTeX HTML must

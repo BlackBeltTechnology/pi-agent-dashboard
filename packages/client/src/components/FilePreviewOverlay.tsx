@@ -1,14 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose, mdiLoading } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { getApiBase } from "../lib/api-context.js";
 import { useThemeContext } from "./ThemeProvider.js";
-import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { detectLanguage } from "./tool-renderers/lang-detect.js";
-import { t as i18nT } from "../lib/i18n";
 
 /** DOM id of the scroll target line inside the highlighted code view. */
 const TARGET_LINE_ID = "file-preview-target-line";
@@ -155,7 +155,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
               </div>
             )}
             {!error && !isImage && content !== null && isMd && (
-              <MarkdownContent content={content} />
+              <MarkdownContent content={content} frontmatter="properties" />
             )}
             {!error && !isImage && content !== null && !isMd && language && (
               <SyntaxHighlighter
