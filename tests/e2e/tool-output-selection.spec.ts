@@ -21,6 +21,14 @@ const URL_TEXT = "https://example.com/page";
  * "selection crosses a link" case from the spec; pre-fix the link boundary
  * killed the highlight (the <button> swallowed the gesture / the draggable <a>
  * started a native link-drag).
+ *
+ * NOTE: we cross the link rather than starting the mousedown ON it. A synthetic
+ * mousedown directly on a <button> does not initiate a text selection in
+ * headless Chromium (returns an empty selection even WITH the fix), so a
+ * starts-on-link drag can't assert selection reliably. The starts-on-link
+ * regression is instead guarded by the computed-style assertions below
+ * (`user-select:text` + `draggable=false`) — remove either and the button
+ * swallows / the anchor drags, which those checks catch.
  */
 async function dragAcross(page: Page, loc: Locator): Promise<void> {
   const box = await loc.boundingBox();
@@ -74,8 +82,19 @@ test.describe("faux round-trip — selectable tool-output links", () => {
     await dragAcross(page, urlLink);
     expect(await selectionText(page)).toContain(URL_TEXT);
 
-    // (4) Click-to-open is preserved: a plain click (no drag → no selection)
-    // opens the read-only preview overlay.
+    // (4) Click-to-open is preserved for the URL link: a plain click (no drag →
+    // no selection) opens a new tab (target=_blank). Done before the file
+    // preview, which opens a modal overlay over the links.
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    const [popup] = await Promise.all([
+      page.waitForEvent("popup"),
+      urlLink.click(),
+    ]);
+    expect(popup.url()).toContain("example.com/page");
+    await popup.close();
+
+    // (5) Click-to-open is preserved for the file link: a plain click opens the
+    // read-only preview overlay.
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
     await fileLink.click();
     await expect(page.getByTestId("file-preview-overlay")).toBeVisible({ timeout: 15_000 });

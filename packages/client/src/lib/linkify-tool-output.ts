@@ -109,11 +109,18 @@ const URL_TRAIL = /[.,;:!?)\]}>'"]+$/;
  */
 function onDiffHeaderLine(text: string, matchStart: number): boolean {
   const lineStart = text.lastIndexOf("\n", matchStart - 1) + 1;
+  const nextNl = text.indexOf("\n", matchStart);
+  const line = text.slice(lineStart, nextNl === -1 ? text.length : nextNl);
   const prefix = text.slice(lineStart, matchStart);
   return (
     prefix === "--- " ||
     prefix === "+++ " ||
-    /^diff --git (?:a\/\S+ )?$/.test(prefix)
+    // First path of a `diff --git` line: only strip when the WHOLE line is a
+    // real `diff --git a/<x> b/<y>` header, so prose merely starting with
+    // `diff --git a/...` keeps its path intact.
+    (prefix === "diff --git " && /^diff --git a\/\S+ b\/\S+$/.test(line)) ||
+    // Second path: reaching it means the first token was already `a/<x>`.
+    /^diff --git a\/\S+ $/.test(prefix)
   );
 }
 

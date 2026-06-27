@@ -400,6 +400,12 @@ describe("tokenize — git-diff a/ b/ prefix stripping", () => {
     expect(f[0].path).toBe("a/index.ts");
   });
 
+  it("does NOT strip when a line starts with `diff --git a/` but is not a full header", () => {
+    const toks = tokenize("diff --git a/index.ts later");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("a/index.ts");
+  });
+
   it("does NOT strip b/ in mid-sentence prose", () => {
     const toks = tokenize("the file b/util.ts changed");
     const f = fileTok(toks);
