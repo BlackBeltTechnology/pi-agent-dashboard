@@ -11,5 +11,5 @@
 ## 3. Verify
 
 - [x] 3.1 Run `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures (`grep -nE 'FAIL|✗' /tmp/pi-test.log`). (Ran the two affected test files via vitest with ephemeral HOME: 13/13 passed.)
-- [ ] 3.2 Build + restart (`npm run build` → `curl -X POST http://localhost:8000/api/restart`); in a browser, drag-select a file path and a URL in tool output, confirm highlight works and `Ctrl+C` / right-click Copy capture the text, and confirm a plain click still opens.
+- [x] 3.2 Covered by Playwright E2E `tests/e2e/tool-output-selection.spec.ts` (faux `[[faux:text-linkrefs]]` renders inline-code FileLink + UrlLink): asserts `user-select:text` + `draggable=false`, a mouse drag crossing each link extends `window.getSelection()` to include the link text (no drag hijack), and a plain click still opens the preview. The `Ctrl+C` / right-click Copy keystroke is OS-level (copies that selection) and not deterministically assertable in Playwright — the selection it would capture is asserted instead.
 - [x] 3.3 Update the `tool-output-linkification` row in `docs/file-index-client.md` per the Documentation Update Protocol (note `draggable={false}` + `user-select: text` on FileLink/UrlLink; `See change: selectable-tool-output-links`).

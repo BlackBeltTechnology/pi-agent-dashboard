@@ -171,6 +171,20 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/ghost.ts" },
   },
 
+  // Assistant text with an inline-code span carrying a file path + a URL.
+  // Inline code is linkified (markdown does not autolink inside code), so this
+  // renders a real FileLink (button) and UrlLink (anchor) — the surfaces whose
+  // selectability (drag-to-select, not drag-the-link) this change guarantees.
+  // See change: selectable-tool-output-links.
+  "text-linkrefs": {
+    script: [
+      fauxAssistantMessage([
+        fauxText("refs `src/example.ts https://example.com/page` end"),
+      ]),
+    ],
+    expect: { text: "src/example.ts" },
+  },
+
   "thinking-text": {
     script: [
       fauxAssistantMessage([
