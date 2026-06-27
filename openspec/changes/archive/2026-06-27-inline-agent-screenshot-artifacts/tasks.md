@@ -5,7 +5,7 @@
 
 ## 2. Inline path-referenced image results in the bridge
 
-- [x] 2.1 In `event-forwarder.ts` at `tool_execution_end`, scan the result text for absolute paths ending in a recognized image extension that resolve to existing files.
+- [x] 2.1 In `bridge.ts` at `tool_execution_end` (implemented here, not `event-forwarder.ts`), scan the result text for absolute paths ending in a recognized image extension that resolve to existing files (via `tool-result-image-inliner.ts`).
 - [x] 2.2 Inline each (up to a per-result count cap, e.g. 4) via `inlineLocalImagePath`, accumulating against `MAX_PER_MESSAGE_BYTES`; attach as `type:"image"` content blocks on the forwarded result.
 - [x] 2.3 Consume the inlined path so it is NOT also emitted as a text link (D5). Leave over-cap / non-existent paths as text (fall back to Fix A).
 - [x] 2.4 Unit-test the extraction: single screenshot path → one image block + no link; two paths, one over cap → one inlined + one link; non-image path → untouched.

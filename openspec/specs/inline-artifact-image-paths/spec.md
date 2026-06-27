@@ -1,7 +1,7 @@
 # inline-artifact-image-paths Specification
 
 ## Purpose
-TBD - created by archiving change inline-agent-screenshot-artifacts. Update Purpose after archive.
+Define how the bridge inlines path-referenced image tool results at capture time. At `tool_execution_end`, an existing local image file referenced by absolute path is read and attached as a `type:"image"` content block (within per-image / per-message byte caps); the consumed path is removed from the result text so it is not also linkified. Over-cap, missing, or non-image paths stay as text and fall back to the artifact-serving route. The dashboard renders inlined image blocks for any tool, auto-expanded.
 ## Requirements
 ### Requirement: the bridge SHALL inline path-referenced image results at capture time
 

@@ -20,13 +20,19 @@ export function ToolResultImages({ images, alt }: { images: ChatImage[]; alt?: s
           const src = `data:${img.mimeType};base64,${img.data}`;
           const label = alt ?? `Image ${i + 1}`;
           return (
-            <img
+            <button
               key={i}
-              src={src}
-              alt={label}
-              className="max-w-[512px] max-h-[512px] rounded border border-white/20 object-contain cursor-pointer"
+              type="button"
+              aria-label={`Open ${label} full size`}
+              className="p-0 border-0 bg-transparent cursor-pointer"
               onClick={() => setLightboxSrc({ src, alt: label })}
-            />
+            >
+              <img
+                src={src}
+                alt={label}
+                className="max-w-[512px] max-h-[512px] rounded border border-white/20 object-contain"
+              />
+            </button>
           );
         })}
       </div>

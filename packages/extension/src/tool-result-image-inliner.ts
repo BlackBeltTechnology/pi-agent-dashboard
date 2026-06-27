@@ -72,6 +72,13 @@ export interface InlineToolResultImagesResult {
   inlinedCount: number;
 }
 
+/** Decoded byte length of a base64 string, accounting for `=` padding. */
+function base64DecodedBytes(b64: string): number {
+  if (b64.length === 0) return 0;
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - padding;
+}
+
 /** Extract a single display string from a tool result (string or content array). */
 function resultToText(result: unknown): string {
   if (typeof result === "string") return result;
@@ -126,8 +133,8 @@ export function inlineToolResultImages(
       maxPerImageBytes: opts.maxPerImageBytes,
     });
     if ("ok" in outcome) continue; // ReadFileError: missing / non-image / too-large → leave as text
-    // Per-result cumulative budget: base64 length approximates byte cost.
-    const size = Math.floor((outcome.data.length * 3) / 4);
+    // Per-result cumulative budget (padding-aware decoded byte count).
+    const size = base64DecodedBytes(outcome.data);
     if (bytesInThisResult + size > maxPerMessage) continue; // over budget → leave as text
     bytesInThisResult += size;
     blocks.push({ type: "image", data: outcome.data, mimeType: outcome.mimeType });
@@ -136,16 +143,32 @@ export function inlineToolResultImages(
 
   if (blocks.length === 0) return { result, inlinedCount: 0 };
 
-  // Strip each consumed path from the text so it is NOT also linkified (D5).
-  let strippedText = text;
-  for (const p of consumedPaths) {
-    strippedText = strippedText.split(p).join("");
+  // Strip each consumed path so it is NOT also linkified (D5).
+  const stripPaths = (s: string): string => {
+    let out = s;
+    for (const p of consumedPaths) out = out.split(p).join("");
+    return out;
+  };
+
+  // Preserve the original result shape: when it already carried a content
+  // array, keep every block (incl. non-text / metadata) and only strip paths
+  // inside text blocks, then append the new image blocks. A bare string result
+  // becomes a single stripped text block plus the images.
+  let content: unknown[];
+  if (result && typeof result === "object" && Array.isArray((result as Record<string, unknown>).content)) {
+    const orig = (result as Record<string, unknown>).content as any[];
+    content = [
+      ...orig.map((c) =>
+        c?.type === "text" && typeof c.text === "string" ? { ...c, text: stripPaths(c.text) } : c,
+      ),
+      ...blocks,
+    ];
+  } else {
+    content = [{ type: "text", text: stripPaths(text) }, ...blocks];
   }
 
   return {
-    result: {
-      content: [{ type: "text", text: strippedText }, ...blocks],
-    },
+    result: { content },
     inlinedCount: blocks.length,
   };
 }

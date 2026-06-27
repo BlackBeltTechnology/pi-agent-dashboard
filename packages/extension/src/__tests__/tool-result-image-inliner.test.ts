@@ -118,6 +118,29 @@ describe("inlineToolResultImages", () => {
     expect(imageBlocks(out.result)[0].mimeType).toBe("image/png");
   });
 
+  it("preserves pre-existing non-text content blocks when inlining", () => {
+    const existingImg = { type: "image", data: "cHJlZXhpc3Rpbmc=", mimeType: "image/jpeg" };
+    const out = inlineToolResultImages(
+      {
+        content: [
+          { type: "text", text: "saw /tmp/e.png here" },
+          existingImg,
+          { type: "resource", uri: "file:///x" },
+        ],
+      },
+      { readFile: fakeReader({ "/tmp/e.png": PNG }) },
+    );
+    expect(out.inlinedCount).toBe(1);
+    const content = (out.result as any).content;
+    // Pre-existing image + resource blocks survive; new image appended.
+    expect(content).toContainEqual(existingImg);
+    expect(content).toContainEqual({ type: "resource", uri: "file:///x" });
+    expect(content.filter((c: any) => c.type === "image")).toHaveLength(2);
+    // Consumed path stripped from the original text block.
+    const textBlock = content.find((c: any) => c.type === "text");
+    expect(textBlock.text).not.toContain("/tmp/e.png");
+  });
+
   it("dedups a repeated path into a single image block", () => {
     const out = inlineToolResultImages("/tmp/d.png twice /tmp/d.png", {
       readFile: fakeReader({ "/tmp/d.png": PNG }),

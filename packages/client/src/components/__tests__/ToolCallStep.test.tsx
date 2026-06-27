@@ -300,9 +300,13 @@ describe("ToolCallStep", () => {
       images: [{ data: "iVBORw0KGgo=", mimeType: "image/png" }],
     });
 
+    // The thumbnail is wrapped in a keyboard-accessible button (a11y);
+    // clicking it (or the img inside it) opens the lightbox.
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
-    expect(img!.className).toContain("cursor-pointer");
+    const trigger = img!.closest("button");
+    expect(trigger).not.toBeNull();
+    expect(trigger!.className).toContain("cursor-pointer");
     fireEvent.click(img!);
     const lightbox = document.body.querySelector("[data-testid='lightbox-backdrop']");
     expect(lightbox).not.toBeNull();
