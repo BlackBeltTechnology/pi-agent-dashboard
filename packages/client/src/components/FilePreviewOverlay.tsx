@@ -31,6 +31,26 @@ function getExt(p: string): string {
 }
 
 /**
+ * Map a raw `/api/file` failure into a human message. Stale links in old
+ * sessions are the common case: the file was deleted, or the session's working
+ * directory no longer exists (e.g. a removed worktree). Both read as "gone"
+ * rather than a generic "Failed to read file".
+ */
+export function friendlyReadError(
+  rawError: string | undefined,
+  path: string,
+  cwd: string,
+): string {
+  if (rawError === "not found") {
+    return `File no longer exists at ${path} (session working directory: ${cwd}).`;
+  }
+  if (rawError === "unknown session path") {
+    return `Session working directory is no longer available, so ${path} can't be previewed (was: ${cwd}).`;
+  }
+  return rawError ?? "Failed to read file";
+}
+
+/**
  * Read-only file preview overlay used by `FileLink` when the dashboard is
  * remote / no editor is detected. Reuses the existing `cwd`-scoped
  * `/api/file` endpoint (anti-traversal already enforced server-side).
@@ -66,7 +86,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
         const json = await res.json();
         if (cancelled) return;
         if (!json.success) {
-          setError(json.error ?? "Failed to read file");
+          setError(friendlyReadError(json.error, path, cwd));
           return;
         }
         if (json.data?.type !== "file") {

@@ -68,3 +68,43 @@ describe("FilePreviewOverlay — syntax highlighting", () => {
     expect(queryByTestId("file-preview-code")).toBeNull();
   });
 });
+
+import { friendlyReadError } from "../FilePreviewOverlay.js";
+
+function mockFileError(error: string, status = 404) {
+  return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(JSON.stringify({ success: false, error }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }) as any,
+  );
+}
+
+describe("FilePreviewOverlay — stale link errors", () => {
+  it("maps 'not found' to a file-no-longer-exists message", () => {
+    expect(friendlyReadError("not found", "src/foo.ts", "/repo")).toMatch(
+      /no longer exists at src\/foo\.ts/i,
+    );
+  });
+
+  it("maps 'unknown session path' to a working-directory-gone message", () => {
+    expect(friendlyReadError("unknown session path", "src/foo.ts", "/old/wt")).toMatch(
+      /working directory is no longer available/i,
+    );
+  });
+
+  it("passes through an unrecognised error verbatim", () => {
+    expect(friendlyReadError("path outside working directory", "x.ts", "/repo")).toBe(
+      "path outside working directory",
+    );
+  });
+
+  it("renders the friendly message in the overlay error slot", async () => {
+    mockFileError("not found");
+    const { findByTestId } = renderOverlay(
+      <FilePreviewOverlay cwd="/repo" path="src/gone.ts" onClose={() => {}} />,
+    );
+    const err = await findByTestId("file-preview-error");
+    expect(err.textContent).toMatch(/no longer exists at src\/gone\.ts/i);
+  });
+});
