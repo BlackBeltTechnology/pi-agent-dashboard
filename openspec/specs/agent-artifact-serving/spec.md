@@ -1,7 +1,7 @@
 # agent-artifact-serving Specification
 
 ## Purpose
-TBD - created by archiving change serve-agent-artifact-previews. Update Purpose after archive.
+Serve agent-tool image artifacts (e.g. `browser`-skill screenshots) that live in a per-user temp root outside every session cwd and git repo. `GET /api/file/raw` gains a real-path-contained, image-only artifact-root anchor so those previews load instead of failing containment.
 ## Requirements
 ### Requirement: the raw file route SHALL serve images from an artifact-root allowlist as an additional containment anchor
 
