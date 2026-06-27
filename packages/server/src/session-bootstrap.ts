@@ -68,17 +68,24 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
   // path supplies a pre-serialized payload, fan out by string concat so the
   // large `data` is stringified exactly once per tick (in the worker).
   // See change: offload-openspec-poll-to-worker.
-  directoryService.startPolling((cwd, data, serialized) => {
-    if (serialized !== undefined) {
-      browserGateway.broadcastOpenSpecUpdate(cwd, serialized);
-    } else {
-      browserGateway.broadcastToAll({
-        type: "openspec_update",
-        cwd,
-        data,
-      } as any);
-    }
-  });
+  directoryService.startPolling(
+    (cwd, data, serialized) => {
+      if (serialized !== undefined) {
+        browserGateway.broadcastOpenSpecUpdate(cwd, serialized);
+      } else {
+        browserGateway.broadcastToAll({
+          type: "openspec_update",
+          cwd,
+          data,
+        } as any);
+      }
+    },
+    // Folder-HEAD updates: fire-and-forget broadcast to all browsers, same
+    // fan-out as `openspec_update`. See change: refresh-folder-header-branch.
+    (msg) => {
+      browserGateway.broadcastToAll(msg as any);
+    },
+  );
 
   // Initial OpenSpec poll for all known directories.
   //

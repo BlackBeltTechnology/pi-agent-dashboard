@@ -229,6 +229,20 @@ export function readHead(cwd: string): HeadInfo {
   };
 }
 
+/**
+ * Resolve the directory containing this checkout's git `HEAD` file, worktree-
+ * aware. For a main checkout returns `<cwd>/.git`; for a linked worktree
+ * (whose `.git` is a file) returns the per-worktree gitdir
+ * (`<main>/.git/worktrees/<name>`). Returns `null` when `cwd` is not a git
+ * repository. Used by the folder-HEAD watcher to pick the directory to watch.
+ * See change: refresh-folder-header-branch.
+ */
+export function resolveGitDir(cwd: string): string | null {
+  const out = tryRun("git rev-parse --git-dir", cwd);
+  if (!out) return null;
+  return path.isAbsolute(out) ? out : path.join(cwd, out);
+}
+
 /** List all worktrees of the repository containing `cwd`. */
 export function listWorktrees(cwd: string): WorktreeEntry[] {
   const stdout = run("git worktree list --porcelain", cwd);

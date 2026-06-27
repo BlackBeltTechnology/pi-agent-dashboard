@@ -38,6 +38,9 @@ import type {
 import { DEFAULT_OPENSPEC_POLL, type OpenSpecPollConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
 import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec-change-watcher.js";
+import { createFolderHeadPoll, type FolderHeadPoll } from "./folder-head-poll.js";
+import { createFolderHeadWatcher, type FolderHeadWatcher } from "./folder-head-watcher.js";
+import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { discoverSessionsForCwd } from "./session-discovery.js";
 import { scanPiResources } from "./pi-resource-scanner.js";
 import type { HydrationMetrics } from "./hydration-metrics.js";
@@ -143,7 +146,10 @@ export interface DirectoryService {
    * emits omit `serialized` and callers re-stringify as needed.
    * See change: offload-openspec-poll-to-worker.
    */
-  startPolling(onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void): void;
+  startPolling(
+    onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void,
+    onFolderHead?: (msg: BrowserGitHeadUpdateMessage) => void,
+  ): void;
   stopPolling(): void;
   /** Apply a new OpenSpecPollConfig without losing cache. Safe to call mid-stream. */
   reconfigurePolling(config: OpenSpecPollConfig): void;
@@ -227,6 +233,12 @@ export interface DirectoryServiceOptions {
    */
   changeWatcher?: OpenSpecChangeWatcher;
   /**
+   * Optional override for the folder-HEAD fs.watch watcher. When omitted, a
+   * real `fs.watch`-backed watcher is constructed. Tests may inject a stub.
+   * See change: refresh-folder-header-branch.
+   */
+  folderHeadWatcher?: FolderHeadWatcher;
+  /**
    * Shared in-memory recorder for session-hydration timings. When set,
    * `loadSessionEvents` records a sample per call and the same instance is
    * read by `/api/health`. See change: instrument-session-hydration-timing.
@@ -277,6 +289,18 @@ export function createDirectoryService(
     onChange: (cwd) => { void onWatcherFired(cwd); },
   });
   const attachedWatcherCwds = new Set<string>();
+
+  // Folder-HEAD poll + watcher. The poll is constructed lazily on
+  // `startPolling` once the broadcast callback is known. The watcher is a
+  // fast trigger that fans HEAD-file events into `folderHeadPoll.refreshOne`
+  // (single broadcast path — never a parallel poll). Both recompute their
+  // work set from `computeFolderGroupKeys` each tick.
+  // See change: refresh-folder-header-branch.
+  let folderHeadPoll: FolderHeadPoll | null = null;
+  const folderHeadWatcher: FolderHeadWatcher = options.folderHeadWatcher ?? createFolderHeadWatcher({
+    onChange: (cwd) => { folderHeadPoll?.refreshOne(cwd); },
+  });
+  const attachedFolderHeadCwds = new Set<string>();
 
   const caches = new Map<string, DirCache>();
   const piResourcesCache = new Map<string, PiResourcesResult>();
@@ -731,6 +755,34 @@ export function createDirectoryService(
   }
 
   /**
+   * Folder-HEAD tick: recompute the folder group-key set, refresh each (read →
+   * diff → broadcast), and reconcile watcher attachments to match the set
+   * (attach folders entering, detach folders leaving). Runs every poll tick
+   * INDEPENDENT of `cfg.enabled` (openspec disablement must not stop folder
+   * HEAD refresh). No-op until `startPolling` installs the broadcast callback.
+   * See change: refresh-folder-header-branch.
+   */
+  function tickFolderHeads(): void {
+    if (!folderHeadPoll) return;
+    const keys = folderHeadPoll.poll(
+      sessionManager.listAll(),
+      preferencesStore.getPinnedDirectories(),
+    );
+    const known = new Set(keys);
+    for (const cwd of keys) {
+      if (!attachedFolderHeadCwds.has(cwd)) {
+        if (folderHeadWatcher.attach(cwd)) attachedFolderHeadCwds.add(cwd);
+      }
+    }
+    for (const cwd of Array.from(attachedFolderHeadCwds)) {
+      if (!known.has(cwd)) {
+        folderHeadWatcher.detach(cwd);
+        attachedFolderHeadCwds.delete(cwd);
+      }
+    }
+  }
+
+  /**
    * Broadcast the transitional `{ initialized:false, pending:true }` snapshot
    * before the slow `openspec list` spawn, for any cwd whose
    * `<cwd>/openspec/changes/` exists (cheap synchronous stat) but whose cache
@@ -778,6 +830,10 @@ export function createDirectoryService(
 
   let openspecTickInFlight = false;
   async function scheduleOpenSpecTick() {
+    // Folder-HEAD poll runs every tick regardless of openspec enablement and
+    // regardless of an in-flight openspec tick. Cheap (one `readHead` per
+    // rendered folder). See change: refresh-folder-header-branch.
+    try { tickFolderHeads(); } catch (err) { console.warn("[folder-head] tick failed:", err); }
     if (openspecTickInFlight) return;
     // Master gate: when `openspec.enabled` is false, the tick is a no-op.
     // No CLI spawns. See change: auto-hide-empty-session-subcards.
@@ -883,8 +939,20 @@ export function createDirectoryService(
       return refreshPiResourcesInternal(cwd);
     },
 
-    startPolling(onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void) {
+    startPolling(
+      onChange: (cwd: string, data: OpenSpecData, serialized?: string) => void,
+      onFolderHead?: (msg: BrowserGitHeadUpdateMessage) => void,
+    ) {
       onChangeCallback = onChange;
+      // Construct the folder-HEAD poll now that the broadcast callback is
+      // known. The poll's diff cache lives for the polling lifetime.
+      // See change: refresh-folder-header-branch.
+      if (onFolderHead) {
+        folderHeadPoll = createFolderHeadPoll({ broadcast: onFolderHead });
+        // Run an immediate folder-HEAD tick so the first paint reflects
+        // current HEADs without waiting a full poll interval.
+        try { tickFolderHeads(); } catch (err) { console.warn("[folder-head] initial tick failed:", err); }
+      }
       // Lazy worker pool spawn happens on first request from `ensureWorkerPool()`.
       installTimers();
     },
@@ -896,6 +964,11 @@ export function createDirectoryService(
       // See change: fix-openspec-taskcheck-delay.
       try { changeWatcher.detachAll(); } catch { /* best-effort */ }
       attachedWatcherCwds.clear();
+      // Tear down folder-HEAD watchers + poll state. See change:
+      // refresh-folder-header-branch.
+      try { folderHeadWatcher.detachAll(); } catch { /* best-effort */ }
+      attachedFolderHeadCwds.clear();
+      folderHeadPoll = null;
       // Terminate the OpenSpec poll worker pool (best-effort — callers that
       // restart polling will respawn it lazily). See change:
       // offload-openspec-poll-to-worker.

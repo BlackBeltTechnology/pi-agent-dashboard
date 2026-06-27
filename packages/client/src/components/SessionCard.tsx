@@ -202,10 +202,19 @@ export const branchCache = new Map<string, { branch: string | null; noGit: boole
 interface GroupGitInfoProps {
   sessions: DashboardSession[];
   cwd: string;
+  /**
+   * Folder's own HEAD branch from the server folder-head poll/watcher
+   * (`git_head_update`). Precedence: `undefined` = no folder-HEAD entry yet
+   * (fall back to child-session branch / REST seed); a string = the folder's
+   * branch (outranks any child-session branch, e.g. a leaked worktree
+   * branch); `null` = folder confirmed non-git (render the "Init git" state).
+   * See change: refresh-folder-header-branch.
+   */
+  folderBranch?: string | null;
   onBranchClick?: () => void;
 }
 
-export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps) {
+export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick }: GroupGitInfoProps) {
   const session = sessions.find((s) => s.gitBranch);
   const cached = branchCache.get(cwd);
   const [fetchedBranch, setFetchedBranch] = useState<string | null>(cached?.branch ?? null);
@@ -244,7 +253,15 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
     return () => { cancelled = true; };
   }, [cwd, session?.gitBranch]);
 
-  const branchName = session?.gitBranch ?? fetchedBranch;
+  // Precedence: the folder's own HEAD (when reported) outranks any child
+  // session's branch (which may be a worktree branch leaked into the parent
+  // folder header). `folderBranch === undefined` means no `git_head_update`
+  // has arrived yet — fall back to the child branch, then the REST seed.
+  // See change: refresh-folder-header-branch.
+  const folderHasEntry = folderBranch !== undefined;
+  const branchName = folderHasEntry ? folderBranch : (session?.gitBranch ?? fetchedBranch);
+  // A confirmed-null folder HEAD is the non-git signal, same as `noGitRepo`.
+  const showInitGit = folderBranch === null ? true : noGitRepo;
   const branchUrl = session?.gitBranchUrl;
   const prNumber = session?.gitPrNumber;
   const prUrl = session?.gitPrUrl;
@@ -256,11 +273,11 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
         <button
           onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
           className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
-          title={noGitRepo ? "Initialize git repository" : "Git branches"}
+          title={showInitGit ? "Initialize git repository" : "Git branches"}
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
-          {noGitRepo && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
+          {showInitGit && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
         </button>
       </div>
     );

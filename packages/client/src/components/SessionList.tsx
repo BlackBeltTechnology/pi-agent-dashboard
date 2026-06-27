@@ -71,6 +71,12 @@ interface Props {
   onSelect: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
+  /**
+   * Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
+   * Outranks child-session branches in `GroupGitInfo`. See change:
+   * refresh-folder-header-branch.
+   */
+  folderGitMap?: Map<string, string | null>;
   openspecGroupsMap?: Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>;
   sessionOrderMap?: Map<string, string[]>;
   onReorderSessions?: (cwd: string, sessionIds: string[]) => void;
@@ -207,7 +213,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -708,6 +714,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             <GroupGitInfo
               sessions={group.sessions}
               cwd={group.cwd}
+              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
               onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
           </div>

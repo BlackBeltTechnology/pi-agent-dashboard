@@ -56,6 +56,12 @@ export interface MessageHandlerSetters {
   // pluginize-flows-via-registry.
   setFileResults: React.Dispatch<React.SetStateAction<{ query: string; files: FileEntry[] } | null>>;
   setOpenspecMap: React.Dispatch<React.SetStateAction<Map<string, OpenSpecData>>>;
+  /**
+   * Folder-HEAD branch map (`cwd → branch | null`), fed by `git_head_update`.
+   * `null` = folder confirmed non-git. Outranks child-session branches in
+   * `GroupGitInfo`. See change: refresh-folder-header-branch.
+   */
+  setFolderGitMap: React.Dispatch<React.SetStateAction<Map<string, string | null>>>;
   setOpenspecGroupsMap: React.Dispatch<React.SetStateAction<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>>;
   setModelsMap: React.Dispatch<React.SetStateAction<Map<string, ModelInfo[]>>>;
   setRolesMap: React.Dispatch<React.SetStateAction<Map<string, RoleInfo>>>;
@@ -129,7 +135,7 @@ export function useMessageHandler(
 ): (msg: ServerToBrowserMessage) => void {
   const {
     setSessions, setSessionStates, setSessionCommands,
-    setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
+    setFileResults, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
@@ -418,6 +424,17 @@ export function useMessageHandler(
         setOpenspecMap((prev) => {
           const next = new Map(prev);
           next.set(msg.cwd, msg.data);
+          return next;
+        });
+        break;
+
+      case "git_head_update":
+        // Folder's own HEAD (or `null` for non-git). Authoritative for the
+        // GROUP header, outranks any child-session branch. See change:
+        // refresh-folder-header-branch.
+        setFolderGitMap((prev) => {
+          const next = new Map(prev);
+          next.set(msg.cwd, msg.branch);
           return next;
         });
         break;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, renderHook } from "@testing-library/react";
 import React from "react";
-import { SessionCard, GroupGitInfo } from "../SessionCard.js";
+import { SessionCard, GroupGitInfo, branchCache } from "../SessionCard.js";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -501,6 +501,41 @@ describe("GroupGitInfo", () => {
     const btn = screen.getByTestId("git-init-btn");
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalled();
+  });
+
+  // ── folder-head precedence (refresh-folder-header-branch) ───────────────
+
+  it("git_head_update overwrites a stale branchCache REST seed", () => {
+    // Seed the module-level REST cache so first paint shows os/foo.
+    branchCache.set("/seed", { branch: "os/foo", noGit: false });
+    const sessions = [makeSession()]; // no gitBranch → uses seed
+    const { rerender } = render(<GroupGitInfo sessions={sessions} cwd="/seed" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+    // git_head_update arrives → folderBranch develop overrides the seed.
+    rerender(<GroupGitInfo sessions={sessions} cwd="/seed" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+    branchCache.delete("/seed");
+  });
+
+  it("folder HEAD outranks a leaked child-worktree branch", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("with no folderBranch entry, falls back to session.gitBranch", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  it("folderBranch null renders the Init git non-git state", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch={null} />);
+    expect(screen.getByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.getByText("Init git")).toBeTruthy();
   });
 });
 
