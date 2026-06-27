@@ -179,11 +179,14 @@ export function countNeedsYou(
  * and within the rest group is preserved. Pure + unit-testable.
  * See change: improve-dashboard-attention-routing.
  */
-export function floatAskUserFirst(sessions: DashboardSession[]): DashboardSession[] {
+export function floatAskUserFirst(
+  sessions: DashboardSession[],
+  isWidgetBar: (sessionId: string) => boolean = () => false,
+): DashboardSession[] {
   const blocked: DashboardSession[] = [];
   const rest: DashboardSession[] = [];
   for (const s of sessions) {
-    if (s.currentTool === "ask_user") blocked.push(s);
+    if (isChatRoutedAskUser(s, isWidgetBar(s.id))) blocked.push(s);
     else rest.push(s);
   }
   return blocked.length === 0 ? sessions : [...blocked, ...rest];

@@ -77,7 +77,7 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   }
 
   if (session.status === "streaming") {
-    return <span className="text-green-400">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
+    return <span className="text-[var(--status-working)]">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
   }
 
   if (session.status === "idle" || session.status === "active") {

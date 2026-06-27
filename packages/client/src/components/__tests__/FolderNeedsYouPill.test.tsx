@@ -63,11 +63,35 @@ describe("FolderNeedsYouPill", () => {
     expect(screen.queryByTestId("folder-needs-you-pill")).toBeNull();
   });
 
-  it("activates on click", () => {
+  it("activates on click with the first chat-routed blocked id", () => {
     const onActivate = vi.fn();
-    render(<FolderNeedsYouPill sessions={[makeSession({ id: "a", currentTool: "ask_user" })]} onActivate={onActivate} />);
+    render(
+      <FolderNeedsYouPill
+        sessions={[
+          makeSession({ id: "a", currentTool: "ask_user" }),
+          makeSession({ id: "c", currentTool: "ask_user" }),
+        ]}
+        onActivate={onActivate}
+      />,
+    );
     fireEvent.click(screen.getByTestId("folder-needs-you-pill"));
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).toHaveBeenCalledWith("a");
+  });
+
+  it("activation target skips widget-bar sessions", () => {
+    widgetBarIds.add("a");
+    const onActivate = vi.fn();
+    render(
+      <FolderNeedsYouPill
+        sessions={[
+          makeSession({ id: "a", currentTool: "ask_user" }),
+          makeSession({ id: "c", currentTool: "ask_user" }),
+        ]}
+        onActivate={onActivate}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("folder-needs-you-pill"));
+    expect(onActivate).toHaveBeenCalledWith("c");
   });
 
   it("label collapses on mobile (hidden sm:inline), icon+count stay", () => {

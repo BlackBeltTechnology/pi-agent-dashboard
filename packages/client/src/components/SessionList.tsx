@@ -652,18 +652,22 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             </span>
             <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
             {/* Needs-you rollup: count of chat-routed ask_user children.
-                Click scrolls the first blocked session into view + selects it.
+                Pill resolves the target id (widget-bar excluded) and passes it
+                up; we select + scroll it into view.
                 See change: improve-dashboard-attention-routing. */}
             <FolderNeedsYouPill
               sessions={group.sessions}
-              onActivate={() => {
-                const blocked = group.sessions.find((s) => s.currentTool === "ask_user" && s.status !== "ended");
-                if (!blocked) return;
+              onActivate={(sessionId) => {
+                if (!sessionId) return;
                 if (isCollapsed) handleToggleCollapse(group.cwd);
-                onSelect(blocked.id);
+                onSelect(sessionId);
+                const escaped =
+                  typeof window !== "undefined" && typeof window.CSS?.escape === "function"
+                    ? window.CSS.escape(sessionId)
+                    : sessionId.replace(/"/g, '\\"');
                 requestAnimationFrame(() => {
                   document
-                    .querySelector(`[data-session-id="${blocked.id}"]`)
+                    .querySelector(`[data-session-id="${escaped}"]`)
                     ?.scrollIntoView({ behavior: "smooth", block: "center" });
                 });
               }}
@@ -675,6 +679,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onClick={(e) => { e.stopPropagation(); urgencySort.toggle(group.cwd); }}
               className={`px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
               title={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
+              aria-label={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
               aria-pressed={urgencySort.isOn(group.cwd)}
               data-testid={`folder-urgency-sort-${group.cwd}`}
             >

@@ -20,7 +20,6 @@ import { mdiCommentQuestion } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useState } from "react";
 import { t as i18nT } from "../lib/i18n";
-import { countNeedsYou } from "../lib/session-status-visuals.js";
 
 function WidgetBarProbe({
   sessionId,
@@ -41,23 +40,27 @@ export function FolderNeedsYouPill({
   onActivate,
 }: {
   sessions: DashboardSession[];
-  onActivate: () => void;
+  /** Invoked with the first chat-routed (non-widget-bar) blocked session id. */
+  onActivate: (sessionId: string) => void;
 }) {
   const candidates = sessions.filter((s) => s.currentTool === "ask_user" && s.status !== "ended");
-  const [widgetBarIds, setWidgetBarIds] = useState<Set<string>>(() => new Set());
+  // Per-candidate widget-bar classification once its probe reports. Absent =
+  // not yet classified (excluded from the count until known) so the pill never
+  // flashes an over-count before the probes resolve.
+  const [classified, setClassified] = useState<Map<string, boolean>>(() => new Map());
 
   const onResult = useCallback((sessionId: string, isWidgetBar: boolean) => {
-    setWidgetBarIds((prev) => {
-      const has = prev.has(sessionId);
-      if (isWidgetBar === has) return prev;
-      const next = new Set(prev);
-      if (isWidgetBar) next.add(sessionId);
-      else next.delete(sessionId);
+    setClassified((prev) => {
+      if (prev.get(sessionId) === isWidgetBar) return prev;
+      const next = new Map(prev);
+      next.set(sessionId, isWidgetBar);
       return next;
     });
   }, []);
 
-  const count = countNeedsYou(candidates, (id) => widgetBarIds.has(id));
+  // Blocked = candidate whose probe reported NOT widget-bar.
+  const blockedIds = candidates.filter((s) => classified.get(s.id) === false).map((s) => s.id);
+  const count = blockedIds.length;
 
   return (
     <>
@@ -69,7 +72,7 @@ export function FolderNeedsYouPill({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onActivate();
+            onActivate(blockedIds[0]);
           }}
           data-testid="folder-needs-you-pill"
           data-needs-you-count={count}

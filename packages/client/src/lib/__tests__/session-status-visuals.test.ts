@@ -272,6 +272,24 @@ describe("floatAskUserFirst", () => {
     const list = [makeSession({ id: "x", status: "idle" })];
     expect(floatAskUserFirst(list)).toBe(list);
   });
+
+  it("excludes widget-bar ask_user from the float (same predicate as the rest)", () => {
+    const list = [
+      makeSession({ id: "x", status: "streaming" }),
+      makeSession({ id: "a", currentTool: "ask_user" }),
+      makeSession({ id: "w", currentTool: "ask_user" }),
+    ];
+    // `w` is widget-bar → not floated.
+    expect(floatAskUserFirst(list, (id) => id === "w").map((s) => s.id)).toEqual(["a", "x", "w"]);
+  });
+
+  it("does not float ended sessions with lingering ask_user", () => {
+    const list = [
+      makeSession({ id: "x", status: "idle" }),
+      makeSession({ id: "e", status: "ended", currentTool: "ask_user" }),
+    ];
+    expect(floatAskUserFirst(list)).toBe(list);
+  });
 });
 
 describe("pulseClassForStatus", () => {
