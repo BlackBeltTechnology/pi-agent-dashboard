@@ -65,6 +65,17 @@ Node.js HTTP + WebSocket server that:
 - Exposes REST API for session management, event content fetch, pinned directories, and file reading
 - Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, flow-control, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
 
+**Bind model.** HTTP listener + pi gateway WS listener bind `127.0.0.1` by default. Loopback removes socket from wire.
+
+- Resolution chain: `--host <ip>` → `PI_DASHBOARD_HOST` env → `config.bindHost` (config.json) → `"127.0.0.1"`. Mirrors `port`.
+- One `bindHost` governs both HTTP + pi gateway. Shared trust boundary.
+- Model-proxy second port stays hardcoded `127.0.0.1` (SDK-local).
+- `bindHost` restart-required (in `RESTART_FIELDS`). Live sockets do not hot-rebind; new value applies next start.
+- Docker all-in-one sets `PI_DASHBOARD_HOST=0.0.0.0` to opt into exposure through published ports.
+- Defense-in-depth: app-layer request guard (loopback + `trustedNetworks` + optional auth) still enforces trust at request time. Loopback bind removes socket from wire, so guard regression cannot leak.
+
+See change: configurable-bind-host.
+
 **Server decomposition:** The server is split into focused modules:
 - `server.ts` — Orchestrator: creates services, composes modules, manages lifecycle
 - `routes/` — REST API routes grouped by domain (session, git, file, openspec, system)

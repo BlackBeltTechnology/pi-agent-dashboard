@@ -140,6 +140,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     server = await createServer({
       port: HTTP_PORT,
       piPort: PI_PORT,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

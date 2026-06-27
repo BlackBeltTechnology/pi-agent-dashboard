@@ -305,6 +305,24 @@ Cross-refs:
 - README.md:178
 - docs/architecture.md:959
 
+## How do I expose the dashboard on my LAN?
+
+Native installs bind `127.0.0.1` (loopback) by default. HTTP + pi gateway both stay local.
+
+To reach the dashboard from other machines, set the bind host (restart required):
+- `PI_DASHBOARD_HOST=0.0.0.0` env var, or
+- Settings → Server → Listen Interface → All interfaces (or pick a specific NIC), or
+- `--host <ip>` CLI flag, or
+- `bindHost` field in `~/.pi/dashboard/config.json`.
+
+Resolution order: `--host` → `PI_DASHBOARD_HOST` → `config.bindHost` → `127.0.0.1`. One `bindHost` governs both HTTP + pi gateway.
+
+Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (`trustedNetworks` / auth) still applies per request.
+
+Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable through published ports.
+
+See change: configurable-bind-host.
+
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 
 Server serves `/manifest.json` dynamically per request.

@@ -31,6 +31,11 @@ services:
       # Ports (entrypoint maps these to pi-dashboard flags).
       DASHBOARD_PORT: "${DASHBOARD_PORT:-8000}"
       PI_GATEWAY_PORT: "${PI_GATEWAY_PORT:-9999}"
+      # Bind host for HTTP + pi gateway. Container must bind 0.0.0.0 so the
+      # published ports reach the server inside the container. The native
+      # default is loopback; the container declares its exposure here.
+      # See change: configurable-bind-host.
+      PI_DASHBOARD_HOST: "${PI_DASHBOARD_HOST:-0.0.0.0}"
       # Session spawn strategy: headless | tmux. Seeded into config.json on
       # first run only (UI edits win afterward).
       PI_SPAWN_STRATEGY: "${PI_SPAWN_STRATEGY:-tmux}"

@@ -71,6 +71,8 @@ interface NetworkInterfaceInfo {
 interface Config {
   port: number;
   piPort: number;
+  /** Listen interface for HTTP + pi gateway. Default "127.0.0.1". See change: configurable-bind-host. */
+  bindHost?: string;
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -145,7 +147,7 @@ const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 // Maps each config-diff key to the settings page it renders on, so the nav
 // rail can show a per-page dirty dot. See change: unify-settings-save-contract.
 const CONFIG_FIELD_PAGE: Record<string, string> = {
-  port: "server", piPort: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
+  port: "server", piPort: "server", bindHost: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
@@ -167,6 +169,9 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   const partial: Record<string, any> = {};
   if (config.port !== original.port) partial.port = config.port;
   if (config.piPort !== original.piPort) partial.piPort = config.piPort;
+  if ((config.bindHost ?? "127.0.0.1") !== (original.bindHost ?? "127.0.0.1")) {
+    partial.bindHost = config.bindHost ?? "127.0.0.1";
+  }
   if (config.autoStart !== original.autoStart) partial.autoStart = config.autoStart;
   if (config.autoShutdown !== original.autoShutdown) partial.autoShutdown = config.autoShutdown;
   if (config.shutdownIdleSeconds !== original.shutdownIdleSeconds) partial.shutdownIdleSeconds = config.shutdownIdleSeconds;
@@ -769,6 +774,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                 <Section title={i18nT("auto.server", undefined, "Server")}>
                   <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} />
                   <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} />
+                  <ListenInterfaceField
+                    bindHost={config.bindHost ?? "127.0.0.1"}
+                    hasGuardConfig={hasGuardConfig(config)}
+                    onChange={(v) => update((c) => { c.bindHost = v; })}
+                  />
                   <ToggleField label={t("settings.autoShutdown", undefined, "Auto Shutdown")} value={config.autoShutdown} onChange={(v) => update((c) => { c.autoShutdown = v; })} />
                   {config.autoShutdown && (
                     <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
@@ -1702,6 +1712,106 @@ function ServersTab() {
         />
       </Section>
     </>
+  );
+}
+
+/**
+ * True when the request guard has at least one line of defense configured:
+ * an OAuth provider, or a trusted network / bypass host. Drives the
+ * all-interfaces exposure warning. See change: configurable-bind-host.
+ */
+function hasGuardConfig(config: Config): boolean {
+  const hasProviders = Object.keys(config.auth?.providers ?? {}).length > 0;
+  const hasTrusted = (config.trustedNetworks ?? []).length > 0;
+  const hasBypassHosts = (config.auth?.bypassHosts ?? []).length > 0;
+  return hasProviders || hasTrusted || hasBypassHosts;
+}
+
+type ListenMode = "local" | "all" | "specific";
+
+function bindHostToMode(host: string): ListenMode {
+  if (host === "127.0.0.1") return "local";
+  if (host === "0.0.0.0") return "all";
+  return "specific";
+}
+
+/**
+ * 3-way listen-interface picker bound to `bindHost`: Local only (127.0.0.1),
+ * All interfaces (0.0.0.0), or a specific detected NIC. Options for the
+ * specific mode come from GET /api/network-interfaces. Shows an advisory
+ * exposure warning when All interfaces is selected without guard config.
+ * See change: configurable-bind-host.
+ */
+function ListenInterfaceField({
+  bindHost,
+  hasGuardConfig: guarded,
+  onChange,
+}: {
+  bindHost: string;
+  hasGuardConfig: boolean;
+  onChange: (host: string) => void;
+}) {
+  const { t } = useI18n();
+  const mode = bindHostToMode(bindHost);
+  const [interfaces, setInterfaces] = useState<NetworkInterfaceInfo[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${getApiBase()}/api/network-interfaces`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.success) setInterfaces(data.data as NetworkInterfaceInfo[]);
+      })
+      .catch(() => { /* ignore — picker still offers local/all */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const selectMode = (next: ListenMode) => {
+    if (next === "local") onChange("127.0.0.1");
+    else if (next === "all") onChange("0.0.0.0");
+    else onChange(interfaces[0]?.address ?? bindHost);
+  };
+
+  const radioId = (m: ListenMode) => `listen-mode-${m}`;
+
+  return (
+    <div className="space-y-2" data-testid="listen-interface-field">
+      <label className="text-sm text-[var(--text-secondary)]">
+        {t("settings.listenInterface", undefined, "Listen Interface")}
+      </label>
+      <div className="space-y-1">
+        <label htmlFor={radioId("local")} className="flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer">
+          <input id={radioId("local")} type="radio" name="listen-interface" checked={mode === "local"} onChange={() => selectMode("local")} />
+          {t("settings.listenLocalOnly", undefined, "Local only")} <code className="text-xs text-[var(--text-tertiary)]">127.0.0.1</code>
+        </label>
+        <label htmlFor={radioId("all")} className="flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer">
+          <input id={radioId("all")} type="radio" name="listen-interface" checked={mode === "all"} onChange={() => selectMode("all")} />
+          {t("settings.listenAllInterfaces", undefined, "All interfaces")} <code className="text-xs text-[var(--text-tertiary)]">0.0.0.0</code>
+        </label>
+        <label htmlFor={radioId("specific")} className="flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer">
+          <input id={radioId("specific")} type="radio" name="listen-interface" checked={mode === "specific"} onChange={() => selectMode("specific")} disabled={interfaces.length === 0} />
+          {t("settings.listenSpecificInterface", undefined, "Specific interface")}
+          {mode === "specific" && (
+            <select
+              data-testid="listen-interface-select"
+              className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
+              value={bindHost}
+              onChange={(e) => onChange(e.target.value)}
+            >
+              {interfaces.map((iface) => (
+                <option key={iface.address} value={iface.address}>{iface.name} — {iface.address}</option>
+              ))}
+            </select>
+          )}
+        </label>
+      </div>
+      {mode === "all" && !guarded && (
+        <div data-testid="listen-exposure-warning" className="flex items-start gap-2 text-xs text-yellow-500 bg-yellow-500/10 rounded px-2 py-1.5">
+          <Icon path={mdiAlert} size={0.7} className="mt-0.5 shrink-0" />
+          <span>{t("settings.listenExposureWarning", undefined, "All interfaces exposes the dashboard on your LAN. No authentication or trusted networks are configured — anyone who can reach this host can access it.")}</span>
+        </div>
+      )}
+    </div>
   );
 }
 

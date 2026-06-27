@@ -16,7 +16,7 @@ export interface PiGatewayOptions {
 }
 
 export interface PiGateway {
-  start(port: number): void;
+  start(port: number, host?: string): void;
   stop(): void;
   /** Resolved listening port after start() (useful when start(0) is used). Returns null if not started or closed. */
   address(): number | null;
@@ -193,8 +193,8 @@ export function createPiGateway(
       if (addr && typeof addr === "object") return addr.port;
       return null;
     },
-    start(port: number) {
-      wss = new WebSocketServer({ port });
+    start(port: number, host?: string) {
+      wss = new WebSocketServer(host ? { port, host } : { port });
 
       // WS-level ping/pong: detect truly dead connections.
       // Pong responses are processed in the event loop, so a busy bridge

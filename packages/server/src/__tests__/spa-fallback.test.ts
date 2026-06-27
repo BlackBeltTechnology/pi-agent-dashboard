@@ -29,6 +29,7 @@ describe("SPA fallback", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: false, // production mode enables static serving + SPA fallback
       autoShutdown: false,
       shutdownIdleSeconds: 999,

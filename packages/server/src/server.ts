@@ -107,6 +107,13 @@ import { detectCodeServerBinary } from "./editor-detection.js";
 export interface ServerConfig {
   port: number;
   piPort: number;
+  /**
+   * Host/interface the HTTP server and pi gateway bind to. Resolved by
+   * `buildConfig()` through `--host` → `PI_DASHBOARD_HOST` → `config.bindHost`
+   * → `"127.0.0.1"`. Governs both primary listeners; the model-proxy second
+   * port stays loopback. See change: configurable-bind-host.
+   */
+  host: string;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -1318,7 +1325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         setSpawnDashboardPiPort(config.piPort);
       }
 
-      piGateway.start(config.piPort);
+      piGateway.start(config.piPort, config.host);
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
       // register routes. Fastify rejects route registration after listen().
@@ -1493,7 +1500,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       });
 
-      await fastify.listen({ port: config.port, host: "0.0.0.0" });
+      await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://localhost:${config.port}`);
       console.log(`Pi gateway listening on port ${config.piPort}`);

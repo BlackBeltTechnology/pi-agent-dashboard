@@ -1,8 +1,11 @@
 /**
  * Tests for CLI argument parsing.
  */
-import { describe, it, expect } from "vitest";
-import { parseArgs } from "../cli.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { parseArgs, buildConfig } from "../cli.js";
 
 describe("parseArgs", () => {
   it("returns null subcommand with no args", () => {
@@ -55,6 +58,12 @@ describe("parseArgs", () => {
     expect(result.flags.dev).toBe(true);
   });
 
+  it("parses --host flag", () => {
+    const result = parseArgs(["start", "--host", "0.0.0.0"]);
+    expect(result.subcommand).toBe("start");
+    expect(result.flags.host).toBe("0.0.0.0");
+  });
+
   it("parses --no-tunnel flag", () => {
     const result = parseArgs(["start", "--no-tunnel"]);
     expect(result.subcommand).toBe("start");
@@ -71,6 +80,51 @@ describe("parseArgs", () => {
     const result = parseArgs(["--port", "3000"]);
     expect(result.subcommand).toBeNull();
     expect(result.flags.port).toBe(3000);
+  });
+});
+
+describe("buildConfig host resolution", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+  let origEnvHost: string | undefined;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-bindhost-"));
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    origEnvHost = process.env.PI_DASHBOARD_HOST;
+    process.env.HOME = testDir;
+    delete process.env.PI_DASHBOARD_HOST;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (origEnvHost === undefined) delete process.env.PI_DASHBOARD_HOST;
+    else process.env.PI_DASHBOARD_HOST = origEnvHost;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("defaults to 127.0.0.1 when nothing configured", () => {
+    expect(buildConfig({}).host).toBe("127.0.0.1");
+  });
+
+  it("config.bindHost overrides default", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ bindHost: "10.0.0.5" }));
+    expect(buildConfig({}).host).toBe("10.0.0.5");
+  });
+
+  it("PI_DASHBOARD_HOST env overrides config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ bindHost: "10.0.0.5" }));
+    process.env.PI_DASHBOARD_HOST = "0.0.0.0";
+    expect(buildConfig({}).host).toBe("0.0.0.0");
+  });
+
+  it("--host flag overrides env and config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ bindHost: "10.0.0.5" }));
+    process.env.PI_DASHBOARD_HOST = "0.0.0.0";
+    expect(buildConfig({ host: "127.0.0.1" }).host).toBe("127.0.0.1");
   });
 });
 

@@ -71,6 +71,13 @@ describe("config-api", () => {
       expect(result.restartRequired).toBe(true);
     });
 
+    it("should flag restartRequired when bindHost changes", () => {
+      fs.writeFileSync(configFile, JSON.stringify({ bindHost: "127.0.0.1" }));
+      const result = writeConfigPartial({ bindHost: "0.0.0.0" });
+      expect(result.success).toBe(true);
+      expect(result.restartRequired).toBe(true);
+    });
+
     it("should not flag restartRequired for non-port changes", () => {
       fs.writeFileSync(configFile, JSON.stringify({ port: 8000, autoShutdown: true }));
       const result = writeConfigPartial({ autoShutdown: false, shutdownIdleSeconds: 60 });

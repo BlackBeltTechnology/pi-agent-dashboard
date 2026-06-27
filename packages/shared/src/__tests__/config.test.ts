@@ -32,6 +32,14 @@ describe("loadConfig", () => {
     expect(config.shutdownIdleSeconds).toBe(300);
   });
 
+  it("should default bindHost to 127.0.0.1 when absent and preserve an explicit value", () => {
+    const defaultConfig = loadConfig();
+    expect(defaultConfig.bindHost).toBe("127.0.0.1");
+
+    fs.writeFileSync(configFile, JSON.stringify({ bindHost: "0.0.0.0" }));
+    expect(loadConfig().bindHost).toBe("0.0.0.0");
+  });
+
   it("should return values from config when all fields present", () => {
     fs.writeFileSync(configFile, JSON.stringify({
       port: 3000,

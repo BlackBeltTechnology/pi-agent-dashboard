@@ -47,6 +47,7 @@ describe("§8 spawn→register persists gitWorktreeBase to .meta.json", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

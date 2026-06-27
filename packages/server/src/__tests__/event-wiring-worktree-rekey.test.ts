@@ -63,6 +63,7 @@ function sendGitInfo(ws: WebSocket, sessionId: string, gitWorktree: unknown) {
 const baseConfig: ServerConfig = {
   port: 0,
   piPort: 0,
+  host: "127.0.0.1",
   dev: true,
   autoShutdown: false,
   shutdownIdleSeconds: 999,
