@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { FileLink } from "../FileLink.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as editorApi from "../../../lib/editor-api.js";
+import { FilePreviewHost, FilePreviewProvider } from "../../FilePreviewContext.js";
+import { ThemeProvider } from "../../ThemeProvider.js";
+import { FileLink } from "../FileLink.js";
 import type { ToolContext } from "../types.js";
 
 const originalLocation = window.location;
@@ -20,7 +21,14 @@ function restoreHost() {
 // FilePreviewOverlay (rendered on the no-editor path) reads ThemeProvider for
 // syntax highlighting, so every render is wrapped.
 function renderFL(ui: React.ReactElement) {
-  return render(<ThemeProvider>{ui}</ThemeProvider>);
+  return render(
+    <ThemeProvider>
+      <FilePreviewProvider>
+        {ui}
+        <FilePreviewHost />
+      </FilePreviewProvider>
+    </ThemeProvider>,
+  );
 }
 
 beforeAll(() => {

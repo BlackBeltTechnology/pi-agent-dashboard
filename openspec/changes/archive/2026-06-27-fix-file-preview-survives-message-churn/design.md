@@ -53,25 +53,51 @@ interface FilePreviewContextValue {
 
 - `FilePreviewProvider` owns `useState<FilePreviewTarget | null>(null)`.
 - `useFilePreview()` hook returns the context value; throws if used outside the
-  provider (standard guard).
+  provider (standard guard). Only `FilePreviewHost` uses it, and the host always
+  renders inside the provider.
 - `FilePreviewHost` reads `target` and renders `target && <FilePreviewOverlay
   {...target} onClose={close} />`. Single instance.
+
+### Provider-optional fallback (implementation correction)
+
+A throwing guard at the *routing* layer assumed `FileLink`/`OpenFileButton`
+only render inside `ChatView`. They do not: `MarkdownContent` (→ `FileLink`)
+also renders in non-chat surfaces with no provider — `PackageReadmeDialog`,
+`MarkdownPreviewView`, `DiagnosticsSection`, `PreviewOverlayView`, and
+plugin-registered UI primitives. A throw there would crash those panels on any
+file-link token.
+
+So `useFileOpenRouting` reads `FilePreviewContext` via `useContext` (nullable):
+- Provider present (chat) → `hostManaged: true`; dispatch to `ctx.open`; the
+  single `FilePreviewHost` renders the overlay (churn-surviving).
+- Provider absent (standalone) → `hostManaged: false`; fall back to leaf-local
+  `useState`; the consumer renders its own `FilePreviewOverlay` (prior
+  behavior, never crashes).
+
+This keeps the spec's five chat scenarios satisfied while leaving non-chat
+surfaces working unchanged.
 
 ### FileLink changes
 
 - Keep `useFileOpenRouting` for the **editor-vs-preview routing decision**
   (`localEditorAvailable`, `editorName`, `openFile`) — that logic is unchanged.
 - Remove the preview `useState` and the inline `<FilePreviewOverlay>` JSX.
-- In the preview branch, instead of `setPreview(...)`, call
-  `useFilePreview().open({ cwd, path, line })`.
+- In the preview branch, instead of `setPreview(...)`, call the routing hook's
+  `open` (which targets the provider when present, else leaf-local state).
 - `cwd` is already available in `useFileOpenRouting`; pass it through to `open`.
+- The consumer still renders a fallback `<FilePreviewOverlay>` guarded by
+  `!hostManaged && previewTarget` (only fires on the no-provider path).
 
 ### useFileOpenRouting changes
 
-- Drop `preview` / `setPreview` / `closePreview` state and `PreviewTarget`.
-- `openFile(path, line)` for the preview branch delegates to the context
-  `open`. The editor branch (`POST /api/open-editor`) is untouched.
-- Net: the hook becomes routing-only; it no longer holds UI state.
+- Replace the unconditional `PreviewTarget` state with provider-or-local
+  routing: `useContext(FilePreviewContext)` decides whether `open` targets the
+  hoisted provider or leaf-local `useState`.
+- `openFile(path, line)` for the preview branch delegates to that `open`. The
+  editor branch (`POST /api/open-editor`) is untouched.
+- Net: the hook is routing-first; it only holds UI state on the fallback
+  (no-provider) path, and exposes `hostManaged` / `previewTarget` /
+  `closePreview` so standalone consumers can render their own overlay.
 
 ## Invariants preserved
 
