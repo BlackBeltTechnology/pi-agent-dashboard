@@ -137,7 +137,15 @@ COPY qa/fixtures ./qa/fixtures
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 
-RUN npm install \
+# Drop the committed lockfile before install: npm bug #4828 makes both
+# `npm install` and `npm ci` skip platform-matching optional deps when resolving
+# against a lockfile generated on another platform (here: the macOS lock omits
+# the install of `@rollup/rollup-linux-x64-gnu`, breaking the linux web-client
+# build with `Cannot find module .../rollup/dist/native.js`). Removing the lock
+# lets npm resolve the correct native binary for the build platform — the fix
+# the error itself prescribes. Scoped to this build image only.
+RUN rm -f package-lock.json \
+ && npm install \
  && npm run build \
  # Link the root package so `pi-dashboard` is on PATH.
  && npm link \
