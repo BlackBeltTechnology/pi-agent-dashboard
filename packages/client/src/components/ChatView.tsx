@@ -312,7 +312,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   }), []);
 
   return (
-    <FilePreviewProvider>
+    // Key by sessionId so switching sessions (ChatView is reused, not remounted)
+    // resets the hoisted preview — a preview open in session A never leaks into B.
+    <FilePreviewProvider key={sessionId}>
     <div className="flex-1 relative overflow-hidden flex flex-col">
     <div ref={scrollRef} onScroll={handleScroll} style={{ overflowAnchor: "auto" }} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {

@@ -29,6 +29,12 @@ function renderBtn(ui: React.ReactElement) {
   );
 }
 
+// No-provider render: exercises OpenFileButton's leaf-local fallback overlay
+// (README/markdown/plugin surfaces with no FilePreviewProvider mounted).
+function renderBtnNoProvider(ui: React.ReactElement) {
+  return render(<ThemeProvider>{ui}</ThemeProvider>);
+}
+
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
@@ -70,6 +76,23 @@ describe("OpenFileButton", () => {
     );
     const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
     const { getByRole, findByTestId } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
+    fireEvent.click(getByRole("button"));
+    expect(editorApi.openEditor).not.toHaveBeenCalled();
+    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
+  });
+
+  it("no provider → renders its own fallback preview overlay", async () => {
+    setHost("localhost");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as any,
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+    const { getByRole, findByTestId } = renderBtnNoProvider(
+      <OpenFileButton filePath="src/foo.ts" context={ctx} />,
+    );
     fireEvent.click(getByRole("button"));
     expect(editorApi.openEditor).not.toHaveBeenCalled();
     expect(await findByTestId("file-preview-overlay")).toBeTruthy();

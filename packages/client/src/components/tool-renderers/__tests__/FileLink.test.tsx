@@ -31,6 +31,14 @@ function renderFL(ui: React.ReactElement) {
   );
 }
 
+// No-provider render: exercises FileLink's leaf-local fallback overlay (the
+// path used on non-chat surfaces like README dialogs / markdown preview, where
+// no FilePreviewProvider is mounted). renderFL above always goes through the
+// hosted path, so this keeps the fallback branch covered.
+function renderFLNoProvider(ui: React.ReactElement) {
+  return render(<ThemeProvider>{ui}</ThemeProvider>);
+}
+
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
@@ -133,6 +141,25 @@ describe("FileLink — click routing", () => {
     // A plain click still opens (calls openEditor on localhost+editor).
     fireEvent.click(button);
     expect(editorApi.openEditor).toHaveBeenCalled();
+  });
+
+  it("no provider → FileLink renders its own fallback preview overlay", async () => {
+    setHost("dashboard.example.com");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as any,
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+    const { getByRole, findByTestId } = renderFLNoProvider(
+      <FileLink path="src/foo.ts" context={ctx}>
+        src/foo.ts
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
+    fetchSpy.mockRestore();
   });
 
   it("title exposes resolved absolute path on hover", () => {
