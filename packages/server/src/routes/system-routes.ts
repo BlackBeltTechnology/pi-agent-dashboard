@@ -24,6 +24,7 @@ import { spawnRestart } from "../restart-helper.js";
 import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import path from "node:path";
 import os from "node:os";
+import { isAllowed } from "../lib/path-containment.js";
 import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
 import { readSpawnFailures } from "../spawn-failure-log.js";
 import {
@@ -168,10 +169,10 @@ export function registerSystemRoutes(
 
       const target = file ? path.resolve(cwd, file) : cwd;
       // Containment gate (mirrors /api/file): the resolved target MUST stay
-      // under the known session cwd. Rejects `../..` traversal and absolute
-      // paths (`/etc/...`, decoded `file://...`) outside the workspace.
-      const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
-      if (target !== cwd && !target.startsWith(cwdWithSep)) {
+      // under the known session cwd or its git common root. Rejects `../..`
+      // traversal and absolute paths (`/etc/...`, decoded `file://...`) outside
+      // the workspace.
+      if (!(await isAllowed(target, { anchors: [cwd] }))) {
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
       const args = line && file ? [`${target}:${line}`] : [target];
