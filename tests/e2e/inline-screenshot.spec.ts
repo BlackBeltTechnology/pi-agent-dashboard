@@ -32,20 +32,9 @@ test.describe("faux round-trip — inline agent screenshot", () => {
       timeout: 30_000,
     });
 
-    // Expand the bash tool card if it is collapsed (auto-expand-on-image is
-    // covered by the ToolCallStep unit test; this e2e asserts the bridge inline
-    // + path-strip, so it expands explicitly to be robust to that timing).
-    const toolBtn = page.getByRole("button", { name: /base64 -d/ }).first();
-    if (await toolBtn.isVisible().catch(() => false)) {
-      const imgNow = await page
-        .locator('img[src^="data:image/png;base64,"]')
-        .first()
-        .isVisible()
-        .catch(() => false);
-      if (!imgNow) await toolBtn.click();
-    }
-
-    // The bridge inlined the PNG → an inline <img> with a data:image/png src.
+    // The bridge inlined the PNG (under the artifact root) → an inline <img>
+    // with a data:image/png src is visible WITHOUT clicking: ToolCallStep
+    // auto-expands when images arrive (live tool_execution_end).
     const img = page.locator('img[src^="data:image/png;base64,"]').first();
     await expect(img).toBeVisible({ timeout: 30_000 });
 

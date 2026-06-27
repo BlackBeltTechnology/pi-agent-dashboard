@@ -59,6 +59,13 @@ export interface InlineToolResultImagesOptions {
   maxPerMessageBytes?: number;
   /** Override the per-result image-count cap. Default `MAX_IMAGES_PER_RESULT`. */
   maxImagesPerResult?: number;
+  /**
+   * Containment gate. When provided, a candidate path is inlined only if this
+   * predicate returns true (the bridge wires it to the artifact-root allowlist
+   * so arbitrary tool-echoed paths are NOT read/inlined). Disallowed paths are
+   * left as text → artifact-serving fallback. When omitted, no path restriction.
+   */
+  isAllowedPath?: (absPath: string) => boolean;
 }
 
 export interface InlineToolResultImagesResult {
@@ -128,6 +135,8 @@ export function inlineToolResultImages(
 
   for (const absPath of candidates) {
     if (blocks.length >= maxImages) break;
+    // Containment gate BEFORE any disk read: skip paths outside the allowlist.
+    if (opts.isAllowedPath && !opts.isAllowedPath(absPath)) continue;
     const outcome = inlineLocalImagePath(absPath, {
       readFile: opts.readFile,
       maxPerImageBytes: opts.maxPerImageBytes,

@@ -75,14 +75,18 @@ export const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog."
 
 /**
  * Inline-screenshot scenario (Fix B end-to-end). A real `bash` tool call writes
- * a tiny valid PNG to an absolute path, then echoes `Screenshot saved: <path>`.
- * The bridge's tool-result inliner (`inlineToolResultImages`) reads the file at
- * `tool_execution_end`, attaches a `type:"image"` block, and strips the path so
- * no dead link renders. The e2e asserts the inline `<img>` + path-consumption.
+ * a tiny valid PNG UNDER THE DEFAULT ARTIFACT ROOT (`$HOME/.agent-browser/tmp`,
+ * = `/home/pi/...` in the test container) so the bridge's artifact-root gate
+ * allows it, then echoes `Screenshot saved: <path>`. The bridge's tool-result
+ * inliner (`inlineToolResultImages`) reads the file at `tool_execution_end`,
+ * attaches a `type:"image"` block, and strips the path so no dead link renders.
+ * The e2e asserts the inline `<img>` + path-consumption.
  * See change: inline-agent-screenshot-artifacts.
  */
 export const SCREENSHOT_INLINE = {
-  path: "/tmp/e2e-shots/shot.png",
+  // Resolved path the bash result echoes (container HOME is /home/pi). Inside
+  // the default artifact root, so the bridge containment gate permits inlining.
+  path: "/home/pi/.agent-browser/tmp/e2e-shot.png",
   mime: "image/png",
 } as const;
 
@@ -252,9 +256,12 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage(
         [
           fauxToolCall("bash", {
+            // Use $HOME (expands to /home/pi) so the command DISPLAY keeps the
+            // literal `$HOME/...` while the RESULT echoes the resolved path —
+            // keeping the D5 exact-path assertion isolated to the result.
             command:
-              `mkdir -p /tmp/e2e-shots && printf %s '${TINY_PNG_B64}' | base64 -d > ${SCREENSHOT_INLINE.path} && ` +
-              `echo "Screenshot saved: ${SCREENSHOT_INLINE.path}"`,
+              `mkdir -p "$HOME/.agent-browser/tmp" && printf %s '${TINY_PNG_B64}' | base64 -d > "$HOME/.agent-browser/tmp/e2e-shot.png" && ` +
+              `echo "Screenshot saved: $HOME/.agent-browser/tmp/e2e-shot.png"`,
           }),
         ],
         { stopReason: "toolUse" },

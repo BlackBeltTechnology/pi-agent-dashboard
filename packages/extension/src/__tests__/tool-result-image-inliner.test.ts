@@ -68,6 +68,25 @@ describe("inlineToolResultImages", () => {
     expect(text).toContain("/tmp/big.png");
   });
 
+  it("isAllowedPath gate: out-of-root path left as text, in-root path inlined", () => {
+    const reader = fakeReader({ "/allowed/shot.png": PNG, "/etc/secret.png": PNG_2 });
+    // Out-of-root → not inlined, result unchanged.
+    const blocked = inlineToolResultImages("leaked /etc/secret.png", {
+      readFile: reader,
+      isAllowedPath: (p) => p.startsWith("/allowed/"),
+    });
+    expect(blocked.inlinedCount).toBe(0);
+    expect(blocked.result).toBe("leaked /etc/secret.png");
+
+    // In-root → inlined.
+    const allowed = inlineToolResultImages("saved /allowed/shot.png", {
+      readFile: reader,
+      isAllowedPath: (p) => p.startsWith("/allowed/"),
+    });
+    expect(allowed.inlinedCount).toBe(1);
+    expect(imageBlocks(allowed.result)).toHaveLength(1);
+  });
+
   it("non-image path → untouched (result unchanged, no image block)", () => {
     const original = "Wrote /tmp/notes.txt";
     const out = inlineToolResultImages(original, {

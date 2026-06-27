@@ -1,7 +1,7 @@
 # inline-artifact-image-paths Specification
 
 ## Purpose
-Define how the bridge inlines path-referenced image tool results at capture time. At `tool_execution_end`, an existing local image file referenced by absolute path is read and attached as a `type:"image"` content block (within per-image / per-message byte caps); the consumed path is removed from the result text so it is not also linkified. Over-cap, missing, or non-image paths stay as text and fall back to the artifact-serving route. The dashboard renders inlined image blocks for any tool, auto-expanded.
+Define how the bridge inlines path-referenced image tool results at capture time. At `tool_execution_end`, an existing local image file referenced by absolute path — and located inside a recognized artifact root — is read and attached as a `type:"image"` content block (within per-image / per-message byte caps); the consumed path is removed from the result text so it is not also linkified. Out-of-root, over-cap, missing, or non-image paths stay as text and fall back to the artifact-serving route. The dashboard renders inlined image blocks for any tool, auto-expanded.
 ## Requirements
 ### Requirement: the bridge SHALL inline path-referenced image results at capture time
 
@@ -25,6 +25,23 @@ At `tool_execution_end`, the bridge SHALL detect tool-result text that reference
 
 - **WHEN** a tool result references an absolute path that does not exist, or whose extension is not a recognized image type
 - **THEN** the bridge SHALL NOT attach an image block and SHALL leave the text unchanged
+
+### Requirement: the bridge SHALL gate inlining to recognized artifact roots
+
+The bridge SHALL only read and inline a referenced path whose real (symlink-collapsed) location is inside a recognized artifact root: the default `agent-browser` screenshot directory (`realpath(~/.agent-browser/tmp)`) and `AGENT_BROWSER_SCREENSHOT_DIR` when set (the roots Fix A serves). A path outside every artifact root SHALL NOT be read or inlined and SHALL be left as text. This prevents a tool from disclosing an arbitrary local image into the event stream merely by echoing its path.
+
+#### Scenario: out-of-root path is not inlined
+
+- **GIVEN** a tool result whose text references an existing image file located OUTSIDE every artifact root
+- **WHEN** the bridge extracts the result at `tool_execution_end`
+- **THEN** the bridge SHALL NOT read or inline that file
+- **AND** the path SHALL remain as text (falling back to the artifact-serving route)
+
+#### Scenario: symlink escape is rejected
+
+- **GIVEN** a referenced path inside an artifact root that is a symlink whose real target resolves outside every root
+- **WHEN** the bridge evaluates containment
+- **THEN** the bridge SHALL reject it (no read, no image block)
 
 ### Requirement: the dashboard SHALL render inlined image blocks for any tool, auto-expanded
 

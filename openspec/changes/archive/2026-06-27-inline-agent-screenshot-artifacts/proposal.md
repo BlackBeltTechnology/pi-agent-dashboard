@@ -72,11 +72,15 @@ images too large to inline and for historical path-links already in the store.
 
 ## Security / cost notes
 
-- The bridge can inline **any** local image the agent references, including
-  paths outside any artifact root. This matches existing trust: the bridge runs
-  as the user and the agent already reads arbitrary files. Mitigated by
-  inlining only recognized image extensions, only existing files, and within the
-  per-image / per-message byte caps.
+- Inlining is **gated to recognized artifact roots** (`realpath(~/.agent-browser/tmp)`
+  + `AGENT_BROWSER_SCREENSHOT_DIR`) — the same roots Fix A serves. A tool cannot
+  disclose an arbitrary local image into the event stream merely by echoing its
+  path; only files under an artifact root are read/inlined (symlink escapes are
+  rejected via realpath on both sides). This matters for this project's
+  remote/shared dashboards. Further mitigated by inlining only recognized image
+  extensions, only existing files, and within the per-image / per-message byte
+  caps. (Implemented after review; supersedes the original "inline any path"
+  trust model.)
 - Base64 images persist in the event store (same tradeoff the `Read`-tool inline
   change already accepted). The caps bound growth; over-cap images stay as
   links.
