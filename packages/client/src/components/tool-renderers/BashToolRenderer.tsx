@@ -1,6 +1,7 @@
 import React from "react";
 import type { ToolRendererProps } from "./types.js";
 import { LinkifiedText } from "./LinkifiedText.js";
+import { ToolResultImages } from "./ToolResultImages.js";
 import { t as i18nT } from "../../lib/i18n";
 
 // Strip ANSI escape sequences (CSI / SGR codes like \x1b[31m) so the
@@ -15,9 +16,10 @@ function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, "");
 }
 
-export function BashToolRenderer({ args, status, result, context }: ToolRendererProps) {
+export function BashToolRenderer({ args, status, result, images, context }: ToolRendererProps) {
   const command = args?.command as string | undefined;
   const timeout = args?.timeout as number | undefined;
+  const hasImages = images && images.length > 0;
 
   return (
     <div className="space-y-1">
@@ -27,9 +29,11 @@ export function BashToolRenderer({ args, status, result, context }: ToolRenderer
         {timeout && <span className="text-[10px] text-[var(--text-muted)]">(timeout: {timeout}s)</span>}
       </div>
 
-      {status === "running" && !result && (
+      {status === "running" && !result && !hasImages && (
         <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
       )}
+
+      {hasImages && <ToolResultImages images={images!} />}
 
       {result && (
         <div className="max-h-80 overflow-auto rounded bg-[var(--bg-code)] p-2">

@@ -73,6 +73,23 @@ export interface Scenario {
 /** Marker text the happy-path scenario streams; asserted verbatim downstream. */
 export const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
+/**
+ * Inline-screenshot scenario (Fix B end-to-end). A real `bash` tool call writes
+ * a tiny valid PNG to an absolute path, then echoes `Screenshot saved: <path>`.
+ * The bridge's tool-result inliner (`inlineToolResultImages`) reads the file at
+ * `tool_execution_end`, attaches a `type:"image"` block, and strips the path so
+ * no dead link renders. The e2e asserts the inline `<img>` + path-consumption.
+ * See change: inline-agent-screenshot-artifacts.
+ */
+export const SCREENSHOT_INLINE = {
+  path: "/tmp/e2e-shots/shot.png",
+  mime: "image/png",
+} as const;
+
+/** 1×1 transparent PNG (67 bytes), base64. Valid bytes → inliner accepts it. */
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
 /** Long text used by the slow-stream/abort scenario (paired with FAUX_TPS=2). */
 const SLOW_TEXT = Array.from(
   { length: 40 },
@@ -225,6 +242,27 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: "export const x = 1;\n",
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Fix B end-to-end: bash writes a real PNG + echoes its absolute path; the
+  // bridge inlines it as a type:"image" block. Two-step so the agent TERMINATES
+  // after the tool result (a single-step tool scenario would loop forever in a
+  // real pi session, never settling the UI). See change:
+  // inline-agent-screenshot-artifacts.
+  "tool-screenshot": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command:
+              `mkdir -p /tmp/e2e-shots && printf %s '${TINY_PNG_B64}' | base64 -d > ${SCREENSHOT_INLINE.path} && ` +
+              `echo "Screenshot saved: ${SCREENSHOT_INLINE.path}"`,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("screenshot captured")]),
+    ],
+    expect: { toolName: "bash" },
+  },
   "tool-ctx": toolScenario("ctx_execute", {
     language: "shell",
     code: "echo hi",
