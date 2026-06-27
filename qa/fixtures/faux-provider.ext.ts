@@ -33,12 +33,25 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  fauxAssistantMessage,
-  getApiProvider,
-  registerFauxProvider,
-} from "@earendil-works/pi-ai";
+// pi-ai's published `index.d.ts` re-exports members with `.ts` extensions,
+// unresolvable under this repo's `moduleResolution: "bundler"`. Mirror
+// `faux-scenarios.ts`: import the namespace and read runtime helpers off an
+// `any` view (this file is now in tsc's graph via the faux-router unit test).
+// Runtime resolution is unaffected.
+import * as piAi from "@earendil-works/pi-ai";
 import { type FauxContext, SCENARIOS } from "./faux-scenarios.js";
+
+export interface FauxRegistration {
+  setResponses: (responses: unknown[]) => void;
+  appendResponses: (responses: unknown[]) => void;
+}
+
+const { fauxAssistantMessage, getApiProvider, registerFauxProvider } =
+  piAi as unknown as {
+    fauxAssistantMessage: (content: unknown, options?: unknown) => unknown;
+    getApiProvider: (api: string) => { streamSimple?: unknown } | undefined;
+    registerFauxProvider: (options: Record<string, unknown>) => FauxRegistration;
+  };
 
 /** Sentinel a prompt embeds to select its scenario, e.g. `[[faux:tool-read]]`. */
 const SENTINEL = /\[\[faux:([\w-]+)\]\]/;
