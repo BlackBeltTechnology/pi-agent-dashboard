@@ -7,7 +7,7 @@
  *
  * Example:
  *   const { server, httpPort, piPort, stop } = await createTestServer();
- *   const res = await fetch(`http://localhost:${httpPort}/api/health`);
+ *   const res = await fetch(`http://127.0.0.1:${httpPort}/api/health`);
  *   ...
  *   await stop();
  */
@@ -25,7 +25,7 @@ export type TestServerOverrides = Partial<ServerConfig>;
 const DEFAULTS: ServerConfig = {
   port: 0,
   piPort: 0,
-  host: "0.0.0.0",
+  host: "127.0.0.1",
   dev: true,
   autoShutdown: false,
   shutdownIdleSeconds: 999,
