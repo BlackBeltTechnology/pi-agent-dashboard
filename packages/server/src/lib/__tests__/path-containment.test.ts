@@ -103,4 +103,17 @@ describe("gitRoot", () => {
       await fsp.rm(plain, { recursive: true, force: true });
     }
   });
+
+  it("fails closed for a bare repo (no `.git` common dir → no parent widening)", async () => {
+    // Bare repo: --git-common-dir is the bare dir itself (basename ≠ `.git`).
+    // dirname would widen to the parent of unrelated files; must degrade to cwd.
+    const base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "pc-bare-")));
+    const bare = path.join(base, "repo.git");
+    try {
+      await git(base, "init", "--bare", "-q", bare);
+      expect(await gitRoot(bare)).toBe(bare);
+    } finally {
+      await fsp.rm(base, { recursive: true, force: true });
+    }
+  });
 });

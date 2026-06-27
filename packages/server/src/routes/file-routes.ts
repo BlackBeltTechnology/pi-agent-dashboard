@@ -169,6 +169,14 @@ export function registerFileRoutes(
       }
       // Anti-traversal: probePath MUST be inside cwd (or a pinned dir / repo
       // git root). Pinned-dir anchor is exists-only; not folded onto read/raw/render.
+      // Reject relative probes up front: `path.resolve(relative)` would anchor
+      // on the SERVER process cwd, not the request cwd — with git-root widening
+      // that could turn a malformed probe into an existence check under the
+      // server's launch repo. The endpoint contract takes an absolute path.
+      if (!path.isAbsolute(probePath)) {
+        reply.code(403);
+        return { success: false, error: "path outside cwd" } satisfies ApiResponse;
+      }
       const resolved = path.resolve(probePath);
       const anchors = [cwd, ...preferencesStore.getPinnedDirectories()];
       if (!(await isAllowed(resolved, { anchors }))) {

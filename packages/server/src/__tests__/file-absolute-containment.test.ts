@@ -210,4 +210,15 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
     expect(res.statusCode).toBe(403);
     expect(res.json()).toEqual({ success: false, error: "path outside cwd" });
   });
+
+  it("rejects a relative probe (resolved against server cwd, not request cwd)", async () => {
+    // A relative `path` must not be resolved against the server process cwd —
+    // with git-root widening that could leak existence checks under the launch repo.
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/exists?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent("here.txt")}`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ success: false, error: "path outside cwd" });
+  });
 });

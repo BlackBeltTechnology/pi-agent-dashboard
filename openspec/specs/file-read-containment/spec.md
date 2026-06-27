@@ -1,7 +1,7 @@
 # file-read-containment Specification
 
 ## Purpose
-TBD - created by archiving change git-root-file-containment. Update Purpose after archive.
+Define how the localhost file routes contain resolved absolute paths: anchor at the git common root with a layered cwd fast path, fail closed to cwd-only when git resolution is degraded, resolve symlinks before the git-root compare, and preserve each route's anchor set and rejection strings.
 ## Requirements
 ### Requirement: File-read containment anchors at the git common root with a layered cwd fast path
 

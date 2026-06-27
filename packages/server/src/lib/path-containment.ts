@@ -36,11 +36,15 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Logical containment compare. `p` is contained by `base` when it equals `base`
- * or sits under `base + path.sep`. Both sides MUST already be normalized to
- * native separators / canonical drive-letter case (callers use `path.resolve`).
+ * or sits under it. Uses `path.relative` rather than a prefix `startsWith`:
+ * `path.resolve` does NOT canonicalize drive-letter case on Windows, so a raw
+ * prefix compare wrongly rejects `c:\repo\f` against `C:\repo` (G2). A relative
+ * path that is empty, or that does not climb out (`..`) and is not absolute,
+ * means `p` sits under `base`.
  */
 export function within(p: string, base: string): boolean {
-  return p === base || p.startsWith(base + path.sep);
+  const rel = path.relative(base, p);
+  return rel === "" || (!rel.startsWith(".." + path.sep) && rel !== ".." && !path.isAbsolute(rel));
 }
 
 /**
@@ -67,6 +71,15 @@ async function safeRealpath(p: string): Promise<string> {
  * separators + drive case, G2) before returning. Not cached — layer ② is a cold
  * path (D5). The probe is bounded by a 2 s timeout so a stuck `git` process
  * cannot hang the route — a timeout throws, is caught, and degrades to `cwd`.
+ *
+ * Fails closed unless the common dir basename is exactly `.git` — i.e. a normal
+ * checkout or a linked worktree (both report `<root>/.git`). This rejects:
+ *   - bare repos (`<x>/bare.git` → `dirname` would widen to `<x>`, the parent
+ *     directory of unrelated files),
+ *   - submodules (`<super>/.git/modules/<name>` → `dirname` inside `.git`),
+ *   - `--separate-git-dir` (external `.git` dir, basename ≠ `.git`).
+ * Each of these would otherwise mis-widen or leak git internals; degrading to
+ * `cwd` keeps containment safe (never wider than cwd-only).
  */
 export async function gitRoot(cwd: string): Promise<string> {
   try {
@@ -77,7 +90,9 @@ export async function gitRoot(cwd: string): Promise<string> {
     );
     const gitCommonDir = stdout.trim();
     if (!gitCommonDir) return cwd;
-    return path.resolve(path.dirname(gitCommonDir));
+    const normalized = path.resolve(gitCommonDir);
+    if (path.basename(normalized) !== ".git") return cwd; // bare / submodule / separate-git-dir → fail closed
+    return path.dirname(normalized);
   } catch {
     return cwd;
   }
