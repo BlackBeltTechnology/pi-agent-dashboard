@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { useThemeContext } from "../ThemeProvider.js";
 import { getSyntaxTheme } from "../../lib/syntax-theme.js";
 import type { ToolRendererProps } from "./types.js";
 import { OpenFileButton } from "./OpenFileButton.js";
 import { detectLanguage } from "./lang-detect.js";
-import { ImageLightbox } from "../ImageLightbox.js";
+import { ToolResultImages } from "./ToolResultImages.js";
 import { t as i18nT } from "../../lib/i18n";
 
 export function ReadToolRenderer({ args, status, result, images, context }: ToolRendererProps) {
@@ -35,7 +35,7 @@ export function ReadToolRenderer({ args, status, result, images, context }: Tool
       )}
 
       {hasImages && (
-        <ReadToolImages images={images!} filePath={filePath} />
+        <ToolResultImages images={images!} alt={filePath} />
       )}
 
       {!hasImages && result && (
@@ -60,28 +60,3 @@ export function ReadToolRenderer({ args, status, result, images, context }: Tool
   );
 }
 
-function ReadToolImages({ images, filePath }: { images: ToolRendererProps["images"]; filePath?: string }) {
-  const [lightboxSrc, setLightboxSrc] = useState<{ src: string; alt: string } | null>(null);
-  return (
-    <>
-      <div className="flex gap-2 flex-wrap">
-        {images!.map((img, i) => {
-          const src = `data:${img.mimeType};base64,${img.data}`;
-          const alt = filePath ?? `Image ${i + 1}`;
-          return (
-            <img
-              key={i}
-              src={src}
-              alt={alt}
-              className="max-w-[512px] max-h-[512px] rounded border border-white/20 object-contain cursor-pointer"
-              onClick={() => setLightboxSrc({ src, alt })}
-            />
-          );
-        })}
-      </div>
-      {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc.src} alt={lightboxSrc.alt} onClose={() => setLightboxSrc(null)} />
-      )}
-    </>
-  );
-}

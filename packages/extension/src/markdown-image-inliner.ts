@@ -128,8 +128,13 @@ export interface ReadFileResult {
 }
 export interface ReadFileError {
   ok: false;
-  /** Use ENOENT/EACCES/EISDIR/EOTHER. EACCES is folded into ENOENT in placeholder text. */
-  kind: "ENOENT" | "EACCES" | "EISDIR" | "EOTHER";
+  /**
+   * ENOENT/EACCES/EISDIR/EOTHER come from the `readFile` callback. EACCES is
+   * folded into ENOENT in placeholder text. NOT_IMAGE / TOO_LARGE are emitted
+   * by `inlineLocalImagePath` after a successful read (unsupported extension /
+   * over the per-image byte cap). See change: inline-agent-screenshot-artifacts.
+   */
+  kind: "ENOENT" | "EACCES" | "EISDIR" | "EOTHER" | "NOT_IMAGE" | "TOO_LARGE";
 }
 export type ReadFileOutcome = ReadFileResult | ReadFileError;
 
@@ -155,6 +160,44 @@ export interface AssetToEmit {
   mimeType: string;
   /** Base64-encoded bytes ready for the `asset_register` message. */
   data: string;
+}
+
+/** Options for the single-path inliner. */
+export interface InlineLocalImageOptions {
+  /** Synchronous file-read callback (same shape as `InlineOptions.readFile`). */
+  readFile: (absolutePath: string) => ReadFileOutcome;
+  /** Override the per-image cap. Default `MAX_PER_IMAGE_BYTES`. */
+  maxPerImageBytes?: number;
+}
+
+/**
+ * Inline a single local image path to an `AssetToEmit` (base64 + mime + hash).
+ * Pure: all I/O goes through `opts.readFile`. Returns a `ReadFileError` when
+ * the file is missing / unreadable (`ENOENT`/`EACCES`/`EISDIR`/`EOTHER` from
+ * the callback), is not a recognized image extension (`NOT_IMAGE`), or exceeds
+ * the per-image byte cap (`TOO_LARGE`). Discriminate the union on the `ok`
+ * field: a success has no `ok`, a failure has `ok: false`.
+ *
+ * Distinct from `inlineMessageText`: no `alreadyEmitted` dedup, no per-message
+ * budget, no placeholder rewriting — single path in, asset-or-error out. Used
+ * by the bridge to inline path-referenced image tool results at
+ * `tool_execution_end`. See change: inline-agent-screenshot-artifacts.
+ */
+export function inlineLocalImagePath(
+  absPath: string,
+  opts: InlineLocalImageOptions,
+): AssetToEmit | ReadFileError {
+  const outcome = opts.readFile(absPath);
+  if (!outcome.ok) return outcome;
+  const mime = mimeFromExtension(absPath);
+  if (!mime) return { ok: false, kind: "NOT_IMAGE" };
+  const maxPerImage = opts.maxPerImageBytes ?? MAX_PER_IMAGE_BYTES;
+  if (outcome.bytes.length > maxPerImage) return { ok: false, kind: "TOO_LARGE" };
+  return {
+    hash: hashBytes(outcome.bytes),
+    mimeType: mime,
+    data: outcome.bytes.toString("base64"),
+  };
 }
 
 export interface InlineResult {

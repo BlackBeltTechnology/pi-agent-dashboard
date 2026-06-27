@@ -98,3 +98,11 @@ Fix B (deliver agent screenshots inline so no path-link exists) is a separate
 transport concern. `2026-04-04-inline-image-tool-results` already inlines some
 tool images; aligning the `browser` skill's screenshot output onto that path is
 tracked separately and is complementary, not a replacement, for this change.
+
+> **Update:** Fix B shipped as change `inline-agent-screenshot-artifacts`. It is
+> now the **primary** path — the bridge inlines path-referenced image results at
+> `tool_execution_end`, so no path-link exists for inlined images. Fix A (this
+> change) is the **fallback** for the over-cap case (images larger than
+> `MAX_PER_IMAGE_BYTES` / over the per-result budget stay as text path-links) and
+> for legacy events captured before B shipped. When B inlines an image, A is
+> never reached for it.

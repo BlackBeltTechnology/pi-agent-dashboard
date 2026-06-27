@@ -46,6 +46,8 @@ import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameI
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
+import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { resolveArtifactRoots, isUnderArtifactRoot } from "./artifact-roots.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   persistAttachment,
@@ -1483,6 +1485,32 @@ function initBridge(pi: ExtensionAPI) {
       // See change: chat-markdown-local-images-and-math.
       if (eventType === "message_update") {
         maybeInlineAssistantImages(event);
+      }
+
+      // Inline path-referenced image tool results (e.g. browser `screenshot`)
+      // as type:"image" content blocks at capture time. Gated to the artifact-
+      // root allowlist (default agent-browser screenshot dir +
+      // AGENT_BROWSER_SCREENSHOT_DIR) so arbitrary tool-echoed paths are not
+      // read/disclosed. Over-cap / out-of-root / missing / non-image paths are
+      // left as text and fall back to the artifact route.
+      // See change: inline-agent-screenshot-artifacts.
+      if (eventType === "tool_execution_end") {
+        try {
+          const artifactRoots = resolveArtifactRoots({
+            homedir: os.homedir(),
+            env: process.env,
+            realpathSync: fs.realpathSync,
+          });
+          const inlined = inlineToolResultImages((event as any).result, {
+            readFile: inlinerReadFile,
+            isAllowedPath: (p) => isUnderArtifactRoot(p, artifactRoots, fs.realpathSync),
+          });
+          if (inlined.inlinedCount > 0) {
+            (event as any).result = inlined.result;
+          }
+        } catch (err) {
+          console.error("[dashboard] tool-result image inline failed:", err);
+        }
       }
 
       const msg = mapEventToProtocol(sessionId, event);

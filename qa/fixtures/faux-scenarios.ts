@@ -73,6 +73,27 @@ export interface Scenario {
 /** Marker text the happy-path scenario streams; asserted verbatim downstream. */
 export const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
+/**
+ * Inline-screenshot scenario (Fix B end-to-end). A real `bash` tool call writes
+ * a tiny valid PNG UNDER THE DEFAULT ARTIFACT ROOT (`$HOME/.agent-browser/tmp`,
+ * = `/home/pi/...` in the test container) so the bridge's artifact-root gate
+ * allows it, then echoes `Screenshot saved: <path>`. The bridge's tool-result
+ * inliner (`inlineToolResultImages`) reads the file at `tool_execution_end`,
+ * attaches a `type:"image"` block, and strips the path so no dead link renders.
+ * The e2e asserts the inline `<img>` + path-consumption.
+ * See change: inline-agent-screenshot-artifacts.
+ */
+export const SCREENSHOT_INLINE = {
+  // Resolved path the bash result echoes (container HOME is /home/pi). Inside
+  // the default artifact root, so the bridge containment gate permits inlining.
+  path: "/home/pi/.agent-browser/tmp/e2e-shot.png",
+  mime: "image/png",
+} as const;
+
+/** 1×1 transparent PNG (67 bytes), base64. Valid bytes → inliner accepts it. */
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
 /** Long text used by the slow-stream/abort scenario (paired with FAUX_TPS=2). */
 const SLOW_TEXT = Array.from(
   { length: 40 },
@@ -225,6 +246,30 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: "export const x = 1;\n",
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Fix B end-to-end: bash writes a real PNG + echoes its absolute path; the
+  // bridge inlines it as a type:"image" block. Two-step so the agent TERMINATES
+  // after the tool result (a single-step tool scenario would loop forever in a
+  // real pi session, never settling the UI). See change:
+  // inline-agent-screenshot-artifacts.
+  "tool-screenshot": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            // Use $HOME (expands to /home/pi) so the command DISPLAY keeps the
+            // literal `$HOME/...` while the RESULT echoes the resolved path —
+            // keeping the D5 exact-path assertion isolated to the result.
+            command:
+              `mkdir -p "$HOME/.agent-browser/tmp" && printf %s '${TINY_PNG_B64}' | base64 -d > "$HOME/.agent-browser/tmp/e2e-shot.png" && ` +
+              `echo "Screenshot saved: $HOME/.agent-browser/tmp/e2e-shot.png"`,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("screenshot captured")]),
+    ],
+    expect: { toolName: "bash" },
+  },
   "tool-ctx": toolScenario("ctx_execute", {
     language: "shell",
     code: "echo hi",

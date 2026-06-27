@@ -119,6 +119,19 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
     if (status !== "running") setStopState("idle");
   }, [status]);
 
+  // Live tool results attach images at tool_execution_end, AFTER this card
+  // mounted at tool_execution_start — so the useState(hasImages) seed above
+  // missed them (replay/refresh seed at mount and are unaffected). Auto-expand
+  // once when images first arrive; a ref guards against re-expanding a card the
+  // user later collapsed. See change: inline-agent-screenshot-artifacts.
+  const autoExpandedForImages = React.useRef(false);
+  React.useEffect(() => {
+    if (hasImages && !autoExpandedForImages.current) {
+      autoExpandedForImages.current = true;
+      setExpanded(true);
+    }
+  }, [hasImages]);
+
   return (
     <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}>
       <button

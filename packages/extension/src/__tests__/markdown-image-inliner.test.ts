@@ -5,11 +5,14 @@
 import { describe, it, expect } from "vitest";
 import {
   inlineMessageText,
+  inlineLocalImagePath,
   parseImageTokens,
   isLocalSrc,
   mimeFromExtension,
   hashBytes,
   resolveLocalPath,
+  type AssetToEmit,
+  type ReadFileError,
   type ReadFileOutcome,
 } from "../markdown-image-inliner.js";
 
@@ -351,5 +354,39 @@ describe("inlineMessageText — placeholder branches", () => {
     expect(r.assetsToEmit[0].hash).toBe(hashBytes(newImg));
     expect(r.rewritten).toContain(`pi-asset:${hashBytes(newImg)}`);
     expect(r.rewritten).toContain(`pi-asset:${oldHash}`);
+  });
+});
+
+describe("inlineLocalImagePath", () => {
+  it("existing image path → AssetToEmit", () => {
+    const r = inlineLocalImagePath("/abs/shot.png", {
+      readFile: fakeReader({ "/abs/shot.png": PNG }),
+    });
+    expect("ok" in r).toBe(false);
+    const asset = r as AssetToEmit;
+    expect(asset.mimeType).toBe("image/png");
+    expect(asset.hash).toBe(hashBytes(PNG));
+    expect(asset.data).toBe(PNG.toString("base64"));
+  });
+
+  it("missing file → ENOENT error", () => {
+    const r = inlineLocalImagePath("/no/such.png", { readFile: fakeReader({}) });
+    expect(r).toEqual({ ok: false, kind: "ENOENT" } satisfies ReadFileError);
+  });
+
+  it("over MAX_PER_IMAGE_BYTES → TOO_LARGE error", () => {
+    const big = Buffer.alloc(11);
+    const r = inlineLocalImagePath("/big.png", {
+      readFile: fakeReader({ "/big.png": big }),
+      maxPerImageBytes: 10,
+    });
+    expect(r).toEqual({ ok: false, kind: "TOO_LARGE" } satisfies ReadFileError);
+  });
+
+  it("non-image extension → NOT_IMAGE error (skipped)", () => {
+    const r = inlineLocalImagePath("/notes.txt", {
+      readFile: fakeReader({ "/notes.txt": Buffer.from("hi") }),
+    });
+    expect(r).toEqual({ ok: false, kind: "NOT_IMAGE" } satisfies ReadFileError);
   });
 });
