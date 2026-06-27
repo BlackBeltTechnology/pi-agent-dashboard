@@ -644,6 +644,24 @@ Toast variants: `ToastMessage.variant` `"error"|"success"|"info"`, default `"err
 
 Reference FSM: WorktreeInitButton (richer streaming UI, left as-is). PluginsSection restart left as-is — polls `/api/health` startedAt re-up (stronger completion signal than broadcast).
 
+### State & feedback primitives (client-utils)
+
+Four primitives in `packages/client-utils/src/`. Cover empty regions, content loads, focus, status. See change: extend-client-utils-state-feedback-primitives.
+
+EmptyState vs Skeleton vs spinner — decision rule:
+
+- EmptyState: empty content regions (chat empty, board column empty). Value-framed title + ≤1 primary CTA. `EmptyState.tsx`.
+- Skeleton: content-layout loads (chat history, lists, board). Content-shaped variants (text/card/bubble/row). No layout shift. `Skeleton.tsx`.
+- Spinner: short blocking actions only (button submit). Not for content loads.
+
+Focus ring: `.focus-ring` utility in `packages/client/src/index.css`. Scoped `:focus-visible` (keyboard only, never mouse). Color token var `--focus-ring`. Apply via `focusRing` export or literal `focus-ring` class. Replaces `focus:outline-none` + 1px border.
+
+Status presentation: status never color-only. `statusPresentation(kind)` gives semantic `--status-*` token + mandatory non-hue glyph (✓/▸/○/✕). `statusAriaLabel(name, kind)` names item + state for screen readers. Surfaces consume helper, do not re-roll color maps (no STATE_COLORS / STATE_PILL_CLASS). WCAG 2.2 §1.4.1.
+
+Adoption ratchet: `packages/client/src/__tests__/state-feedback-adoption.test.tsx` scans covered surfaces. Fails on new bare `focus:outline-none` or re-rolled status color map.
+
+Reference: `--status-*` tokens defined once in `index.css` (owned by change improve-dashboard-attention-routing). `statusPresentation` references, does not redefine.
+
 ### Auto-Resume on Prompt
 When a user sends a prompt to an ended session, the server automatically resumes it:
 1. Server detects `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`

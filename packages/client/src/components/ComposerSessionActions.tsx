@@ -1,28 +1,33 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCompassOutline,
-  mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiFormatListChecks,
-  mdiChevronRight,
-  mdiFastForward,
-} from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecArtifact, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
-import { deriveStepperState } from "./OpenSpecStepper.js";
 import {
   SessionCardBadgeSlot,
   useSlotHasClaimsForSession,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
-import { TasksPopover } from "./TasksPopover.js";
-import { ExploreDialog } from "./ExploreDialog.js";
-import { DialogPortal } from "./DialogPortal.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import {
+  statusAriaLabel,
+  statusPresentation,
+} from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
+import type { DashboardSession, ImageContent, OpenSpecArtifact, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiCompassOutline,
+  mdiFastForward,
+  mdiFormatListChecks,
+  mdiPlayCircleOutline,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
+import { ExploreDialog } from "./ExploreDialog.js";
+import { deriveStepperState } from "./OpenSpecStepper.js";
+import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
+import { TasksPopover } from "./TasksPopover.js";
+import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 
 /**
  * ComposerSessionActions — slim inline session-action row mounted inside
@@ -123,6 +128,7 @@ function IconButton({
  */
 function ArtifactChip({
   letter,
+  name,
   state,
   onClick,
   disabled,
@@ -131,6 +137,8 @@ function ArtifactChip({
   sub,
 }: {
   letter: string;
+  /** Full artifact name for the accessible label, e.g. "Proposal". */
+  name: string;
   state: "done" | "current" | "todo";
   onClick?: () => void;
   disabled?: boolean;
@@ -138,19 +146,25 @@ function ArtifactChip({
   testId: string;
   sub?: string;
 }) {
-  const cls =
-    state === "done"    ? "text-green-400 border-green-500/50 bg-green-500/8"
-    : state === "current" ? "text-orange-400 border-orange-500/50 bg-orange-500/8"
-    : "text-[var(--text-muted)] border-[var(--border-secondary)]";
+  // Color flows through the semantic --status-* token; the glyph (e.g. ✓ for
+  // done) is the mandatory non-hue channel so done≠todo without color.
+  const pres = statusPresentation(state);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); if (!disabled && onClick) onClick(); }}
       disabled={disabled || !onClick}
       title={title}
+      aria-label={statusAriaLabel(name, state)}
       data-testid={testId}
       data-state={state}
-      className={`inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}
+      className="focus-ring inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed"
+      style={{
+        color: pres.tokenVar,
+        borderColor: `color-mix(in srgb, ${pres.tokenVar} 50%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${pres.tokenVar} 8%, transparent)`,
+      }}
     >
+      <span aria-hidden="true" className="text-[8px]">{pres.glyph}</span>
       <span>{letter}</span>
       {sub && <span className="text-[8px] font-normal opacity-80">{sub}</span>}
     </button>
@@ -251,6 +265,7 @@ export function ComposerSessionActions({
             <>
               <ArtifactChip
                 letter="P"
+                name={i18nT("auto.artifact_proposal", undefined, "Proposal")}
                 state={artifactChipState("proposal")}
                 title={i18nT("auto.open_proposal_md", undefined, "Open proposal.md")}
                 testId="composer-artifact-p"
@@ -258,6 +273,7 @@ export function ComposerSessionActions({
               />
               <ArtifactChip
                 letter="D"
+                name={i18nT("auto.artifact_design", undefined, "Design")}
                 state={artifactChipState("design")}
                 title={i18nT("auto.open_design_md", undefined, "Open design.md")}
                 testId="composer-artifact-d"
@@ -265,6 +281,7 @@ export function ComposerSessionActions({
               />
               <ArtifactChip
                 letter="S"
+                name={i18nT("auto.artifact_specs", undefined, "Specs")}
                 state={artifactChipState("specs")}
                 title={i18nT("auto.open_specs", undefined, "Open specs")}
                 testId="composer-artifact-s"
@@ -273,6 +290,7 @@ export function ComposerSessionActions({
               {change.totalTasks > 0 && (
                 <ArtifactChip
                   letter="T"
+                  name={i18nT("auto.artifact_tasks", undefined, "Tasks")}
                   sub={`${change.completedTasks}/${change.totalTasks}`}
                   state={artifactChipState("tasks")}
                   title={i18nT("auto.open_task_list", undefined, "Open task list")}

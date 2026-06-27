@@ -9,8 +9,9 @@
  *
  * See change: elevate-folder-spawn-buttons.
  */
-import { Icon } from "@mdi/react";
+
 import { mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {
@@ -37,7 +38,7 @@ export function FolderSpawnButtons({
         onClick={(e) => { e.stopPropagation(); onSpawnSession(); }}
         disabled={spawningDisabled}
         data-testid="folder-spawn-session-btn"
-        className={`w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 ${
+        className={`focus-ring w-full text-xs px-2 py-1 min-h-[44px] sm:min-h-0 rounded border flex items-center justify-center gap-0.5 ${
           spawningDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
             : "text-green-400 border-green-500/40 bg-green-500/5 hover:text-green-300 hover:border-green-500/70"
@@ -51,7 +52,7 @@ export function FolderSpawnButtons({
         <button
           onClick={(e) => { e.stopPropagation(); onSpawnWorktree!(); }}
           data-testid="folder-spawn-worktree-btn"
-          className="w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70"
+          className="focus-ring w-full text-xs px-2 py-1 min-h-[44px] sm:min-h-0 rounded border flex items-center justify-center gap-0.5 text-orange-400 border-orange-500/40 bg-orange-500/5 hover:text-orange-300 hover:border-orange-500/70"
           title={i18nT("auto.new_pi_session_in_a_git", undefined, "New pi session in a git worktree")}
         >
           <Icon path={mdiSourceBranchPlus} size={0.6} /> {i18nT("auto.new_worktree_2", undefined, "New Worktree")}

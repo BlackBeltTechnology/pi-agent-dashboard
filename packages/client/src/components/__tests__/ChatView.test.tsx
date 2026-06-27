@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { type ChatMessage, createInitialState, type PendingPrompt } from "../../lib/event-reducer.js";
 import { ChatView } from "../ChatView.js";
 import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState, type ChatMessage, type PendingPrompt } from "../../lib/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultToolContext: ToolContext = { editors: [] };
@@ -236,15 +236,18 @@ describe("ChatView", () => {
 
   // See change: show-chat-history-loading-indicator.
   describe("history loading 3-way empty state", () => {
-    it("renders the loading indicator (not the placeholder) when loadingHistory and empty", () => {
+    it("renders skeleton bubbles (not the placeholder) when loadingHistory and empty", () => {
       const state = createInitialState();
       const { container } = render(
         <ThemeProvider><ChatView state={state} toolContext={defaultToolContext} loadingHistory={true} /></ThemeProvider>,
       );
-      expect(container.textContent).toContain("Loading conversation…");
+      // Content-layout load -> bubble skeletons, not a centered spinner.
+      // See change: extend-client-utils-state-feedback-primitives.
+      const skeleton = container.querySelector("[data-testid='chat-history-skeleton']");
+      expect(skeleton).not.toBeNull();
+      expect(skeleton?.getAttribute("aria-label")).toContain("Loading conversation…");
+      expect(container.querySelector("[data-skeleton='bubble']")).not.toBeNull();
       expect(container.textContent).not.toContain("No messages yet");
-      // spinner present
-      expect(container.querySelector(".animate-spin")).not.toBeNull();
     });
 
     it("renders 'No messages yet' when not loading and empty (existing behavior)", () => {

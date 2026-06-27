@@ -8,66 +8,73 @@
  * Frontend design source: `openspec/changes/redesign-openspec-board/mockups/board.html`.
  * See change: redesign-openspec-board.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
+
+import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import {
-  mdiArrowLeft,
-  mdiRefresh,
-  mdiArchiveOutline,
-  mdiFileDocumentOutline,
-  mdiPlus,
-  mdiCog,
-  mdiDragVertical,
-  mdiPlay,
-  mdiSourceBranchPlus,
-  mdiSourceFork,
-  mdiPlayCircleOutline,
-  mdiEyeOffOutline,
-  mdiEyeOutline,
-  mdiRobotOutline,
-  mdiDotsHorizontal,
-} from "@mdi/js";
+  type StatusKind,
+  statusPresentation,
+} from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
+import type {
+  DashboardSession,
+  OpenSpecChange,
+  OpenSpecData,
+  OpenSpecGroup,
+} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, deriveChangeState, OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
-  DndContext,
-  PointerSensor,
-  useSensor,
-  useSensors,
   closestCenter,
-  useDroppable,
+  DndContext,
+  type DragEndEvent,
   DragOverlay,
   type DragStartEvent,
-  type DragEndEvent,
+  PointerSensor,
+  useDroppable,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core";
 import {
-  SortableContext,
-  horizontalListSortingStrategy,
-  verticalListSortingStrategy,
-  useSortable,
   arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type {
-  OpenSpecData,
-  OpenSpecChange,
-  OpenSpecGroup,
-  DashboardSession,
-} from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { deriveChangeState, ChangeState, OPENSPEC_UNGROUPED_KEY } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
+import {
+  mdiArchiveOutline,
+  mdiArrowLeft,
+  mdiCog,
+  mdiDotsHorizontal,
+  mdiDragVertical,
+  mdiEyeOffOutline,
+  mdiEyeOutline,
+  mdiFileDocumentOutline,
+  mdiPlay,
+  mdiPlayCircleOutline,
+  mdiPlus,
+  mdiRefresh,
+  mdiRobotOutline,
+  mdiSourceBranchPlus,
+  mdiSourceFork,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatRelativeTime, formatTokens } from "../lib/format.js";
+import { t as i18nT } from "../lib/i18n";
+import { computeReorder, orderChangesForGroup } from "../lib/openspec-board-order.js";
+import { deriveWorktreeProgress } from "../lib/openspec-board-worktree.js";
+import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
+import { GROUP_PALETTE, resolveGroupColor } from "../lib/openspec-group-palette.js";
+import { createGroup, deleteGroup, fetchGroups, setAssignment, setChangeOrder, updateGroup } from "../lib/openspec-groups-api.js";
+import { selectBadgeTimestamp } from "../lib/session-card-time.js";
+import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../lib/session-status-visuals.js";
+import { DialogPortal } from "./DialogPortal.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
-import { DialogPortal } from "./DialogPortal.js";
 import { TasksPopover } from "./TasksPopover.js";
-import { fetchGroups, createGroup, setAssignment, updateGroup, deleteGroup, setChangeOrder } from "../lib/openspec-groups-api.js";
-import { resolveGroupColor, GROUP_PALETTE } from "../lib/openspec-group-palette.js";
-import { orderChangesForGroup, computeReorder } from "../lib/openspec-board-order.js";
-import { deriveWorktreeProgress } from "../lib/openspec-board-worktree.js";
-import { sourceIcons, deriveDotColor, deriveIconStatusColor, pulseClassForStatus, getCardPulseClass, getCardStripeFxClass, deriveProposalCardState } from "../lib/session-status-visuals.js";
-import { selectBadgeTimestamp } from "../lib/session-card-time.js";
-import { formatRelativeTime, formatTokens } from "../lib/format.js";
-import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
-import { t as i18nT } from "../lib/i18n";
 
 const UNGROUPED = OPENSPEC_UNGROUPED_KEY;
 
@@ -125,12 +132,34 @@ function sessStatus(s: DashboardSession): SessStatus {
   return "live";
 }
 
-const STATE_PILL_CLASS: Record<ChangeState, string> = {
-  [ChangeState.PLANNING]: "text-[var(--text-tertiary)] bg-[var(--bg-tertiary)]",
-  [ChangeState.READY]: "text-cyan-400 bg-cyan-500/12",
-  [ChangeState.IMPLEMENTING]: "text-yellow-400 bg-yellow-500/12",
-  [ChangeState.COMPLETE]: "text-green-400 bg-green-500/12",
+// Board change states -> shared status vocabulary. Color flows through the
+// semantic --status-* token; the glyph is the mandatory non-hue channel so
+// COMPLETE (done) stays distinguishable from PLANNING/READY (todo) in
+// grayscale. See change: extend-client-utils-state-feedback-primitives.
+const CHANGE_STATE_KIND: Record<ChangeState, StatusKind> = {
+  [ChangeState.PLANNING]: "todo",
+  [ChangeState.READY]: "todo",
+  [ChangeState.IMPLEMENTING]: "current",
+  [ChangeState.COMPLETE]: "done",
 };
+
+function BoardStatePill({ state, testId }: { state: ChangeState; testId?: string }) {
+  const pres = statusPresentation(CHANGE_STATE_KIND[state]);
+  return (
+    <span
+      data-testid={testId}
+      data-state={state}
+      className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full"
+      style={{
+        color: pres.tokenVar,
+        backgroundColor: `color-mix(in srgb, ${pres.tokenVar} 14%, transparent)`,
+      }}
+    >
+      <span aria-hidden="true">{pres.glyph}</span>
+      <span>{state.toLowerCase()}</span>
+    </span>
+  );
+}
 
 export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
   const {
@@ -562,7 +591,7 @@ function DragChip({ activeDrag, changes, groups }: {
         data-testid="board-drag-chip"
       >
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate">{c.name}</span>
-        <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full ${STATE_PILL_CLASS[state]}`}>{state.toLowerCase()}</span>
+        <BoardStatePill state={state} />
       </div>
     );
   }
@@ -627,7 +656,10 @@ function BoardColumn({
         <SortableContext items={changes.map((c) => c.name)} strategy={verticalListSortingStrategy}>
           {changes.length > 0
             ? changes.map((c) => renderCard(c))
-            : <p className="text-[var(--text-muted)] text-[11px] text-center py-3.5">{i18nT("auto.no_proposals", undefined, "No proposals")}</p>}
+            : <EmptyState
+                className="py-3.5"
+                title={i18nT("auto.no_proposals", undefined, "No proposals")}
+              />}
         </SortableContext>
       </div>
     </div>
@@ -683,7 +715,7 @@ function ProposalCard(props: {
       {cardStripeFx ? <div className={`card-stripes-fx ${cardStripeFx}`} aria-hidden="true" /> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
-        <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-px rounded-full ${STATE_PILL_CLASS[state]}`} data-testid="board-card-state">{state.toLowerCase()}</span>
+        <BoardStatePill state={state} testId="board-card-state" />
       </div>
 
       {/* Lifecycle stepper */}

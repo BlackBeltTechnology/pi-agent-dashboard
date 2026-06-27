@@ -69,6 +69,10 @@
   --status-idle: var(--accent-green);
   --status-error: var(--accent-red);
 
+  /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
+     See change: extend-client-utils-state-feedback-primitives. */
+  --focus-ring: var(--accent-primary);
+
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.4);
 
@@ -108,6 +112,7 @@
   --accent-primary: #2563eb;
   --link: #2563eb;
   --link-hover: #1d4ed8;
+  --focus-ring: var(--accent-primary);
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08);
@@ -119,6 +124,17 @@
   --neon-glow-blur: 11px;
   --neon-glow-opacity: 0.52;
   --neon-bg-tint: rgba(37, 99, 235, 0.035);
+}
+
+/* Shared focus-visibility utility. Keyboard focus only (`:focus-visible`),
+   never on mouse click. ≥2px effective thickness + 2px offset, ≥3:1 contrast.
+   Replaces the ad-hoc `focus:outline-none` + 1px `focus:border-*` pattern.
+   WCAG 2.2 §2.4.7 / §2.4.11.
+   See change: extend-client-utils-state-feedback-primitives. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
 html, body {
