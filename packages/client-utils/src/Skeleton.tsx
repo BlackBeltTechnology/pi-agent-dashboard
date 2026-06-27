@@ -30,7 +30,7 @@ const VARIANT_CLASS: Record<SkeletonVariant, string> = {
 
 export function Skeleton({ variant = "text", count = 1, className }: SkeletonProps) {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const n = Math.max(1, count);
+  const n = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
   const items = Array.from({ length: n });
   const motionClass = reducedMotion ? "" : "animate-pulse";
   return (

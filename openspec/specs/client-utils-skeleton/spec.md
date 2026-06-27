@@ -1,7 +1,7 @@
 # client-utils-skeleton Specification
 
 ## Purpose
-TBD - created by archiving change extend-client-utils-state-feedback-primitives. Update Purpose after archive.
+Define the shared `Skeleton` loading primitive in `client-utils`. Content-shaped variants for content-layout loads; honors `prefers-reduced-motion`. Content loads use it instead of a centered spinner (NN/g skeleton-screens; Doherty).
 ## Requirements
 ### Requirement: Skeleton primitive for content-layout loads
 

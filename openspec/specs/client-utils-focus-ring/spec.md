@@ -1,7 +1,7 @@
 # client-utils-focus-ring Specification
 
 ## Purpose
-TBD - created by archiving change extend-client-utils-state-feedback-primitives. Update Purpose after archive.
+Define the shared `.focus-ring` focus-visibility utility. Scoped to `:focus-visible`, ≥2px thickness, ≥3:1 contrast across themes. Replaces the ad-hoc `focus:outline-none` + 1px border pattern (WCAG 2.2 §2.4.7 / §2.4.11).
 ## Requirements
 ### Requirement: Shared focus-ring utility meets WCAG focus appearance
 

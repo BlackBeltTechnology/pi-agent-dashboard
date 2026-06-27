@@ -1,7 +1,7 @@
 # client-utils-empty-state Specification
 
 ## Purpose
-TBD - created by archiving change extend-client-utils-state-feedback-primitives. Update Purpose after archive.
+Define the shared `EmptyState` primitive in `client-utils`. Encodes the NN/g empty-state pattern (value-framed title, optional body, ≤1 primary CTA, ≤1 escape-hatch). Covered surfaces render empty states through it instead of bare text.
 ## Requirements
 ### Requirement: EmptyState primitive enforces the empty-state pattern
 

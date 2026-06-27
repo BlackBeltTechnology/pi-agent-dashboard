@@ -149,12 +149,15 @@ function ArtifactChip({
   // Color flows through the semantic --status-* token; the glyph (e.g. ✓ for
   // done) is the mandatory non-hue channel so done≠todo without color.
   const pres = statusPresentation(state);
+  // Localize the status word so the aria-label is fully translated, not
+  // mixed-language (e.g. "Propuesta, done").
+  const stateLabel = i18nT(`auto.artifact_state_${state}`, undefined, state);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); if (!disabled && onClick) onClick(); }}
       disabled={disabled || !onClick}
       title={title}
-      aria-label={statusAriaLabel(name, state)}
+      aria-label={statusAriaLabel(name, state, stateLabel)}
       data-testid={testId}
       data-state={state}
       className="focus-ring inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed"

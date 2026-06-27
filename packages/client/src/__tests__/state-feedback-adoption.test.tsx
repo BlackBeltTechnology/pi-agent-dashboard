@@ -25,7 +25,6 @@ import {
   statusPresentation,
 } from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
 import { cleanup, render } from "@testing-library/react";
-import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(() => cleanup());
@@ -109,5 +108,19 @@ describe("state-feedback adoption ratchet — covered surfaces", () => {
     const board = readSurface("OpenSpecBoardView.tsx");
     expect(board).toContain("EmptyState");
     expect(board).toContain("statusPresentation");
+  });
+
+  it("covered status surface (ArtifactChip) consumes the shared status helper", () => {
+    const composer = readSurface("ComposerSessionActions.tsx");
+    expect(composer).toContain("statusPresentation");
+    expect(composer).toContain("statusAriaLabel");
+  });
+
+  it("covered focus surfaces adopt the .focus-ring utility", () => {
+    // Every focus-target surface refactored by this change must carry the
+    // shared focus-ring class so the ratchet trips if a regression drops it.
+    for (const name of ["CommandInput.tsx", "SessionList.tsx", "FolderActionBar.tsx", "FolderSpawnButtons.tsx"]) {
+      expect(readSurface(name), `${name} missing focus-ring`).toContain("focus-ring");
+    }
   });
 });

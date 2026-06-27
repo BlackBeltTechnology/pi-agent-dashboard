@@ -75,9 +75,11 @@ describe("OpenSpecBoardView", () => {
     expect(screen.getByTestId("board-card-add-auth")).toBeTruthy();
     expect(screen.getByTestId("board-card-fix-bug")).toBeTruthy();
     const pill = screen.getByTestId("board-card-add-auth").querySelector('[data-testid="board-card-state"]');
-    // Pill carries a non-hue glyph prefix + the state label.
+    // Pill carries a non-hue glyph prefix + the state label. Assert BOTH so a
+    // regression dropping the glyph fails.
     // See change: extend-client-utils-state-feedback-primitives.
     expect(pill?.textContent).toContain("implementing");
+    expect(pill?.textContent?.replace("implementing", "").trim()).not.toBe("");
   });
 
   it("navigates back via Back button", () => {

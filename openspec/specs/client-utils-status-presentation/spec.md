@@ -1,7 +1,7 @@
 # client-utils-status-presentation Specification
 
 ## Purpose
-TBD - created by archiving change extend-client-utils-state-feedback-primitives. Update Purpose after archive.
+Define the shared status-presentation convention. Each status uses a semantic `--status-*` token AND a mandatory non-hue channel (icon/shape/glyph), never color alone (WCAG 2.2 §1.4.1). Covered surfaces consume the shared primitive instead of re-rolling color maps.
 ## Requirements
 ### Requirement: Status presentation uses a non-hue channel
 

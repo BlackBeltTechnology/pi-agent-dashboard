@@ -34,7 +34,15 @@ export function statusPresentation(kind: StatusKind): StatusPresentation {
   return STATUS_MAP[kind];
 }
 
-/** Accessible name combining the item name and its state, e.g. "Proposal, done". */
-export function statusAriaLabel(name: string, kind: StatusKind): string {
-  return `${name}, ${STATUS_MAP[kind].label}`;
+/**
+ * Accessible name combining the item name and its state, e.g. "Proposal, done".
+ * Pass `label` to localize the status word; defaults to the English label so
+ * non-i18n callers stay correct.
+ */
+export function statusAriaLabel(
+  name: string,
+  kind: StatusKind,
+  label: string = STATUS_MAP[kind].label,
+): string {
+  return `${name}, ${label}`;
 }

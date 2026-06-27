@@ -625,6 +625,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
           <div
             className="flex flex-col gap-3 px-4 py-3"
             aria-busy="true"
+            role="status"
             aria-label={i18nT("auto.loading_conversation", undefined, "Loading conversation…")}
             data-testid="chat-history-skeleton"
           >
