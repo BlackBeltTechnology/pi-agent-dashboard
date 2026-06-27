@@ -10,6 +10,9 @@ import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
   deriveRailBgColor,
+  deriveStatusShape,
+  statusShapeIcon,
+  type StatusShape,
   getCardPulseClass,
   getCardStripeFxClass,
 } from "../lib/session-status-visuals.js";
@@ -64,11 +67,13 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   if (session.status === "ended") return null;
 
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
-    return <span className="text-purple-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
+    // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
+    // See change: improve-dashboard-attention-routing.
+    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.needs_you", undefined, "Needs you")}</span>;
   }
 
   if (session.currentTool) {
-    return <span className="text-yellow-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
+    return <span className="text-[var(--status-working)] truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
   }
 
   if (session.status === "streaming") {
@@ -76,10 +81,32 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   }
 
   if (session.status === "idle" || session.status === "active") {
-    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
+    // Turn-finished passive state: distinct "Idle" label, never "Waiting for
+    // input". See change: improve-dashboard-attention-routing.
+    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.idle", undefined, "Idle")}</span>;
   }
 
   return null;
+}
+
+/**
+ * Small shape marker overlaid on the status icon. Encodes session state by
+ * shape (filled / half / ring / ✕) so state survives grayscale + reduced
+ * motion. `ended` renders nothing. The `data-status-shape` attribute is the
+ * test hook. See change: improve-dashboard-attention-routing.
+ */
+export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; colorClass: string }) {
+  const path = statusShapeIcon[shape];
+  if (!path) return null;
+  return (
+    <span
+      data-status-shape={shape}
+      aria-hidden="true"
+      className={`absolute -bottom-1 -right-1 inline-flex rounded-full bg-[var(--bg-tertiary)] leading-none ${colorClass}`}
+    >
+      <Icon path={path} size={0.34} />
+    </span>
+  );
 }
 
 export function TokenStats({ session }: { session: DashboardSession }) {
@@ -448,10 +475,12 @@ export function SessionCard({
   const isAlive = session.status !== "ended";
   const isMobile = useMobile();
   const prefs = useDisplayPrefs(session.id);
-  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying });
   // Suppress purple `card-input-stripes` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
+  // Also gates the chat-routed `ask_user` → needs-you color in dot/rail.
+  // See change: improve-dashboard-attention-routing.
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
+  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying, hasWidgetBarPrompt });
   // State marker class stays on the <li>; the matching color class drives the
   // compositor-only `.card-stripes-fx` overlay rendered behind card content.
   // See change: throttle-idle-ui-animations.
@@ -466,11 +495,15 @@ export function SessionCard({
   // arbitrary-bg-token defenses.
   // See change: add-session-status-to-folder-proposal-rows.
   const iconStatusColor = deriveIconStatusColor(dotColor, session.status);
+  // Non-hue state channel: a shape marker (filled/half/ring/✕) so state is
+  // distinguishable without color and under reduced motion.
+  // See change: improve-dashboard-attention-routing.
+  const statusShape = deriveStatusShape(session, { hasError, isRetrying, hasWidgetBarPrompt });
   // Status-tinted background color for the left-gutter mosaic rail. The
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
-  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying }, isSelected);
+  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt }, isSelected);
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -491,11 +524,13 @@ export function SessionCard({
         {/* Line 1: source icon (colored by status) + name + age */}
         <div className="flex items-center gap-2">
           <span
-            className={`flex-shrink-0 ${iconStatusColor}`}
+            className={`relative flex-shrink-0 ${iconStatusColor}`}
             title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
             data-testid="session-status-icon"
+            data-status-shape={statusShape}
           >
             <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.5} />
+            <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
           </span>
           <span className="text-sm truncate flex-1">
             {getSessionDisplayName(session)}
@@ -631,8 +666,10 @@ export function SessionCard({
         <span
           className={`relative z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
           data-testid="session-status-icon"
+          data-status-shape={statusShape}
         >
           <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
+          <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
         </span>
       </div>
       {/* Card content */}

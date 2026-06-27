@@ -1,6 +1,14 @@
 # ask-user-card-indicator — delta
 
-## MODIFIED Requirements
+## REMOVED Requirements
+
+### Requirement: ActivityIndicator shows "Waiting for input" for ask_user
+**Reason:** Renamed and re-specified. The label "Waiting for input" was shared
+with the passive idle state (H4 consistency violation). The blocked-on-you state
+now has its own requirement "ActivityIndicator shows \"Needs you\" for ask_user"
+(ADDED below); the idle state gets a separate "Idle" label requirement.
+
+## ADDED Requirements
 
 ### Requirement: ActivityIndicator shows "Needs you" for ask_user
 
@@ -31,8 +39,6 @@ by **icon + label + color + dot shape** together, never by color alone.
 
 - **WHEN** `session.currentTool` is set to any value other than `"ask_user"`
 - **THEN** the activity indicator shows the tool name with flash icon in the `--status-working` color (unchanged behavior)
-
-## ADDED Requirements
 
 ### Requirement: Idle (turn-finished) state uses a distinct label
 

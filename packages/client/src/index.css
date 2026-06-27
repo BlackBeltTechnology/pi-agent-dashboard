@@ -61,6 +61,14 @@
   --link: #60a5fa;
   --link-hover: #93bbfd;
 
+  /* Semantic session-status tokens (derive from accents; theme overrides via
+     inline vars for non-base themes). See change:
+     improve-dashboard-attention-routing. */
+  --status-needs-you: var(--accent-purple);
+  --status-working: var(--accent-yellow);
+  --status-idle: var(--accent-green);
+  --status-error: var(--accent-red);
+
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.4);
 

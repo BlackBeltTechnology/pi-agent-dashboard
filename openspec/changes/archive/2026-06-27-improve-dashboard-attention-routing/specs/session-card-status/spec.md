@@ -36,8 +36,9 @@ Color precedence across dot, rail, and icon-tint SHALL be, highest to lowest:
 The status helpers in `session-status-visuals.ts` SHALL source color from the
 semantic tokens `--status-needs-you`, `--status-working`, `--status-idle`, and
 `--status-error` rather than hardcoded palette literals (`purple-400`,
-`green-500`, `amber-500`, `red-500`). Each token SHALL be defined for all four
-themes (studio, earth, athlete, gradient).
+`green-500`, `amber-500`, `red-500`). Each token SHALL be defined for all themes
+in `themes.ts` (base, dracula, nord, github, catppuccin, tokyo-night, rose-pine,
+solarized, gruvbox), derived from that theme's existing accent tokens.
 
 #### Scenario: No hardcoded status literals in helpers
 
@@ -47,7 +48,7 @@ themes (studio, earth, athlete, gradient).
 
 #### Scenario: Tokens defined per theme
 
-- **WHEN** any of the four themes is active
+- **WHEN** any theme is active
 - **THEN** all four `--status-*` tokens SHALL resolve to a defined value
 
 ### Requirement: Status dot encodes state by shape, not color alone

@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
-import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline } from "@mdi/js";
+import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
 import { PiLogo } from "./PiLogo.js";
 import { FolderActionBar } from "./FolderActionBar.js";
+import { FolderNeedsYouPill } from "./FolderNeedsYouPill.js";
 import { FolderSpawnButtons } from "./FolderSpawnButtons.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
@@ -53,6 +54,8 @@ import { selectedCardScrollFingerprint } from "../lib/session-list-scroll.js";
 import { TunnelButton } from "./TunnelButton.js";
 import { InstallButton } from "./InstallButton.js";
 import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
+import { useFolderUrgencySort } from "../hooks/useFolderUrgencySort.js";
+import { floatAskUserFirst } from "../lib/session-status-visuals.js";
 import { useI18n } from "../lib/i18n.js";
 import { t as i18nT } from "../lib/i18n";
 
@@ -310,6 +313,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // bottom toggles. State is keyed by cwd; absent = collapsed (default).
   // The session-search query auto-expands ended in matching folders.
   const [endedExpanded, setEndedExpanded] = useState<Set<string>>(new Set());
+  // Per-folder opt-in urgency sort (default off). See change:
+  // improve-dashboard-attention-routing.
+  const urgencySort = useFolderUrgencySort();
   const toggleEndedExpanded = useCallback((cwd: string) => {
     setEndedExpanded((prev) => {
       const next = new Set(prev);
@@ -645,6 +651,35 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               <span className="font-bold text-base truncate">{lastSegment}</span>
             </span>
             <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
+            {/* Needs-you rollup: count of chat-routed ask_user children.
+                Click scrolls the first blocked session into view + selects it.
+                See change: improve-dashboard-attention-routing. */}
+            <FolderNeedsYouPill
+              sessions={group.sessions}
+              onActivate={() => {
+                const blocked = group.sessions.find((s) => s.currentTool === "ask_user" && s.status !== "ended");
+                if (!blocked) return;
+                if (isCollapsed) handleToggleCollapse(group.cwd);
+                onSelect(blocked.id);
+                requestAnimationFrame(() => {
+                  document
+                    .querySelector(`[data-session-id="${blocked.id}"]`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                });
+              }}
+            />
+            {/* Opt-in per-folder urgency sort toggle (default off). Floats
+                blocked sessions to the top. See change:
+                improve-dashboard-attention-routing. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); urgencySort.toggle(group.cwd); }}
+              className={`px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
+              title={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
+              aria-pressed={urgencySort.isOn(group.cwd)}
+              data-testid={`folder-urgency-sort-${group.cwd}`}
+            >
+              <Icon path={mdiSortVariant} size={0.5} />
+            </button>
             {/* Pin/Unpin toggle. Hidden inside a workspace container — pin
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
@@ -768,10 +803,16 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             // backfills by endedAt on first load (migration seed).
             // See change: simplify-session-card-ordering.
             const order = sessionOrderMap?.get(group.cwd);
-            const activeSessions = sortSessionsByOrder(
+            const activeSessionsOrdered = sortSessionsByOrder(
               matched.filter((s) => s.status !== "ended"),
               order,
             );
+            // Opt-in urgency sort floats ask_user sessions to the top of the
+            // active tier (stable within groups). See change:
+            // improve-dashboard-attention-routing.
+            const activeSessions = urgencySort.isOn(group.cwd)
+              ? floatAskUserFirst(activeSessionsOrdered)
+              : activeSessionsOrdered;
             const endedSessions = sortSessionsByOrder(
               matched.filter((s) => s.status === "ended"),
               order,

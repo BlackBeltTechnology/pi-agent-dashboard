@@ -38,7 +38,24 @@ export const CSS_VAR_KEYS = [
   "--link",
   "--link-hover",
   "--shadow-card",
+  "--status-needs-you",
+  "--status-working",
+  "--status-idle",
+  "--status-error",
 ] as const;
+
+/**
+ * Semantic session-status tokens. Identical for every theme: each derives from
+ * that theme's own accent tokens so status color stays consistent cross-theme
+ * and inherits each theme's contrast tuning. Applied as inline `var(...)`
+ * indirections by `applyThemeVars`; resolves against the theme's accent vars.
+ */
+const statusVars: Record<string, string> = {
+  "--status-needs-you": "var(--accent-purple)",
+  "--status-working": "var(--accent-yellow)",
+  "--status-idle": "var(--accent-green)",
+  "--status-error": "var(--accent-red)",
+};
 
 // ── Base (matches current CSS :root / [data-theme="light"]) ──
 
@@ -564,16 +581,22 @@ const gruvboxLight: Record<string, string> = {
 
 // ── Registry ──
 
+/** Merge the shared semantic status tokens into a theme's variable map. */
+const withStatus = (vars: Record<string, string>): Record<string, string> => ({
+  ...vars,
+  ...statusVars,
+});
+
 export const THEMES: ThemeDefinition[] = [
-  { id: "base", name: "Base", dark: baseDark, light: baseLight, syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "dracula", name: "Dracula", dark: draculaDark, light: draculaLight, syntaxDark: "dracula", syntaxLight: "oneLight" },
-  { id: "nord", name: "Nord", dark: nordDark, light: nordLight, syntaxDark: "nord", syntaxLight: "oneLight" },
-  { id: "github", name: "GitHub", dark: githubDark, light: githubLight, syntaxDark: "ghcolors", syntaxLight: "ghcolors" },
-  { id: "catppuccin", name: "Catppuccin", dark: catppuccinDark, light: catppuccinLight, syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "tokyo-night", name: "Tokyo Night", dark: tokyoNightDark, light: tokyoNightLight, syntaxDark: "nightOwl", syntaxLight: "oneLight" },
-  { id: "rose-pine", name: "Rosé Pine", dark: rosePineDark, light: rosePineLight, syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "solarized", name: "Solarized", dark: solarizedDark, light: solarizedLight, syntaxDark: "solarizedDarkAtom", syntaxLight: "solarizedlight" },
-  { id: "gruvbox", name: "Gruvbox", dark: gruvboxDark, light: gruvboxLight, syntaxDark: "gruvboxDark", syntaxLight: "gruvboxLight" },
+  { id: "base", name: "Base", dark: withStatus(baseDark), light: withStatus(baseLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "dracula", name: "Dracula", dark: withStatus(draculaDark), light: withStatus(draculaLight), syntaxDark: "dracula", syntaxLight: "oneLight" },
+  { id: "nord", name: "Nord", dark: withStatus(nordDark), light: withStatus(nordLight), syntaxDark: "nord", syntaxLight: "oneLight" },
+  { id: "github", name: "GitHub", dark: withStatus(githubDark), light: withStatus(githubLight), syntaxDark: "ghcolors", syntaxLight: "ghcolors" },
+  { id: "catppuccin", name: "Catppuccin", dark: withStatus(catppuccinDark), light: withStatus(catppuccinLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "tokyo-night", name: "Tokyo Night", dark: withStatus(tokyoNightDark), light: withStatus(tokyoNightLight), syntaxDark: "nightOwl", syntaxLight: "oneLight" },
+  { id: "rose-pine", name: "Rosé Pine", dark: withStatus(rosePineDark), light: withStatus(rosePineLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "solarized", name: "Solarized", dark: withStatus(solarizedDark), light: withStatus(solarizedLight), syntaxDark: "solarizedDarkAtom", syntaxLight: "solarizedlight" },
+  { id: "gruvbox", name: "Gruvbox", dark: withStatus(gruvboxDark), light: withStatus(gruvboxLight), syntaxDark: "gruvboxDark", syntaxLight: "gruvboxLight" },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {
