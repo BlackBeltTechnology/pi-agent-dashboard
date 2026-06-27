@@ -83,6 +83,7 @@ step.
 | `tests/e2e/faux-text.spec.ts` | Faux round-trip: `[[faux:plain-text]]` → scripted assistant text renders. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/faux-tool.spec.ts` | Faux round-trip: `[[faux:tool-read]]` → read tool renderer mounts. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/faux-ask.spec.ts` | Faux round-trip: `[[faux:ask-select]]` → interactive select widget mounts. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/tool-output-links.spec.ts` | Faux round-trip: `[[faux:text-difflinks]]` → assistant diff header linkifies; clicking `a/src/ghost.ts` strips the diff prefix (previews `src/ghost.ts`) and FilePreviewOverlay shows the stale-file "no longer exists" message. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/helpers/` | `gotoDashboard(page)`, `ensureGitSession(page)`, `sendPrompt(page, text)` + testid→locator map |
 
 ## Conventions
