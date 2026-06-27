@@ -130,6 +130,10 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY scripts ./scripts
 COPY patches ./patches
 COPY packages ./packages
+# Faux model fixture (provider + scenario catalog). test-entrypoint.sh stages
+# these as a global auto-discovered pi extension under PI_E2E_SEED so UI-spawned
+# sessions drive a key-free faux model. See change: add-e2e-faux-model-roundtrip.
+COPY qa/fixtures ./qa/fixtures
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 

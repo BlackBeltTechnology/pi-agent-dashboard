@@ -84,9 +84,46 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     # RFC1918 private blocks — docker published-port traffic is SNAT'd through
     # the bridge gateway (Linux 172.17.x, Docker Desktop 192.168.65.x), always
     # private. Narrower than 0.0.0.0/0; still clears the in-container browser.
-    printf '{"spawnStrategy":"%s","trustedNetworks":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]}\n' "${PI_SPAWN_STRATEGY:-tmux}" \
+    # `defaultModel` makes the bridge call pi.setModel(faux/faux-1) on each
+    # brand-new UI-spawned session (bridge-default-model-gate) so the round-trip
+    # specs reach a key-free model with no --model flag.
+    printf '{"spawnStrategy":"%s","trustedNetworks":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"defaultModel":"faux/faux-1"}\n' "${PI_SPAWN_STRATEGY:-tmux}" \
       > "${PI_DIR}/dashboard/config.json"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) → config.json"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) + defaultModel → config.json"
+  fi
+
+  # --- Faux model: stage the fixture as a global auto-discovered extension ---
+  # pi auto-discovers ~/.pi/agent/extensions/*/index.ts (no -e, no trust gate).
+  # Subdir form is required because the extension imports ./faux-scenarios.js.
+  # The Dockerfile COPYs qa/fixtures to /app/qa/fixtures. No-op when present.
+  FAUX_SRC="/app/qa/fixtures"
+  FAUX_EXT_DIR="${PI_DIR}/agent/extensions/faux-provider"
+  if [ -f "${FAUX_SRC}/faux-provider.ext.ts" ] && [ ! -f "${FAUX_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${FAUX_EXT_DIR}"
+    cp "${FAUX_SRC}/faux-provider.ext.ts" "${FAUX_EXT_DIR}/index.ts"
+    cp "${FAUX_SRC}/faux-scenarios.ts" "${FAUX_EXT_DIR}/faux-scenarios.ts"
+    # The fixture imports `@earendil-works/pi-ai`, unresolvable from
+    # ~/.pi/agent/extensions/. Symlink /app/node_modules (where the repo dep
+    # lives) into the extension dir so node/jiti resolves pi-ai from here.
+    ln -sfn /app/node_modules "${FAUX_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_E2E_SEED: staged faux extension → ${FAUX_EXT_DIR}"
+  fi
+
+  # Also seed pi's own settings.json defaultModel (read at pi startup) so the
+  # faux model is selected even before the bridge gate runs. Merge — never
+  # clobber existing keys. No-op when already set.
+  SETTINGS="${PI_DIR}/agent/settings.json"
+  if [ ! -f "${SETTINGS}" ] || ! grep -q '"defaultModel"' "${SETTINGS}" 2>/dev/null; then
+    node -e '
+      const fs = require("node:fs");
+      const p = process.argv[1];
+      let cfg = {};
+      try { cfg = JSON.parse(fs.readFileSync(p, "utf8")); } catch { cfg = {}; }
+      if (!cfg.defaultModel) cfg.defaultModel = "faux/faux-1";
+      fs.mkdirSync(require("node:path").dirname(p), { recursive: true });
+      fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
+    ' "${SETTINGS}"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded defaultModel → settings.json"
   fi
 fi
 

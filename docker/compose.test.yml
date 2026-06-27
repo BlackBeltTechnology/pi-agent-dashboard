@@ -65,6 +65,12 @@ services:
       - "./fixtures:/fixtures-src:ro"
       # Test entrypoint wrapper (bind-mounted; no image rebuild).
       - "./test-entrypoint.sh:/usr/local/bin/test-entrypoint.sh:ro"
+      # Faux model fixture (bind-mounted; no image rebuild needed, same
+      # rationale as test-entrypoint.sh above). The Dockerfile also COPYs these
+      # for the baked standalone image; the bind mount guarantees the entrypoint
+      # stages CURRENT fixture files even against a warm (stale) image. Under
+      # PI_E2E_SEED the entrypoint stages them as a global pi extension.
+      - "../qa/fixtures:/app/qa/fixtures:ro"
 
     tmpfs:
       # Single tmpfs backs BOTH the overlay upper + work dirs — overlayfs
