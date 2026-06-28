@@ -759,6 +759,20 @@ export interface PromoteFollowupEntryToExtensionMessage {
   index: number;
 }
 
+/**
+ * Server → extension: the dashboard-attached OpenSpec change for `sessionId`
+ * changed (attach sets `attachedChange` to the change name; detach sets it to
+ * `null`). The bridge mirrors this into `BridgeContext.attachedChange`, which
+ * the `before_agent_start` injector reads to build the per-turn system-prompt
+ * fragment. Replayed on every `session_register` so a reattaching bridge picks
+ * up current state. See change: inject-session-context-into-agent.
+ */
+export interface AttachProposalChangedExtensionMessage {
+  type: "attach_proposal_changed";
+  sessionId: string;
+  attachedChange: string | null;
+}
+
 export type ServerToExtensionMessage =
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
@@ -791,4 +805,5 @@ export type ServerToExtensionMessage =
   | ClearFollowupEntriesToExtensionMessage
   | EditFollowupEntryToExtensionMessage
   | RemoveFollowupEntryToExtensionMessage
-  | PromoteFollowupEntryToExtensionMessage;
+  | PromoteFollowupEntryToExtensionMessage
+  | AttachProposalChangedExtensionMessage;

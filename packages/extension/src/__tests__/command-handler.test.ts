@@ -999,4 +999,48 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
 
     expect(abort).toHaveBeenCalledTimes(1);
   });
+
+  // attach_proposal_changed → onAttachProposalChanged mirror (task 3.4).
+  // See change: inject-session-context-into-agent.
+  describe("attach_proposal_changed", () => {
+    it("matching sessionId → calls onAttachProposalChanged with the value", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: "X" });
+
+      expect(onAttachProposalChanged).toHaveBeenCalledWith("X");
+    });
+
+    it("null payload → clears (calls with null)", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: null });
+
+      expect(onAttachProposalChanged).toHaveBeenCalledWith(null);
+    });
+
+    it("mismatched sessionId → dropped by the guard, callback untouched", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s2", attachedChange: "X" });
+
+      expect(onAttachProposalChanged).not.toHaveBeenCalled();
+    });
+
+    it("malformed attachedChange (non-string, non-null) → dropped, callback untouched", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: 123 as any });
+
+      expect(onAttachProposalChanged).not.toHaveBeenCalled();
+    });
+  });
 });

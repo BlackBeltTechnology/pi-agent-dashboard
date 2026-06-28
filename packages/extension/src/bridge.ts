@@ -11,6 +11,7 @@ import { detectSessionSource } from "./source-detector.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
 import { createCommandHandler } from "./command-handler.js";
+import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
@@ -92,6 +93,13 @@ interface BridgeState {
    * var is gone. See change: fix-spawn-token-env-leak.
    */
   dashboardSpawned?: boolean;
+  /**
+   * Dashboard-attached OpenSpec change name persisted across reload so the
+   * `before_agent_start` injector keeps the fragment after `npm run reload`
+   * even before the server re-replays on `session_register`. `null`/absent
+   * when no change attached. See change: inject-session-context-into-agent.
+   */
+  attachedChange?: string | null;
 }
 function getBridgeState(): BridgeState {
   if (!(process as any)[BRIDGE_KEY]) {
@@ -164,6 +172,7 @@ function initBridge(pi: ExtensionAPI) {
   }
 
   let sessionId: string = prev.sessionId ?? crypto.randomUUID();
+  let attachedChange: string | null = prev.attachedChange ?? null;
   let sessionReady = false; // true after session_start has run
   let lastSessionFile: string | undefined;
   let lastSessionDir: string | undefined;
@@ -971,6 +980,14 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // Mirror server attach/detach pushes into BridgeContext.attachedChange so
+    // the before_agent_start injector exposes it. See change:
+    // inject-session-context-into-agent.
+    onAttachProposalChanged: (next: string | null) => {
+      attachedChange = next;
+      const s = getBridgeState();
+      s.attachedChange = next;
+    },
     setThinkingLevel: (level: string) => (pi as any).setThinkingLevel?.(level),
     getThinkingLevel: () => (pi as any).getThinkingLevel?.(),
     setModel: async (provider: string, modelId: string) => {
@@ -1139,7 +1156,7 @@ function initBridge(pi: ExtensionAPI) {
   /** Sync local variables into BridgeContext for extracted module calls */
   function syncBc(): BridgeContext {
     return {
-      pi, connection, sessionId,
+      pi, connection, sessionId, attachedChange,
       cachedCtx, cachedModelRegistry, cachedHasUI,
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
@@ -1154,6 +1171,7 @@ function initBridge(pi: ExtensionAPI) {
   /** Sync BridgeContext mutations back to local variables */
   function applyBc(bc: BridgeContext): void {
     sessionId = bc.sessionId;
+    attachedChange = bc.attachedChange;
     cachedCtx = bc.cachedCtx;
     cachedModelRegistry = bc.cachedModelRegistry;
     cachedHasUI = bc.cachedHasUI;
@@ -1528,6 +1546,17 @@ function initBridge(pi: ExtensionAPI) {
       connection.send(msg);
     }));
   }
+
+  // Per-turn system-prompt injector: splice dashboard session context
+  // (sessionId, cwd, attached OpenSpec change) into the system prompt. Reads
+  // live state via syncBc each turn; isActive guards against /reload stacking.
+  // Coexists with the pass-through before_agent_start forwarder above (pi
+  // chains { systemPrompt } results). See change: inject-session-context-into-agent.
+  registerDashboardContextInjector(
+    pi,
+    () => ({ sessionId, attachedChange }),
+    isActive,
+  );
 
   // Pi does NOT forward `queue_update` events to extensions (verified in
   // pi-coding-agent 0.71+ — see _emitExtensionEvent allowlist). Bridge
@@ -2210,6 +2239,13 @@ function initBridge(pi: ExtensionAPI) {
 
   // Shared handler for session changes (new/fork/resume)
   function handleSessionChange(ctx: any) {
+    // Clear attachedChange on a real session switch (new/fork/resume): it is
+    // persisted globally + restored at activate, so without this the previous
+    // session's attached change would leak into the new session's prompt until
+    // the server replays. The server re-pushes the correct value for the new
+    // sessionId on its session_register. See change: inject-session-context-into-agent.
+    attachedChange = null;
+    getBridgeState().attachedChange = null;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
@@ -2301,6 +2337,7 @@ function initBridge(pi: ExtensionAPI) {
   state.cleanup = () => {
     const s = getBridgeState();
     s.sessionId = sessionId;
+    s.attachedChange = attachedChange;
     s.ctx = cachedCtx;
     s.modelRegistry = cachedModelRegistry;
     s.hasUI = cachedHasUI;

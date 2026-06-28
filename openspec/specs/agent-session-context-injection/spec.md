@@ -1,10 +1,13 @@
-## ADDED Requirements
+# agent-session-context-injection Specification
 
+## Purpose
+TBD - created by archiving change inject-session-context-into-agent. Update Purpose after archive.
+## Requirements
 ### Requirement: Bridge injects per-turn dashboard session context into system prompt
 
-The bridge extension SHALL register a `pi.on("before_agent_start", ...)` handler that appends a dashboard-session-context fragment to `event.systemPrompt` on every turn. The handler SHALL append (never replace) so it composes with other extensions' system-prompt contributions.
+The bridge extension SHALL register a `pi.on("before_agent_start", ...)` handler that returns `{ systemPrompt }` containing a splice-replaced copy of `event.systemPrompt` on every turn. The handler SHALL locate the LAST occurrence of the literal anchor `\nCurrent working directory: ` in `event.systemPrompt` and replace from that anchor through end-of-string with the dashboard-session-context fragment. The fragment carries `cwd` itself, so the dropped `Current working directory:` line loses no information. All `event.systemPrompt` content BEFORE the anchor SHALL be preserved verbatim, so the handler composes with pi's body and with other extensions' system-prompt contributions. When the anchor is absent, the handler SHALL fall back to appending the fragment after a single blank-line separator (`\n\n`).
 
-The fragment SHALL be enclosed in clearly-marked delimiters so it is distinguishable from user content and from the rest of the system prompt. The opening delimiter SHALL be the literal line `── pi-dashboard session context ──`. The fragment SHALL end with a single trailing blank line.
+The fragment SHALL be enclosed in clearly-marked delimiters so it is distinguishable from user content and from the rest of the system prompt. The opening delimiter SHALL be the literal line `── pi-dashboard session context ──`. The fragment SHALL NOT carry a trailing blank line; the caller controls separators (a leading `\n` on splice, `\n\n` on fallback append).
 
 The fragment SHALL always include exactly one line of the form:
 
@@ -12,7 +15,7 @@ The fragment SHALL always include exactly one line of the form:
 You are pi session `<sessionId>` running in `<cwd>`.
 ```
 
-where `<sessionId>` is `pi.sessionId` and `<cwd>` is `event.systemPromptOptions.cwd`.
+where `<sessionId>` is `bc.sessionId` (the bridge-owned dashboard session id; pi exposes no `pi.sessionId`) and `<cwd>` is `event.systemPromptOptions.cwd`.
 
 When `BridgeContext.attachedChange` is a non-empty string, the fragment SHALL include exactly one additional line of the form:
 
@@ -22,17 +25,18 @@ Attached OpenSpec change: `<change-name>`. See `openspec/changes/<change-name>/{
 
 When `BridgeContext.attachedChange` is `null`, `undefined`, or the empty string, the attached-change line SHALL be omitted entirely.
 
-#### Scenario: No attached change — only sessionId/cwd line included
+#### Scenario: No attached change — splices over trailing cwd line, only sessionId/cwd line included
 
 - **WHEN** `before_agent_start` fires and `BridgeContext.attachedChange` is `null`
-- **AND** `pi.sessionId === "abc-123"` and `event.systemPromptOptions.cwd === "/Users/robson/Project/pi-agent-dashboard"`
-- **THEN** the handler SHALL return `{ systemPrompt: <previous> + "\n\n── pi-dashboard session context ──\nYou are pi session `abc-123` running in `/Users/robson/Project/pi-agent-dashboard`.\n" }`
+- **AND** `bc.sessionId === "abc-123"` and `event.systemPromptOptions.cwd === "/Users/robson/Project/pi-agent-dashboard"`
+- **AND** `event.systemPrompt` ends with `"…Current date: 2026-06-27\nCurrent working directory: /Users/robson/Project/pi-agent-dashboard"`
+- **THEN** the handler SHALL return `{ systemPrompt }` where everything up to and including `"…Current date: 2026-06-27"` is retained verbatim, the original `Current working directory:` line is dropped, and the result ends with `"\n── pi-dashboard session context ──\nYou are pi session `abc-123` running in `/Users/robson/Project/pi-agent-dashboard`."`
 - **AND** no `Attached OpenSpec change:` line SHALL appear
 
 #### Scenario: Attached change — both lines included
 
 - **WHEN** `before_agent_start` fires and `BridgeContext.attachedChange === "wire-plugin-registry-into-shell"`
-- **THEN** the appended fragment SHALL contain the `You are pi session` line followed by `Attached OpenSpec change: \`wire-plugin-registry-into-shell\`. See \`openspec/changes/wire-plugin-registry-into-shell/{proposal,design,tasks}.md\`.`
+- **THEN** the spliced-in fragment SHALL contain the `You are pi session` line followed by `Attached OpenSpec change: \`wire-plugin-registry-into-shell\`. See \`openspec/changes/wire-plugin-registry-into-shell/{proposal,design,tasks}.md\`.`
 
 #### Scenario: Detach reflected on next turn — line removed silently
 
@@ -43,16 +47,27 @@ When `BridgeContext.attachedChange` is `null`, `undefined`, or the empty string,
 - **THEN** turn N+1's fragment SHALL omit the `Attached OpenSpec change:` line entirely
 - **AND** no synthetic message SHALL be injected announcing the detach
 
-#### Scenario: Append-only — does not clobber upstream chain
+#### Scenario: Splice preserves content before the anchor
 
-- **WHEN** an earlier `before_agent_start` handler from another extension has already appended its own text and `event.systemPrompt` ends with `"…upstream-text"`
+- **WHEN** `event.systemPrompt` contains the anchor `\nCurrent working directory: ` and arbitrary content before it (pi's body plus any earlier extensions' contributions)
 - **AND** the dashboard injector handler fires
-- **THEN** the returned `systemPrompt` SHALL start with the full prior `event.systemPrompt` (including `"…upstream-text"`)
-- **AND** the dashboard fragment SHALL be appended after a single blank-line separator
+- **THEN** the returned `systemPrompt` SHALL retain all content before the anchor verbatim
+- **AND** everything from the anchor through end-of-string SHALL be replaced by the dashboard fragment
+
+#### Scenario: Multiple anchors — only the last is replaced
+
+- **WHEN** `event.systemPrompt` contains the anchor `\nCurrent working directory: ` more than once
+- **THEN** the handler SHALL splice only at the LAST occurrence, leaving earlier occurrences untouched
+
+#### Scenario: Fallback append when anchor absent
+
+- **WHEN** `event.systemPrompt` does NOT contain the anchor `\nCurrent working directory: ` (future pi versions or third-party SP overrides)
+- **AND** the dashboard injector handler fires
+- **THEN** the returned `systemPrompt` SHALL equal the full prior `event.systemPrompt` followed by `\n\n` and the dashboard fragment
 
 #### Scenario: Handler survives session reseating on fork/resume
 
-- **WHEN** pi 0.69+ replaces the session via fork or resume and `bridge.ts` re-captures `pi` in `session_start`
+- **WHEN** pi replaces the session via fork or resume and `bridge.ts` re-captures `pi` in `session_start`
 - **THEN** the dashboard context injector SHALL re-register on the new `pi` instance
 - **AND** subsequent `before_agent_start` events SHALL still produce the fragment
 
@@ -103,3 +118,4 @@ interface AttachProposalChangedExtensionMessage {
 
 - **WHEN** an older bridge connected to a newer server receives `{ type: "attach_proposal_changed", ... }`
 - **THEN** the bridge SHALL log-and-drop without crashing (existing default-branch behaviour in connection layer)
+

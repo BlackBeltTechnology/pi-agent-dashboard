@@ -3,7 +3,7 @@
  * See change: fix-mobile-attach-proposal-display.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer, pushAttachProposalChanged } from "../session-meta-handler.js";
 import { createMemorySessionManager, type SessionManager } from "../../memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
 
@@ -63,6 +63,7 @@ describe("handleAttachProposal — decision matrix", () => {
     expect(s.name).toBe("add-auth");
     expect(piSends).toEqual([
       { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "add-auth" } },
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "add-auth" } },
     ]);
     expect(broadcasts).toEqual([
       { type: "session_updated", sessionId: "s1", updates: { attachedProposal: "add-auth", name: "add-auth" } },
@@ -78,7 +79,9 @@ describe("handleAttachProposal — decision matrix", () => {
     const s = mgr.get("s1")!;
     expect(s.attachedProposal).toBe("add-auth");
     expect(s.name).toBe("my custom");
-    expect(piSends).toEqual([]);
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "add-auth" } },
+    ]);
     expect(broadcasts).toEqual([
       { type: "session_updated", sessionId: "s1", updates: { attachedProposal: "add-auth" } },
     ]);
@@ -95,6 +98,7 @@ describe("handleAttachProposal — decision matrix", () => {
     expect(s.attachedProposal).toBe("bar");
     expect(piSends).toEqual([
       { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "bar" } },
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "bar" } },
     ]);
     expect(broadcasts[0].updates).toEqual({ attachedProposal: "bar", name: "bar" });
   });
@@ -108,8 +112,31 @@ describe("handleAttachProposal — decision matrix", () => {
     const s = mgr.get("s1")!;
     expect(s.name).toBe("my custom");
     expect(s.attachedProposal).toBe("bar");
-    expect(piSends).toEqual([]);
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "bar" } },
+    ]);
     expect(broadcasts[0].updates).toEqual({ attachedProposal: "bar" });
+  });
+});
+
+describe("pushAttachProposalChanged", () => {
+  it("sends attach_proposal_changed to the owning session", () => {
+    const piSends: PiSent[] = [];
+    const ctx = {
+      piGateway: { sendToSession(sessionId: string, msg: unknown) { piSends.push({ sessionId, msg }); return true; } },
+    } as unknown as BrowserHandlerContext;
+    pushAttachProposalChanged(ctx, "s1", "X");
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: "X" } },
+    ]);
+  });
+
+  it("silent no-op when no bridge connected (sendToSession returns false)", () => {
+    const ctx = {
+      piGateway: { sendToSession() { return false; } },
+    } as unknown as BrowserHandlerContext;
+    // Must not throw even though no bridge owns the session.
+    expect(() => pushAttachProposalChanged(ctx, "ghost", null)).not.toThrow();
   });
 });
 
@@ -178,6 +205,7 @@ describe("handleDetachProposal — decision matrix", () => {
     expect(s.name).toBeUndefined();
     expect(piSends).toEqual([
       { sessionId: "s1", msg: { type: "rename_session", sessionId: "s1", name: "" } },
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: null } },
     ]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null, name: undefined,
@@ -194,7 +222,9 @@ describe("handleDetachProposal — decision matrix", () => {
     const s = mgr.get("s1")!;
     expect(s.attachedProposal).toBeNull();
     expect(s.name).toBe("my custom");
-    expect(piSends).toEqual([]);
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: null } },
+    ]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
       pendingReplaceProposal: null, rejectedReplaceProposals: [],
@@ -210,7 +240,9 @@ describe("handleDetachProposal — decision matrix", () => {
     const s = mgr.get("s1")!;
     expect(s.attachedProposal).toBeNull();
     expect(s.name).toBeUndefined();
-    expect(piSends).toEqual([]);
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: null } },
+    ]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
       pendingReplaceProposal: null, rejectedReplaceProposals: [],
@@ -226,7 +258,9 @@ describe("handleDetachProposal — decision matrix", () => {
     const s = mgr.get("s1")!;
     expect(s.attachedProposal).toBeNull();
     expect(s.name).toBe("foo");
-    expect(piSends).toEqual([]);
+    expect(piSends).toEqual([
+      { sessionId: "s1", msg: { type: "attach_proposal_changed", sessionId: "s1", attachedChange: null } },
+    ]);
     expect(broadcasts[0].updates).toEqual({
       attachedProposal: null, openspecPhase: null, openspecChange: null,
       pendingReplaceProposal: null, rejectedReplaceProposals: [],
