@@ -136,8 +136,8 @@ describe("dependency-detector", () => {
       });
       // detectSystemNode then calls execSync("<path> --version") via platform/exec
       // (chained through node:child_process which IS mocked).
-      // v22.18.0 is outside the nodejs/node#58515 affected range.
-      mockExecSync.mockReturnValue("v22.18.0\n");
+      // v22.19.0 is the engines floor — usable per isUsableNodeVersion.
+      mockExecSync.mockReturnValue("v22.19.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: true, path: "/usr/local/bin/node", source: "system" });
     });
@@ -152,9 +152,9 @@ describe("dependency-detector", () => {
         tried: [],
         resolvedAt: Date.now(),
       });
-      // Version is below 20.6 so detectSystemNode rejects and falls through
-      // to scanForUsableNodeOnDisk. mockExistsSync is false by default so
-      // the on-disk scan finds no candidates → returns {found:false}.
+      // Version is below the engines floor (>=22.19) so detectSystemNode
+      // rejects and falls through to scanForUsableNodeOnDisk. mockExistsSync
+      // is false by default so the on-disk scan finds no candidates → {found:false}.
       mockExecSync.mockReturnValue("v18.0.0\n");
       const result = detectSystemNode();
       expect(result).toMatchObject({ found: false });

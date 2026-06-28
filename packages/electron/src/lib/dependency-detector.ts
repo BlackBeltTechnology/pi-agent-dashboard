@@ -19,6 +19,7 @@ import {
   type Resolution,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { ToolResolver, isAppImageSelfHit } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { isUsableNodeVersion } from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 import { MANAGED_BIN, MANAGED_DIR } from "./managed-paths.js";
 
 // Local resolver for inline lookups (pi-dashboard existence check).
@@ -88,21 +89,19 @@ export function detectSystemNode(): DetectionResult {
   if (base.found && base.path) {
     try {
       const version = execSync(`"${base.path}" --version`, { encoding: "utf-8" }).trim();
-      const match = version.match(/^v(\d+)\.(\d+)/);
-      if (match) {
-        const major = parseInt(match[1], 10);
-        const minor = parseInt(match[2], 10);
-        if ((major > 20 || (major === 20 && minor >= 6)) && !isVersionAffected(version)) {
-          return base;
-        }
+      // Usable iff the dashboard server would actually run on it: within
+      // engines range AND not nodejs/node#58515-affected. See change:
+      // unify-node-version-gate.
+      if (isUsableNodeVersion(version)) {
+        return base;
       }
     } catch { /* ignore */ }
   }
   // Fallback: scan well-known on-disk locations for a usable Node.
   // Required because GUI-launched apps on macOS don't inherit the user's
   // shell PATH (where nvm/volta/brew live), and the login-shell whichifier
-  // can return a Node that is itself in the affected range. See change:
-  // skip-affected-bundled-node.
+  // can return a Node that is itself below floor / in the affected range.
+  // See change: unify-node-version-gate.
   const scanned = scanForUsableNodeOnDisk();
   if (scanned) {
     return { found: true, path: scanned, source: "system" };
@@ -111,25 +110,10 @@ export function detectSystemNode(): DetectionResult {
 }
 
 /**
- * Pure-ish helper: is `version` in the nodejs/node#58515 affected range
- * (v22.0–v22.17 or v24.1–v24.2)? Inlined to avoid pulling pick-node.ts
- * into this module's dependency graph; mirrors `isBundledNodeAffected`
- * in pick-node.ts and `isAffectedNode` in server/node-guard.ts.
- */
-function isVersionAffected(version: string): boolean {
-  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
-  if (!m) return false;
-  const major = Number(m[1]);
-  const minor = Number(m[2]);
-  if (major === 22 && minor < 18) return true;
-  if (major === 24 && minor >= 1 && minor < 3) return true;
-  return false;
-}
-
-/**
- * Scan well-known on-disk dirs for a Node binary that is (a) executable,
- * (b) version >= 20.6, and (c) NOT in the nodejs/node#58515 affected
- * range. Returns the path of the highest-version usable Node found.
+ * Scan well-known on-disk dirs for a Node binary that is (a) executable
+ * and (b) version-usable per the shared `isUsableNodeVersion` gate (within
+ * engines range AND not nodejs/node#58515-affected). Returns the path of
+ * the highest-version usable Node found.
  *
  * Searched (in order):
  *   1. `~/.nvm/versions/node/<each>/bin/node`
@@ -167,12 +151,7 @@ function scanForUsableNodeOnDisk(): string | null {
     if (!existsSync(cand)) continue;
     try {
       const v = execFileSync(cand, ["--version"], { encoding: "utf8", timeout: 5000 }).trim();
-      const m = v.match(/^v(\d+)\.(\d+)/);
-      if (!m) continue;
-      const major = Number(m[1]);
-      const minor = Number(m[2]);
-      if (major < 20 || (major === 20 && minor < 6)) continue;
-      if (isVersionAffected(v)) continue;
+      if (!isUsableNodeVersion(v)) continue;
       return cand;
     } catch { /* skip unreadable / non-executable candidates */ }
   }

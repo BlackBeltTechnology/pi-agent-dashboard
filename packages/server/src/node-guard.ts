@@ -1,66 +1,24 @@
 /**
- * Pure predicate + message builder for nodejs/node#58515 affected versions.
+ * Message builders + startup assertion for unsupported Node versions.
  *
- * The bug (`ERR_INTERNAL_ASSERTION: Unexpected module status 3`) fires when
- * Fastify loads its internal ajv-compiler under affected Node versions.
- *
- * Affected: Node v22.0–v22.18 and v24.1–v24.2.
- * Fixed in: v22.19+, v24.3+, v25.x.
- *
- * 22.x cutoff widened from `< 22.18` to `< 22.19` in change
- * `bump-pi-compat-to-0-75` (pi 0.75.0 raised its own Node floor to 22.19;
- * mirror it here so the runtime guard matches the engines.node floor).
- * If `packages/electron/src/lib/pick-node.ts::isBundledNodeAffected`
- * exists as a deliberate mirror, it MUST move in lockstep.
+ * The two predicates (`isAffectedNode`, `isOutOfEnginesRange`) now live in
+ * `@blackbelt-technology/pi-dashboard-shared/node-version.js` — the single
+ * source of truth shared with the Electron doctor. They are re-exported here
+ * so this module's public API and the `server-startup-node-version-guard`
+ * spec wording ("node-guard.ts SHALL expose …") stay intact.
  *
  * Rationale for a preflight refuse-to-start (instead of a preload workaround):
  * see openspec/changes/adapt-windows-integration-pr9/proposal.md and
  * BRANCH-COMPARISON.md §10 on origin/windows-integration.
+ *
+ * See change: unify-node-version-gate.
  */
+import {
+  isAffectedNode,
+  isOutOfEnginesRange,
+} from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 
-export function isAffectedNode(version: string): boolean {
-  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
-  if (!m) return false;
-  const major = Number(m[1]);
-  const minor = Number(m[2]);
-  if (major === 22 && minor < 19) return true;
-  if (major === 24 && minor >= 1 && minor < 3) return true;
-  return false;
-}
-
-/**
- * Returns true when Node is OUTSIDE the engines cap declared in
- * `package.json#engines.node` (`>=22.19.0 <26`). Covers:
- *
- *   - Too old: major < 22, OR major 22 with minor < 19 (overlaps with
- *     isAffectedNode on the 22.x edge — both catch the below-floor case;
- *     the engines guard names the floor explicitly).
- *   - Too new: major >= 26 (speculative cap; future Node 26 work is its
- *     own change).
- *
- * History: cap was briefly `<25` in change `openspec-worktree-spawn-button`
- * commit 63a8d531, on the theory that subprocess `npm ci` (worktree-spawn
- * bootstrap) would EBADENGINE on Node 25 under the old `engines.node <25`.
- * CI smoke matrices had been running Node 25 cleanly the whole time
- * (because they pass `--engine-strict=false`); the dev-reported
- * EBADENGINE was almost certainly an nvm subprocess-PATH artifact, not a
- * real engines failure. Bumping engines to `<26` removes the npm-side
- * trigger at the source and restores Node 25 as a first-class target.
- *
- * Keep this in lockstep with `package.json#engines.node`.
- *
- * See change: openspec-worktree-spawn-button.
- */
-export function isOutOfEnginesRange(version: string): boolean {
-  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
-  if (!m) return false;
-  const major = Number(m[1]);
-  const minor = Number(m[2]);
-  if (major < 22) return true;
-  if (major === 22 && minor < 19) return true;
-  if (major >= 26) return true;
-  return false;
-}
+export { isAffectedNode, isOutOfEnginesRange };
 
 export function buildEnginesRangeMessage(version: string): string {
   return [

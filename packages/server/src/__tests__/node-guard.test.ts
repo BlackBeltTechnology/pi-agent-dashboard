@@ -1,3 +1,4 @@
+import * as sharedNodeVersion from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
 import { describe, expect, it } from "vitest";
 import {
   buildEnginesRangeMessage,
@@ -5,6 +6,16 @@ import {
   isAffectedNode,
   isOutOfEnginesRange,
 } from "../node-guard.js";
+
+describe("node-guard re-exports the shared canonical predicates", () => {
+  it("isAffectedNode is the same reference as the shared source", () => {
+    expect(isAffectedNode).toBe(sharedNodeVersion.isAffectedNode);
+  });
+
+  it("isOutOfEnginesRange is the same reference as the shared source", () => {
+    expect(isOutOfEnginesRange).toBe(sharedNodeVersion.isOutOfEnginesRange);
+  });
+});
 
 describe("isAffectedNode", () => {
   it("returns true for v22.0.0 (lower bound of 22.x affected)", () => {

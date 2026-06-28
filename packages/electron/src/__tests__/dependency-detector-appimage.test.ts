@@ -106,12 +106,13 @@ describe("detectSystemNode AppImage symmetry guard", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockHas.mockReturnValue(true);
-    // v22.18.0 is outside the nodejs/node#58515 affected range (v22.0–22.17).
-    // Both the registry-result version check (execSync) and the
-    // scanForUsableNodeOnDisk fallback (execFileSync) receive a passing version
-    // so the resolver chain is deterministic.
-    mockExecSync.mockReturnValue("v22.18.0\n");
-    mockExecFileSync.mockReturnValue("v22.18.0\n");
+    // v22.19.0 is the engines floor — usable per isUsableNodeVersion. Both the
+    // registry-result version check (execSync) and the scanForUsableNodeOnDisk
+    // fallback (execFileSync) receive a passing version so the resolver chain is
+    // deterministic and the APPDIR rejection is attributable to the guard, not
+    // a version reject.
+    mockExecSync.mockReturnValue("v22.19.0\n");
+    mockExecFileSync.mockReturnValue("v22.19.0\n");
     // Fail-closed defaults for the fs probes used by
     // scanForUsableNodeOnDisk: no candidate exists on disk.
     mockExistsSync.mockReturnValue(false);
