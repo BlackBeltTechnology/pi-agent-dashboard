@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { FileLink } from "../FileLink.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as editorApi from "../../../lib/editor-api.js";
+import { FilePreviewHost, FilePreviewProvider } from "../../FilePreviewContext.js";
+import { ThemeProvider } from "../../ThemeProvider.js";
+import { FileLink } from "../FileLink.js";
 import type { ToolContext } from "../types.js";
 
 const originalLocation = window.location;
@@ -20,6 +21,21 @@ function restoreHost() {
 // FilePreviewOverlay (rendered on the no-editor path) reads ThemeProvider for
 // syntax highlighting, so every render is wrapped.
 function renderFL(ui: React.ReactElement) {
+  return render(
+    <ThemeProvider>
+      <FilePreviewProvider>
+        {ui}
+        <FilePreviewHost />
+      </FilePreviewProvider>
+    </ThemeProvider>,
+  );
+}
+
+// No-provider render: exercises FileLink's leaf-local fallback overlay (the
+// path used on non-chat surfaces like README dialogs / markdown preview, where
+// no FilePreviewProvider is mounted). renderFL above always goes through the
+// hosted path, so this keeps the fallback branch covered.
+function renderFLNoProvider(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);
 }
 
@@ -127,6 +143,25 @@ describe("FileLink — click routing", () => {
     expect(editorApi.openEditor).toHaveBeenCalled();
   });
 
+  it("no provider → FileLink renders its own fallback preview overlay", async () => {
+    setHost("dashboard.example.com");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as any,
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+    const { getByRole, findByTestId } = renderFLNoProvider(
+      <FileLink path="src/foo.ts" context={ctx}>
+        src/foo.ts
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
+    fetchSpy.mockRestore();
+  });
+
   it("title exposes resolved absolute path on hover", () => {
     setHost("localhost");
     const ctx: ToolContext = {
@@ -209,5 +244,66 @@ describe("FileLink — absolute paths skip the cwd join", () => {
     const overlay = await findByTestId("file-preview-overlay");
     expect(overlay.textContent).toContain("/Users/other/app.ts");
     fetchSpy.mockRestore();
+  });
+});
+
+describe("FileLink — worktree link-origin re-rooting", () => {
+  const worktreeCtx: ToolContext = {
+    cwd: "/repo/.worktrees/x",
+    editors: [{ id: "code", name: "VS Code" }],
+  };
+
+  beforeEach(() => {
+    vi.spyOn(editorApi, "openEditor").mockResolvedValue({ success: true });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    restoreHost();
+  });
+
+  it("opens the worktree copy for a parent-rooted absolute path", async () => {
+    setHost("localhost");
+    const { getByRole } = renderFL(
+      <FileLink path="/repo/node_modules/vitest/package.json" absolute context={worktreeCtx}>
+        /repo/node_modules/vitest/package.json
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    await Promise.resolve();
+    expect(editorApi.openEditor).toHaveBeenCalledWith(
+      "/repo/.worktrees/x",
+      "code",
+      "/repo/.worktrees/x/node_modules/vitest/package.json",
+      undefined,
+    );
+  });
+
+  it("tooltip shows the re-rooted worktree path", () => {
+    setHost("localhost");
+    const { getByRole } = renderFL(
+      <FileLink path="/repo/vitest.config.ts" line={3} absolute context={worktreeCtx}>
+        /repo/vitest.config.ts:3
+      </FileLink>,
+    );
+    const title = getByRole("button").getAttribute("title") ?? "";
+    expect(title).toContain("/repo/.worktrees/x/vitest.config.ts");
+  });
+
+  it("leaves a foreign absolute path verbatim in a worktree session", async () => {
+    setHost("localhost");
+    const { getByRole } = renderFL(
+      <FileLink path="/etc/hosts" absolute context={worktreeCtx}>
+        /etc/hosts
+      </FileLink>,
+    );
+    fireEvent.click(getByRole("button"));
+    await Promise.resolve();
+    expect(editorApi.openEditor).toHaveBeenCalledWith(
+      "/repo/.worktrees/x",
+      "code",
+      "/etc/hosts",
+      undefined,
+    );
   });
 });

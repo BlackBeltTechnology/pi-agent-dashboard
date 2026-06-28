@@ -21,6 +21,7 @@ import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
 import { CopyButton } from "./CopyButton.js";
 import { MissingToolInlineError } from "./chat/MissingToolInlineError.js";
+import { FilePreviewHost, FilePreviewProvider } from "./FilePreviewContext.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 import { InlineTerminalCard } from "./InlineTerminalCard.js";
 import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
@@ -311,6 +312,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   }), []);
 
   return (
+    // Key by sessionId so switching sessions (ChatView is reused, not remounted)
+    // resets the hoisted preview — a preview open in session A never leaks into B.
+    <FilePreviewProvider key={sessionId}>
     <div className="flex-1 relative overflow-hidden flex flex-col">
     <div ref={scrollRef} onScroll={handleScroll} style={{ overflowAnchor: "auto" }} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {
@@ -656,5 +660,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       </button>
     )}
     </div>
+    <FilePreviewHost />
+    </FilePreviewProvider>
   );
 });
