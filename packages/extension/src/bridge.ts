@@ -56,7 +56,7 @@ import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
-import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync } from "./session-sync.js";
+import { filterByEnabledModels, handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
@@ -766,7 +766,7 @@ function initBridge(pi: ExtensionAPI) {
         // Push updated models list to dashboard client
         if (cachedModelRegistry && sessionReady) {
           try {
-            const models = cachedModelRegistry.getAvailable().map(toModelInfo);
+            const models = filterByEnabledModels(cachedModelRegistry.getAvailable().map(toModelInfo));
             connection.send({ type: "models_list", sessionId, models });
             // See change: replace-hardcoded-provider-lists.
             connection.send({ type: "providers_list", sessionId, providers: buildProviderCatalogue() });
@@ -2491,7 +2491,7 @@ function initBridge(pi: ExtensionAPI) {
     cachedModelRegistry = (ctx as any).modelRegistry;
     if (cachedModelRegistry) {
       try {
-        const models = cachedModelRegistry.getAvailable().map(toModelInfo);
+        const models = filterByEnabledModels(cachedModelRegistry.getAvailable().map(toModelInfo));
         connection.send({ type: "models_list", sessionId, models });
         // See change: replace-hardcoded-provider-lists.
         connection.send({ type: "providers_list", sessionId, providers: buildProviderCatalogue() });
@@ -2777,7 +2777,7 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     if (cachedModelRegistry && sessionReady) {
       try {
-        const models = cachedModelRegistry.getAvailable().map(toModelInfo);
+        const models = filterByEnabledModels(cachedModelRegistry.getAvailable().map(toModelInfo));
         connection.send({ type: "models_list", sessionId, models });
         // See change: replace-hardcoded-provider-lists.
         connection.send({ type: "providers_list", sessionId, providers: buildProviderCatalogue() });

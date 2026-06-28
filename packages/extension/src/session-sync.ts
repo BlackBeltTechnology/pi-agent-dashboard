@@ -9,6 +9,38 @@ import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared
 import { gatherGitInfo, detectIsGitRepo } from "./vcs-info.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+/**
+ * Filter a models array to only include models matching the `enabledModels`
+ * glob patterns from `~/.pi/agent/settings.json`. When `enabledModels` is
+ * absent or empty the full list is returned unchanged.
+ *
+ * Supports two pattern forms:
+ *   - Exact: `"provider/model-id"`
+ *   - Provider wildcard: `"provider/*"`
+ */
+export function filterByEnabledModels<T extends { provider: string; id: string }>(models: T[]): T[] {
+  try {
+    const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+    if (!existsSync(settingsPath)) return models;
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const patterns: string[] | undefined = settings.enabledModels;
+    if (!Array.isArray(patterns) || patterns.length === 0) return models;
+    return models.filter((m) => {
+      const key = `${m.provider}/${m.id}`;
+      return patterns.some((p) => {
+        if (p === key) return true;
+        if (p.endsWith("/*")) return m.provider === p.slice(0, -2);
+        return false;
+      });
+    });
+  } catch {
+    return models; // fall back to full list on any error
+  }
+}
 
 /**
  * Send full state sync to the server (session_register, commands, flows, models).
@@ -97,7 +129,7 @@ export function sendStateSync(
 
   if (bc.cachedModelRegistry) {
     try {
-      const models = bc.cachedModelRegistry.getAvailable().map(toModelInfo);
+      const models = filterByEnabledModels(bc.cachedModelRegistry.getAvailable().map(toModelInfo));
       bc.connection.send({ type: "models_list", sessionId: bc.sessionId, models });
       // See change: replace-hardcoded-provider-lists.
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });
@@ -201,7 +233,7 @@ export function handleSessionChange(
 
   if (bc.cachedModelRegistry) {
     try {
-      const models = bc.cachedModelRegistry.getAvailable().map(toModelInfo);
+      const models = filterByEnabledModels(bc.cachedModelRegistry.getAvailable().map(toModelInfo));
       bc.connection.send({ type: "models_list", sessionId: bc.sessionId, models });
       // See change: replace-hardcoded-provider-lists.
       bc.connection.send({ type: "providers_list", sessionId: bc.sessionId, providers: buildProviderCatalogue() });
