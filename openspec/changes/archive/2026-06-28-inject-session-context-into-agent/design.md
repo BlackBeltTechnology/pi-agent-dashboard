@@ -47,7 +47,7 @@ We match the literal `\nCurrent working directory: ` prefix on the last line and
 **Why:**
 - Always fresh — picks up attach/detach mutations on the very next user turn.
 - No chat pollution — never adds turns the user didn't type.
-- Survives fork/resume — handler re-registers when the bridge re-captures `pi`/`ctx` in `session_start` (already the existing pi 0.69+ pattern enforced by `no-session-replacement-calls.test.ts`).
+- Survives fork/resume — the handler is registered ONCE at activation on the captured `pi`; the same `pi` keeps the listener across reseating and the getter reads the live `sessionId`/`attachedChange`, so no re-registration on `session_start` is needed (re-registering would stack duplicate handlers).
 - No skill changes — the agent simply sees the change name and can run stock `openspec-*` skills with that argument.
 
 **Alternatives considered:**
@@ -114,7 +114,7 @@ Add `packages/extension/src/dashboard-context-injector.ts` exporting a single `r
 
 - **[Risk] Pi changes the trailing-line format.** B3 depends on the literal `\nCurrent working directory: ` anchor in `dist/core/system-prompt.js`. **Mitigation:** the injector falls back to append when the anchor is missing, so the fragment is always delivered. A repo-lint test asserts the anchor still exists in the installed pi version (skips if pi not resolvable).
 
-- **[Risk] pi session reseating on fork drops the registered handler.** `bridge.ts` already re-captures `pi` and re-registers handlers in `session_start` keyed on `event.reason ∈ {"new","fork","resume"}`. **Mitigation:** add the new injector to the same re-registration path.
+- **[Risk] pi session reseating on fork drops the registered handler.** In practice the same `pi` instance persists across fork/resume, so the once-registered handler keeps firing. **Mitigation:** register once at activation, read live state via the getter, and guard with `isActive()` so a stale generation (after `/reload` re-activates on the same `pi`) contributes nothing.
 
 - **[Risk] Race: bridge attaches before server pushes replay.** If the bridge's first `before_agent_start` fires before `attach_proposal_changed` arrives, the first turn omits the attached-change line. **Mitigation:** the replay is sent synchronously inside `pi-gateway.onSessionRegistered`, before the bridge can submit a user prompt; `pendingAttachRegistry.consume` already runs in this same hook for the spawn-with-attach case. Acceptable residual: dashboard-restart reattach with already-streaming agent — the in-flight turn does not see the line, but the next one does.
 

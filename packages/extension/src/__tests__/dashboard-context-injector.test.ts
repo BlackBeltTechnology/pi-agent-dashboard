@@ -182,6 +182,9 @@ describe("4.6 pi system-prompt anchor still exists", () => {
       // pi not resolvable in this environment — skip cleanly.
     }
     if (spSource === undefined) return;
-    expect(spSource).toContain("Current working directory: ");
+    // Assert the EXACT anchor spliceContextFragment searches for (newline-
+    // prefixed), so a pi change that keeps the phrase but drops the leading
+    // newline fails here instead of silently degrading to append-fallback.
+    expect(spSource).toContain(CWD_ANCHOR);
   });
 });

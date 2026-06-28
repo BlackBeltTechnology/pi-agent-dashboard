@@ -574,8 +574,14 @@ export function createCommandHandler(
         // openspec_refresh removed — server handles directly via DirectoryService
 
         case "attach_proposal_changed":
-          // sessionId mismatch already dropped by the guard at the top of
-          // handle(). Validate the socket payload shape before mirroring into
+          // The top-of-handle guard only drops MISMATCHED sessionIds; a payload
+          // with no sessionId falls through. Require an exact match so an
+          // unscoped message cannot mutate the active bridge's attached change.
+          if (msg.sessionId !== sessionId) {
+            console.error("[dashboard] Ignoring attach_proposal_changed: missing/mismatched sessionId");
+            return undefined;
+          }
+          // Validate the socket payload shape before mirroring into
           // BridgeContext.attachedChange. See change: inject-session-context-into-agent.
           if (msg.attachedChange !== null && typeof msg.attachedChange !== "string") {
             console.error("[dashboard] Ignoring attach_proposal_changed: attachedChange must be string|null");

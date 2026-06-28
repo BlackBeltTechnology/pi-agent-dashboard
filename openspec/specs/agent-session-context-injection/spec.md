@@ -1,7 +1,7 @@
 # agent-session-context-injection Specification
 
 ## Purpose
-TBD - created by archiving change inject-session-context-into-agent. Update Purpose after archive.
+Bridge injects a per-turn fragment into the agent's system prompt naming the active pi session (`sessionId`, `cwd`) and, when set, the dashboard-attached OpenSpec change with the path to its artifacts. Closes the gap where the agent had no structured awareness of its own session or the attached change.
 ## Requirements
 ### Requirement: Bridge injects per-turn dashboard session context into system prompt
 
@@ -65,11 +65,11 @@ When `BridgeContext.attachedChange` is `null`, `undefined`, or the empty string,
 - **AND** the dashboard injector handler fires
 - **THEN** the returned `systemPrompt` SHALL equal the full prior `event.systemPrompt` followed by `\n\n` and the dashboard fragment
 
-#### Scenario: Handler survives session reseating on fork/resume
+#### Scenario: Injection persists across session reseating on fork/resume
 
-- **WHEN** pi replaces the session via fork or resume and `bridge.ts` re-captures `pi` in `session_start`
-- **THEN** the dashboard context injector SHALL re-register on the new `pi` instance
-- **AND** subsequent `before_agent_start` events SHALL still produce the fragment
+- **WHEN** pi reseats the session via fork or resume (same `pi` instance; `bridge.ts` updates the tracked `sessionId` in `session_start`)
+- **THEN** the already-registered `before_agent_start` handler SHALL still fire on subsequent turns (no re-registration required)
+- **AND** it SHALL build the fragment from the NEW session's `sessionId`/`attachedChange`, read live via the getter
 
 ### Requirement: BridgeContext carries attachedChange state
 

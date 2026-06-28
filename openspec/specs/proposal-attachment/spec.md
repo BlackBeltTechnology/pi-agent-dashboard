@@ -509,5 +509,5 @@ The replay SHALL run synchronously within the `onSessionRegistered` hook, before
 - **GIVEN** the browser sent `spawn_session { cwd: "C", attachProposal: "X" }`, enqueueing into `pendingAttachRegistry`
 - **WHEN** the new bridge's first `session_register` fires for `C`
 - **THEN** `pendingAttachRegistry.consume("C")` returns `"X"` and triggers `applyAttachProposal` (which pushes `attach_proposal_changed`)
-- **AND** the replay branch SHALL NOT additionally fire (the registry branch already covered it; double-send is acceptable but the canonical path is the registry consume)
+- **AND** the replay branch SHALL NOT fire (it is gated on the consume result), so exactly one `attach_proposal_changed` is sent for the register
 

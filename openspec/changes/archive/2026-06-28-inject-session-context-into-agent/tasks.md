@@ -43,8 +43,8 @@
 
 ## 5. Bridge — wiring into bridge.ts
 
-- [x] 5.1 In `packages/extension/src/bridge.ts`, call `registerDashboardContextInjector(pi, bc)` from the existing `session_start` re-registration path so it survives pi 0.69+ session reseating on fork/resume
-- [x] 5.2 Confirm via test that after a synthesised `session_start` reason `"fork"` the injector re-registers on the new captured `pi` instance
+- [x] 5.1 In `packages/extension/src/bridge.ts`, call `registerDashboardContextInjector(pi, getBc, isActive)` ONCE during bridge activation (alongside the other top-level `pi.on(...)` registrations). The same `pi` instance keeps the listener across fork/resume, and the getter reads live `sessionId`/`attachedChange`, so no re-registration on `session_start` is needed. (Revised from the original `(pi, bc)` + session_start plan: a frozen `bc` snapshot would miss fork/attach changes, and re-registering would stack duplicate handlers.)
+- [x] 5.2 Confirm via test that the handler reads live state through the getter (fork updates `sessionId`) and that a stale generation (`isActive() === false`) contributes nothing
 
 ## 6. Server — dispatch from applyAttachProposal
 

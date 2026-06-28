@@ -40,8 +40,13 @@ async function openBridge(piPort: number, sessionId: string): Promise<{ ws: WebS
     try { received.push(JSON.parse(buf.toString())); } catch { /* ignore */ }
   });
   await new Promise<void>((resolve) => {
-    ws.on("open", () => { registerOnce(ws, sessionId); setTimeout(resolve, 50); });
+    ws.on("open", () => { registerOnce(ws, sessionId); resolve(); });
   });
+  // Drain the FIRST register's replay (scheduled via import(...).then(...), so
+  // it can land late). Without this, a delayed initial push could be mistaken
+  // for the second register's replay and make assertions flaky.
+  await nextAttachPush(received, sessionId);
+  received.length = 0;
   return { ws, received };
 }
 
