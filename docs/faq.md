@@ -2261,3 +2261,9 @@ Cross-refs:
 - packages/client/src/lib/auto-init-worktree.ts
 - packages/client/src/components/SettingsPanel.tsx
 - packages/server/src/routes/preferences-worktree-init-routes.ts
+
+## Local `electron-forge make` fails with `Cannot find module '.../volume.node'`
+
+DMG maker chain (`@electron-forge/maker-dmg` → appdmg → macos-alias) needs compiled native module `macos-alias/build/Release/volume.node`. Missing when install ran `--ignore-scripts` or Xcode CLT absent at install time.
+
+Fix: run `pnpm install` — `packages/electron` postinstall (`scripts/ensure-macos-alias.mjs`) self-heals, rebuilds `volume.node`. Rebuild fail → install Xcode Command Line Tools: `xcode-select --install`, then `pnpm install` again. `build-installer.sh` also gates `electron-forge make` on darwin; exits 1 with the same hint when rebuild fails. Doctor row `macos-alias native module` (darwin-only) surfaces state.

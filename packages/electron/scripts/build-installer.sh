@@ -316,6 +316,22 @@ build_native_one_arch() {
   fi
 
   cd "$ELECTRON_DIR"
+
+  # macos-alias native-module gate (DMG maker prerequisite). On darwin the
+  # `@electron-forge/maker-dmg` chain needs `volume.node`; rebuild it before
+  # forge make so the maker never emits a confusing "Cannot find module
+  # '../build/Release/volume.node'" stack trace. See change:
+  # fix-darwin-dmg-maker-macos-alias.
+  if [ "$HOST_PLATFORM" = "darwin" ]; then
+    if ! find "$PROJECT_DIR/node_modules" -path '*/macos-alias/build/Release/volume.node' -print -quit 2>/dev/null | grep -q .; then
+      echo "→ macos-alias native module missing; attempting rebuild..."
+      if ! node "$ELECTRON_DIR/scripts/ensure-macos-alias.mjs" --rebuild; then
+        echo "❌ macos-alias build failed. Install Xcode Command Line Tools (xcode-select --install) and retry."
+        exit 1
+      fi
+    fi
+  fi
+
   npm run make -- --arch "$target_arch"
   echo "✓ $HOST_LABEL build complete (arch=$target_arch)"
 }
