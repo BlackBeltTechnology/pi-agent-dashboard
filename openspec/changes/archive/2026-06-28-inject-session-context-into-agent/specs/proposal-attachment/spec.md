@@ -40,7 +40,9 @@ If no bridge is currently connected for `sessionId`, the dispatch SHALL be a sil
 
 ### Requirement: Server replays current attachedProposal on session_register
 
-`pi-gateway.onSessionRegistered(sessionId, cwd)` SHALL, after the existing `pendingAttachRegistry.consume` step, look up the in-memory `DashboardSession` for `sessionId` and — when `session.attachedProposal` is a non-empty string — send `{ type: "attach_proposal_changed", sessionId, attachedChange: session.attachedProposal }` to the bridge.
+`pi-gateway.onSessionRegistered(sessionId, cwd)` SHALL, after the existing `pendingAttachRegistry.consume` step (and only when that step did NOT fire), look up the in-memory `DashboardSession` for `sessionId` and send `{ type: "attach_proposal_changed", sessionId, attachedChange }` to the bridge, where `attachedChange` is `session.attachedProposal` when it is a non-empty string, else `null`.
+
+The explicit `null` replay is REQUIRED so a reattaching bridge with a stale persisted `attachedChange` is cleared: a detach that occurred while no bridge owned the session no-oped its push, so reattach is the only opportunity to clear it.
 
 The replay SHALL run synchronously within the `onSessionRegistered` hook, before the bridge can submit its first user prompt for the registered session.
 
@@ -51,16 +53,21 @@ The replay SHALL run synchronously within the `onSessionRegistered` hook, before
 - **AND** `pendingAttachRegistry.consume(cwd)` returns `null` (no pending intent)
 - **THEN** the server SHALL send `{ type: "attach_proposal_changed", sessionId: "S1", attachedChange: "X" }` to the reattaching bridge
 
-#### Scenario: Replay is no-op when session has no attached proposal
+#### Scenario: Replay clears bridge state when session has no attached proposal
 
 - **GIVEN** session `"S1"` has `attachedProposal === null`
 - **WHEN** the bridge `session_register` fires
 - **AND** `pendingAttachRegistry.consume(cwd)` returns `null`
-- **THEN** the server SHALL NOT send any `attach_proposal_changed` for `S1`
+- **THEN** the server SHALL send `{ type: "attach_proposal_changed", sessionId: "S1", attachedChange: null }` to clear any stale bridge-side attachment
+
+#### Scenario: No replay for an unknown session
+
+- **WHEN** `session_register` fires for a `sessionId` with no in-memory `DashboardSession`
+- **THEN** the server SHALL NOT send any `attach_proposal_changed`
 
 #### Scenario: Spawn-with-attach uses registry path, not replay path
 
 - **GIVEN** the browser sent `spawn_session { cwd: "C", attachProposal: "X" }`, enqueueing into `pendingAttachRegistry`
 - **WHEN** the new bridge's first `session_register` fires for `C`
 - **THEN** `pendingAttachRegistry.consume("C")` returns `"X"` and triggers `applyAttachProposal` (which pushes `attach_proposal_changed`)
-- **AND** the replay branch SHALL NOT additionally fire (the registry branch already covered it; double-send is acceptable but the canonical path is the registry consume)
+- **AND** the replay branch SHALL NOT fire (it is gated on the consume result), so exactly one `attach_proposal_changed` is sent for the register

@@ -3,15 +3,14 @@
 The dashboard's "attached proposal" feature lives entirely on the server/UI side. `DashboardSession.attachedProposal` drives the chip in the session header, the artifact letters, and idempotent auto-rename. Today it never reaches the pi agent: `applyAttachProposal` in `packages/server/src/browser-handlers/session-meta-handler.ts` mutates session state and emits `session_updated` to browsers only — no message crosses `pi-gateway` to the bridge.
 
 The bridge (`packages/extension/src/bridge.ts`) does have everything else it needs:
-- `pi.sessionId` is read at every `sendStateSync` (`session-sync.ts`).
+- The dashboard session id lives on `bc.sessionId` (NOT `pi.sessionId` — pi's extension API exposes no such field). The bridge sets it from `ctx.sessionManager.getSessionId()` and reads it at every `sendStateSync` (`session-sync.ts` uses `bc.sessionId`).
 - `BridgeContext` already carries per-session mutable state (cached model, git info, etc.).
-- The bridge already registers many `pi.on(...)` event handlers.
+- The bridge already registers many `pi.on(...)` event handlers, including a pass-through `before_agent_start` subscription that forwards the event to the dashboard (`bridge.ts` `passThroughEventTypes`). pi chains `before_agent_start` results, so the new SP-mutating handler coexists with that forwarder.
 
-Pi 0.69+ exposes two relevant APIs (verified in pi docs at `/Users/robson/.nvm/...pi-coding-agent/docs/extensions.md` and `sdk.md`):
-1. **`before_agent_start` event** — fires after user submits prompt, before the agent loop. Handlers can return `{ systemPrompt }` to append to the chained per-turn system prompt, or `{ message }` to inject a persistent message into the session.
-2. **`pi.sessionId: string`** — always available on the captured `pi` instance.
+Pi exposes one relevant API (verified in the installed pi 0.80.2 `dist/core/extensions/types.d.ts`):
+1. **`before_agent_start` event** — fires after user submits prompt, before the agent loop. `BeforeAgentStartEventResult.systemPrompt?: string` replaces the chained per-turn system prompt (multiple extensions chain). The event carries `systemPrompt: string` and `systemPromptOptions: BuildSystemPromptOptions` (with `cwd: string`).
 
-These are the only pi APIs this change relies on. No upstream pi changes are required.
+This is the only pi API this change relies on. The session id is supplied by the bridge (`bc.sessionId`), not pi. No upstream pi changes are required.
 
 The pre-existing `pendingAttachRegistry` (`packages/server/src/pending-attach-registry.ts`) already enqueues `attachProposal` intents per cwd before spawning, and `event-wiring.ts`'s `pi-gateway.onSessionRegistered` consumes them on first `session_register` by calling the shared `applyAttachProposal` helper. That already mutates `DashboardSession.attachedProposal` server-side. What's missing is propagation back to the bridge for that same session.
 
@@ -36,7 +35,7 @@ The pre-existing `pendingAttachRegistry` (`packages/server/src/pending-attach-re
 
 ### Decision 1: Per-turn SP fragment via `before_agent_start` (vs. one-shot first-turn message, vs. file + skill consults)
 
-Use `pi.on("before_agent_start", ...)` to **splice-replace** the trailing `Current working directory: <cwd>` line of `event.systemPrompt` with our context fragment every turn. Pi's `buildSystemPrompt` (verified in `dist/core/system-prompt.js`) terminates every SP — both `customPrompt` and default branches — with:
+Use `pi.on("before_agent_start", ...)` returning `{ systemPrompt }` to **splice-replace** the trailing `Current working directory: <cwd>` line of `event.systemPrompt` with our context fragment every turn. Pi's `buildSystemPrompt` (verified in `dist/core/system-prompt.js`) terminates every SP — both `customPrompt` and default branches — with:
 
 ```
 Current date: <YYYY-MM-DD>
@@ -48,7 +47,7 @@ We match the literal `\nCurrent working directory: ` prefix on the last line and
 **Why:**
 - Always fresh — picks up attach/detach mutations on the very next user turn.
 - No chat pollution — never adds turns the user didn't type.
-- Survives fork/resume — handler re-registers when the bridge re-captures `pi`/`ctx` in `session_start` (already the existing pi 0.69+ pattern enforced by `no-session-replacement-calls.test.ts`).
+- Survives fork/resume — the handler is registered ONCE at activation on the captured `pi`; the same `pi` keeps the listener across reseating and the getter reads the live `sessionId`/`attachedChange`, so no re-registration on `session_start` is needed (re-registering would stack duplicate handlers).
 - No skill changes — the agent simply sees the change name and can run stock `openspec-*` skills with that argument.
 
 **Alternatives considered:**
@@ -115,7 +114,7 @@ Add `packages/extension/src/dashboard-context-injector.ts` exporting a single `r
 
 - **[Risk] Pi changes the trailing-line format.** B3 depends on the literal `\nCurrent working directory: ` anchor in `dist/core/system-prompt.js`. **Mitigation:** the injector falls back to append when the anchor is missing, so the fragment is always delivered. A repo-lint test asserts the anchor still exists in the installed pi version (skips if pi not resolvable).
 
-- **[Risk] pi 0.69+ session reseating on fork drops the registered handler.** `bridge.ts` already re-captures `pi` and re-registers handlers in `session_start` keyed on `event.reason ∈ {"new","fork","resume"}`. **Mitigation:** add the new injector to the same re-registration path.
+- **[Risk] pi session reseating on fork drops the registered handler.** In practice the same `pi` instance persists across fork/resume, so the once-registered handler keeps firing. **Mitigation:** register once at activation, read live state via the getter, and guard with `isActive()` so a stale generation (after `/reload` re-activates on the same `pi`) contributes nothing.
 
 - **[Risk] Race: bridge attaches before server pushes replay.** If the bridge's first `before_agent_start` fires before `attach_proposal_changed` arrives, the first turn omits the attached-change line. **Mitigation:** the replay is sent synchronously inside `pi-gateway.onSessionRegistered`, before the bridge can submit a user prompt; `pendingAttachRegistry.consume` already runs in this same hook for the spawn-with-attach case. Acceptable residual: dashboard-restart reattach with already-streaming agent — the in-flight turn does not see the line, but the next one does.
 

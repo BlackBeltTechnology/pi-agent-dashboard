@@ -88,6 +88,26 @@ export function applyAttachProposal(
   }
   sessionManager.update(sessionId, updates);
   broadcast({ type: "session_updated", sessionId, updates });
+  pushAttachProposalChanged(ctx, sessionId, changeName);
+}
+
+/**
+ * Push `attach_proposal_changed { sessionId, attachedChange }` to the bridge
+ * currently owning `sessionId`. Silent no-op when no bridge is connected
+ * (`piGateway.sendToSession` drops sends to absent sessions). The bridge
+ * mirrors the value into `BridgeContext.attachedChange`, read by the
+ * `before_agent_start` injector. See change: inject-session-context-into-agent.
+ */
+export function pushAttachProposalChanged(
+  ctx: Pick<BrowserHandlerContext, "piGateway">,
+  sessionId: string,
+  attachedChange: string | null,
+): void {
+  ctx.piGateway.sendToSession(sessionId, {
+    type: "attach_proposal_changed",
+    sessionId,
+    attachedChange,
+  });
 }
 
 export function handleAttachProposal(
@@ -173,6 +193,9 @@ export function handleDetachProposal(
   }
   sessionManager.update(msg.sessionId, updates);
   broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+  // Detach is a separate path from applyAttachProposal; push null explicitly
+  // so the bridge clears its fragment. See change: inject-session-context-into-agent.
+  pushAttachProposalChanged(ctx, msg.sessionId, null);
 }
 
 /**

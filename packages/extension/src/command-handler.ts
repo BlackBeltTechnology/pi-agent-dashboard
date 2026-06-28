@@ -275,6 +275,14 @@ export function createCommandHandler(
      * See change: add-followup-edit-and-steer-cancel.
      */
     isStreaming?: () => boolean;
+    /**
+     * Mirror a server `attach_proposal_changed` push into the bridge's
+     * `BridgeContext.attachedChange`. The `before_agent_start` injector reads
+     * that field to build the per-turn system-prompt fragment. Foreign-session
+     * messages are already dropped by the sessionId guard at the top of
+     * `handle`. See change: inject-session-context-into-agent.
+     */
+    onAttachProposalChanged?: (attachedChange: string | null) => void;
   },
 ): CommandHandler {
   const getSessionId = typeof sessionIdOrGetter === "function" ? sessionIdOrGetter : () => sessionIdOrGetter;
@@ -572,6 +580,23 @@ export function createCommandHandler(
         }
 
         // openspec_refresh removed — server handles directly via DirectoryService
+
+        case "attach_proposal_changed":
+          // The top-of-handle guard only drops MISMATCHED sessionIds; a payload
+          // with no sessionId falls through. Require an exact match so an
+          // unscoped message cannot mutate the active bridge's attached change.
+          if (msg.sessionId !== sessionId) {
+            console.error("[dashboard] Ignoring attach_proposal_changed: missing/mismatched sessionId");
+            return undefined;
+          }
+          // Validate the socket payload shape before mirroring into
+          // BridgeContext.attachedChange. See change: inject-session-context-into-agent.
+          if (msg.attachedChange !== null && typeof msg.attachedChange !== "string") {
+            console.error("[dashboard] Ignoring attach_proposal_changed: attachedChange must be string|null");
+            return undefined;
+          }
+          options?.onAttachProposalChanged?.(msg.attachedChange);
+          return undefined;
 
         case "rename_session":
           pi.setSessionName(msg.name);

@@ -49,10 +49,38 @@ export type FauxResponseStep =
 
 /** Minimal view of the agent context a factory step reads. */
 export interface FauxContext {
+  /**
+   * Final assembled system prompt pi-ai passes to the provider (`Context.systemPrompt`).
+   * Carries the dashboard `before_agent_start` injector fragment when present.
+   * See change: inject-session-context-into-agent.
+   */
+  systemPrompt?: string;
   messages: Array<{
     role: string;
     content?: Array<{ type: string; text?: string }>;
   }>;
+}
+
+/**
+ * Opening delimiter the dashboard session-context injector emits. Kept in sync
+ * with `CONTEXT_DELIMITER` in `packages/extension/src/dashboard-context-injector.ts`.
+ * Duplicated (not imported) so the faux catalog stays decoupled from the
+ * extension package. See change: inject-session-context-into-agent.
+ */
+export const DASHBOARD_CONTEXT_DELIMITER = "── pi-dashboard session context ──";
+/** Sentinel streamed when no dashboard fragment is found in the system prompt. */
+export const NO_DASHBOARD_CONTEXT_MARKER = "NO_DASHBOARD_CONTEXT";
+
+/**
+ * Slice the dashboard session-context fragment (delimiter through end) out of a
+ * system prompt. Returns NO_DASHBOARD_CONTEXT_MARKER when absent. Matches the
+ * LAST delimiter occurrence (the injector splices at the tail). Pure.
+ * See change: inject-session-context-into-agent.
+ */
+export function extractDashboardFragment(systemPrompt: string | undefined): string {
+  const sp = systemPrompt ?? "";
+  const idx = sp.lastIndexOf(DASHBOARD_CONTEXT_DELIMITER);
+  return idx === -1 ? NO_DASHBOARD_CONTEXT_MARKER : sp.slice(idx);
 }
 
 /** Assertion hints shared across both test layers. */
@@ -150,6 +178,18 @@ export const SCENARIOS: Record<string, Scenario> = {
   "plain-text": {
     script: [fauxAssistantMessage([fauxText(PLAIN_TEXT_MARKER)])],
     expect: { text: PLAIN_TEXT_MARKER },
+  },
+
+  // Echoes the dashboard session-context fragment out of the live system
+  // prompt back as assistant text, proving the bridge `before_agent_start`
+  // injector reaches the model end-to-end (bridge → pi pipeline → provider).
+  // See change: inject-session-context-into-agent.
+  "echo-system-context": {
+    script: [
+      (context: FauxContext) =>
+        fauxAssistantMessage([fauxText(extractDashboardFragment(context.systemPrompt))]),
+    ],
+    expect: { text: DASHBOARD_CONTEXT_DELIMITER },
   },
 
   "slow-stream": {

@@ -4,7 +4,7 @@ Today the dashboard's "attach proposal" feature is purely server/UI metadata: `s
 
 The agent also has no awareness of its own pi `sessionId` or `cwd` in a structured form, which blocks self-referential workflows (e.g. an agent inspecting its own dashboard state, or per-session state files keyed by sessionId).
 
-Pi 0.69+ already exposes both required hooks: `before_agent_start` lets extensions append to the per-turn system prompt, and `pi.sessionId` is available to the bridge. We can close the gap with a small bridge-side injector and a one-line server-to-bridge replay — no upstream pi changes, no skill changes, no chat pollution.
+Pi exposes the required hook: `before_agent_start` lets extensions replace the per-turn system prompt (stable since pi 0.69, present in the installed 0.80.2). The session id does NOT come from pi — pi's extension API exposes no `pi.sessionId`; the bridge already owns the dashboard session id as `bc.sessionId` (sourced from `ctx.sessionManager.getSessionId()`, read at every `sendStateSync` in `session-sync.ts`). We can close the gap with a small bridge-side injector and a one-line server-to-bridge replay — no upstream pi changes, no skill changes, no chat pollution.
 
 ## What Changes
 
@@ -26,10 +26,10 @@ Pi 0.69+ already exposes both required hooks: `before_agent_start` lets extensio
 
 ## Impact
 
-- **Protocol** (`src/shared/protocol.ts`): one new server→bridge message variant carrying `{ sessionId, attachedChange: string | null }`.
-- **Server**: `session-meta-handler.ts::applyAttachProposal` and `pending-attach-registry.ts` consumers gain a side-effect that pushes the new message through `pi-gateway`. `event-wiring.ts` (or `pi-gateway.ts` `onSessionRegistered`) replays current `attachedProposal` on register.
-- **Bridge**: new `src/extension/dashboard-context-injector.ts` registers the `before_agent_start` handler. `bridge-context.ts` gains `attachedChange: string | null`. `bridge.ts` wires the new injector and the inbound message handler.
+- **Protocol** (`packages/shared/src/protocol.ts`): one new server→bridge message variant carrying `{ sessionId, attachedChange: string | null }`.
+- **Server** (`packages/server/src/`): `browser-handlers/session-meta-handler.ts::applyAttachProposal(sessionId, changeName, ctx)` (current signature; mutates via a `sessionManager` `updates` object, no direct `session.attachedProposal =` assignment) and the separate detach handler each push the new message through `piGateway` (already present in `ctx`). The `pending-attach-registry.ts` consumer in `event-wiring.ts::piGateway.onSessionRegistered` replays current `attachedProposal` on register — coexisting with the existing fork-parent inheritance / stamping logic in that hook.
+- **Bridge** (`packages/extension/src/`): new `dashboard-context-injector.ts` registers a `before_agent_start` handler that reads `bc.sessionId` and `bc.attachedChange` (NOTE: `bridge.ts` already subscribes `before_agent_start` as a pass-through forwarder to the dashboard — pi chains handler results, so the new SP-mutating handler coexists). `bridge-context.ts` gains `attachedChange: string | null`. `bridge.ts` wires the new injector; the inbound `attach_proposal_changed` arm goes in the `command-handler.ts` dispatch `switch`.
 - **Token cost**: ~30 tokens/turn for the always-on `sessionId`/`cwd` line, +~30 tokens/turn when an attached change is present. Negligible vs. existing AGENTS.md/skills payload.
 - **No client/UI changes.**
 - **No skill changes** — works with stock openspec-* skills because the agent simply has the change name in its context and can run those skills with that argument.
-- **No upstream pi changes** — relies on `before_agent_start` and `pi.sessionId`, both stable in pi 0.69+.
+- **No upstream pi changes** — relies only on `before_agent_start` (stable since pi 0.69, present in 0.80.2). Session id comes from the bridge's own `bc.sessionId`, not from pi.

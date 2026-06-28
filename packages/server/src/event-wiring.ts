@@ -227,9 +227,11 @@ export function wireEvents(deps: EventWiringDeps): void {
   // add-worktree-spawn-dialog.
   piGateway.onSessionRegistered = (sessionId, cwd) => {
     // ── attachProposal arm ───────────────────────────────────────────────
+    let attachConsumed = false;
     if (pendingAttachRegistry) {
       const changeName = pendingAttachRegistry.consume(cwd);
       if (changeName) {
+        attachConsumed = true;
         // Lazy import to avoid a circular type dep at module load.
         void import("./browser-handlers/session-meta-handler.js").then(({ applyAttachProposal }) => {
           applyAttachProposal(sessionId, changeName, {
@@ -241,6 +243,28 @@ export function wireEvents(deps: EventWiringDeps): void {
               }
             },
           });
+        });
+      }
+    }
+
+    // ── attachProposal replay arm ─────────────────────────────────────────
+    // When no pending spawn-with-attach intent fired (the common
+    // dashboard-restart reattach case), replay the in-memory session's
+    // current attachedProposal so the reattaching bridge syncs state. Push
+    // the explicit value INCLUDING null: a detach that happened while no
+    // bridge owned the session no-oped its push, so a reattaching bridge with
+    // a stale persisted attachedChange must be cleared. The registry branch
+    // above already pushed for the spawn-with-attach case, so skip then to
+    // avoid a redundant send. See change: inject-session-context-into-agent.
+    if (!attachConsumed) {
+      const session = sessionManager.get(sessionId);
+      if (session) {
+        const attached =
+          typeof session.attachedProposal === "string" && session.attachedProposal.length > 0
+            ? session.attachedProposal
+            : null;
+        void import("./browser-handlers/session-meta-handler.js").then(({ pushAttachProposalChanged }) => {
+          pushAttachProposalChanged({ piGateway }, sessionId, attached);
         });
       }
     }
