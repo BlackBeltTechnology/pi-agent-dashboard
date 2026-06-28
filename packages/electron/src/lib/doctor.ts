@@ -8,6 +8,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { app } from "electron";
 import { detectPi, detectOpenSpec, detectSystemNode, detectDashboardPackage } from "./dependency-detector.js";
 
@@ -347,6 +348,19 @@ async function runDoctorInner(): Promise<DoctorReport> {
   return { checks, summary, generatedAt: Date.now() };
 }
 
+/**
+ * Build the `node --import <jiti> -e "import <spec>; ..."` probe command for the
+ * Server launch test. The import spec MUST be a `file://` URL, never a raw
+ * filesystem path: on Windows a raw absolute path begins with a drive letter
+ * (`C:\`), which Node's ESM resolver treats as a URL scheme and rejects with
+ * ERR_UNSUPPORTED_ESM_URL_SCHEME. `pathToFileURL` produces the universal form.
+ */
+export function buildServerLaunchTestCmd(args: { nodeBin: string; jitiUrl: string; testCli: string }): string {
+  const { nodeBin, jitiUrl, testCli } = args;
+  const importSpec = JSON.stringify(pathToFileURL(testCli).href);
+  return `"${nodeBin}" --import "${jitiUrl}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
+}
+
 async function runServerLaunchTest(
   checks: DoctorCheck[],
   ctx: { hasBundledServer: boolean; bundledServerCli: string | null; bundledNode: string | null },
@@ -378,8 +392,7 @@ async function runServerLaunchTest(
 
   const extraPaths = [bundledNode ? path.dirname(bundledNode) : null].filter(Boolean) as string[];
   const env = { ...process.env, PATH: `${extraPaths.join(path.delimiter)}${path.delimiter}${process.env.PATH ?? ""}` };
-  const importSpec = JSON.stringify(testCli);
-  const cmd = `"${nodeBin}" --import "${jitiUrl}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
+  const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli });
   const r = safeExec(cmd, { timeoutMs: 15000, env });
   if (r.ok) {
     checks.push({
