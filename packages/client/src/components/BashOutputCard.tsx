@@ -1,4 +1,3 @@
-import React from "react";
 import { Icon } from "@mdi/react";
 import { mdiConsole } from "@mdi/js";
 
@@ -7,11 +6,18 @@ interface Props {
   output: string;
   exitCode: number;
   excludeFromContext: boolean;
+  /**
+   * "slash-exec" when this output came from an executable-mode slash template
+   * (`executable: bash`). Triggers the "ran locally — LLM not invoked" footer.
+   * Absent for `!` / `!!`. See change: add-dashboard-slash-commands.
+   */
+  source?: "slash-exec";
   timestamp?: number;
 }
 
-export function BashOutputCard({ command, output, exitCode, excludeFromContext }: Props) {
+export function BashOutputCard({ command, output, exitCode, excludeFromContext, source }: Props) {
   const isSuccess = exitCode === 0;
+  const ranLocally = source === "slash-exec";
 
   return (
     <div className="mt-2 mb-2">
@@ -42,6 +48,14 @@ export function BashOutputCard({ command, output, exitCode, excludeFromContext }
           <pre className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)] overflow-x-auto max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
             {output}
           </pre>
+        )}
+        {/* Discoverability footer: only for executable-mode slash templates.
+            Signals the operation was free (no LLM call). Absent for ! / !!.
+            See change: add-dashboard-slash-commands. */}
+        {ranLocally && (
+          <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] border-t border-[var(--border-secondary)]">
+            ℹ ran locally — LLM not invoked
+          </div>
         )}
       </div>
     </div>

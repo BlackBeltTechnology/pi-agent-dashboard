@@ -790,6 +790,15 @@ export interface BashOutputData {
   /** true for !! (silent), false for ! (sent to LLM) */
   excludeFromContext: boolean;
   /**
+   * Set to "slash-exec" when the output originates from an executable-mode
+   * slash template (`executable: bash` frontmatter). The client renders an
+   * "ℹ ran locally — LLM not invoked" footer for this source. Absent for
+   * `!` / `!!` invocations — additive, backward-compatible (older clients
+   * ignore the field and render no footer).
+   * See change: add-dashboard-slash-commands.
+   */
+  source?: "slash-exec";
+  /**
    * Set when the shell binary could not be resolved (e.g. no bash on a
    * clean Windows host). The client renders MissingToolInlineError
    * instead of plain output; no command actually ran.

@@ -10,7 +10,7 @@ import { ConnectionManager } from "./connection.js";
 import { detectSessionSource } from "./source-detector.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
-import { createCommandHandler } from "./command-handler.js";
+import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
@@ -1088,6 +1088,18 @@ function initBridge(pi: ExtensionAPI) {
         connection,
       );
       if (handled) return;
+
+      // Exec-mode slash template (executable: bash): run the body as bash and
+      // skip the LLM entirely. Runs AFTER extension dispatch, BEFORE template
+      // expansion + sendUserMessage. See change: add-dashboard-slash-commands.
+      const ranExec = await tryExecSlashTemplate(
+        pi,
+        text,
+        process.cwd(),
+        sessionId,
+        (msg) => connection.send(msg),
+      );
+      if (ranExec) return;
 
       // Fallback: route the user prompt based on delivery + streaming state.
       //

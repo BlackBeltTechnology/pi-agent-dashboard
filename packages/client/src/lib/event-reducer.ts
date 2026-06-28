@@ -1450,6 +1450,10 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       // message so ChatView renders MissingToolInlineError instead of the
       // plain output card. See change: register-bash-and-tool-install-help.
       const missingTool = (data as any).missingTool;
+      // "slash-exec" marks output from an executable-mode slash template so
+      // ChatView renders the "ran locally" footer. See change:
+      // add-dashboard-slash-commands.
+      const source = (data as any).source as "slash-exec" | undefined;
       next.pendingPrompt = undefined;
       next.messages = [
         ...next.messages,
@@ -1458,7 +1462,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
           role: "bashOutput" as any,
           content: output,
           timestamp: event.timestamp,
-          args: { command, exitCode, excludeFromContext, missingTool } as any,
+          args: { command, exitCode, excludeFromContext, missingTool, source } as any,
         },
       ];
       break;

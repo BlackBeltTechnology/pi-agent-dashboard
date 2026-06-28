@@ -181,6 +181,7 @@ TypeScript type definitions shared across all components:
    - `!<cmd>` → bash execution via `pi.exec()`, result as `bash_output` event + send to LLM
    - `/compact [instructions]` → `ctx.compact()`, feedback as `command_feedback` event
    - `/<command>` → `session.prompt()` for extension commands/skills/templates (fallback to `sendUserMessage()`)
+   - `/<command>` whose template carries `executable: bash` frontmatter → run body as bash via `pi.exec`, emit `bash_output` event with `data.source: "slash-exec"`, skip LLM. `tryExecSlashTemplate` runs after extension dispatch, before `sendUserMessage` fallback. Env `PI_DASHBOARD_PORT`/`PI_DASHBOARD_BASE` injected. Client renders "ran locally" footer. See change: add-dashboard-slash-commands.
    - Colon-to-hyphen aliasing: `/opsx:continue` resolves to `opsx-continue.md` template (both `:` and `-` forms work)
    - Plain text → `pi.sendUserMessage()` (default)
 5. Pi processes the command, events flow back via event flow

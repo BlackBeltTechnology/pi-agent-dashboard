@@ -473,6 +473,37 @@ tmux list-windows -t pi-dashboard          # list windows
 
 Switch with `"spawnStrategy": "tmux"` in `~/.pi/dashboard/config.json`.
 
+### Slash commands (`/dashboard:*`) from a pi session
+
+The bundled `pi-dashboard` skill ships a `/dashboard:*` slash-command namespace
+for driving the dashboard from any pi session without hand-writing curl.
+
+Two classes:
+
+- **LLM-free** (read-only, zero token cost) — the command body runs as bash and
+  renders directly in chat; the LLM is never invoked. A footer
+  *"ℹ ran locally — LLM not invoked"* appears beneath the output. Examples:
+
+  ```
+  /dashboard:session-list          # table of every session
+  /dashboard:session-info abc123   # all fields for a session (by id-prefix)
+  /dashboard:server-health         # pid + uptime
+  /dashboard:git-branches          # branches in the current dir
+  ```
+
+- **LLM-bound** (mutations / judgment) — the command expands into a user message
+  the agent interprets, then calls the matching REST endpoint. Examples:
+
+  ```
+  /dashboard:session-tell abc123 please run the tests
+  /dashboard:session-spawn          # new session in the current dir
+  /dashboard:session-abort-all      # asks scope before aborting
+  ```
+
+LLM-free templates opt in via `executable: bash` frontmatter and get
+`PI_DASHBOARD_PORT` / `PI_DASHBOARD_BASE` injected. Full list:
+[`.pi/skills/pi-dashboard/references/slash-commands.md`](.pi/skills/pi-dashboard/references/slash-commands.md).
+
 ### Keyboard shortcuts in chat input
 
 Bash-style history recall and per-session draft persistence:

@@ -128,7 +128,40 @@ A convenience wrapper is available at [scripts/dashboard-api.sh](scripts/dashboa
 ./scripts/dashboard-api.sh POST /api/session/spawn '{"cwd":"/path/to/project"}'
 ```
 
+## Slash Commands
+
+The `/dashboard:*` namespace wraps common operations as one-shot slash commands.
+Files live in [`commands/`](commands/) and are auto-discovered by the bridge's
+prompt-expander (`/dashboard:session-list` resolves `dashboard-session-list.md`).
+
+Two classes:
+
+- **LLM-free** (`executable: bash` frontmatter) — body runs as bash, output
+  renders in chat, the LLM is never invoked (chat shows an "ℹ ran locally"
+  footer). Read-only / zero-blast-radius ops. Example:
+
+  ```
+  /dashboard:session-list          # table of every session, no token cost
+  /dashboard:session-info abc123   # all fields for a session by id-prefix
+  /dashboard:server-health         # pid + uptime
+  ```
+
+- **LLM-bound** (no `executable` frontmatter) — body expands into a user
+  message the LLM interprets. Mutations needing judgment or free-form text.
+  Example:
+
+  ```
+  /dashboard:session-tell abc123 please run the tests
+  /dashboard:session-abort-all     # asks which sessions before aborting
+  ```
+
+LLM-free bodies get `PI_DASHBOARD_PORT` / `PI_DASHBOARD_BASE` injected, so they
+curl the running dashboard without re-deriving the port. Full list:
+[references/slash-commands.md](references/slash-commands.md).
+Convention + frontmatter: [commands/README.md](commands/README.md).
+
 ## Detailed References
 
+- [Slash Commands](references/slash-commands.md) — every `/dashboard:*` command, args, LLM-free vs LLM-bound
 - [API Reference](references/api-reference.md) — Complete endpoint documentation with request/response schemas
 - [Recipes](references/recipes.md) — Multi-step orchestration workflows
