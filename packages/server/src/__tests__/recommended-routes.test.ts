@@ -226,7 +226,7 @@ describe("GET /api/packages/recommended", () => {
 		const body = JSON.parse(res.payload);
 		expect(body.success).toBe(true);
 		const entries = body.data.recommended;
-		expect(entries).toHaveLength(15);
+		expect(entries).toHaveLength(18);
 		// Every entry falls back to fallbackDescription and has no version.
 		for (const e of entries) {
 			expect(typeof e.description).toBe("string");
