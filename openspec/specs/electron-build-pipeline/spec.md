@@ -284,22 +284,27 @@ When the Electron build pipeline runs on `darwin`, the `macos-alias` native modu
 
 ### Requirement: Doctor diagnostic for DMG prerequisites
 
-The Electron Doctor window SHALL include a darwin-only diagnostic row for the `macos-alias` native module readiness state. The row SHALL show `ok` when `volume.node` is present and `warn` otherwise. The `warn` state SHALL include a remediation suggestion referencing the postinstall command and Xcode CLT.
+The Electron Doctor window SHALL include a darwin-only diagnostic row for the `macos-alias` native module readiness state. The row is a `DoctorCheck` with `name: "macos-alias native module"` and `section: "diagnostics"`. The row SHALL show `status: "ok"` when `volume.node` is present and `status: "warning"` otherwise. The `warning` state SHALL include a non-empty `suggestion` referencing the postinstall command and Xcode CLT. The row SHALL be omitted entirely when `macos-alias` is not installed (e.g. the shipped end-user app), so only contributors with the build toolchain present see it.
 
 #### Scenario: Doctor row on darwin with built native module
 
-- **WHEN** Doctor runs on darwin AND `<macos-alias-dir>/build/Release/volume.node` exists
-- **THEN** the Doctor report SHALL include a row `{ id: "macos-alias-volume", state: "ok" }`
+- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `<macos-alias-dir>/build/Release/volume.node` exists
+- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", section: "diagnostics", status: "ok" }`
 
 #### Scenario: Doctor row on darwin with missing native module
 
-- **WHEN** Doctor runs on darwin AND `volume.node` does not exist
-- **THEN** the Doctor report SHALL include a row `{ id: "macos-alias-volume", state: "warn", suggestion: <non-empty> }`
+- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `volume.node` does not exist
+- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", status: "warning", suggestion: <non-empty> }`
+
+#### Scenario: Doctor when macos-alias is not installed
+
+- **WHEN** Doctor runs on darwin AND `macos-alias` cannot be resolved
+- **THEN** the report SHALL NOT include the `macos-alias native module` row
 
 #### Scenario: Doctor on non-darwin
 
 - **WHEN** Doctor runs on `linux` or `win32`
-- **THEN** the report SHALL NOT include the `macos-alias-volume` row
+- **THEN** the report SHALL NOT include the `macos-alias native module` row
 
 ### Requirement: macOS Catalina support
 The Electron app SHALL support macOS 10.15 (Catalina) and newer.

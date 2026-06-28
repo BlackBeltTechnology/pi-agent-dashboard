@@ -44,7 +44,16 @@ function resolveMacosAliasDir() {
 
 const dir = resolveMacosAliasDir();
 if (!dir) {
-  // Not installed (e.g. maker-dmg pruned) — nothing to build.
+  if (FORCE_REBUILD) {
+    // Build-gate mode: an unresolvable macos-alias means the DMG maker will
+    // crash at forge make. Fail loudly here instead of falling through.
+    log(
+      "ERROR: Could not resolve macos-alias. Re-run `pnpm install`, or install " +
+        "Xcode Command Line Tools (`xcode-select --install`) and retry.",
+    );
+    process.exit(1);
+  }
+  // Postinstall mode: not installed (e.g. maker-dmg pruned) — nothing to build.
   process.exit(0);
 }
 
