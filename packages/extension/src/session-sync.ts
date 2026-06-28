@@ -27,8 +27,22 @@ export function filterByEnabledModels<T extends { provider: string; id: string }
     const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
     if (!existsSync(settingsPath)) return models;
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    const patterns: string[] | undefined = settings.enabledModels;
-    if (!Array.isArray(patterns) || patterns.length === 0) return models;
+    const rawPatterns: unknown[] | undefined = settings.enabledModels;
+    if (!Array.isArray(rawPatterns) || rawPatterns.length === 0) return models;
+
+    const patterns: string[] = [];
+    for (let i = 0; i < rawPatterns.length; i++) {
+      const entry = rawPatterns[i];
+      if (typeof entry === "string") {
+        patterns.push(entry);
+      } else {
+        console.warn(
+          `[pi-dashboard] enabledModels[${i}]: expected string, got ${typeof entry}. Skipping.`,
+        );
+      }
+    }
+    if (patterns.length === 0) return models;
+
     return models.filter((m) => {
       const key = `${m.provider}/${m.id}`;
       return patterns.some((p) => {
