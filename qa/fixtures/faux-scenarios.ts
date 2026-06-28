@@ -192,6 +192,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/ghost.ts" },
   },
 
+  // Assistant text referencing a REAL fixture file. The explicit `./` prefix
+  // gives the tokenizer the separator it needs to linkify (a bare `hello.txt`
+  // has no separator and stays prose); the link resolves against the session
+  // cwd to `/fixtures/sample-git/hello.txt`, which `/api/file` reads
+  // successfully — so the preview overlay shows real content. Used by the
+  // file-preview-survives-churn e2e to assert the overlay persists across
+  // message churn with live content (not a stale-file error body).
+  // See change: fix-file-preview-survives-message-churn.
+  "text-realfile": {
+    script: [
+      fauxAssistantMessage([fauxText("preview ./hello.txt for the greeting")]),
+    ],
+    expect: { text: "hello.txt" },
+  },
+
   // Assistant text with an inline-code span carrying a file path + a URL.
   // Inline code is linkified (markdown does not autolink inside code), so this
   // renders a real FileLink (button) and UrlLink (anchor) — the surfaces whose

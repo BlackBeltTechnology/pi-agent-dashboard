@@ -1,9 +1,9 @@
-import React from "react";
+import { mdiEyeOutline, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiOpenInNew, mdiEyeOutline } from "@mdi/js";
+import type React from "react";
 import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
-import { useFileOpenRouting } from "./useFileOpenRouting.js";
 import type { ToolContext } from "./types.js";
+import { useFileOpenRouting } from "./useFileOpenRouting.js";
 
 interface Props {
   filePath?: string;
@@ -23,7 +23,7 @@ interface Props {
  * See change: unify-file-link-openability (spec: open-in-editor).
  */
 export function OpenFileButton({ filePath, line, context }: Props) {
-  const { cwd, localEditorAvailable, editorName, preview, openFile, closePreview } =
+  const { cwd, localEditorAvailable, editorName, openFile, hostManaged, previewTarget, closePreview } =
     useFileOpenRouting(context);
   if (!cwd || !filePath) return null;
 
@@ -37,22 +37,22 @@ export function OpenFileButton({ filePath, line, context }: Props) {
 
   return (
     <>
-      <button
-        onClick={handleClick}
-        className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] hover:text-blue-400 transition-colors"
-        title={title}
-      >
-        <Icon path={localEditorAvailable ? mdiOpenInNew : mdiEyeOutline} size={0.45} />
-        <span>{label}</span>
-      </button>
-      {preview && cwd && (
-        <FilePreviewOverlay
-          cwd={cwd}
-          path={preview.path}
-          line={preview.line}
-          onClose={closePreview}
-        />
-      )}
+    <button
+      onClick={handleClick}
+      className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] hover:text-blue-400 transition-colors"
+      title={title}
+    >
+      <Icon path={localEditorAvailable ? mdiOpenInNew : mdiEyeOutline} size={0.45} />
+      <span>{label}</span>
+    </button>
+    {!hostManaged && previewTarget && (
+      <FilePreviewOverlay
+        cwd={previewTarget.cwd}
+        path={previewTarget.path}
+        line={previewTarget.line}
+        onClose={closePreview}
+      />
+    )}
     </>
   );
 }

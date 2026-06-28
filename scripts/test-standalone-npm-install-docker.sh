@@ -22,9 +22,9 @@
 #   8. cleanup
 #
 # Usage:
-#   ./scripts/test-standalone-npm-install-docker.sh                    # node:22-bookworm-slim (default)
+#   ./scripts/test-standalone-npm-install-docker.sh                    # node:24-bookworm-slim (default)
+#   ./scripts/test-standalone-npm-install-docker.sh node:22-bookworm-slim   # supported floor
 #   ./scripts/test-standalone-npm-install-docker.sh node:22-alpine
-#   ./scripts/test-standalone-npm-install-docker.sh node:24-bookworm-slim
 #   ./scripts/test-standalone-npm-install-docker.sh --keep             # keep container + packs on exit
 #
 # Exit codes:
@@ -34,7 +34,7 @@
 
 set -euo pipefail
 
-IMAGE="node:22-bookworm-slim"
+IMAGE="node:24-bookworm-slim"
 KEEP=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -151,8 +151,12 @@ if ! indocker "mkdir -p /test && (cd /test && npm init -y >/dev/null) && $INSTAL
   exit 1
 fi
 # Reject install logs containing node-gyp/Python errors even if exit-0 (some
-# postinstalls swallow errors but still emit them to stderr).
-if grep -qE "(gyp ERR|node-gyp.*rebuild|Could not find any Python)" "$INSTALL_LOG"; then
+# postinstalls swallow errors but still emit them to stderr). Match only REAL
+# gyp failures: `gyp ERR!` (bang appears only on actual errors) or a missing
+# Python. Do NOT match `node-gyp rebuild` as a substring — npm 11 (Node 24's
+# default) prints it inside an advisory `npm warn allow-scripts` line that just
+# echoes node-pty's declared install script, which is not an error.
+if grep -qE "(gyp ERR!|Could not find any Python)" "$INSTALL_LOG"; then
   echo "[smoke] FAIL: install completed but emitted node-gyp/Python errors (task 7.1 regression)" >&2
   grep -E "(gyp ERR|node-gyp|Python)" "$INSTALL_LOG" | head -20 >&2
   rm -f "$INSTALL_LOG"
@@ -177,10 +181,13 @@ indocker "PI_DASHBOARD_PORT=18000 /test/node_modules/.bin/pi-dashboard start" >/
   exit 1
 }
 
-# Poll for up to 180s. State transitions: installing → ready (or failed).
+# Poll for up to 180s. Readiness = /api/health responds 200 with ok:true.
 #
-# Endpoint is /api/bootstrap/status (NOT /api/health.bootstrap — health only
-# exposes installable counts, not the bootstrap status enum).
+# Endpoint is /api/health. The legacy /api/bootstrap/status enum was removed
+# server-side (change: eliminate-electron-runtime-install); polling it returned
+# the SPA catch-all HTML and parsed as 'parse-error'. /api/health is registered
+# once the server listens, so a 200 + ok:true means the standalone server
+# booted and resolved pi.
 #
 # Curl from INSIDE the container, not from the host: the dashboard's
 # localhost-guard returns 403 "Access denied" to non-loopback requests,
@@ -192,25 +199,20 @@ DEADLINE=$((SECONDS + 180))
 LAST_STATE=""
 SUCCESS=0
 while [[ $SECONDS -lt $DEADLINE ]]; do
-  RESP=$(indocker 'curl -fsS --max-time 3 http://localhost:18000/api/bootstrap/status 2>/dev/null' 2>/dev/null) || RESP=""
+  RESP=$(indocker 'curl -fsS --max-time 3 http://localhost:18000/api/health 2>/dev/null' 2>/dev/null) || RESP=""
   if [[ -n "$RESP" ]]; then
-    STATE=$(echo "$RESP" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).status||'unknown')}catch{console.log('parse-error')}})" 2>/dev/null || echo "unknown")
+    STATE=$(echo "$RESP" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{console.log(JSON.parse(d).ok===true?'ready':'not-ready')}catch{console.log('parse-error')}})" 2>/dev/null || echo "unknown")
     if [[ "$STATE" != "$LAST_STATE" ]]; then
-      echo "[smoke]   bootstrap status = $STATE"
+      echo "[smoke]   health status = $STATE"
       LAST_STATE="$STATE"
     fi
     if [[ "$STATE" == "ready" ]]; then SUCCESS=1; break; fi
-    if [[ "$STATE" == "failed" ]]; then
-      echo "[smoke] FAIL: bootstrap failed" >&2
-      indocker "tail -100 ~/.pi/dashboard/server.log" >&2
-      exit 1
-    fi
   fi
   sleep 2
 done
 
 if [[ "$SUCCESS" -ne 1 ]]; then
-  echo "[smoke] FAIL: bootstrap did not reach ready within 180s (last: $LAST_STATE)" >&2
+  echo "[smoke] FAIL: /api/health did not report ok:true within 180s (last: $LAST_STATE)" >&2
   indocker "tail -100 ~/.pi/dashboard/server.log" >&2
   exit 1
 fi

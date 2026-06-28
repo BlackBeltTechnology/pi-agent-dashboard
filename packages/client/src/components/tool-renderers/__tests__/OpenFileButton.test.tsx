@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { OpenFileButton } from "../OpenFileButton.js";
-import { ThemeProvider } from "../../ThemeProvider.js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as editorApi from "../../../lib/editor-api.js";
+import { FilePreviewHost, FilePreviewProvider } from "../../FilePreviewContext.js";
+import { ThemeProvider } from "../../ThemeProvider.js";
+import { OpenFileButton } from "../OpenFileButton.js";
 import type { ToolContext } from "../types.js";
 
 const originalLocation = window.location;
@@ -18,6 +19,19 @@ function restoreHost() {
 }
 
 function renderBtn(ui: React.ReactElement) {
+  return render(
+    <ThemeProvider>
+      <FilePreviewProvider>
+        {ui}
+        <FilePreviewHost />
+      </FilePreviewProvider>
+    </ThemeProvider>,
+  );
+}
+
+// No-provider render: exercises OpenFileButton's leaf-local fallback overlay
+// (README/markdown/plugin surfaces with no FilePreviewProvider mounted).
+function renderBtnNoProvider(ui: React.ReactElement) {
   return render(<ThemeProvider>{ui}</ThemeProvider>);
 }
 
@@ -62,6 +76,23 @@ describe("OpenFileButton", () => {
     );
     const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
     const { getByRole, findByTestId } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
+    fireEvent.click(getByRole("button"));
+    expect(editorApi.openEditor).not.toHaveBeenCalled();
+    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
+  });
+
+  it("no provider → renders its own fallback preview overlay", async () => {
+    setHost("localhost");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }) as any,
+    );
+    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
+    const { getByRole, findByTestId } = renderBtnNoProvider(
+      <OpenFileButton filePath="src/foo.ts" context={ctx} />,
+    );
     fireEvent.click(getByRole("button"));
     expect(editorApi.openEditor).not.toHaveBeenCalled();
     expect(await findByTestId("file-preview-overlay")).toBeTruthy();

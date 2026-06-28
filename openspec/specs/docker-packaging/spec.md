@@ -4,7 +4,7 @@
 TBD - created by archiving change docker-packaging. Update Purpose after archive.
 ## Requirements
 ### Requirement: Dockerfile builds a self-contained image
-The Dockerfile SHALL produce a single image containing Node.js 22 LTS, pi coding agent, pi-dashboard (with built client), code-server, zrok, tmux, jq, git, curl, ripgrep, fd-find, and bash. The image SHALL use `node:22-bookworm-slim` as the base. The image SHALL create a non-root user `pi` (UID 1000) and run all processes as that user. Build-essential and python3 SHALL be removed after native addon compilation to reduce image size.
+The Dockerfile SHALL produce a single image containing Node.js 24 LTS, pi coding agent, pi-dashboard (with built client), code-server, zrok, tmux, jq, git, curl, ripgrep, fd-find, and bash. The image SHALL use `node:24-bookworm-slim` as the base. The image SHALL create a non-root user `pi` (UID 1000) and run all processes as that user. Build-essential and python3 SHALL be removed after native addon compilation to reduce image size.
 
 #### Scenario: Image contains all required tools
 - **WHEN** the image is built with `docker compose build`
@@ -17,6 +17,10 @@ The Dockerfile SHALL produce a single image containing Node.js 22 LTS, pi coding
 #### Scenario: node-pty works inside container
 - **WHEN** the dashboard spawns a terminal via node-pty
 - **THEN** the PTY allocates successfully and shell I/O works (glibc-based Debian, not musl/Alpine)
+
+#### Scenario: Base image runs Node 24
+- **WHEN** `node --version` is run inside the built image
+- **THEN** it reports a `v24.x` release (current LTS line)
 
 ### Requirement: Entrypoint seeds API keys on first run
 The entrypoint script SHALL run a `seed-auth.js` script that reads provider API keys from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) and writes them to `~/.pi/agent/auth.json` with `0600` permissions. The seeding SHALL only occur if `auth.json` does not already exist. The entrypoint SHALL then start a tmux server and exec `pi-dashboard` with port configuration from environment variables.

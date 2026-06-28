@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 22 LTS, system tools, code-server, zrok.
+# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, code-server, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # ============================ base stage ===================================
-FROM node:22-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
 ARG CODE_SERVER_VERSION=4.96.4
