@@ -389,8 +389,10 @@ describe("loadPromptTemplate (executable-mode frontmatter)", () => {
     if (loaded?.kind === "exec") expect(loaded.body).toContain("/api/health");
   });
 
-  it("expandPromptTemplateFromDisk returns body for an exec template (no execution)", () => {
+  it("expandPromptTemplateFromDisk returns ORIGINAL text for an exec template (never leaks bash body to LLM)", () => {
     writeFileSync(join(promptsDir, "exec-legacy.md"), "---\nexecutable: bash\n---\necho hi");
-    expect(expandPromptTemplateFromDisk("/exec-legacy", tmpDir)).toBe("echo hi");
+    // Multi-line passthrough path calls this then sendUserMessage; must NOT
+    // return the raw bash body. See change: add-dashboard-slash-commands.
+    expect(expandPromptTemplateFromDisk("/exec-legacy", tmpDir)).toBe("/exec-legacy");
   });
 });

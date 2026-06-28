@@ -352,9 +352,11 @@ export function loadPromptTemplate(text: string, cwd: string, pi?: any): LoadedP
  *
  * Backward-compat wrapper around `loadPromptTemplate`: always returns an
  * LLM-text string. Exec-mode templates (`executable: bash`) should be routed
- * via `loadPromptTemplate` by the dispatcher BEFORE reaching this function;
- * if one slips through here, its raw body is returned (legacy frontmatter-strip
- * behaviour) rather than executed.
+ * via `loadPromptTemplate` by the dispatcher BEFORE reaching this function.
+ * If one slips through here (e.g. the multi-line / image-bearing passthrough
+ * path that calls this then `sendUserMessage`), the ORIGINAL `text` is returned
+ * — never the raw bash body, which must not reach the LLM. See change:
+ * add-dashboard-slash-commands (CodeRabbit: do not send exec bodies to the LLM).
  *
  * @param pi Optional pi extension API — used to find globally installed skills
  *           and package skills via pi.getCommands() when local scan misses them.
@@ -362,5 +364,5 @@ export function loadPromptTemplate(text: string, cwd: string, pi?: any): LoadedP
 export function expandPromptTemplateFromDisk(text: string, cwd: string, pi?: any): string {
   const loaded = loadPromptTemplate(text, cwd, pi);
   if (!loaded) return text;
-  return loaded.kind === "exec" ? loaded.body : loaded.text;
+  return loaded.kind === "exec" ? text : loaded.text;
 }
