@@ -57,6 +57,15 @@ describe("findSurfaceSuppressedErrorIds (single red surface)", () => {
     expect(findSurfaceSuppressedErrorIds(msgs, true)).toEqual(new Set());
   });
 
+  it("suppresses ONLY the latest failed tool when two errors share a turn", () => {
+    const firstErr = tool({ toolStatus: "error" });
+    const latestErr = tool({ toolStatus: "error" });
+    // Both failures after the same user boundary; the backward scan stops at
+    // the first error it meets from the tail — the latest one drives the surface.
+    const msgs = [user(), assistant(), firstErr, assistant(), latestErr];
+    expect(findSurfaceSuppressedErrorIds(msgs, true)).toEqual(new Set([latestErr.id]));
+  });
+
   it("no simultaneous yellow-banner + red-inline-card: the failed attempt collapses", () => {
     // Surface active (retry in flight, amber) + a failed tool card in stream.
     const err = tool({ toolStatus: "error" });

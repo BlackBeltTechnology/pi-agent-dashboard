@@ -1655,6 +1655,11 @@ function initBridge(pi: ExtensionAPI) {
     // unregister the old session before re-registering the new one.
     const reason = _event?.reason;
     if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
+      // Clear any latched abort for the OUTGOING session id. Otherwise a
+      // latched old session that is resumed later would have its first
+      // legitimate turn aborted by the agent_start/message_start latch hooks.
+      // See change: unify-error-retry-lifecycle.
+      abortLatch.clear(sessionId);
       handleSessionChange(ctx);
     }
 

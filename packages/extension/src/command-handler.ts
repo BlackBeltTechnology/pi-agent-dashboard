@@ -350,11 +350,6 @@ export function createCommandHandler(
 
       switch (msg.type) {
         case "send_prompt": {
-          // A new user prompt is a deliberate new turn — clear any latched
-          // abort BEFORE pi.sendUserMessage (which can fire agent_start
-          // synchronously) so the new turn is never aborted by the latch.
-          // See change: unify-error-retry-lifecycle.
-          options?.noteUserPrompt?.();
           const parsed = parseSendPrompt(msg.text);
 
           // Route based on parsed command type
@@ -490,6 +485,14 @@ export function createCommandHandler(
           // single-line slash text gates through extension dispatch — multi-line and
           // image-bearing messages go raw to the LLM as before.
           // See change: fix-extension-slash-commands-in-dashboard.
+          // A real user turn WILL be dispatched on this passthrough path — clear
+          // any latched abort BEFORE pi.sendUserMessage (which can fire
+          // agent_start synchronously) so the new turn is never aborted by the
+          // latch. Placed here (not at the top of send_prompt) so non-turn
+          // commands (bash, compact, model, mgmt, slash dispatch/exec) do NOT
+          // disarm the latch — they never start a replacement turn.
+          // See change: unify-error-retry-lifecycle.
+          options?.noteUserPrompt?.();
           let outgoing = msg.text;
           if (outgoing.startsWith("/")) {
             outgoing = expandPromptTemplateFromDisk(outgoing, process.cwd(), pi);
