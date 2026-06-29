@@ -6,15 +6,15 @@ describe("mapStepType (canonical node set)", () => {
     expect(mapStepType("code")).toBe("code");
     expect(mapStepType("code-decision")).toBe("code-decision");
   });
-  it("maps fork + agent-decision to fork shape, flow-ref to flow-ref", () => {
+  it("maps fork + agent-decision to fork shape", () => {
     expect(mapStepType("fork")).toBe("fork");
     expect(mapStepType("agent-decision")).toBe("fork");
-    expect(mapStepType("flow-ref")).toBe("flow-ref");
   });
-  it("agent and removed legacy types map to default (undefined)", () => {
+  it("agent and removed legacy types (incl. flow-ref) map to default (undefined)", () => {
     expect(mapStepType("agent")).toBeUndefined();
     expect(mapStepType("conditional")).toBeUndefined();
     expect(mapStepType("agent-loop-decision")).toBeUndefined();
+    expect(mapStepType("flow-ref")).toBeUndefined();
   });
 });
 
@@ -163,14 +163,44 @@ describe("computeLayout", () => {
     expect(result.edges).toHaveLength(0); // no edge for missing dep
   });
 
-  it("preserves type field on positioned nodes for flow-ref steps", () => {
+  it("preserves type field on positioned nodes", () => {
     const steps: FlowGraphStep[] = [
       { id: "a", label: "agent-step", status: "pending", blockedBy: [], type: "agent" },
-      { id: "b", label: "subflow-step", status: "pending", blockedBy: ["a"], type: "flow-ref" },
+      { id: "b", label: "decision-step", status: "pending", blockedBy: ["a"], type: "code-decision" },
     ];
 
     const result = computeLayout(steps);
     expect(result.nodes.find(n => n.id === "a")!.type).toBe("agent");
-    expect(result.nodes.find(n => n.id === "b")!.type).toBe("flow-ref");
+    expect(result.nodes.find(n => n.id === "b")!.type).toBe("code-decision");
+  });
+
+  it("renders forward decision-branch edges with labels while running", () => {
+    const steps: FlowGraphStep[] = [
+      { id: "choose", label: "choose", status: "running", blockedBy: [], type: "fork", branches: { PathA: "a", PathB: "b" } },
+      { id: "a", label: "a", status: "pending", blockedBy: [] },
+      { id: "b", label: "b", status: "pending", blockedBy: [] },
+    ];
+    const result = computeLayout(steps);
+    const labels = result.edges.map(e => e.label).sort();
+    expect(result.edges).toHaveLength(2);
+    expect(labels).toEqual(["PathA", "PathB"]);
+  });
+
+  it("routes a backward branch as a loop arc below the node band", () => {
+    const steps: FlowGraphStep[] = [
+      { id: "work", label: "work", status: "complete", blockedBy: [] },
+      { id: "gate", label: "gate", status: "running", blockedBy: ["work"], type: "code-decision", branches: { again: "work", go: "done" } },
+      { id: "done", label: "done", status: "pending", blockedBy: [] },
+    ];
+    const result = computeLayout(steps);
+    // Backward branch gate->work is a hand-routed loop edge, not a forward edge.
+    expect(result.loopEdges).toHaveLength(1);
+    expect(result.loopEdges[0]).toMatchObject({ source: "gate", target: "work", label: "again" });
+    expect(result.edges.find(e => e.source === "gate" && e.target === "work")).toBeUndefined();
+    // The loop arc sits below every node (cannot cross one).
+    const maxNodeBottom = Math.max(...result.nodes.map(n => n.y + n.height));
+    expect(result.loopEdges[0].labelY).toBeGreaterThanOrEqual(maxNodeBottom);
+    // forward branch gate->done carries its label.
+    expect(result.edges.find(e => e.source === "gate" && e.target === "done")?.label).toBe("go");
   });
 });

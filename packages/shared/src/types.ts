@@ -901,8 +901,7 @@ export type NodeKind =
   | "agent-decision"
   | "code"
   | "code-decision"
-  | "fork"
-  | "flow-ref";
+  | "fork";
 
 /** Per-agent (per-step) state tracked in flow state */
 export interface FlowAgentState {
@@ -953,10 +952,9 @@ export interface FlowState {
   /** Ordered map — insertion order matches step order from flow config */
   agents: Map<string, FlowAgentState>;
   /** All steps from the flow configuration — used for DAG graph rendering.
-   *  Includes non-agent steps (fork, conditional, agent-loop-decision). */
-  dagSteps?: Array<{ id: string; stepType: string; agent?: string; blockedBy: string[]; loopTarget?: string; exitTarget?: string }>;
-  /** Flow-ref steps from the flow configuration (subflows) */
-  flowRefSteps?: Array<{ id: string; label: string; blockedBy: string[] }>;
+   *  Includes non-agent steps (fork, agent-decision, code-decision). `branches`
+   *  carries decision routing (label → target) emitted by `flow:flow-started`. */
+  dagSteps?: Array<{ id: string; stepType: string; agent?: string; blockedBy: string[]; branches?: Record<string, string> }>;
   /** Set after flow_complete event */
   flowResult?: Record<string, unknown>;
 
@@ -992,7 +990,7 @@ export interface ArchitectDagStep {
   agentName?: string;
   blockedBy: string[];
   /** Step type — matches flow engine step types */
-  stepType?: "agent" | "fork" | "conditional" | "agent-decision" | "agent-loop-decision" | "flow-ref";
+  stepType?: "agent" | "fork" | "conditional" | "agent-decision" | "agent-loop-decision";
   /** For loop steps: the step ID to loop back to */
   loopTarget?: string;
   /** For loop steps: the step ID to continue to after exiting the loop */

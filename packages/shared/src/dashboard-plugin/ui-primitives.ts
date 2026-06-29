@@ -117,7 +117,10 @@ export interface UiDialogProps {
   title?: string;
   /** Optional leading icon (mdi path string). */
   icon?: string;
-  size?: "sm" | "md" | "lg";
+  /** `full` = near-fullscreen wide stage (max-w-[95vw]/max-h-[92vh]). See change: improve-flow-graph-dialog-and-card-interaction. */
+  size?: "sm" | "md" | "lg" | "full";
+  /** Edge-to-edge body (no padding, clipped overflow) for self-framed children. See change: improve-flow-graph-dialog-and-card-interaction. */
+  flush?: boolean;
   testId?: string;
   /** aria-label fallback when no `title` is supplied. */
   ariaLabel?: string;
@@ -332,6 +335,9 @@ export interface UiToolCallStepProps {
   duration?: number;
   /** Session id passed through to per-tool renderers that need session scope. */
   sessionId?: string;
+  /** When true, omit the leading status glyph on the tool-call header row.
+   *  Default false (icon shown). See change: improve-flow-ui. */
+  hideStatusIcon?: boolean;
 }
 
 /** Public prop signature for the thinking-block primitive. */

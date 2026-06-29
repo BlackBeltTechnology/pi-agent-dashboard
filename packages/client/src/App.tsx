@@ -764,7 +764,7 @@ export default function App() {
   }, [selectedId, send, status]);
 
   // Cold-open subscription for plugin overlay routes is now the claim's
-  // responsibility — each claim (e.g. SubagentPopoutClaim, FlowAgentPopoutClaim)
+  // responsibility — each claim (e.g. SubagentPopoutClaim)
   // subscribes on mount via `usePluginSend({ type: "subscribe", ... })`.
   // See change: add-flow-agent-popout.
 

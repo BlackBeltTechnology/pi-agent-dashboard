@@ -1,0 +1,9 @@
+import type { CodeNodeContext } from "@blackbelt-technology/pi-flows";
+
+interface Input { note: string }
+interface Output {}
+
+export default async function (input: Input, ctx: CodeNodeContext): Promise<Output> {
+  // TODO: implement code node "provoke"
+  return {};
+}

@@ -1,12 +1,14 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Icon } from "@mdi/react";
 import { mdiRobotOutline, mdiStop, mdiChevronUp, mdiChevronRight, mdiChevronDown, mdiFileDocumentOutline, mdiLoading } from "@mdi/js";
 import type { DashboardSession, FlowState, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   usePluginSend,
   useSessionInteractiveRequests,
+  useUiPrimitiveOrNull,
   type InteractiveUiRequestSnapshot,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
@@ -32,7 +34,7 @@ export function FlowDashboard({
   sessionId,
 }: {
   flowState: FlowState;
-  /** All flow states (main + subflows) for tab navigation */
+  /** All flow states (one per distinct flow run this session) for tab navigation */
   flowStates?: Map<string, FlowState>;
   onAbort: () => void;
   onToggleAutonomous: () => void;
@@ -45,6 +47,12 @@ export function FlowDashboard({
   sessionId?: string;
 }) {
   const isMobile = useMobile();
+  const Dialog = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.dialog);
+  const [graphOpen, setGraphOpen] = useState(false);
+  // Shared graph⇄card selection (live view parity with FlowSummary). See change:
+  // improve-flow-graph-dialog-and-card-interaction.
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [activeTabId, setActiveTabId] = useState<string>(flowState.flowName);
@@ -79,6 +87,33 @@ export function FlowDashboard({
 
   const agents = Array.from(displayState.agents.values());
   const allAgents = Array.from(flowState.agents.values());
+
+  const handleSelectStep = useCallback((stepId: string) => {
+    setSelectedStepId((prev) => (prev === stepId ? null : stepId));
+  }, []);
+  // Selection is ephemeral; reset when the displayed agent set changes.
+  useEffect(() => {
+    setSelectedStepId(null);
+  }, [displayState.agents]);
+  // Esc clears selection (Dialog handles its own Esc independently).
+  useEffect(() => {
+    if (!selectedStepId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedStepId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedStepId]);
+  // Scroll the matching node + card into view on selection (counterpart sync).
+  useEffect(() => {
+    if (!selectedStepId || !rootRef.current) return;
+    const esc = selectedStepId.replace(/["\\]/g, "\\$&");
+    for (const attr of ["data-node", "data-step"]) {
+      rootRef.current
+        .querySelector(`[${attr}="${esc}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [selectedStepId]);
   const doneCount = allAgents.filter(a => a.status === "complete" || a.status === "error" || a.status === "blocked").length;
   const totalCount = allAgents.length;
   const isRunning = flowState.status === "running";
@@ -126,7 +161,7 @@ export function FlowDashboard({
   }
 
   return (
-    <div className="bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] px-3 py-2">
+    <div ref={rootRef} className="bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] px-3 py-2">
       {/* Header */}
       <div className="flex items-center gap-2 mb-2">
         <span
@@ -202,6 +237,10 @@ export function FlowDashboard({
 
           <FlowGraph
             steps={flowStateToGraphSteps(displayState)}
+            fit
+            selectedStepId={selectedStepId}
+            onSelectStep={handleSelectStep}
+            onExpand={Dialog ? () => setGraphOpen(true) : undefined}
           />
           {displayState.flowSource && (
             <div className="mt-1">
@@ -210,6 +249,25 @@ export function FlowDashboard({
                 flowName={displayState.flowName}
               />
             </div>
+          )}
+          {/* Expanded graph — centered Dialog with pan/zoom. See change: show-flow-cards-in-summary. */}
+          {Dialog && (
+            <Dialog
+              open={graphOpen}
+              onClose={() => setGraphOpen(false)}
+              title={`Flow graph · ${displayState.flowName}`}
+              size="full"
+            >
+              {/* Non-fit (pan/zoom) graph fills the full-size dialog. See change:
+                  improve-flow-graph-dialog-and-card-interaction. */}
+              <div style={{ height: "82vh", overflow: "hidden" }}>
+                <FlowGraph
+                  steps={flowStateToGraphSteps(displayState)}
+                  selectedStepId={selectedStepId}
+                  onSelectStep={handleSelectStep}
+                />
+              </div>
+            </Dialog>
           )}
 
           {/* Agent card grid — detailed per-agent info */}
@@ -223,7 +281,8 @@ export function FlowDashboard({
                 agent={agent}
                 session={session}
                 sessionId={sessionId}
-                flowId={displayState.flowName}
+                selected={selectedStepId === (agent.stepId || agent.agentName)}
+                onSelect={handleSelectStep}
               />
             ))}
           </div>

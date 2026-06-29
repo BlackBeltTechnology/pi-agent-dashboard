@@ -87,4 +87,13 @@ export interface MinimalChatViewProps {
    * See change: fix-flows-plugin-polish (chat-view parity).
    */
   sessionId?: string;
+  /**
+   * When true, tool-call rows omit the leading status glyph (the per-entry
+   * status/`ask_user` icon). Used by flow agent detail views to reduce noise;
+   * the main chat leaves it `false` (icon shown). Forwarded to the
+   * `toolCallStep` primitive as `hideStatusIcon`.
+   *
+   * See change: improve-flow-ui.
+   */
+  hideToolStatusIcon?: boolean;
 }

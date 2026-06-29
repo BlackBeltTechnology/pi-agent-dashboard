@@ -63,12 +63,6 @@
         "toolName": "flow_agents"
       },
       {
-        "slot": "shell-overlay-route",
-        "component": "FlowAgentPopoutClaim",
-        "path": "/session/:sid/flow/:flowId/agent/:agentId",
-        "sessionParam": "sid"
-      },
-      {
         "slot": "settings-section",
         "component": "FlowsSettings",
         "tab": "general"

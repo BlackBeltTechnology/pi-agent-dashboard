@@ -1,10 +1,11 @@
-import React, { useState, type ReactNode } from "react";
+import React, { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import { Icon } from "@mdi/react";
 import { mdiCloseCircleOutline, mdiCheckCircle, mdiAlertCircle, mdiStopCircle, mdiCloseCircle, mdiCircleOutline, mdiChevronRight, mdiChevronDown } from "@mdi/js";
 import type { DashboardSession, FlowState, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useUiPrimitive, useUiPrimitiveOrNull, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
+import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 
@@ -23,28 +24,63 @@ export function FlowSummary({
   flowState,
   onDismiss,
   onSendPrompt,
+  session,
+  sessionId,
 }: {
   flowState: FlowState;
   onDismiss: () => void;
   onSendPrompt?: (text: string) => void;
+  /** Parent session — threaded to the frozen cards for their detail/popout affordances. */
+  session?: DashboardSession;
+  sessionId?: string;
 }) {
   const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
+  const Dialog = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.dialog);
   const [collapsed, setCollapsed] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
+  // Shared graph⇄card selection (ephemeral). See change:
+  // improve-flow-graph-dialog-and-card-interaction.
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const agents = Array.from(flowState.agents.values());
   const { icon, label, color } = statusConfig[flowState.status] ?? statusConfig.success;
   const totalDuration = flowState.flowResult?.totalDuration as number | undefined;
   const totalFiles = agents.reduce((sum, a) => sum + (a.files?.length ?? 0), 0);
 
+  const handleSelectStep = useCallback((stepId: string) => {
+    setSelectedStepId((prev) => (prev === stepId ? null : stepId));
+  }, []);
+
+  // Reset selection when the agent set changes (selection is ephemeral).
+  useEffect(() => {
+    setSelectedStepId(null);
+  }, [flowState.agents]);
+
+  // Esc clears selection (the Dialog handles its own Esc independently).
+  useEffect(() => {
+    if (!selectedStepId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedStepId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedStepId]);
+
+  // Scroll the matching node + card into view on selection (counterpart sync).
+  useEffect(() => {
+    if (!selectedStepId || !rootRef.current) return;
+    const esc = selectedStepId.replace(/["\\]/g, "\\$&");
+    for (const attr of ["data-node", "data-step"]) {
+      rootRef.current
+        .querySelector(`[${attr}="${esc}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [selectedStepId]);
+
   return (
-    <div className="bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] px-3 py-2">
+    <div ref={rootRef} className="bg-[var(--bg-secondary)] border-b border-[var(--border-subtle)] px-3 py-2">
       {/* Header */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span
-          className="inline-flex text-[var(--text-tertiary)] cursor-pointer"
-          onClick={() => setCollapsed(!collapsed)}
-        >
-          <Icon path={collapsed ? mdiChevronRight : mdiChevronDown} size={0.6} />
-        </span>
         <span className={`${color} inline-flex`}>{icon}</span>
         <span className="text-sm text-[var(--text-primary)] flex-1">
           {flowState.flowName} {label}
@@ -62,30 +98,83 @@ export function FlowSummary({
         </button>
       </div>
 
-      {/* DAG graph + Agent list -- collapsible */}
-      <div className={`group-collapse ${collapsed ? "collapsed" : "expanded"}`}>
-        <div>
-          {/* DAG graph showing final state */}
-          <FlowGraph
-            steps={flowStateToGraphSteps(flowState)}
+      {/* Flow graph — bounded + fit-to-window; ⤢ expand opens the centered Dialog
+          with pan/zoom. Bounded so it cannot be dragged over the cards/summaries.
+          See change: show-flow-cards-in-summary. */}
+      <FlowGraph
+        steps={flowStateToGraphSteps(flowState)}
+        fit
+        selectedStepId={selectedStepId}
+        onSelectStep={handleSelectStep}
+        onExpand={Dialog ? () => setGraphOpen(true) : undefined}
+      />
+      {flowState.flowSource && (
+        <div className="mt-1">
+          <FlowYamlPopoverButton
+            flowSource={flowState.flowSource}
+            flowName={flowState.flowName}
           />
-          {flowState.flowSource && (
-            <div className="mt-1">
-              <FlowYamlPopoverButton
-                flowSource={flowState.flowSource}
-                flowName={flowState.flowName}
-              />
-            </div>
-          )}
+        </div>
+      )}
 
-          {/* Per-agent status list */}
-          <div className="space-y-0.5">
+      {/* Frozen agent cards — UNDER the graph, where they were live. Read-only. */}
+      {agents.length > 0 && (
+        <div
+          className="grid gap-2 mt-2"
+          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))` }}
+        >
+          {agents.map(agent => (
+            <FlowAgentCard
+              key={agent.stepId || agent.agentName}
+              agent={agent}
+              session={session}
+              sessionId={sessionId ?? session?.id}
+              selected={selectedStepId === (agent.stepId || agent.agentName)}
+              onSelect={handleSelectStep}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Summaries — collapsible footer; each row expands inline. */}
+      <div className="mt-2 pt-1.5 border-t border-[var(--border-subtle)]">
+        <div
+          data-testid="flow-summary-toggle"
+          className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] cursor-pointer mb-1 hover:text-[var(--text-primary)]"
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <Icon path={collapsed ? mdiChevronRight : mdiChevronDown} size={0.5} />
+          <span>Summaries ({agents.length})</span>
+        </div>
+        {!collapsed && (
+          <div className="space-y-0.5" data-testid="flow-summaries">
             {agents.map(agent => (
               <FlowSummaryRow key={agent.stepId || agent.agentName} agent={agent} />
             ))}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Expanded graph — centered Dialog with pan/zoom. */}
+      {Dialog && (
+        <Dialog
+          open={graphOpen}
+          onClose={() => setGraphOpen(false)}
+          title={`Flow graph · ${flowState.flowName}`}
+          size="full"
+        >
+          {/* Non-fit (pan/zoom) graph fills the full-size dialog; no inner
+              height cap so the horizontal DAG gets a wide stage. See change:
+              improve-flow-graph-dialog-and-card-interaction. */}
+          <div style={{ height: "82vh", overflow: "hidden" }}>
+            <FlowGraph
+              steps={flowStateToGraphSteps(flowState)}
+              selectedStepId={selectedStepId}
+              onSelectStep={handleSelectStep}
+            />
+          </div>
+        </Dialog>
+      )}
 
       {/* Next step suggestion */}
       {flowState.nextStep && onSendPrompt && (
@@ -205,6 +294,8 @@ export function FlowSummaryClaim({ session }: { session: DashboardSession }) {
   return (
     <FlowSummary
       flowState={flowState}
+      session={session}
+      sessionId={session.id}
       onDismiss={() =>
         send({ type: "flow_control", sessionId: session.id, action: "dismiss_summary" })
       }

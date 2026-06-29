@@ -1,0 +1,10 @@
+import type { CodeNodeContext } from "@blackbelt-technology/pi-flows";
+
+type Branch = "again" | "go";
+interface Input { worker_summary: string; iteration: string; max: string }
+interface Output {}
+
+export default async function (input: Input, ctx: CodeNodeContext): Promise<{ branch: Branch } & Output> {
+  // TODO: implement code node "gate"
+  return { branch: "again" };
+}

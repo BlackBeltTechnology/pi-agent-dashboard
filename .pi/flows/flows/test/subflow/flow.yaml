@@ -1,0 +1,10 @@
+name: test-capabilities-subflow
+description: Minimal sub-flow invoked via flow-ref from /test:capabilities to exercise flow delegation
+task_required: false
+
+steps:
+  - id: sub-emit
+    agent: test-emitter
+    task: Sub-flow leaf step reached via flow-ref; confirm delegation works.
+    inputs:
+      upstream_value: subflow-entry

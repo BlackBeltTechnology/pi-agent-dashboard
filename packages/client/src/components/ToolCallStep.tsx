@@ -51,6 +51,13 @@ interface Props {
    * See change: configurable-chat-display.
    */
   showResultBody?: boolean;
+  /**
+   * When true, the leading status glyph (status/`ask_user` icon) is omitted.
+   * Defaults to `false` (icon shown) so the main chat is unchanged; flow agent
+   * detail views opt in via MinimalChatView's `hideToolStatusIcon`.
+   * See change: improve-flow-ui.
+   */
+  hideStatusIcon?: boolean;
   onAbort?: () => void;
   onForceKill?: () => void;
 }
@@ -88,7 +95,7 @@ const statusIcons: Record<string, ReactNode> = {
   error: <Icon path={mdiAlertCircle} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, onAbort, onForceKill }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill }: Props) {
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
@@ -126,19 +133,21 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         title={getSummary(toolName, args)}
         className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
       >
-        <span className={`inline-flex ${
-          status === "error"
-            ? "text-red-400"
-            : isAskUser
-              ? "text-sky-400"
-              : status === "complete"
-                ? "text-green-400"
-                : "text-yellow-400"
-        }`}>
-          {isAskUser && status !== "error" && status !== "running"
-            ? <Icon path={mdiHelpCircleOutline} size={0.55} />
-            : statusIcons[status]}
-        </span>
+        {!hideStatusIcon && (
+          <span className={`inline-flex ${
+            status === "error"
+              ? "text-red-400"
+              : isAskUser
+                ? "text-sky-400"
+                : status === "complete"
+                  ? "text-green-400"
+                  : "text-yellow-400"
+          }`}>
+            {isAskUser && status !== "error" && status !== "running"
+              ? <Icon path={mdiHelpCircleOutline} size={0.55} />
+              : statusIcons[status]}
+          </span>
+        )}
         <span className="truncate">{getSummary(toolName, args)}</span>
         <ElapsedBadge startedAt={startedAt} duration={duration} />
         {status === "running" && onAbort && stopState === "idle" && (
