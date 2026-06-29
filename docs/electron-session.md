@@ -347,7 +347,7 @@ docker rmi pi-dashboard-electron-builder                 # Docker build image
 
 Each runner builds natively. No cross-compilation in CI. Release job creates draft GitHub Release with all artifacts.
 
-**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app`; asserts `/api/health` 200 + `starter==Electron` + server.log non-empty + no `FATAL`. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (10.15). Floor-proof on oldest allowed macOS remains QA gap (needs macOS-12/-10.15 VM). Static `otool minos` floor check stays label-only complement.
+**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app` (`--disable-gpu`; seeds `first-run-done` to skip wizard); asserts `/api/health` 200 + `launchSource==electron` + server.log non-empty + no `FATAL` within 120s. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (10.15). Floor-proof on oldest allowed macOS remains QA gap (needs macOS-12/-10.15 VM). Static `otool minos` floor check stays label-only complement.
 
 **Local testing with `act`**: Only Linux jobs work (Docker-based). macOS/Windows need real runners.
 

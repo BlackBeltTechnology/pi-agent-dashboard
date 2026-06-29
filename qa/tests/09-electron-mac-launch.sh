@@ -5,7 +5,8 @@
 # Asserts the same four-point "healthy launch" contract as the Linux
 # smoke (08-electron-real-launch.sh):
 #   1. Main process reaches a healthy /api/health within 120 s.
-#   2. /api/health.starter == "Electron".
+#   2. /api/health.launchSource == "electron" (the server's launch-source
+#      field; there is no `starter` key in the health response).
 #   3. ~/.pi/dashboard/server.log is non-empty (catches spawnDetached
 #      stdio[1]='ignore' regression).
 #   4. Electron parent stdout/stderr does not contain "FATAL".
@@ -173,15 +174,17 @@ if [ -z "$HEALTH_BODY" ]; then
 fi
 echo "  ✓ /api/health responded"
 
-# Assert starter == Electron. Use node to parse JSON safely.
-STARTER=$(node -e \
-  "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).starter||'?')}catch{process.stdout.write('?')}})" \
+# Assert launchSource == electron. /api/health exposes `launchSource`
+# (lowercase: "electron"/"bridge"/"standalone"), NOT a `starter` field.
+# Use node to parse JSON safely.
+LAUNCH_SOURCE=$(node -e \
+  "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).launchSource||'?')}catch{process.stdout.write('?')}})" \
   <<< "$HEALTH_BODY")
-if [ "$STARTER" != "Electron" ]; then
-  echo "FAIL: expected starter=Electron, got $STARTER"
+if [ "$LAUNCH_SOURCE" != "electron" ]; then
+  echo "FAIL: expected launchSource=electron, got $LAUNCH_SOURCE"
   exit 1
 fi
-echo "  ✓ starter == Electron"
+echo "  ✓ launchSource == electron"
 
 # Assert ~/.pi/dashboard/server.log non-empty (stdio-routing regression guard).
 if [ ! -f "$SERVER_LOG" ]; then

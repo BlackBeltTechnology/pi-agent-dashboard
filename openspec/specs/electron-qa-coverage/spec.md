@@ -35,7 +35,7 @@ A new test `qa/tests/08-electron-real-launch.sh` SHALL launch the packaged Elect
 
 #### Scenario: Healthy AppImage launch
 - **WHEN** `xvfb-run "$APPIMAGE" --no-sandbox` is executed inside the Ubuntu QA VM
-- **THEN** within 120 seconds `curl http://localhost:8000/api/health` SHALL return HTTP 200 with JSON containing `"starter":"Electron"`
+- **THEN** within 120 seconds `curl http://localhost:8000/api/health` SHALL return HTTP 200 with JSON containing `"launchSource":"electron"`
 - **AND** `~/.pi/dashboard/server.log` SHALL exist with size > 0
 - **AND** the Electron parent's combined output SHALL NOT contain the substring `FATAL`
 
@@ -54,7 +54,7 @@ A new test `qa/tests/09-electron-mac-launch.sh` SHALL launch the packaged macOS 
 
 #### Scenario: Healthy .app launch
 - **WHEN** `…/Contents/MacOS/PI Dashboard` is executed on the GitHub-hosted macOS runner
-- **THEN** within 120 seconds `curl http://localhost:8000/api/health` SHALL return HTTP 200 with JSON containing `"starter":"Electron"`
+- **THEN** within 120 seconds `curl http://localhost:8000/api/health` SHALL return HTTP 200 with JSON containing `"launchSource":"electron"`
 - **AND** `~/.pi/dashboard/server.log` SHALL exist with size > 0
 - **AND** the Electron parent's combined output SHALL NOT contain the substring `FATAL`
 
