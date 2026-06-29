@@ -86,4 +86,25 @@ describe("PUT /api/providers masked-sentinel guard", () => {
 
     await app.close();
   });
+
+  it("rejects a blank / whitespace-only provider name with 400 and persists nothing", async () => {
+    rmSync(PROVIDERS_PATH, { force: true });
+    const app = await buildApp();
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/providers",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        providers: { "   ": { baseUrl: "https://api.example.com/v1", apiKey: "sk-real" } },
+      }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    let stored: Record<string, any> = {};
+    try { stored = readStored(); } catch { /* file not written on reject */ }
+    expect(Object.keys(stored)).toHaveLength(0);
+
+    await app.close();
+  });
 });

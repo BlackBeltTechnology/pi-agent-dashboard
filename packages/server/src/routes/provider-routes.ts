@@ -72,6 +72,19 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
 
       const incoming = body.providers as Record<string, ProviderEntry>;
 
+      // Blank-name guard: the client preflights this, but a direct PUT can
+      // still smuggle "" / whitespace-only provider names. Reject them at the
+      // API boundary so they never reach providers.json. See change:
+      // fix-custom-provider-save-and-auth.
+      for (const name of Object.keys(incoming)) {
+        if (name.trim() === "") {
+          return reply.code(400).send({
+            success: false,
+            error: "Provider name is required",
+          });
+        }
+      }
+
       // Recursion guard: reject providers pointing back at the dashboard
       const dashboardPort = deps.port ?? 8000;
       const tunnelUrl = getTunnelUrl();
