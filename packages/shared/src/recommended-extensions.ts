@@ -412,6 +412,48 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// Facade orchestrates a Dockerized engine; docker must be on PATH.
 		requires: { binaries: ["docker"] },
 	},
+	{
+		id: "@blackbelt-technology/anti-slop-frontend",
+		source: "npm:@blackbelt-technology/anti-slop-frontend",
+		displayName: "anti-slop-frontend",
+		fallbackDescription:
+			"Pi skill: a mechanical, countable anti-slop checklist for " +
+			"AI-generated frontend. Catches the specific tells an undirected " +
+			"model defaults to (AI-purple, Inter-everywhere, em-dashes, " +
+			"div-based fake screenshots, Jane Doe / Acme data). Advisory; " +
+			"pairs with frontend-mockup-loop. Works in any React/Tailwind/HTML " +
+			"project.",
+		status: "optional",
+		unlocks: [
+			"anti-slop-frontend skill (countable AI-tell checklist for frontend)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-eng-disciplines",
+		source: "npm:@blackbelt-technology/pi-dashboard-eng-disciplines",
+		displayName: "pi-dashboard-eng-disciplines",
+		fallbackDescription:
+			"Pi skills bundle for engineering disciplines: doubt-driven review, " +
+			"interview-me requirements elicitation, observability " +
+			"instrumentation, performance optimization, and security hardening.",
+		status: "optional",
+		unlocks: [
+			"doubt-driven-review / interview-me / observability-instrumentation / performance-optimization / security-hardening skills",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-authoring-toolkit",
+		source: "npm:@blackbelt-technology/pi-dashboard-authoring-toolkit",
+		displayName: "pi-dashboard-authoring-toolkit",
+		fallbackDescription:
+			"Pi skills for authoring pi artifacts: session-to-guideline distills " +
+			"a session into a reusable guideline, and skill-creator scaffolds new " +
+			"pi skills.",
+		status: "optional",
+		unlocks: [
+			"session-to-guideline / skill-creator skills (author guidelines and new skills)",
+		],
+	},
 ];
 
 /**
