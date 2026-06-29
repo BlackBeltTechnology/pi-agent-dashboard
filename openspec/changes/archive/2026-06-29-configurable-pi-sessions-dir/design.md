@@ -23,60 +23,65 @@ one global sessions root. So the design picks the **durable, process-independent
 
 ```
 resolvePiSessionsDir(env?):
-  1. config.json#piSessionsDir         (operator's explicit dashboard override)   ← highest
+  1. config.json#piSessionsDir            (operator's explicit dashboard override)   ← highest
   2. process.env.PI_CODING_AGENT_SESSION_DIR  (inherited by dashboard process)
-  3. piCoreGetSessionsDir()            (= getAgentDir()/sessions; honors
-                                          PI_CODING_AGENT_DIR; falls back to
-                                          ~/.pi/agent/sessions)                    ← lowest
+  3. process.env.PI_CODING_AGENT_DIR + "/sessions"  (mirrors pi-core getAgentDir())
+  4. literal ~/.pi/agent/sessions         (last-ditch)                              ← lowest
 ```
 
-Each layer: tilde-expand, trim; whitespace-only string is "unset" and falls through.
+Each string layer: tilde-expand, trim; whitespace-only string is "unset" and falls through.
 
-### Why reuse pi's `getSessionsDir()` instead of re-deriving
+### Why read `PI_CODING_AGENT_DIR` directly instead of importing pi-core (implementation deviation)
 
-- Already a dependency (`packages/server/package.json` → `@earendil-works/pi-coding-agent@^0.80.2`).
-- pi's helper = `join(getAgentDir(), "sessions")`, and `getAgentDir()` honors `PI_CODING_AGENT_DIR`
-  (`config.js:411`). Importing it means the `~/.pi/agent` ↔ `PI_CODING_AGENT_DIR` floor stays correct
-  forever, even if pi changes the layout.
-- DRY: removes three copies of `join(os.homedir(), ".pi", "agent", "sessions")`.
+The original plan (Option A below) injected `getSessionsDir()` imported from
+`@earendil-works/pi-coding-agent`. **This is unimplementable under the project's tsconfig**:
+pi-core's published `dist/index.d.ts` re-exports `getAgentDir`/`getSessionsDir` via `./config.ts`
+specifiers, which `moduleResolution: bundler` (no `allowImportingTsExtensions`) cannot follow for
+*value* imports — `tsc` errors `has no exported member 'getAgentDir'` (a hard quality gate). Only
+`import type` resolves; the runtime `dist/index.js` re-exports via `./config.js` and works under
+jiti, but tsc gates CI.
 
-`packages/shared` does NOT currently depend on pi-core. Two options:
-- **A (chosen)**: keep the resolver in `dashboard-paths.ts` but accept the pi-core sessions dir as an
-  injected fallback param, and have the *server* (which already has the dep) pass
-  `piCoreGetSessionsDir()` in. Keeps `shared` dependency-light + testable.
-- B: add the pi-core dep to `shared`. Heavier; rejected — shared is intentionally lean.
+Resolution (ratified during implementation): **fold pi's `PI_CODING_AGENT_DIR` layer directly into
+the resolver in `shared`** — read the env var and append `/sessions`. This:
+- Honors `PI_CODING_AGENT_DIR` (the same durable signal pi-core's `getAgentDir()` reads).
+- Keeps `shared` dependency-light — no pi-core dep, no cross-package injection. Simpler than A.
+- Removes three copies of `join(os.homedir(), ".pi", "agent", "sessions")` from the server.
+- Coupling to pi's `.pi/agent` layout already existed (the last-ditch literal hardcodes it); the
+  unachievable DRY win was delegating that literal to pi's helper.
+
+Rejected/superseded:
+- **A (original)**: inject `piCoreGetSessionsDir()` from the server. Blocked by the tsc barrel issue.
+- **B**: add the pi-core dep to `shared`. Heavier; still hits the same barrel issue.
 
 Shape:
 
 ```ts
 // packages/shared/src/dashboard-paths.ts
 export type DashboardPathsEnv = ManagedPathsEnv & {
-  piSessionsDir?: string;          // from config.json
-  sessionDirEnv?: string;          // injected process.env.PI_CODING_AGENT_SESSION_DIR
-  piCoreSessionsDir?: string;      // injected pi-core getSessionsDir() result
+  piSessionsDir?: string;   // from config.json
+  sessionDirEnv?: string;   // test seam for process.env.PI_CODING_AGENT_SESSION_DIR
+  agentDirEnv?: string;     // test seam for process.env.PI_CODING_AGENT_DIR
 };
 
 export function resolvePiSessionsDir(env?: DashboardPathsEnv): string {
   const pick = (s?: string) => { const t = s?.trim(); return t ? expandTilde(t, env) : undefined; };
+  const agentDir = pick(env?.agentDirEnv ?? process.env.PI_CODING_AGENT_DIR);
   return pick(env?.piSessionsDir)
     ?? pick(env?.sessionDirEnv ?? process.env.PI_CODING_AGENT_SESSION_DIR)
-    ?? env?.piCoreSessionsDir
+    ?? (agentDir ? path.join(agentDir, "sessions") : undefined)
     ?? path.join(env?.homedir ?? os.homedir(), ".pi", "agent", "sessions");  // last-ditch literal
 }
 ```
 
-Server call site:
+Server call site (no pi-core import):
 
 ```ts
 // session-scanner.ts
-import { getSessionsDir as piCoreGetSessionsDir } from "@earendil-works/pi-coding-agent";
-import { resolvePiSessionsDir } from "@pi-dashboard/shared";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
-export function getSessionsDir(): string {
-  return resolvePiSessionsDir({
-    piSessionsDir: loadConfig().piSessionsDir,
-    piCoreSessionsDir: piCoreGetSessionsDir(),
-  });
+function getSessionsDir(): string {
+  return resolvePiSessionsDir({ piSessionsDir: loadConfig().piSessionsDir });
 }
 ```
 
@@ -98,14 +103,16 @@ pi already exposes `expandTildePath`. To avoid coupling `shared` to pi, the reso
 
 Unit (`dashboard-paths` resolver), table-driven:
 
-| config piSessionsDir | env SESSION_DIR | piCoreSessionsDir | expected |
+| config piSessionsDir | env SESSION_DIR | env AGENT_DIR | expected |
 |---|---|---|---|
-| unset | unset | `/home/u/.pi/agent/sessions` | `/home/u/.pi/agent/sessions` |
-| `/data/sess` | unset | `…` | `/data/sess` |
-| unset | `/env/sess` | `…` | `/env/sess` |
-| `  ` (blank) | `/env/sess` | `…` | `/env/sess` (blank skipped) |
-| `~/mine` | unset | `…` | `<homedir>/mine` |
-| `/data/sess` | `/env/sess` | `…` | `/data/sess` (config wins) |
+| unset | unset | unset | `<homedir>/.pi/agent/sessions` |
+| unset | unset | `/custom/agent` | `/custom/agent/sessions` |
+| `/data/sess` | unset | unset | `/data/sess` |
+| unset | `/env/sess` | unset | `/env/sess` |
+| unset | `/env/sess` | `/custom/agent` | `/env/sess` (SESSION_DIR wins) |
+| `  ` (blank) | `/env/sess` | unset | `/env/sess` (blank skipped) |
+| `~/mine` | unset | unset | `<homedir>/mine` |
+| `/data/sess` | `/env/sess` | unset | `/data/sess` (config wins) |
 
 Integration: point `piSessionsDir` at a temp fixture tree with `.meta.json` sidecars; assert
 `scanAllSessions()` discovers them; assert default (all unset) still scans `~/.pi/agent/sessions`.

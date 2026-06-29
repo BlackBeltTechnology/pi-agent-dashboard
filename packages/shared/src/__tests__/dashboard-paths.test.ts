@@ -16,6 +16,7 @@ import {
   getDashboardServerLogPath,
   getInstallerLogPath,
   getManagedDir,
+  resolvePiSessionsDir,
 } from "../dashboard-paths.js";
 
 describe("dashboard-paths getters", () => {
@@ -64,6 +65,55 @@ describe("dashboard-paths getters", () => {
       expect(getInstallerLogPath({ homedir: "/fake/home" })).toBe(
         path.join("/fake/home", ".pi-dashboard", "server.log"),
       );
+    });
+  });
+
+  describe("resolvePiSessionsDir", () => {
+    const HOME = "/home/u";
+    const base = { homedir: HOME };
+
+    // Isolate from a real PI_CODING_AGENT_SESSION_DIR / PI_CODING_AGENT_DIR in
+    // the test env by always passing both env seams explicitly (empty = unset).
+    const resolve = (over: Record<string, string>) =>
+      resolvePiSessionsDir({
+        ...base,
+        sessionDirEnv: "",
+        agentDirEnv: "",
+        ...over,
+      });
+
+    it("all unset → literal ~/.pi/agent/sessions", () => {
+      expect(resolve({})).toBe(path.join(HOME, ".pi", "agent", "sessions"));
+    });
+    it("PI_CODING_AGENT_DIR + /sessions when nothing higher set", () => {
+      expect(resolve({ agentDirEnv: "/custom/agent" })).toBe(
+        path.join("/custom/agent", "sessions"),
+      );
+    });
+    it("config piSessionsDir wins", () => {
+      expect(resolve({ piSessionsDir: "/data/sess" })).toBe("/data/sess");
+    });
+    it("env SESSION_DIR used when config unset", () => {
+      expect(resolve({ sessionDirEnv: "/env/sess" })).toBe("/env/sess");
+    });
+    it("SESSION_DIR beats AGENT_DIR", () => {
+      expect(resolve({ sessionDirEnv: "/env/sess", agentDirEnv: "/custom/agent" })).toBe(
+        "/env/sess",
+      );
+    });
+    it("blank config skipped, env used", () => {
+      expect(resolve({ piSessionsDir: "  ", sessionDirEnv: "/env/sess" })).toBe("/env/sess");
+    });
+    it("tilde config expands against homedir", () => {
+      expect(resolve({ piSessionsDir: "~/mine" })).toBe(path.join(HOME, "mine"));
+    });
+    it("config beats env", () => {
+      expect(resolve({ piSessionsDir: "/data/sess", sessionDirEnv: "/env/sess" })).toBe(
+        "/data/sess",
+      );
+    });
+    it("absolute path passes through untouched", () => {
+      expect(resolve({ piSessionsDir: "/abs/path" })).toBe("/abs/path");
     });
   });
 

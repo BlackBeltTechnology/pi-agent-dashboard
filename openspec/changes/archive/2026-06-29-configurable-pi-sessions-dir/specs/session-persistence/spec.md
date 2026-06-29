@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Visible sessions persist across restarts
-The system SHALL persist session metadata in per-session `.meta.json` sidecar files next to each session's `.jsonl` file. On startup, the system SHALL discover sessions by scanning the **resolved pi sessions directory** (`resolvePiSessionsDir()`) for `*/` session folders and restoring from `.meta.json` cached data. The resolved directory SHALL follow this precedence (high → low): (1) dashboard `config.json#piSessionsDir`; (2) `PI_CODING_AGENT_SESSION_DIR` environment variable inherited by the dashboard process; (3) pi-core's `getSessionsDir()` (which honors `PI_CODING_AGENT_DIR` and falls back to `~/.pi/agent/sessions`). When none are set, the resolved directory SHALL be `~/.pi/agent/sessions`, preserving existing behaviour.
+The system SHALL persist session metadata in per-session `.meta.json` sidecar files next to each session's `.jsonl` file. On startup, the system SHALL discover sessions by scanning the **resolved pi sessions directory** (`resolvePiSessionsDir()`) for `*/` session folders and restoring from `.meta.json` cached data. The resolved directory SHALL follow this precedence (high → low): (1) dashboard `config.json#piSessionsDir`; (2) `PI_CODING_AGENT_SESSION_DIR` environment variable inherited by the dashboard process; (3) the `PI_CODING_AGENT_DIR` environment variable's `sessions` subdirectory (mirroring pi-core's agent-dir resolution). When none are set, the resolved directory SHALL be `~/.pi/agent/sessions`, preserving existing behaviour.
 
 #### Scenario: Server restarts with ended sessions
 - **WHEN** the server has ended sessions with `.meta.json` files and the server restarts
@@ -21,11 +21,11 @@ The system SHALL persist session metadata in per-session `.meta.json` sidecar fi
 
 #### Scenario: Dashboard config override wins
 - **WHEN** `config.json#piSessionsDir` is set to a non-blank absolute path
-- **THEN** the server SHALL scan that path for sessions, ignoring `PI_CODING_AGENT_SESSION_DIR` and pi-core's default
+- **THEN** the server SHALL scan that path for sessions, ignoring `PI_CODING_AGENT_SESSION_DIR` and the `PI_CODING_AGENT_DIR` default
 
 #### Scenario: pi agent dir relocation is followed
 - **WHEN** `config.json#piSessionsDir` is unset, `PI_CODING_AGENT_SESSION_DIR` is unset, and `PI_CODING_AGENT_DIR=/custom/agent` is set in the dashboard's environment
-- **THEN** the server SHALL scan `/custom/agent/sessions` (via pi-core `getSessionsDir()`)
+- **THEN** the server SHALL scan `/custom/agent/sessions` (`PI_CODING_AGENT_DIR` + `/sessions`)
 
 ## ADDED Requirements
 

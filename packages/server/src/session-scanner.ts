@@ -3,16 +3,17 @@
  * `~/.pi/agent/sessions/` and reading `.meta.json` sidecars.
  * Falls back to `.jsonl` parsing for sessions without cached meta.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import os from "node:os";
-import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { type SessionMeta, metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { metaPath, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
-  return join(os.homedir(), ".pi", "agent", "sessions");
+  return resolvePiSessionsDir({ piSessionsDir: loadConfig().piSessionsDir });
 }
 
 /** Extract session ID (UUID) from a filename like `<ts>_<uuid>.jsonl` */

@@ -3,9 +3,10 @@
  * Used by both the server CLI and bridge extension.
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+
 export type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 
 export const CONFIG_DIR = path.join(os.homedir(), ".pi", "dashboard");
@@ -344,6 +345,15 @@ export interface DashboardConfig {
   plugins: PluginsConfig;
   /** Model proxy configuration (OpenAI/Anthropic-compatible /v1/* endpoints). */
   modelProxy: ModelProxyConfig;
+  /**
+   * Operator override for the pi sessions root the dashboard scans. When set
+   * (non-blank), it is the highest-precedence input to
+   * {@link resolvePiSessionsDir} — above `PI_CODING_AGENT_SESSION_DIR` and
+   * pi-core's `getAgentDir()/sessions`. Absent / blank → fall through to those
+   * lower layers. Leading `~/` expands against `$HOME`.
+   * See change: configurable-pi-sessions-dir.
+   */
+  piSessionsDir?: string;
 }
 
 export interface CorsConfig {
@@ -727,6 +737,9 @@ export function loadConfig(): DashboardConfig {
           ? parsed.windowsGitSource
           : defaults.windowsGitSource,
       modelProxy: parseModelProxyConfig(parsed.modelProxy),
+      ...(typeof parsed.piSessionsDir === "string" && parsed.piSessionsDir.trim()
+        ? { piSessionsDir: parsed.piSessionsDir }
+        : {}),
     };
 
     // Compute resolvedTrustedNetworks: merge trustedNetworks + auth.bypassHosts

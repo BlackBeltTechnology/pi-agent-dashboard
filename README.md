@@ -277,8 +277,20 @@ CLI flags → environment variables → config file → built-in defaults.
 | — | — | `reattachPlacement` | `"always"` | After a dashboard restart, where re-registering bridges land in folder lists. `"always"` (top), `"streaming-only"` (only mid-completion), `"preserve"` (legacy: keep prior drag order) |
 | — | — | `devBuildOnReload` | `false` | Rebuild client + restart server on `/reload` |
 | — | — | `askUserPromptTimeoutSeconds` | `300` | `ask_user` prompt timeout in seconds. `≤ 0` (e.g. `-1`) = wait indefinitely |
+| — | `PI_CODING_AGENT_SESSION_DIR` | `piSessionsDir` | `~/.pi/agent/sessions` | Pi sessions root the dashboard scans. See [Pi sessions directory](#pi-sessions-directory) |
 
 The bridge also honours `PI_DASHBOARD_URL=ws://host:port` to point at a remote server instead of localhost.
+
+#### Pi sessions directory
+
+The dashboard is a separate process from pi, so it resolves **one** sessions root to scan. When pi's sessions live somewhere other than the default, point the dashboard at them via the following precedence (first match wins; blank values fall through, leading `~/` expands against `$HOME`):
+
+1. `config.json#piSessionsDir` — operator's explicit dashboard override.
+2. `PI_CODING_AGENT_SESSION_DIR` — pi's session-dir env var, if inherited by the dashboard process.
+3. `PI_CODING_AGENT_DIR` + `/sessions` — pi's agent-dir relocation env var.
+4. `~/.pi/agent/sessions` — built-in default.
+
+Omit `piSessionsDir` (or leave it blank) to fall through to the env vars and default. Per-invocation `--session-dir` flags on other pi processes are not observable to the dashboard and are out of scope.
 
 ### Minimal `config.json`
 
