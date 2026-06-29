@@ -10,10 +10,11 @@ function makeRegistry(opts: {
   oauthIds?: string[];
   models?: Array<{ provider: string; id: string }>;
   authStatus?: Record<string, { configured: boolean; source?: string }>;
+  registryAuthStatus?: Record<string, { configured: boolean; source?: string }>;
   credentials?: Record<string, { type: "oauth" | "api_key"; expires?: number; key?: string }>;
   displayNames?: Record<string, string>;
 }): any {
-  return {
+  const reg: any = {
     authStorage: {
       getOAuthProviders: () => (opts.oauthIds ?? []).map((id) => ({ id, name: id })),
       getAuthStatus: (id: string) => opts.authStatus?.[id] ?? { configured: false },
@@ -22,6 +23,12 @@ function makeRegistry(opts: {
     getAll: () => opts.models ?? [],
     getProviderDisplayName: (id: string) => opts.displayNames?.[id] ?? id,
   };
+  // Only attach the registry-level status method when the test opts in, so the
+  // existing scenarios exercise the authStorage fallback path (older pi).
+  if (opts.registryAuthStatus) {
+    reg.getProviderAuthStatus = (id: string) => opts.registryAuthStatus?.[id];
+  }
+  return reg;
 }
 
 describe("_buildProviderCatalogue", () => {
@@ -162,6 +169,33 @@ describe("_buildProviderCatalogue", () => {
     const ids = cat.map((c) => c.id).sort();
     expect(ids).toEqual(["deepseek", "proxy"]);
     expect(cat.every((c) => !c.custom)).toBe(true);
+  });
+
+  it("derives configured/source from getProviderAuthStatus when present (custom provider)", () => {
+    // The proxy key lives only in pi's providerRequestConfigs (registerProvider),
+    // so authStorage is blind to it (configured:false) but the registry-level
+    // getProviderAuthStatus reports it configured. The catalogue MUST follow the
+    // registry-level status. See change: fix-custom-provider-save-and-auth.
+    const reg = makeRegistry({
+      models: [{ provider: "proxy", id: "opus-4" }],
+      authStatus: { proxy: { configured: false } },
+      registryAuthStatus: { proxy: { configured: true, source: "models_json_key" } },
+    });
+    const cat = _buildProviderCatalogue(reg, {}, new Set(["proxy"]));
+    const row = cat.find((c) => c.id === "proxy")!;
+    expect(row.configured).toBe(true);
+    expect(row.source).toBe("models_json_key");
+  });
+
+  it("falls back to authStorage.getAuthStatus when getProviderAuthStatus is absent", () => {
+    // No registryAuthStatus → method absent → fallback path (regression).
+    const reg = makeRegistry({
+      models: [{ provider: "openai", id: "gpt-4" }],
+      authStatus: { openai: { configured: true, source: "environment" } },
+    });
+    const row = _buildProviderCatalogue(reg, {}).find((c) => c.id === "openai")!;
+    expect(row.configured).toBe(true);
+    expect(row.source).toBe("environment");
   });
 
   it("does not throw when getProviderDisplayName throws", () => {

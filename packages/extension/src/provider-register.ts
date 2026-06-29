@@ -272,13 +272,24 @@ function resolveApiKey(apiKey: string): string | undefined {
   return apiKey;
 }
 
-function resolveApiKeyEnvName(providerName: string, apiKey: string): string {
-  if (apiKey.startsWith("$")) {
-    return apiKey.slice(1);
-  }
-  const syntheticEnv = `JUDO_${providerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_KEY`;
-  process.env[syntheticEnv] = apiKey;
-  return syntheticEnv;
+/**
+ * Turn a custom-provider apiKey (from providers.json) into the value handed to
+ * `pi.registerProvider(...)`. pi resolves this field natively at request time
+ * (`authStorage.getApiKey() ?? resolveConfigValue(apiKey)`), where `$ENV` /
+ * `${ENV}` are env references and everything else is a literal. So we pass the
+ * value straight through — no synthetic env var, no `process.env` mutation:
+ *   - `$ENV` user input is already an env reference — keep it verbatim.
+ *   - a literal key is returned as-is, with `$` escaped to `$$` (and a leading
+ *     `!` escaped to `$!`) so pi's resolver does not interpret an embedded
+ *     `$xyz` as an env reference or a leading `!` as a shell command and
+ *     corrupt the key.
+ * See change: fix-custom-provider-save-and-auth.
+ */
+export function toRegisterApiKey(apiKey: string): string {
+  if (apiKey.startsWith("$")) return apiKey; // env reference — pass through
+  let literal = apiKey.replace(/\$/g, "$$$$"); // escape $ so pi treats it literally
+  if (literal.startsWith("!")) literal = `$${literal}`; // $! resolves to a literal !
+  return literal;
 }
 
 function hasApiKey(_providerName: string, entry: ProviderEntry): boolean {
@@ -391,10 +402,25 @@ export function _buildProviderCatalogue(
     let configured = false;
     let source: ProviderInfo["source"];
     try {
-      const status = modelRegistry.authStorage?.getAuthStatus?.(id);
-      if (status) {
-        configured = !!status.configured;
-        source = status.source;
+      // Registry-level status (pi-ai 0.80.x) sees keys supplied via
+      // pi.registerProvider() (held in providerRequestConfigs), which
+      // authStorage is blind to. Prefer it; fall back to authStorage only
+      // when the method is absent (older pi).
+      // See change: fix-custom-provider-save-and-auth.
+      if (typeof modelRegistry.getProviderAuthStatus === "function") {
+        const regStatus = modelRegistry.getProviderAuthStatus(id);
+        if (regStatus) {
+          configured = !!regStatus.configured;
+          source = regStatus.source;
+        }
+      } else {
+        const status = modelRegistry.authStorage?.getAuthStatus?.(id);
+        if (status) {
+          configured = !!status.configured;
+          source = status.source;
+        } else if (modelRegistry.authStorage?.has?.(id)) {
+          configured = true;
+        }
       }
     } catch { /* ignore */ }
     let expires: number | undefined;
@@ -546,7 +572,7 @@ async function registerEntry(pi: ExtensionAPI, name: string, entry: ProviderEntr
 
   pi.registerProvider(name, {
     baseUrl: entry.baseUrl,
-    apiKey: resolveApiKeyEnvName(name, entry.apiKey),
+    apiKey: toRegisterApiKey(entry.apiKey),
     api: (entry.api ?? "openai-completions") as any,
     models,
   });

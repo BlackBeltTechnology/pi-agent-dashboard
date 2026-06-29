@@ -417,6 +417,51 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("blank-name LLM provider blocks save with an error and stays dirty", async () => {
+    // Regression: a provider row with an empty name must NOT be silently
+    // dropped. The save fails with a visible error and the source stays dirty
+    // (PUT /api/providers never fires). See change: fix-custom-provider-save-and-auth.
+    let putProvidersCalled = false;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/providers" && options?.method === "PUT") {
+        putProvidersCalled = true;
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/providers") {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true, providers: {} }) });
+      }
+      if (url === "/api/provider-auth/status") {
+        return Promise.resolve({ json: () => Promise.resolve([]) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/providers");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByRole("button", { name: "Add Provider" }));
+
+    // Add a provider, leave the Name blank but fill Base URL + API Key.
+    fireEvent.click(screen.getByRole("button", { name: "Add Provider" }));
+    fireEvent.change(screen.getByPlaceholderText("https://api.example.com/v1"), {
+      target: { value: "https://proxy.example.com/v1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-... or $ENV_VAR_NAME"), {
+      target: { value: "sk-real-123" },
+    });
+
+    // Save bar appears (the new row makes the source dirty).
+    await waitFor(() => screen.getByTestId("save-btn"));
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+
+    // Error surfaced; PUT never fired; row not dropped; source stays dirty.
+    await waitFor(() => expect(screen.getByText(/Provider name is required/)).toBeTruthy());
+    expect(putProvidersCalled).toBe(false);
+    expect(screen.getByTestId("settings-save-bar")).toBeTruthy();
+  });
+
   it("does NOT include modelProxy in the save payload when unchanged", async () => {
     const configWithModelProxy = {
       ...mockConfig,

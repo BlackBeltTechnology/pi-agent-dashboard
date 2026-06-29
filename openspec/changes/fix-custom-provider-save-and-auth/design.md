@@ -9,7 +9,7 @@ pi-ai 0.80.x changed two things the dashboard's code predates:
 
 Current dashboard behavior that breaks against this:
 
-- `resolveApiKeyEnvName(name, apiKey)` stuffs the literal key into `process.env.JUDO_<NAME>_KEY` and returns the **bare** name (no `$`). Under 0.80.x that bare name is a literal → upstream receives the string `JUDO_<NAME>_KEY`, never the real key.
+- `resolveApiKeyEnvName(name, apiKey)` stuffs the literal key into `process.env.JUDO_<NAME>_KEY` and returns the **bare** name (no `$`). Under current pi that bare name is a literal → upstream receives the string `JUDO_<NAME>_KEY`, never the real key. The synthetic-env indirection itself is obsolete: pi resolves `registerProvider`'s `apiKey` natively, so no env stash is needed.
 - `_buildProviderCatalogue` derives `configured`/`source` from `authStorage.getAuthStatus(id)` → custom providers (key only in `providerRequestConfigs`) report `configured:false` → UI shows "no API key setup".
 - `SettingsPanel` save filters `p.name.trim() !== ""` → blank-name rows silently dropped.
 - `PUT /api/providers` merge writes literal `***` as apiKey when `entry.apiKey === "***"` but the provider is absent from the existing file.
@@ -29,10 +29,10 @@ Current dashboard behavior that breaks against this:
 
 ## Decisions
 
-**D1 — apiKey resolution: prefer the explicit `$`-reference, keep the env stash.**
-Change `resolveApiKeyEnvName` so the value handed to `registerProvider` is pi-0.80.x-resolvable: return `"$JUDO_<NAME>_KEY"` (with `$`) while still setting `process.env.JUDO_<NAME>_KEY = key`, and for user `$ENV` input return the `$`-reference unchanged.
-- *Why over passing the literal key directly?* The synthetic-env indirection keeps the secret out of pi's in-memory `providerRequestConfigs` as a literal and reuses the existing env stash; a one-character fix (restore the `$`) aligns with the new interpolation contract. Passing the literal is a valid fallback but changes where the secret lives.
-- *Alternative considered:* write the key into `auth.json` as `{type:"api_key"}` per pi #5953. Rejected for scope — custom providers are deliberately managed outside `auth.json` (the `custom:true` suppression contract).
+**D1 — apiKey resolution: drop the synthetic-env hack, pass the key directly.**
+Replace `resolveApiKeyEnvName` with `toRegisterApiKey(apiKey)`, which hands the providers.json value straight to `registerProvider`: literal keys verbatim (escaping `$`→`$$` and a leading `!`→`$!` so pi's `resolveConfigValue` cannot misread them as an env reference or shell command), and `$ENV` input unchanged. No `process.env` mutation, no `JUDO_*` variable.
+- *Why not keep the `$JUDO_*` env stash?* It is a vestige of old pi semantics (bare name = env lookup). pi now resolves `registerProvider.apiKey` natively (`authStorage.getApiKey() ?? resolveConfigValue(apiKey)`), so the indirection adds nothing and promotes the secret into `process.env` (readable by child processes / `/proc`) — a worse hygiene posture than holding it in `providerRequestConfigs`.
+- *Why not move the key into `auth.json` (`{type:"api_key"}`, pi #5953)?* `validateProviderConfig` REQUIRES `apiKey` (or `oauth`) whenever a provider defines models (`model-registry.js`), and the dashboard always registers discovered models — so `auth.json`-only would force a *placeholder* apiKey into `registerProvider`, i.e. another hack. The `auth.json` path also re-enters the `custom:true` suppression contract. Rejected for scope; tracked as a follow-up for the separate proxy/`auth.json` reader divergence.
 
 **D2 — catalogue `configured`/`source` from the registry-level status.**
 `_buildProviderCatalogue` reads `modelRegistry.getProviderAuthStatus(id)` first, falling back to `authStorage.getAuthStatus(id)`/`authStorage.has(id)` when the method is absent (older pi). Spec field list updated to include the registry-level `source` values (`models_json_key`, `models_json_command`).

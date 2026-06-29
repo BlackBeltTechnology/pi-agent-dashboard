@@ -2,23 +2,24 @@
 
 ### Requirement: Custom-provider apiKey resolves to the real secret under pi-ai 0.80.x
 
-When the bridge registers a custom provider via `pi.registerProvider(...)` in `registerEntry()` (`packages/extension/src/provider-register.ts`), the `apiKey` value passed in `ProviderConfigInput` SHALL be a string that pi-ai 0.80.x resolves to the user's actual secret — NOT a bare environment-variable name. pi-ai 0.80.x (pi #5661, #5095) treats a plain string `apiKey` as a **literal** and resolves environment references only via explicit `$ENV_VAR` / `${ENV_VAR}` syntax. Therefore `resolveApiKeyEnvName` SHALL emit either:
+When the bridge registers a custom provider via `pi.registerProvider(...)` in `registerEntry()` (`packages/extension/src/provider-register.ts`), the `apiKey` value passed in `ProviderConfigInput` SHALL be a string that pi resolves to the user's actual secret. pi resolves this field natively at request time (`authStorage.getApiKey() ?? resolveConfigValue(apiKey)`), treating a plain string as a **literal** and resolving environment references only via explicit `$ENV_VAR` / `${ENV_VAR}` syntax. Therefore `toRegisterApiKey` SHALL pass the providers.json value straight through, with NO synthetic env var and NO `process.env` mutation:
 
-- the literal key string verbatim (so pi sends the real secret as a literal), OR
-- an explicit `$`-prefixed reference (e.g. `$JUDO_<NAME>_KEY`) whose target env var the bridge has populated in `process.env`, so pi-ai interpolates the real secret at request time.
+- a literal key is returned verbatim, with any embedded `$` escaped to `$$` (and a leading `!` escaped to `$!`) so pi's resolver does not misinterpret it as an env reference or shell command, AND
+- user-supplied `$ENV_VAR` input retains its `$` prefix so pi interpolates the real secret from the environment.
 
-A bare, non-`$`-prefixed synthetic env-var name SHALL NOT be passed as `apiKey`. User-supplied `$ENV_VAR` input SHALL retain its `$` prefix when forwarded to `registerProvider`.
+The bridge SHALL NOT construct a synthetic environment variable (e.g. the former `JUDO_<NAME>_KEY`) nor write the secret into `process.env`.
 
 #### Scenario: Literal key entered in Settings reaches upstream verbatim
 - **WHEN** `~/.pi/agent/providers.json` contains a `proxy` entry with `apiKey: "sk-real-123"`
 - **AND** the bridge registers `proxy` via `registerEntry`
 - **THEN** the value pi-ai resolves for the `proxy` provider's API key SHALL equal `"sk-real-123"`
-- **AND** the outbound request SHALL send `Authorization: Bearer sk-real-123`, never the literal string of a synthetic env-var name
+- **AND** the outbound request SHALL send `Authorization: Bearer sk-real-123`, never a synthetic env-var name
+- **AND** the bridge SHALL NOT create any `JUDO_*` (or other synthetic) entry in `process.env`
 
 #### Scenario: $ENV reference entered in Settings is resolved from the environment
 - **WHEN** the `proxy` entry has `apiKey: "$PROXY_KEY"` and `process.env.PROXY_KEY === "sk-env-456"`
-- **THEN** the value passed to `registerProvider` SHALL retain an explicit `$`-prefixed reference resolvable by pi-ai
-- **AND** pi-ai SHALL resolve the `proxy` API key to `"sk-env-456"`
+- **THEN** the value passed to `registerProvider` SHALL retain the `$PROXY_KEY` reference verbatim
+- **AND** pi SHALL resolve the `proxy` API key to `"sk-env-456"`
 
 ## MODIFIED Requirements
 

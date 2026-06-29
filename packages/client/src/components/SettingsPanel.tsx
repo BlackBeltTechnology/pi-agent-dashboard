@@ -485,6 +485,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
       tasks.push({
         label: t("settings.sourceProviders", undefined, "LLM providers"),
         run: async () => {
+          // Reject blank/whitespace names before building the PUT body so the
+          // row is not silently dropped; throwing keeps this source dirty via
+          // the Promise.allSettled failure path. See change:
+          // fix-custom-provider-save-and-auth.
+          if (llmProviders.some((p) => p.name.trim() === "")) {
+            throw new Error(
+              t("settings.providerNameRequired", undefined, "Provider name is required"),
+            );
+          }
           const validProviders = llmProviders.filter((p) => p.name.trim() !== "");
           const providersObj: Record<string, any> = {};
           for (const p of validProviders) {
@@ -515,7 +524,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
     let restartRequired = false;
     results.forEach((r, i) => {
       if (r.status === "fulfilled") restartRequired ||= !!r.value.restartRequired;
-      else failed.push(tasks[i].label);
+      else {
+        const reason = r.reason instanceof Error ? r.reason.message : "";
+        failed.push(reason ? `${tasks[i].label}: ${reason}` : tasks[i].label);
+      }
     });
 
     if (failed.length > 0) {
