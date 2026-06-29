@@ -35,6 +35,9 @@ see [`docs/release-process.md`](docs/release-process.md).
 - **OpenSpec task counter and stepper actions refresh within ≤ 1 s of editing `tasks.md`** (was up to ~30 s + jitter). Server now attaches a per-cwd `fs.watch` on `<cwd>/openspec/changes/` (recursive) for every known directory. Watcher fires on `tasks.md`, `proposal.md`, `design.md`, or `specs/**/*.md` events with a 300 ms debounce, then runs the existing mtime-gated poll — no bypass of dedup, concurrency cap, or broadcast suppression. Periodic 30 s poll remains as fallback for missed events (network FS, EMFILE, etc). No new config knobs. (change: `fix-openspec-taskcheck-delay`)
 - **Extension slash commands (`/ctx-stats`, `/ctx-doctor`) now render their output in dashboard-spawned RPC sessions.** Previously these only showed a green "completed" pill — context-mode and similar extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.notify` or return data, and `pi --mode rpc` initialized `ctx.hasUI = false`, so the return-data branch was taken and the output was silently dropped. The bridge already proxies `ctx.ui.notify` through PromptBus to the dashboard; this change adds `ctx.hasUI = true` immediately after the proxy block in `session_start`. **Behavior change for `pi-web-access` users**: web searches in dashboard RPC sessions now default to the `"summary-review"` curator workflow (curator browser window opens). Pin `"workflow": "none"` in pi-web-access config to restore prior behavior. (change: `fix-bridge-hasui-for-headless-rpc`)
 
+### Build
+- Electron: rebundle dashboard server when sources change; fail loudly when client materialization is missing (fix-stale-bundled-server-cache).
+
 ## [0.5.4] - 2026-05-26
 
 ### Added

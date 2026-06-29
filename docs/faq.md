@@ -2220,6 +2220,16 @@ curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 
 Vendor docs: https://docs.zrok.io/docs/guides/install/
 
+## Electron build shows "Bundled server already present" but my changes don't appear — what now?
+
+Old behavior. build-installer.sh now uses content-freshness gate (change: fix-stale-bundled-server-cache). Stale cache no longer skips rebundle.
+
+If a stale bundle persists:
+- Delete stamp: `rm packages/electron/resources/server/.bundle-stamp`, then rebuild. Forces rebundle.
+- Full reset: `rm -rf packages/electron/resources/server/`, then rebuild.
+
+Rebuild re-runs `bundle-server.mjs`. Bundler hard-fails (exit 1) when client missing or `pi-dashboard-web/dist/index.html` not materialized — no silent API-only ship.
+
 ## How do I switch between bundled and host git on Windows?
 
 Three ways. Takes effect for newly spawned sessions.

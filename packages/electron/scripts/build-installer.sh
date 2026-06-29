@@ -288,8 +288,42 @@ build_native_one_arch() {
   # Per-arch cache invalidation BEFORE bundle steps so they re-run for the new arch.
   maybe_wipe_arch_caches "$target_arch"
 
-  # Bundle dashboard server (per-arch native modules)
-  if [ ! -d "$ELECTRON_DIR/resources/server/node_modules" ]; then
+  # Bundle dashboard server (per-arch native modules).
+  # Freshness gate (change: fix-stale-bundled-server-cache): re-bundle when
+  # the stamp is missing OR any watched source is newer than the stamp.
+  # Replaces the old "node_modules exists" check, which silently shipped
+  # stale bundles (e.g. a bundle predating pi-dashboard-web materialization).
+  #
+  # ARCH COUPLING: the stamp carries no arch. Per-arch correctness relies on
+  # maybe_wipe_arch_caches() (called above) doing `rm -rf resources/server` on
+  # an arch switch — that deletes this stamp too, forcing a rebundle for the
+  # new arch. If that helper is ever narrowed to wipe only node_modules, add
+  # the arch to the stamp + compare it here, or this gate will ship an
+  # arch-mismatched bundle.
+  bundle_stamp="$ELECTRON_DIR/resources/server/.bundle-stamp"
+  needs_rebundle=0
+  if [ ! -f "$bundle_stamp" ]; then
+    needs_rebundle=1
+  else
+    # Watch every workspace package bundle-server.mjs copies
+    # (BUNDLED_WORKSPACE_PKGS = server, shared, extension,
+    # dashboard-plugin-runtime) plus the built client + the bundler itself.
+    # Omitting shared/dashboard-plugin-runtime would let edits to those ship
+    # stale — the same failure class this gate exists to prevent.
+    for watched in \
+      "$PROJECT_DIR/packages/server/src" \
+      "$PROJECT_DIR/packages/shared/src" \
+      "$PROJECT_DIR/packages/extension/src" \
+      "$PROJECT_DIR/packages/dashboard-plugin-runtime/src" \
+      "$PROJECT_DIR/packages/dist/index.html" \
+      "$ELECTRON_DIR/scripts/bundle-server.mjs"; do
+      if [ -e "$watched" ] && [ -n "$(find "$watched" -newer "$bundle_stamp" -print -quit 2>/dev/null)" ]; then
+        needs_rebundle=1
+        break
+      fi
+    done
+  fi
+  if [ "$needs_rebundle" -eq 1 ]; then
     echo ""
     echo "→ Bundling dashboard server (arch=$target_arch)..."
     if [ -n "$cross_prefix" ]; then
@@ -298,7 +332,7 @@ build_native_one_arch() {
       node "$ELECTRON_DIR/scripts/bundle-server.mjs"
     fi
   else
-    echo "✓ Bundled server already present"
+    echo "✓ Bundled server cache is fresh (stamp $(cat "$bundle_stamp" 2>/dev/null))"
   fi
 
   # Offline npm cache step removed under change: eliminate-electron-runtime-install.

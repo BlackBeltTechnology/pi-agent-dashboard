@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- Replace the "directory exists" check in `build-installer.sh` with a content-based freshness check: if any of (a) `packages/server/src/**`, (b) `packages/extension/src/**`, (c) `packages/dist/client/index.html`, or (d) `bundle-server.mjs` itself is newer than `resources/server/.bundle-stamp`, the bundle script SHALL re-run. The script writes the stamp file at the end of every successful bundle.
+- Replace the "directory exists" check in `build-installer.sh` with a content-based freshness check: if any bundled-source is newer than `resources/server/.bundle-stamp`, the bundle script SHALL re-run. Watched sources are every workspace package `bundle-server.mjs` copies (`BUNDLED_WORKSPACE_PKGS` = `packages/server/src`, `packages/shared/src`, `packages/extension/src`, `packages/dashboard-plugin-runtime/src`), plus the built client `packages/dist/index.html` (Vite output, `outDir ../dist`), plus `bundle-server.mjs` itself. The script writes the stamp file at the end of every successful bundle.
 - `bundle-server.mjs` SHALL fail loudly (non-zero exit, clear message) when `clientSrc` is not found, instead of printing a warning and continuing. A bundled server without a client is never a valid artifact for shipping.
 - `bundle-server.mjs` SHALL verify, before exiting 0, that `<SERVER_BUNDLE>/node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html` exists. If absent, exit non-zero with a message identifying the materialization step that failed. (Catches the regression that motivated this proposal.)
 - Add a CI / repo-lint test asserting that for every released `resources/server/` bundle, the materialized `pi-dashboard-web` exists.

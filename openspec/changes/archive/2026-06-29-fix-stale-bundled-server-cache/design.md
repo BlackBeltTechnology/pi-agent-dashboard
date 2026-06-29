@@ -43,14 +43,18 @@ STAMP="$ELECTRON_DIR/resources/server/.bundle-stamp"
 NEEDS_REBUILD=0
 if [ ! -f "$STAMP" ]; then NEEDS_REBUILD=1; fi
 for src in "$PROJECT_DIR/packages/server/src" \
+           "$PROJECT_DIR/packages/shared/src" \
            "$PROJECT_DIR/packages/extension/src" \
-           "$PROJECT_DIR/packages/dist/client/index.html" \
+           "$PROJECT_DIR/packages/dashboard-plugin-runtime/src" \
+           "$PROJECT_DIR/packages/dist/index.html" \
            "$ELECTRON_DIR/scripts/bundle-server.mjs"; do
-    if [ -e "$src" ] && [ "$src" -nt "$STAMP" ]; then
+    if [ -e "$src" ] && [ -n "$(find "$src" -newer "$STAMP" -print -quit 2>/dev/null)" ]; then
         NEEDS_REBUILD=1; break
     fi
 done
 ```
+
+Watched set MUST mirror `BUNDLED_WORKSPACE_PKGS` in `bundle-server.mjs` (`server`, `shared`, `extension`, `dashboard-plugin-runtime`) plus the built client. Omitting a bundled package (e.g. `shared`, the protocol package) would let edits to it ship stale — the exact failure class this gate prevents. `find -newer -print -quit` handles both directory and single-file watched paths under `set -euo pipefail`.
 
 `bundle-server.mjs` writes the stamp file at exit-zero. Trade-off: mtime can lie under git-reset or pnpm cache restore, but in practice CI runs from a fresh checkout so mtimes are accurate; local devs occasionally re-bundle unnecessarily, which is preferable to silently shipping stale bundles.
 
@@ -58,11 +62,15 @@ done
 
 ### D2. Hard-fail when `clientSrc` is empty
 
-`bundle-server.mjs` currently logs `"WARNING: No built client found — server will run in API-only mode"` and continues. There is no legitimate scenario where the Electron app's bundled server SHOULD ship without a client. Change to `console.error(...)` + `process.exit(1)`.
+`bundle-server.mjs` currently logs `"WARNING: No built client found — server will run in API-only mode"` and continues. There is no legitimate scenario where the Electron app's bundled server SHOULD ship without a client. Change the `else` branch of the `clientSrc` lookup to `console.error(...)` + `process.exit(1)`.
 
-### D3. Post-bundle verification
+**Match the existing GO/NO-GO idiom.** `bundle-server.mjs` already hard-fails on missing native artifacts using a consistent shape — see the `node-pty prebuilds GO/NO-GO` block (`✗ node-pty prebuilds GO/NO-GO failed at <dir>` → `process.exit(1)`) and the `bundled git GO/NO-GO` block (`✗ bundled git GO/NO-GO failed at <dir>` → `process.exit(1)`). D2 reuses that style: `✗`-prefixed `console.error`, name the searched paths (the three `clientCandidates`), instruct `npm run build`, then `process.exit(1)`. Do not invent a new error format.
+
+### D3. Post-bundle verification (third GO/NO-GO)
 
 At the end of `bundle-server.mjs`, assert `<SERVER_BUNDLE>/node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html` exists. This is the canonical path resolved by `server.ts` (via `createRequire().resolve("@blackbelt-technology/pi-dashboard-web/package.json")`). If absent, exit non-zero. Lightweight, deterministic, catches the regression that motivated this proposal.
+
+**Placement + idiom.** The code already gained a `// ── materialize pi-dashboard-web into node_modules ──` block (the regression *cause* is fixed on `develop`). D3 is the GO/NO-GO that pins it: add the assertion immediately after that materialize block, in the same `console.error("✗ … GO/NO-GO failed …") + process.exit(1)` shape as the node-pty and git guards. It becomes the third GO/NO-GO in the file, verifying the artifact the materialize block was supposed to produce.
 
 ### D4. Repo-lint test
 

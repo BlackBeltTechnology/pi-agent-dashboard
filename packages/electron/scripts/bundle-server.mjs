@@ -156,9 +156,14 @@ if (clientSrc) {
   });
   console.log(`  Client copied from ${clientSrc}`);
 } else {
-  console.log(
-    "  WARNING: No built client found — server will run in API-only mode",
-  );
+  // GO/NO-GO: a bundled server without a client is never a shippable
+  // artifact. Fail loudly instead of producing an API-only bundle.
+  // Same idiom as the node-pty / bundled-git GO/NO-GO blocks below.
+  // See change: fix-stale-bundled-server-cache.
+  console.error("\u2717 client materialization GO/NO-GO failed — no built client found");
+  console.error(`  Searched: ${clientCandidates.join(", ")}`);
+  console.error("  Run `npm run build` first to produce the client bundle.");
+  process.exit(1);
 }
 
 // ── synthetic workspace package.json ─────────────────────────────────────
@@ -480,6 +485,33 @@ if (clientSrc) {
   console.log(`  Materialized pi-dashboard-web into node_modules/@blackbelt-technology/`);
 }
 
+// ── GO/NO-GO: assert pi-dashboard-web materialized ───────────────────────
+// Post-condition for change: fix-stale-bundled-server-cache. server.ts
+// resolves the client via createRequire(...).resolve(
+//   "@blackbelt-technology/pi-dashboard-web/package.json"). If the
+// materialize block above did not produce dist/index.html there, the
+// shipped .app falls back to API-only mode. Fail here rather than ship it.
+{
+  const webIndexHtml = path.join(
+    SERVER_BUNDLE,
+    "node_modules",
+    "@blackbelt-technology",
+    "pi-dashboard-web",
+    "dist",
+    "index.html",
+  );
+  if (!existsSync(webIndexHtml)) {
+    console.error("\u2717 pi-dashboard-web materialization GO/NO-GO failed");
+    console.error(`  Expected: ${webIndexHtml}`);
+    console.error(
+      "  The 'materialize pi-dashboard-web into node_modules' step did not " +
+        "produce the client. See change: fix-stale-bundled-server-cache.",
+    );
+    process.exit(1);
+  }
+  console.log("  pi-dashboard-web materialization OK — dist/index.html present");
+}
+
 // ── fix spawn-helper +x on POSIX (npm hoisting may skip postinstall) ─────
 if (process.platform !== "win32") {
   let fixed = 0;
@@ -516,6 +548,26 @@ if (process.platform === "darwin") {
 // ── final size report ────────────────────────────────────────────────────
 const finalSize = humanBytes(dirSizeBytes(SERVER_BUNDLE));
 console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
+
+// ── write freshness stamp ────────────────────────────────────────────────
+// Consumed by build-installer.sh's freshness gate. Written ONLY here, after
+// every GO/NO-GO passed, so a failed or partial bundle never leaves a stamp
+// that would cause the next build to skip rebundling. Source-only runs exit
+// before this point and intentionally write no stamp.
+// See change: fix-stale-bundled-server-cache.
+{
+  let gitSha = "nogit";
+  try {
+    const r = spawnSync("git", ["rev-parse", "--short", "HEAD"], {
+      cwd: PROJECT_DIR,
+      encoding: "utf8",
+    });
+    if (r.status === 0 && r.stdout.trim()) gitSha = r.stdout.trim();
+  } catch { /* git absent — keep nogit */ }
+  const stamp = `${gitSha}-${Math.floor(Date.now() / 1000)}`;
+  writeFileSync(path.join(SERVER_BUNDLE, ".bundle-stamp"), stamp + "\n");
+  console.log(`  Wrote freshness stamp: ${stamp}`);
+}
 
 // ────────────────────────────────────────────────────────────────────────
 // helpers
