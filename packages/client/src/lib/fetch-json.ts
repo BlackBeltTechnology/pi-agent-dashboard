@@ -35,13 +35,29 @@ export class ApiHttpError extends Error {
   }
 }
 
-/** Read at most BODY_SNIPPET_MAX chars of the body; never throws. */
+/**
+ * Read at most ~BODY_SNIPPET_MAX chars of the body; never throws.
+ * Streams incrementally and stops early so a large proxy/HTML error page is
+ * never fully buffered into memory.
+ */
 async function readBodySnippet(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  let snippet = "";
   try {
-    const text = await res.text();
-    return text.slice(0, BODY_SNIPPET_MAX);
+    while (snippet.length < BODY_SNIPPET_MAX) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      snippet += decoder.decode(value, { stream: true });
+    }
+    snippet += decoder.decode();
+    return snippet.slice(0, BODY_SNIPPET_MAX);
   } catch {
     return "";
+  } finally {
+    await reader.cancel().catch(() => {});
   }
 }
 
