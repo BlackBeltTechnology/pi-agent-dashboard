@@ -177,6 +177,7 @@ function initBridge(pi: ExtensionAPI) {
   let lastSessionFile: string | undefined;
   let lastSessionDir: string | undefined;
   let lastFirstMessage: string | undefined;
+  let cachedCwd: string | undefined;
   let pendingDefaultModel: string | null = null; // non-null if default model not yet applied (custom provider not ready)
 
   /** Try to apply the default model from config. Returns the model string if not found (pending), null if applied or no default. */
@@ -2207,10 +2208,13 @@ function initBridge(pi: ExtensionAPI) {
     getBridgeState().timers!.push(heartbeatTimer);
 
     // Start git + name/model polling
+    cachedCwd = ctx.cwd;
     gitPollTimer = setInterval(() => {
       if (!isActive()) return;
-      sendGitInfoIfChanged(ctx.cwd);
-      sendCwdMissingIfChanged(ctx.cwd);
+      if (cachedCwd) {
+        sendGitInfoIfChanged(cachedCwd);
+        sendCwdMissingIfChanged(cachedCwd);
+      }
       sendSessionNameIfChanged();
       sendModelUpdateIfChanged();
     }, GIT_POLL_INTERVAL);
@@ -2271,10 +2275,15 @@ function initBridge(pi: ExtensionAPI) {
 
     // Restart polling timers
     if (gitPollTimer) clearInterval(gitPollTimer);
+    cachedCwd = ctx.cwd;
     gitPollTimer = setInterval(() => {
-      sendGitInfoIfChanged(ctx.cwd);
-      sendCwdMissingIfChanged(ctx.cwd);
+      if (!isActive()) return;
+      if (cachedCwd) {
+        sendGitInfoIfChanged(cachedCwd);
+        sendCwdMissingIfChanged(cachedCwd);
+      }
     }, GIT_POLL_INTERVAL);
+    getBridgeState().timers!.push(gitPollTimer);
   }
 
   // session_switch and session_fork events removed in pi 0.65.0.
