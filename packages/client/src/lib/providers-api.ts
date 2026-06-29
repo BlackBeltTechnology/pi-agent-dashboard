@@ -2,6 +2,7 @@
  * Client-side fetch helpers for custom-LLM-provider management.
  */
 import { getApiBase } from "./api-context.js";
+import { fetchJsonResponse } from "./fetch-json.js";
 
 export interface TestProviderInput {
   name?: string;
@@ -28,13 +29,12 @@ export async function testProvider(
   input: TestProviderInput,
 ): Promise<TestProviderResult> {
   try {
-    const res = await fetch(`${getApiBase()}/api/providers/test`, {
+    const { res, json: body } = await fetchJsonResponse<TestProviderResult | { error?: string }>(`${getApiBase()}/api/providers/test`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
     // Server always returns JSON; 400s (bad body) include { ok:false, error }.
-    const body = (await res.json()) as TestProviderResult | { error?: string };
     if (typeof (body as any).ok === "boolean") {
       return body as TestProviderResult;
     }

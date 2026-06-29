@@ -3,10 +3,10 @@
  */
 import type { GitBranchesResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
+import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
 
 export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
-  const res = await fetch(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`);
-  const json = await res.json();
+  const json = await fetchJson(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`);
   if (!json.success) throw new Error(json.error ?? "failed to list branches");
   return json.data;
 }
@@ -29,12 +29,11 @@ export async function checkoutBranch(
   branch: string,
   stash: boolean = false
 ): Promise<CheckoutResult> {
-  const res = await fetch(`${getApiBase()}/api/git/checkout`, {
+  const { res, json } = await fetchJsonResponse(`${getApiBase()}/api/git/checkout`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd, branch, stash }),
   });
-  const json = await res.json();
   if (res.status === 409 && json.dirty) {
     return { success: false, dirty: true, files: json.files };
   }
@@ -43,22 +42,20 @@ export async function checkoutBranch(
 }
 
 export async function gitInit(cwd: string): Promise<void> {
-  const res = await fetch(`${getApiBase()}/api/git/init`, {
+  const json = await fetchJson(`${getApiBase()}/api/git/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd }),
   });
-  const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "init failed");
 }
 
 export async function stashPop(cwd: string): Promise<GitStashPopResult> {
-  const res = await fetch(`${getApiBase()}/api/git/stash-pop`, {
+  const json = await fetchJson(`${getApiBase()}/api/git/stash-pop`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd }),
   });
-  const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "stash pop failed");
   return json.data;
 }
@@ -112,16 +109,14 @@ export type CreateWorktreeResult = CreateWorktreeOk | CreateWorktreeError;
 
 /** GET /api/git/head */
 export async function fetchGitHead(cwd: string): Promise<HeadInfo> {
-  const res = await fetch(`${getApiBase()}/api/git/head?cwd=${encodeURIComponent(cwd)}`);
-  const json = await res.json();
+  const json = await fetchJson(`${getApiBase()}/api/git/head?cwd=${encodeURIComponent(cwd)}`);
   if (!json.success) throw new Error(json.error ?? "failed to read HEAD");
   return json.data as HeadInfo;
 }
 
 /** GET /api/git/worktrees */
 export async function fetchWorktrees(cwd: string): Promise<WorktreeEntry[]> {
-  const res = await fetch(`${getApiBase()}/api/git/worktrees?cwd=${encodeURIComponent(cwd)}`);
-  const json = await res.json();
+  const json = await fetchJson(`${getApiBase()}/api/git/worktrees?cwd=${encodeURIComponent(cwd)}`);
   if (!json.success) throw new Error(json.error ?? "failed to list worktrees");
   return (json.data?.worktrees ?? []) as WorktreeEntry[];
 }
@@ -145,12 +140,11 @@ export async function createWorktree(params: {
   path?: string;
   force?: boolean;
 }): Promise<CreateWorktreeResult> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree`, {
+  const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const json = await res.json();
   if (json.success) {
     return { ok: true, ...(json.data as { path: string; branch: string; excludeAppended: boolean }) };
   }
@@ -183,8 +177,7 @@ export interface WorktreeInitStatus {
 /** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */
 export async function fetchWorktreeInitStatus(cwd: string): Promise<WorktreeInitStatus> {
   try {
-    const res = await fetch(`${getApiBase()}/api/git/worktree/init-status?cwd=${encodeURIComponent(cwd)}`);
-    const json = await res.json();
+    const json = await fetchJson(`${getApiBase()}/api/git/worktree/init-status?cwd=${encodeURIComponent(cwd)}`);
     if (!json.success) return { hasHook: false };
     return json.data as WorktreeInitStatus;
   } catch {
@@ -199,9 +192,7 @@ export async function fetchWorktreeInitStatus(cwd: string): Promise<WorktreeInit
  */
 export async function fetchAutoInitWorktreePref(): Promise<boolean> {
   try {
-    const res = await fetch(`${getApiBase()}/api/preferences/worktree-auto-init`);
-    if (!res.ok) return false;
-    const json = await res.json();
+    const json = await fetchJson(`${getApiBase()}/api/preferences/worktree-auto-init`);
     return json?.autoInitWorktreeOnSpawn === true;
   } catch {
     return false;
@@ -210,13 +201,11 @@ export async function fetchAutoInitWorktreePref(): Promise<boolean> {
 
 /** PATCH /api/preferences/worktree-auto-init. Returns the persisted value. */
 export async function setAutoInitWorktreePref(value: boolean): Promise<boolean> {
-  const res = await fetch(`${getApiBase()}/api/preferences/worktree-auto-init`, {
+  const json = await fetchJson(`${getApiBase()}/api/preferences/worktree-auto-init`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),
   });
-  if (!res.ok) throw new Error("failed to update worktree auto-init preference");
-  const json = await res.json();
   return json?.autoInitWorktreeOnSpawn === true;
 }
 
@@ -253,12 +242,11 @@ export type WorktreeInitResult = WorktreeInitRanOk | WorktreeInitUntrusted | Wor
  * See change: generalize-worktree-init-hook.
  */
 export async function runWorktreeInit(params: { cwd: string; requestId?: string; confirmHash?: string }): Promise<WorktreeInitResult> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree/init`, {
+  const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const json = await res.json();
   if (json.success) {
     return { ok: true, ran: json.data?.ran === true, durationMs: json.data?.durationMs, skippedReason: json.data?.skippedReason };
   }
@@ -299,13 +287,10 @@ export async function probePathExists(params: {
   signal?: AbortSignal;
 }): Promise<boolean> {
   try {
-    const res = await fetch(
+    const json = await fetchJson(
       `${getApiBase()}/api/file/exists?cwd=${encodeURIComponent(params.cwd)}&path=${encodeURIComponent(params.path)}`,
       { signal: params.signal },
     );
-    if (res.status === 404) return false;
-    if (!res.ok) return false;
-    const json = await res.json();
     return json?.data?.exists === true;
   } catch {
     return false;
@@ -323,12 +308,11 @@ export async function cleanupOrphanWorktreePath(params: {
   cwd: string;
   path: string;
 }): Promise<OrphanCleanupResult> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree/orphan-cleanup`, {
+  const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/orphan-cleanup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const json = await res.json();
   if (json.success) {
     return { ok: true };
   }
@@ -350,12 +334,11 @@ async function postLifecycle<T = unknown>(
   path: string,
   body: Record<string, unknown>,
 ): Promise<LifecycleResult<T>> {
-  const res = await fetch(`${getApiBase()}${path}`, {
+  const { json } = await fetchJsonResponse(`${getApiBase()}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const json = await res.json();
   if (json.success) return { ok: true, data: json.data as T };
   return {
     ok: false,
@@ -395,8 +378,7 @@ export type FetchPrResult =
 /** GET /api/git/pull-requests */
 export async function fetchPullRequests(cwd: string): Promise<FetchPrResult> {
   try {
-    const res = await fetch(`${getApiBase()}/api/git/pull-requests?cwd=${encodeURIComponent(cwd)}`);
-    const json = await res.json();
+    const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/pull-requests?cwd=${encodeURIComponent(cwd)}`);
     if (json.success) return { ok: true, data: json.data as PullRequestInfo[] };
     return { ok: false, code: json.code ?? "git_failed", error: json.error ?? "failed to list PRs" };
   } catch (err: any) {
@@ -415,12 +397,11 @@ export async function createWorktreeFromPr(params: {
   path?: string;
 }): Promise<CreateWorktreeFromPrResult> {
   try {
-    const res = await fetch(`${getApiBase()}/api/git/worktree/from-pr`, {
+    const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/from-pr`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
     });
-    const json = await res.json();
     if (json.success) {
       return { ok: true, ...(json.data as { path: string; branch: string; prNumber: number }) };
     }
@@ -442,8 +423,7 @@ export async function createWorktreeFromPr(params: {
 
 /** GET /api/git/worktree/diff-stat */
 export async function fetchWorktreeDiffStat(cwd: string): Promise<LifecycleResult<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }>> {
-  const res = await fetch(`${getApiBase()}/api/git/worktree/diff-stat?cwd=${encodeURIComponent(cwd)}`);
-  const json = await res.json();
+  const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/worktree/diff-stat?cwd=${encodeURIComponent(cwd)}`);
   if (json.success) return { ok: true, data: json.data };
   return {
     ok: false,

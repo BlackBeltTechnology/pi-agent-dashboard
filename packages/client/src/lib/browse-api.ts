@@ -7,6 +7,7 @@ import type {
   MkdirResult,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
+import { fetchJson } from "./fetch-json.js";
 
 export interface BrowseOptions {
   /** Optional substring query. Empty / whitespace is treated as no filter. */
@@ -26,8 +27,7 @@ export async function browseDirectory(
   const qs = params.toString();
   const url = qs ? `${getApiBase()}/api/browse?${qs}` : `${getApiBase()}/api/browse`;
 
-  const res = await fetch(url, { signal: options?.signal });
-  const json = await res.json();
+  const json = await fetchJson(url, { signal: options?.signal });
   if (!json.success) {
     throw new Error(json.error ?? "browse failed");
   }
@@ -53,8 +53,7 @@ export async function classifyPaths(
   const params = new URLSearchParams();
   params.set("paths", JSON.stringify(paths));
   const url = `${getApiBase()}/api/browse/flags?${params.toString()}`;
-  const res = await fetch(url, { signal: options?.signal });
-  const json = await res.json();
+  const json = await fetchJson(url, { signal: options?.signal });
   if (!json.success) {
     throw new Error(json.error ?? "classify failed");
   }
@@ -69,12 +68,11 @@ export async function createDirectory(
   parent: string,
   name: string,
 ): Promise<MkdirResult> {
-  const res = await fetch(`${getApiBase()}/api/browse/mkdir`, {
+  const json = await fetchJson(`${getApiBase()}/api/browse/mkdir`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ parent, name }),
   });
-  const json = await res.json();
   if (!json.success) {
     throw new Error(json.error ?? "mkdir failed");
   }

@@ -2,6 +2,7 @@
  * Client-side editor detection and open-editor API helpers.
  */
 import { getApiBase } from "./api-context.js";
+import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
 
 export function isLocalhost(): boolean {
   const hostname = window.location.hostname;
@@ -15,8 +16,7 @@ export interface DetectedEditor {
 
 export async function fetchEditors(cwd: string): Promise<DetectedEditor[]> {
   try {
-    const res = await fetch(`${getApiBase()}/api/editors?path=${encodeURIComponent(cwd)}`);
-    const json = await res.json();
+    const json = await fetchJson(`${getApiBase()}/api/editors?path=${encodeURIComponent(cwd)}`);
     if (json.success) return json.data;
     return [];
   } catch {
@@ -31,12 +31,12 @@ export async function openEditor(
   line?: number,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const res = await fetch(`${getApiBase()}/api/open-editor`, {
+    const { json } = await fetchJsonResponse<{ success: boolean; error?: string }>(`${getApiBase()}/api/open-editor`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: cwd, editor: editorId, file, line }),
     });
-    return await res.json();
+    return json;
   } catch (err: any) {
     return { success: false, error: err.message ?? "Network error" };
   }

@@ -16,29 +16,27 @@ import type {
   ToolListEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
 import { getApiBase } from "./api-context.js";
+import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
 
 export type {
-  Resolution,
-  ToolListEntry,
   InstallHints,
   PlatformInstallHint,
+  Resolution,
+  ToolListEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/types.js";
 
 async function post<T>(url: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${getApiBase()}${url}`, {
+  const { json } = await fetchJsonResponse(`${getApiBase()}${url}`, {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok && res.status !== 404) throw new Error(await res.text());
-  const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "request failed");
   return json.data as T;
 }
 
 export async function fetchTools(): Promise<ToolListEntry[]> {
-  const res = await fetch(`${getApiBase()}/api/tools`);
-  const json = await res.json();
+  const json = await fetchJson(`${getApiBase()}/api/tools`);
   if (!json.success) throw new Error(json.error ?? "failed to list tools");
   // Rows carry optional `installHints` (static per-tool install guidance).
   // See change: register-bash-and-tool-install-help.
@@ -46,8 +44,7 @@ export async function fetchTools(): Promise<ToolListEntry[]> {
 }
 
 export async function fetchTool(name: string): Promise<Resolution> {
-  const res = await fetch(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`);
-  const json = await res.json();
+  const json = await fetchJson(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`);
   if (!json.success) throw new Error(json.error ?? "failed to fetch tool");
   return json.data as Resolution;
 }
@@ -65,21 +62,19 @@ export async function rescanOne(name: string): Promise<ToolListEntry[]> {
 }
 
 export async function setOverride(name: string, path: string): Promise<Resolution> {
-  const res = await fetch(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`, {
+  const json = await fetchJson(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "failed to set override");
   return json.data as Resolution;
 }
 
 export async function clearOverride(name: string): Promise<Resolution> {
-  const res = await fetch(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`, {
+  const json = await fetchJson(`${getApiBase()}/api/tools/${encodeURIComponent(name)}`, {
     method: "DELETE",
   });
-  const json = await res.json();
   if (!json.success) throw new Error(json.error ?? "failed to clear override");
   return json.data as Resolution;
 }
