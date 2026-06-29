@@ -1,0 +1,9 @@
+import type { CodeNodeContext } from "@blackbelt-technology/pi-flows";
+
+interface Input { token: string; count: string }
+interface Output { doubled: string; verified: string }
+
+export default async function (input: Input, ctx: CodeNodeContext): Promise<Output> {
+  // TODO: implement code node "transform"
+  return { doubled: "", verified: "" };
+}

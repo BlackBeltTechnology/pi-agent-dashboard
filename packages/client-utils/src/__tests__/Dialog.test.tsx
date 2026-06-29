@@ -114,6 +114,7 @@ describe("Dialog", () => {
     ["sm", "max-w-sm"],
     ["md", "max-w-md"],
     ["lg", "max-w-lg"],
+    ["full", "max-w-[95vw]"],
   ] as const)("applies %s size class %s", (size, cls) => {
     const { baseElement } = render(
       <Dialog open onClose={() => {}} size={size} testId="d">
@@ -121,6 +122,42 @@ describe("Dialog", () => {
       </Dialog>,
     );
     expect(baseElement.querySelector("[data-testid='d']")!.className).toContain(cls);
+  });
+
+  it.each([
+    ["sm", "max-h-[80vh]"],
+    ["md", "max-h-[80vh]"],
+    ["lg", "max-h-[80vh]"],
+    ["full", "max-h-[92vh]"],
+  ] as const)("applies %s height cap %s", (size, cls) => {
+    const { baseElement } = render(
+      <Dialog open onClose={() => {}} size={size} testId="d">
+        <p>x</p>
+      </Dialog>,
+    );
+    expect(baseElement.querySelector("[data-testid='d']")!.className).toContain(cls);
+  });
+
+  it("flush drops padding and clips overflow (edge-to-edge body)", () => {
+    const { baseElement } = render(
+      <Dialog open onClose={() => {}} flush testId="d">
+        <p>x</p>
+      </Dialog>,
+    );
+    const cls = baseElement.querySelector("[data-testid='d']")!.className;
+    expect(cls).toContain("overflow-hidden");
+    expect(cls).not.toContain("p-5");
+  });
+
+  it("non-flush keeps padding + scroll", () => {
+    const { baseElement } = render(
+      <Dialog open onClose={() => {}} testId="d">
+        <p>x</p>
+      </Dialog>,
+    );
+    const cls = baseElement.querySelector("[data-testid='d']")!.className;
+    expect(cls).toContain("p-5");
+    expect(cls).toContain("overflow-y-auto");
   });
 
   it("defaults to max-w-md", () => {

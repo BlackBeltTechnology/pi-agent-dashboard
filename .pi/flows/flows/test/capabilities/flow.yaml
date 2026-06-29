@@ -1,0 +1,109 @@
+name: test-capabilities
+description: >
+  Flow-engine self-test. Exercises every pi-flows capability end-to-end in a
+  single DAG: all 6 step types (agent, code, agent-decision, fork, code-decision,
+  flow-ref), a code-decision loop with max_iterations, on_complete + on_error
+  cross-segment routing, blockedBy ordering, input wiring, file:// injection,
+  and every template-variable family (task / input / result / loop). Every path
+  funnels into one terminal collector that reports WIRING_OK or WIRING_GAP.
+task_required: false
+task_prompt: "Optional label for this capability-test run:"
+max_concurrent: 4
+
+steps:
+  # ── agent step + outputs + template vars ────────────────────────────────
+  - id: emit
+    agent: test-emitter
+    task: Capability self-test run. Label=${{task}}
+    inputs:
+      upstream_value: seed-value
+
+  # ── code step: consumes emit outputs, value coercion, blockedBy ─────────
+  - id: transform
+    type: code
+    blockedBy: [emit]
+    inputs:
+      token: ${{result.emit.token}}
+      count: ${{result.emit.count}}
+    outputs:
+      - name: doubled
+      - name: verified
+    on_complete: classify
+
+  # ── agent-decision separator (deterministic: EMIT_OK -> simple) ─────────
+  - id: classify
+    type: agent-decision
+    agent: test-classifier
+    task: >
+      Classify based on the emitter signal.
+      transform verified=${{result.transform.verified}} doubled=${{result.transform.doubled}}.
+    inputs:
+      signal: ${{result.emit.token}}
+    branches:
+      simple: choose
+      complex: choose
+
+  # ── fork separator: both options converge on the loop worker ────────────
+  - id: choose
+    type: fork
+    question: Which capability path should the self-test drive?
+    options:
+      - PathA
+      - PathB
+    branches:
+      PathA: work
+      PathB: work
+    agent: flow-decision
+    task: Either branch is valid; both converge on the loop worker. Reason=${{result.classify.reason}}
+    allowCustom: false
+    multiSelect: false
+
+  # ── agent step inside the loop body ─────────────────────────────────────
+  - id: work
+    agent: test-flaky
+    task: Loop worker. Iteration ${{loop.gate.iteration}}/${{loop.gate.max}}.
+
+  # ── code-decision loop: again -> work (backward), go -> subflow ─────────
+  - id: gate
+    type: code-decision
+    blockedBy: [work]
+    inputs:
+      worker_summary: ${{result.work.summary}}
+      iteration: ${{loop.gate.iteration}}
+      max: ${{loop.gate.max}}
+    branches:
+      again: work
+      go: subflow
+    max_iterations: 3
+
+  # ── flow-ref separator: delegate to the sub-flow ────────────────────────
+  - id: subflow
+    type: flow-ref
+    path: ".pi/flows/flows/test/subflow/flow.yaml"
+    on_complete: provoke
+    on_error: handle-error
+
+  # ── code step that always soft-fails -> on_error route ──────────────────
+  - id: provoke
+    type: code
+    inputs:
+      note: ${{result.work.attempt_note}}
+    on_error: handle-error
+    on_complete: collect
+
+  # ── on_error recovery agent, then routes forward to the collector ───────
+  - id: handle-error
+    agent: test-error-handler
+    task: Recover from the intentional provoke failure. doubled=${{result.transform.doubled}}
+    on_complete: collect
+
+  # ── terminal aggregator: end-to-end wiring + file:// injection ──────────
+  - id: collect
+    agent: test-collector
+    blockedBy: [handle-error]
+    inputs:
+      emitter_token: ${{result.emit.token}}
+      emitter_summary: ${{result.emit.summary}}
+      branch_reason: ${{result.classify.reason}}
+      loop_note: ${{result.work.attempt_note}}
+      injected_file: file://.pi/flows/fixtures/test-flow-fixture.txt

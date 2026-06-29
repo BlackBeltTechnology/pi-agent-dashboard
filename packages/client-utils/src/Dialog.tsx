@@ -8,7 +8,7 @@ import { Icon } from "@mdi/react";
 import { DialogPortal } from "./DialogPortal.js";
 import { useFocusTrap } from "./useFocusTrap.js";
 
-export type DialogSize = "sm" | "md" | "lg";
+export type DialogSize = "sm" | "md" | "lg" | "full";
 export type DialogIntent = "primary" | "danger" | "neutral";
 
 interface DialogProps {
@@ -21,6 +21,11 @@ interface DialogProps {
   testId?: string;
   /** Used for aria-label when no `title` is given. */
   ariaLabel?: string;
+  /** Edge-to-edge body: drop the inner padding + clip overflow so a
+   *  self-framed child (e.g. a chat/detail view with its own header) fills
+   *  the dialog as a single window. See change:
+   *  improve-flow-graph-dialog-and-card-interaction. */
+  flush?: boolean;
   children: ReactNode;
 }
 
@@ -28,6 +33,17 @@ const SIZE_MAX_W: Record<DialogSize, string> = {
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
+  full: "max-w-[95vw]",
+};
+
+// `full` gets a taller cap (near-fullscreen wide stage, e.g. horizontal flow
+// graphs); sm/md/lg keep the 80vh column cap. See change:
+// improve-flow-graph-dialog-and-card-interaction.
+const SIZE_MAX_H: Record<DialogSize, string> = {
+  sm: "max-h-[80vh]",
+  md: "max-h-[80vh]",
+  lg: "max-h-[80vh]",
+  full: "max-h-[92vh]",
 };
 
 export function Dialog({
@@ -38,6 +54,7 @@ export function Dialog({
   size = "md",
   testId,
   ariaLabel,
+  flush = false,
   children,
 }: DialogProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -74,7 +91,7 @@ export function Dialog({
           aria-label={!title ? ariaLabel : undefined}
           tabIndex={-1}
           data-testid={testId}
-          className={`relative w-full mx-4 ${SIZE_MAX_W[size]} max-h-[80vh] overflow-y-auto bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl p-5 space-y-4 focus:outline-none`}
+          className={`relative w-full mx-4 ${SIZE_MAX_W[size]} ${SIZE_MAX_H[size]} ${flush ? "overflow-hidden" : "overflow-y-auto p-5 space-y-4"} bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-lg shadow-xl focus:outline-none`}
         >
           {hasHeader && (
             <div className="flex items-center gap-3">

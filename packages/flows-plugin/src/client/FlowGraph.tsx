@@ -6,29 +6,38 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { graphlib } from "dagre-d3-es";
 import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
+import { mdiCodeTags, mdiCallSplit, mdiSourceBranch, mdiRobotOutline } from "@mdi/js";
 import type { FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { deriveFlowEdges, type FlowEdgeStep } from "./flow-edges.js";
+
+/** Per-kind visual identity for graph nodes, mirroring the FlowAgentCard badges:
+ *  code/code-decision = cyan, fork/agent-decision = amber, agent = green/status.
+ *  `accent` drives the left stripe + icon tint; `icon` is an mdi 24-unit path.
+ *  See change: improve-flow-ui. */
+const KIND_VISUAL: Record<string, { icon: string; accent?: string }> = {
+  code: { icon: mdiCodeTags, accent: "#22d3ee" },          // cyan-400
+  "code-decision": { icon: mdiCallSplit, accent: "#22d3ee" },
+  fork: { icon: mdiSourceBranch, accent: "#fbbf24" },      // amber-400 (also agent-decision)
+  agent: { icon: mdiRobotOutline },                          // no accent — tinted by status
+};
 
 // ── Types ───────────────────────────────────────────────────────────
 
-/** Step type determines visual rendering:
- *  - "agent" (default): solid rounded rect
- *  - "fork": diamond-shaped (rotated rect) for decision points
- *  - "loop": rounded rect with loop icon/double border
- *  - "flow-ref": dashed border for subflows
- */
-export type FlowStepType = "agent" | "fork" | "code" | "code-decision" | "flow-ref";
+/** Step type drives the node's mdi icon + kind accent (see KIND_VISUAL):
+ *  agent = robot/green, code+code-decision = cyan, fork+agent-decision = amber.
+ *  Border/fill stay status-driven. */
+export type FlowStepType = "agent" | "fork" | "code" | "code-decision";
 
 /** Map flow engine stepType/nodeKind string to graph visual type.
- *  Canonical node set (unify-decision-routing): agent, agent-decision, code,
- *  code-decision, fork, flow-ref. Dead types (conditional, agent-loop-decision)
- *  removed. See change: rework-flows-plugin-for-new-pi-flows. */
+ *  Canonical node set: agent, agent-decision, code, code-decision, fork. Dead
+ *  types removed (conditional, agent-loop-decision, and the former subflow node).
+ *  See change: improve-flow-ui. */
 export function mapStepType(stepType: string | undefined): FlowStepType | undefined {
   switch (stepType) {
     case "fork":
     case "agent-decision": return "fork";
     case "code": return "code";
     case "code-decision": return "code-decision";
-    case "flow-ref": return "flow-ref";
     default: return undefined; // "agent" → default styling
   }
 }
@@ -39,56 +48,16 @@ export interface FlowGraphStep {
   status: "pending" | "running" | "complete" | "error" | "blocked";
   blockedBy: string[];
   type?: FlowStepType;
-  /** For loop steps: the step ID to loop back to (rendered as a backward arrow) */
-  loopTarget?: string;
-}
-
-/** Step types that act as segment separators (non-agent control flow) */
-const SEPARATOR_STEP_TYPES = new Set(["fork", "agent-decision", "code-decision", "flow-ref"]);
-
-/** Synthesize implicit sequential edges that aren't expressed in blockedBy.
- *  - Steps after a separator with no blockedBy get an edge from the preceding separator.
- *  - Loop exit_target steps get an edge from the loop step. */
-export function synthesizeImplicitEdges(
-  steps: FlowGraphStep[],
-  dagSteps: Array<{ id: string; stepType?: string; exitTarget?: string }>,
-): void {
-  const allStepIds = new Set(steps.map(s => s.id));
-  const stepById = new Map(steps.map(s => [s.id, s]));
-
-  // 1. Exit target edges: loop-decision → exit_target
-  for (const ds of dagSteps) {
-    if (ds.exitTarget && allStepIds.has(ds.exitTarget)) {
-      const target = stepById.get(ds.exitTarget);
-      if (target && !target.blockedBy.includes(ds.id)) {
-        target.blockedBy = [...target.blockedBy, ds.id];
-      }
-    }
-  }
-
-  // 2. Implicit segment edges: steps with no blockedBy after a separator
-  for (let i = 1; i < dagSteps.length; i++) {
-    const curr = stepById.get(dagSteps[i].id);
-    if (!curr || curr.blockedBy.length > 0) continue;
-
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = dagSteps[j];
-      if (prev.stepType && SEPARATOR_STEP_TYPES.has(prev.stepType) && allStepIds.has(prev.id)) {
-        curr.blockedBy = [prev.id];
-        break;
-      }
-      if ((!prev.stepType || prev.stepType === "agent") && allStepIds.has(prev.id)) {
-        curr.blockedBy = [prev.id];
-        break;
-      }
-    }
-  }
+  /** Decision branch label → target step id (fork / agent-decision / code-decision). */
+  branches?: Record<string, string>;
 }
 
 // ── Data converters ────────────────────────────────────────────────
 
 /** Convert FlowState (running/completed flow) to FlowGraphStep array.
- *  Uses dagSteps when available, falls back to agents map for backward compat. */
+ *  Uses dagSteps when available, falls back to agents map for backward compat.
+ *  Implicit-segment + branch edges are derived later by `deriveFlowEdges` in
+ *  computeLayout; here we only carry `blockedBy` + `branches`. */
 export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
   if (flowState.dagSteps && flowState.dagSteps.length > 0) {
     const stepStatus = new Map<string, FlowGraphStep["status"]>();
@@ -99,30 +68,14 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
     }
 
     const allStepIds = new Set(flowState.dagSteps.map(s => s.id));
-    const steps: FlowGraphStep[] = flowState.dagSteps.map(step => ({
+    return flowState.dagSteps.map(step => ({
       id: step.id,
       label: step.id,
       status: stepStatus.get(step.id) || stepStatus.get(step.agent || "") || "pending",
       blockedBy: step.blockedBy.filter(dep => allStepIds.has(dep)),
       type: mapStepType(step.stepType),
-      loopTarget: step.loopTarget && allStepIds.has(step.loopTarget) ? step.loopTarget : undefined,
+      branches: step.branches,
     }));
-
-    // Add flow-ref steps not in dagSteps
-    for (const ref of flowState.flowRefSteps || []) {
-      if (!allStepIds.has(ref.id)) {
-        steps.push({
-          id: ref.id,
-          label: ref.label,
-          status: "pending",
-          blockedBy: ref.blockedBy.filter(dep => allStepIds.has(dep)),
-          type: "flow-ref",
-        });
-      }
-    }
-
-    synthesizeImplicitEdges(steps, flowState.dagSteps);
-    return steps;
   }
 
   // Fallback: build from agents map (backward compat for old events without dagSteps)
@@ -130,22 +83,14 @@ export function flowStateToGraphSteps(flowState: FlowState): FlowGraphStep[] {
   for (const agent of flowState.agents.values()) {
     if (agent.stepId) stepToAgent.set(agent.stepId, agent.agentName);
   }
-  const agentSteps: FlowGraphStep[] = Array.from(flowState.agents.values()).map(agent => ({
+  return Array.from(flowState.agents.values()).map(agent => ({
     id: agent.agentName,
     label: agent.label || agent.agentName,
     status: agent.status,
     blockedBy: agent.blockedBy
       .map(depId => stepToAgent.get(depId) || depId)
-      .filter(name => flowState.agents.has(name) || flowState.flowRefSteps?.some(r => r.id === name)),
+      .filter(name => flowState.agents.has(name)),
   }));
-  const flowRefSteps: FlowGraphStep[] = (flowState.flowRefSteps || []).map(ref => ({
-    id: ref.id,
-    label: ref.label,
-    status: "pending" as const,
-    blockedBy: ref.blockedBy.map(depId => stepToAgent.get(depId) || depId),
-    type: "flow-ref" as const,
-  }));
-  return [...agentSteps, ...flowRefSteps];
 }
 
 interface PositionedNode {
@@ -165,14 +110,19 @@ interface PositionedEdge {
   points: Array<{ x: number; y: number }>;
   sourceStatus: FlowGraphStep["status"];
   targetStatus: FlowGraphStep["status"];
+  label?: string;
 }
 
+/** Backward/loop edge, hand-routed as an arc below the node band (dashed purple). */
 interface LoopBackEdge {
   source: string;
   target: string;
   sourceStatus: FlowGraphStep["status"];
   targetStatus: FlowGraphStep["status"];
   path: string;
+  label?: string;
+  labelX: number;
+  labelY: number;
 }
 
 interface LayoutResult {
@@ -215,6 +165,9 @@ const NODE_WIDTH = 120;
 const NODE_HEIGHT = 32;
 const FONT_SIZE = 11;
 const ARROW_SIZE = 6;
+/** Inline (bounded) graph height. The whole graph is scaled to fit this box
+ *  via preserveAspectRatio; expand to a Dialog for pan/zoom. */
+const FIT_HEIGHT = 240;
 
 export function computeLayout(steps: FlowGraphStep[]): LayoutResult {
   if (steps.length === 0) {
@@ -222,7 +175,11 @@ export function computeLayout(steps: FlowGraphStep[]): LayoutResult {
   }
 
   const g = new graphlib.Graph().setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: "LR", nodesep: 15, ranksep: 40, marginx: 16, marginy: 16 });
+  // Only FORWARD edges feed dagre (keeps the acyclic ranking clean + compact).
+  // Backward/loop edges are hand-routed BELOW the node band so they never feed
+  // a cycle into dagre (which mangles the layout) and never cross a node.
+  // `edgesep` fans out decision edges at a shared source. See change: improve-flow-ui.
+  g.setGraph({ rankdir: "LR", nodesep: 15, edgesep: 22, ranksep: 44, marginx: 16, marginy: 16 });
 
   const statusMap = new Map<string, FlowGraphStep["status"]>();
   for (const step of steps) {
@@ -230,12 +187,18 @@ export function computeLayout(steps: FlowGraphStep[]): LayoutResult {
     statusMap.set(step.id, step.status);
   }
 
-  for (const step of steps) {
-    for (const dep of step.blockedBy) {
-      if (statusMap.has(dep)) {
-        g.setEdge(dep, step.id);
-      }
-    }
+  // Single edge derivation (sequential blockedBy + decision branches), shared
+  // with the static Mermaid snapshot. FORWARD edges feed dagre layout (with
+  // label clearance); BACKWARD edges are hand-routed below the graph.
+  // See change: improve-flow-ui.
+  const flowEdges = deriveFlowEdges(
+    steps.map((s): FlowEdgeStep => ({ id: s.id, type: s.type ?? "agent", blockedBy: s.blockedBy, branches: s.branches })),
+  );
+  const forwardEdges = flowEdges.filter(e => !e.backward);
+  const backwardEdges = flowEdges.filter(e => e.backward);
+  for (const e of forwardEdges) {
+    const labelDims = e.label ? { width: e.label.length * 6 + 6, height: 12 } : {};
+    g.setEdge(e.from, e.to, labelDims);
   }
 
   dagreLayout(g, {});
@@ -256,92 +219,64 @@ export function computeLayout(steps: FlowGraphStep[]): LayoutResult {
   });
 
   const edges: PositionedEdge[] = [];
-  for (const step of steps) {
-    for (const dep of step.blockedBy) {
-      if (statusMap.has(dep)) {
-        const edgeData = g.edge(dep, step.id);
-        if (edgeData) {
-          edges.push({
-            source: dep,
-            target: step.id,
-            points: edgeData.points,
-            sourceStatus: statusMap.get(dep) || "pending",
-            targetStatus: step.status,
-          });
-        }
-      }
-    }
-  }
-
-  // Compute loop-back edges (backward arrows that skip dagre to avoid cycles)
-  const loopEdges: LoopBackEdge[] = [];
-  const nodeById = new Map(nodes.map(n => [n.id, n]));
-  const LOOP_MARGIN = 24; // vertical space above the graph for loop arcs
-
-  // Find the topmost node edge to route arcs above everything
-  let minY = Infinity;
-  for (const n of nodes) {
-    if (n.y < minY) minY = n.y;
-  }
-
-  for (const step of steps) {
-    if (step.loopTarget && nodeById.has(step.loopTarget)) {
-      const src = nodeById.get(step.id)!;
-      const tgt = nodeById.get(step.loopTarget)!;
-      // Arc above the entire graph so it doesn't overlap any nodes
-      const srcCx = src.x + src.width / 2;
-      const srcTop = src.y;
-      const tgtCx = tgt.x + tgt.width / 2;
-      const tgtTop = tgt.y;
-      const arcY = minY - LOOP_MARGIN;
-      const path = `M${srcCx},${srcTop} C${srcCx},${arcY} ${tgtCx},${arcY} ${tgtCx},${tgtTop}`;
-      loopEdges.push({
-        source: step.id,
-        target: step.loopTarget,
-        sourceStatus: step.status,
-        targetStatus: statusMap.get(step.loopTarget) || "pending",
-        path,
+  for (const e of forwardEdges) {
+    const edgeData = g.edge(e.from, e.to);
+    if (edgeData?.points) {
+      edges.push({
+        source: e.from,
+        target: e.to,
+        points: edgeData.points,
+        sourceStatus: statusMap.get(e.from) || "pending",
+        targetStatus: statusMap.get(e.to) || "pending",
+        label: e.label,
       });
     }
   }
 
-  // Compute bounding box including loop arcs
+  // Node-band extent (every node sits within [minNodeY, maxBottom]).
   const graphWidth = graphMeta.width || 200;
   const graphHeight = graphMeta.height || 50;
-  const loopArcTop = loopEdges.length > 0 ? minY - LOOP_MARGIN - ARROW_SIZE : 0;
-  const yOffset = loopArcTop < 0 ? -loopArcTop : 0;
-
-  // Shift all geometry down to make room for arcs above
-  if (yOffset > 0) {
-    for (const n of nodes) n.y += yOffset;
-    for (const e of edges) {
-      for (const p of e.points) p.y += yOffset;
-    }
-    for (const le of loopEdges) {
-      // Recompute path with shifted coordinates
-      const src = nodeById.get(le.source)!;
-      const tgt = nodeById.get(le.target)!;
-      const srcCx = src.x + src.width / 2;
-      const srcTop = src.y;
-      const tgtCx = tgt.x + tgt.width / 2;
-      const tgtTop = tgt.y;
-      const arcY = ARROW_SIZE; // top of SVG with small padding
-      le.path = `M${srcCx},${srcTop} C${srcCx},${arcY} ${tgtCx},${arcY} ${tgtCx},${tgtTop}`;
-    }
-  }
-
-  // Compute actual bounding box from positioned nodes (dagre's reported
-  // dimensions may not account for yOffset shift or full node extents)
   let maxRight = 0;
   let maxBottom = 0;
   for (const n of nodes) {
-    const right = n.x + n.width;
-    const bottom = n.y + n.height;
-    if (right > maxRight) maxRight = right;
-    if (bottom > maxBottom) maxBottom = bottom;
+    maxRight = Math.max(maxRight, n.x + n.width);
+    maxBottom = Math.max(maxBottom, n.y + n.height);
   }
+  for (const e of edges) {
+    for (const p of e.points) maxRight = Math.max(maxRight, p.x);
+  }
+
+  // Backward/loop edges: route as an arc BELOW every node. Because the arc's
+  // horizontal run sits beneath `maxBottom`, it cannot cross any node. Multiple
+  // loops stagger downward so they don't overlap each other.
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const LOOP_GAP = 18;
+  const loopEdges: LoopBackEdge[] = [];
+  backwardEdges.forEach((e, idx) => {
+    if (!nodeById.has(e.from) || !nodeById.has(e.to)) return;
+    const src = nodeById.get(e.from)!;
+    const tgt = nodeById.get(e.to)!;
+    const srcCx = src.x + src.width / 2;
+    const srcBot = src.y + src.height;
+    const tgtCx = tgt.x + tgt.width / 2;
+    const tgtBot = tgt.y + tgt.height;
+    const arcY = maxBottom + LOOP_GAP + idx * LOOP_GAP;
+    const path = `M${srcCx},${srcBot} C${srcCx},${arcY} ${tgtCx},${arcY} ${tgtCx},${tgtBot}`;
+    loopEdges.push({
+      source: e.from,
+      target: e.to,
+      sourceStatus: statusMap.get(e.from) || "pending",
+      targetStatus: statusMap.get(e.to) || "pending",
+      path,
+      label: e.label,
+      labelX: (srcCx + tgtCx) / 2,
+      labelY: arcY + 3,
+    });
+  });
+
+  const loopBottom = loopEdges.length > 0 ? maxBottom + LOOP_GAP * (loopEdges.length + 1) : maxBottom;
   const actualWidth = Math.max(graphWidth, maxRight + 16);
-  const actualHeight = Math.max(graphHeight + yOffset, maxBottom + 16);
+  const actualHeight = Math.max(graphHeight, loopBottom + ARROW_SIZE + 8);
 
   return {
     nodes,
@@ -377,7 +312,18 @@ function buildEdgePath(points: Array<{ x: number; y: number }>): string {
 
 // ── Component ───────────────────────────────────────────────────────
 
-export function FlowGraph({ steps }: { steps: FlowGraphStep[] }) {
+export function FlowGraph({ steps, fit = false, onExpand, selectedStepId, onSelectStep }: {
+  steps: FlowGraphStep[];
+  /** Bounded, static, whole-graph-fits-the-window (no pan/zoom). Default false. */
+  fit?: boolean;
+  /** When set (and `fit`), shows a ⤢ expand button that opens the graph bigger. */
+  onExpand?: () => void;
+  /** Currently-selected step id — renders a ring on the matching node.
+   *  See change: improve-flow-graph-dialog-and-card-interaction. */
+  selectedStepId?: string | null;
+  /** Node click handler (toggle selection). When set, nodes are clickable. */
+  onSelectStep?: (stepId: string) => void;
+}) {
   const layout = useMemo(() => {
     if (steps.length === 0) return null;
     try {
@@ -416,21 +362,38 @@ export function FlowGraph({ steps }: { steps: FlowGraphStep[] }) {
   const svgWidth = Math.max(layout.width, 150);
   const svgHeight = Math.max(layout.height, 50);
 
+  // Fit mode is bounded + static: pan/zoom handlers are detached so the graph
+  // cannot be dragged over sibling content (cards / summaries). The whole graph
+  // scales into FIT_HEIGHT via preserveAspectRatio. See change: improve-flow-ui.
+  const panHandlers = fit ? {} : {
+    onPointerDown: handlers.onPointerDown,
+    onPointerMove: handlers.onPointerMove,
+    onPointerUp: handlers.onPointerUp,
+    onDoubleClick: handlers.onDoubleClick,
+    onTouchMove: handlers.onTouchMove,
+    onTouchEnd: handlers.onTouchEnd,
+  };
+
   return (
     <div
-      ref={containerRef}
+      ref={fit ? undefined : containerRef}
       className="flow-dag-graph-container relative"
-      style={{ overflow: "visible" }}
-      onPointerDown={handlers.onPointerDown}
-      onPointerMove={handlers.onPointerMove}
-      onPointerUp={handlers.onPointerUp}
-      onDoubleClick={handlers.onDoubleClick}
-      onTouchMove={handlers.onTouchMove}
-      onTouchEnd={handlers.onTouchEnd}
+      style={fit ? { height: FIT_HEIGHT, overflow: "hidden" } : { overflow: "visible" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      {...panHandlers}
     >
-      {hovered && (
+      {fit && onExpand && (
+        <button
+          type="button"
+          onClick={onExpand}
+          title="Expand graph"
+          className="absolute top-1 right-1 z-10 text-[11px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)]/80 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+        >
+          ⤢ Expand
+        </button>
+      )}
+      {!fit && hovered && (
         <ZoomControls
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
@@ -439,15 +402,16 @@ export function FlowGraph({ steps }: { steps: FlowGraphStep[] }) {
         />
       )}
       <div
-        style={{
+        style={fit ? { width: "100%", height: "100%" } : {
           transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
           transformOrigin: "0 0",
         }}
       >
         <svg
-          width={svgWidth}
-          height={svgHeight}
+          width={fit ? "100%" : svgWidth}
+          height={fit ? "100%" : svgHeight}
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          preserveAspectRatio={fit ? "xMidYMid meet" : undefined}
           className="flow-dag-graph"
           style={{ display: "block", overflow: "visible" }}
         >
@@ -468,60 +432,107 @@ export function FlowGraph({ steps }: { steps: FlowGraphStep[] }) {
             ))}
           </defs>
 
-          {/* Edges */}
+          {/* Forward edges (dagre-routed). */}
           {layout.edges.map((edge, i) => {
             const { stroke, animated, dashed } = getEdgeColor(edge.sourceStatus, edge.targetStatus);
+            const mid = edge.points[Math.floor(edge.points.length / 2)];
             return (
-              <path
-                key={`edge-${i}`}
-                d={buildEdgePath(edge.points)}
-                fill="none"
-                stroke={stroke}
-                strokeWidth={1.5}
-                strokeDasharray={dashed ? "4 3" : animated ? "6 3" : "none"}
-                markerEnd={`url(#arrow-${stroke.replace("#", "")})`}
-                className={animated ? "flow-edge-animated" : ""}
-              />
+              <g key={`edge-${i}`}>
+                <path
+                  d={buildEdgePath(edge.points)}
+                  fill="none"
+                  stroke={stroke}
+                  strokeWidth={1.5}
+                  strokeDasharray={dashed ? "4 3" : animated ? "6 3" : "none"}
+                  markerEnd={`url(#arrow-${stroke.replace("#", "")})`}
+                  className={animated ? "flow-edge-animated" : ""}
+                />
+                {edge.label && mid && (
+                  <text
+                    x={mid.x}
+                    y={mid.y - 3}
+                    fontSize={8}
+                    fill="#888"
+                    textAnchor="middle"
+                    fontFamily="system-ui, -apple-system, sans-serif"
+                  >
+                    {edge.label}
+                  </text>
+                )}
+              </g>
             );
           })}
 
-          {/* Loop-back edges (backward arrows below the graph) */}
+          {/* Backward/loop edges — arc below the node band; cannot cross a node. */}
           {layout.loopEdges.map((edge, i) => (
-            <path
-              key={`loop-${i}`}
-              d={edge.path}
-              fill="none"
-              stroke="#a855f7"
-              strokeWidth={1.5}
-              strokeDasharray="5 3"
-              markerEnd="url(#arrow-a855f7)"
-              opacity={0.7}
-            />
+            <g key={`loop-${i}`}>
+              <path
+                d={edge.path}
+                fill="none"
+                stroke="#a855f7"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                markerEnd="url(#arrow-a855f7)"
+                opacity={0.7}
+              />
+              {edge.label && (
+                <text
+                  x={edge.labelX}
+                  y={edge.labelY}
+                  fontSize={8}
+                  fill="#a855f7"
+                  textAnchor="middle"
+                  fontFamily="system-ui, -apple-system, sans-serif"
+                >
+                  {edge.label}
+                </text>
+              )}
+            </g>
           ))}
 
           {/* Nodes */}
           {layout.nodes.map((node) => {
             const style = STATUS_COLORS[node.status] || STATUS_COLORS.pending;
             const isRunning = node.status === "running";
-            // Add type prefix icon to label
-            const typePrefix = node.type === "fork" ? "◇ "
-              : node.type === "code" ? "⌗ "
-              : node.type === "code-decision" ? "◈ "
-              : "";
-            const displayLabel = typePrefix + node.label;
-            const availW = node.width - 16;
-            const naturalW = displayLabel.length * FONT_SIZE * 0.6;
+            // Per-kind visual: mdi icon + accent matching the cards (code=cyan,
+            // fork=amber, agent=green/status). Border/fill stay status-driven.
+            const visual = KIND_VISUAL[node.type ?? "agent"] ?? KIND_VISUAL.agent;
+            const accent = visual.accent;
+            const ICON_SIZE = 13;
+            const iconX = node.x + 7;
+            const iconY = node.y + (node.height - ICON_SIZE) / 2;
+            const iconScale = ICON_SIZE / 24;
+            const labelX = node.x + 7 + ICON_SIZE + 4;
+            const availW = node.x + node.width - labelX - 8;
+            const naturalW = node.label.length * FONT_SIZE * 0.6;
             const labelFontSize = naturalW > availW
               ? Math.max(7, FONT_SIZE * (availW / naturalW))
               : FONT_SIZE;
 
+            const isSelected = node.id === selectedStepId;
             return (
               <g
                 key={node.id}
                 data-node={node.id}
-                style={{ cursor: "default" }}
-                className={isRunning ? "flow-node-running" : ""}
+                style={{ cursor: onSelectStep ? "pointer" : "default" }}
+                className={`${isRunning ? "flow-node-running" : ""}${isSelected ? " flow-node-selected" : ""}`.trim()}
+                onClick={onSelectStep ? () => onSelectStep(node.id) : undefined}
               >
+                {/* Selection ring (accent glow). See change:
+                    improve-flow-graph-dialog-and-card-interaction. */}
+                {isSelected && (
+                  <rect
+                    x={node.x - 3}
+                    y={node.y - 3}
+                    width={node.width + 6}
+                    height={node.height + 6}
+                    rx={7}
+                    ry={7}
+                    fill="none"
+                    stroke="#60a5fa"
+                    strokeWidth={2}
+                  />
+                )}
                 <rect
                   x={node.x}
                   y={node.y}
@@ -530,19 +541,37 @@ export function FlowGraph({ steps }: { steps: FlowGraphStep[] }) {
                   rx={5}
                   ry={5}
                   fill={style.fill}
-                  stroke={style.border}
-                  strokeWidth={1.5}
+                  stroke={isSelected ? "#60a5fa" : style.border}
+                  strokeWidth={isSelected ? 2.5 : 1.5}
+                />
+                {/* Kind accent stripe (code=cyan, fork=amber); agent has none. */}
+                {accent && (
+                  <rect
+                    x={node.x}
+                    y={node.y}
+                    width={4}
+                    height={node.height}
+                    rx={2}
+                    ry={2}
+                    fill={accent}
+                  />
+                )}
+                {/* mdi kind icon (24-unit path scaled), tinted by accent or status. */}
+                <path
+                  d={visual.icon}
+                  transform={`translate(${iconX}, ${iconY}) scale(${iconScale})`}
+                  fill={accent ?? style.text}
                 />
                 <text
-                  x={node.x + node.width / 2}
+                  x={labelX}
                   y={node.y + node.height / 2 + 1}
                   fontSize={labelFontSize}
                   fill={style.text}
                   dominantBaseline="middle"
-                  textAnchor="middle"
+                  textAnchor="start"
                   fontFamily="system-ui, -apple-system, sans-serif"
                 >
-                  {displayLabel}
+                  {node.label}
                 </text>
               </g>
             );

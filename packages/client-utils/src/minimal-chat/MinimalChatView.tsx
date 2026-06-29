@@ -96,10 +96,12 @@ function ToolCallEntry({
   entry,
   index,
   sessionId,
+  hideStatusIcon,
 }: {
   entry: Extract<MinimalChatEntry, { kind: "tool" }>;
   index: number;
   sessionId?: string;
+  hideStatusIcon?: boolean;
 }) {
   // Prefer the shell-registered `toolCallStep` primitive for parity with the
   // main chat view (per-tool renderers, collapsible output, status icon).
@@ -128,6 +130,7 @@ function ToolCallEntry({
         status={status}
         result={result}
         sessionId={sessionId}
+        hideStatusIcon={hideStatusIcon}
       />
     );
   }
@@ -238,6 +241,7 @@ export function MinimalChatView({
   status,
   entries,
   meta,
+  hideToolStatusIcon,
   mode = "inline",
   onBack,
   emptyMessage,
@@ -356,7 +360,7 @@ export function MinimalChatView({
         entries.map((entry, i) => {
           switch (entry.kind) {
             case "tool":
-              return <ToolCallEntry key={i} entry={entry} index={i} sessionId={sessionId} />;
+              return <ToolCallEntry key={i} entry={entry} index={i} sessionId={sessionId} hideStatusIcon={hideToolStatusIcon} />;
             case "text":
               return <TextEntry key={i} text={entry.text} />;
             case "thinking":

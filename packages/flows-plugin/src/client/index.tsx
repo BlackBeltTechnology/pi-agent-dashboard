@@ -14,8 +14,6 @@
 export { FlowDashboard } from "./FlowDashboard.js";
 export { FlowAgentCard } from "./FlowAgentCard.js";
 export { FlowAgentDetail } from "./FlowAgentDetail.js";
-export { FlowAgentPopoutPage } from "./FlowAgentPopoutPage.js";
-export { FlowAgentPopoutClaim } from "./FlowAgentPopoutClaim.js";
 
 export { FlowSummary } from "./FlowSummary.js";
 export { FlowGraph, flowStateToGraphSteps, computeLayout } from "./FlowGraph.js";

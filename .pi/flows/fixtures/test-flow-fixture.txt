@@ -1,0 +1,2 @@
+FIXTURE_FILE_CONTENT_OK
+This file is injected verbatim into the test flow via a file:// input to verify file injection works.

@@ -13,7 +13,7 @@
  *
  * See change: add-ui-popover-primitive.
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Icon } from "@mdi/react";
 import { mdiFileDocumentOutline } from "@mdi/js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
@@ -32,9 +32,8 @@ export function FlowYamlPopoverButton({
   flowSource: string;
   flowName: string;
 }) {
-  const Popover = useUiPrimitive(UI_PRIMITIVE_KEYS.popover);
+  const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
-  const ref = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<YamlFetchState>({ kind: "idle" });
 
@@ -69,7 +68,6 @@ export function FlowYamlPopoverButton({
   return (
     <>
       <button
-        ref={ref}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((prev) => !prev);
@@ -83,27 +81,30 @@ export function FlowYamlPopoverButton({
       >
         <Icon path={mdiFileDocumentOutline} size={0.5} />
       </button>
-      {open && ref.current && (
-        <Popover anchorEl={ref.current} onDismiss={() => setOpen(false)}>
-          <div
-            className="w-[640px] max-w-[90vw] max-h-[70vh] overflow-auto bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-md shadow-xl p-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-[11px] text-[var(--text-tertiary)] mb-2 font-mono truncate" title={flowSource}>
-              {flowSource}
-            </div>
-            {state.kind === "loading" && (
-              <div className="text-xs text-[var(--text-muted)]">Loading…</div>
-            )}
-            {state.kind === "error" && (
-              <div className="text-xs text-red-400">⚠ {state.error}</div>
-            )}
-            {state.kind === "loaded" && (
-              <MarkdownContent content={"```yaml\n" + state.content + "\n```"} />
-            )}
-          </div>
-        </Popover>
-      )}
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`${flowName} · YAML`}
+        size="lg"
+      >
+        {/* Pinned path header; YAML scrolls inside a fixed-height region so the
+            dialog stays a fixed size. See change:
+            improve-flow-graph-dialog-and-card-interaction. */}
+        <div className="text-[11px] text-[var(--text-tertiary)] font-mono break-all" title={flowSource}>
+          {flowSource}
+        </div>
+        <div className="h-[60vh] overflow-y-auto">
+          {state.kind === "loading" && (
+            <div className="text-xs text-[var(--text-muted)]">Loading…</div>
+          )}
+          {state.kind === "error" && (
+            <div className="text-xs text-red-400">⚠ {state.error}</div>
+          )}
+          {state.kind === "loaded" && (
+            <MarkdownContent content={"```yaml\n" + state.content + "\n```"} />
+          )}
+        </div>
+      </Dialog>
     </>
   );
 }

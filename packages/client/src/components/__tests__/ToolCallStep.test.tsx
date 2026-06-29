@@ -87,6 +87,21 @@ describe("ToolCallStep", () => {
     expect(button!.textContent).toContain("Pick a color");
   });
 
+  it("hides the leading status glyph when hideStatusIcon is set (and shows it by default)", () => {
+    const base = {
+      toolName: "bash",
+      toolCallId: "tc-hide",
+      args: { command: "echo hi" },
+      status: "complete" as const,
+      result: "hi",
+    };
+    const shown = renderStep(base);
+    const hidden = renderStep({ ...base, hideStatusIcon: true });
+    const headerIcons = (c: HTMLElement) => c.querySelectorAll("button svg").length;
+    // hideStatusIcon removes exactly the leading status glyph; chevron etc. stay.
+    expect(headerIcons(hidden.container)).toBe(headerIcons(shown.container) - 1);
+  });
+
   it("renders non-ask_user tools normally", () => {
     const { container } = renderStep({
       toolName: "bash",

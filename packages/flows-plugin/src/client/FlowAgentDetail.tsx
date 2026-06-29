@@ -2,8 +2,8 @@
  * FlowAgentDetail — thin adapter shim over `MinimalChatView`.
  *
  * Maps `FlowAgentState` → `MinimalChatViewProps`. Preserves the existing
- * public API (`agent`, `onBack`) so `FlowAgentCard`'s eye-button popover
- * (and the future `FlowAgentPopoutPage` route) keep working without change.
+ * public API (`agent`, `onBack`) so `FlowAgentCard`'s eye-button detail
+ * dialog keeps working without change.
  *
  * See change: extract-minimal-chat-view.
  */
@@ -102,6 +102,7 @@ export function FlowAgentDetail({
       mode="popout"
       onBack={onBack}
       sessionId={sessionId}
+      hideToolStatusIcon
       meta={{
         modelName: agent.model,
         tokens: agent.tokens,

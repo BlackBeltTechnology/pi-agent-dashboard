@@ -92,7 +92,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
-    "@earendil-works/pi-ai": "^0.75.5",
+    "@earendil-works/pi-ai": "^0.80.0",
     "@playwright/test": "^1.57.0",
     "jsdom": "^29.0.2",
     "patch-package": "^8.0.1",
