@@ -296,6 +296,16 @@ jobs:
           GIT_TARGET_ARCH: ${{ matrix.arch }}
         run: node packages/electron/scripts/assert-runnable-bundle.mjs
 
+      - name: Assert no wmic in bundle (PowerShell-only Windows introspection)
+        # Enforces spec scenario "No wmic shell-invocation anywhere in shipped
+        # code" (change: replace-wmic-with-powershell). wmic removed by default
+        # on Win 11 22H2+; every introspection path uses PowerShell
+        # Get-CimInstance. Scans only bundled @blackbelt-technology code; a
+        # reintroduced exec/spawn(...wmic) fails the build on every leg.
+        # Node-native (no bash) — Windows-reachable invariant.
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-no-wmic-in-bundle.mjs
+
       - name: Use x64 Node.js for Windows arm64 bundled server
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
         shell: pwsh

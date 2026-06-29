@@ -4,7 +4,12 @@
  * See change: consolidate-platform-handlers.
  */
 import { describe, it, expect, vi } from "vitest";
-import { openBrowser, isVirtualMachine } from "../platform/commands.js";
+import { openBrowser, isVirtualMachine, parseVmProbeOutput, type VmSpawnSyncFn } from "../platform/commands.js";
+
+/** Build a spawnSync stub returning a fixed CIM-probe result. */
+function vmSpawn(status: number, stdout: string): VmSpawnSyncFn {
+  return () => ({ status, stdout });
+}
 
 describe("openBrowser", () => {
   it("uses `open` on macOS", () => {
@@ -76,26 +81,31 @@ describe("isVirtualMachine", () => {
     expect(isVirtualMachine({ platform: "linux", exec })).toBe(false);
   });
 
-  it("detects VMware via wmic on Windows", () => {
-    const exec = vi.fn().mockImplementation((cmd: string) => {
-      if (cmd.includes("bios")) return "SerialNumber\nVMware-42 AA BB\n";
-      return "";
-    });
-    expect(isVirtualMachine({ platform: "win32", exec })).toBe(true);
+  it("detects VMware via PowerShell Get-CimInstance on Windows", () => {
+    const spawnSync = vmSpawn(0, "VMware-42 AA BB\nVMware, Inc.  VMware Virtual Platform\n");
+    expect(isVirtualMachine({ platform: "win32", spawnSync })).toBe(true);
   });
 
-  it("detects Hyper-V via wmic computersystem on Windows", () => {
-    const exec = vi.fn().mockImplementation((cmd: string) => {
-      if (cmd.includes("bios")) throw new Error("no serial");
-      if (cmd.includes("computersystem")) return "Manufacturer  Model\nMicrosoft Corporation  Virtual Machine\n";
-      return "";
-    });
-    expect(isVirtualMachine({ platform: "win32", exec })).toBe(true);
+  it("detects Hyper-V via the computersystem CIM output on Windows", () => {
+    const spawnSync = vmSpawn(0, "\nMicrosoft Corporation  Virtual Machine\n");
+    expect(isVirtualMachine({ platform: "win32", spawnSync })).toBe(true);
   });
 
   it("returns false on physical Windows when no VM markers found", () => {
-    const exec = vi.fn().mockReturnValue("SerialNumber\nR90ABCDE\n");
-    expect(isVirtualMachine({ platform: "win32", exec })).toBe(false);
+    const spawnSync = vmSpawn(0, "R90ABCDE\nDell Inc.  Latitude 7420\n");
+    expect(isVirtualMachine({ platform: "win32", spawnSync })).toBe(false);
+  });
+
+  it("returns false on Windows when PowerShell exits non-zero", () => {
+    const spawnSync = vmSpawn(1, "");
+    expect(isVirtualMachine({ platform: "win32", spawnSync })).toBe(false);
+  });
+
+  it("returns false on Windows when spawnSync throws", () => {
+    const spawnSync: VmSpawnSyncFn = () => {
+      throw new Error("spawn failed");
+    };
+    expect(isVirtualMachine({ platform: "win32", spawnSync })).toBe(false);
   });
 
   it("returns false when exec throws unexpectedly", () => {
@@ -104,5 +114,23 @@ describe("isVirtualMachine", () => {
     });
     expect(isVirtualMachine({ platform: "darwin", exec })).toBe(false);
     expect(isVirtualMachine({ platform: "linux", exec })).toBe(false);
+  });
+});
+
+describe("parseVmProbeOutput", () => {
+  it("returns false for empty input", () => {
+    expect(parseVmProbeOutput("")).toBe(false);
+  });
+
+  it("detects VMware Virtual Platform", () => {
+    expect(parseVmProbeOutput("VMware, Inc.  VMware Virtual Platform")).toBe(true);
+  });
+
+  it("detects Hyper-V", () => {
+    expect(parseVmProbeOutput("Microsoft Corporation  Hyper-V")).toBe(true);
+  });
+
+  it("returns false for physical-hardware output", () => {
+    expect(parseVmProbeOutput("Dell Inc.\nLatitude 7420")).toBe(false);
   });
 });

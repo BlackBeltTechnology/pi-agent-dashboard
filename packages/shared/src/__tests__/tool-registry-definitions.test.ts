@@ -323,11 +323,13 @@ describe("registered tool set", () => {
     expect(r.has("tsx")).toBe(false);
   });
 
-  it("registers Windows-only process utilities on win32, NOT ps/pgrep", () => {
+  it("registers Windows-only process utilities on win32, NOT ps/pgrep or wmic", () => {
     const r = freshRegistry({ platform: "win32" });
     expect(r.has("tasklist")).toBe(true);
     expect(r.has("taskkill")).toBe(true);
-    expect(r.has("wmic")).toBe(true);
+    // wmic removed by default on Win 11 22H2+; no longer registered.
+    // See change: replace-wmic-with-powershell.
+    expect(r.has("wmic")).toBe(false);
     expect(r.has("powershell")).toBe(true);
     // ps/pgrep are POSIX-only; they'd always show "not found" on Windows
     // and pollute the Tools UI with red rows the code never calls.

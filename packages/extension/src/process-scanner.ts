@@ -1,6 +1,6 @@
 /**
  * Process scanner for detecting child processes of a pi session.
- * Supports Unix (macOS + Linux) via ps/PGID and Windows via wmic/tasklist.
+ * Supports Unix (macOS + Linux) via ps/PGID and Windows via PowerShell Get-CimInstance.
  *
  * Two-phase approach (Unix):
  * 1. CAPTURE: During active bash tool calls, `ps -eo pid=,ppid=` finds children
@@ -18,7 +18,7 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import { killPidWithGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 /**
- * Resolve a Windows system tool name (wmic / powershell / tasklist /
+ * Resolve a Windows system tool name (powershell / tasklist /
  * taskkill) to its full `.exe` path via the global tool registry. If
  * the registry lookup fails we fall back to the bare name and let
  * `spawnSync` do PATHEXT resolution.
@@ -363,109 +363,24 @@ export function killProcessByPgid(pgid: number, options?: ScanOptions): boolean 
 
 // ---- Windows support ----
 
-/** Parse wmic output lines into child process info. */
-function parseWmicLine(line: string): { pid: number; ppid: number; command: string; creationDate: string } | null {
-  // wmic outputs: CommandLine  CreationDate             ParentProcessId  ProcessId
-  // with fixed-width columns separated by whitespace
-  const parts = line.trim().split(/\s{2,}/);
-  if (parts.length < 4) return null;
-  const pid = parseInt(parts[3], 10);
-  const ppid = parseInt(parts[2], 10);
-  if (isNaN(pid) || isNaN(ppid)) return null;
-  return { pid, ppid, command: parts[0] || "", creationDate: parts[1] || "" };
-}
-
-/** Convert wmic CreationDate (yyyyMMddHHmmss.ffffff+ZZZ) to elapsed ms. */
-function wmicDateToElapsedMs(creationDate: string): number {
-  if (!creationDate) return 0;
-  // Format: 20260410225300.123456+060
-  const match = creationDate.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
-  if (!match) return 0;
-  const created = new Date(
-    parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]),
-    parseInt(match[4]), parseInt(match[5]), parseInt(match[6])
-  );
-  return Math.max(0, Date.now() - created.getTime());
-}
-
-/** Find all descendant PIDs of a parent on Windows. */
-function getWindowsDescendants(parentPid: number, spawnSync: SpawnSyncFn): ChildProcessInfo[] {
+/**
+ * Find all descendant PIDs of a parent on Windows via PowerShell
+ * Get-CimInstance. Primary (and only) path — wmic was removed by default
+ * on Win 11 22H2+. `resolveSystemTool` returns the full powershell.exe path
+ * so windowsHide is honored end-to-end (no console flash).
+ */
+function getWindowsDescendantsCim(parentPid: number, spawnSync: SpawnSyncFn): ChildProcessInfo[] {
   try {
-    const result = spawnSync(
-      resolveSystemTool("wmic"),
-      ["process", "where", `ParentProcessId=${parentPid}`, "get", "CommandLine,CreationDate,ParentProcessId,ProcessId", "/format:list"],
-      {
-        encoding: "utf-8",
-        timeout: 5000,
-        stdio: ["pipe", "pipe", "pipe"],
-        // Critical: without this, every 10-second process scan flashes a
-        // console window. wmic is deprecated on Win 11 but still the
-        // default here; PowerShell fallback also needs windowsHide.
-        // Also: `resolveSystemTool` above returns the FULL .exe path
-        // when the registry is available, so there's no PATHEXT /
-        // cmd.exe resolution layer that could leak a console.
-        windowsHide: true,
-      },
-    );
-    if (result.status !== 0 || !result.stdout) {
-      // wmic removed in newer Windows 11 — fallback to tasklist
-      return getWindowsDescendantsTasklist(parentPid, spawnSync);
-    }
-
-    const processes: ChildProcessInfo[] = [];
-    let current: Partial<{ pid: number; command: string; elapsed: number }> = {};
-
-    for (const line of result.stdout.split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        if (current.pid) {
-          processes.push({
-            pid: current.pid,
-            pgid: current.pid, // Windows has no PGID; use PID
-            command: current.command || "",
-            elapsedMs: current.elapsed || 0,
-          });
-        }
-        current = {};
-        continue;
-      }
-      const [key, ...valueParts] = trimmed.split("=");
-      const value = valueParts.join("=");
-      if (key === "ProcessId") current.pid = parseInt(value, 10);
-      if (key === "CommandLine") current.command = value;
-      if (key === "CreationDate") current.elapsed = wmicDateToElapsedMs(value);
-    }
-    // Flush last entry
-    if (current.pid) {
-      processes.push({
-        pid: current.pid,
-        pgid: current.pid,
-        command: current.command || "",
-        elapsedMs: current.elapsed || 0,
-      });
-    }
-
-    return processes;
-  } catch {
-    return [];
-  }
-}
-
-/** Fallback: use tasklist when wmic is unavailable. */
-function getWindowsDescendantsTasklist(parentPid: number, spawnSync: SpawnSyncFn): ChildProcessInfo[] {
-  try {
-    // tasklist /FI filters by parent — but tasklist doesn't support ParentProcessId filter
-    // Use PowerShell Get-CimInstance as fallback
     const result = spawnSync(
       resolveSystemTool("powershell"),
-      ["-NoProfile", "-Command", `Get-CimInstance Win32_Process -Filter "ParentProcessId=${parentPid}" | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json`],
+      ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "ParentProcessId=${parentPid}" | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json`],
       {
         encoding: "utf-8",
         timeout: 10000,
         stdio: ["pipe", "pipe", "pipe"],
-        // Suppress console flash for the PowerShell fallback path.
-        // `resolveSystemTool` returns the full .exe path when registry
-        // is available.
+        // Suppress console flash; -NonInteractive prevents a prompt hang on
+        // this 10 s-cadence primary path. `resolveSystemTool` returns the
+        // full .exe path when registry is available.
         windowsHide: true,
       },
     );
@@ -486,19 +401,19 @@ function getWindowsDescendantsTasklist(parentPid: number, spawnSync: SpawnSyncFn
   }
 }
 
-/** Scan child processes on Windows using wmic/PowerShell. */
+/** Scan child processes on Windows using PowerShell Get-CimInstance. */
 export function scanWindowsProcesses(
   parentPid: number,
   minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
   options?: ScanOptions,
 ): ChildProcessInfo[] {
   const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
-  const children = getWindowsDescendants(parentPid, spawnSync);
+  const children = getWindowsDescendantsCim(parentPid, spawnSync);
 
   // Recurse one level for grandchildren
   const all: ChildProcessInfo[] = [];
   for (const child of children) {
-    const grandchildren = getWindowsDescendants(child.pid, spawnSync);
+    const grandchildren = getWindowsDescendantsCim(child.pid, spawnSync);
     if (grandchildren.length > 0) {
       all.push(...grandchildren);
     } else {

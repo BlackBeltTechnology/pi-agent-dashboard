@@ -59,10 +59,10 @@ import {
 const HEARTBEAT_INTERVAL = 15_000;
 const GIT_POLL_INTERVAL = 30_000;
 // Platform-aware process scan cadence. Windows keeps the original 10 s /
-// 30 s floor because `wmic` / PowerShell are expensive and flash consoles;
+// 30 s floor because PowerShell Get-CimInstance is expensive and can flash consoles;
 // Unix uses 5 s / 5 s so legitimate bash subprocesses surface while still
 // running. See change: tighten-process-list-ux.
-const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly wmic/PowerShell
+const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly PowerShell Get-CimInstance
 const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: matches PROCESS_SCAN_INTERVAL's Windows-safe defaults
 
 

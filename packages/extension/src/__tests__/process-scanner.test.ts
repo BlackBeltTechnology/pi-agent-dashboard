@@ -216,33 +216,18 @@ describe("killProcessByPgid", () => {
 });
 
 describe("Windows process scanning", () => {
-  it("scanChildProcesses delegates to scanWindowsProcesses on win32", () => {
-    const wmicOutput = [
-      "CommandLine=node server.js",
-      "CreationDate=20260410220000.000000+000",
-      "ParentProcessId=100",
-      "ProcessId=200",
-      "",
-    ].join("\n");
-    const mockSpawn = vi.fn().mockReturnValue({ status: 0, stdout: wmicOutput });
+  it("scanChildProcesses parses Get-CimInstance JSON on win32", () => {
+    const cimOutput = JSON.stringify([
+      { ProcessId: 200, CommandLine: "node server.js", CreationDate: new Date(Date.now() - 120000).toISOString() },
+    ]);
+    const mockSpawn = vi.fn().mockReturnValue({ status: 0, stdout: cimOutput });
     const tracked = new Set<number>();
     const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].pid).toBe(200);
   });
 
-  it("falls back to PowerShell when wmic fails", () => {
-    const psOutput = JSON.stringify([{ ProcessId: 300, CommandLine: "npm test", CreationDate: new Date(Date.now() - 60000).toISOString() }]);
-    const mockSpawn = vi.fn()
-      .mockReturnValueOnce({ status: 1, stdout: "" }) // wmic fails
-      .mockReturnValueOnce({ status: 0, stdout: psOutput }); // powershell succeeds
-    const tracked = new Set<number>();
-    const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].pid).toBe(300);
-  });
-
-  it("returns empty when both wmic and PowerShell fail", () => {
+  it("returns empty when PowerShell fails", () => {
     const mockSpawn = vi.fn().mockReturnValue({ status: 1, stdout: "" });
     const tracked = new Set<number>();
     const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
