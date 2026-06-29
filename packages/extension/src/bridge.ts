@@ -14,6 +14,7 @@ import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
+import { AbortLatch } from "./abort-latch.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
 import { USAGE_LIMIT_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/error-patterns.js";
 import fs from "node:fs";
@@ -261,6 +262,12 @@ function initBridge(pi: ExtensionAPI) {
   // `message_end` / `agent_end` events. See change: fix-provider-retry-infinite-loop.
   const retryTracker = new RetryTracker();
   const usageLimitOrderer = new UsageLimitOrderer();
+  // Abort latch: keeps a user abort latched so a provider backoff that
+  // outlives the 2 s persistent-abort scheduler still stops pi's retry.
+  // Set on abort; cleared on a new user prompt or terminal agent_end; honored
+  // on every observed resumption of the aborted turn. See change:
+  // unify-error-retry-lifecycle (design D3b).
+  const abortLatch = new AbortLatch();
 
   // Bridge-owned queue structures with TWO different ownership models:
   //
@@ -1022,6 +1029,14 @@ function initBridge(pi: ExtensionAPI) {
       // exposes no clear primitive). Shadows mirror pi's reality and stay
       // populated. See change: honest-mid-turn-queue-surface (spec
       // mid-turn-prompt-queue: "User abort invokes cachedCtx.abort directly").
+      // Latch the abort BEFORE invoking cachedCtx.abort() so a long provider
+      // backoff (5–60 s) that outlives the 2 s persistent-abort scheduler still
+      // stops pi when it wakes to retry. Ordering matters: if abort() fires
+      // agent_end synchronously, the agent_end handler's abortLatch.clear()
+      // must win — requesting AFTER abort() would leak a set latch onto a later
+      // turn. Cleared on the next user prompt (noteUserPrompt) or terminal
+      // agent_end. See change: unify-error-retry-lifecycle.
+      abortLatch.request(sessionId);
       if (cachedCtx?.abort) {
         cachedCtx.abort();
       }
@@ -1147,6 +1162,9 @@ function initBridge(pi: ExtensionAPI) {
     onSteerSent: recordSteerSent,
     onFollowupSent: bufferFollowupSend,
     isStreaming: () => getBridgeState().isAgentStreaming === true,
+    // Clear the abort latch when a new user prompt is dispatched, before pi
+    // can fire agent_start for it. See change: unify-error-retry-lifecycle.
+    noteUserPrompt: () => abortLatch.clear(sessionId),
   });
 
   // Reload support: extension events only provide ExtensionContext (no reload).
@@ -1258,9 +1276,22 @@ function initBridge(pi: ExtensionAPI) {
       // Don't send events before session_start has established the correct session ID
       if (!sessionReady) return;
       // Track agent streaming state (survives reconnect/reload)
-      if (eventType === "agent_start") getBridgeState().isAgentStreaming = true;
+      if (eventType === "agent_start") {
+        getBridgeState().isAgentStreaming = true;
+        // Abort latch (resumption hook): if a user abort is still latched when
+        // pi fires a fresh agent_start for the aborted turn (no intervening
+        // user prompt cleared it), abort again. See change:
+        // unify-error-retry-lifecycle.
+        if (abortLatch.shouldAbort(sessionId)) {
+          try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
+        }
+      }
       if (eventType === "agent_end") {
         getBridgeState().isAgentStreaming = false;
+        // Abort latch settle: the turn terminally ended — clear the latch so a
+        // later, unrelated turn is not aborted. See change:
+        // unify-error-retry-lifecycle.
+        abortLatch.clear(sessionId);
         // Provider-retry synthesis: forward auto_retry_end BEFORE agent_end
         // when retries were in flight, so the dashboard's retry banner
         // clears before the error banner appears. The usage-limit orderer
@@ -1363,6 +1394,16 @@ function initBridge(pi: ExtensionAPI) {
           const enriched = { ...event, nonce };
           const msg = mapEventToProtocol(sessionId, enriched);
           const role = (messageRef as any).role;
+          // Abort latch (resumption + clear hooks). A USER message_start is a
+          // deliberate new turn — clear the latch so it is never aborted. An
+          // ASSISTANT message_start while the latch is set is the aborted
+          // turn resuming a retry (no intervening user prompt) — abort again.
+          // See change: unify-error-retry-lifecycle.
+          if (role === "user") {
+            abortLatch.clear(sessionId);
+          } else if (abortLatch.shouldAbort(sessionId)) {
+            try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
+          }
           if (role === "user") {
             // Per-entry shadow-queue drain matcher: mirror pi's internal
             // logic (`_processAgentEvent` in pi-coding-agent

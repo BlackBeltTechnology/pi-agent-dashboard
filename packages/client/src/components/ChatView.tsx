@@ -8,7 +8,7 @@ import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, u
 import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { findActiveInteractiveToolResultIds, findRetriedErrorIds } from "../lib/collapse-retried-errors.js";
+import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../lib/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
@@ -292,6 +292,14 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   const groupedMessages = useMemo(() => groupConsecutiveToolCalls(filteredMessages), [filteredMessages]);
   const retriedErrorIds = useMemo(() => findRetriedErrorIds(filteredMessages), [filteredMessages]);
   const hiddenToolResultIds = useMemo(() => findActiveInteractiveToolResultIds(filteredMessages), [filteredMessages]);
+  // Single-red-surface: while the error-lifecycle surface (SessionBanner) owns
+  // a failure, collapse the trailing inline failed-tool card so red isn't
+  // shown twice. See change: unify-error-retry-lifecycle.
+  const surfaceActive = !!(state.lastError || state.retryState);
+  const surfaceSuppressedIds = useMemo(
+    () => findSurfaceSuppressedErrorIds(filteredMessages, surfaceActive),
+    [filteredMessages, surfaceActive],
+  );
 
   useImperativeHandle(ref, () => ({
     scrollToTurn(turnIndex: number) {
@@ -410,7 +418,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
           const kindKey = toolCallPrefKey(msg.toolName ?? "");
           if (kindKey !== null && !prefs.toolCalls[kindKey]) return null;
           if (hiddenToolResultIds.has(msg.id)) return null;
-          if (retriedErrorIds.has(msg.id)) {
+          if (retriedErrorIds.has(msg.id) || surfaceSuppressedIds.has(msg.id)) {
             return (
               <RetriedErrorBadge
                 key={msg.id}

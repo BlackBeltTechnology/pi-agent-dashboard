@@ -2311,7 +2311,7 @@ describe("lastError extraction from agent_end", () => {
     expect(state.lastError!.message).toBeTruthy();
   });
 
-  it("should clear lastError on agent_start", () => {
+  it("should NOT clear lastError on agent_start (deferred-clear lifecycle)", () => {
     let state = applyEvents([
       {
         eventType: "agent_end",
@@ -2329,6 +2329,123 @@ describe("lastError extraction from agent_end", () => {
       eventType: "agent_start",
       timestamp: 2000,
       data: {},
+    });
+    // Persists across the retry/continuation turn's start.
+    expect(state.lastError).toBeDefined();
+    expect(state.lastError!.message).toBe("Quota exceeded");
+  });
+
+  it("clears lastError on a confirmed non-error message_end (real pi-ai stopReason 'stop')", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Quota exceeded", content: [] }] },
+      },
+    ]);
+    expect(state.lastError).toBeDefined();
+    // Retry/continuation turn starts — error still set.
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    expect(state.lastError).toBeDefined();
+    // Assistant finishes cleanly — error clears. pi-ai emits "stop" on the wire.
+    state = reduceEvent(state, {
+      eventType: "message_end",
+      timestamp: 2100,
+      data: { message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] } },
+    });
+    expect(state.lastError).toBeUndefined();
+  });
+
+  it("also clears lastError on the Anthropic-normalized 'end_turn' stopReason", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "boom", content: [] }] },
+      },
+    ]);
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    state = reduceEvent(state, {
+      eventType: "message_end",
+      timestamp: 2100,
+      data: { message: { role: "assistant", stopReason: "end_turn", content: [{ type: "text", text: "done" }] } },
+    });
+    expect(state.lastError).toBeUndefined();
+  });
+
+  it("does NOT clear lastError on a mid-turn tool_use message_end", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "boom", content: [] }] },
+      },
+    ]);
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    state = reduceEvent(state, {
+      eventType: "message_end",
+      timestamp: 2100,
+      data: { message: { role: "assistant", stopReason: "tool_use", content: [{ type: "text", text: "calling tool" }] } },
+    });
+    // Mid-turn stop must not clear — the turn can still error afterward.
+    expect(state.lastError).toBeDefined();
+    expect(state.lastError!.message).toBe("boom");
+  });
+
+  it("failed retry updates lastError without a hidden intermediate frame", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "first boom", content: [] }] },
+      },
+    ]);
+    expect(state.lastError!.message).toBe("first boom");
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    // error still visible during the retry attempt (no flash to undefined)
+    expect(state.lastError!.message).toBe("first boom");
+    state = reduceEvent(state, {
+      eventType: "agent_end",
+      timestamp: 3000,
+      data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "second boom", content: [] }] },
+    });
+    expect(state.lastError).toEqual({ message: "second boom", timestamp: 3000 });
+  });
+
+  it("does NOT clear lastError on an agent_end that paused at a tool_use stop", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "boom", content: [] }] },
+      },
+    ]);
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    // pi yields at an interactive ask_user tool: agent_end with a tool_use last
+    // message. This is a pause, not a confirmed-good response.
+    state = reduceEvent(state, {
+      eventType: "agent_end",
+      timestamp: 3000,
+      data: { messages: [{ role: "assistant", stopReason: "tool_use", content: [] }] },
+    });
+    expect(state.lastError).toBeDefined();
+    expect(state.lastError!.message).toBe("boom");
+  });
+
+  it("clears lastError on a clean agent_end (end_turn terminal stop)", () => {
+    let state = applyEvents([
+      {
+        eventType: "agent_end",
+        timestamp: 1000,
+        data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Quota exceeded", content: [] }] },
+      },
+    ]);
+    expect(state.lastError).toBeDefined();
+    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    state = reduceEvent(state, {
+      eventType: "agent_end",
+      timestamp: 3000,
+      data: { messages: [{ role: "assistant", stopReason: "stop", content: [] }] },
     });
     expect(state.lastError).toBeUndefined();
   });
@@ -2636,7 +2753,7 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
   });
 
-  it("returns retrying when retryState is set", () => {
+  it("returns retry-only composition when retryState is set", () => {
     const s = createInitialState();
     s.retryState = {
       attempt: 3,
@@ -2646,48 +2763,50 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
       startedAt: 1700000000000,
     };
     expect(deriveBannerState(s)).toEqual({
-      variant: "retrying",
-      attempt: 3,
-      maxAttempts: -1,
-      delayMs: -1,
-      startedAt: 1700000000000,
-      reason: "rate limit",
+      retry: {
+        attempt: 3,
+        maxAttempts: -1,
+        delayMs: -1,
+        startedAt: 1700000000000,
+        reason: "rate limit",
+      },
     });
   });
 
-  it("returns error variant for non-USAGE_LIMIT lastError", () => {
+  it("returns error anchor (kind error) for non-USAGE_LIMIT lastError", () => {
     const s = createInitialState();
     s.lastError = { message: "fetch failed: ECONNRESET", timestamp: 1 };
     expect(deriveBannerState(s)).toEqual({
-      variant: "error",
-      message: "fetch failed: ECONNRESET",
+      error: { kind: "error", message: "fetch failed: ECONNRESET" },
     });
   });
 
-  it("returns limit-exceeded variant for USAGE_LIMIT_PATTERN match", () => {
+  it("returns error anchor (kind limit-exceeded) for USAGE_LIMIT_PATTERN match", () => {
     const s = createInitialState();
     s.lastError = { message: "monthly_spending_cap exceeded", timestamp: 1 };
     expect(deriveBannerState(s)).toEqual({
-      variant: "limit-exceeded",
-      message: "monthly_spending_cap exceeded",
+      error: { kind: "limit-exceeded", message: "monthly_spending_cap exceeded" },
     });
   });
 
-  it("retryState wins over lastError when both are set", () => {
+  it("composes error anchor + retry sub-line when both are set", () => {
     const s = createInitialState();
     s.retryState = {
-      attempt: 1,
+      attempt: 2,
       maxAttempts: -1,
       delayMs: -1,
-      reason: "retrying",
+      reason: "rate limit",
       startedAt: 0,
     };
-    s.lastError = { message: "usage_limit_reached", timestamp: 1 };
+    s.lastError = { message: "429", timestamp: 1 };
     const banner = deriveBannerState(s);
-    expect(banner.variant).toBe("retrying");
+    expect(banner).toEqual({
+      error: { kind: "error", message: "429" },
+      retry: { attempt: 2, maxAttempts: -1, delayMs: -1, startedAt: 0, reason: "rate limit" },
+    });
   });
 
-  it("limit-exceeded distinguishes various USAGE_LIMIT_PATTERN matches", () => {
+  it("limit-exceeded kind distinguishes various USAGE_LIMIT_PATTERN matches", () => {
     const cases: Array<[string, "limit-exceeded" | "error"]> = [
       ["usage_limit_reached", "limit-exceeded"],
       ["quota_exceeded", "limit-exceeded"],
@@ -2702,8 +2821,65 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     for (const [msg, expected] of cases) {
       const s = createInitialState();
       s.lastError = { message: msg, timestamp: 1 };
-      expect(deriveBannerState(s).variant, msg).toBe(expected);
+      const banner = deriveBannerState(s);
+      expect("error" in banner && banner.error?.kind, msg).toBe(expected);
     }
+  });
+});
+
+// See change: unify-error-retry-lifecycle.
+describe("error-lifecycle: composed surface end-to-end", () => {
+  function bannerHas(s: SessionState): { error: boolean; retry: boolean } {
+    const b = deriveBannerState(s);
+    return { error: "error" in b && !!b.error, retry: "retry" in b && !!b.retry };
+  }
+
+  it("error → retry-on-top → fail (no flicker) → retry → confirmed-good clear", () => {
+    let s: SessionState = createInitialState();
+    // 1. Turn fails terminally — error anchor appears.
+    s = reduceEvent(s, {
+      eventType: "agent_end",
+      timestamp: 1000,
+      data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "429 rate limited", content: [] }] },
+    });
+    expect(bannerHas(s)).toEqual({ error: true, retry: false });
+
+    // 2. Retry/continuation turn starts — error anchor persists (no optimistic
+    //    clear on agent_start), isStreaming flips true.
+    s = reduceEvent(s, { eventType: "agent_start", timestamp: 2000, data: {} });
+    expect(s.lastError!.message).toBe("429 rate limited");
+
+    // 3. Auto-retry begins ON TOP of the persistent error anchor (composed).
+    //    isStreaming is true so the fresh-error guard does not drop it.
+    s = reduceEvent(s, {
+      eventType: "auto_retry_start",
+      timestamp: 2100,
+      data: { attempt: 2, maxAttempts: -1, delayMs: -1, errorMessage: "429 rate limited" },
+    });
+    expect(bannerHas(s)).toEqual({ error: true, retry: true });
+    expect(s.lastError!.message).toBe("429 rate limited");
+
+    // 4. The retry fails again — error updates WITHOUT a hidden frame.
+    s = reduceEvent(s, {
+      eventType: "agent_end",
+      timestamp: 2400,
+      data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "still 429", content: [] }] },
+    });
+    expect(bannerHas(s)).toEqual({ error: true, retry: false });
+    expect(s.lastError!.message).toBe("still 429");
+
+    // 5. Manual retry: new turn starts (error still visible).
+    s = reduceEvent(s, { eventType: "agent_start", timestamp: 3000, data: {} });
+    expect(s.lastError!.message).toBe("still 429");
+
+    // 6. Confirmed-good response clears the whole surface (real pi-ai 'stop').
+    s = reduceEvent(s, {
+      eventType: "message_end",
+      timestamp: 3100,
+      data: { message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "fixed" }] } },
+    });
+    expect(bannerHas(s)).toEqual({ error: false, retry: false });
+    expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../collapse-retried-errors.js";
+import { findRetriedErrorIds, findActiveInteractiveToolResultIds, findSurfaceSuppressedErrorIds } from "../collapse-retried-errors.js";
 import { createInitialState, reduceEvent, type ChatMessage } from "../event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -33,6 +33,39 @@ function assistant(): ChatMessage {
 function user(): ChatMessage {
   return { id: nextId(), role: "user", content: "hi", timestamp: Date.now() };
 }
+
+describe("findSurfaceSuppressedErrorIds (single red surface)", () => {
+  it("suppresses the trailing failed tool while the surface is active", () => {
+    const err = tool({ toolStatus: "error" });
+    const msgs = [user(), assistant(), err];
+    expect(findSurfaceSuppressedErrorIds(msgs, true)).toEqual(new Set([err.id]));
+  });
+
+  it("suppresses nothing when the surface is inactive", () => {
+    const err = tool({ toolStatus: "error" });
+    expect(findSurfaceSuppressedErrorIds([user(), err], false)).toEqual(new Set());
+  });
+
+  it("suppresses nothing when there is no failed tool (pure provider error)", () => {
+    const msgs = [user(), assistant(), tool({ toolStatus: "complete" })];
+    expect(findSurfaceSuppressedErrorIds(msgs, true)).toEqual(new Set());
+  });
+
+  it("only suppresses the current turn's failure, not one before a user boundary", () => {
+    const oldErr = tool({ toolStatus: "error" });
+    const msgs = [oldErr, user(), assistant()];
+    expect(findSurfaceSuppressedErrorIds(msgs, true)).toEqual(new Set());
+  });
+
+  it("no simultaneous yellow-banner + red-inline-card: the failed attempt collapses", () => {
+    // Surface active (retry in flight, amber) + a failed tool card in stream.
+    const err = tool({ toolStatus: "error" });
+    const msgs = [user(), assistant(), err];
+    const suppressed = findSurfaceSuppressedErrorIds(msgs, true);
+    // ChatView renders a compact badge (not a full red card) for suppressed ids.
+    expect(suppressed.has(err.id)).toBe(true);
+  });
+});
 
 describe("findRetriedErrorIds", () => {
   it("collapses an error tool followed by a successful same-tool retry", () => {

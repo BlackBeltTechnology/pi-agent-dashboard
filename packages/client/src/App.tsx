@@ -1446,10 +1446,12 @@ export default function App() {
             <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
             </SessionAssetsProvider>
           </ErrorBoundary>
-          {/* Unified status banner. Sticky above the command input — picks
-              exactly ONE variant from `(retryState, lastError)`. Replaces
-              RetryBanner + ErrorBanner that previously lived inside ChatView.
-              See change: unify-status-banner-and-terminal-limit-stop. */}
+          {/* Unified status banner. Sticky above the command input — ONE
+              composed error-lifecycle surface: a persistent error anchor
+              (lastError) with a live retry sub-status (retryState) on top.
+              Dismiss ✕ is state-dependent inside SessionBanner: abort+clear
+              on a retrying/retryable surface, clear-only on limit-exceeded.
+              See change: unify-error-retry-lifecycle. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onAbort={handleAbort}

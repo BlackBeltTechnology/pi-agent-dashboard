@@ -76,6 +76,42 @@ export function findRetriedErrorIds(messages: ChatMessage[]): Set<string> {
  * Once the user answers, the interactiveUi flips to `resolved` / `cancelled`,
  * the helper stops hiding, and the chat shows the full tool card in history.
  */
+/**
+ * Single-red-surface guarantee (extends beyond the banner selector). While
+ * the error-lifecycle surface owns a failure for the session (the
+ * `SessionBanner` is rendering an error and/or a retry, i.e.
+ * `surfaceActive === true`), the inline chat stream MUST NOT render a second
+ * full red error card for that same failure. Returns the id of the trailing
+ * failed `toolResult` (the inline duplicate of the active surface failure) so
+ * ChatView collapses it to a compact `RetriedErrorBadge` instead of a full
+ * red card. Yellow (retry sub-status) and red (settled error) then never
+ * appear on two separate surfaces at once for the same session.
+ *
+ * Rule: walk `messages` from the tail; the first `toolResult` with
+ * `toolStatus === "error"` before a `user` boundary is the current-turn
+ * failure and is suppressed. Returns an empty set when the surface is inactive
+ * or no trailing failed tool exists (e.g. a pure LLM/provider error with no
+ * failed tool card to duplicate).
+ *
+ * Pure / side-effect-free. See change: unify-error-retry-lifecycle.
+ */
+export function findSurfaceSuppressedErrorIds(
+  messages: ChatMessage[],
+  surfaceActive: boolean,
+): Set<string> {
+  const suppressed = new Set<string>();
+  if (!surfaceActive) return suppressed;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user") break; // only the current turn's failure is relevant
+    if (m.role === "toolResult" && m.toolStatus === "error") {
+      suppressed.add(m.id);
+      break;
+    }
+  }
+  return suppressed;
+}
+
 export function findActiveInteractiveToolResultIds(messages: ChatMessage[]): Set<string> {
   const hidden = new Set<string>();
 

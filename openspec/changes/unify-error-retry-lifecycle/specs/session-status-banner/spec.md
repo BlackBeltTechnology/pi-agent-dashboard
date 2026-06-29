@@ -27,6 +27,13 @@ The error anchor SHALL persist while a retry runs on top of it; the surface SHAL
 - **THEN** the surface SHALL render the amber retrying status with `reason`
 - **AND** a "Stop retrying" action SHALL be present
 
+#### Scenario: Auto-retry does NOT promote a red error header before terminal failure
+- **GIVEN** `SessionState.retryState` is set from an in-progress auto-retry
+- **AND** `SessionState.lastError` is undefined (no terminal `agent_end(error)` yet)
+- **THEN** the surface SHALL render ONLY the amber retrying sub-line
+- **AND** the surface SHALL NOT render a red error header
+- **AND** a red error header SHALL appear only once `lastError` is set by a terminal `agent_end` with `stopReason: "error"`
+
 #### Scenario: Error-only after retries settle
 - **WHEN** `SessionState.lastError` is set (not USAGE_LIMIT) AND `retryState` is undefined
 - **THEN** the surface SHALL render the error message with Retry + Dismiss + copy

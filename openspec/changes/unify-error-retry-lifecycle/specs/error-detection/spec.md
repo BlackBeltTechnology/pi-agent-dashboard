@@ -6,10 +6,14 @@ The `lastError` field SHALL persist across the start of a retry/continuation tur
 
 A confirmed non-error response is the first of the following observed after `lastError` was set:
 
-- a non-error assistant `message_end` (`stopReason !== "error"`) for the session, OR
-- a clean `agent_end` (`messages[last].stopReason !== "error"`).
+- an assistant `message_end` with a terminal-success `stopReason`, OR
+- a clean `agent_end` whose last message has a terminal-success `stopReason`.
+
+Terminal-success `stopReason` = pi-ai `"stop"` (the real over-the-wire value for a normal completion); `"end_turn"` is also accepted (Anthropic-normalized / fixture value). Mid-turn / non-success stops (`"toolUse"`/`"tool_use"`, `"error"`, `"aborted"`, `"length"`) SHALL NOT clear `lastError`: the turn can still error after a tool-use stop, AND pi fires an `agent_end` carrying a `toolUse` last message when a turn yields at an interactive tool (e.g. `ask_user`) — a mid-turn pause, not a successful response. Clearing on any non-success stop would reintroduce a clear→re-set flicker and would wrongly drop the error anchor across an interactive pause or a user abort.
 
 Until that signal arrives, the error-lifecycle surface SHALL keep showing the prior `lastError` (as the persistent anchor) with the live retry status composed on top of it.
+
+A brand-new (non-retry) user prompt SHALL NOT optimistically clear `lastError`. The error anchor persists across a new prompt's `agent_start` and clears only on that new turn's confirmed non-error response (same rule as a retry). The abort latch is cleared on the new prompt (per `provider-retry-state`) so the new turn runs freely; only the display anchor lingers.
 
 `retryState` clearing is unchanged (cleared on `auto_retry_end`, `agent_start`, `agent_end` per `provider-retry-state`). Only `lastError` lifetime changes here.
 
@@ -26,11 +30,32 @@ Until that signal arrives, the error-lifecycle surface SHALL keep showing the pr
 - **THEN** `SessionState.lastError` SHALL be cleared to `undefined`
 - **AND** the error-lifecycle surface SHALL transition to `hidden`
 
+#### Scenario: Brand-new user prompt does not clear stale error until confirmed-good
+- **GIVEN** `SessionState.lastError` is set from a previous turn
+- **WHEN** the user sends a NEW (non-retry) prompt and its `agent_start` arrives
+- **THEN** `SessionState.lastError` SHALL remain set (no optimistic clear on send)
+- **AND** `SessionState.lastError` SHALL clear only when the new turn produces a confirmed non-error response (`stopReason === "end_turn"` message_end or clean `agent_end`)
+
 #### Scenario: Failed retry keeps the error visible (no flicker)
 - **GIVEN** `SessionState.lastError` is set
 - **WHEN** the retry turn fails again (`agent_end` with `stopReason: "error"`)
 - **THEN** `SessionState.lastError` SHALL be updated to the new error WITHOUT a hidden intermediate frame
 - **AND** the surface SHALL NOT have flashed to `hidden` between `agent_start` and the new error
+
+#### Scenario: Mid-turn tool_use stop does NOT clear lastError
+- **GIVEN** `SessionState.lastError` is set
+- **AND** an `agent_start` for the retry/continuation turn has arrived (lastError still set)
+- **WHEN** an assistant `message_end` with `stopReason: "tool_use"` arrives
+- **THEN** `SessionState.lastError` SHALL remain set
+- **AND** the error-lifecycle surface SHALL remain visible
+- **AND** a subsequent `agent_end` with `stopReason: "error"` SHALL update `lastError` WITHOUT the surface having flashed to `hidden`
+
+#### Scenario: agent_end yielding at an interactive tool does NOT clear lastError
+- **GIVEN** `SessionState.lastError` is set
+- **AND** a new turn has started (`agent_start`) that emits an `ask_user` tool call
+- **WHEN** an `agent_end` arrives whose last message has `stopReason: "tool_use"` (the turn paused awaiting the answer)
+- **THEN** `SessionState.lastError` SHALL remain set
+- **AND** the error-lifecycle surface SHALL remain visible
 
 ### Requirement: Error banner in chat view
 

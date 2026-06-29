@@ -767,34 +767,72 @@ export function extractAgentEndError(data: Record<string, unknown>): string | un
 }
 
 /**
- * Derived banner state for the unified `SessionBanner` component. Single
- * source of truth: read `retryState` and `lastError`, return exactly ONE
- * variant. Race overlap between yellow + red is impossible by
- * construction.
- *
- * Precedence: retryState wins (retry is in-progress, error is settled).
- * Within errors, `USAGE_LIMIT_PATTERN.test(lastError.message)` decides
- * `limit-exceeded` vs generic `error`.
- *
- * See change: unify-status-banner-and-terminal-limit-stop.
+ * Terminal-success stop reasons. pi-ai emits `"stop"` for a normal completion
+ * (verified against the published union — see
+ * `packages/server/src/model-proxy/convert/anthropic-out.ts`, which maps pi-ai
+ * `"toolUse"`/`"length"` and otherwise to the Anthropic wire value). `"end_turn"`
+ * is accepted too because the repo's own fixtures / any Anthropic-normalized
+ * path use it. Mid-turn / non-success reasons (`"toolUse"`, `"error"`,
+ * `"aborted"`, `"length"`) are deliberately EXCLUDED so a tool-use pause, an
+ * error, or a user abort never clears the persistent error anchor.
+ * See change: unify-error-retry-lifecycle.
  */
+const CONFIRMED_GOOD_STOP_REASONS: ReadonlySet<string> = new Set(["stop", "end_turn"]);
+
+/**
+ * True iff an `agent_end` event is a confirmed-good terminal: it has a last
+ * message AND that message completed with a terminal SUCCESS stop
+ * (`CONFIRMED_GOOD_STOP_REASONS`). Deliberately NOT "any non-error stop": pi
+ * fires an `agent_end` whose last message is a `toolUse` stop when a turn yields
+ * at an interactive tool (e.g. `ask_user`) — a mid-turn pause, not a successful
+ * response, and must NOT clear the persistent error anchor. An agent_end with
+ * NO messages (e.g. a bare abort) is likewise not clean.
+ * See change: unify-error-retry-lifecycle.
+ */
+export function isCleanAgentEnd(data: Record<string, unknown>): boolean {
+  const messages = data.messages;
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+  const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
+  return !!last && CONFIRMED_GOOD_STOP_REASONS.has(last.stopReason as string);
+}
+
+/**
+ * Derived banner state for the unified `SessionBanner` component. ONE
+ * composed error-lifecycle surface per session: an optional persistent
+ * error anchor (from `lastError`) AND an optional live retry sub-status
+ * (from `retryState`). The previous "retrying XOR error" precedence is
+ * replaced by composition — when both are set, the error anchor renders
+ * as the header AND the retry status renders as a sub-line in the same
+ * surface. Returns `{ variant: "hidden" }` only when BOTH are undefined.
+ *
+ * `error.kind` is `"limit-exceeded"` when `USAGE_LIMIT_PATTERN` matches,
+ * else `"error"`.
+ *
+ * See change: unify-error-retry-lifecycle.
+ */
+export interface BannerRetry {
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  startedAt: number;
+  reason: string;
+}
 export type BannerState =
   | { variant: "hidden" }
   | {
-      variant: "retrying";
-      attempt: number;
-      maxAttempts: number;
-      delayMs: number;
-      startedAt: number;
-      reason: string;
-    }
-  | { variant: "error"; message: string }
-  | { variant: "limit-exceeded"; message: string };
+      error?: { kind: "error" | "limit-exceeded"; message: string };
+      retry?: BannerRetry;
+    };
 
 export function deriveBannerState(state: SessionState): BannerState {
+  if (!state.lastError && !state.retryState) return { variant: "hidden" };
+  const out: { error?: { kind: "error" | "limit-exceeded"; message: string }; retry?: BannerRetry } = {};
+  if (state.lastError) {
+    const limit = USAGE_LIMIT_PATTERN.test(state.lastError.message);
+    out.error = { kind: limit ? "limit-exceeded" : "error", message: state.lastError.message };
+  }
   if (state.retryState) {
-    return {
-      variant: "retrying",
+    out.retry = {
       attempt: state.retryState.attempt,
       maxAttempts: state.retryState.maxAttempts,
       delayMs: state.retryState.delayMs,
@@ -802,14 +840,7 @@ export function deriveBannerState(state: SessionState): BannerState {
       reason: state.retryState.reason,
     };
   }
-  if (state.lastError) {
-    const limit = USAGE_LIMIT_PATTERN.test(state.lastError.message);
-    return {
-      variant: limit ? "limit-exceeded" : "error",
-      message: state.lastError.message,
-    };
-  }
-  return { variant: "hidden" };
+  return out;
 }
 
 export function reduceEvent(state: SessionState, event: DashboardEvent): SessionState {
@@ -822,7 +853,11 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       next.status = "streaming";
       next.streamingText = "";
       next.pendingPrompt = undefined;
-      next.lastError = undefined;
+      // lastError is NOT cleared here. The error anchor persists across the
+      // start of a retry/continuation turn and clears only on a confirmed
+      // non-error response (message_end end_turn / clean agent_end). This
+      // removes the optimistic-clear desync where the error vanished before
+      // the retry was confirmed good. See change: unify-error-retry-lifecycle.
       next.retryState = undefined;
       break;
 
@@ -835,6 +870,11 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       const errorMsg = extractAgentEndError(data);
       if (errorMsg) {
         next.lastError = { message: errorMsg, timestamp: event.timestamp };
+      } else if (isCleanAgentEnd(data)) {
+        // Confirmed-good clear: a terminal agent_end whose last message is a
+        // non-error stop clears the persistent error anchor.
+        // See change: unify-error-retry-lifecycle.
+        next.lastError = undefined;
       }
       next.retryState = undefined;
       break;
@@ -1055,6 +1095,16 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
     case "message_end": {
       const msg = data.message as any;
       if (msg?.role === "assistant") {
+        // Confirmed-good clear: an assistant message that completed with a
+        // terminal SUCCESS stop (pi-ai `"stop"`; `"end_turn"` accepted too)
+        // clears the persistent error anchor. Mid-turn / non-success stops
+        // (`toolUse`, `error`, `aborted`, `length`) do NOT clear — the turn can
+        // still error afterward, and clearing on them would flicker / drop the
+        // anchor across an interactive pause.
+        // See change: unify-error-retry-lifecycle.
+        if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
+          next.lastError = undefined;
+        }
         if (next.streamingTextFlushed) {
           // Streaming text was already flushed at tool_execution_start.
           // Locate the unstamped flushed row and stamp entryId / nonce in

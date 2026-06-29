@@ -283,6 +283,13 @@ export function createCommandHandler(
      * `handle`. See change: inject-session-context-into-agent.
      */
     onAttachProposalChanged?: (attachedChange: string | null) => void;
+    /**
+     * Clear the bridge's abort latch. Called at the start of `send_prompt`
+     * (before pi.sendUserMessage) so a deliberate new turn is never aborted
+     * by a latch left set from a prior user abort. See change:
+     * unify-error-retry-lifecycle.
+     */
+    noteUserPrompt?: () => void;
   },
 ): CommandHandler {
   const getSessionId = typeof sessionIdOrGetter === "function" ? sessionIdOrGetter : () => sessionIdOrGetter;
@@ -343,6 +350,11 @@ export function createCommandHandler(
 
       switch (msg.type) {
         case "send_prompt": {
+          // A new user prompt is a deliberate new turn — clear any latched
+          // abort BEFORE pi.sendUserMessage (which can fire agent_start
+          // synchronously) so the new turn is never aborted by the latch.
+          // See change: unify-error-retry-lifecycle.
+          options?.noteUserPrompt?.();
           const parsed = parseSendPrompt(msg.text);
 
           // Route based on parsed command type

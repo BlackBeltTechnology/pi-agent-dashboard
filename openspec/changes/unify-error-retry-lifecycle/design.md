@@ -45,7 +45,9 @@ Two options:
 - **(a) Extend/re-arm the persistent-abort scheduler** beyond 2 s to cover backoff (e.g. keep poking `rawAbort` until `isIdle` or `agent_end`, with a longer cap).
 - **(b) Latch an `abortRequested` flag** in the bridge that is honored whenever pi re-enters `agent.continue()` after sleep, then cleared on the next `agent_end`/idle.
 
-Preference: **(b)** — a latch is robust to arbitrary backoff length without busy-polling for tens of seconds; the scheduler's streaming-transition break (which prevents killing a user re-send) is preserved by clearing the latch on settle.
+**Decision: (b)** — a latch is robust to arbitrary backoff length without busy-polling for tens of seconds; the scheduler's streaming-transition break (which prevents killing a user re-send) is preserved by clearing the latch on settle.
+
+**Latch detection rule (D3b).** pi exposes no retry events; the bridge only observes `agent_start` / `message_start` / `message_end` / `agent_end` and may call `cachedCtx.abort()`. The latch therefore operates as **abort-on-sight** scoped to the aborted turn: once `abortRequested` is set for a session, ANY observed agent activity for that session (`agent_start` / `message_start` of a resumed turn) triggers a fresh `cachedCtx.abort()`. The bridge does not try to distinguish "pi waking from backoff" from "a brand-new turn" by inspecting pi internals — it relies on the clear conditions instead: the latch is cleared the instant (i) a NEW user prompt is sent for the session (so the user's deliberate new turn is never killed), or (ii) the aborted turn settles (`agent_end` / `cachedCtx.isIdle()` → true). Between set and clear, every resumption attempt is aborted. This makes "no intervening user prompt" the discriminator without needing a retry signal from pi.
 
 ### D4 — Dismiss ✕ semantics by state
 
@@ -58,8 +60,8 @@ Extend `collapse-retried-errors.ts` (or add a sibling helper) so that while the 
 
 ## Risks / Trade-offs
 
-- [Confirmed-good clear is too late → success feels laggy] → trigger on the first assistant token, not `agent_end`; tune in D2.
-- [Confirmed-good clear is too early → a token arrives then the turn errors again, flicker] → if first-token clear proves flickery, fall back to first non-error `message_end`.
+- [Confirmed-good clear is too late → success feels laggy] → trigger on the first `end_turn` `message_end` (per Resolved Decision 1), not the final `agent_end`; that fires as soon as the assistant message completes successfully.
+- [Confirmed-good clear is too early → a mid-turn stop clears, then the turn errors, flicker] → resolved by keying on `stopReason === "end_turn"` ONLY; `tool_use` / other mid-turn stops do NOT clear (Resolved Decision 1).
 - [Latch (D3b) leaks and kills a legitimate later turn] → clear the latch on the same settle conditions that stop the current scheduler (`agent_end` / `isIdle`); add a test for re-send within the window.
 - [Composed surface regresses the many existing banner tests] → the `BannerState` shape change is breaking for tests; migrate them as part of the change, keep `data-testid`s stable.
 - [Bridge wire-ordering invariants (already specced) interact with deferred clearing] → preserve the existing synth-before-agent_end ordering; only the reducer's clear timing moves.
@@ -74,8 +76,8 @@ Extend `collapse-retried-errors.ts` (or add a sibling helper) so that while the 
 
 Rollback: revert the reducer clear-timing + bridge latch commits; banner composition is display-only and safe to revert independently.
 
-## Open Questions
+## Resolved Decisions (was Open Questions)
 
-1. **Confirmed-good trigger granularity** — first streamed assistant token (snappiest), first non-error `message_end`, or clean `agent_end` (safest)? Leaning first non-error `message_end` as the balance.
-2. **Auto-retry path header** — on an auto-retry, do we promote the failure to a visible error header immediately, or keep it as just the "retrying — <reason>" sub-line until retries are exhausted?
-3. **Stale error across a brand-new user prompt** — when the user types a *new* prompt (not a retry of the same turn), should the prior error clear immediately on send, or also wait for confirmed-good?
+1. **Confirmed-good trigger granularity → first terminal-SUCCESS stop, not any non-error stop.** `lastError` clears on the first assistant `message_end` with a terminal-success `stopReason`, OR a clean `agent_end` whose last message has a terminal-success `stopReason` — whichever comes first. Terminal-success = pi-ai `"stop"` (the real wire value; `"end_turn"` accepted too for Anthropic-normalized / fixture paths), encoded as `CONFIRMED_GOOD_STOP_REASONS`. Deliberately NOT "any `stopReason !== "error"`": `"toolUse"` is a mid-turn pause and the turn can still error afterward; pi fires an `agent_end` carrying a `toolUse` last message when a turn yields at an interactive tool (`ask_user`), which is a pause, not a success; `"aborted"` is a user abort. Clearing on any non-success stop would reintroduce the clear→re-set flicker AND wrongly drop the anchor across an interactive pause or abort (both caught by the e2e `ask-select` discriminator). First streamed token was rejected as too eager for the same reason. BOTH the `message_end` and `agent_end` (`isCleanAgentEnd`) clears use `CONFIRMED_GOOD_STOP_REASONS`.
+2. **Auto-retry header → no early promotion; retry-only stays amber until a terminal error settles.** A retry that has NOT yet produced a terminal `agent_end(error)` (i.e. `retryState` set, `lastError` still undefined) renders as the amber **retrying-only** sub-line — no red error header. The red error anchor appears only once `lastError` is set (terminal `agent_end` with `stopReason: "error"`). This keeps normal auto-retries from flashing red before they have actually failed terminally.
+3. **Stale error across a brand-new user prompt → wait for confirmed-good, same as a retry.** A new (non-retry) user prompt does NOT optimistically clear the prior `lastError`; the error anchor persists until the new turn produces a confirmed-good response (decision 1). Clearing on send would reintroduce the optimistic-clear desync the whole change exists to remove. The abort latch (D3b) IS cleared on the new prompt so the new turn runs freely; only the *display* anchor lingers, and it clears the moment the new turn succeeds.
