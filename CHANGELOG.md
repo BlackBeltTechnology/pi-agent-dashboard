@@ -37,6 +37,7 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Build
 - Electron: rebundle dashboard server when sources change; fail loudly when client materialization is missing (fix-stale-bundled-server-cache).
+- Electron darwin: self-heal `macos-alias` native module; fail loudly with actionable message when Xcode CLT is missing (`fix-darwin-dmg-maker-macos-alias`). A `packages/electron` `postinstall` hook (`scripts/ensure-macos-alias.mjs`) auto-rebuilds `build/Release/volume.node` when absent (non-fatal, darwin-only); `build-installer.sh` gates `electron-forge make` on the same module and exits non-zero with an `xcode-select --install` hint when the rebuild fails; a darwin-only Doctor row (`macos-alias native module`) surfaces the state.
 
 ## [0.5.4] - 2026-05-26
 
