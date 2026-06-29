@@ -33,9 +33,18 @@
  * fix range changes, only this file changes. See change: unify-node-version-gate.
  */
 
+/**
+ * Accept a clean semver triplet, optionally `v`-prefixed, optionally with a
+ * `-prerelease` / `+build` suffix (node nightlies report `v25.0.0-nightly...`).
+ * Anchored so trailing junk is rejected: `v22.19.0 extra` (space) and a 4th
+ * component `22.19.0.1` do NOT match. Sole parser for all three predicates so
+ * the "reject unparseable strings" contract holds uniformly.
+ */
+const NODE_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+
 /** True when `version` is in the nodejs/node#58515 Fastify-affected range. */
 export function isAffectedNode(version: string): boolean {
-  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  const m = version.match(NODE_VERSION_RE);
   if (!m) return false;
   const major = Number(m[1]);
   const minor = Number(m[2]);
@@ -50,7 +59,7 @@ export function isAffectedNode(version: string): boolean {
  *   - Too new: major >= 26.
  */
 export function isOutOfEnginesRange(version: string): boolean {
-  const m = version.match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  const m = version.match(NODE_VERSION_RE);
   if (!m) return false;
   const major = Number(m[1]);
   const minor = Number(m[2]);
@@ -70,6 +79,6 @@ export function isUsableNodeVersion(version: string): boolean {
   // Unparseable / non-version strings are NOT usable. Without this guard a
   // garbage `--version` output would slip through, since both range
   // predicates return false ("not out of range", "not affected") on no-match.
-  if (!/^v?\d+\.\d+\.\d+/.test(version)) return false;
+  if (!NODE_VERSION_RE.test(version)) return false;
   return !isOutOfEnginesRange(version) && !isAffectedNode(version);
 }

@@ -38,6 +38,16 @@ describe("isUsableNodeVersion", () => {
     expect(isUsableNodeVersion("not-a-version")).toBe(false);
     expect(isUsableNodeVersion("v22")).toBe(false);
     expect(isUsableNodeVersion("22.19")).toBe(false);
+    // valid semver prefix + trailing junk must NOT pass the gate
+    expect(isUsableNodeVersion("v22.19.0 extra")).toBe(false);
+    expect(isUsableNodeVersion("22.19.0.1")).toBe(false);
+  });
+
+  it("accepts node prerelease / build suffixes within range", () => {
+    expect(isUsableNodeVersion("v25.0.0-nightly20260101abcdef01")).toBe(true);
+    expect(isUsableNodeVersion("v24.3.0+build.7")).toBe(true);
+    // prerelease of an affected version is still rejected
+    expect(isUsableNodeVersion("v22.18.0-rc.1")).toBe(false);
   });
 
   it("is the union of the two range predicates", () => {
