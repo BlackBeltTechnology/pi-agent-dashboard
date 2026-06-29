@@ -4,7 +4,7 @@
 #
 # Asserts the same four-point "healthy launch" contract as the Linux
 # smoke (08-electron-real-launch.sh):
-#   1. Main process reaches a healthy /api/health within 90 s.
+#   1. Main process reaches a healthy /api/health within 120 s.
 #   2. /api/health.starter == "Electron".
 #   3. ~/.pi/dashboard/server.log is non-empty (catches spawnDetached
 #      stdio[1]='ignore' regression).
@@ -17,6 +17,15 @@
 #   - No --no-sandbox: the runner user session is a real GUI session.
 #   - Defensively strips com.apple.quarantine when the bundle is copied
 #     from a mounted DMG.
+#   - Seeds the first-run marker (~/.pi/dashboard/first-run-done) BEFORE
+#     launch. On a fresh runner main.ts's isFirstRun() opens the welcome
+#     wizard window and AWAITS its close before spawning the server; with
+#     no interactive user that blocks the server spawn indefinitely. The
+#     marker skips the wizard so the smoke exercises the server-boot path
+#     (its actual contract), not the onboarding window.
+#   - Launches with --disable-gpu: GitHub macOS runners have no usable GPU,
+#     so GPU/renderer init crashes (exit_code=15) and perturbs startup.
+#     This is the macOS analog of running the Linux smoke under xvfb.
 #
 # LIMITATION — boot-proof, NOT floor-proof. The runner OS (macOS 14/15)
 # is ABOVE the advertised minimum floor (LSMinimumSystemVersion 10.15).
@@ -111,11 +120,17 @@ SERVER_LOG="$HOME/.pi/dashboard/server.log"
 PORT=8000
 
 # Wipe any stale server log so the size assertion reflects this run only.
+mkdir -p "$(dirname "$SERVER_LOG")"
 rm -f "$SERVER_LOG"
+
+# Seed the first-run marker so main.ts's isFirstRun() is false and the
+# blocking welcome-wizard window is skipped (no interactive user on CI).
+touch "$HOME/.pi/dashboard/first-run-done"
 
 # Direct exec of the inner Mach-O — NEVER `open` (open drops env/args and
 # yields an unobservable process). No --no-sandbox: real GUI session.
-"$BIN" > "$ELECTRON_LOG" 2>&1 &
+# --disable-gpu: no usable GPU on the runner (macOS analog of xvfb).
+"$BIN" --disable-gpu > "$ELECTRON_LOG" 2>&1 &
 ELECTRON_PID=$!
 
 cleanup() {
@@ -133,8 +148,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Poll /api/health.
-DEADLINE=$((SECONDS + 90))
+# Poll /api/health. 120 s gives the slower x64 leg margin for a cold
+# first-run bootstrap (fresh ~/.pi, no caches).
+DEADLINE=$((SECONDS + 120))
 HEALTH_BODY=""
 while [ $SECONDS -lt $DEADLINE ]; do
   sleep 2
@@ -150,7 +166,7 @@ while [ $SECONDS -lt $DEADLINE ]; do
 done
 
 if [ -z "$HEALTH_BODY" ]; then
-  echo "FAIL: /api/health did not respond within 90s"
+  echo "FAIL: /api/health did not respond within 120s"
   echo "  Last 60 lines of Electron stdout:"
   tail -60 "$ELECTRON_LOG" 2>/dev/null || echo "  (no log)"
   exit 1
