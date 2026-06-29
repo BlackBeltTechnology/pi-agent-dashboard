@@ -20,5 +20,5 @@
 ## 4. Verify & integrate
 
 - [x] 4.1 `npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures (`grep -nE 'FAIL|Error|✗' /tmp/pi-test.log`). All change-related tests pass; the 26 remaining failures are pre-existing environment issues (pi-ai module not installed in worktree, jimp native deps, docker-gated script) unrelated to this change.
-- [ ] 4.2 Manual end-to-end: add a `proxy` provider with a literal key in Settings → Save → confirm it reports configured (no "no API key setup") and a prompt to the proxy model authenticates upstream. Inspect `~/.pi/agent/providers.json` to confirm the stored key is the real value (not `***`).
-- [ ] 4.3 Rebuild + reload per the project workflow: `npm run build`, restart the server, `npm run reload`.
+- [x] 4.2 Manual end-to-end: add a `proxy` provider with a literal key in Settings → Save → confirm it reports configured (no "no API key setup") and a prompt to the proxy model authenticates upstream. Inspect `~/.pi/agent/providers.json` to confirm the stored key is the real value (not `***`).
+- [x] 4.3 Rebuild + reload per the project workflow: `npm run build`, restart the server, `npm run reload`.

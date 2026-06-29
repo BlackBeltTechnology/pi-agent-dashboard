@@ -258,8 +258,8 @@ Each entry in the `providers` array of `providers_list` SHALL be an object with 
 - `id` (string, required): pi-ai provider id (e.g. `"anthropic"`, `"deepseek"`, `"google-vertex"`).
 - `displayName` (string, required): from `modelRegistry.getProviderDisplayName(id)`.
 - `hasOAuth` (boolean, required): `true` iff `authStorage.getOAuthProviders().some(p => p.id === id)`.
-- `configured` (boolean, required): `authStorage.has(id)` — true when there is a stored credential in `auth.json`.
-- `source` (`"stored" | "environment" | "fallback" | "runtime" | undefined`, optional): from `authStorage.getAuthStatus(id).source`.
+- `configured` (boolean, required): derived from the **registry-level** `modelRegistry.getProviderAuthStatus(id).configured`. This SHALL account for keys supplied via `pi.registerProvider(...)` (stored in pi's `providerRequestConfigs`), not only `auth.json` credentials. When `getProviderAuthStatus` is unavailable on the registry, the bridge MAY fall back to `authStorage.has(id)`.
+- `source` (`"stored" | "environment" | "fallback" | "runtime" | "models_json_key" | "models_json_command" | undefined`, optional): from `modelRegistry.getProviderAuthStatus(id).source`, falling back to `authStorage.getAuthStatus(id).source` when the registry-level status is unavailable.
 - `envVar` (string, optional): the first env var name returned by pi-ai's `findEnvKeys(id)`.
 - `ambient` (boolean, optional): `true` when `pi-ai.getEnvApiKey(id) === "<authenticated>"` (Vertex ADC / Bedrock IAM).
 - `expires` (number, optional): for OAuth credentials, the `expires` timestamp from `auth.json`.
@@ -289,6 +289,13 @@ The `custom` flag SHALL be set synchronously when the bridge attempts to registe
 - **WHEN** another pi extension calls `pi.registerProvider("custom-llm", { models: [...], oauth: {...} })`
 - **THEN** the next `providers_list` push SHALL contain a `custom-llm` entry with `hasOAuth: true`
 
+#### Scenario: Saved custom provider reports configured (regression)
+- **WHEN** `~/.pi/agent/providers.json` contains a `proxy` entry with a valid `apiKey` and the bridge has registered it via `registerEntry`
+- **AND** `auth.json` has NO `proxy` entry (the key lives only in pi's `providerRequestConfigs`)
+- **THEN** `modelRegistry.getProviderAuthStatus("proxy").configured` SHALL be `true`
+- **AND** the `proxy` catalogue entry SHALL have `configured: true`
+- **AND** the dashboard SHALL NOT display "no API key setup" for `proxy`
+
 #### Scenario: Custom provider from providers.json carries custom:true on first push (regression)
 - **WHEN** `~/.pi/agent/providers.json` contains a `proxy` entry with `baseUrl` pointing to an OpenAI-compatible endpoint
 - **AND** the bridge's `activate()` has begun async `registerEntry("proxy", ...)` but `discoverModels` for `proxy` has NOT yet resolved
@@ -313,4 +320,25 @@ When the bridge receives a `request_providers` message from the server, it SHALL
 #### Scenario: Request without modelRegistry
 - **WHEN** the bridge receives `request_providers` before `session_start` has captured `ctx.modelRegistry`
 - **THEN** the bridge SHALL respond with `{ type: "providers_list", sessionId, providers: [] }` and no error
+
+### Requirement: Custom-provider apiKey resolves to the real secret under pi-ai 0.80.x
+
+When the bridge registers a custom provider via `pi.registerProvider(...)` in `registerEntry()` (`packages/extension/src/provider-register.ts`), the `apiKey` value passed in `ProviderConfigInput` SHALL be a string that pi resolves to the user's actual secret. pi resolves this field natively at request time (`authStorage.getApiKey() ?? resolveConfigValue(apiKey)`), treating a plain string as a **literal** and resolving environment references only via explicit `$ENV_VAR` / `${ENV_VAR}` syntax. Therefore `toRegisterApiKey` SHALL pass the providers.json value straight through, with NO synthetic env var and NO `process.env` mutation:
+
+- a literal key is returned verbatim, with any embedded `$` escaped to `$$` (and a leading `!` escaped to `$!`) so pi's resolver does not misinterpret it as an env reference or shell command, AND
+- user-supplied `$ENV_VAR` input retains its `$` prefix so pi interpolates the real secret from the environment.
+
+The bridge SHALL NOT construct a synthetic environment variable (e.g. the former `JUDO_<NAME>_KEY`) nor write the secret into `process.env`.
+
+#### Scenario: Literal key entered in Settings reaches upstream verbatim
+- **WHEN** `~/.pi/agent/providers.json` contains a `proxy` entry with `apiKey: "sk-real-123"`
+- **AND** the bridge registers `proxy` via `registerEntry`
+- **THEN** the value pi-ai resolves for the `proxy` provider's API key SHALL equal `"sk-real-123"`
+- **AND** the outbound request SHALL send `Authorization: Bearer sk-real-123`, never a synthetic env-var name
+- **AND** the bridge SHALL NOT create any `JUDO_*` (or other synthetic) entry in `process.env`
+
+#### Scenario: $ENV reference entered in Settings is resolved from the environment
+- **WHEN** the `proxy` entry has `apiKey: "$PROXY_KEY"` and `process.env.PROXY_KEY === "sk-env-456"`
+- **THEN** the value passed to `registerProvider` SHALL retain the `$PROXY_KEY` reference verbatim
+- **AND** pi SHALL resolve the `proxy` API key to `"sk-env-456"`
 
