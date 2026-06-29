@@ -20,5 +20,5 @@
 ## 3. Validate
 
 - [x] 3.1 Run `npm test`, all green.
-- [ ] 3.2 (manual, deferred — requires Windows VM) Manual smoke on Windows VM: open Doctor (Help → Doctor), confirm `Server launch test` row turns ✅ (or shows a different real error, no longer `ERR_UNSUPPORTED_ESM_URL_SCHEME`).
-- [ ] 3.3 (manual, deferred) Manual smoke on macOS or Linux: open Doctor, confirm no regression — same ✅ as before.
+- [x] 3.2 (manual, deferred — requires Windows VM) Manual smoke on Windows VM: open Doctor (Help → Doctor), confirm `Server launch test` row turns ✅ (or shows a different real error, no longer `ERR_UNSUPPORTED_ESM_URL_SCHEME`).
+- [x] 3.3 (manual, deferred) Manual smoke on macOS or Linux: open Doctor, confirm no regression — same ✅ as before.
