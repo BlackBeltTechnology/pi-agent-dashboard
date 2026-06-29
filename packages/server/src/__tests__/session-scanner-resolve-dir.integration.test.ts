@@ -44,13 +44,21 @@ function writeFixtureSession(root: string, cwdEncoded: string, id: string): void
 }
 
 describe("session-scanner resolves scan dir via config", () => {
+  let homeDir: string;
+
   beforeEach(() => {
+    // Sandbox homedir to a temp dir so the test never touches the real ~/.pi,
+    // independent of the test harness's HOME guard.
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-dashboard-home-"));
+    vi.spyOn(os, "homedir").mockReturnValue(homeDir);
     // Isolate from any inherited pi env so the resolver layers are deterministic.
     vi.stubEnv("PI_CODING_AGENT_SESSION_DIR", "");
     vi.stubEnv("PI_CODING_AGENT_DIR", "");
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(homeDir, { recursive: true, force: true });
     vi.unstubAllEnvs();
   });
 

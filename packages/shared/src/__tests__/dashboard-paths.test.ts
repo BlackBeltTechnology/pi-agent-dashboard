@@ -104,8 +104,22 @@ describe("dashboard-paths getters", () => {
     it("blank config skipped, env used", () => {
       expect(resolve({ piSessionsDir: "  ", sessionDirEnv: "/env/sess" })).toBe("/env/sess");
     });
+    it("blank sessionDirEnv falls through to AGENT_DIR", () => {
+      expect(resolve({ sessionDirEnv: "  ", agentDirEnv: "/custom/agent" })).toBe(
+        path.join("/custom/agent", "sessions"),
+      );
+    });
+    it("blank agentDirEnv ignored, falls to literal default", () => {
+      expect(resolve({ agentDirEnv: "  " })).toBe(path.join(HOME, ".pi", "agent", "sessions"));
+    });
     it("tilde config expands against homedir", () => {
       expect(resolve({ piSessionsDir: "~/mine" })).toBe(path.join(HOME, "mine"));
+    });
+    it("tilde sessionDirEnv expands against homedir", () => {
+      expect(resolve({ sessionDirEnv: "~/envsess" })).toBe(path.join(HOME, "envsess"));
+    });
+    it("tilde agentDirEnv expands then appends /sessions", () => {
+      expect(resolve({ agentDirEnv: "~/agent" })).toBe(path.join(HOME, "agent", "sessions"));
     });
     it("config beats env", () => {
       expect(resolve({ piSessionsDir: "/data/sess", sessionDirEnv: "/env/sess" })).toBe(
