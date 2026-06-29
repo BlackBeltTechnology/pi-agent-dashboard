@@ -14,22 +14,89 @@
  * Imports `@earendil-works/pi-ai` with NO version pin of its own so it resolves
  * against whatever pi-ai the running pi bundles.
  *
+ * Per-session scenario routing: each prompt selects its scenario from a
+ * `[[faux:<scenario-id>]]` sentinel in the latest user message. The step within
+ * a multi-step scenario is the count of assistant turns since that message, so
+ * scenarios like `ask-select-roundtrip` replay in order. No sentinel → fall
+ * back to the `FAUX_SCRIPT` env scenario (existing Vitest + VM-smoke behaviour).
+ * Per-session isolation falls out for free: each session is its own
+ * `pi --mode rpc` process with its own faux registration + state.
+ *
  * Env contract:
- * - `FAUX_SCRIPT`  — scenario id from `faux-scenarios.ts`. Unknown/missing →
- *   a loud "faux: no scenario" reply (never a hang).
+ * - `FAUX_SCRIPT`  — fallback scenario id from `faux-scenarios.ts` when no
+ *   sentinel is present. Unknown/missing → a loud "faux: no scenario" reply
+ *   (never a hang).
  * - `FAUX_TPS`     — tokens-per-second streaming cadence (default 50). Set low
  *   (e.g. 2) for abort scenarios.
  *
- * See change: add-faux-model-integration-tests.
+ * See change: add-faux-model-integration-tests, add-e2e-faux-model-roundtrip.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  fauxAssistantMessage,
-  getApiProvider,
-  registerFauxProvider,
-} from "@earendil-works/pi-ai";
-import { SCENARIOS } from "./faux-scenarios.js";
+// pi-ai's published `index.d.ts` re-exports members with `.ts` extensions,
+// unresolvable under this repo's `moduleResolution: "bundler"`. Mirror
+// `faux-scenarios.ts`: import the namespace and read runtime helpers off an
+// `any` view (this file is now in tsc's graph via the faux-router unit test).
+// Runtime resolution is unaffected.
+import * as piAi from "@earendil-works/pi-ai";
+import { type FauxContext, SCENARIOS } from "./faux-scenarios.js";
+
+export interface FauxRegistration {
+  setResponses: (responses: unknown[]) => void;
+  appendResponses: (responses: unknown[]) => void;
+}
+
+const { fauxAssistantMessage, getApiProvider, registerFauxProvider } =
+  piAi as unknown as {
+    fauxAssistantMessage: (content: unknown, options?: unknown) => unknown;
+    getApiProvider: (api: string) => { streamSimple?: unknown } | undefined;
+    registerFauxProvider: (options: Record<string, unknown>) => FauxRegistration;
+  };
+
+/** Sentinel a prompt embeds to select its scenario, e.g. `[[faux:tool-read]]`. */
+const SENTINEL = /\[\[faux:([\w-]+)\]\]/;
+
+/** Flatten a context message to its plain text (user prompt / assistant text). */
+function messageText(message: FauxContext["messages"][number]): string {
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => (block && block.type === "text" ? block.text ?? "" : ""))
+    .join("");
+}
+
+/**
+ * Resolve the active scenario id + step index from the agent context.
+ *
+ * Walks `context.messages` backward to the last `user` message matching the
+ * `[[faux:<id>]]` sentinel; `stepIndex` = count of `assistant` messages after
+ * it. No sentinel → fall back to `FAUX_SCRIPT`, anchored at conversation start
+ * (so the old static-queue step ordering is preserved byte-for-byte).
+ */
+export function resolveActiveStep(context: FauxContext): {
+  id: string | undefined;
+  stepIndex: number;
+} {
+  const messages = context.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.role !== "user") continue;
+    const match = SENTINEL.exec(messageText(message));
+    if (match) {
+      let stepIndex = 0;
+      for (let j = i + 1; j < messages.length; j++) {
+        if (messages[j].role === "assistant") stepIndex++;
+      }
+      return { id: match[1], stepIndex };
+    }
+  }
+  let stepIndex = 0;
+  for (const message of messages) {
+    if (message.role === "assistant") stepIndex++;
+  }
+  return { id: process.env.FAUX_SCRIPT, stepIndex };
+}
 
 export default function fauxProviderExtension(pi: ExtensionAPI): void {
   const registration = registerFauxProvider({
@@ -67,14 +134,26 @@ export default function fauxProviderExtension(pi: ExtensionAPI): void {
     ],
   });
 
-  const scenarioId = process.env.FAUX_SCRIPT;
-  const scenario = scenarioId ? SCENARIOS[scenarioId] : undefined;
-  if (scenario) {
-    registration.setResponses(scenario.script);
-  } else {
-    // Fail loud, not hang: a misconfigured run gets a single visible reply.
-    registration.setResponses([
-      fauxAssistantMessage(`faux: no scenario (FAUX_SCRIPT=${scenarioId ?? "unset"})`),
-    ]);
-  }
+  // Self-perpetuating router: re-appends itself each call so the faux queue
+  // never drains, resolves the scenario from the latest sentinel (or the
+  // FAUX_SCRIPT fallback), and replays the step matching the conversation
+  // position. Calls factory steps with the live context so multi-step
+  // scenarios (e.g. ask-select-roundtrip) read back the user's answer.
+  const router = (
+    context: FauxContext,
+    options: unknown,
+    state: { callCount: number },
+    model: unknown,
+  ): unknown => {
+    registration.appendResponses([router]);
+    const { id, stepIndex } = resolveActiveStep(context);
+    const scenario = id ? SCENARIOS[id] : undefined;
+    if (!scenario) {
+      // Fail loud, not hang: a misconfigured run gets a single visible reply.
+      return fauxAssistantMessage(`faux: no scenario (id=${id ?? "unset"})`);
+    }
+    const step = scenario.script[stepIndex] ?? scenario.script[scenario.script.length - 1];
+    return typeof step === "function" ? step(context, options, state, model) : step;
+  };
+  registration.setResponses([router as never]);
 }

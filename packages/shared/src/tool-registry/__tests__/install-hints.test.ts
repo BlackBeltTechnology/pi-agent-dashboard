@@ -21,11 +21,11 @@ import {
 import type { InstallHints, ToolListEntry } from "../types.js";
 
 /** Binary tools that are genuinely user-installable (have an install story). */
-const USER_INSTALLABLE = ["bash", "jj", "gh", "zrok", "git", "node"] as const;
+const USER_INSTALLABLE = ["bash", "gh", "zrok", "git", "node"] as const;
 const OSES = ["darwin", "win32", "linux"] as const satisfies readonly (keyof InstallHints)[];
 
 /** Platform-utility binaries that ship with the OS — must NOT carry hints. */
-const PLATFORM_UTILITIES = ["wmic", "powershell", "tasklist", "taskkill", "ps", "pgrep", "wt"];
+const PLATFORM_UTILITIES = ["powershell", "tasklist", "taskkill", "ps", "pgrep", "wt"];
 
 function freshList(platform: NodeJS.Platform): ToolListEntry[] {
   const store = new OverridesStore({

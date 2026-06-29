@@ -32,7 +32,7 @@ async function connectSession(
   cwd: string,
   registerExtra: Record<string, unknown> = {},
 ): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({ type: "session_register", sessionId, cwd, source: "cli", ...registerExtra }));
@@ -45,7 +45,7 @@ async function connectSession(
 
 async function connectBrowser(browserPort: number): Promise<{ ws: WebSocket; reorders: any[] }> {
   const reorders: any[] = [];
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   ws.on("message", (raw) => {
     try {
       const m = JSON.parse(String(raw));
@@ -63,6 +63,7 @@ function sendGitInfo(ws: WebSocket, sessionId: string, gitWorktree: unknown) {
 const baseConfig: ServerConfig = {
   port: 0,
   piPort: 0,
+  host: "127.0.0.1",
   dev: true,
   autoShutdown: false,
   shutdownIdleSeconds: 999,

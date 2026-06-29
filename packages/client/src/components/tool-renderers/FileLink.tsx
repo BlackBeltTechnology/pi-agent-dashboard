@@ -1,7 +1,8 @@
-import React from "react";
+import type React from "react";
+import { resolveLinkOrigin } from "../../lib/link-origin.js";
 import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
-import { useFileOpenRouting } from "./useFileOpenRouting.js";
 import type { ToolContext } from "./types.js";
+import { useFileOpenRouting } from "./useFileOpenRouting.js";
 
 interface Props {
   path: string;
@@ -14,54 +15,37 @@ interface Props {
 }
 
 /**
- * Resolve a possibly-relative path against `cwd` using string ops only
- * (browser-safe; no `node:path` dependency). Good enough for the link
- * `title` tooltip — server-side `/api/file` still does the authoritative
- * `path.resolve` for actual reads. Absolute paths (POSIX `/` or Windows
- * drive) are returned unchanged.
- */
-function resolveAgainstCwd(cwd: string | undefined, p: string): string {
-  if (!cwd) return p;
-  if (p.startsWith("/")) return p;
-  if (/^[A-Za-z]:[\\/]/.test(p)) return p; // Windows drive-absolute
-  const base = cwd.replace(/\/+$/, "");
-  if (p.startsWith("./")) return `${base}/${p.slice(2)}`;
-  if (p.startsWith("../")) {
-    // collapse `../` segments against cwd
-    const parts = base.split("/");
-    let rel = p;
-    while (rel.startsWith("../")) {
-      parts.pop();
-      rel = rel.slice(3);
-    }
-    return `${parts.join("/")}/${rel}`;
-  }
-  return `${base}/${p}`;
-}
-
-/**
  * Clickable file reference rendered inside tool output and prose. Routes
  * click by environment via the shared {@link useFileOpenRouting} hook:
  *   localhost + detected editor → POST /api/open-editor
  *   otherwise                   → inline read-only preview overlay
  *
- * Absolute tokens (POSIX `/`, decoded `file://`, Windows drive) are passed
- * through verbatim — never re-rooted under `cwd` (D2).
+ * Path resolution goes through {@link resolveLinkOrigin}: relative tokens join
+ * against `cwd`; absolute tokens (POSIX `/`, decoded `file://`, Windows drive)
+ * pass through verbatim EXCEPT in a worktree session, where an absolute path
+ * rooted in the parent checkout is re-rooted onto the worktree's own tree
+ * (spec: tool-output-linkification — "Worktree link-origin re-rooting").
  *
- * See change: unify-file-link-openability (spec: tool-output-linkification).
+ * See change: unify-file-link-openability, fix-worktree-link-origin.
  */
 export function FileLink({ path, line, col, absolute, context, children }: Props) {
-  const { cwd, localEditorAvailable, editorName, preview, openFile, closePreview } =
+  const { cwd, localEditorAvailable, editorName, openFile, hostManaged, previewTarget, closePreview } =
     useFileOpenRouting(context);
+
+  // Re-root an absolute parent-checkout path onto the worktree (worktree
+  // sessions only); relative tokens stay raw so the server resolves them
+  // against cwd as before. `origin` drives the open/preview target AND the
+  // tooltip so the link points at the worktree's own copy.
+  const origin = resolveLinkOrigin(cwd, path, absolute);
+  const openTarget = absolute ? origin : path;
 
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    void openFile(path, line);
+    void openFile(openTarget, line);
   };
 
-  // Absolute paths are already anchored; only relative paths get cwd-joined.
-  const resolved = absolute ? path : resolveAgainstCwd(cwd, path);
+  const resolved = origin;
   const titleSuffix = line ? `:${line}${col ? `:${col}` : ""}` : "";
   const title = localEditorAvailable
     ? `Open ${resolved}${titleSuffix} in ${editorName}`
@@ -69,30 +53,30 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
 
   return (
     <>
-      <button
-        type="button"
-        onClick={handleClick}
-        title={title}
-        // Not draggable + user-select:text so a click-drag that starts on or
-        // crosses the link extends the text selection (a <button> otherwise
-        // swallows the drag and excludes its label from the selection). A
-        // plain click still opens; native click-vs-drag suppression handles it.
-        draggable={false}
-        // Inline-only styling, no padding/margin so native text selection
-        // across the link boundary is preserved (D8).
-        className="text-blue-400 hover:underline bg-transparent border-0 p-0 m-0 font-inherit cursor-pointer"
-        style={{ font: "inherit", userSelect: "text" }}
-      >
-        {children}
-      </button>
-      {preview && cwd && (
-        <FilePreviewOverlay
-          cwd={cwd}
-          path={preview.path}
-          line={preview.line}
-          onClose={closePreview}
-        />
-      )}
+    <button
+      type="button"
+      onClick={handleClick}
+      title={title}
+      // Not draggable + user-select:text so a click-drag that starts on or
+      // crosses the link extends the text selection (a <button> otherwise
+      // swallows the drag and excludes its label from the selection). A
+      // plain click still opens; native click-vs-drag suppression handles it.
+      draggable={false}
+      // Inline-only styling, no padding/margin so native text selection
+      // across the link boundary is preserved (D8).
+      className="text-blue-400 hover:underline bg-transparent border-0 p-0 m-0 font-inherit cursor-pointer"
+      style={{ font: "inherit", userSelect: "text" }}
+    >
+      {children}
+    </button>
+    {!hostManaged && previewTarget && (
+      <FilePreviewOverlay
+        cwd={previewTarget.cwd}
+        path={previewTarget.path}
+        line={previewTarget.line}
+        onClose={closePreview}
+      />
+    )}
     </>
   );
 }

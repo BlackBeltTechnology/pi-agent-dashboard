@@ -246,9 +246,9 @@ describe("openspec binary definition", () => {
 });
 
 describe("registered tool set", () => {
-  it("registers pi, pi-coding-agent, openspec, npm, npx, node, git, jj, zrok, gh, bash, wt", () => {
+  it("registers pi, pi-coding-agent, openspec, npm, npx, node, git, zrok, gh, bash, wt", () => {
     const r = freshRegistry({});
-    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "npx", "node", "git", "jj", "zrok", "gh", "bash", "wt"]) {
+    for (const name of ["pi", "pi-coding-agent", "openspec", "npm", "npx", "node", "git", "zrok", "gh", "bash", "wt"]) {
       expect(r.has(name)).toBe(true);
     }
   });
@@ -301,22 +301,6 @@ describe("registered tool set", () => {
     ]);
   });
 
-  it("jj resolves via where when found", () => {
-    const r = freshRegistry({
-      which: (name) => (name === "jj" ? "/usr/local/bin/jj" : null),
-    });
-    const res = r.resolve("jj");
-    expect(res.ok).toBe(true);
-    expect(res.path).toBe("/usr/local/bin/jj");
-    expect(res.source).toBe("system");
-  });
-
-  it("jj unavailable returns ok:false without throwing", () => {
-    const r = freshRegistry({ which: () => null });
-    const res = r.resolve("jj");
-    expect(res.ok).toBe(false);
-  });
-
   it("wt resolves via where when found", () => {
     const r = freshRegistry({
       platform: "win32",
@@ -339,11 +323,13 @@ describe("registered tool set", () => {
     expect(r.has("tsx")).toBe(false);
   });
 
-  it("registers Windows-only process utilities on win32, NOT ps/pgrep", () => {
+  it("registers Windows-only process utilities on win32, NOT ps/pgrep or wmic", () => {
     const r = freshRegistry({ platform: "win32" });
     expect(r.has("tasklist")).toBe(true);
     expect(r.has("taskkill")).toBe(true);
-    expect(r.has("wmic")).toBe(true);
+    // wmic removed by default on Win 11 22H2+; no longer registered.
+    // See change: replace-wmic-with-powershell.
+    expect(r.has("wmic")).toBe(false);
     expect(r.has("powershell")).toBe(true);
     // ps/pgrep are POSIX-only; they'd always show "not found" on Windows
     // and pollute the Tools UI with red rows the code never calls.

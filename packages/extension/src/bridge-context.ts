@@ -10,6 +10,14 @@ export interface BridgeContext {
   connection: ConnectionManager;
   /** Current session ID (mutated on session change: new/fork/resume) */
   sessionId: string;
+  /**
+   * Dashboard-attached OpenSpec change name, or `null` when none. Mirrored
+   * from server `attach_proposal_changed` pushes and replayed on
+   * `session_register`. Read by the `before_agent_start` injector to build
+   * the per-turn system-prompt fragment. See change:
+   * inject-session-context-into-agent.
+   */
+  attachedChange: string | null;
   cachedCtx: any;
   cachedModelRegistry: any;
   cachedHasUI: boolean | undefined;
@@ -28,13 +36,6 @@ export interface BridgeContext {
    * See change: add-worktree-spawn-dialog.
    */
   lastGitWorktreeJson: string | undefined;
-  /**
-   * Last serialized `JjState` snapshot sent to the server, or `null`
-   * when the previous probe explicitly cleared it. Compared on every
-   * probe tick so we only send `jj_state_update` when the value actually
-   * changes. See change: add-jj-workspace-plugin.
-   */
-  lastJjStateJson: string | undefined;
   lastSessionName: string | undefined;
   /**
    * `true` once the bridge's VCS tick has observed `existsSync(cwd) === false`

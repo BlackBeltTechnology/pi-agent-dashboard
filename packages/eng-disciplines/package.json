@@ -1,0 +1,41 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-eng-disciplines",
+  "version": "0.5.4",
+  "description": "Cross-cutting engineering-discipline skills for pi sessions \u2014 interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation. Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills (MIT).",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/eng-disciplines"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "pi-dashboard",
+    "engineering-discipline",
+    "security",
+    "performance",
+    "observability",
+    "code-review",
+    "refactoring"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/interview-me",
+      ".pi/skills/doubt-driven-review",
+      ".pi/skills/code-simplification",
+      ".pi/skills/security-hardening",
+      ".pi/skills/performance-optimization",
+      ".pi/skills/observability-instrumentation"
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "README.md",
+    "NOTICE"
+  ]
+}

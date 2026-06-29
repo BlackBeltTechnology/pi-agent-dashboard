@@ -104,14 +104,14 @@ describe("intent end-to-end: server broadcast → store → slot consumer → re
         { primitive: "ui:action-list", props: { actions: [{ label: "A" }] } },
       );
       intentStore.set(
-        { pluginId: "jj", sessionId: "abc", slot: "session-card-action-bar" },
-        { primitive: "ui:status-pill", props: { text: "jj-pill" } },
+        { pluginId: "goal", sessionId: "abc", slot: "session-card-action-bar" },
+        { primitive: "ui:status-pill", props: { text: "status-pill-x" } },
       );
     });
 
     // Both contributions render side-by-side.
     expect(container.textContent).toContain("A");
-    expect(container.textContent).toContain("jj-pill");
+    expect(container.textContent).toContain("status-pill-x");
   });
 
   it("intent set to null clears the rendering", () => {

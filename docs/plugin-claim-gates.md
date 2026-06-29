@@ -8,7 +8,7 @@ Two manifest fields on `PluginClaim` filter contributions. Differ in intent.
 - Runs at registry filter level (e.g. `forSession`).
 - Failing claim removed from slot's claim list entirely.
 - Use for structural targeting: claim does not apply to this session/folder/cwd.
-- Example: `jj-plugin` claims targeting only sessions where `isInJjRepo(session) === true`.
+- Example: claim targeting only sessions where a predicate over `session` returns `true`.
 
 ## shouldRender
 
@@ -17,7 +17,7 @@ Two manifest fields on `PluginClaim` filter contributions. Differ in intent.
 - Failing claim NOT mounted. Counts as absent for `useSlotHasClaimsForSession`.
 - Use when claim's Component conditionally returns `null` based on dynamic state.
 - MUST be sync. Plugins requiring async state maintain sync-readable cache, default `false` (closed) until populated.
-- Example: `honcho-plugin` `shouldRenderHonchoMemory` returns `false` when `pi-memory-honcho` extension uninstalled. Cache primed by `getHonchoExtensionInstalledSync` in `packages/honcho-plugin/src/client/hooks.ts`.
+- Example: `shouldRender` returns `false` when a required pi-extension uninstalled. Cache primed from `/api/health.plugins[].requirements`.
 
 ## When to pick which
 
@@ -38,5 +38,4 @@ Two manifest fields on `PluginClaim` filter contributions. Differ in intent.
 - `packages/shared/src/dashboard-plugin/manifest-types.ts` (`PluginClaim` interface)
 - `packages/dashboard-plugin-runtime/src/slot-registry.ts` (`ClaimEntry`, `forSessionRendered`)
 - `packages/dashboard-plugin-runtime/src/slot-consumers.tsx` (`useSlotHasClaimsForSession`)
-- `packages/honcho-plugin/src/client/shouldRender.ts` (concrete example)
 - `openspec/changes/auto-hide-empty-session-subcards` (architecture rationale)

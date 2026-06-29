@@ -140,18 +140,11 @@ adapter that renders `Confirm`/`Dialog`, so plugins consuming it through
 - **THEN** `packages/client/src/components/ConfirmDialog.tsx` SHALL NOT
   exist
 
-#### Scenario: Plugin clones removed
-
-- **WHEN** the change is complete
-- **THEN** `packages/jj-plugin/src/client/JjForgetConfirmDialog.tsx` and
-  `packages/jj-plugin/src/client/JjFoldBackDialog.tsx` SHALL NOT exist
-
 #### Scenario: No legacy relative imports remain
 
 - **WHEN** the change is complete
 - **THEN** no source file under `packages/` SHALL import from
-  `./ConfirmDialog`, `../ConfirmDialog`, `JjForgetConfirmDialog`, or
-  `JjFoldBackDialog`
+  `./ConfirmDialog` or `../ConfirmDialog`
 
 #### Scenario: Registry contract preserved
 

@@ -44,7 +44,7 @@ function redactAuthSecrets(auth: AuthConfig): AuthConfig {
 /**
  * Fields that require a server restart to take effect.
  */
-const RESTART_FIELDS = new Set(["port", "piPort"]);
+const RESTART_FIELDS = new Set(["port", "piPort", "bindHost"]);
 
 export interface WriteConfigResult {
   success: boolean;

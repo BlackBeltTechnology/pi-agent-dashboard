@@ -140,7 +140,7 @@ export interface InstallHints {
 
 /** Install guidance for one OS. */
 export interface PlatformInstallHint {
-  /** Package-manager label → install command (e.g. { brew: "brew install jj" }). */
+  /** Package-manager label → install command (e.g. { brew: "brew install zrok" }). */
   commands?: Record<string, string>;
   /** Free-form fallback when no package manager applies (e.g. "Pre-installed on macOS"). */
   manual?: string;

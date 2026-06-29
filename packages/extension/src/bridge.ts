@@ -10,7 +10,8 @@ import { ConnectionManager } from "./connection.js";
 import { detectSessionSource } from "./source-detector.js";
 import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
-import { createCommandHandler } from "./command-handler.js";
+import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
+import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
@@ -42,10 +43,12 @@ import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
-import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendJjStateIfChanged as _sendJjStateIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
+import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
+import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { resolveArtifactRoots, isUnderArtifactRoot } from "./artifact-roots.js";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   persistAttachment,
@@ -56,10 +59,10 @@ import {
 const HEARTBEAT_INTERVAL = 15_000;
 const GIT_POLL_INTERVAL = 30_000;
 // Platform-aware process scan cadence. Windows keeps the original 10 s /
-// 30 s floor because `wmic` / PowerShell are expensive and flash consoles;
+// 30 s floor because PowerShell Get-CimInstance is expensive and can flash consoles;
 // Unix uses 5 s / 5 s so legitimate bash subprocesses surface while still
 // running. See change: tighten-process-list-ux.
-const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly wmic/PowerShell
+const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly PowerShell Get-CimInstance
 const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: matches PROCESS_SCAN_INTERVAL's Windows-safe defaults
 
 
@@ -90,6 +93,13 @@ interface BridgeState {
    * var is gone. See change: fix-spawn-token-env-leak.
    */
   dashboardSpawned?: boolean;
+  /**
+   * Dashboard-attached OpenSpec change name persisted across reload so the
+   * `before_agent_start` injector keeps the fragment after `npm run reload`
+   * even before the server re-replays on `session_register`. `null`/absent
+   * when no change attached. See change: inject-session-context-into-agent.
+   */
+  attachedChange?: string | null;
 }
 function getBridgeState(): BridgeState {
   if (!(process as any)[BRIDGE_KEY]) {
@@ -162,6 +172,7 @@ function initBridge(pi: ExtensionAPI) {
   }
 
   let sessionId: string = prev.sessionId ?? crypto.randomUUID();
+  let attachedChange: string | null = prev.attachedChange ?? null;
   let sessionReady = false; // true after session_start has run
   let lastSessionFile: string | undefined;
   let lastSessionDir: string | undefined;
@@ -225,7 +236,6 @@ function initBridge(pi: ExtensionAPI) {
   }
   let lastGitBranch: string | undefined;
   let lastGitPrNumber: number | undefined;
-  let lastJjStateJson: string | undefined; // see change: add-jj-workspace-plugin
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog
   let lastCwdMissing: boolean | undefined; // see change: add-worktree-lifecycle-actions
   let lastSessionName: string | undefined;
@@ -915,19 +925,17 @@ function initBridge(pi: ExtensionAPI) {
       if (!isActive()) return; // Stale listener guard
       // Reset caches that aren't persisted server-side so the upcoming
       // 30s tick (and the inline calls below) re-emit the live state.
-      // See change: add-jj-workspace-plugin.
       const _bc = syncBc();
       _resetReconnectCaches(_bc);
       applyBc(_bc);
       sendStateSync();
-      // Force-emit jj/git state for the active session’s cwd. The bridge
+      // Force-emit git state for the active session’s cwd. The bridge
       // doesn't have direct ctx here, so we walk the active session.
       try {
         const activeId = (pi as any).getCurrentSessionId?.();
         const activeCtx = activeId ? (pi as any).getCtx?.(activeId) : (cachedCtx as any);
         if (activeCtx?.cwd) {
           sendGitInfoIfChanged(activeCtx.cwd);
-          sendJjStateIfChanged(activeCtx.cwd);
           sendCwdMissingIfChanged(activeCtx.cwd);
         }
       } catch { /* probe failure non-fatal */ }
@@ -972,6 +980,14 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // Mirror server attach/detach pushes into BridgeContext.attachedChange so
+    // the before_agent_start injector exposes it. See change:
+    // inject-session-context-into-agent.
+    onAttachProposalChanged: (next: string | null) => {
+      attachedChange = next;
+      const s = getBridgeState();
+      s.attachedChange = next;
+    },
     setThinkingLevel: (level: string) => (pi as any).setThinkingLevel?.(level),
     getThinkingLevel: () => (pi as any).getThinkingLevel?.(),
     setModel: async (provider: string, modelId: string) => {
@@ -1090,6 +1106,18 @@ function initBridge(pi: ExtensionAPI) {
       );
       if (handled) return;
 
+      // Exec-mode slash template (executable: bash): run the body as bash and
+      // skip the LLM entirely. Runs AFTER extension dispatch, BEFORE template
+      // expansion + sendUserMessage. See change: add-dashboard-slash-commands.
+      const ranExec = await tryExecSlashTemplate(
+        pi,
+        text,
+        process.cwd(),
+        sessionId,
+        (msg) => connection.send(msg),
+      );
+      if (ranExec) return;
+
       // Fallback: route the user prompt based on delivery + streaming state.
       //
       //   delivery="followUp" + streaming → buffer in bridgeFollowUp ONLY
@@ -1140,12 +1168,11 @@ function initBridge(pi: ExtensionAPI) {
   /** Sync local variables into BridgeContext for extracted module calls */
   function syncBc(): BridgeContext {
     return {
-      pi, connection, sessionId,
+      pi, connection, sessionId, attachedChange,
       cachedCtx, cachedModelRegistry, cachedHasUI,
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
       lastGitBranch, lastGitPrNumber, lastSessionName,
-      lastJjStateJson,
       lastGitWorktreeJson,
       lastCwdMissing,
       hasRegisteredOnce,
@@ -1156,6 +1183,7 @@ function initBridge(pi: ExtensionAPI) {
   /** Sync BridgeContext mutations back to local variables */
   function applyBc(bc: BridgeContext): void {
     sessionId = bc.sessionId;
+    attachedChange = bc.attachedChange;
     cachedCtx = bc.cachedCtx;
     cachedModelRegistry = bc.cachedModelRegistry;
     cachedHasUI = bc.cachedHasUI;
@@ -1167,7 +1195,6 @@ function initBridge(pi: ExtensionAPI) {
     lastGitBranch = bc.lastGitBranch;
     lastGitPrNumber = bc.lastGitPrNumber;
     lastSessionName = bc.lastSessionName;
-    lastJjStateJson = bc.lastJjStateJson;
     lastGitWorktreeJson = bc.lastGitWorktreeJson;
     lastCwdMissing = bc.lastCwdMissing;
     hasRegisteredOnce = bc.hasRegisteredOnce;
@@ -1179,7 +1206,6 @@ function initBridge(pi: ExtensionAPI) {
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
-  function sendJjStateIfChanged(cwd: string) { const bc = syncBc(); _sendJjStateIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
 
   // Forward all pi core events to the dashboard.
@@ -1491,6 +1517,32 @@ function initBridge(pi: ExtensionAPI) {
         maybeInlineAssistantImages(event);
       }
 
+      // Inline path-referenced image tool results (e.g. browser `screenshot`)
+      // as type:"image" content blocks at capture time. Gated to the artifact-
+      // root allowlist (default agent-browser screenshot dir +
+      // AGENT_BROWSER_SCREENSHOT_DIR) so arbitrary tool-echoed paths are not
+      // read/disclosed. Over-cap / out-of-root / missing / non-image paths are
+      // left as text and fall back to the artifact route.
+      // See change: inline-agent-screenshot-artifacts.
+      if (eventType === "tool_execution_end") {
+        try {
+          const artifactRoots = resolveArtifactRoots({
+            homedir: os.homedir(),
+            env: process.env,
+            realpathSync: fs.realpathSync,
+          });
+          const inlined = inlineToolResultImages((event as any).result, {
+            readFile: inlinerReadFile,
+            isAllowedPath: (p) => isUnderArtifactRoot(p, artifactRoots, fs.realpathSync),
+          });
+          if (inlined.inlinedCount > 0) {
+            (event as any).result = inlined.result;
+          }
+        } catch (err) {
+          console.error("[dashboard] tool-result image inline failed:", err);
+        }
+      }
+
       const msg = mapEventToProtocol(sessionId, event);
       connection.send(msg);
     }));
@@ -1506,6 +1558,17 @@ function initBridge(pi: ExtensionAPI) {
       connection.send(msg);
     }));
   }
+
+  // Per-turn system-prompt injector: splice dashboard session context
+  // (sessionId, cwd, attached OpenSpec change) into the system prompt. Reads
+  // live state via syncBc each turn; isActive guards against /reload stacking.
+  // Coexists with the pass-through before_agent_start forwarder above (pi
+  // chains { systemPrompt } results). See change: inject-session-context-into-agent.
+  registerDashboardContextInjector(
+    pi,
+    () => ({ sessionId, attachedChange }),
+    isActive,
+  );
 
   // Pi does NOT forward `queue_update` events to extensions (verified in
   // pi-coding-agent 0.71+ — see _emitExtensionEvent allowlist). Bridge
@@ -2127,9 +2190,8 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git + jj info
+    // Send initial git info
     sendGitInfoIfChanged(ctx.cwd);
-    sendJjStateIfChanged(ctx.cwd);
     sendCwdMissingIfChanged(ctx.cwd);
 
     // Start metrics monitor and heartbeat
@@ -2144,11 +2206,10 @@ function initBridge(pi: ExtensionAPI) {
     }, HEARTBEAT_INTERVAL);
     getBridgeState().timers!.push(heartbeatTimer);
 
-    // Start git + jj + name/model polling
+    // Start git + name/model polling
     gitPollTimer = setInterval(() => {
       if (!isActive()) return;
       sendGitInfoIfChanged(ctx.cwd);
-      sendJjStateIfChanged(ctx.cwd);
       sendCwdMissingIfChanged(ctx.cwd);
       sendSessionNameIfChanged();
       sendModelUpdateIfChanged();
@@ -2190,6 +2251,13 @@ function initBridge(pi: ExtensionAPI) {
 
   // Shared handler for session changes (new/fork/resume)
   function handleSessionChange(ctx: any) {
+    // Clear attachedChange on a real session switch (new/fork/resume): it is
+    // persisted globally + restored at activate, so without this the previous
+    // session's attached change would leak into the new session's prompt until
+    // the server replays. The server re-pushes the correct value for the new
+    // sessionId on its session_register. See change: inject-session-context-into-agent.
+    attachedChange = null;
+    getBridgeState().attachedChange = null;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
@@ -2205,7 +2273,6 @@ function initBridge(pi: ExtensionAPI) {
     if (gitPollTimer) clearInterval(gitPollTimer);
     gitPollTimer = setInterval(() => {
       sendGitInfoIfChanged(ctx.cwd);
-      sendJjStateIfChanged(ctx.cwd);
       sendCwdMissingIfChanged(ctx.cwd);
     }, GIT_POLL_INTERVAL);
   }
@@ -2282,6 +2349,7 @@ function initBridge(pi: ExtensionAPI) {
   state.cleanup = () => {
     const s = getBridgeState();
     s.sessionId = sessionId;
+    s.attachedChange = attachedChange;
     s.ctx = cachedCtx;
     s.modelRegistry = cachedModelRegistry;
     s.hasUI = cachedHasUI;

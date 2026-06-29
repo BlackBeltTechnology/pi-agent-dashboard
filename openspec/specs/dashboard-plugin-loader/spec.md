@@ -288,7 +288,7 @@ Both functions MUST be synchronous. Plugins requiring async state SHALL maintain
 
 #### Scenario: Manifest with shouldRender field is accepted
 
-- **WHEN** a manifest contains a claim with `"shouldRender": "shouldRenderHonchoMemory"`
+- **WHEN** a manifest contains a claim with `"shouldRender": "shouldRenderFlowBadge"`
 - **AND** the named function is exported from the plugin's client entry
 - **THEN** the loader SHALL resolve the string to the function reference and store it on the resolved `ClaimEntry.shouldRender`
 
@@ -661,7 +661,7 @@ The dashboard shell (`packages/client/src/App.tsx` or its successor entry compon
 - **WHEN** the shell renders `<SessionCardBadgeSlot session={s}/>` AND a plugin claims `session-card-badge` for a component that the shell **also** imports directly via legacy JSX
 - **THEN** the result is duplicate rendering of that component
 - **AND** the migration plan SHALL remove the legacy direct import in the same change that populates the registry, OR keep the slot empty until the legacy import is removed in a follow-up
-- **AND** a regression test SHALL verify no double-render exists for the four migrated cases (`FlowActivityBadge`, `SessionFlowActions`, `JjWorkspaceBadge`, `JjActionBar`).
+- **AND** a regression test SHALL verify no double-render exists for the migrated cases (`FlowActivityBadge`, `SessionFlowActions`).
 
 #### Scenario: Registry populated only at module load
 
@@ -765,27 +765,13 @@ Acceptable implementation strategies SHALL be either (a) relying on TypeScript's
 
 #### Scenario: Generated entry with session-shaped predicate on session slot compiles
 
-- **WHEN** the generator emits an entry `{ pluginId: "jj", … slot: "session-card-badge", predicate: isInJjWorkspace }` and `isInJjWorkspace` has signature `(s: DashboardSession | null | undefined) => boolean`
+- **WHEN** the generator emits an entry `{ pluginId: "flows", … slot: "session-card-badge", predicate: isInFlow }` and `isInFlow` has signature `(s: DashboardSession | null | undefined) => boolean`
 - **THEN** TypeScript SHALL accept the generated file without diagnostics.
 
 #### Scenario: Generated entry with mis-shaped predicate is a build error
 
 - **WHEN** a plugin manifest registers a predicate whose runtime signature is incompatible with the slot's `SlotPredicateInput<S>`
 - **THEN** TypeScript SHALL emit a type error during `npm run lint` (or any project type-check) naming the offending generated entry.
-
-### Requirement: Honcho plugin retypes `shouldRenderHonchoMemory` to the session-scoped input
-
-The in-tree `honcho-plugin` package SHALL retype `shouldRenderHonchoMemory` from `(_session: unknown) => boolean` to `(session: DashboardSession | null | undefined) => boolean`. The function body and runtime semantics SHALL be unchanged. This narrowing demonstrates the new contract on a session-scoped slot (`session-card-memory`) and surfaces stronger types for the plugin's own code.
-
-#### Scenario: Honcho shouldRender accepts a DashboardSession
-
-- **WHEN** the slot consumer for `session-card-memory` invokes `shouldRenderHonchoMemory(session)` with `session: DashboardSession`
-- **THEN** the call SHALL type-check and run identically to today.
-
-#### Scenario: Honcho shouldRender registered for folder-scoped slot would be a compile error
-
-- **WHEN** a hypothetical entry registers `shouldRenderHonchoMemory` (which now takes `DashboardSession | null | undefined`) for a folder-scoped slot
-- **THEN** TypeScript SHALL reject the registration because the predicate's parameter type is incompatible with `SlotPredicateInput<"sidebar-folder-section">` (`FolderDescriptor`).
 
 ### Requirement: Plugin runtime exposes UI primitive registry context
 
@@ -812,7 +798,7 @@ This expressly SUPERSEDES the model from `add-plugin-ui-primitive-registry` (arc
 
 #### Scenario: Slot consumer renders both legacy claim and intent contribution
 
-- **GIVEN** the legacy refs-registry has a claim for slot "session-card-action-bar" from plugin "jj"
+- **GIVEN** the legacy refs-registry has a claim for slot "session-card-action-bar" from plugin "automation"
 - **AND** the IntentStore has an intent for slot "session-card-action-bar" from plugin "flows" (which has migrated)
 - **WHEN** `SessionCardActionBarSlot` renders for the session
 - **THEN** the slot consumer SHALL render both contributions: the legacy claim's React component AND the intent-driven IntentRenderer output
@@ -949,8 +935,8 @@ For every row in the response, the server SHALL include:
 
 #### Scenario: Status payload includes displayName
 
-- **WHEN** plugin `jj` declares `displayName: "Jujutsu Workspaces"` in its manifest
-- **THEN** `/api/health.plugins[]` SHALL include an entry whose `id = "jj"` and `displayName = "Jujutsu Workspaces"`.
+- **WHEN** plugin `demo` declares `displayName: "Demo Plugin"` in its manifest
+- **THEN** `/api/health.plugins[]` SHALL include an entry whose `id = "demo"` and `displayName = "Demo Plugin"`.
 
 ### Requirement: `GET /api/plugins` SHALL list every discovered plugin
 
@@ -960,7 +946,7 @@ The endpoint SHALL NOT return entries for ids that are absent from `discoverPlug
 
 #### Scenario: Endpoint returns every discovered plugin
 
-- **WHEN** discovery finds four plugins `builtins`, `flows`, `honcho`, `jj`
+- **WHEN** discovery finds four plugins `builtins`, `flows`, `roles`, `demo`
 - **THEN** `GET /api/plugins` SHALL return all four entries with their manifest summary and status.
 
 #### Scenario: Endpoint requires authentication
@@ -981,8 +967,8 @@ The endpoint SHALL NOT take effect on the running process; the new enabled set t
 
 #### Scenario: Toggle persists and broadcasts
 
-- **WHEN** an authenticated client posts `{ "enabled": false }` to `/api/plugins/jj/toggle` and `jj` is in the discovered set
-- **THEN** the server SHALL set `plugins.jj.enabled = false` in `~/.pi/dashboard/config.json`, SHALL broadcast a `plugin_config_update` message with `id = "jj"`, and SHALL return 200 `{ restartRequired: true }`.
+- **WHEN** an authenticated client posts `{ "enabled": false }` to `/api/plugins/demo/toggle` and `demo` is in the discovered set
+- **THEN** the server SHALL set `plugins.demo.enabled = false` in `~/.pi/dashboard/config.json`, SHALL broadcast a `plugin_config_update` message with `id = "demo"`, and SHALL return 200 `{ restartRequired: true }`.
 
 #### Scenario: Toggle of unknown id returns 404
 
@@ -1026,13 +1012,13 @@ The slot-registry enabled-set filter SHALL apply to `getClaims("settings-section
 
 #### Scenario: Plugin settings render under their plugin row only
 
-- **WHEN** plugin `jj` declares a `settings-section` claim and is enabled
-- **THEN** opening the Plugins tab and clicking the gear affordance on the `jj` row SHALL render the plugin's settings section component beneath the row, and SHALL NOT render it inside the General, Servers, Providers, or Security tab.
+- **WHEN** plugin `roles` declares a `settings-section` claim and is enabled
+- **THEN** opening the Plugins tab and clicking the gear affordance on the `roles` row SHALL render the plugin's settings section component beneath the row, and SHALL NOT render it inside the General, Servers, Providers, or Security tab.
 
 #### Scenario: `tab` field is inert
 
-- **WHEN** plugin `jj` declares `{ slot: "settings-section", tab: "general", component: "JjSettings" }` and is enabled
-- **THEN** the validator SHALL accept the manifest without warning, the `JjSettings` component SHALL render only beneath the `jj` row in the Plugins tab, and the General tab SHALL NOT contain any plugin-contributed `settings-section` content.
+- **WHEN** plugin `roles` declares `{ slot: "settings-section", tab: "general", component: "RolesSettings" }` and is enabled
+- **THEN** the validator SHALL accept the manifest without warning, the `RolesSettings` component SHALL render only beneath the `roles` row in the Plugins tab, and the General tab SHALL NOT contain any plugin-contributed `settings-section` content.
 
 #### Scenario: Disabled plugin has a non-clickable gear and no settings rendering
 
@@ -1052,7 +1038,7 @@ The closed built-in service-probe registry SHALL ship with exactly one entry in 
 
 #### Scenario: Valid requires field accepted
 
-- **WHEN** a plugin declares `requires: { piExtensions: ["pi-memory-honcho"], services: ["pi-model-proxy"] }`
+- **WHEN** a plugin declares `requires: { piExtensions: ["@blackbelt-technology/pi-dashboard-subagents"], services: ["pi-model-proxy"] }`
 - **THEN** the validator SHALL accept the manifest.
 
 #### Scenario: Empty string entries rejected
@@ -1083,13 +1069,13 @@ When any plugin's `missingRequirements` changes between two consecutive refreshe
 
 #### Scenario: Probe report populated on first boot
 
-- **WHEN** plugin `honcho` declares `requires: { piExtensions: ["pi-memory-honcho"] }` and `pi-memory-honcho` is installed in pi
-- **THEN** after server start `/api/health.plugins[]` SHALL include `honcho` with `requirements.piExtensions = [{ name: "pi-memory-honcho", satisfied: true }]` and `missingRequirements = []`.
+- **WHEN** plugin `subagents` declares `requires: { piExtensions: ["@blackbelt-technology/pi-dashboard-subagents"] }` and `@blackbelt-technology/pi-dashboard-subagents` is installed in pi
+- **THEN** after server start `/api/health.plugins[]` SHALL include `subagents` with `requirements.piExtensions = [{ name: "@blackbelt-technology/pi-dashboard-subagents", satisfied: true }]` and `missingRequirements = []`.
 
 #### Scenario: Missing requirement surfaces in the status
 
-- **WHEN** plugin `honcho` declares `requires: { piExtensions: ["pi-memory-honcho"] }` and `pi-memory-honcho` is NOT installed in pi
-- **THEN** `/api/health.plugins[]` SHALL include `honcho` with `requirements.piExtensions = [{ name: "pi-memory-honcho", satisfied: false }]` and `missingRequirements = ["pi-memory-honcho"]`. The plugin's `loaded` field SHALL remain `true` and routes SHALL still register.
+- **WHEN** plugin `subagents` declares `requires: { piExtensions: ["@blackbelt-technology/pi-dashboard-subagents"] }` and `@blackbelt-technology/pi-dashboard-subagents` is NOT installed in pi
+- **THEN** `/api/health.plugins[]` SHALL include `subagents` with `requirements.piExtensions = [{ name: "@blackbelt-technology/pi-dashboard-subagents", satisfied: false }]` and `missingRequirements = ["@blackbelt-technology/pi-dashboard-subagents"]`. The plugin's `loaded` field SHALL remain `true` and routes SHALL still register.
 
 #### Scenario: piExtension installed from a local build satisfies the requirement
 
@@ -1098,13 +1084,13 @@ When any plugin's `missingRequirements` changes between two consecutive refreshe
 
 #### Scenario: Successful install refreshes probes and broadcasts
 
-- **WHEN** a `POST /api/packages/install` for `pi-memory-honcho` completes successfully and `honcho` previously reported `missingRequirements = ["pi-memory-honcho"]`
-- **THEN** the `package_operation_complete` listener SHALL trigger a probe refresh, the new report SHALL show `missingRequirements = []` for `honcho`, and the server SHALL broadcast `plugin_config_update` with `id = "honcho"`.
+- **WHEN** a `POST /api/packages/install` for `@blackbelt-technology/pi-dashboard-subagents` completes successfully and `subagents` previously reported `missingRequirements = ["@blackbelt-technology/pi-dashboard-subagents"]`
+- **THEN** the `package_operation_complete` listener SHALL trigger a probe refresh, the new report SHALL show `missingRequirements = []` for `subagents`, and the server SHALL broadcast `plugin_config_update` with `id = "subagents"`.
 
 #### Scenario: Binary probe resolves via the tool registry
 
-- **WHEN** plugin `jj` declares `requires: { binaries: ["jj"] }` and `jj` resolves on PATH via `ToolRegistry`
-- **THEN** the probe SHALL report `{ name: "jj", satisfied: true, resolvedPath: "<absolute-path>" }`.
+- **WHEN** plugin `demo` declares `requires: { binaries: ["gh"] }` and `gh` resolves on PATH via `ToolRegistry`
+- **THEN** the probe SHALL report `{ name: "gh", satisfied: true, resolvedPath: "<absolute-path>" }`.
 
 ### Requirement: The Subagents plugin SHALL NOT hard-depend on the Roles plugin
 
@@ -1133,7 +1119,7 @@ The Subagents plugin manifest SHALL NOT declare `roles` in its `dependsOn` array
 
 `bundle-server.mjs` SHALL copy every first-party `pi-dashboard-plugin` package under `packages/*-plugin/` into `<bundle>/resources/plugins/<id>/`, EXCEPT plugins whose manifest declares `fixture: true`. The runtime `findBundledPluginsDir()` SHALL locate the resulting directory at `~/.pi-dashboard/resources/plugins/` after extraction.
 
-The bundled set in this change SHALL include at minimum: `roles-plugin`, `jj-plugin`, `flows-plugin`, `honcho-plugin`, `flows-anthropic-bridge-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
+The bundled set in this change SHALL include at minimum: `roles-plugin`, `flows-plugin`, `flows-anthropic-bridge-plugin`. Fixture-only plugins (e.g. `demo-plugin`) SHALL be excluded.
 
 #### Scenario: Bundled plugins land under resources/plugins
 
@@ -1177,24 +1163,24 @@ The flat `missingRequirements` SHALL list the `name` of every unsatisfied entry 
 
 #### Scenario: Mixed-satisfaction report
 
-- **WHEN** plugin `honcho` declares `requires: { piExtensions: ["pi-memory-honcho"], services: ["pi-model-proxy"] }`, `pi-memory-honcho` is installed, and `pi-model-proxy` is not reachable
-- **THEN** `/api/health.plugins[]` SHALL include `honcho` with `requirements.piExtensions = [{ name: "pi-memory-honcho", satisfied: true }]`, `requirements.services = [{ name: "pi-model-proxy", satisfied: false, error: <reason> }]`, and `missingRequirements = ["pi-model-proxy"]`.
+- **WHEN** plugin `subagents` declares `requires: { piExtensions: ["@blackbelt-technology/pi-dashboard-subagents"], services: ["pi-model-proxy"] }`, `@blackbelt-technology/pi-dashboard-subagents` is installed, and `pi-model-proxy` is not reachable
+- **THEN** `/api/health.plugins[]` SHALL include `subagents` with `requirements.piExtensions = [{ name: "@blackbelt-technology/pi-dashboard-subagents", satisfied: true }]`, `requirements.services = [{ name: "pi-model-proxy", satisfied: false, error: <reason> }]`, and `missingRequirements = ["pi-model-proxy"]`.
 
 ### Requirement: `RecommendedExtension` SHALL support a companion-plugin field
 
 The `RecommendedExtension` type in `packages/shared/src/recommended-extensions.ts` SHALL accept an optional `dashboardPlugin?: string` naming the companion dashboard plugin id. The recommended-extensions enricher in `packages/server/src/routes/recommended-routes.ts` SHALL propagate the field and additionally compute `dashboardPluginInstalled: boolean` by looking the id up in the plugin status store.
 
-The shipped `RECOMMENDED_EXTENSIONS` const SHALL set `dashboardPlugin: "honcho"` on the `pi-memory-honcho` entry. No other entries SHALL set the field in this change.
+The shipped `RECOMMENDED_EXTENSIONS` const SHALL set `dashboardPlugin: "subagents"` on the `@blackbelt-technology/pi-dashboard-subagents` entry.
 
-#### Scenario: pi-memory-honcho carries dashboardPlugin field
+#### Scenario: subagents extension carries dashboardPlugin field
 
 - **WHEN** a client fetches `GET /api/packages/recommended`
-- **THEN** the entry with `id: "pi-memory-honcho"` SHALL include `dashboardPlugin: "honcho"`.
+- **THEN** the entry with `id: "@blackbelt-technology/pi-dashboard-subagents"` SHALL include `dashboardPlugin: "subagents"`.
 
 #### Scenario: Enricher reports companion-plugin install state
 
-- **WHEN** `pi-memory-honcho` is queried and the `honcho` plugin is present in the plugin status store
-- **THEN** the enriched entry SHALL include `dashboardPluginInstalled: true`; when `honcho` is not present, it SHALL include `dashboardPluginInstalled: false`.
+- **WHEN** `@blackbelt-technology/pi-dashboard-subagents` is queried and the `subagents` plugin is present in the plugin status store
+- **THEN** the enriched entry SHALL include `dashboardPluginInstalled: true`; when `subagents` is not present, it SHALL include `dashboardPluginInstalled: false`.
 
 ### Requirement: The Plugins tab SHALL surface missing requirements with one-click install via the existing installer
 
@@ -1204,10 +1190,10 @@ The change SHALL NOT introduce a new install endpoint, a new install hook, or an
 
 For unsatisfied requirements with no matching recommended-extensions entry, the UI SHALL render a `[Install via Packages tab]` link pointing at `/settings?tab=packages`.
 
-#### Scenario: Missing pi-memory-honcho renders inline Install button
+#### Scenario: Missing subagents extension renders inline Install button
 
-- **WHEN** plugin `honcho` reports `missingRequirements = ["pi-memory-honcho"]` and `RECOMMENDED_EXTENSIONS` contains an entry with `id: "pi-memory-honcho"` and `source: "npm:pi-memory-honcho"`
-- **THEN** the `honcho` row in the Plugins tab SHALL render a warning pill and an inline `[Install]` button; clicking the button SHALL invoke `usePackageOperations("global").install("npm:pi-memory-honcho")`.
+- **WHEN** plugin `subagents` reports `missingRequirements = ["@blackbelt-technology/pi-dashboard-subagents"]` and `RECOMMENDED_EXTENSIONS` contains an entry with `id: "@blackbelt-technology/pi-dashboard-subagents"` and `source: "npm:@blackbelt-technology/pi-dashboard-subagents"`
+- **THEN** the `subagents` row in the Plugins tab SHALL render a warning pill and an inline `[Install]` button; clicking the button SHALL invoke `usePackageOperations("global").install("npm:@blackbelt-technology/pi-dashboard-subagents")`.
 
 #### Scenario: Missing requirement without a recommended-extensions match falls back to a link
 

@@ -152,4 +152,3 @@ Repo-lint tests fail the `ci` job specifically. They're listed in `debug-dashboa
 - `debug-dashboard` — when the bug only reproduces locally
 - `implement` — back to writing the fix
 - `code-review` — review the fix before re-pushing
-- `jj-workspace` — if you're working in a `.shadow/` workspace and need to land the fix

@@ -12,7 +12,7 @@ import { createServer, type DashboardServer } from "../server.js";
  */
 
 async function connectSession(piPort: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -32,7 +32,7 @@ async function connectBrowser(browserPort: number, sessionId: string): Promise<{
   ws: WebSocket;
   broadcasts: Array<Record<string, unknown>>;
 }> {
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   const broadcasts: Array<Record<string, unknown>> = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
@@ -75,6 +75,7 @@ describe("unread trigger — server wiring", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -141,7 +142,7 @@ describe("unread trigger — server wiring", () => {
   });
 
   it("replay events do not flip unread", async () => {
-    const ws = new WebSocket(`ws://localhost:${piPort}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({

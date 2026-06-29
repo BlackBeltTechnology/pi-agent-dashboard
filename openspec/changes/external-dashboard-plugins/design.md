@@ -2,7 +2,7 @@
 
 The dashboard plugin runtime (`dashboard-plugin-architecture`, `dashboard-plugin-loader`) shipped expecting all plugins to live as workspace packages under `<dashboard-cwd>/packages/*`. That works for first-party plugins like `demo-plugin`, but blocks third-party plugins from shipping. Two real plugins want to land:
 
-1. **Honcho settings screen** for `pi-memory-honcho`. The extension already works in TUI + dashboard via generic rendering, but its 7-step `ctx.ui.input` setup wizard is hostile and there is no native control over `~/.honcho/config.json`. A `settings-section` claim in the plugin runtime solves this in ~150 LOC of plugin code.
+1. **Companion settings screen** for `@blackbelt-technology/pi-dashboard-subagents`. The extension already works in TUI + dashboard via generic rendering, but its 7-step `ctx.ui.input` setup wizard is hostile and there is no native control over the plugin's own config. A `settings-section` claim in the plugin runtime solves this in ~150 LOC of plugin code.
 
 2. **OpenSpec plugin variants / future community plugins** that may ship out-of-tree.
 

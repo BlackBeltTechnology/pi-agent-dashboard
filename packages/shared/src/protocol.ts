@@ -197,19 +197,6 @@ export interface GitInfoUpdateMessage {
   gitWorktree?: import("./types.js").GitWorktreeInfo | null;
 }
 
-/**
- * Bridge → server: jj workspace state for the session's cwd.
- * Sent only when the bridge's VCS probe finds `.jj/` AND `jj` resolves
- * via the tool registry. Cleared (sent with `jjState: null`) when the
- * session leaves a jj repo (e.g. cwd switch). See change: add-jj-workspace-plugin.
- */
-export interface JjStateUpdateMessage {
-  type: "jj_state_update";
-  sessionId: string;
-  /** `null` clears the session's `jjState` field on the server. */
-  jjState: import("./types.js").JjState | null;
-}
-
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
 
 export interface ModelsListMessage {
@@ -508,7 +495,6 @@ export type ExtensionToServerMessage =
   | ExtensionUiRequestMessage
   | FilesListMessage
   | GitInfoUpdateMessage
-  | JjStateUpdateMessage
   | SessionNameUpdateMessage
   | ModelsListMessage
   | ProvidersListMessage
@@ -773,6 +759,20 @@ export interface PromoteFollowupEntryToExtensionMessage {
   index: number;
 }
 
+/**
+ * Server → extension: the dashboard-attached OpenSpec change for `sessionId`
+ * changed (attach sets `attachedChange` to the change name; detach sets it to
+ * `null`). The bridge mirrors this into `BridgeContext.attachedChange`, which
+ * the `before_agent_start` injector reads to build the per-turn system-prompt
+ * fragment. Replayed on every `session_register` so a reattaching bridge picks
+ * up current state. See change: inject-session-context-into-agent.
+ */
+export interface AttachProposalChangedExtensionMessage {
+  type: "attach_proposal_changed";
+  sessionId: string;
+  attachedChange: string | null;
+}
+
 export type ServerToExtensionMessage =
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
@@ -805,4 +805,5 @@ export type ServerToExtensionMessage =
   | ClearFollowupEntriesToExtensionMessage
   | EditFollowupEntryToExtensionMessage
   | RemoveFollowupEntryToExtensionMessage
-  | PromoteFollowupEntryToExtensionMessage;
+  | PromoteFollowupEntryToExtensionMessage
+  | AttachProposalChangedExtensionMessage;

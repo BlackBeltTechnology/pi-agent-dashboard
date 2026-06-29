@@ -12,13 +12,17 @@ screenshots). It owns rendered-UI behaviour assertions.
 ## Prerequisites
 
 - **Docker** (running) — the suite boots the `docker/` test container.
-- **Chromium for Playwright** (one-time):
+- **Chromium for Playwright** — installed automatically. `npm run test:e2e` /
+  `npm run test:e2e:ui` run a `playwright install chromium` step first (a
+  sub-second no-op once installed). Browsers are NOT vendored.
+
+  If you bypass the npm scripts (e.g. `npx playwright test`, IDE runners, or
+  `PW_E2E_USE_RUNNING=1 playwright test`), `globalSetup` fails fast — before the
+  container boots — when the browser is missing, with the exact fix:
 
   ```bash
   npx playwright install chromium
   ```
-
-  Browsers are NOT vendored; install them locally once.
 
 ## Run
 
@@ -80,7 +84,13 @@ step.
 | `tests/e2e/lifecycle.ts` | Shared paths, health poll, marker, `PW_E2E_USE_RUNNING` |
 | `tests/e2e/smoke.spec.ts` | Wiring proof: shell renders + no disconnect banner |
 | `tests/e2e/session-spawn.spec.ts` | Scenario 5.1: pin git fixture → spawn → card appears (authoritative WS round-trip). Needs `PI_E2E_SEED=1`. |
-| `tests/e2e/helpers/` | `gotoDashboard(page)` + testid→locator map |
+| `tests/e2e/faux-text.spec.ts` | Faux round-trip: `[[faux:plain-text]]` → scripted assistant text renders. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/faux-tool.spec.ts` | Faux round-trip: `[[faux:tool-read]]` → read tool renderer mounts. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/faux-ask.spec.ts` | Faux round-trip: `[[faux:ask-select]]` → interactive select widget mounts. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/tool-output-links.spec.ts` | Faux round-trip: `[[faux:text-difflinks]]` → assistant diff header linkifies; clicking `a/src/ghost.ts` strips the diff prefix (previews `src/ghost.ts`) and FilePreviewOverlay shows the stale-file "no longer exists" message. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/tool-output-selection.spec.ts` | Faux round-trip: `[[faux:text-linkrefs]]` → inline-code FileLink + UrlLink. Asserts `user-select:text` / `draggable=false`, a mouse drag crossing each link extends the selection (links don't hijack the drag), and a plain click still opens the preview. Task 3.2. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/inline-screenshot.spec.ts` | Faux round-trip: `[[faux:tool-screenshot]]` → real `bash` writes a PNG + echoes `Screenshot saved: <path>`; the bridge's `inlineToolResultImages` inlines it as a `type:"image"` block. Asserts an inline `data:image/png` `<img>` is visible (auto-expanded) and the consumed path is NOT linkified (D5). Change: inline-agent-screenshot-artifacts (automates task 4.2). Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/helpers/` | `gotoDashboard(page)`, `ensureGitSession(page)`, `sendPrompt(page, text)` + testid→locator map |
 
 ## Conventions
 
@@ -93,6 +103,22 @@ step.
   arrange step and assume no pre-existing session/folder/VCS root.
 - New browser-level scenarios go here as Playwright specs — NOT in
   `qa/tests/*.sh,*.ps1` (those stay CLI/process smoke).
+
+### Faux model round-trip (key-free)
+
+The faux specs drive a real `prompt → model → streamed events → rendered DOM`
+round-trip with **no LLM credential**. Under `PI_E2E_SEED=1` the harness stages
+pi-ai's scriptable faux provider as a global auto-discovered extension and seeds
+`defaultModel: faux/faux-1`, so every UI-spawned session routes to it.
+
+A spec selects its scripted scenario per prompt via a `[[faux:<scenario-id>]]`
+**sentinel** prefix, e.g. `sendPrompt(page, "[[faux:tool-read]] go")`. The faux
+fixture (`qa/fixtures/faux-provider.ext.ts`) reads the sentinel from the latest
+user message and replays the matching scenario from the catalog
+(`qa/fixtures/faux-scenarios.ts`); the step within a multi-step scenario is the
+count of assistant turns since that message. No sentinel → the `FAUX_SCRIPT` env
+fallback. The visible sentinel in the user bubble is inert — assertions select
+on the scripted reply, never the echoed prompt.
 
 ## Not run by `npm test`
 

@@ -49,7 +49,7 @@ function classify(strategyName: string): Source {
  * attached to definitions and surfaced only by `list()` / REST so the
  * Settings → Tools UI can render an `[Install ▾]` dropdown on missing
  * rows. Only user-installable binaries appear here; platform utilities
- * (wmic, powershell, ps, pgrep, …) ship with the OS and have no entry.
+ * (powershell, tasklist, ps, pgrep, …) ship with the OS and have no entry.
  *
  * `docsAnchor` values MUST match an `<h2>`/`<h3>` anchor in docs/faq.md
  * (enforced by install-hints.test.ts). Commands sourced from vendor docs.
@@ -134,29 +134,6 @@ const INSTALL_HINTS: Record<string, InstallHints> = {
     linux: {
       commands: { apt: "sudo apt install gh", dnf: "sudo dnf install gh" },
       url: "https://github.com/cli/cli/blob/trunk/docs/install_linux.md",
-    },
-  },
-  jj: {
-    docsAnchor: "install-jj",
-    darwin: {
-      commands: { brew: "brew install jj" },
-      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
-    },
-    win32: {
-      commands: {
-        winget: "winget install jj-vcs.jj",
-        scoop: "scoop install jj",
-        cargo: "cargo install --locked --bin jj jj-cli",
-      },
-      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
-    },
-    linux: {
-      commands: {
-        brew: "brew install jj",
-        cargo: "cargo install --locked --bin jj jj-cli",
-        pacman: "sudo pacman -S jujutsu",
-      },
-      url: "https://docs.jj-vcs.dev/latest/install-and-setup/",
     },
   },
   zrok: {
@@ -661,7 +638,6 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   // See change: fix-node-resolution-under-electron (task 3.3).
   registry.register(npxBinaryDef(deps));
   registry.register(binaryDef("git", deps));
-  registry.register(binaryDef("jj", deps));
   registry.register(binaryDef("zrok", deps));
   // GitHub CLI — used by the worktree-lifecycle `pr` endpoint.
   // Optional; if missing the endpoint returns code `gh_not_found`.
@@ -679,11 +655,12 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   //
   // Windows system utilities used by the bridge's process scanner.
   // Registered so callers resolve to full `.exe` paths (e.g.
-  // `C:\Windows\System32\wbem\wmic.exe`) and spawn directly — no
-  // PATHEXT resolution, no cmd.exe wrapping, windowsHide:true honored
-  // all the way down. See change: consolidate-windows-spawn-and-platform-handlers.
+  // `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`) and spawn
+  // directly — no PATHEXT resolution, no cmd.exe wrapping, windowsHide:true
+  // honored all the way down. wmic NOT registered: removed by default on
+  // Win 11 22H2+, all introspection now uses PowerShell Get-CimInstance.
+  // See change: replace-wmic-with-powershell.
   if (registry.getPlatform() === "win32") {
-    registry.register(binaryDef("wmic", deps));
     registry.register(binaryDef("powershell", deps));
     registry.register(binaryDef("tasklist", deps));
     registry.register(binaryDef("taskkill", deps));

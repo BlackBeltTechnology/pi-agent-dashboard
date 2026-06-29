@@ -68,17 +68,6 @@ export interface SessionMeta {
   gitWorktree?: { mainPath?: string; name?: string };
 
   /**
-   * jj-workspace parentage persisted for cold-start session grouping.
-   * Only the grouping-relevant subset of `DashboardSession.jjState` is
-   * stored (`workspaceRoot` collapses `.shadow/<name>/` sessions under
-   * their parent repo; `workspaceName` drives the cluster key). Volatile
-   * probe state (`bookmarks`, `isColocated`, `lastError`) is NOT persisted
-   * — a live bridge overwrites the full `jjState` on attach.
-   * See change: fix-cold-start-worktree-session-grouping.
-   */
-  jjState?: { workspaceRoot?: string; workspaceName?: string };
-
-  /**
    * Sparse per-session override for chat-view display preferences.
    * Deep-merged onto the global `DisplayPrefs` from `preferences.json`.
    * `undefined` (field absent) means "no override — use global".

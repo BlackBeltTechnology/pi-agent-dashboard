@@ -91,6 +91,9 @@ export function parseArgs(args: string[]): ParsedArgs {
     if (arg === "--port" && next) {
       flags.port = parseInt(next, 10);
       i++;
+    } else if (arg === "--host" && next && !next.startsWith("--")) {
+      flags.host = next;
+      i++;
     } else if (arg === "--pi-port" && next) {
       flags.piPort = parseInt(next, 10);
       i++;
@@ -112,6 +115,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
   return {
     port: flags.port ?? (parseInt(process.env.PI_DASHBOARD_PORT ?? "") || null) ?? fileConfig.port,
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
+    host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
     dev: flags.dev ?? false,
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,

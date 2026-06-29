@@ -35,6 +35,18 @@ describe("themes", () => {
     expect(base.light["--text-primary"]).toBe("#1a1a1a");
   });
 
+  it("every theme defines the semantic status tokens, derived from its accents", () => {
+    for (const theme of THEMES) {
+      for (const mode of ["dark", "light"] as const) {
+        const vars = theme[mode];
+        expect(vars["--status-needs-you"], `${theme.id} ${mode}`).toBe("var(--accent-purple)");
+        expect(vars["--status-working"], `${theme.id} ${mode}`).toBe("var(--accent-yellow)");
+        expect(vars["--status-idle"], `${theme.id} ${mode}`).toBe("var(--accent-green)");
+        expect(vars["--status-error"], `${theme.id} ${mode}`).toBe("var(--accent-red)");
+      }
+    }
+  });
+
   it("getTheme returns undefined for unknown id", () => {
     expect(getTheme("nonexistent")).toBeUndefined();
   });

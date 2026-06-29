@@ -13,7 +13,7 @@ import { createServer, type DashboardServer } from "../server.js";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function connectSession(piPort: number, sessionId: string, pid?: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({ type: "session_register", sessionId, cwd: "/tmp", source: "cli", pid }));
@@ -25,7 +25,7 @@ async function connectSession(piPort: number, sessionId: string, pid?: number): 
 }
 
 async function connectBrowser(browserPort: number, sessionId: string, sink: any[]): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   // Attach the message listener synchronously so the `sessions_snapshot`
   // sent on connect (the replay path for stored processes) is captured.
   ws.on("message", (raw) => {
@@ -46,6 +46,7 @@ describe("process_list classification — server wiring", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

@@ -1,9 +1,9 @@
-import React, { useRef } from "react";
-import { Icon } from "@mdi/react";
 import { mdiArrowLeft, mdiLoading } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useRef } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { MarkdownSearch } from "./MarkdownSearch.js";
-import { t as i18nT } from "../lib/i18n";
 
 export interface PreviewTab {
   id: string;
@@ -90,7 +90,7 @@ export function MarkdownPreviewView({
           </div>
         )}
         {content && !isLoading && !error && (
-          <MarkdownContent content={content} />
+          <MarkdownContent content={content} frontmatter="properties" />
         )}
       </div>
     </div>

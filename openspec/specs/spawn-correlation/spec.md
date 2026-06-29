@@ -5,7 +5,7 @@
 Strong correlation of every dashboard-initiated spawn to the eventual `session_register` from the bridge, using a server-minted UUIDv4 `spawnToken` injected via the `PI_DASHBOARD_SPAWN_TOKEN` environment variable, plus a client-minted UUIDv4 `requestId` for browser→server result echo and `session_added` broadcast correlation. Eliminates cwd-FIFO ambiguity when multiple spawns share a cwd.
 ## Requirements
 ### Requirement: Server mints a `spawnToken` for every spawn invocation
-The server SHALL mint a UUIDv4 (`crypto.randomUUID()`) `spawnToken` for every call to `spawnPiSession()`, regardless of strategy (`tmux`, `wt`, `wsl-tmux`, `headless`) and regardless of trigger (`spawn_session`, `resume_session`, auto-resume-on-prompt, headless reload, jj workspace operations). The token SHALL be passed to `spawnPiSession` (or generated inside it) and SHALL be used to populate every registry entry related to that spawn invocation.
+The server SHALL mint a UUIDv4 (`crypto.randomUUID()`) `spawnToken` for every call to `spawnPiSession()`, regardless of strategy (`tmux`, `wt`, `wsl-tmux`, `headless`) and regardless of trigger (`spawn_session`, `resume_session`, auto-resume-on-prompt, headless reload). The token SHALL be passed to `spawnPiSession` (or generated inside it) and SHALL be used to populate every registry entry related to that spawn invocation.
 
 #### Scenario: Token minted on browser-initiated spawn
 - **WHEN** `handleSpawnSession` invokes `spawnPiSession(cwd, opts)`

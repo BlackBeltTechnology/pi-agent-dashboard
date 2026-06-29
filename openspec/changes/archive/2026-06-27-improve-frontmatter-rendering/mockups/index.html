@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Frontmatter rendering — mockups</title>
+<link rel="stylesheet" href="shared.css"/>
+<style>
+  .wrap{max-width:760px;margin:0 auto;padding:34px 22px 80px}
+  h1.big{font-size:1.7em;color:var(--text-primary);font-weight:660;margin:0 0 6px}
+  .sub{color:var(--text-muted);margin:0 0 26px}
+  .cards{display:grid;gap:12px}
+  a.card{display:block;text-decoration:none;border:1px solid var(--border-secondary);border-radius:10px;padding:15px 17px;background:var(--bg-secondary)}
+  a.card:hover{background:var(--bg-hover);border-color:var(--accent-blue)}
+  a.card .t{color:var(--text-primary);font-weight:600;font-size:14px;margin:0 0 3px}
+  a.card .d{color:var(--text-tertiary);font-size:12.5px;margin:0}
+  .tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--accent-green);border:1px solid color-mix(in srgb,var(--accent-green) 35%,transparent);border-radius:4px;padding:0 5px;margin-left:8px;vertical-align:middle}
+</style>
+</head>
+<body>
+  <div class="mk-top">
+    <h1>Frontmatter rendering — mockups</h1>
+    <span class="spacer"></span>
+    <button onclick="toggleTheme()">Theme</button>
+  </div>
+  <div class="wrap">
+    <h1 class="big">Obsidian-style Properties panel</h1>
+    <p class="sub">Rich typed frontmatter, collapsed by default, per-surface opt-in. All mockups use the real dashboard theme tokens. Toggle theme top-right.</p>
+    <div class="cards">
+      <a class="card" href="obsidian.html"><p class="t">Component — collapsed vs expanded <span class="tag">core</span></p><p class="d">The Properties panel itself: typed rows, icons, chips, badges, dates, booleans. Side-by-side states.</p></a>
+      <a class="card" href="dialog.html"><p class="t">In context — FilePreviewOverlay</p><p class="d">A SKILL.md opened in the file-preview modal. Collapsed header above the rendered body.</p></a>
+      <a class="card" href="preview.html"><p class="t">In context — MarkdownPreviewView</p><p class="d">An OpenSpec proposal with back button + proposal/design/tasks tabs.</p></a>
+      <a class="card" href="edge-cases.html"><p class="t">Edge cases</p><p class="d">Malformed YAML, empty/null, nested objects, many fields, links, single field.</p></a>
+    </div>
+  </div>
+</body>
+</html>

@@ -15,6 +15,7 @@
 export {
   slugifyBranch,
   localNameOf,
+  resolveCheckoutLocalName,
   resolveDefaultBase,
   type ResolveDefaultBaseInput,
   type ResolveDefaultBaseResult,

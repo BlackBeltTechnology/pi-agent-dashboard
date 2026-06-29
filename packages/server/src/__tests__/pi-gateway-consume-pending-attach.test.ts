@@ -49,8 +49,9 @@ describe("consume-on-register flow", () => {
     expect(updates[0]!.u.attachedProposal).toBe("add-foo");
     // Empty/witness name → auto-rename fires.
     expect(updates[0]!.u.name).toBe("add-foo");
-    expect(piSent).toHaveLength(1);
+    expect(piSent).toHaveLength(2);
     expect(piSent[0]!.msg).toMatchObject({ type: "rename_session", sessionId: "s99", name: "add-foo" });
+    expect(piSent[1]!.msg).toMatchObject({ type: "attach_proposal_changed", sessionId: "s99", attachedChange: "add-foo" });
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]!).toMatchObject({
       type: "session_updated",
@@ -91,9 +92,11 @@ describe("consume-on-register flow", () => {
     const { ctx, updates, piSent } = makeCtx({ name: "my-custom-name" });
     applyAttachProposal("s99", "add-foo", ctx);
     expect(updates[0]!.u.attachedProposal).toBe("add-foo");
-    // attachRenameTarget returns undefined when name is non-empty/non-witness.
+    // attachRenameTarget returns undefined when name is non-empty/non-witness,
+    // so no rename_session — but the attach_proposal_changed bridge push still fires.
     expect("name" in updates[0]!.u).toBe(false);
-    expect(piSent).toHaveLength(0);
+    expect(piSent).toHaveLength(1);
+    expect(piSent[0]!.msg).toMatchObject({ type: "attach_proposal_changed", sessionId: "s99", attachedChange: "add-foo" });
   });
 
   it("calling applyAttachProposal twice with same name is idempotent", () => {

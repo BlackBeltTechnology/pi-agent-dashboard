@@ -1,60 +1,63 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
-import { mdiChevronRight, mdiChevronDown, mdiChevronUp, mdiPlus, mdiPin, mdiFolder, mdiFolderOpen, mdiConsoleLine, mdiCog, mdiPuzzleOutline } from "@mdi/js";
-import { PiLogo } from "./PiLogo.js";
-import { FolderActionBar } from "./FolderActionBar.js";
-import { FolderSpawnButtons } from "./FolderSpawnButtons.js";
-import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
-import { encodeFolderPath } from "../lib/folder-encoding.js";
-import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { SortableSessionCard } from "./SortableSessionCard.js";
-import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
-import { SortableWorkspace } from "./SortableWorkspace.js";
-import { SortableWorkspaceFolder } from "./SortableWorkspaceFolder.js";
-import { sameTypeClosestCenter, resolveWorkspaceReorder, resolveWorkspaceFolderReorder } from "../lib/sidebar-dnd.js";
-import type { DashboardSession, OpenSpecData, OpenSpecGroup, CommandInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import {
-  groupSessionsByDirectory,
-  groupSessionsByDirectoryWithWorkspaces,
-  filterSessions,
-  filterByQuery,
-  sortSessionsByOrder,
-  type DirectoryGroup,
-} from "../lib/session-grouping.js";
-import { WorkspaceHeader } from "./WorkspaceHeader.js";
-import { NewWorkspaceDialog } from "./NewWorkspaceDialog.js";
-import { AddToWorkspaceMenu } from "./AddToWorkspaceMenu.js";
-import { PinDirectoryDialog } from "./PinDirectoryDialog.js";
+import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { DndContext, type DragEndEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
+import { useFolderUrgencySort } from "../hooks/useFolderUrgencySort.js";
+import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
+import { maybeAutoInitWorktreeOnSpawn } from "../lib/auto-init-worktree.js";
+import { openEditor } from "../lib/editor-api.js";
+import { encodeFolderPath } from "../lib/folder-encoding.js";
+import { t as i18nT } from "../lib/i18n";
+import { useI18n } from "../lib/i18n.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
-  setCollapsedGroups,
   pruneStaleCollapsedGroups,
   removeLegacyHiddenSessions,
+  setCollapsedGroups,
 } from "../lib/session-filter-storage.js";
-import { SessionCard, GroupGitInfo, EditorButtons, branchCache } from "./SessionCard.js";
-import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
-import { FolderOpenSpecSection } from "./FolderOpenSpecSection.js";
-import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { ThemeToggle } from "./ThemeToggle.js";
-import { ThemePicker } from "./ThemePicker.js";
-import { useEditors } from "../lib/use-editors.js";
-import { openEditor } from "../lib/editor-api.js";
-import { Toast, useToast } from "./Toast.js";
-import { BranchSwitchDialog } from "./BranchSwitchDialog.js";
-import { WorktreeSpawnDialog } from "./WorktreeSpawnDialog.js";
-import { maybeAutoInitWorktreeOnSpawn } from "../lib/auto-init-worktree.js";
-import { truncatePathMiddle } from "../lib/truncate-path.js";
+import {
+  type DirectoryGroup,
+  filterByQuery,
+  filterSessions,
+  groupSessionsByDirectory,
+  groupSessionsByDirectoryWithWorkspaces,
+  sortSessionsByOrder,
+} from "../lib/session-grouping.js";
 import { selectedCardScrollFingerprint } from "../lib/session-list-scroll.js";
-import { TunnelButton } from "./TunnelButton.js";
+import { floatAskUserFirst } from "../lib/session-status-visuals.js";
+import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../lib/sidebar-dnd.js";
+import { truncatePathMiddle } from "../lib/truncate-path.js";
+import { useEditors } from "../lib/use-editors.js";
+import { AddToWorkspaceMenu } from "./AddToWorkspaceMenu.js";
+import { BranchSwitchDialog } from "./BranchSwitchDialog.js";
+import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
+import { FolderActionBar } from "./FolderActionBar.js";
+import { FolderNeedsYouPill } from "./FolderNeedsYouPill.js";
+import { FolderOpenSpecSection } from "./FolderOpenSpecSection.js";
+import { FolderSpawnButtons } from "./FolderSpawnButtons.js";
 import { InstallButton } from "./InstallButton.js";
-import { useInstallPrompt } from "../hooks/useInstallPrompt.js";
-import { useI18n } from "../lib/i18n.js";
-import { t as i18nT } from "../lib/i18n";
+import { NewWorkspaceDialog } from "./NewWorkspaceDialog.js";
+import { PiLogo } from "./PiLogo.js";
+import { PinDirectoryDialog } from "./PinDirectoryDialog.js";
+import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
+import { branchCache, EditorButtons, GroupGitInfo, SessionCard } from "./SessionCard.js";
+import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
+import { SortableSessionCard } from "./SortableSessionCard.js";
+import { SortableWorkspace } from "./SortableWorkspace.js";
+import { SortableWorkspaceFolder } from "./SortableWorkspaceFolder.js";
+import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
+import { ThemePicker } from "./ThemePicker.js";
+import { ThemeToggle } from "./ThemeToggle.js";
+import { Toast, useToast } from "./Toast.js";
+import { TunnelButton } from "./TunnelButton.js";
+import { WorkspaceHeader } from "./WorkspaceHeader.js";
+import { WorktreeSpawnDialog } from "./WorktreeSpawnDialog.js";
 
 
 export interface ContextUsageInfo {
@@ -68,6 +71,12 @@ interface Props {
   onSelect: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
+  /**
+   * Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
+   * Outranks child-session branches in `GroupGitInfo`. See change:
+   * refresh-folder-header-branch.
+   */
+  folderGitMap?: Map<string, string | null>;
   openspecGroupsMap?: Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>;
   sessionOrderMap?: Map<string, string[]>;
   onReorderSessions?: (cwd: string, sessionIds: string[]) => void;
@@ -179,7 +188,7 @@ interface Props {
 }
 
 // Re-export for backwards compatibility
-export { groupSessionsByDirectory, filterSessions, type DirectoryGroup } from "../lib/session-grouping.js";
+export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from "../lib/session-grouping.js";
 
 function ToggleButton({
   active,
@@ -204,7 +213,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -310,6 +319,9 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // bottom toggles. State is keyed by cwd; absent = collapsed (default).
   // The session-search query auto-expands ended in matching folders.
   const [endedExpanded, setEndedExpanded] = useState<Set<string>>(new Set());
+  // Per-folder opt-in urgency sort (default off). See change:
+  // improve-dashboard-attention-routing.
+  const urgencySort = useFolderUrgencySort();
   const toggleEndedExpanded = useCallback((cwd: string) => {
     setEndedExpanded((prev) => {
       const next = new Set(prev);
@@ -645,6 +657,40 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               <span className="font-bold text-base truncate">{lastSegment}</span>
             </span>
             <span className="text-[10px] text-[var(--text-muted)]">({group.sessions.length})</span>
+            {/* Needs-you rollup: count of chat-routed ask_user children.
+                Pill resolves the target id (widget-bar excluded) and passes it
+                up; we select + scroll it into view.
+                See change: improve-dashboard-attention-routing. */}
+            <FolderNeedsYouPill
+              sessions={group.sessions}
+              onActivate={(sessionId) => {
+                if (!sessionId) return;
+                if (isCollapsed) handleToggleCollapse(group.cwd);
+                onSelect(sessionId);
+                const escaped =
+                  typeof window !== "undefined" && typeof window.CSS?.escape === "function"
+                    ? window.CSS.escape(sessionId)
+                    : sessionId.replace(/"/g, '\\"');
+                requestAnimationFrame(() => {
+                  document
+                    .querySelector(`[data-session-id="${escaped}"]`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                });
+              }}
+            />
+            {/* Opt-in per-folder urgency sort toggle (default off). Floats
+                blocked sessions to the top. See change:
+                improve-dashboard-attention-routing. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); urgencySort.toggle(group.cwd); }}
+              className={`px-1 py-0.5 rounded ${urgencySort.isOn(group.cwd) ? "text-[var(--status-needs-you)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"}`}
+              title={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
+              aria-label={t("sessionList.urgencySort", undefined, "Float blocked sessions to top")}
+              aria-pressed={urgencySort.isOn(group.cwd)}
+              data-testid={`folder-urgency-sort-${group.cwd}`}
+            >
+              <Icon path={mdiSortVariant} size={0.5} />
+            </button>
             {/* Pin/Unpin toggle. Hidden inside a workspace container — pin
                 is irrelevant for visibility/ordering there. The pin state
                 itself is preserved on the server (orthogonal to workspace
@@ -668,6 +714,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             <GroupGitInfo
               sessions={group.sessions}
               cwd={group.cwd}
+              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
               onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
           </div>
@@ -768,10 +815,16 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             // backfills by endedAt on first load (migration seed).
             // See change: simplify-session-card-ordering.
             const order = sessionOrderMap?.get(group.cwd);
-            const activeSessions = sortSessionsByOrder(
+            const activeSessionsOrdered = sortSessionsByOrder(
               matched.filter((s) => s.status !== "ended"),
               order,
             );
+            // Opt-in urgency sort floats ask_user sessions to the top of the
+            // active tier (stable within groups). See change:
+            // improve-dashboard-attention-routing.
+            const activeSessions = urgencySort.isOn(group.cwd)
+              ? floatAskUserFirst(activeSessionsOrdered)
+              : activeSessionsOrdered;
             const endedSessions = sortSessionsByOrder(
               matched.filter((s) => s.status === "ended"),
               order,
@@ -973,7 +1026,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             value={workspaceFilter}
             onChange={(e) => setWorkspaceFilter(e.target.value)}
             placeholder={t("sessionList.folderPlaceholder", undefined, "Folder...")}
-            className="min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
+            className="focus-ring min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
             data-testid="workspace-filter-input"
             aria-label={t("sessionList.filterFolders", undefined, "Filter folders by path")}
           />
@@ -982,7 +1035,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             value={sessionSearch}
             onChange={(e) => setSessionSearch(e.target.value)}
             placeholder={t("sessionList.sessionPlaceholder", undefined, "Session...")}
-            className="min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
+            className="focus-ring min-w-0 flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
             data-testid="session-search-input"
             aria-label={t("sessionList.searchSessions", undefined, "Search sessions across folders")}
           />

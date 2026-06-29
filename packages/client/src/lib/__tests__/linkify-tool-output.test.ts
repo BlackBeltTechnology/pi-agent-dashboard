@@ -358,3 +358,57 @@ describe("tokenize — overflow cap", () => {
     expect(last.text).toBe(`\n+${N - MAX_LINKS} more links suppressed`);
   });
 });
+
+describe("tokenize — git-diff a/ b/ prefix stripping", () => {
+  const fileTok = (toks: Token[]) =>
+    toks.filter((t): t is Extract<Token, { kind: "file" }> => t.kind === "file");
+
+  it("strips a/ prefix on a `--- a/<path>` header line", () => {
+    const input = "--- a/src/foo.ts";
+    const toks = tokenize(input);
+    const f = fileTok(toks);
+    expect(f).toHaveLength(1);
+    expect(f[0].text).toBe("a/src/foo.ts"); // display verbatim
+    expect(f[0].path).toBe("src/foo.ts"); // resolved path corrected
+    expect(concat(toks)).toBe(input);
+  });
+
+  it("strips b/ prefix on a `+++ b/<path>` header line", () => {
+    const toks = tokenize("+++ b/src/foo.ts");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("src/foo.ts");
+  });
+
+  it("strips both a/ and b/ on a `diff --git` line", () => {
+    const toks = tokenize("diff --git a/src/foo.ts b/src/foo.ts");
+    const f = fileTok(toks);
+    expect(f).toHaveLength(2);
+    expect(f[0].path).toBe("src/foo.ts");
+    expect(f[1].path).toBe("src/foo.ts");
+  });
+
+  it("strips a/ prefix when a :line suffix is present", () => {
+    const toks = tokenize("--- a/src/foo.ts:42");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("src/foo.ts");
+    expect(f[0].line).toBe(42);
+  });
+
+  it("does NOT strip a/ outside a diff header (real directory named a)", () => {
+    const toks = tokenize("see a/index.ts for details");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("a/index.ts");
+  });
+
+  it("does NOT strip when a line starts with `diff --git a/` but is not a full header", () => {
+    const toks = tokenize("diff --git a/index.ts later");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("a/index.ts");
+  });
+
+  it("does NOT strip b/ in mid-sentence prose", () => {
+    const toks = tokenize("the file b/util.ts changed");
+    const f = fileTok(toks);
+    expect(f[0].path).toBe("b/util.ts");
+  });
+});

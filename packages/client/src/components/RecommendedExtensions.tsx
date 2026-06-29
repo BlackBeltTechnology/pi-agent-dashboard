@@ -274,6 +274,27 @@ export function RecommendedExtensions({ scope, cwd }: Props) {
                 ))}
               </div>
 
+              {/* Skills the package ships, DERIVED from its pi.skills manifest
+                  (EnrichedRecommendedExtension.skillsRegistered). Absent when
+                  the package ships no resolvable skills. See change:
+                  recommend-monorepo-extensions. */}
+              {entry.skillsRegistered && entry.skillsRegistered.length > 0 && (
+                <div
+                  className="flex flex-wrap gap-1"
+                  data-testid={`recommended-skills-${entry.id}`}
+                >
+                  {entry.skillsRegistered.map((s) => (
+                    <span
+                      key={s}
+                      title={`Ships the "${s}" skill`}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-indigo-500/40 bg-indigo-500/15 text-indigo-400 whitespace-nowrap"
+                    >
+                      skill: {s}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {entry.requirements && (
                 // Declarative external requirements + live probe (Piece A).
                 // See change: align-pi-080-and-publish-baseline-packages.

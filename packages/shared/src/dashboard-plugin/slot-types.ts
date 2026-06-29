@@ -74,7 +74,7 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
   "session-card-memory": {
     multiplicity: "many",
     payloadTier: "react-only",
-    description: "Memory/Honcho contributions inside the MEMORY subcard of a session card",
+    description: "Memory contributions inside the MEMORY subcard of a session card",
   },
   "session-card-flows": {
     multiplicity: "many",
@@ -84,7 +84,7 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
   "workspace-action-bar": {
     multiplicity: "many",
     payloadTier: "react-only",
-    description: "Action buttons inside the WORKSPACE subcard of a session card (jj/git workspace tooling)",
+    description: "Action buttons inside the WORKSPACE subcard of a session card (git workspace tooling)",
   },
   "content-view": {
     multiplicity: "one-active",

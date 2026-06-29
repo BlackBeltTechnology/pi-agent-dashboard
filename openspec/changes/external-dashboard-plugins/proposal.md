@@ -1,9 +1,9 @@
 ## Why
 
-Dashboard plugins ship today only as workspace packages under `<dashboard-cwd>/packages/*`. Third-party plugins (e.g. a settings screen for `pi-memory-honcho`) cannot reach the dashboard because `discoverPlugins()` does not scan pi-installed packages. Closing that gap lets `pi install npm:<plugin>` deliver both the pi extension and its dashboard plugin in a single step, using pi's existing installer — no parallel install system.
+Dashboard plugins ship today only as workspace packages under `<dashboard-cwd>/packages/*`. Third-party plugins (e.g. a settings screen for the companion extension `@blackbelt-technology/pi-dashboard-subagents`) cannot reach the dashboard because `discoverPlugins()` does not scan pi-installed packages. Closing that gap lets `pi install npm:<plugin>` deliver both the pi extension and its dashboard plugin in a single step, using pi's existing installer — no parallel install system.
 
 Two concrete use-cases driving this:
-1. `pi-memory-honcho` wants a Settings → General section to edit `~/.honcho/config.json` instead of a 7-step `ctx.ui.input` wizard.
+1. `@blackbelt-technology/pi-dashboard-subagents` wants a Settings → General section to edit the plugin's own config instead of a 7-step `ctx.ui.input` wizard.
 2. The dashboard's Plugin status (`/api/health.plugins[]`) is server-side complete but invisible in the UI; failing plugins disappear silently.
 
 ## What Changes

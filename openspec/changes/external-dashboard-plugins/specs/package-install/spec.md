@@ -8,7 +8,7 @@ The handler SHALL perform this work AFTER pi's `installAndPersist` (or equivalen
 
 #### Scenario: Plugin install triggers discovery refresh and broadcast
 
-- **WHEN** the user installs `npm:pi-memory-honcho` (which declares a `pi-dashboard-plugin` manifest) globally
+- **WHEN** the user installs `npm:@blackbelt-technology/pi-dashboard-subagents` (which declares a `pi-dashboard-plugin` manifest) globally
 - **THEN** the route handler SHALL call `clearDiscoveryCache()`, re-run discovery, register any new server entries, and broadcast `plugins_changed` containing the new plugin's status to every subscribed browser.
 
 #### Scenario: Pi-extension install (no plugin manifest) still invalidates cache
@@ -34,7 +34,7 @@ The dashboard React client registry is built at Vite time and cannot hot-swap a 
 
 #### Scenario: Updating an existing plugin marks it restart-required
 
-- **WHEN** plugin `honcho` is loaded with `source: "global"` and the user invokes `POST /api/packages/update` against `npm:pi-memory-honcho`
+- **WHEN** plugin `subagents` is loaded with `source: "global"` and the user invokes `POST /api/packages/update` against `npm:@blackbelt-technology/pi-dashboard-subagents`
 - **THEN** the post-update `plugins_changed` broadcast SHALL contain the plugin's entry with `restartRequired: true`.
 
 #### Scenario: Newly added plugin (not previously loaded) does NOT report restart-required

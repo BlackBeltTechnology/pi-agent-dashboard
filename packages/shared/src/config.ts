@@ -234,6 +234,14 @@ export type PluginsConfig = Record<string, Record<string, unknown>>;
 export interface DashboardConfig {
   port: number;
   piPort: number;
+  /**
+   * Host/interface the HTTP server and pi gateway bind to.
+   * Resolution chain (CLI `--host` → `PI_DASHBOARD_HOST` → this field →
+   * default) mirrors `port`. Default `"127.0.0.1"` (loopback only).
+   * The model-proxy second port stays hardcoded loopback regardless.
+   * See change: configurable-bind-host.
+   */
+  bindHost: string;
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -360,6 +368,7 @@ const DEFAULTS: DashboardConfig = {
   modelProxy: { ...DEFAULT_MODEL_PROXY },
   port: 8000,
   piPort: 9999,
+  bindHost: "127.0.0.1",
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
@@ -654,6 +663,7 @@ export function loadConfig(): DashboardConfig {
     const result: DashboardConfig = {
       port: parsed.port ?? defaults.port,
       piPort: parsed.piPort ?? defaults.piPort,
+      bindHost: typeof parsed.bindHost === "string" && parsed.bindHost ? parsed.bindHost : defaults.bindHost,
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,

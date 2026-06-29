@@ -43,7 +43,7 @@ describe("PluginIntentCache", () => {
   });
 
   it("supports global slots with sessionId=null", () => {
-    cache.set("honcho", null, "settings-section", sampleIntent);
+    cache.set("subagents", null, "settings-section", sampleIntent);
     const entries = cache.getForSession(null);
     expect(entries).toHaveLength(1);
     expect(entries[0].sessionId).toBeNull();
@@ -51,10 +51,10 @@ describe("PluginIntentCache", () => {
 
   it("two plugins can occupy the same slot for the same session", () => {
     cache.set("flows", "abc", "session-card-action-bar", sampleIntent);
-    cache.set("jj", "abc", "session-card-action-bar", sampleIntent);
+    cache.set("goal", "abc", "session-card-action-bar", sampleIntent);
     const entries = cache.getForSession("abc");
     expect(entries).toHaveLength(2);
-    expect(new Set(entries.map((e) => e.pluginId))).toEqual(new Set(["flows", "jj"]));
+    expect(new Set(entries.map((e) => e.pluginId))).toEqual(new Set(["flows", "goal"]));
   });
 
   it("same (pluginId, sessionId, slot) overwrites", () => {
@@ -68,7 +68,7 @@ describe("PluginIntentCache", () => {
 
   it("reset clears everything", () => {
     cache.set("flows", "abc", "session-card-action-bar", sampleIntent);
-    cache.set("honcho", null, "settings-section", sampleIntent);
+    cache.set("subagents", null, "settings-section", sampleIntent);
     cache.reset();
     expect(cache.getAll()).toHaveLength(0);
   });

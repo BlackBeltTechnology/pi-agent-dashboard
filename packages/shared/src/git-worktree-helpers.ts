@@ -56,6 +56,29 @@ export function localNameOf(ref: string): string {
   return ref.slice(slash + 1);
 }
 
+/**
+ * Resolve the local branch name used for a checkout-mode worktree, and
+ * therefore the `.worktrees/<slug>` path slug derived from it.
+ *
+ * The decision rule that MUST stay identical on client and server:
+ *   - `base` is an existing LOCAL branch → keep its full name, even when
+ *     it contains a slash (`openspec/foo` → `openspec/foo`). Stripping
+ *     would diverge from the path git actually creates.
+ *   - otherwise `base` is a remote-tracking ref (`origin/foo`) → strip
+ *     the remote prefix so git DWIM-creates `foo` and the worktree lands
+ *     at `.worktrees/foo` (not `.worktrees/origin-foo`).
+ *
+ * `localNameOf` alone cannot distinguish a remote ref from a local
+ * branch with a slash; the caller supplies the authoritative
+ * local-branch verdict (server: `git show-ref`; client: branch-list
+ * membership). Centralising the `? :` here stops the two sides drifting.
+ *
+ * See change: fix-worktree-checkout-local-slash-path.
+ */
+export function resolveCheckoutLocalName(base: string, baseIsLocalBranch: boolean): string {
+  return baseIsLocalBranch ? base : localNameOf(base);
+}
+
 export interface ResolveDefaultBaseInput {
   /** Current HEAD branch in the parent repo, or `null` if detached. */
   currentBranch: string | null;

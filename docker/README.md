@@ -42,7 +42,7 @@ providers anytime via the dashboard UI.
 
 Mount host project directories at their **identical absolute path** inside the
 container (host `/Users/x/Project/a` → container `/Users/x/Project/a`). Path
-parity makes container logs, session CWDs, and git/jj roots read identically to
+parity makes container logs, session CWDs, and git roots read identically to
 the host.
 
 **Easy path — `up.sh`** (one list drives mounts *and* first-run pins):

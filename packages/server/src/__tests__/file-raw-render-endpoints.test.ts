@@ -8,8 +8,16 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import { registerFileRoutes } from "../routes/file-routes.js";
 import { extToContentType } from "../lib/mime-types.js";
+
+const execFileAsync = promisify(execFile);
+async function git(cwd: string, ...args: string[]): Promise<void> {
+  await execFileAsync("git", ["-C", cwd, ...args]);
+}
 
 describe("extToContentType (mime-types.ts)", () => {
   it("maps known extensions to their Content-Type", () => {
@@ -145,6 +153,41 @@ describe("GET /api/file/raw", () => {
     });
     expect(res.statusCode).toBe(416);
     expect(res.headers["content-range"]).toBe("bytes */8");
+  });
+});
+
+describe("GET /api/file/raw — git-root widening", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  let worktree: string;
+
+  beforeEach(async () => {
+    repo = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "raw-wt-")));
+    await git(repo, "init", "-q");
+    await git(repo, "config", "user.email", "t@t.t");
+    await git(repo, "config", "user.name", "t");
+    await fsp.writeFile(path.join(repo, "root.bin"), Buffer.from([1, 2, 3, 4]));
+    await git(repo, "add", ".");
+    await git(repo, "commit", "-q", "-m", "init");
+    worktree = path.join(repo, ".worktrees", "wt");
+    await git(repo, "worktree", "add", "-q", worktree);
+    app = makeApp([worktree]);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    await fsp.rm(repo, { recursive: true, force: true });
+  });
+
+  it("streams a parent-root file for a worktree cwd (widened rule)", async () => {
+    const target = path.join(repo, "root.bin");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/raw?cwd=${encodeURIComponent(worktree)}&path=${encodeURIComponent(target)}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.equals(Buffer.from([1, 2, 3, 4]))).toBe(true);
   });
 });
 

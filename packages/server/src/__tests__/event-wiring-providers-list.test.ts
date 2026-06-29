@@ -18,7 +18,7 @@ import { getAuthStatus } from "../provider-auth-storage.js";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function connectSession(piPort: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -44,6 +44,7 @@ describe("providers_list — server wiring", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -98,7 +99,7 @@ describe("providers_list — server wiring", () => {
   // for dropdown contents.
   it("never broadcasts models_refreshed on providers_list arrival (any flavour)", async () => {
     const piWs = await connectSession(piPort, "p1");
-    const browserWs = new WebSocket(`ws://localhost:${browserPort}/ws`);
+    const browserWs = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     const browserMessages: any[] = [];
     await new Promise<void>((resolve) => {
       browserWs.on("open", () => resolve());

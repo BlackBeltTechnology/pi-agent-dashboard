@@ -95,6 +95,16 @@ CC0; GOV.UK is OGL; NN/g + Laws of UX cite-with-attribution; Material/Carbon are
 Apache-2.0). Adapt the *principle* to this product; never copy proprietary
 assets/text (Apple HIG, Refactoring UI, Mobbin).
 
+**Anti-slop companion (advisory).** For the *AI-tell* layer — the countable
+signatures an undirected model defaults to (AI-purple, Inter-everywhere,
+em-dashes, div-based fake screenshots, eyebrow-per-section, Jane Doe / Acme
+data) — pull the `anti-slop-frontend` skill
+(`@blackbelt-technology/anti-slop-frontend`). It is **advisory only**: its tells
+feed the FIX step's defect list (step 5), but they NEVER override this loop's
+hard gates. When an anti-slop tell conflicts with a cited public rule or the
+WCAG-AA / severity-4 floor, the cited rule and the gate win. Apply its Part A
+(universal) to any surface; skip its Part B (marketing-only) for product UI.
+
 ## When to Use
 
 Designing or refining any frontend surface — new screens, redesigns, or a

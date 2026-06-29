@@ -82,7 +82,7 @@ describe("imageFitExtension", () => {
     delete process.env.PI_IMAGE_FIT_QUALITY;
   });
 
-  async function makeOversizePng(w = 4032, h = 3024): Promise<string> {
+  async function makeOversizePng(w = 1600, h = 1200): Promise<string> {
     // Use a noisy pattern so PNG encoding doesn't trivially collapse it.
     const img = new Jimp({ width: w, height: h, color: 0xffffffff });
     img.scan(0, 0, w, h, (x, y, idx) => {
@@ -207,7 +207,7 @@ describe("imageFitExtension", () => {
       const pi = makeFakePi();
       imageFitExtension(pi as any);
       // Make an oversize JPEG.
-      const img = new Jimp({ width: 4032, height: 3024, color: 0x808080ff });
+      const img = new Jimp({ width: 1600, height: 1200, color: 0x808080ff });
       const src = path.join(workDir, "big.jpg");
       await img.write(src as `${string}.jpg`);
       const ev = makeReadEvent(src);

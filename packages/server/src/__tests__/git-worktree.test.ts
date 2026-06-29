@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import {
   slugifyBranch,
   localNameOf,
+  resolveCheckoutLocalName,
   parsePorcelainWorktrees,
   resolveDefaultBase,
   ensureWorktreeExcludeLine,
@@ -27,6 +28,23 @@ describe("localNameOf", () => {
   });
   it("returns a bare local name unchanged", () => {
     expect(localNameOf("foo")).toBe("foo");
+  });
+});
+
+describe("resolveCheckoutLocalName", () => {
+  it("strips a remote prefix when base is NOT a local branch", () => {
+    expect(resolveCheckoutLocalName("origin/foo", false)).toBe("foo");
+  });
+  it("keeps a local branch name with a slash intact (regression: openspec/...)", () => {
+    // localNameOf alone would wrongly yield "inline-raw-html-image-tags",
+    // diverging from the server's `.worktrees/openspec-...` target.
+    expect(
+      resolveCheckoutLocalName("openspec/inline-raw-html-image-tags", true),
+    ).toBe("openspec/inline-raw-html-image-tags");
+  });
+  it("leaves a bare local name unchanged in both modes", () => {
+    expect(resolveCheckoutLocalName("foo", true)).toBe("foo");
+    expect(resolveCheckoutLocalName("foo", false)).toBe("foo");
   });
 });
 

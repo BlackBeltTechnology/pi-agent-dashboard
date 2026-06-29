@@ -1,7 +1,7 @@
 # docker-test-harness Specification
 
 ## Purpose
-Disposable, fully-isolated containerized pi-dashboard for manual browser QA and clean-install verification. Guarantees no collision with a host dashboard across home-lock, mDNS, ports, and `~/.pi` state; provides path-identical workspace mounting onto a throwaway overlay, baked git/jj fixtures, and a fail-fast smoke check.
+Disposable, fully-isolated containerized pi-dashboard for manual browser QA and clean-install verification. Guarantees no collision with a host dashboard across home-lock, mDNS, ports, and `~/.pi` state; provides path-identical workspace mounting onto a throwaway overlay, a baked git fixture, and a fail-fast smoke check.
 ## Requirements
 ### Requirement: Collision-free isolation from the host dashboard
 
@@ -90,11 +90,11 @@ The harness SHALL run a minimal health probe at startup and fail fast if the ins
 
 ### Requirement: Baked VCS fixtures for panel testing
 
-The image SHALL bake a sample git repository and a sample jj repository so VCS panels can be exercised without mounting any host directory.
+The image SHALL bake a sample git repository so VCS panels can be exercised without mounting any host directory.
 
 #### Scenario: Fixtures available as workspaces
 
 - **WHEN** the harness starts without a path-parity mount
-- **THEN** `/fixtures/sample-git` and `/fixtures/sample-jj` are present and pinnable as workspaces
-- **AND** each is a valid initialized repository in its respective VCS
+- **THEN** `/fixtures/sample-git` is present and pinnable as a workspace
+- **AND** it is a valid initialized git repository
 

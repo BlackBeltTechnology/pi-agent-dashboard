@@ -6,7 +6,7 @@ import { createServer, type DashboardServer } from "../server.js";
  * Helper: connect a pi session via WebSocket and register it.
  */
 async function connectSession(piPort: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -81,7 +81,7 @@ function sendToolEvent(ws: WebSocket, sessionId: string, opts: { phase?: string;
  * Helper: send a detach_proposal via browser gateway.
  */
 async function sendDetach(browserPort: number, sessionId: string): Promise<void> {
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -104,6 +104,7 @@ describe("Auto-attach from openspec activity", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -245,6 +246,7 @@ describe("Detach clears openspec state", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

@@ -10,7 +10,7 @@
  * manually-published version on npm.
  *
  * This regressed at v0.5.4: 5 plugin packages
- * (client-utils, roles-plugin, honcho-plugin, subagents-plugin,
+ * (client-utils, roles-plugin, subagents-plugin,
  * flows-anthropic-bridge-plugin) shipped 0.5.3 via a one-off local
  * `npm publish`, were never added to the allowlist, then stayed at
  * 0.5.3 on npm when CI cut 0.5.4.

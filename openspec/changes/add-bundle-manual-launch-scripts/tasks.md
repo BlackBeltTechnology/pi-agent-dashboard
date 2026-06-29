@@ -5,7 +5,7 @@
 - [ ] 1.1 Create `packages/electron/scripts/server-launch-helpers/start-server.cmd` with the content below. Pattern: resolve `%~dp0` → server dir; bundled node at `%~dp0..\node\node.exe`; jiti URL built from `%~dp0node_modules\jiti\lib\jiti-register.mjs` with `\` → `/`; entry passed as raw Windows path; `%*` passes extra args through.
 - [ ] 1.2 Create `packages/electron/scripts/server-launch-helpers/start-server.ps1` mirroring 1.1 via `$PSScriptRoot`. `$ErrorActionPreference = 'Stop'`.
 - [ ] 1.3 Create `packages/electron/scripts/server-launch-helpers/start-server.sh` (POSIX bash). Uses `cd "$(dirname "$0")"`; bundled node at `../node/bin/node` (Linux/macOS layout); jiti URL via `printf 'file://%s' "$jiti_path"`. `set -euo pipefail`.
-- [ ] 1.4 Add `#!/usr/bin/env bash` shebang to the .sh file. Mark executable in repo via `chmod +x` + commit (jj will preserve the bit).
+- [ ] 1.4 Add `#!/usr/bin/env bash` shebang to the .sh file. Mark executable in repo via `chmod +x` + commit (git preserves the bit).
 
 ## 2. Hook into bundle-server.mjs
 

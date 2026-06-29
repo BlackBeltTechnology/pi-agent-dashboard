@@ -67,7 +67,7 @@ export interface RecommendedExtension {
 
 	/**
 	 * Companion dashboard plugin id, if this extension is paired with one
-	 * (e.g. `pi-memory-honcho` extension <-> `honcho` dashboard plugin).
+	 * (e.g. an extension paired with its companion dashboard plugin).
 	 * The recommended-extensions enricher carries this through alongside a
 	 * computed `dashboardPluginInstalled: boolean` so the install browser
 	 * can render a "+plugin: <id>" badge.
@@ -106,6 +106,14 @@ export interface EnrichedRecommendedExtension extends RecommendedExtension {
 	activeInPi: boolean;
 	/** True iff a newer version is available upstream. */
 	updateAvailable: boolean;
+	/**
+	 * Skill ids this extension ships, DERIVED from the package's own
+	 * `pi.skills` manifest (installed package.json preferred, else the
+	 * registry / GitHub package.json). Skill id = basename of each pi.skills
+	 * path. Absent when the package ships no skills. Not curated in the
+	 * static manifest — single source of truth is the package itself.
+	 */
+	skillsRegistered?: string[];
 	/**
 	 * True iff the entry declares a `dashboardPlugin` and the named plugin is
 	 * present in the dashboard's plugin status store.
@@ -230,28 +238,6 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		requires: { binaries: ["agent-browser"] },
 	},
 	{
-		id: "pi-memory-honcho",
-		source: "npm:pi-memory-honcho",
-		displayName: "pi-memory-honcho",
-		fallbackDescription:
-			"Alternative cross-session memory backend, backed by a Honcho " +
-			"server (the default backend is pi-hermes-memory). Pairs with the " +
-			"@blackbelt-technology/pi-dashboard-honcho-plugin dashboard plugin " +
-			"which adds a settings panel, per-card actions, and optional " +
-			"self-hosted Honcho server lifecycle. Choose this over hermes when " +
-			"you want a shared/self-hosted memory service rather than local SQLite.",
-		status: "optional",
-		unlocks: [
-			"Honcho memory tools (honcho_search, honcho_context, honcho_profile)",
-			"Honcho settings panel (when honcho-plugin is loaded)",
-			"Per-card 🧠 status badge + interview/sync/map actions",
-		],
-		toolsRegistered: ["honcho_search", "honcho_context", "honcho_profile"],
-		autowired: true,
-		// Companion dashboard plugin id. See change: add-plugin-activation-ui.
-		dashboardPlugin: "honcho",
-	},
-	{
 		id: "@blackbelt-technology/pi-image-fit-extension",
 		source: "npm:@blackbelt-technology/pi-image-fit-extension",
 		displayName: "pi-image-fit",
@@ -298,7 +284,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"Default persistent cross-session memory backend: token-aware, " +
 			"policy-only memory, SQLite FTS5 session search, secret scanning, " +
 			"auto-consolidation, and procedural skills. Local-first; no external " +
-			"service required. (See pi-memory-honcho for a server-backed alternative.)",
+			"service required.",
 		status: "optional",
 		unlocks: [
 			"Persistent memory (memory, memory_search)",
@@ -351,6 +337,121 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		status: "optional",
 		unlocks: [
 			"Clarity / consistency / maintainability review of recent changes",
+		],
+	},
+	// ── First-party monorepo extensions (published to the @blackbelt-technology
+	// npm scope). See change: recommend-monorepo-extensions.
+	{
+		id: "@blackbelt-technology/pi-dashboard-kb-extension",
+		source: "npm:@blackbelt-technology/pi-dashboard-kb-extension",
+		displayName: "pi-dashboard-kb-extension",
+		fallbackDescription:
+			"Isolated pi extension over @blackbelt-technology/pi-dashboard-kb: " +
+			"registers kb_search/kb_neighbors/kb_get tools and a tool_result hook " +
+			"that reindexes markdown on edit and (opt-in) nudges DOX AGENTS.md row " +
+			"upkeep. Directory-based SQLite/FTS5 knowledge base over markdown.",
+		status: "strongly-suggested",
+		unlocks: [
+			"kb_search / kb_neighbors / kb_get (FTS5 knowledge base over repo markdown)",
+			"Auto-reindex markdown on edit",
+		],
+		toolsRegistered: ["kb_search", "kb_neighbors", "kb_get"],
+		autowired: true,
+	},
+	{
+		id: "@blackbelt-technology/frontend-mockup-loop",
+		source: "npm:@blackbelt-technology/frontend-mockup-loop",
+		displayName: "frontend-mockup-loop",
+		fallbackDescription:
+			"Pi extension + skill for a ground\u2192contract\u2192mockup\u2192test\u2192fix\u2192learn " +
+			"frontend design loop. Ships a live mockup server tool, a Playwright " +
+			"breakpoint-screenshot scorer, and a design-contract scaffolder. Works " +
+			"in any React/Tailwind/shadcn project.",
+		status: "optional",
+		unlocks: [
+			"frontend-mockup-loop skill (7-step design loop)",
+			"serve_mockup / score_mockup / init_ui_contract / validate_mockup tools",
+		],
+		toolsRegistered: [
+			"serve_mockup",
+			"score_mockup",
+			"init_ui_contract",
+			"list_design_systems",
+			"validate_mockup",
+		],
+		autowired: true,
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-plugin-skill",
+		source: "npm:@blackbelt-technology/pi-dashboard-plugin-skill",
+		displayName: "pi-dashboard-plugin-skill",
+		fallbackDescription:
+			"Pi skill that scaffolds new dashboard plugins or augments existing " +
+			"pi-extension projects with dashboard plugin contributions (manifest, " +
+			"renderer, slots). Use when building a new dashboard plugin.",
+		status: "optional",
+		unlocks: [
+			"dashboard-plugin-scaffold skill (scaffold / augment dashboard plugins)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-document-converter",
+		source: "npm:@blackbelt-technology/pi-dashboard-document-converter",
+		displayName: "pi-dashboard-document-converter",
+		fallbackDescription:
+			"TypeScript facade + skill over a Dockerized Python document engine " +
+			"(pi-doc-engine). Ingest PDF/DOCX/PPTX/XLSX \u2192 provenance-stamped " +
+			"Markdown for kb (selectable OCR); produce templated DOCX/PDF from " +
+			"Markdown with diagrams, TOC, cover page, and round-trip edit/merge. " +
+			"Requires Docker.",
+		status: "optional",
+		unlocks: [
+			"document-converter skill (bidirectional doc conversion)",
+			"Ingest docs \u2192 Markdown for kb; produce DOCX/PDF from Markdown",
+		],
+		// Facade orchestrates a Dockerized engine; docker must be on PATH.
+		requires: { binaries: ["docker"] },
+	},
+	{
+		id: "@blackbelt-technology/anti-slop-frontend",
+		source: "npm:@blackbelt-technology/anti-slop-frontend",
+		displayName: "anti-slop-frontend",
+		fallbackDescription:
+			"Pi skill: a mechanical, countable anti-slop checklist for " +
+			"AI-generated frontend. Catches the specific tells an undirected " +
+			"model defaults to (AI-purple, Inter-everywhere, em-dashes, " +
+			"div-based fake screenshots, Jane Doe / Acme data). Advisory; " +
+			"pairs with frontend-mockup-loop. Works in any React/Tailwind/HTML " +
+			"project.",
+		status: "optional",
+		unlocks: [
+			"anti-slop-frontend skill (countable AI-tell checklist for frontend)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-eng-disciplines",
+		source: "npm:@blackbelt-technology/pi-dashboard-eng-disciplines",
+		displayName: "pi-dashboard-eng-disciplines",
+		fallbackDescription:
+			"Pi skills bundle for engineering disciplines: doubt-driven review, " +
+			"interview-me requirements elicitation, observability " +
+			"instrumentation, performance optimization, and security hardening.",
+		status: "optional",
+		unlocks: [
+			"doubt-driven-review / interview-me / observability-instrumentation / performance-optimization / security-hardening skills",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-authoring-toolkit",
+		source: "npm:@blackbelt-technology/pi-dashboard-authoring-toolkit",
+		displayName: "pi-dashboard-authoring-toolkit",
+		fallbackDescription:
+			"Pi skills for authoring pi artifacts: session-to-guideline distills " +
+			"a session into a reusable guideline, and skill-creator scaffolds new " +
+			"pi skills.",
+		status: "optional",
+		unlocks: [
+			"session-to-guideline / skill-creator skills (author guidelines and new skills)",
 		],
 	},
 ];

@@ -4,6 +4,8 @@ Covers `packages/document-converter/`. TS facade over Dockerized Python engine (
 
 | `<path>` | <purpose> |
 |---|---|
+| `packages/document-converter/.pi/skills/doc-summarizer/SKILL.md` | Summarize documents any size. Extraction via `dc.convertToMarkdown` engine facade (Docker-quarantined), NOT host-side `extract_text.py`/`pdf_to_markdown.py`. Chunk by agent judgment. Fan out to general-purpose subagents. Synthesize unified summary. No host-side scripts in skill dir. See change: add-authoring-skills. |
+| `packages/document-converter/.pi/skills/document-converter/SKILL.md` | Ships document-converter skill via npm `pi.skills`. Bidirectional doc conversion skill. Ingest PDF/DOCX/PPTX/XLSX→Markdown for kb. Produce DOCX/PDF from Markdown. See change: recommend-monorepo-extensions. |
 | `packages/document-converter/README.md` | Package overview. Facade = only call surface. Ingest + produce examples. API usage snippet. |
 | `packages/document-converter/engine/.dockerignore` | Excludes `__pycache__`, `*.pyc`, `.venv`, `.mermaid-cache` from build context. |
 | `packages/document-converter/engine/.gitignore` | Ignores `__pycache__`, `*.pyc`, `.pytest_cache`, `.mermaid-cache`. |
@@ -19,7 +21,7 @@ Covers `packages/document-converter/`. TS facade over Dockerized Python engine (
 | `packages/document-converter/engine/markdown_table_profiler/profile.py` | Vendored table profiler. PEP 723, no deps. Auto-sizes markdown table columns, writes `table_profiles:` frontmatter. Heuristic, language-agnostic, re-runnable. |
 | `packages/document-converter/engine/nano-banana-styles.yaml` | Named Mermaid render styles for nano-banana (Gemini) image diagrams. Each style: description, prompt, negative, model, background, width. `default: ros-3d`. |
 | `packages/document-converter/engine/tests/test_styled_diagrams.py` | Engine-internal pytest. Styled-diagram md5 cache + mmdc fallback. Below TS↔engine boundary. Stdlib + monkeypatch; no docling, no Docker. |
-| `packages/document-converter/package.json` | Package manifest. Name `@blackbelt-technology/pi-dashboard-document-converter`. private. Exports `.`+`./schema`. Scripts: `build:image`, `test` (vitest run). Node >=22.5.0. |
+| `packages/document-converter/package.json` | Package manifest. Name `@blackbelt-technology/pi-dashboard-document-converter`. Publishable. Dropped private. Version 0.5.4. Adds publishConfig + repository + `pi.skills` manifest (lists doc-summarizer alongside document-converter). In publish.yml PACKAGES allowlist. Exports `.`+`./schema`. Scripts: `build:image`, `test` (vitest run). Node >=22.5.0. See change: recommend-monorepo-extensions. |
 | `packages/document-converter/src/__tests__/engine.test.ts` | Tests `runEngine` envelope handling. ok-envelope strip, error mapping, non-JSON stdout, nonzero exit. Injects fake runner. |
 | `packages/document-converter/src/__tests__/facade.test.ts` | Tests `createDocumentConverter`. convertToMarkdown writes staging `.md` with provenance. Real tmpdir; injected runner mocks engine. |
 | `packages/document-converter/src/__tests__/integration.test.ts` | Opt-in integration. One real conversion per direction against built image. Skipped unless `DOC_ENGINE_IMAGE` set + docker on PATH. Never in default `npm test`. |

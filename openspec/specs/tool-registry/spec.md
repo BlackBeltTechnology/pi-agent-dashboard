@@ -409,7 +409,7 @@ interface PlatformInstallHint {
 #### Scenario: every user-installable binary tool ships install hints
 
 - **WHEN** the registry exposes its definitions
-- **THEN** the definitions for `bash`, `jj`, `gh`, `zrok`, `git`, AND `node` SHALL each include `installHints` for `darwin`, `win32`, AND `linux`
+- **THEN** the definitions for `bash`, `gh`, `zrok`, `git`, AND `node` SHALL each include `installHints` for `darwin`, `win32`, AND `linux`
 - **AND** every populated `PlatformInstallHint` SHALL declare at least one of `commands`, `manual`, or `url`
 
 #### Scenario: platform-utility tools do NOT ship install hints

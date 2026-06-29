@@ -2,7 +2,7 @@
  * Per-session sync availability cache for flows-plugin's
  * `shouldRenderFlowsSubcard` predicate.
  *
- * The MEMORY/honcho path uses a global boolean (extension installed or not).
+ * A global-boolean path keys availability on extension-installed state.
  * Flow availability is per-session: session A may have `flowsList`, session
  * B may not. The cache is therefore keyed by sessionId.
  *
@@ -73,7 +73,7 @@ export function setFlowsAvailability(sessionId: string, has: boolean): void {
  * (flow-context `registerCommand("flows", …)`), so a flows-namespaced command
  * in the session's commandsList means the extension is active here — show the
  * subcard even when the cwd has zero flows yet (the author-first-flow / edit-
- * mode case). Mirrors jj's per-cwd predicate using already-published data.
+ * mode case). Mirrors a per-cwd predicate using already-published data.
  * (`flows` (non-`flowsList`) param kept for signature stability; presence is
  * derived from commands.) See change: rework-flows-plugin-for-new-pi-flows.
  */

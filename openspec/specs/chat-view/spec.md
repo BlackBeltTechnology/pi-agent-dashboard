@@ -240,12 +240,11 @@ The chat view's expanded `BashToolRenderer` panel SHALL display the entire `args
 ### Requirement: Composer mounts a session-action strip above the textarea
 The chat view's composer (`CommandInput`) SHALL render a `ComposerSessionActions` strip between the existing model/level row and the textarea, when and only when the chat view is bound to a session (i.e. a session is selected and its details have loaded).
 
-The strip SHALL render four logical groups, each separated by a vertical divider:
+The strip SHALL render three logical groups, each separated by a vertical divider:
 
 1. **Strip header** — gradient dot + label `session actions · <session-name>` + refresh button.
 2. **OpenSpec group** — compact 7-node stepper (variant `compact` per the openspec-attach-combo capability) followed by the same action buttons that render inside the sidebar card's OPENSPEC subcard (`Explore`, `Apply` / `Continue` / `FF` / `Verify` by state, `Tasks N/M`, `Archive`, overflow `⋯`).
 3. **Git group** — same actions as the sidebar card's GIT subcard (`Push`, `Open PR` / `View PR`, `Merge`, `Close`). The git group SHALL render only when its predicate is true (same predicate the GIT subcard uses).
-4. **JJ group** — same actions as the sidebar card's JJ subcard, sourced from the `workspace-action-bar` slot, prefixed by the `jj:<workspace>` pill from the `session-card-badge` slot's jj claim. The jj group SHALL render only when its predicate is true (same predicate the JJ subcard uses).
 
 The strip SHALL apply identical action gating to the sidebar card: `Explore` enabled only when `!attachedProposal`; `Archive` enabled only when `attachedProposal`; all actions disabled when `status === "streaming"`; the OpenSpec group hidden entirely when `OpenSpecData.hasOpenspecDir === false && pending === false`.
 
@@ -267,14 +266,9 @@ The strip SHALL share the `onSendPrompt`, `onAttachProposal`, `onDetachProposal`
 - **THEN** the strip SHALL render with the strip header and any active VCS groups
 - **AND** the strip SHALL NOT render the OpenSpec stepper or OpenSpec action buttons
 
-#### Scenario: Git and JJ groups follow sidecard predicates
-- **WHEN** the chat view is bound to a session in a colocated git+jj repo
-- **THEN** the strip SHALL render both the Git group and the JJ group, in that order
-
-#### Scenario: Pure-git repo strip shows only Git group
-- **WHEN** the chat view is bound to a session in a pure-git repo (no jj plugin claims)
+#### Scenario: Git group follows the sidecard predicate
+- **WHEN** the chat view is bound to a session in a git repo where the GIT subcard predicate is true
 - **THEN** the strip SHALL render the Git group
-- **AND** the strip SHALL NOT render the JJ group
 
 #### Scenario: Firing Apply from strip dispatches the skill prompt
 - **WHEN** the user clicks the `Apply` button inside the composer strip for session `"s1"` with attached change `"add-auth"`

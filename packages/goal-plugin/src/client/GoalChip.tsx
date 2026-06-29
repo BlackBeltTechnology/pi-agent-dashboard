@@ -1,13 +1,13 @@
 /**
  * GoalChip — session-card-badge slot component.
  *
- * Renders the live goal status next to the queue/jj chips on Line 2 of the
+ * Renders the live goal status next to the queue chips on Line 2 of the
  * card: `● Pursuing n/m` (active), `⏸ Paused · <reason>` (paused),
  * `✓ Achieved` (done). Hidden when no snapshot (predicate-gated by `hasGoal`,
  * plus a defensive null return).
  *
  * Reads the plugin per-session event store via `useSessionEvents` and folds
- * to the latest snapshot. Theme-reactive palette mirrors `JjWorkspaceBadge`.
+ * to the latest snapshot. Theme-reactive palette.
  *
  * See change: add-goal-continuation-plugin (mockups/ui-plan.md).
  */

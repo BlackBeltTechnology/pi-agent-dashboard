@@ -8,7 +8,7 @@ import { createServer, type DashboardServer } from "../server.js";
  */
 
 async function connectSession(piPort: number, sessionId: string): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({
@@ -28,7 +28,7 @@ async function connectBrowser(browserPort: number, sessionId: string): Promise<{
   ws: WebSocket;
   broadcasts: Array<Record<string, unknown>>;
 }> {
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   const broadcasts: Array<Record<string, unknown>> = [];
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
@@ -70,6 +70,7 @@ describe("lastActivityAt — server stamping and debounce", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -164,7 +165,7 @@ describe("lastActivityAt — server stamping and debounce", () => {
 
   it("does not stamp lastActivityAt during replay (events arriving before replay_complete)", async () => {
     // Connect raw without sending replay_complete — event-wiring treats events as replay
-    const ws = new WebSocket(`ws://localhost:${piPort}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({

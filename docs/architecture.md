@@ -65,6 +65,17 @@ Node.js HTTP + WebSocket server that:
 - Exposes REST API for session management, event content fetch, pinned directories, and file reading
 - Provides session control REST endpoints (`/api/session/:id/*`) wrapping WebSocket-only operations (prompt, abort, spawn, resume, rename, hide, flow-control, model, thinking-level, attach/detach-proposal) — see `src/server/session-api.ts`
 
+**Bind model.** HTTP listener + pi gateway WS listener bind `127.0.0.1` by default. Loopback removes socket from wire.
+
+- Resolution chain: `--host <ip>` → `PI_DASHBOARD_HOST` env → `config.bindHost` (config.json) → `"127.0.0.1"`. Mirrors `port`.
+- One `bindHost` governs both HTTP + pi gateway. Shared trust boundary.
+- Model-proxy second port stays hardcoded `127.0.0.1` (SDK-local).
+- `bindHost` restart-required (in `RESTART_FIELDS`). Live sockets do not hot-rebind; new value applies next start.
+- Docker all-in-one sets `PI_DASHBOARD_HOST=0.0.0.0` to opt into exposure through published ports.
+- Defense-in-depth: app-layer request guard (loopback + `trustedNetworks` + optional auth) still enforces trust at request time. Loopback bind removes socket from wire, so guard regression cannot leak.
+
+See change: configurable-bind-host.
+
 **Server decomposition:** The server is split into focused modules:
 - `server.ts` — Orchestrator: creates services, composes modules, manages lifecycle
 - `routes/` — REST API routes grouped by domain (session, git, file, openspec, system)
@@ -118,6 +129,14 @@ TypeScript type definitions shared across all components:
 - **Persistence**: the bit lives in `.meta.json` (`SessionMeta.unread`). `server.ts onChange` writes it on every session update; `session-scanner.ts::sessionFromMeta` restores it on cold start. The cold-start "force `status = ended`" override at `server.ts:273-279` is intentionally non-destructive on `unread` — a session that was unread when the server stopped is still unread when it starts back up, even before its bridge reattaches.
 - **Render precedence** (`SessionCard.tsx::getCardPulseClass`): `ask_user` (purple) > `streaming || resuming` (yellow) > `unread` (cyan) > none. Streaming with `unread: true` shows yellow stripes; when streaming ends with the session still unviewed, the trigger fires, the card flips to cyan. The `card-unread-pulse` CSS class reuses the `card-working-stripes-scroll` and `card-working-opacity-pulse` keyframes verbatim — only the stripe and tint colors change to cool cyan (`rgba(34, 211, 238, 0.18)` and `rgba(34, 211, 238, 0.07)`). Cyan was selected to occupy its own corner of the dashboard palette (distant from yellow, purple, green, red). Reduced-motion users see a static cyan-tinted background, matching the working-pulse arm.
 
+**Attention routing & status semantics** (change: improve-dashboard-attention-routing):
+- **Semantic status tokens.** `--status-needs-you` / `--status-working` / `--status-idle` / `--status-error` derive per-theme from accents (`var(--accent-purple/yellow/green/red)`). `themes.ts::statusVars` + `withStatus` merge into every theme dark+light; `index.css` `:root` defines base fallback. Session visuals reference tokens only — no raw palette literals.
+- **Needs-you precedence.** `error > ask_user(chat-routed) > resuming/retry > working(streaming) > active/idle > ended`. Applied uniformly across left-gutter dot (`deriveDotColorWithFlags`), rail (`deriveRailBgColor`), icon tint (`deriveIconStatusColor`, converts `bg-[var(...)]`→`text-[var(...)]`). All in `session-status-visuals.ts`. `flags.hasWidgetBarPrompt` excludes widget-bar ask_user from needs-you so only chat-routed prompts escalate (`isChatRoutedAskUser`).
+- **Non-hue shape channel.** `deriveStatusShape` + `statusShapeIcon` map status to filled/half/ring/cross marker. `SessionCard.tsx::StatusShapeBadge` overlays marker on session-status-icon (`data-status-shape`). Color-blind-safe redundant encoding.
+- **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
+- **Folder needs-you rollup.** `FolderNeedsYouPill` counts chat-routed ask_user child sessions per folder (`countNeedsYou` / `needsYouSessionIds`), excludes widget-bar via per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`. Hidden at 0. Click → scroll+select first blocked. Mobile ≤375px hides label.
+- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle `mdiSortVariant` in folder header.
+
 ### Interactive UI Flow (PromptBus — extension dialog → browser → response)
 1. Extension calls `ctx.ui.confirm()` / `select()` / `input()` / `editor()` / bridge-patched `multiselect()`
 2. Bridge PromptBus intercepts via patched `ctx.ui` methods, creates a `PromptRequest` with a unique `promptId` and `pipeline` tag (e.g. `"command"`, `"architect"`)
@@ -162,6 +181,7 @@ TypeScript type definitions shared across all components:
    - `!<cmd>` → bash execution via `pi.exec()`, result as `bash_output` event + send to LLM
    - `/compact [instructions]` → `ctx.compact()`, feedback as `command_feedback` event
    - `/<command>` → `session.prompt()` for extension commands/skills/templates (fallback to `sendUserMessage()`)
+   - `/<command>` whose template carries `executable: bash` frontmatter → run body as bash via `pi.exec`, emit `bash_output` event with `data.source: "slash-exec"`, skip LLM. `tryExecSlashTemplate` runs after extension dispatch, before `sendUserMessage` fallback. Env `PI_DASHBOARD_PORT`/`PI_DASHBOARD_BASE` injected. Client renders "ran locally" footer. See change: add-dashboard-slash-commands.
    - Colon-to-hyphen aliasing: `/opsx:continue` resolves to `opsx-continue.md` template (both `:` and `-` forms work)
    - Plain text → `pi.sendUserMessage()` (default)
 5. Pi processes the command, events flow back via event flow
@@ -430,7 +450,7 @@ Settings ▸ Plugins tab lists every discovered plugin (enabled or not) with dis
 
 Results populate `PluginStatus.requirements` + flat `missingRequirements: string[]`; surfaced via `GET /api/plugins`. 30s in-process cache keyed by category+name. `server.ts` invokes `refreshRequirementProbesFor(pluginIds)` on every successful `package_operation_complete` + broadcasts `plugin_config_update` for any plugin whose missing-set changed — install/uninstall of a pi-extension lights up dependent plugin without restart.
 
-**UI cross-references.** `RecommendedExtensions.tsx` reads `EnrichedRecommendedExtension.dashboardPluginInstalled` (computed server-side in `recommended-routes.ts::enrichEntry` from `RecommendedExtension.dashboardPlugin`) + renders `+plugin: <id>` badge linking to Plugins tab. `pi-memory-honcho` declares `dashboardPlugin: "honcho"`; `honcho-plugin` declares `requires.piExtensions: ["pi-memory-honcho"]` so install paths converge.
+**UI cross-references.** `RecommendedExtensions.tsx` reads `EnrichedRecommendedExtension.dashboardPluginInstalled` (computed server-side in `recommended-routes.ts::enrichEntry` from `RecommendedExtension.dashboardPlugin`) + renders `+plugin: <id>` badge linking to Plugins tab.
 
 **Restart-required model.** `usePluginEnabledSet` snapshots `/api/health.startedAt` ISO timestamp on first load. Subsequent `plugin_config_update` events update enabled-set live for claim filtering, but components that consumed plugin server entries (already loaded) require a restart to drop. `PluginsSection` compares toggle time to snapshot and renders "Restart required" banner when divergent.
 
@@ -625,6 +645,24 @@ Toast variants: `ToastMessage.variant` `"error"|"success"|"info"`, default `"err
 
 Reference FSM: WorktreeInitButton (richer streaming UI, left as-is). PluginsSection restart left as-is — polls `/api/health` startedAt re-up (stronger completion signal than broadcast).
 
+### State & feedback primitives (client-utils)
+
+Four primitives in `packages/client-utils/src/`. Cover empty regions, content loads, focus, status. See change: extend-client-utils-state-feedback-primitives.
+
+EmptyState vs Skeleton vs spinner — decision rule:
+
+- EmptyState: empty content regions (chat empty, board column empty). Value-framed title + ≤1 primary CTA. `EmptyState.tsx`.
+- Skeleton: content-layout loads (chat history, lists, board). Content-shaped variants (text/card/bubble/row). No layout shift. `Skeleton.tsx`.
+- Spinner: short blocking actions only (button submit). Not for content loads.
+
+Focus ring: `.focus-ring` utility in `packages/client/src/index.css`. Scoped `:focus-visible` (keyboard only, never mouse). Color token var `--focus-ring`. Apply via `focusRing` export or literal `focus-ring` class. Replaces `focus:outline-none` + 1px border.
+
+Status presentation: status never color-only. `statusPresentation(kind)` gives semantic `--status-*` token + mandatory non-hue glyph (✓/▸/○/✕). `statusAriaLabel(name, kind)` names item + state for screen readers. Surfaces consume helper, do not re-roll color maps (no STATE_COLORS / STATE_PILL_CLASS). WCAG 2.2 §1.4.1.
+
+Adoption ratchet: `packages/client/src/__tests__/state-feedback-adoption.test.tsx` scans covered surfaces. Fails on new bare `focus:outline-none` or re-rolled status color map.
+
+Reference: `--status-*` tokens defined once in `index.css` (owned by change improve-dashboard-attention-routing). `statusPresentation` references, does not redefine.
+
 ### Auto-Resume on Prompt
 When a user sends a prompt to an ended session, the server automatically resumes it:
 1. Server detects `send_prompt` for a session with `status === "ended"` and a valid `sessionFile`
@@ -638,9 +676,9 @@ When a user sends a prompt to an ended session, the server automatically resumes
 9. If user sends another prompt while already resuming, the queued prompt is updated without spawning a second process
 
 ### Sidebar session ordering: top-of-tier on status change
-Server keeps one persisted `sessionOrder` per resolved group path. List holds all-status ids: active + ended + hidden. Group path resolves via shared `resolveSessionGroupPath`. Key priority: pin > `jjState.workspaceRoot` > `gitWorktree.mainPath` > `cwd`. Server wraps resolver in `resolve-order-key.ts::resolveOrderKey`. Client groups by same resolver. Fixes worktree/jj keying bug: server keyed raw cwd, client grouped by parent. See change: simplify-session-card-ordering.
+Server keeps one persisted `sessionOrder` per resolved group path. List holds all-status ids: active + ended + hidden. Group path resolves via shared `resolveSessionGroupPath`. Key priority: pin > `gitWorktree.mainPath` > `cwd`. Server wraps resolver in `resolve-order-key.ts::resolveOrderKey`. Client groups by same resolver. Fixes worktree keying bug: server keyed raw cwd, client grouped by parent. See change: simplify-session-card-ordering.
 
-- **Render** — client partitions the single stored order into ACTIVE → ENDED → HIDDEN tiers (`SessionList` per-tier `sortSessionsByOrder`, stable status-partition). `moveToFront` lands card at top of its OWN tier. `clusterByWorkspaceName` DROPPED from ordering path (reverses add-jj-workspace-plugin Decision 15 — MUST NOT re-introduce; grouping-under-parent collapse retained). endedAt-desc ended-tier sort REMOVED — survives only as migration seed via `reconcileSessionOrder` backfill.
+- **Render** — client partitions the single stored order into ACTIVE → ENDED → HIDDEN tiers (`SessionList` per-tier `sortSessionsByOrder`, stable status-partition). `moveToFront` lands card at top of its OWN tier. `clusterByWorkspaceName` DROPPED from ordering path (MUST NOT re-introduce; grouping-under-parent collapse retained). endedAt-desc ended-tier sort REMOVED — survives only as migration seed via `reconcileSessionOrder` backfill.
 - **Status transitions** — alive→ended keeps id (no `remove`). Two global config booleans gate placement (default `false`, no-op when OFF): `completedFirst` gates `agent_end`(alive)→top-of-active and alive→ended→top-of-ended; `questionFirst` gates `ask_user`→top-of-active.
 - **Hide/unhide** — hide → `moveToFront` (top of hidden tier); unhide → clear hidden + `moveToFront` (top of ended tier).
 - **Reattach** — bridge auto-reattach after dashboard restart governed by `reattachPlacement` config (`"always"` default / `"streaming-only"` / `"preserve"`): `server.ts onChange` routes into `reattach-placement.ts::applyReattachPolicy` (now keyed by resolved order key). `"preserve"` leaves order untouched.
@@ -683,26 +721,10 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 7. Client's event reducer stores `contextUsage` from `stats_update` events; `App.tsx` falls back to `session.contextTokens/contextWindow` for sessions without live reducer state
 8. When real data is unavailable (e.g., old sessions without persisted context data), `state-replay.ts` and `session-stats-reader.ts` use `inferContextWindow()` to estimate context window from the model name
 
-### VCS Polling (Git + Jujutsu)
-1. Bridge polls VCS info every 30s (`vcs-info.ts`, was `git-info.ts`): branch, remote URL, PR number, plus jj workspace state when `.jj/` is present.
-2. Git half (`gatherGitInfo`): unchanged — emits `git_info_update` only when branch/PR change.
-3. Jj half (`gatherJjInfo`): emits `jj_state_update` only when the serialized `JjState` changes. **Fast path**: a single `fs.existsSync("<cwd>/.jj")` check runs before any subprocess. Sessions outside a jj repo pay zero subprocess cost. The probe also short-circuits when the tool registry can't resolve `jj` (cached at module level after first miss).
-   - `jjState.workspaceRoot` carries parent repo root (cwd for default workspace; parent of `.shadow/<name>/` for `jj workspace add`-created workspace). Derives by reading `<cwd>/.jj/repo` (directory → default; file → contents resolve to shared storage). Canonicalizes via `realpath` before emit. `jj workspace root` subprocess fallback only. Enables sidebar collapse of workspace cards under parent folder group. See change: fix-jj-workspace-root-probe.
-4. Server forwards both update types via `session_updated` to subscribed browsers.
-
-#### Jujutsu workspaces
-
-The jj-plugin (`packages/jj-plugin/`) renders UI slots gated by predicates that read `Session.jjState`. When the bridge probe never populates `jjState` — because `jj` isn't installed or `.jj/` doesn't exist — every predicate returns `false` and the plugin contributes nothing to the UI. Activation is silent.
-
-Server-side jj routes (`packages/server/src/routes/jj-routes.ts`):
-- `POST /api/jj/workspace/add` — reuses the existing `pendingAttachRegistry` + `spawnPiSession` lever (same code path as openspec attach-and-spawn). The new session boots inside the workspace cwd and the bridge probe populates its `jjState.workspaceName` on the next tick.
-- `POST /api/jj/workspace/forget` — two-step contract: first request returns 409 `UNFOLDED_WORK` listing the unfolded commits; only an explicit `force:true` re-issue actually deletes (and `rm -rf`'s the directory).
-- `POST /api/jj/init-colocated` — refuses 409 `DIRTY_INDEX` only on staged changes; allows working-tree dirt (jj snapshots unstaged edits as the new `@` non-destructively).
-- `GET /api/jj/workspace/list?cwd=` — enumerates workspaces.
-
-The `/api/session-diff` route is **regime-aware**: when `jjState.isJjRepo` is true, it routes through `enrichWithJjDiff` which uses `fork_point(@, trunk())` as the diff base for non-default workspaces (cumulative diff across every agent commit) and `@-` for the default workspace. Older clients that don't read `vcsKind`/`baseLabel`/`diffBase` continue to work unchanged.
-
-Fold-back is **a skill, not a server route**. The dashboard's `JjFoldBackDialog` builds a skill-invocation prompt; the agent's bash tool then drives `.pi/skills/jj-workspace-fold-back/SKILL.md`, which never invokes mutating git commands and uses `jj op restore` to roll back on conflicts.
+### VCS Polling (Git)
+1. Bridge polls VCS info every 30s (`vcs-info.ts`, was `git-info.ts`): branch, remote URL, PR number.
+2. `gatherGitInfo`: emits `git_info_update` only when branch/PR change.
+3. Server forwards update via `session_updated` to subscribed browsers.
 
 ### Git Polling (legacy entry, see VCS Polling above)
 1. Bridge polls git info every 30s (`vcs-info.ts`): branch, remote URL, PR number
@@ -2145,7 +2167,7 @@ Dashboard-resident LLM proxy: `GET /v1/models`, `POST /v1/chat/completions`, `PO
 
 ```mermaid
 sequenceDiagram
-    participant C as External client<br/>(Honcho, LangChain, curl)
+    participant C as External client<br/>(LangChain, curl)
     participant D as Dashboard :8000/v1/*
     participant R as InternalRegistry
     participant P as Upstream provider<br/>(Anthropic, OpenAI, Google…)

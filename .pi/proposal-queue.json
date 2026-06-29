@@ -88,23 +88,6 @@
       "notes": "NOT mechanically auto-fixable — flagged in 2026-06-13 sweep; needs human path review."
     },
     {
-      "name": "jj-plugin-server-driven-flows",
-      "status": "stale",
-      "priority": 60,
-      "complexity": "minor",
-      "checkedAt": "2026-06-13T10:31:38.440Z",
-      "issues": [
-        {
-          "severity": "stale",
-          "description": "References pre-monorepo / cross-repo src/ paths. src/ refs are a MIX of illustrative (src/foo.ts) + package-relative (src/client/Jj*, src/server/*). No clean prefix remap. Per-ref human judgment needed.",
-          "artifact": "proposal.md/design.md",
-          "causedBy": "monorepo migration or cross-repo refs",
-          "autoFixable": false
-        }
-      ],
-      "notes": "NOT mechanically auto-fixable — flagged in 2026-06-13 sweep; needs human path review."
-    },
-    {
       "name": "inject-session-context-into-agent",
       "status": "stale",
       "priority": 60,

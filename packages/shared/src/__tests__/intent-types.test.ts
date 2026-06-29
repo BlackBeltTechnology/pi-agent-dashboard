@@ -105,7 +105,7 @@ describe("intent-types — wire format", () => {
   it("sessionId may be null for global slots", () => {
     const msg: PluginIntentsMessage = {
       type: "plugin_intents",
-      pluginId: "honcho",
+      pluginId: "subagents",
       sessionId: null,
       slot: "settings-section",
       intent: {

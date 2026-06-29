@@ -29,6 +29,7 @@ describe("SPA fallback", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: false, // production mode enables static serving + SPA fallback
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -48,21 +49,21 @@ describe("SPA fallback", () => {
   });
 
   it("returns index.html for /session/:id route", async () => {
-    const res = await fetch(`http://localhost:${httpPort}/session/abc-123`);
+    const res = await fetch(`http://127.0.0.1:${httpPort}/session/abc-123`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("html");
   });
 
   it("returns index.html for unknown client routes", async () => {
-    const res = await fetch(`http://localhost:${httpPort}/some/unknown/path`);
+    const res = await fetch(`http://127.0.0.1:${httpPort}/some/unknown/path`);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("html");
   });
 
   it("still serves API routes normally", async () => {
-    const res = await fetch(`http://localhost:${httpPort}/api/sessions`);
+    const res = await fetch(`http://127.0.0.1:${httpPort}/api/sessions`);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);

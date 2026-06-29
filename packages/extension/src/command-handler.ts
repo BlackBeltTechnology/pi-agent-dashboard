@@ -1,18 +1,19 @@
 /**
  * Handles server→extension messages by dispatching to pi API.
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
   ServerToExtensionMessage,
   ExtensionToServerMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { killProcessByPgid } from "./process-scanner.js";
-import type { FileEntry, ImageContent, PiSessionInfo, MissingToolError } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FileEntry, PiSessionInfo, MissingToolError } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { filterHiddenCommands } from "./bridge-context.js";
-import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 
@@ -274,6 +275,14 @@ export function createCommandHandler(
      * See change: add-followup-edit-and-steer-cancel.
      */
     isStreaming?: () => boolean;
+    /**
+     * Mirror a server `attach_proposal_changed` push into the bridge's
+     * `BridgeContext.attachedChange`. The `before_agent_start` injector reads
+     * that field to build the per-turn system-prompt fragment. Foreign-session
+     * messages are already dropped by the sessionId guard at the top of
+     * `handle`. See change: inject-session-context-into-agent.
+     */
+    onAttachProposalChanged?: (attachedChange: string | null) => void;
   },
 ): CommandHandler {
   const getSessionId = typeof sessionIdOrGetter === "function" ? sessionIdOrGetter : () => sessionIdOrGetter;
@@ -439,7 +448,14 @@ export function createCommandHandler(
                 undefined, // connection — absent in non-bridge path
                 msg.delivery,
               );
-              if (!handled) {
+              // Exec-mode slash template (executable: bash): run as bash, no LLM.
+              // Runs AFTER extension dispatch, BEFORE the sendUserMessage
+              // fallback (disjoint by construction — see spec routing
+              // precedence). See change: add-dashboard-slash-commands.
+              const ranExec =
+                !handled &&
+                (await tryExecSlashTemplate(pi, parsed.text, process.cwd(), sessionId, options?.eventSink));
+              if (!handled && !ranExec) {
                 // sendUserMessage exempt from gating: only typed single-line
                 // slashes that are NOT extension commands reach this — i.e.
                 // skills, prompt templates, unrecognized slashes.
@@ -564,6 +580,23 @@ export function createCommandHandler(
         }
 
         // openspec_refresh removed — server handles directly via DirectoryService
+
+        case "attach_proposal_changed":
+          // The top-of-handle guard only drops MISMATCHED sessionIds; a payload
+          // with no sessionId falls through. Require an exact match so an
+          // unscoped message cannot mutate the active bridge's attached change.
+          if (msg.sessionId !== sessionId) {
+            console.error("[dashboard] Ignoring attach_proposal_changed: missing/mismatched sessionId");
+            return undefined;
+          }
+          // Validate the socket payload shape before mirroring into
+          // BridgeContext.attachedChange. See change: inject-session-context-into-agent.
+          if (msg.attachedChange !== null && typeof msg.attachedChange !== "string") {
+            console.error("[dashboard] Ignoring attach_proposal_changed: attachedChange must be string|null");
+            return undefined;
+          }
+          options?.onAttachProposalChanged?.(msg.attachedChange);
+          return undefined;
 
         case "rename_session":
           pi.setSessionName(msg.name);
@@ -715,6 +748,84 @@ function sendUserMessageWithImages(
   }
 }
 
+/**
+ * Resolve the dashboard HTTP port, in precedence order:
+ *   1. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` env — set by the dashboard server
+ *      and inherited by spawned sessions (the only reliable source when the
+ *      server runs on a non-default port, e.g. the Docker test harness, whose
+ *      `config.json` carries no `port` field).
+ *   2. `~/.pi/dashboard/config.json` `port` — normal local installs write it.
+ *   3. 8000 (default).
+ * Note: `PI_DASHBOARD_URL` is the gateway (ws) port, NOT the HTTP port, so it is
+ * deliberately not consulted here. See change: add-dashboard-slash-commands.
+ */
+function resolveDashboardPort(): number {
+  for (const v of [process.env.PI_DASHBOARD_PORT, process.env.DASHBOARD_PORT]) {
+    const n = Number(v);
+    if (v && Number.isFinite(n) && n > 0) return n;
+  }
+  try {
+    const raw = readFileSync(join(homedir(), ".pi", "dashboard", "config.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.port === "number" && Number.isFinite(parsed.port)) return parsed.port;
+  } catch { /* missing / unparseable config */ }
+  return 8000;
+}
+
+/**
+ * Build the env vars exec-mode slash templates rely on: `PI_DASHBOARD_PORT` and
+ * `PI_DASHBOARD_BASE`. See change: add-dashboard-slash-commands.
+ */
+export function buildDashboardExecEnv(): Record<string, string> {
+  const port = resolveDashboardPort();
+  return {
+    PI_DASHBOARD_PORT: String(port),
+    PI_DASHBOARD_BASE: `http://localhost:${port}`,
+  };
+}
+
+/**
+ * Resolve a typed slash command to a prompt template and, when it carries
+ * `executable: bash` frontmatter, run the body as bash (no LLM) via
+ * `handleBashCommand` and return true. Returns false when the text is not an
+ * exec-mode template so the caller falls through to its existing path
+ * (extension dispatch already ran; LLM expansion + sendUserMessage is next).
+ *
+ * Mirrors `tryDispatchExtensionCommand`'s shape so both call sites
+ * (bridge.ts::sessionPrompt and command-handler's non-bridge slash fallback)
+ * stay in lockstep. See change: add-dashboard-slash-commands.
+ */
+export async function tryExecSlashTemplate(
+  pi: ExtensionAPI,
+  text: string,
+  cwd: string,
+  sessionId: string,
+  eventSink?: (msg: ExtensionToServerMessage) => void,
+): Promise<boolean> {
+  const loaded = loadPromptTemplate(text, cwd, pi as any);
+  if (!loaded || loaded.kind !== "exec") return false;
+  // Positional args bind as $1, $2, … inside the body (split on whitespace,
+  // empty tokens dropped). Quoted args are not honoured in v1 — every exec
+  // template takes simple identifiers (see design.md "Quoting hazard").
+  const args = loaded.argsString.trim().split(/\s+/).filter(Boolean);
+  await handleBashCommand(pi, sessionId, loaded.body, loaded.excludeFromContext, eventSink, {
+    args,
+    env: buildDashboardExecEnv(),
+    source: "slash-exec",
+  });
+  return true;
+}
+
+/** Options for executable-mode bash invocation (slash-exec templates). */
+interface BashExecOptions {
+  /** Positional args passed after `--` so `$1`, `$2`, … bind in the body. */
+  args?: string[];
+  /** Env vars injected by prepending `export` statements to the body. */
+  env?: Record<string, string>;
+  /** Marks the emitted bash_output event so the client renders the footer. */
+  source?: "slash-exec";
+}
+
 /** Execute a bash command and forward results */
 async function handleBashCommand(
   pi: ExtensionAPI,
@@ -722,6 +833,7 @@ async function handleBashCommand(
   command: string,
   excludeFromContext: boolean,
   eventSink?: (msg: ExtensionToServerMessage) => void,
+  execOpts?: BashExecOptions,
 ): Promise<void> {
   // Resolve the shell binary through the tool registry instead of
   // spawning the literal "sh". On a clean Windows host (no Git-for-Windows
@@ -751,11 +863,27 @@ async function handleBashCommand(
     return;
   }
 
+  // Inject dashboard env by prepending `export` statements to the body
+  // (pi.exec's ExecOptions has no `env` field). Values are a port number and
+  // a localhost URL — shell-safe — but single-quote-escape defensively.
+  let script = command;
+  if (execOpts?.env) {
+    const exports = Object.entries(execOpts.env)
+      .map(([k, v]) => `export ${k}='${String(v).replace(/'/g, "'\\''")}'`)
+      .join("; ");
+    if (exports) script = `${exports}\n${command}`;
+  }
+  // Positional args bind as $1, $2, … via `bash -c <script> -- arg1 arg2`
+  // ($0 becomes `--`). Absent for `!` / `!!` — those pass no extra argv.
+  const argv = execOpts?.args?.length
+    ? ["-c", script, "--", ...execOpts.args]
+    : ["-c", script];
+
   let output = "";
   let exitCode = 0;
   try {
     // Spawn the resolved absolute path directly (no shell, no PATH dep).
-    const result = await pi.exec(resolved.path, ["-c", command], { timeout: BASH_TIMEOUT });
+    const result = await pi.exec(resolved.path, argv, { timeout: BASH_TIMEOUT });
     output = (result.stdout || "") + (result.stderr || "");
     exitCode = result.exitCode ?? 0;
   } catch (err: any) {
@@ -763,14 +891,17 @@ async function handleBashCommand(
     exitCode = 1;
   }
 
-  // Forward bash output event
+  // Forward bash output event. `source` is set only for slash-exec templates
+  // so the client renders the "ran locally" footer; absent for ! / !!.
   eventSink?.({
     type: "event_forward",
     sessionId,
     event: {
       eventType: "bash_output",
       timestamp: Date.now(),
-      data: { command, output, exitCode, excludeFromContext },
+      data: execOpts?.source
+        ? { command, output, exitCode, excludeFromContext, source: execOpts.source }
+        : { command, output, exitCode, excludeFromContext },
     },
   });
 

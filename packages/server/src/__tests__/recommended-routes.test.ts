@@ -213,7 +213,7 @@ describe("GET /api/packages/recommended", () => {
 		expect(pwa.requirements).toBeUndefined();
 	});
 
-	it("returns the 12 manifest entries with default (offline) descriptions", async () => {
+	it("returns the manifest entries with default (offline) descriptions", async () => {
 		vi.mocked(fetchPackageMeta).mockResolvedValue(null);
 		vi.mocked(fetchGithubPackageJson).mockResolvedValue(null);
 		await setupRoute();
@@ -226,7 +226,7 @@ describe("GET /api/packages/recommended", () => {
 		const body = JSON.parse(res.payload);
 		expect(body.success).toBe(true);
 		const entries = body.data.recommended;
-		expect(entries).toHaveLength(12);
+		expect(entries).toHaveLength(18);
 		// Every entry falls back to fallbackDescription and has no version.
 		for (const e of entries) {
 			expect(typeof e.description).toBe("string");
@@ -253,6 +253,27 @@ describe("GET /api/packages/recommended", () => {
 		const pwa = body.data.recommended.find((e: any) => e.id === "pi-web-access");
 		expect(pwa.description).toBe("LIVE npm desc");
 		expect(pwa.version).toBe("9.9.9");
+	});
+
+	it("derives skillsRegistered from the package's pi.skills (registry meta)", async () => {
+		vi.mocked(fetchGithubPackageJson).mockResolvedValue(null);
+		vi.mocked(fetchPackageMeta).mockImplementation(async (name: string) => {
+			if (name === "@blackbelt-technology/frontend-mockup-loop") {
+				return { description: "d", version: "0.5.4", skills: ["frontend-mockup-loop"] };
+			}
+			return null;
+		});
+		await setupRoute();
+
+		const res = await fastify.inject({ method: "GET", url: "/api/packages/recommended" });
+		const body = JSON.parse(res.payload);
+		const mockup = body.data.recommended.find(
+			(e: any) => e.id === "@blackbelt-technology/frontend-mockup-loop",
+		);
+		expect(mockup.skillsRegistered).toEqual(["frontend-mockup-loop"]);
+		// Entries whose package ships no skills omit the field.
+		const pwa = body.data.recommended.find((e: any) => e.id === "pi-web-access");
+		expect(pwa.skillsRegistered).toBeUndefined();
 	});
 
 	it("enriches the now-npm-sourced pi-flows entry from npm metadata", async () => {

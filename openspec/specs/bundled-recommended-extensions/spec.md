@@ -120,6 +120,6 @@ The `RECOMMENDED_EXTENSIONS` constant in `packages/shared/src/recommended-extens
 - **THEN** it SHALL NOT declare that module under `requires.binaries` — a bundled native dep is not a user-provided system requirement
 
 #### Scenario: unknown service names are not declared
-- **WHEN** an extension's external requirement is a service absent from the closed probe registry (e.g. a Honcho server)
+- **WHEN** an extension's external requirement is a service absent from the closed probe registry (e.g. a self-hosted analytics server)
 - **THEN** it SHALL NOT declare that name under `requires.services` (it would always report unsatisfied); the need is surfaced via the companion dashboard plugin instead
 

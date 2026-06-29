@@ -305,6 +305,24 @@ Cross-refs:
 - README.md:178
 - docs/architecture.md:959
 
+## How do I expose the dashboard on my LAN?
+
+Native installs bind `127.0.0.1` (loopback) by default. HTTP + pi gateway both stay local.
+
+To reach the dashboard from other machines, set the bind host (restart required):
+- `PI_DASHBOARD_HOST=0.0.0.0` env var, or
+- Settings → Server → Listen Interface → All interfaces (or pick a specific NIC), or
+- `--host <ip>` CLI flag, or
+- `bindHost` field in `~/.pi/dashboard/config.json`.
+
+Resolution order: `--host` → `PI_DASHBOARD_HOST` → `config.bindHost` → `127.0.0.1`. One `bindHost` governs both HTTP + pi gateway.
+
+Selecting All interfaces with no auth providers and no trusted networks shows an exposure warning. Binding wide does not lower trust: request guard (`trustedNetworks` / auth) still applies per request.
+
+Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable through published ports.
+
+See change: configurable-bind-host.
+
 ## Why do all my PWA installs of the dashboard have the same name on the launcher?
 
 Server serves `/manifest.json` dynamically per request.
@@ -2039,7 +2057,7 @@ Root cause:
 - Arbitrary worktree branches may not contain `.pi/skills/openspec-*/SKILL.md`.
 - Skill paths already injected into agent system prompt under `<available_skills>`. Filesystem search redundant.
 
-Stopgap: `.pi/skills/openspec-archive-change/SKILL.md` and `.pi/skills/openspec-bulk-archive-change/SKILL.md` carry guardrail: "Resolve `openspec/` strictly relative to CWD. Do NOT `find` the filesystem for SKILL.md, archive directories, or sibling `openspec/` trees — scoped to current working tree. In git/jj worktree, operate on worktree's own `openspec/changes/` (CWD already points there)." Edits local-only, gitignored, wiped by `openspec update`.
+Stopgap: `.pi/skills/openspec-archive-change/SKILL.md` and `.pi/skills/openspec-bulk-archive-change/SKILL.md` carry guardrail: "Resolve `openspec/` strictly relative to CWD. Do NOT `find` the filesystem for SKILL.md, archive directories, or sibling `openspec/` trees — scoped to current working tree. In git worktree, operate on worktree's own `openspec/changes/` (CWD already points there)." Edits local-only, gitignored, wiped by `openspec update`.
 
 Rule for agents: in worktree, treat CWD as openspec root. Never `find` for skill files. Use path from `<available_skills>` block.
 
@@ -2153,34 +2171,6 @@ sudo dnf install gh
 
 Vendor docs: https://cli.github.com/
 
-## Install jj
-
-Dashboard surfaces jj workspace state when repo uses Jujutsu.
-
-macOS:
-
-```bash
-brew install jj
-```
-
-Windows:
-
-```bash
-winget install jj-vcs.jj
-scoop install jj
-cargo install --locked --bin jj jj-cli
-```
-
-Linux:
-
-```bash
-brew install jj
-cargo install --locked --bin jj jj-cli
-sudo pacman -S jujutsu
-```
-
-Vendor docs: https://docs.jj-vcs.dev/latest/install-and-setup/
-
 ## Install node
 
 Dashboard spawns pi and build scripts via node. npx ships with node.
@@ -2230,6 +2220,16 @@ curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 
 Vendor docs: https://docs.zrok.io/docs/guides/install/
 
+## Electron build shows "Bundled server already present" but my changes don't appear — what now?
+
+Old behavior. build-installer.sh now uses content-freshness gate (change: fix-stale-bundled-server-cache). Stale cache no longer skips rebundle.
+
+If a stale bundle persists:
+- Delete stamp: `rm packages/electron/resources/server/.bundle-stamp`, then rebuild. Forces rebundle.
+- Full reset: `rm -rf packages/electron/resources/server/`, then rebuild.
+
+Rebuild re-runs `bundle-server.mjs`. Bundler hard-fails (exit 1) when client missing or `pi-dashboard-web/dist/index.html` not materialized — no silent API-only ship.
+
 ## How do I switch between bundled and host git on Windows?
 
 Three ways. Takes effect for newly spawned sessions.
@@ -2271,3 +2271,9 @@ Cross-refs:
 - packages/client/src/lib/auto-init-worktree.ts
 - packages/client/src/components/SettingsPanel.tsx
 - packages/server/src/routes/preferences-worktree-init-routes.ts
+
+## Local `electron-forge make` fails with `Cannot find module '.../volume.node'`
+
+DMG maker chain (`@electron-forge/maker-dmg` → appdmg → macos-alias) needs compiled native module `macos-alias/build/Release/volume.node`. Missing when install ran `--ignore-scripts` or Xcode CLT absent at install time.
+
+Fix: run `pnpm install` — `packages/electron` postinstall (`scripts/ensure-macos-alias.mjs`) self-heals, rebuilds `volume.node`. Rebuild fail → install Xcode Command Line Tools: `xcode-select --install`, then `pnpm install` again. `build-installer.sh` also gates `electron-forge make` on darwin; exits 1 with the same hint when rebuild fails. Doctor row `macos-alias native module` (darwin-only) surfaces state.

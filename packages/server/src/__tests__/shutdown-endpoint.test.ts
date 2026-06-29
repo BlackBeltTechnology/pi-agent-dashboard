@@ -21,7 +21,7 @@ describe("POST /api/shutdown", () => {
 
   it("should respond with { ok: true }", async () => {
     server = await createServer({
-      port: 0, piPort: 0, dev: true,
+      port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
@@ -29,7 +29,7 @@ describe("POST /api/shutdown", () => {
     httpPort = server.httpPort()!;
     piPort = server.piPort()!;
 
-    const res = await fetch(`http://localhost:${httpPort}/api/shutdown`, {
+    const res = await fetch(`http://127.0.0.1:${httpPort}/api/shutdown`, {
       method: "POST",
     });
 

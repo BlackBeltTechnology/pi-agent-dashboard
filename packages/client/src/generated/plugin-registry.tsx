@@ -3,8 +3,6 @@
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings } from "@blackbelt-technology/pi-dashboard-goal-plugin";
-import { HonchoSettings, HonchoBadge, shouldRenderHonchoMemory, HonchoCardActions, HonchoMapPopover } from "@blackbelt-technology/pi-dashboard-honcho-plugin";
-import { JjWorkspaceBadge, isInJjWorkspace, JjActionBar, isInJjRepo, JjInitAffordance, isInGitRepoButNotJj, JjWorkspaceList, JjWorkspaceView, JjPluginSettings } from "@blackbelt-technology/pi-dashboard-jj-plugin";
 import { BuiltInRolesSettings } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
@@ -169,105 +167,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "honcho",
-        "displayName": "Honcho Memory",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "HonchoSettings",
-                "tab": "general"
-            },
-            {
-                "slot": "session-card-memory",
-                "component": "HonchoBadge",
-                "shouldRender": "shouldRenderHonchoMemory"
-            },
-            {
-                "slot": "session-card-memory",
-                "component": "HonchoCardActions",
-                "shouldRender": "shouldRenderHonchoMemory"
-            },
-            {
-                "slot": "anchored-popover",
-                "component": "HonchoMapPopover"
-            }
-        ],
-        "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "configSchema": "./src/configSchema.json",
-        "requires": {
-            "piExtensions": [
-                "pi-memory-honcho"
-            ],
-            "services": [
-                "pi-model-proxy"
-            ]
-        }
-    },
-    claims: [
-      { pluginId: "honcho", priority: 100, slot: "settings-section", tab: "general", Component: HonchoSettings },
-      { pluginId: "honcho", priority: 100, slot: "session-card-memory", Component: HonchoBadge, shouldRender: shouldRenderHonchoMemory },
-      { pluginId: "honcho", priority: 100, slot: "session-card-memory", Component: HonchoCardActions, shouldRender: shouldRenderHonchoMemory },
-      { pluginId: "honcho", priority: 100, slot: "anchored-popover", Component: HonchoMapPopover },
-    ],
-  },
-  {
-    manifest: {
-        "id": "jj",
-        "displayName": "Jujutsu Workspaces",
-        "priority": 100,
-        "claims": [
-            {
-                "slot": "session-card-badge",
-                "component": "JjWorkspaceBadge",
-                "predicate": "isInJjWorkspace"
-            },
-            {
-                "slot": "workspace-action-bar",
-                "component": "JjActionBar",
-                "predicate": "isInJjRepo"
-            },
-            {
-                "slot": "workspace-action-bar",
-                "component": "JjInitAffordance",
-                "predicate": "isInGitRepoButNotJj"
-            },
-            {
-                "slot": "sidebar-folder-section",
-                "component": "JjWorkspaceList"
-            },
-            {
-                "slot": "command-route",
-                "component": "JjWorkspaceView",
-                "command": "/jj"
-            },
-            {
-                "slot": "settings-section",
-                "component": "JjPluginSettings",
-                "tab": "general"
-            }
-        ],
-        "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "configSchema": "./src/configSchema.json",
-        "requires": {
-            "binaries": [
-                "jj"
-            ]
-        }
-    },
-    claims: [
-      { pluginId: "jj", priority: 100, slot: "session-card-badge", Component: JjWorkspaceBadge, predicate: isInJjWorkspace },
-      { pluginId: "jj", priority: 100, slot: "workspace-action-bar", Component: JjActionBar, predicate: isInJjRepo },
-      { pluginId: "jj", priority: 100, slot: "workspace-action-bar", Component: JjInitAffordance, predicate: isInGitRepoButNotJj },
-      { pluginId: "jj", priority: 100, slot: "sidebar-folder-section", Component: JjWorkspaceList },
-      { pluginId: "jj", priority: 100, slot: "command-route", command: "/jj", Component: JjWorkspaceView },
-      { pluginId: "jj", priority: 100, slot: "settings-section", tab: "general", Component: JjPluginSettings },
-    ],
-  },
-  {
-    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -339,4 +238,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "02d926e3b48868808b028fac73e19ce3bc8bca83c4556f2e7fa99520117af016";
+export const PLUGIN_REGISTRY_HASH = "5982201313c022c6d0506727aa638ac3906f2c6c90e2cf9937932f7d1b135b8c";

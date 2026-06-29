@@ -296,6 +296,16 @@ jobs:
           GIT_TARGET_ARCH: ${{ matrix.arch }}
         run: node packages/electron/scripts/assert-runnable-bundle.mjs
 
+      - name: Assert no wmic in bundle (PowerShell-only Windows introspection)
+        # Enforces spec scenario "No wmic shell-invocation anywhere in shipped
+        # code" (change: replace-wmic-with-powershell). wmic removed by default
+        # on Win 11 22H2+; every introspection path uses PowerShell
+        # Get-CimInstance. Scans only bundled @blackbelt-technology code; a
+        # reintroduced exec/spawn(...wmic) fails the build on every leg.
+        # Node-native (no bash) — Windows-reachable invariant.
+        if: ${{ inputs.source_only_bundle == false }}
+        run: node packages/electron/scripts/assert-no-wmic-in-bundle.mjs
+
       - name: Use x64 Node.js for Windows arm64 bundled server
         if: matrix.platform == 'win32' && matrix.arch == 'arm64'
         shell: pwsh
@@ -430,6 +440,30 @@ jobs:
           fi
           hdiutil detach "$MOUNT_POINT" -quiet || true
           echo "✓ Deployment target floor verified: 10.15"
+
+      - name: Launch-smoke the .app
+        # Dynamic boot proof: exec the just-built .app's inner Mach-O and
+        # assert the four-point healthy-launch contract (health 200,
+        # starter==Electron, server.log non-empty, no FATAL). Runs in-job
+        # on the GitHub-hosted macOS runner, which (unlike the headless
+        # Windows/Linux GH runners) provides a real Aqua/WindowServer
+        # session. Each leg execs its OWN native arch — macos-14→arm64,
+        # macos-15-intel→x64 — so there is no cross-arch exec. Boot-proof,
+        # NOT floor-proof: runner OS (14/15) is above the 10.15 floor; the
+        # static otool minos check above is the (label-only) floor guard.
+        # See change: add-macos-electron-launch-smoke.
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! ./qa/tests/09-electron-mac-launch.sh; then
+            echo "::error::macOS launch smoke failed for ${{ matrix.arch }}"
+            echo "--- Electron stdout/stderr (tail) ---"
+            tail -120 /tmp/electron-stdout-*.log 2>/dev/null || echo "(no electron log)"
+            echo "--- server.log (tail) ---"
+            tail -120 "$HOME/.pi/dashboard/server.log" 2>/dev/null || echo "(no server.log)"
+            exit 1
+          fi
 
       - name: Package Electron (Windows — no maker configured)
         # Runs for both win32-x64 and win32-arm64. forge.config.ts has no

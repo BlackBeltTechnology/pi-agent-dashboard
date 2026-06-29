@@ -32,6 +32,7 @@ export { parseSourceKey, sourcesMatch, type SourceKey };
 import {
 	fetchPackageMeta,
 	fetchGithubPackageJson,
+	deriveSkillIds,
 	type PackageMeta,
 } from "../npm-search-proxy.js";
 import type { PackageManagerWrapper } from "../package-manager-wrapper.js";
@@ -148,6 +149,9 @@ async function enrichEntry(
 
 	const description = meta?.description ?? entry.fallbackDescription;
 	const version = meta?.version;
+	// Skills DERIVED from the package's own pi.skills manifest. Default to the
+	// registry / GitHub blob; an installed copy (read below) overrides it.
+	let skillsRegistered: string[] | undefined = meta?.skills;
 
 	const inGlobal = installedGlobal.some((p) => sourcesMatch(p.source, entry.source));
 	const inLocal = installedLocal.some((p) => sourcesMatch(p.source, entry.source));
@@ -164,7 +168,10 @@ async function enrichEntry(
 	// sources we currently don't track ref pins, so updateAvailable defaults
 	// to false (the Packages-tab check-updates action handles this separately).
 	let updateAvailable = false;
-	if (version && key.kind === "npm" && installedScope) {
+	// Read the installed package.json once for both updateAvailable AND the
+	// authoritative pi.skills (single source of truth when the package is on
+	// disk; the registry blob is the pre-install fallback).
+	if (installedScope) {
 		const installed = inGlobal ? installedGlobal : installedLocal;
 		const match = installed.find((p) => sourcesMatch(p.source, entry.source));
 		if (match?.installedPath) {
@@ -172,7 +179,11 @@ async function enrichEntry(
 				const pj = path.join(match.installedPath, "package.json");
 				if (fs.existsSync(pj)) {
 					const parsed = JSON.parse(fs.readFileSync(pj, "utf-8"));
-					updateAvailable = semverOlder(parsed?.version, version);
+					if (version && key.kind === "npm") {
+						updateAvailable = semverOlder(parsed?.version, version);
+					}
+					const installedSkills = deriveSkillIds(parsed?.pi?.skills);
+					if (installedSkills) skillsRegistered = installedSkills;
 				}
 			} catch {
 				/* ignore */
@@ -219,6 +230,7 @@ async function enrichEntry(
 		installed: { scope: installedScope },
 		activeInPi,
 		updateAvailable,
+		...(skillsRegistered ? { skillsRegistered } : {}),
 		...(entry.dashboardPlugin
 			? { dashboardPluginInstalled: dashboardPluginInstalled ?? false }
 			: {}),

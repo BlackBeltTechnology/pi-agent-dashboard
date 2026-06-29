@@ -13,7 +13,7 @@ vi.mock("mermaid", () => ({
 }));
 
 // Import after mock is set up
-import { MermaidBlock, _svgCache } from "../MermaidBlock.js";
+import { MermaidBlock, _svgCache, _errorCache } from "../MermaidBlock.js";
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -35,6 +35,7 @@ describe("MermaidBlock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _svgCache.clear();
+    _errorCache.clear();
   });
 
   it("renders SVG from valid mermaid code", async () => {
@@ -83,6 +84,27 @@ describe("MermaidBlock", () => {
     });
 
     // No error means stale result was safely discarded
+  });
+
+  it("shows cached error instantly on remount without re-rendering", async () => {
+    mockRender.mockRejectedValue(new Error("Parse error"));
+
+    // First render — populates error cache
+    const { container: c1, unmount } = renderWithTheme(<MermaidBlock code="cache-err-diagram" />);
+    await waitFor(() => {
+      expect(c1.textContent).toMatch(/failed to render/i);
+    });
+    expect(mockRender).toHaveBeenCalledTimes(1);
+
+    unmount();
+    mockRender.mockClear();
+
+    // Remount with same code — error shows immediately, no loading flash,
+    // and mermaid.render() is NOT called again.
+    const { container: c2 } = renderWithTheme(<MermaidBlock code="cache-err-diagram" />);
+    expect(c2.textContent).toMatch(/failed to render/i);
+    expect(c2.textContent).not.toMatch(/loading diagram/i);
+    expect(mockRender).not.toHaveBeenCalled();
   });
 
   it("generates unique IDs for multiple instances", async () => {

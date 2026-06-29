@@ -110,20 +110,16 @@ Rationale: pi's persisted `.jsonl` contains no `turn_end` or `contextUsage` entr
 - **WHEN** the scanner falls back to `.jsonl` parsing and writes a fresh `.meta.json`
 - **THEN** `contextWindow` SHALL be the value returned by `extractSessionStats` (which is `inferContextWindow(model)`)
 
-### Requirement: Worktree and workspace parentage persisted
-The system SHALL persist a session's worktree and jj-workspace parentage to `.meta.json` so cold-start session grouping reproduces the grouping a live bridge produces. When the in-memory session carries `gitWorktree`, the system SHALL persist `gitWorktree.mainPath` and `gitWorktree.name`. When it carries `jjState`, the system SHALL persist `jjState.workspaceRoot` and `jjState.workspaceName`. All four fields SHALL remain optional and SHALL be backward-compatible with existing sidecar files that omit them.
+### Requirement: Worktree parentage persisted
+The system SHALL persist a session's worktree parentage to `.meta.json` so cold-start session grouping reproduces the grouping a live bridge produces. When the in-memory session carries `gitWorktree`, the system SHALL persist `gitWorktree.mainPath` and `gitWorktree.name`. Both fields SHALL remain optional and SHALL be backward-compatible with existing sidecar files that omit them.
 
 #### Scenario: Worktree parentage written
 - **WHEN** a session has `gitWorktree = { mainPath: "/repo", name: "feat-x" }`
 - **THEN** its `.meta.json` SHALL contain `gitWorktree.mainPath = "/repo"` and `gitWorktree.name = "feat-x"`
 
-#### Scenario: jj workspace parentage written
-- **WHEN** a session has `jjState = { workspaceRoot: "/repo", workspaceName: "feat-x", ... }`
-- **THEN** its `.meta.json` SHALL contain `jjState.workspaceRoot = "/repo"` and `jjState.workspaceName = "feat-x"`
-
 #### Scenario: Plain checkout omits parentage
-- **WHEN** a session has neither `gitWorktree` nor `jjState`
-- **THEN** its `.meta.json` SHALL omit all four parentage fields and remain valid
+- **WHEN** a session has no `gitWorktree`
+- **THEN** its `.meta.json` SHALL omit both parentage fields and remain valid
 
 #### Scenario: Legacy meta without parentage stays valid
 - **WHEN** a `.meta.json` predates this change and omits the parentage fields

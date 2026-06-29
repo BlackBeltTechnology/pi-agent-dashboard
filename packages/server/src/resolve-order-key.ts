@@ -4,7 +4,7 @@
  * Wraps the shared `resolveSessionGroupPath` (the SAME resolver the client
  * grouping uses) with the server's `process.platform` and the user's pinned
  * directories. Every order-map mutation (`insert` / `moveToFront` / `remove`)
- * MUST route through this so worktree/jj sessions write to the parent-repo
+ * MUST route through this so worktree sessions write to the parent-repo
  * key the client actually reads — fixing the prior silent no-op where the
  * server keyed by raw `session.cwd`.
  *
@@ -18,13 +18,13 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 
 export type OrderKeyResolvable = Pick<
   DashboardSession,
-  "cwd" | "jjState" | "gitWorktree"
+  "cwd" | "gitWorktree"
 >;
 
 /**
  * Compute the resolved group path used as the order-map key.
  * `pinnedDirectories` are the user's pinned folders (display paths);
- * an explicit pin on the session's own `cwd` wins over worktree/jj collapse.
+ * an explicit pin on the session's own `cwd` wins over worktree collapse.
  */
 export function resolveOrderKey(
   session: OrderKeyResolvable,

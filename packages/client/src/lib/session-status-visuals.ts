@@ -13,15 +13,43 @@
  * See change: add-session-status-to-folder-proposal-rows
  */
 
-import { mdiConsoleLine, mdiRobotOutline, mdiApplicationOutline, mdiCodeTags } from "@mdi/js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  mdiApplicationOutline,
+  mdiCircle,
+  mdiCircleHalfFull,
+  mdiCircleOutline,
+  mdiCloseCircle,
+  mdiCodeTags,
+  mdiConsoleLine,
+  mdiRobotOutline,
+} from "@mdi/js";
 
 export const statusColors: Record<string, string> = {
-  active: "bg-green-500",
-  streaming: "bg-yellow-500 animate-pulse",
-  idle: "bg-green-500",
+  active: "bg-[var(--status-idle)]",
+  streaming: "bg-[var(--status-working)] animate-pulse",
+  idle: "bg-[var(--status-idle)]",
   ended: "bg-[var(--bg-surface)]",
 };
+
+/**
+ * True when the session is blocked on the chat-routed `ask_user` tool — i.e.
+ * `currentTool === "ask_user"` and the pending prompt is NOT owned by a
+ * widget-bar slot. Drives the dedicated `--status-needs-you` color. Mirrors
+ * the suppression rule in `getCardPulseClass`.
+ * See change: improve-dashboard-attention-routing.
+ */
+export function isChatRoutedAskUser(
+  session: DashboardSession,
+  hasWidgetBarPrompt = false,
+): boolean {
+  // Ended sessions never "need you" even if currentTool lingers as ask_user.
+  return (
+    session.status !== "ended" &&
+    session.currentTool === "ask_user" &&
+    !hasWidgetBarPrompt
+  );
+}
 
 export const sourceBadgeColors: Record<string, string> = {
   tui: "text-blue-400",
@@ -54,7 +82,7 @@ export const sourceLabels: Record<string, string> = {
  * explicit fallback for unknown status.
  */
 export function deriveDotColor(session: DashboardSession): string {
-  if (session.resuming) return "bg-yellow-500 animate-pulse";
+  if (session.resuming) return "bg-[var(--status-working)] animate-pulse";
   return statusColors[session.status] ?? "bg-[var(--bg-surface)]";
 }
 
@@ -64,11 +92,15 @@ export function deriveDotColor(session: DashboardSession): string {
  */
 export function deriveDotColorWithFlags(
   session: DashboardSession,
-  flags: { hasError?: boolean; isRetrying?: boolean },
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean },
 ): string {
-  if (session.resuming) return "bg-yellow-500 animate-pulse";
-  if (flags.hasError) return "bg-red-500";
-  if (flags.isRetrying) return "bg-amber-500 animate-pulse";
+  // Precedence (highest → lowest): error > ask_user (chat-routed) >
+  // resuming/retry > streaming/active/idle > ended.
+  // See change: improve-dashboard-attention-routing.
+  if (flags.hasError) return "bg-[var(--status-error)]";
+  if (isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)) return "bg-[var(--status-needs-you)]";
+  if (session.resuming) return "bg-[var(--status-working)] animate-pulse";
+  if (flags.isRetrying) return "bg-[var(--status-working)] animate-pulse";
   return statusColors[session.status] ?? "bg-[var(--bg-surface)]";
 }
 
@@ -88,7 +120,84 @@ export function deriveIconStatusColor(
   if (status === "ended" && dotColor.startsWith("bg-[var(--bg-surface)]")) {
     return "text-[var(--text-muted)]";
   }
-  return dotColor.replace(/\bbg-(?!\[)/g, "text-");
+  // Convert the LEADING `bg-` → `text-`, including arbitrary `bg-[var(...)]`
+  // tokens. Anchored to the start so a `bg-` substring inside a token name
+  // (e.g. `--bg-surface`) is not rewritten. The ended muted case is handled by
+  // the early return above.
+  return dotColor.replace(/^bg-/, "text-");
+}
+
+/**
+ * Non-hue status channel: a shape per state so the card is distinguishable
+ * without relying on color (WCAG 2.2 §1.4.1) and survives reduced-motion.
+ * Precedence mirrors `deriveDotColorWithFlags`.
+ *   needs-you = filled ● · working = half ◐ · idle = ring ○ · error = ✕
+ * See change: improve-dashboard-attention-routing.
+ */
+export type StatusShape = "needs-you" | "working" | "idle" | "error" | "ended";
+
+export function deriveStatusShape(
+  session: DashboardSession,
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean } = {},
+): StatusShape {
+  if (flags.hasError) return "error";
+  if (isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)) return "needs-you";
+  if (session.resuming || flags.isRetrying || session.status === "streaming") return "working";
+  if (session.status === "active" || session.status === "idle") return "idle";
+  return "ended";
+}
+
+/** mdi path per shape. `ended` has no shape marker (returns null). */
+export const statusShapeIcon: Record<StatusShape, string | null> = {
+  "needs-you": mdiCircle,
+  working: mdiCircleHalfFull,
+  idle: mdiCircleOutline,
+  error: mdiCloseCircle,
+  ended: null,
+};
+
+/**
+ * Count chat-routed `ask_user` (blocked-on-you) sessions in a folder. Excludes
+ * sessions whose pending prompt is widget-bar-placed (per `isWidgetBar`).
+ * Pure helper so the rollup count is unit-testable without the plugin hook.
+ * See change: improve-dashboard-attention-routing.
+ */
+export function countNeedsYou(
+  sessions: DashboardSession[],
+  isWidgetBar: (sessionId: string) => boolean = () => false,
+): number {
+  let n = 0;
+  for (const s of sessions) {
+    if (isChatRoutedAskUser(s, isWidgetBar(s.id))) n++;
+  }
+  return n;
+}
+
+/**
+ * Opt-in urgency sort: float `ask_user` (blocked-on-you) sessions to the top
+ * of a folder's active list. Stable — relative order within the blocked group
+ * and within the rest group is preserved. Pure + unit-testable.
+ * See change: improve-dashboard-attention-routing.
+ */
+export function floatAskUserFirst(
+  sessions: DashboardSession[],
+  isWidgetBar: (sessionId: string) => boolean = () => false,
+): DashboardSession[] {
+  const blocked: DashboardSession[] = [];
+  const rest: DashboardSession[] = [];
+  for (const s of sessions) {
+    if (isChatRoutedAskUser(s, isWidgetBar(s.id))) blocked.push(s);
+    else rest.push(s);
+  }
+  return blocked.length === 0 ? sessions : [...blocked, ...rest];
+}
+
+/** Session ids of chat-routed `ask_user` sessions (rollup target order). */
+export function needsYouSessionIds(
+  sessions: DashboardSession[],
+  isWidgetBar: (sessionId: string) => boolean = () => false,
+): string[] {
+  return sessions.filter((s) => isChatRoutedAskUser(s, isWidgetBar(s.id))).map((s) => s.id);
 }
 
 /**
@@ -116,22 +225,39 @@ export function pulseClassForStatus(session: DashboardSession): string {
  */
 export function deriveRailBgColor(
   session: DashboardSession,
-  flags: { hasError?: boolean; isRetrying?: boolean },
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean },
   isSelected: boolean,
 ): string {
   // Slim, low-alpha vertical line. `/25` for unselected and `/50` for
   // selected keeps the colour a tint, not a block. Class strings are
   // written as literals so Tailwind's JIT picks them up.
   // See change: add-session-card-status-mosaic-rail.
-  if (session.status === "ended") return "bg-[var(--bg-surface)]";
-  if (session.resuming) return isSelected ? "bg-amber-400/65" : "bg-amber-500/40";
-  if (flags.hasError) return isSelected ? "bg-red-400/65" : "bg-red-500/40";
-  if (flags.isRetrying) return isSelected ? "bg-amber-400/65" : "bg-amber-500/40";
-  if (session.status === "streaming") return isSelected ? "bg-amber-400/65" : "bg-amber-500/40";
-  if (session.status === "active" || session.status === "idle") {
-    return isSelected ? "bg-green-400/65" : "bg-green-500/40";
+  // Precedence (highest → lowest): error > ask_user (chat-routed) >
+  // resuming/retry > streaming > active/idle > ended/unknown. Token tints use
+  // `color-mix` (40% unselected, 65% selected) written as literal class strings
+  // so Tailwind's JIT scans them.
+  // See change: improve-dashboard-attention-routing.
+  if (flags.hasError) {
+    return isSelected
+      ? "bg-[color-mix(in_srgb,var(--status-error)_65%,transparent)]"
+      : "bg-[color-mix(in_srgb,var(--status-error)_40%,transparent)]";
   }
-  // Unknown status: fall back to muted.
+  if (isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)) {
+    return isSelected
+      ? "bg-[color-mix(in_srgb,var(--status-needs-you)_65%,transparent)]"
+      : "bg-[color-mix(in_srgb,var(--status-needs-you)_40%,transparent)]";
+  }
+  if (session.resuming || flags.isRetrying || session.status === "streaming") {
+    return isSelected
+      ? "bg-[color-mix(in_srgb,var(--status-working)_65%,transparent)]"
+      : "bg-[color-mix(in_srgb,var(--status-working)_40%,transparent)]";
+  }
+  if (session.status === "active" || session.status === "idle") {
+    return isSelected
+      ? "bg-[color-mix(in_srgb,var(--status-idle)_65%,transparent)]"
+      : "bg-[color-mix(in_srgb,var(--status-idle)_40%,transparent)]";
+  }
+  // Ended / unknown status: muted surface (no shade swap on selection).
   return "bg-[var(--bg-surface)]";
 }
 

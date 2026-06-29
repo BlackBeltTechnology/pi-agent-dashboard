@@ -95,13 +95,13 @@ describe("probeDims + resizeToFile (real jimp)", () => {
   });
 
   it("resizes landscape preserving aspect ratio (long edge ≤ maxEdge)", async () => {
-    const src = await makeTestPng(4032, 3024);
+    const src = await makeTestPng(1600, 1200);
     const dst = path.join(workDir, "out.png");
     const result = await resizeToFile(src, dst, { maxEdge: 1568, quality: 85 });
-    expect(result.srcDims).toEqual({ width: 4032, height: 3024 });
+    expect(result.srcDims).toEqual({ width: 1600, height: 1200 });
     // Long edge ≤ 1568, aspect preserved to within ±1 px.
     expect(Math.max(result.dstDims.width, result.dstDims.height)).toBeLessThanOrEqual(1568);
-    const expectedShort = Math.round((3024 / 4032) * 1568);
+    const expectedShort = Math.round((1200 / 1600) * 1568);
     expect(Math.abs(result.dstDims.height - expectedShort)).toBeLessThanOrEqual(1);
     expect(result.dstBytes).toBeGreaterThan(0);
     const stat = await fs.stat(dst);
@@ -109,17 +109,17 @@ describe("probeDims + resizeToFile (real jimp)", () => {
   });
 
   it("resizes portrait preserving aspect ratio", async () => {
-    const src = await makeTestPng(3024, 4032);
+    const src = await makeTestPng(1200, 1600);
     const dst = path.join(workDir, "out.png");
     const result = await resizeToFile(src, dst, { maxEdge: 1568, quality: 85 });
     expect(Math.max(result.dstDims.width, result.dstDims.height)).toBeLessThanOrEqual(1568);
-    const expectedShort = Math.round((3024 / 4032) * 1568);
+    const expectedShort = Math.round((1200 / 1600) * 1568);
     expect(Math.abs(result.dstDims.width - expectedShort)).toBeLessThanOrEqual(1);
     expect(result.dstDims.height).toBe(1568);
   });
 
   it("writes PNG when output extension is .png", async () => {
-    const src = await makeTestPng(2000, 1500);
+    const src = await makeTestPng(1600, 1200);
     const dst = path.join(workDir, "out.png");
     await resizeToFile(src, dst, { maxEdge: 1568, quality: 85 });
     const head = await fs.readFile(dst);
@@ -128,7 +128,7 @@ describe("probeDims + resizeToFile (real jimp)", () => {
   });
 
   it("writes JPEG when output extension is .jpg", async () => {
-    const src = await makeTestPng(2000, 1500);
+    const src = await makeTestPng(1600, 1200);
     const dst = path.join(workDir, "out.jpg");
     await resizeToFile(src, dst, { maxEdge: 1568, quality: 85 });
     const head = await fs.readFile(dst);

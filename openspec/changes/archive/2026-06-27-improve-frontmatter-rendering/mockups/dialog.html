@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Frontmatter in FilePreviewOverlay</title>
+<link rel="stylesheet" href="shared.css"/>
+<style>
+  .backdrop{position:fixed;inset:0;background:var(--bg-overlay);display:flex;align-items:center;justify-content:center;padding:16px}
+  .dialog{background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:8px;
+    box-shadow:0 20px 60px rgba(0,0,0,.5);max-width:880px;width:100%;max-height:90vh;display:flex;flex-direction:column}
+  .dlg-head{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border-secondary)}
+  .dlg-head .path{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dlg-head .x{color:var(--text-secondary);cursor:pointer;background:none;border:none;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px}
+  .dlg-head .x:hover{background:var(--bg-hover);color:var(--text-primary)}
+  .dlg-body{overflow:auto;padding:18px 20px}
+</style>
+</head>
+<body>
+  <div class="mk-top">
+    <h1>FilePreviewOverlay — opening a SKILL.md</h1>
+    <span class="caption">the modal that opens when you click a <code>.md</code> file link</span>
+    <span class="spacer"></span>
+    <a href="index.html">All mockups</a>
+    <button onclick="toggleTheme()">Theme</button>
+  </div>
+
+  <div class="backdrop">
+    <div class="dialog">
+      <div class="dlg-head">
+        <span class="path">.pi/skills/ci-troubleshoot/SKILL.md</span>
+        <button class="x">×</button>
+      </div>
+      <div class="dlg-body">
+        <div id="props"></div>
+        <div class="md">
+          <h1>CI Troubleshoot</h1>
+          <p>Diagnose CI failures for pi-agent-dashboard. The repo has 6 workflows arranged in two flows:</p>
+          <h2>Release pipeline</h2>
+          <p>The release flow runs <code>prepare → publish → electron → github-release</code> with a strict <code>needs[]</code> contract.</p>
+          <ul><li>Lockfile mismatch</li><li>Bad Node version</li><li>CHANGELOG already-versioned</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="props.js"></script>
+<script>
+renderProps(document.getElementById('props'), [
+  {key:'name', type:'text', value:'ci-troubleshoot'},
+  {key:'description', type:'para', value:'Diagnose failed GitHub Actions runs for pi-agent-dashboard. Maps the 6-workflow taxonomy, walks the release pipeline, surfaces known failure modes.'},
+  {key:'status', type:'status', value:'active'},
+  {key:'version', type:'num', value:'0.1.0'},
+  {key:'updated', type:'date', value:'2026-06-20', rel:'7 days ago'},
+  {key:'triggers', type:'list', value:['ci red','release stuck','workflow won\'t dispatch','gh run failed']},
+], {collapsed:true});
+</script>
+</body>
+</html>

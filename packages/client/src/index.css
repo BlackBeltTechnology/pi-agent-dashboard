@@ -3,14 +3,19 @@
 /* Plugin packages that ship client-side React components with Tailwind
    utility classes. Without these @source directives, Tailwind v4 only
    scans the vite root (packages/client/src/) and purges every class
-   that only appears in plugin source (e.g. h-[70vh] in FlowAgentCard).
-   See change: fix-popout-scroll-height (Tailwind purge). */
+   that only appears in plugin source (e.g. h-[70vh] in FlowAgentCard,
+   hover:text-indigo-400 in goal-plugin's FolderGoalsSection).
+   One @source line per client-bearing plugin package. A bare star glob
+   over sibling src/client dirs does NOT expand in this Tailwind v4 setup,
+   so every new plugin that ships client Tailwind classes MUST add its
+   own line here.
+   See change: fix-popout-scroll-height, fix-plugin-tailwind-source-scan. */
 @source "../../client-utils/src";
 @source "../../dashboard-plugin-runtime/src";
 @source "../../flows-plugin/src/client";
 @source "../../subagents-plugin/src/client";
-@source "../../jj-plugin/src/client";
-@source "../../honcho-plugin/src/client";
+@source "../../goal-plugin/src/client";
+@source "../../automation-plugin/src/client";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/
@@ -56,6 +61,18 @@
   --link: #60a5fa;
   --link-hover: #93bbfd;
 
+  /* Semantic session-status tokens (derive from accents; theme overrides via
+     inline vars for non-base themes). See change:
+     improve-dashboard-attention-routing. */
+  --status-needs-you: var(--accent-purple);
+  --status-working: var(--accent-yellow);
+  --status-idle: var(--accent-green);
+  --status-error: var(--accent-red);
+
+  /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
+     See change: extend-client-utils-state-feedback-primitives. */
+  --focus-ring: var(--accent-primary);
+
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.4);
 
@@ -95,6 +112,7 @@
   --accent-primary: #2563eb;
   --link: #2563eb;
   --link-hover: #1d4ed8;
+  --focus-ring: var(--accent-primary);
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08);
@@ -106,6 +124,17 @@
   --neon-glow-blur: 11px;
   --neon-glow-opacity: 0.52;
   --neon-bg-tint: rgba(37, 99, 235, 0.035);
+}
+
+/* Shared focus-visibility utility. Keyboard focus only (`:focus-visible`),
+   never on mouse click. ≥2px effective thickness + 2px offset, ≥3:1 contrast.
+   Replaces the ad-hoc `focus:outline-none` + 1px `focus:border-*` pattern.
+   WCAG 2.2 §2.4.7 / §2.4.11.
+   See change: extend-client-utils-state-feedback-primitives. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
 }
 
 html, body {

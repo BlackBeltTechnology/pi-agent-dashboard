@@ -4,7 +4,7 @@
  *
  * Hoisted from the client `session-grouping.ts` so the server can key its
  * `sessionOrder` map by the *same* resolved-group-path the client groups
- * and reads by — eliminating the worktree/jj keying drift where server
+ * and reads by — eliminating the worktree keying drift where server
  * `insert`/`moveToFront` wrote to the raw `cwd` key the client never read.
  * See change: simplify-session-card-ordering.
  */
@@ -47,27 +47,21 @@ export function pathKey(p: string, platform: NodeJS.Platform): string {
  * Resolve a session's group-key path. Priority order (first match wins):
  *   1. Explicit pin wins — if `pathKey(cwd)` matches a pinned entry, the
  *      session groups under its own cwd.
- *   2. Else if `jjState.workspaceRoot` is set, group under that workspace
- *      root (so `.shadow/<name>/` workspaces cluster with their parent).
- *   3. Else if `gitWorktree.mainPath` is set, group under the main worktree
+ *   2. Else if `gitWorktree.mainPath` is set, group under the main worktree
  *      path (so `.worktrees/<slug>` sessions cluster with their parent repo).
- *   4. Else fall back to `cwd` (status quo for plain checkouts).
+ *   3. Else fall back to `cwd` (status quo for plain checkouts).
  *
- * The display path returned matches the chosen key. When BOTH
- * `jjState.workspaceRoot` AND `gitWorktree.mainPath` apply, jj wins (step 2).
+ * The display path returned matches the chosen key.
  *
- * See changes: add-jj-workspace-plugin, add-worktree-spawn-dialog,
- *              simplify-session-card-ordering.
+ * See changes: add-worktree-spawn-dialog, simplify-session-card-ordering.
  */
 export function resolveSessionGroupPath(
-  session: Pick<DashboardSession, "cwd" | "jjState" | "gitWorktree">,
+  session: Pick<DashboardSession, "cwd" | "gitWorktree">,
   pinnedKeys: Set<string>,
   platform: NodeJS.Platform,
 ): string {
   const cwdKey = pathKey(session.cwd, platform);
   if (pinnedKeys.has(cwdKey)) return session.cwd;
-  const wsRoot = session.jjState?.workspaceRoot;
-  if (wsRoot && wsRoot.length > 0) return wsRoot;
   const wtMain = session.gitWorktree?.mainPath;
   if (wtMain && wtMain.length > 0) return wtMain;
   return session.cwd;

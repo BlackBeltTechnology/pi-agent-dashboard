@@ -30,12 +30,14 @@ describe("goal REST routes", () => {
   let store: GoalStore;
   let cwd: string;
   let applied: { sessionId: string; goalId: string | null }[];
+  let primed: { sessionId: string; objective: string }[];
 
   beforeEach(async () => {
     dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "goal-routes-"));
     cwd = dataDir; // any path in the known-cwd set
     store = createGoalStore({ dataDir, debounceMs: 5 });
     applied = [];
+    primed = [];
   });
 
   afterEach(async () => {
@@ -52,6 +54,7 @@ describe("goal REST routes", () => {
       networkGuard: PASSTHRU_GUARD,
       store,
       applyGoalIdToSession: (sessionId, goalId) => applied.push({ sessionId, goalId }),
+      primeGoalSession: (sessionId, goal) => primed.push({ sessionId, objective: goal.objective }),
       ...(spawnGoalSession ? { spawnGoalSession } : {}),
     });
     await fastify.ready();
@@ -198,6 +201,8 @@ describe("goal REST routes", () => {
     const cur = (await store.list(cwd))[0]!;
     expect(cur.sessionIds).toContain("s1");
     expect(applied).toContainEqual({ sessionId: "s1", goalId: g.id });
+    // Linking primes the session: dispatch the objective so the loop starts.
+    expect(primed).toContainEqual({ sessionId: "s1", objective: "x" });
   });
 
   it("DELETE sessions → unlinks + clears goalId", async () => {

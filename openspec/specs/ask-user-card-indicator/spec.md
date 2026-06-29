@@ -43,26 +43,6 @@ hardcode any specific component-type literal (e.g. the previous
   `useHasWidgetBarPrompt(sessionId)` imported from
   `@blackbelt-technology/dashboard-plugin-runtime`
 
-### Requirement: ActivityIndicator shows "Waiting for input" for ask_user
-
-The `ActivityIndicator` component SHALL display a distinct label when the session is executing the `ask_user` tool, EXCEPT when the pending prompt is flow-routed (component type `flow-question`), in which case the indicator SHALL fall back to its generic streaming label since the flow's own visualization already conveys the "waiting on you" cue in the upper slot.
-
-#### Scenario: ask_user tool active, chat-routed
-- **WHEN** `session.currentTool === "ask_user"`
-- **AND** the pending PromptBus request is not flow-routed
-- **THEN** the activity indicator shows "Waiting for input" in purple text
-- **AND** does NOT show the generic "⚡ ask_user" tool indicator
-
-#### Scenario: ask_user tool active, flow-routed
-- **WHEN** `session.currentTool === "ask_user"`
-- **AND** the pending PromptBus request has component type `"flow-question"`
-- **THEN** the activity indicator does NOT show "Waiting for input"
-- **AND** the indicator falls back to the standard streaming display (the flow's upper-slot question card carries the "input pending" cue)
-
-#### Scenario: Other tool active
-- **WHEN** `session.currentTool` is set to any value other than `"ask_user"`
-- **THEN** the activity indicator shows the tool name with flash icon in yellow (unchanged)
-
 ### Requirement: CSS animation for card-input-pulse
 
 A `card-input-pulse` keyframe animation SHALL exist in the stylesheet with a purple/violet background tint, visually distinct from the amber `card-working-pulse`.
@@ -85,4 +65,51 @@ showing the cue.
 - **AND** `useHasWidgetBarPrompt(session.id)` returns `true`
 - **THEN** the activity indicator SHALL NOT show "Waiting for input"
 - **AND** SHALL fall back to the standard streaming display
+
+### Requirement: ActivityIndicator shows "Needs you" for ask_user
+
+The `ActivityIndicator` component SHALL display the distinct label **"Needs
+you"** when the session is executing the `ask_user` tool (chat-routed),
+disambiguating it from the passive idle state. It SHALL fall back to its generic
+streaming label when the pending prompt is flow-routed / widget-bar-placed
+(component type `flow-question`, `architect-prompt`, etc.) since the slot owning
+that prompt already conveys the cue. The blocked-on-you state SHALL be conveyed
+by **icon + label + color + dot shape** together, never by color alone.
+
+#### Scenario: ask_user tool active, chat-routed
+
+- **WHEN** `session.currentTool === "ask_user"`
+- **AND** the pending PromptBus request is not widget-bar-placed
+- **THEN** the activity indicator shows **"Needs you"** with the comment-question icon in the `--status-needs-you` color
+- **AND** does NOT show the generic "⚡ ask_user" tool indicator
+- **AND** does NOT show the string "Waiting for input"
+
+#### Scenario: ask_user tool active, flow-routed
+
+- **WHEN** `session.currentTool === "ask_user"`
+- **AND** the pending PromptBus request has a widget-bar-placed component type
+- **THEN** the activity indicator does NOT show "Needs you"
+- **AND** the indicator falls back to the standard streaming display
+
+#### Scenario: Other tool active
+
+- **WHEN** `session.currentTool` is set to any value other than `"ask_user"`
+- **THEN** the activity indicator shows the tool name with flash icon in the `--status-working` color (unchanged behavior)
+
+### Requirement: Idle (turn-finished) state uses a distinct label
+
+The `ActivityIndicator` SHALL display **"Idle"** (muted), NOT "Waiting for input", when a session is `idle`/`active` with no `currentTool` set. The string "Waiting for input" SHALL NOT be shared between the `ask_user`
+(blocked) state and the `idle`/`active` (passive) state.
+
+#### Scenario: Finished turn shows Idle
+
+- **WHEN** `session.status` is `idle` or `active`
+- **AND** `session.currentTool` is unset
+- **THEN** the activity indicator shows "Idle" in a muted color
+- **AND** does NOT show "Waiting for input"
+
+#### Scenario: Blocked and idle labels never collide
+
+- **WHEN** one card is `ask_user` (chat-routed) and another is `idle`
+- **THEN** the two activity-indicator labels SHALL be different strings
 

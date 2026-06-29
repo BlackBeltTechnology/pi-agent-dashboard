@@ -103,9 +103,9 @@ TEST_COPY_MODE=1 /path/to/pi-agent-dashboard/docker/test-up.sh
 
 Two orthogonal ways to get a workspace; neither required:
 
-- **Baked fixtures** — `/fixtures/sample-git` and `/fixtures/sample-jj` are
-  initialized as real git / jj repos at startup. Pin them from the UI to
-  exercise the VCS panels with zero host coupling.
+- **Baked fixtures** — `/fixtures/sample-git` is initialized as a real git repo
+  at startup. Pin it from the UI to exercise the VCS panels with zero host
+  coupling.
 - **Path-parity mount** — the "open my real project" path (above). Launch
   `test-up.sh` from the project; it appears at its identical host path.
 
@@ -140,4 +140,3 @@ and a single `/ws` WebSocket connect. A broken image/build exits non-zero
 | `test-up.sh` | derives port pair + project from `HOST_CWD`, writes state file, `compose -p … up`, prints chosen URL |
 | `test-down.sh` | re-derives project from `$PWD`, `compose -p … down -v`, removes state file |
 | `fixtures/sample-git/` | git fixture source files |
-| `fixtures/sample-jj/` | jj fixture source files |

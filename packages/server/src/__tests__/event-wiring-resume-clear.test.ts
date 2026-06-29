@@ -28,6 +28,7 @@ describe("event-wiring: pending-resume clears old session resuming flag", () => 
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -68,7 +69,7 @@ describe("event-wiring: pending-resume clears old session resuming flag", () => 
     });
 
     // 3. A new session with the same cwd registers (the resumed pi process connecting back)
-    const newBridgeWs = new WebSocket(`ws://localhost:${piPort}`);
+    const newBridgeWs = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve, reject) => {
       newBridgeWs.on("error", reject);
       newBridgeWs.on("open", () => {

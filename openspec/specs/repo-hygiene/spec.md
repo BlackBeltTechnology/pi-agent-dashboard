@@ -1,19 +1,19 @@
 # repo-hygiene
 
-Repo-level ignore rules that keep local-only working directories (jj workspaces, build outputs, caches) out of git.
+Repo-level ignore rules that keep local-only working directories (git worktrees, build outputs, caches) out of git.
 
 ## Requirements
 
-### Requirement: Repo MUST ignore jj workspace directories
+### Requirement: Repo MUST ignore git worktree directories
 
-The repo-root `.gitignore` SHALL list `.shadow/` so that jj workspace clones created via `jj workspace add` under `.shadow/<name>/` are excluded from `git status`, `git add`, and `git commit` from the main worktree.
+The repo-root `.gitignore` SHALL list `.worktrees/` so that git worktree clones created via `git worktree add` under `.worktrees/<name>/` are excluded from `git status`, `git add`, and `git commit` from the main worktree.
 
 #### Scenario: Workspace exists, status is clean
 
-- **WHEN** a contributor has one or more `jj workspace add` targets under `.shadow/<name>/` and runs `git status` in the main worktree
-- **THEN** no `.shadow/...` paths appear in the output
+- **WHEN** a contributor has one or more `git worktree add` targets under `.worktrees/<name>/` and runs `git status` in the main worktree
+- **THEN** no `.worktrees/...` paths appear in the output
 
-#### Scenario: Bulk add does not stage workspace files
+#### Scenario: Bulk add does not stage worktree files
 
-- **WHEN** a contributor runs `git add .` from the repo root with `.shadow/<name>/` populated
-- **THEN** no files under `.shadow/` are added to the git index
+- **WHEN** a contributor runs `git add .` from the repo root with `.worktrees/<name>/` populated
+- **THEN** no files under `.worktrees/` are added to the git index

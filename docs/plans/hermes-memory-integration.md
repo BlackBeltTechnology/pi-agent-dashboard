@@ -69,18 +69,6 @@ Two bounded, file-backed markdown stores:
 - Do NOT save: task progress, session outcomes, completed-work logs, temporary TODO state
 - Skip: trivial/obvious info, things easily re-discovered, raw data dumps
 
-### Layer 4: User Modeling via Honcho (Optional, External)
-- [Honcho](https://honcho.dev/) by Plastic Labs — dialectic reasoning that derives conclusions from conversations
-- Doesn't store raw transcripts — stores derived facts: "User prefers TypeScript", "User has 10+ years Rust experience"
-- Data model: Workspace → Peer → Session → Message (both users and agents are "peers")
-- **Async prefetch pattern**: background thread queries Honcho during turn N, result consumed at turn N+1 (zero blocking)
-- Three retrieval methods: `get_context()` (~200ms), `search()` (hybrid text+semantic), dialectic chat (natural language queries)
-- Dynamic reasoning level based on message complexity (<120 chars → low, 120-400 → medium, >400 → high)
-- Configuration: `user_profile_enabled: true` + `HONCHO_API_KEY`
-- **Only layer requiring an external service**
-
-**Key code:** `honcho_integration/session.py` — `HonchoSessionManager` with async writer thread, prefetch caching, peer cards, dialectic queries, migration helpers
-
 ### Layer 5: Full-text Session Search (FTS5)
 - SQLite FTS5 indexes all past session messages
 - LLM-powered summarization of matching sessions (uses Gemini Flash or similar cheap model)
@@ -95,12 +83,10 @@ Two bounded, file-backed markdown stores:
 ```
 Task completed → Skill created (Layer 2)
                 → Memory updated (Layer 3)
-                → Honcho derives user model (Layer 4)
                 → FTS5 indexes session (Layer 5)
 
 Next similar task → Skill retrieved by similarity (Layer 2)
                   → Memory provides context (Layer 3)
-                  → Honcho personalizes (Layer 4)
                   → FTS5 recalls past work (Layer 5)
 ```
 
@@ -109,7 +95,7 @@ Next similar task → Skill retrieved by similarity (Layer 2)
 # ~/.hermes/config.yaml
 memory:
   memory_enabled: true
-  user_profile_enabled: true    # requires HONCHO_API_KEY
+  user_profile_enabled: true
   memory_char_limit: 2200       # ~800 tokens for MEMORY.md
   user_char_limit: 1375         # ~500 tokens for USER.md
   nudge_interval: 10            # remind agent every N user turns
@@ -435,11 +421,6 @@ Key architectural decisions learned from studying Hermes's implementation:
 
 ## 10. What We Are NOT Integrating
 
-### Honcho User Modeling (Layer 4)
-- **Why not**: External service dependency, requires API key, no published benchmarks proving value, adds complexity
-- **The curated USER.md approach captures 80% of the benefit**: agent-curated user facts vs. ML-derived "Theory of Mind" snapshots
-- **Revisit if**: Honcho publishes A/B test results showing measurable task completion improvements
-
 ### Vector Store for Skills (Layer 3)
 - **Why not**: Pi already has skill discovery via directory scanning and name matching
 - **Hermes's vector store** makes skills findable by task description similarity — useful at scale (100+ skills) but overkill for typical usage
@@ -501,18 +482,15 @@ Key architectural decisions learned from studying Hermes's implementation:
 | File | Lines | Purpose |
 |------|-------|---------|
 | `tools/memory_tool.py` | ~380 | Memory tool: MemoryStore class, security scanning, tool schema |
-| `honcho_integration/session.py` | ~650 | Honcho session manager: async writes, prefetch, dialectic queries |
-| `honcho_integration/__init__.py` | 8 | Package init |
 | `hermes_state.py` | 1,274 | SQLite state store: schema, FTS5, session persistence |
 | `tools/session_search_tool.py` | ~500 | FTS5 search + LLM summarization |
 | `tools/skill_manager_tool.py` | ~700 | Skill CRUD: create, edit, patch, delete, write_file |
 | `tools/skills_tool.py` | ~1,345 | Skill listing and viewing with progressive disclosure |
 | `agent/skill_commands.py` | ~300 | Slash command helpers for skills |
 | `agent/insights.py` | ~790 | Session analytics engine |
-| `run_agent.py` | ~8,400+ | Main agent loop (nudge logic, memory injection, Honcho prefetch) |
+| `run_agent.py` | ~8,400+ | Main agent loop (nudge logic, memory injection) |
 
 ### External References
 - [Hermes memory: five layers, one learning loop](https://dev.to/openwalrus/hermes-memory-five-layers-one-learning-loop-39gd) — Independent deep-dive analysis
 - [Hermes Agent Architecture](https://hermes-agent.nousresearch.com/docs/developer-guide/architecture/) — Official docs
 - [agentskills.io specification](https://agentskills.io/specification) — Portable skill format (shared with pi)
-- [Honcho](https://honcho.dev/) — User modeling library

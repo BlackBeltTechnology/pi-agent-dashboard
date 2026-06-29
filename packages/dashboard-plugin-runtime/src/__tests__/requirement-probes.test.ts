@@ -18,15 +18,15 @@ beforeEach(() => clearRequirementCache());
 
 describe("probePiExtension", () => {
   it("satisfied when listInstalled has matching name", async () => {
-    const r = await probePiExtension("pi-memory-honcho", {
-      listInstalled: async () => [{ name: "pi-memory-honcho" }],
+    const r = await probePiExtension("pi-web-access", {
+      listInstalled: async () => [{ name: "pi-web-access" }],
     });
-    expect(r).toEqual({ name: "pi-memory-honcho", satisfied: true });
+    expect(r).toEqual({ name: "pi-web-access", satisfied: true });
   });
 
   it("satisfied when source is npm:<name>", async () => {
-    const r = await probePiExtension("pi-memory-honcho", {
-      listInstalled: async () => [{ source: "npm:pi-memory-honcho" }],
+    const r = await probePiExtension("pi-web-access", {
+      listInstalled: async () => [{ source: "npm:pi-web-access" }],
     });
     expect(r.satisfied).toBe(true);
   });
@@ -41,12 +41,12 @@ describe("probePiExtension", () => {
   });
 
   it("not satisfied when listInstalled is missing", async () => {
-    const r = await probePiExtension("pi-memory-honcho", {});
+    const r = await probePiExtension("pi-web-access", {});
     expect(r.satisfied).toBe(false);
   });
 
   it("not satisfied when name is not present", async () => {
-    const r = await probePiExtension("pi-memory-honcho", {
+    const r = await probePiExtension("pi-web-access", {
       listInstalled: async () => [{ name: "something-else" }],
     });
     expect(r.satisfied).toBe(false);
@@ -55,19 +55,19 @@ describe("probePiExtension", () => {
 
 describe("probeBinary", () => {
   it("satisfied when tool registry resolves the name", () => {
-    const r = probeBinary("jj", {
-      toolRegistry: { resolve: () => ({ ok: true, resolvedPath: "/usr/bin/jj" }) },
+    const r = probeBinary("rg", {
+      toolRegistry: { resolve: () => ({ ok: true, resolvedPath: "/usr/bin/rg" }) },
     });
-    expect(r).toEqual({ name: "jj", satisfied: true, resolvedPath: "/usr/bin/jj" });
+    expect(r).toEqual({ name: "rg", satisfied: true, resolvedPath: "/usr/bin/rg" });
   });
 
   it("not satisfied when tool registry returns ok=false", () => {
-    const r = probeBinary("jj", { toolRegistry: { resolve: () => ({ ok: false }) } });
+    const r = probeBinary("rg", { toolRegistry: { resolve: () => ({ ok: false }) } });
     expect(r.satisfied).toBe(false);
   });
 
   it("not satisfied without a tool registry", () => {
-    const r = probeBinary("jj", {});
+    const r = probeBinary("rg", {});
     expect(r.satisfied).toBe(false);
   });
 });
@@ -114,7 +114,7 @@ describe("runRequirementProbes", () => {
         claims: [],
         requires: {
           piExtensions: ["foo-ext"],
-          binaries: ["jj", "nonexistent-binary"],
+          binaries: ["rg", "nonexistent-binary"],
           services: ["pi-model-proxy"],
         },
       },
@@ -122,7 +122,7 @@ describe("runRequirementProbes", () => {
         listInstalled: async () => [{ name: "something-else" }],
         toolRegistry: {
           resolve: (n: string) =>
-            n === "jj" ? { ok: true, resolvedPath: "/usr/bin/jj" } : { ok: false },
+            n === "rg" ? { ok: true, resolvedPath: "/usr/bin/rg" } : { ok: false },
         },
         fetchImpl,
       },
@@ -130,7 +130,7 @@ describe("runRequirementProbes", () => {
 
     expect(report.piExtensions).toEqual([{ name: "foo-ext", satisfied: false }]);
     expect(report.binaries).toEqual([
-      { name: "jj", satisfied: true, resolvedPath: "/usr/bin/jj" },
+      { name: "rg", satisfied: true, resolvedPath: "/usr/bin/rg" },
       { name: "nonexistent-binary", satisfied: false },
     ]);
     expect(report.services[0].satisfied).toBe(true);

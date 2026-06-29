@@ -40,7 +40,7 @@ interface Props {
   /**
    * Inline session-action slot rendered between the thinking-level selector
    * and the working-status label. Used by App.tsx to mount
-   * <ComposerSessionActions> so OpenSpec / Git / JJ actions live inline
+   * <ComposerSessionActions> so OpenSpec / Git / status actions live inline
    * with the model bar instead of as a separate strip above the textarea.
    * See change: redesign-session-card-and-composer (statusbar-inline).
    */

@@ -18,7 +18,7 @@
  */
 import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process"; // ban:child_process-ok editor orphan sweep uses `ps`/`taskkill` probe; legacy parity with pre-keeper install
+import { execSync, spawnSync } from "node:child_process"; // ban:child_process-ok editor orphan sweep uses `ps` (POSIX) + PowerShell Get-CimInstance (Windows) probes
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
 import {
@@ -66,8 +66,24 @@ export interface EditorPidRegistryOptions {
   sidecarEditorIds?: () => Set<string>;
 }
 
-/** Default cross-platform process command-line lookup. */
-function defaultGetCmdline(pid: number): string | null {
+/** Minimal spawnSync surface used by the Windows cmdline probe (argv form). */
+export type CmdlineSpawnSyncFn = (
+  command: string,
+  args: readonly string[],
+  opts: { encoding: "utf-8"; windowsHide: boolean; stdio: readonly ["ignore", "pipe", "ignore"]; timeout: number },
+) => { status: number | null; stdout: string | null };
+
+/** Node spawnSync narrowed to the cmdline-probe surface (encoding pins stdout to string). */
+const defaultCmdlineSpawnSync: CmdlineSpawnSyncFn = (command, args, opts) =>
+  spawnSync(command, [...args], { ...opts, stdio: [...opts.stdio] });
+
+/**
+ * Default cross-platform process command-line lookup.
+ * Windows uses PowerShell Get-CimInstance via spawnSync (no shell) instead of
+ * wmic — wmic is removed by default on Win 11 22H2+, which made this silently
+ * return null. `spawnSyncFn` is injectable for unit tests.
+ */
+export function defaultGetCmdline(pid: number, spawnSyncFn: CmdlineSpawnSyncFn = defaultCmdlineSpawnSync): string | null {
   try {
     if (process.platform === "linux") {
       const file = `/proc/${pid}/cmdline`;
@@ -79,9 +95,15 @@ function defaultGetCmdline(pid: number): string | null {
       return out.trim() || null;
     }
     if (process.platform === "win32") {
-      const out = execSync(`wmic process where ProcessId=${pid} get CommandLine /value`, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
-      const m = out.match(/CommandLine=(.*)/);
-      return m ? m[1].trim() : null;
+      const script = `(Get-CimInstance -ClassName Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue).CommandLine`;
+      const r = spawnSyncFn(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { encoding: "utf-8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"], timeout: 5000 },
+      );
+      if (!r || r.status !== 0) return null;
+      const cmdline = (r.stdout ?? "").trim();
+      return cmdline || null;
     }
   } catch { return null; }
   return null;
@@ -190,7 +212,7 @@ function listDashboardCodeServerProcesses(
   getCmdline: (pid: number) => string | null,
 ): Array<{ pid: number; cmdline: string }> {
   // Best-effort, platform-specific PID enumeration. Mirrors the existing
-  // pre-change cleanup approach (cmdline scan via `ps` / `/proc` / `wmic`).
+  // cleanup approach (cmdline scan via `/proc` / `ps` / PowerShell Get-CimInstance).
   const out: Array<{ pid: number; cmdline: string }> = [];
   try {
     if (process.platform === "linux") {
@@ -213,12 +235,23 @@ function listDashboardCodeServerProcesses(
       return out;
     }
     if (process.platform === "win32") {
-      const raw = execSync("wmic process get ProcessId,CommandLine /format:csv", { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
-      for (const line of raw.split("\n").slice(1)) {
-        const parts = line.split(",");
-        if (parts.length < 3) continue;
-        const cmd = parts.slice(1, parts.length - 1).join(",").trim();
-        const pid = Number.parseInt((parts[parts.length - 1] || "").trim(), 10);
+      // PowerShell Get-CimInstance (no wmic). Emit `pid<TAB>commandline`
+      // per process; tab-split avoids CSV-quoting headaches. spawnSync,
+      // no shell, windowsHide — no console flash, no parent-stderr leak.
+      const script =
+        "Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | " +
+        'ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }';
+      const r = spawnSync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { encoding: "utf-8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"], timeout: 8000 },
+      );
+      const raw = r.status === 0 ? (r.stdout ?? "") : "";
+      for (const line of raw.split("\n")) {
+        const idx = line.indexOf("\t");
+        if (idx < 0) continue;
+        const pid = Number.parseInt(line.slice(0, idx).trim(), 10);
+        const cmd = line.slice(idx + 1).trim();
         if (!Number.isFinite(pid) || !cmd) continue;
         if (!isDashboardOwnedCodeServer(cmd)) continue;
         out.push({ pid, cmdline: cmd });

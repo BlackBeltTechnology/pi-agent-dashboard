@@ -2,9 +2,10 @@
  * OpenSpecBoardView — board layout, columns, filtering, new-proposal dialog.
  * See change: redesign-openspec-board.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
+
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../lib/openspec-groups-api.js", () => ({
   fetchGroups: vi.fn(async () => ({ schemaVersion: 1, groups: [], assignments: {}, changeOrder: {} })),
@@ -18,8 +19,8 @@ vi.mock("../../lib/openspec-config-api.js", () => ({
   useOpenSpecConfig: () => ({ profile: "custom", delivery: "both", workflows: [] }),
 }));
 
+import type { DashboardSession, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { OpenSpecBoardView } from "../OpenSpecBoardView.js";
-import type { OpenSpecData, OpenSpecGroup, DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 afterEach(() => cleanup());
 beforeEach(() => {
@@ -74,7 +75,11 @@ describe("OpenSpecBoardView", () => {
     expect(screen.getByTestId("board-card-add-auth")).toBeTruthy();
     expect(screen.getByTestId("board-card-fix-bug")).toBeTruthy();
     const pill = screen.getByTestId("board-card-add-auth").querySelector('[data-testid="board-card-state"]');
-    expect(pill?.textContent).toBe("implementing");
+    // Pill carries a non-hue glyph prefix + the state label. Assert BOTH so a
+    // regression dropping the glyph fails.
+    // See change: extend-client-utils-state-feedback-primitives.
+    expect(pill?.textContent).toContain("implementing");
+    expect(pill?.textContent?.replace("implementing", "").trim()).not.toBe("");
   });
 
   it("navigates back via Back button", () => {

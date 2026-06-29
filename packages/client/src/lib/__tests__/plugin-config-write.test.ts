@@ -10,7 +10,8 @@ afterEach(() => { globalThis.fetch = origFetch; vi.restoreAllMocks(); });
 
 describe("dispatchPluginMessage (send interception)", () => {
   it("routes plugin_config_write to the REST helper, not the WS transport", () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true }), { status: 200 }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ success: true }), { status: 200 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const wsSend = vi.fn();
 

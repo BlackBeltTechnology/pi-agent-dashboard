@@ -145,25 +145,13 @@ describe("meta-persistence", () => {
     mp.dispose();
   });
 
-  it("persists jjState parentage (workspaceRoot + workspaceName) round-trip", () => {
-    const mp = createMetaPersistence();
-    const sf = sessionFile("jj");
-    mp.save(sf, { source: "dashboard", jjState: { workspaceRoot: "/repo", workspaceName: "feat-x" } });
-    mp.flushAll();
-    const meta = readSessionMeta(sf);
-    expect(meta?.jjState?.workspaceRoot).toBe("/repo");
-    expect(meta?.jjState?.workspaceName).toBe("feat-x");
-    mp.dispose();
-  });
-
   it("omits parentage fields for a plain checkout (undefined stripped)", () => {
     const mp = createMetaPersistence();
     const sf = sessionFile("plain");
-    mp.save(sf, { source: "dashboard", gitWorktree: undefined, jjState: undefined });
+    mp.save(sf, { source: "dashboard", gitWorktree: undefined });
     mp.flushAll();
     const raw = readSessionMeta(sf) as Record<string, unknown>;
     expect("gitWorktree" in raw).toBe(false);
-    expect("jjState" in raw).toBe(false);
     mp.dispose();
   });
 

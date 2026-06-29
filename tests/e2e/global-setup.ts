@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { chromium } from "@playwright/test";
 import {
   DASHBOARD_PORT,
   HEALTH_URL,
@@ -14,7 +15,31 @@ import {
 
 const CHANGE = "change add-playwright-e2e";
 
+// Fail fast (sub-second) if the host Chromium binary is absent, BEFORE the
+// container boot (≤180s). Resolves the executable via the @playwright/test
+// module (not the node_modules/.bin/playwright shim), so a missing bin symlink
+// does not block the suite. executablePath() returns a path even when the
+// binary is not downloaded; existsSync is the real gate. try/catch backstops
+// versions that throw instead. See change self-heal-host-playwright-browser.
+function assertBrowserInstalled(): void {
+  let execPath: string | undefined;
+  try {
+    execPath = chromium.executablePath();
+  } catch {
+    execPath = undefined;
+  }
+  if (!execPath || !fs.existsSync(execPath)) {
+    throw new Error(
+      "[change self-heal-host-playwright-browser] Chromium for Playwright is not installed. " +
+        "Install it first: npx playwright install chromium",
+    );
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
+  // Preflight FIRST: never pay the container boot only to die at browser launch.
+  assertBrowserInstalled();
+
   fs.mkdirSync(path.dirname(MARKER_PATH), { recursive: true });
 
   if (USE_RUNNING) {

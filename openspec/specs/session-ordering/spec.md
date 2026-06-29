@@ -220,9 +220,9 @@ The client SHALL allow users to drag session cards within a folder group to reor
 - **THEN** the client SHALL not perform any reorder
 
 ### Requirement: Order map keyed by resolved group path
-The server SHALL key every order-map mutation (`insert`, `moveToFront`, `remove`, `reorder`) by the session's **resolved group path**, computed identically to the client grouping resolver: the first non-empty of an explicit pin match on the session's `cwd`, `session.jjState.workspaceRoot`, `session.gitWorktree.mainPath`, or `session.cwd`. The persisted `sessionOrder` key SHALL be this resolved path, not the raw session `cwd`.
+The server SHALL key every order-map mutation (`insert`, `moveToFront`, `remove`, `reorder`) by the session's **resolved group path**, computed identically to the client grouping resolver: the first non-empty of an explicit pin match on the session's `cwd`, `session.gitWorktree.mainPath`, or `session.cwd`. The persisted `sessionOrder` key SHALL be this resolved path, not the raw session `cwd`.
 
-This guarantees worktree/jj sessions — which the client groups under their parent repo — share one order list under that parent, so `insert`/`moveToFront`/`remove` write to the same key the client reads.
+This guarantees worktree sessions — which the client groups under their parent repo — share one order list under that parent, so `insert`/`moveToFront`/`remove` write to the same key the client reads.
 
 #### Scenario: Worktree session keyed under parent repo
 - **WHEN** a session registers with `cwd = "/repo/.worktrees/feat-x"` and `gitWorktree.mainPath = "/repo"` and `/repo/.worktrees/feat-x` is not pinned
@@ -238,7 +238,7 @@ This guarantees worktree/jj sessions — which the client groups under their par
 - **THEN** the order key SHALL be `/repo/.worktrees/feat-x` (pin wins over worktree collapse)
 
 #### Scenario: Plain checkout unaffected
-- **WHEN** a session has no `jjState` and no `gitWorktree` and its `cwd` is not a pinned subpath
+- **WHEN** a session has no `gitWorktree` and its `cwd` is not a pinned subpath
 - **THEN** the resolved group path SHALL equal `cwd` and ordering behaves exactly as before
 
 ### Requirement: Order map holds all-status session ids
@@ -345,8 +345,7 @@ On startup, for each `sessionOrder` key, the server SHALL append any **ended** s
 ### Requirement: Deferred order-key re-resolution when group identity arrives after register
 The server SHALL re-key a session's order entry to its resolved group key when group identity arrives after register.
 
-A worktree (or jj) session's group identity — `gitWorktree.mainPath` /
-`jjState.workspaceRoot` — is NOT present on the initial `session_register`; the
+A worktree session's group identity — `gitWorktree.mainPath` — is NOT present on the initial `session_register`; the
 bridge sends it shortly after via `git_info_update`. Because
 `resolveOrderKey` depends on that identity, a fresh worktree session is first
 inserted under its own raw `cwd` key, NOT the parent key the client groups under.

@@ -13,7 +13,7 @@ ship zero React for the dashboard's UI primitives.
 
 | Need | Mechanism | Example |
 |---|---|---|
-| Plugin contributes a session-card badge / action / settings panel | **Slot claim** in plugin manifest | `jj-plugin` claims `session-card-badge` |
+| Plugin contributes a session-card badge / action / settings panel | **Slot claim** in plugin manifest | `flows-plugin` claims `session-card-flows` |
 | Plugin uses dashboard's MarkdownContent / AgentCardShell / dialogs | **Primitive registry** via `useUiPrimitive(key)` | `flows-plugin`'s FlowAgentCard uses `useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard)` |
 | Plugin uses a dashboard hook (useMobile, useZoomPan) | **Direct import** from `pi-dashboard-client-utils` | Hooks can't go through the registry — Rules of Hooks |
 | Plugin uses an extension-ui slot consumer (GateSlot, BreadcrumbSlot) | **Direct import** from `pi-dashboard-client-utils/extension-ui/*` | Slot consumers are themselves slot mechanism, different layer |

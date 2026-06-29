@@ -10,6 +10,9 @@ import {
   deriveDotColorWithFlags,
   deriveIconStatusColor,
   deriveRailBgColor,
+  deriveStatusShape,
+  statusShapeIcon,
+  type StatusShape,
   getCardPulseClass,
   getCardStripeFxClass,
 } from "../lib/session-status-visuals.js";
@@ -38,15 +41,13 @@ import { InlineRenameInput } from "./InlineRenameInput.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
-// jj-plugin components (JjWorkspaceBadge, JjActionBar, JjInitAffordance)
-// are rendered the same way per change wire-plugin-registry-into-shell.
 import { ProcessList, type ProcessEntry } from "./ProcessList.js";
 import { SessionActivityBar } from "./SessionActivityBar.js";
 import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
-import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, WorkspaceActionBarSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { CwdGonePill } from "./CwdGonePill.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
@@ -66,22 +67,46 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   if (session.status === "ended") return null;
 
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
-    return <span className="text-purple-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
+    // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
+    // See change: improve-dashboard-attention-routing.
+    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.needs_you", undefined, "Needs you")}</span>;
   }
 
   if (session.currentTool) {
-    return <span className="text-yellow-400 truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
+    return <span className="text-[var(--status-working)] truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
   }
 
   if (session.status === "streaming") {
-    return <span className="text-green-400">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
+    return <span className="text-[var(--status-working)]">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
   }
 
   if (session.status === "idle" || session.status === "active") {
-    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.waiting_for_input", undefined, "Waiting for input")}</span>;
+    // Turn-finished passive state: distinct "Idle" label, never "Waiting for
+    // input". See change: improve-dashboard-attention-routing.
+    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.idle", undefined, "Idle")}</span>;
   }
 
   return null;
+}
+
+/**
+ * Small shape marker overlaid on the status icon. Encodes session state by
+ * shape (filled / half / ring / ✕) so state survives grayscale + reduced
+ * motion. `ended` renders nothing. The `data-status-shape` attribute is the
+ * test hook. See change: improve-dashboard-attention-routing.
+ */
+export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; colorClass: string }) {
+  const path = statusShapeIcon[shape];
+  if (!path) return null;
+  return (
+    <span
+      data-status-shape={shape}
+      aria-hidden="true"
+      className={`absolute -bottom-1 -right-1 inline-flex rounded-full bg-[var(--bg-tertiary)] leading-none ${colorClass}`}
+    >
+      <Icon path={path} size={0.34} />
+    </span>
+  );
 }
 
 export function TokenStats({ session }: { session: DashboardSession }) {
@@ -177,10 +202,19 @@ export const branchCache = new Map<string, { branch: string | null; noGit: boole
 interface GroupGitInfoProps {
   sessions: DashboardSession[];
   cwd: string;
+  /**
+   * Folder's own HEAD branch from the server folder-head poll/watcher
+   * (`git_head_update`). Precedence: `undefined` = no folder-HEAD entry yet
+   * (fall back to child-session branch / REST seed); a string = the folder's
+   * branch (outranks any child-session branch, e.g. a leaked worktree
+   * branch); `null` = folder confirmed non-git (render the "Init git" state).
+   * See change: refresh-folder-header-branch.
+   */
+  folderBranch?: string | null;
   onBranchClick?: () => void;
 }
 
-export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps) {
+export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick }: GroupGitInfoProps) {
   const session = sessions.find((s) => s.gitBranch);
   const cached = branchCache.get(cwd);
   const [fetchedBranch, setFetchedBranch] = useState<string | null>(cached?.branch ?? null);
@@ -219,7 +253,15 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
     return () => { cancelled = true; };
   }, [cwd, session?.gitBranch]);
 
-  const branchName = session?.gitBranch ?? fetchedBranch;
+  // Precedence: the folder's own HEAD (when reported) outranks any child
+  // session's branch (which may be a worktree branch leaked into the parent
+  // folder header). `folderBranch === undefined` means no `git_head_update`
+  // has arrived yet — fall back to the child branch, then the REST seed.
+  // See change: refresh-folder-header-branch.
+  const folderHasEntry = folderBranch !== undefined;
+  const branchName = folderHasEntry ? folderBranch : (session?.gitBranch ?? fetchedBranch);
+  // A confirmed-null folder HEAD is the non-git signal, same as `noGitRepo`.
+  const showInitGit = folderBranch === null ? true : noGitRepo;
   const branchUrl = session?.gitBranchUrl;
   const prNumber = session?.gitPrNumber;
   const prUrl = session?.gitPrUrl;
@@ -231,11 +273,11 @@ export function GroupGitInfo({ sessions, cwd, onBranchClick }: GroupGitInfoProps
         <button
           onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
           className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
-          title={noGitRepo ? "Initialize git repository" : "Git branches"}
+          title={showInitGit ? "Initialize git repository" : "Git branches"}
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
-          {noGitRepo && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
+          {showInitGit && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
         </button>
       </div>
     );
@@ -450,10 +492,12 @@ export function SessionCard({
   const isAlive = session.status !== "ended";
   const isMobile = useMobile();
   const prefs = useDisplayPrefs(session.id);
-  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying });
   // Suppress purple `card-input-stripes` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
+  // Also gates the chat-routed `ask_user` → needs-you color in dot/rail.
+  // See change: improve-dashboard-attention-routing.
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
+  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying, hasWidgetBarPrompt });
   // State marker class stays on the <li>; the matching color class drives the
   // compositor-only `.card-stripes-fx` overlay rendered behind card content.
   // See change: throttle-idle-ui-animations.
@@ -468,11 +512,15 @@ export function SessionCard({
   // arbitrary-bg-token defenses.
   // See change: add-session-status-to-folder-proposal-rows.
   const iconStatusColor = deriveIconStatusColor(dotColor, session.status);
+  // Non-hue state channel: a shape marker (filled/half/ring/✕) so state is
+  // distinguishable without color and under reduced motion.
+  // See change: improve-dashboard-attention-routing.
+  const statusShape = deriveStatusShape(session, { hasError, isRetrying, hasWidgetBarPrompt });
   // Status-tinted background color for the left-gutter mosaic rail. The
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
-  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying }, isSelected);
+  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt }, isSelected);
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -493,11 +541,13 @@ export function SessionCard({
         {/* Line 1: source icon (colored by status) + name + age */}
         <div className="flex items-center gap-2">
           <span
-            className={`flex-shrink-0 ${iconStatusColor}`}
+            className={`relative flex-shrink-0 ${iconStatusColor}`}
             title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
             data-testid="session-status-icon"
+            data-status-shape={statusShape}
           >
             <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.5} />
+            <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
           </span>
           <span className="text-sm truncate flex-1">
             {getSessionDisplayName(session)}
@@ -633,8 +683,10 @@ export function SessionCard({
         <span
           className={`relative z-10 inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
           data-testid="session-status-icon"
+          data-status-shape={statusShape}
         >
           <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
+          <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
         </span>
       </div>
       {/* Card content */}
@@ -852,16 +904,14 @@ export function SessionCard({
         </SessionSubcard>
       )}
 
-      {/* GIT + JJ subcards — split from the old WORKSPACE subcard so the
-          two version-control concepts no longer share a host container.
-          See change: redesign-session-card-and-composer (5.1–5.3). */}
+      {/* GIT subcard. See change: redesign-session-card-and-composer (5.1–5.3). */}
       <GitSubcard
         session={session}
         showGitInfo={showGitInfo}
         allSessions={allSessions ?? []}
         onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
       />
-      <JjSubcard session={session} />
+      <BadgeSubcard session={session} />
 
       {/* PROCESS subcard — activity bar (in-flight bash toolCalls) +
           background processes drawer. Subcard hides only when BOTH the
@@ -887,9 +937,7 @@ export function SessionCard({
       <MemorySubcard session={session} />
 
       {/* Plugin slot: session-card-action-bar — generic card footer.
-          Currently no claimers after jj/honcho rerouted to workspace-action-bar /
-          session-card-memory and flows rerouted to session-card-flows; kept
-          rendered for future generic plugins. */}
+          Kept rendered for future generic plugins. */}
       <SessionCardActionBarSlot session={session} />
       </div>{/* end card content */}
       </div>{/* end flex row */}
@@ -1049,18 +1097,16 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { 
 }
 
 /**
- * JJ subcard — jj-plugin badge + workspace-action-bar slot contributions.
+ * STATUS subcard — session-card-badge slot contributions (goal/automation).
  * Strictly plugin-scoped: never considers git state.
  * See change: redesign-session-card-and-composer (5.1).
  */
-function JjSubcard({ session }: { session: DashboardSession }) {
+function BadgeSubcard({ session }: { session: DashboardSession }) {
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
-  const hasActions = useSlotHasClaimsForSession("workspace-action-bar", session);
-  if (!hasBadge && !hasActions) return null;
+  if (!hasBadge) return null;
   return (
-    <SessionSubcard title="JJ">
-      {hasBadge ? <SessionCardBadgeSlot session={session} /> : null}
-      {hasActions ? <WorkspaceActionBarSlot session={session} /> : null}
+    <SessionSubcard title="STATUS">
+      <SessionCardBadgeSlot session={session} />
     </SessionSubcard>
   );
 }

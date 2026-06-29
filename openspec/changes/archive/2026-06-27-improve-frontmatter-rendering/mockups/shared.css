@@ -1,0 +1,87 @@
+/* Shared tokens + Obsidian-style Properties panel for frontmatter mockups.
+   Tokens mirror packages/client/src/index.css (dark + light). */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a; --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --link:#60a5fa;
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5; --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-blue:#2563eb; --link:#2563eb;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-secondary);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.55}
+
+/* shared topbar across mockup pages */
+.mk-top{display:flex;align-items:center;gap:14px;padding:9px 18px;border-bottom:1px solid var(--border-secondary);
+  position:sticky;top:0;background:var(--bg-primary);z-index:20}
+.mk-top h1{font-size:13px;margin:0;color:var(--text-primary);font-weight:600}
+.mk-top .spacer{flex:1}
+.mk-top a,.mk-top button{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-secondary);
+  border-radius:6px;padding:4px 11px;cursor:pointer;font-size:12px;text-decoration:none}
+.mk-top a:hover,.mk-top button:hover{background:var(--bg-hover)}
+.mk-top a.on{border-color:var(--accent-blue);color:var(--text-primary)}
+
+/* ---------- Obsidian Properties panel ---------- */
+.props{border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-secondary);margin:0 0 20px;overflow:hidden}
+.props-head{display:flex;align-items:center;gap:7px;padding:8px 12px;cursor:pointer;user-select:none;color:var(--text-tertiary);font-size:12px;font-weight:600}
+.props-head:hover{background:var(--bg-hover)}
+.props-head .chev{width:14px;height:14px;color:var(--text-muted);transition:transform .15s;flex:none}
+.props.collapsed .chev{transform:rotate(-90deg)}
+.props-head .count{margin-left:auto;color:var(--text-muted);font-weight:500;font-size:11px}
+.props-body{padding:2px 6px 6px}
+.props.collapsed .props-body{display:none}
+
+.row{display:grid;grid-template-columns:168px 1fr;align-items:start;gap:8px;border-radius:6px;padding:5px 8px}
+.row:hover{background:var(--bg-hover)}
+.key{display:flex;align-items:center;gap:7px;color:var(--text-tertiary);font-size:13px;min-width:0;padding-top:1px}
+.key .ic{width:15px;height:15px;flex:none;color:var(--text-muted)}
+.key .kname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.val{color:var(--text-secondary);font-size:13px;min-width:0;word-break:break-word}
+.val.text{color:var(--text-primary)}
+.val.num{font-family:ui-monospace,Menlo,monospace;color:var(--accent-blue)}
+.val.date{font-variant-numeric:tabular-nums}
+.val.empty{color:var(--text-muted);font-style:italic}
+.val a{color:var(--link);text-decoration:none}
+.val a:hover{text-decoration:underline}
+
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{display:inline-flex;align-items:center;background:var(--bg-surface);color:var(--text-secondary);
+  border:1px solid var(--border-secondary);border-radius:5px;padding:1px 8px;font-size:12px;line-height:1.5}
+.check{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary)}
+.check svg{width:15px;height:15px;color:var(--accent-green)}
+.check.no svg{color:var(--text-muted)}
+.badge{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:1px 8px;font-size:12px;font-weight:600}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge.draft{background:color-mix(in srgb,var(--accent-yellow) 16%,transparent);color:var(--accent-yellow);border:1px solid color-mix(in srgb,var(--accent-yellow) 34%,transparent)}
+.badge.active{background:color-mix(in srgb,var(--accent-green) 16%,transparent);color:var(--accent-green);border:1px solid color-mix(in srgb,var(--accent-green) 34%,transparent)}
+.badge.archived{background:var(--bg-surface);color:var(--text-tertiary);border:1px solid var(--border-secondary)}
+
+.nested{display:grid;grid-template-columns:max-content 1fr;gap:2px 10px;background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:6px;padding:6px 9px}
+.nested .nk{color:var(--text-muted);font-family:ui-monospace,monospace;font-size:12px}
+.nested .nv{color:var(--text-secondary);font-size:12px}
+
+.parse-warn{display:flex;align-items:center;gap:8px;color:var(--accent-orange);font-size:12px;padding:7px 10px;
+  background:color-mix(in srgb,var(--accent-orange) 10%,transparent);border:1px solid color-mix(in srgb,var(--accent-orange) 28%,transparent);border-radius:6px;margin:0 6px 6px}
+
+/* ---------- markdown body ---------- */
+.md h1{font-size:1.55em;color:var(--text-primary);font-weight:650;margin:.2em 0 .5em;border-bottom:1px solid var(--border-secondary);padding-bottom:.22em}
+.md h2{font-size:1.22em;color:var(--text-primary);margin:1.1em 0 .4em;font-weight:600}
+.md h3{font-size:1.05em;color:var(--text-primary);margin:1em 0 .35em;font-weight:600}
+.md p{margin:.55em 0;color:var(--text-secondary)}
+.md ul{margin:.5em 0;padding-left:1.3em}
+.md li{margin:.2em 0}
+.md code{background:var(--bg-surface);padding:2px 6px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.85em}
+.md pre{background:var(--bg-code);border-radius:8px;padding:12px 14px;overflow:auto;border:1px solid var(--border-subtle)}
+.md pre code{background:none;padding:0}
+.md a{color:var(--link);text-decoration:none}
+.md a:hover{text-decoration:underline}
+
+.caption{color:var(--text-muted);font-size:12px;line-height:1.5}

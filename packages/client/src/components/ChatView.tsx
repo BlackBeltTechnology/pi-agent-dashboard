@@ -1,35 +1,38 @@
-import React, { useRef, useLayoutEffect, useCallback, useState, useMemo, forwardRef, useImperativeHandle } from "react";
+import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
+import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
+import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mdiChevronDown, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiContentCopy, mdiTextBox, mdiLoading, mdiChevronDown, mdiSourceFork, mdiClose } from "@mdi/js";
+import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import { useMobile } from "../hooks/useMobile.js";
+import { findActiveInteractiveToolResultIds, findRetriedErrorIds } from "../lib/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
-import type { SessionState, ChatImage, InteractiveUiRequest } from "../lib/event-reducer.js";
-import type { ToolContext } from "./tool-renderers/index.js";
-import { MarkdownContent } from "./MarkdownContent.js";
-import { CopyButton } from "./CopyButton.js";
-import { ToolCallStep } from "./ToolCallStep.js";
-import { ThinkingBlock } from "./ThinkingBlock.js";
-import { BashOutputCard } from "./BashOutputCard.js";
-import { MissingToolInlineError } from "./chat/MissingToolInlineError.js";
-import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
-import { RawEventCard } from "./RawEventCard.js";
+import type { ChatImage, InteractiveUiRequest, SessionState } from "../lib/event-reducer.js";
 import { formatMessageTime } from "../lib/format.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
-import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
-import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
-import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../lib/group-tool-calls.js";
-import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
-import { findRetriedErrorIds, findActiveInteractiveToolResultIds } from "../lib/collapse-retried-errors.js";
-import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
-import { ImageLightbox } from "./ImageLightbox.js";
-import { SkillInvocationCard } from "./SkillInvocationCard.js";
-import { PreviewCard } from "./PreviewCard.js";
-import { InlineTerminalCard } from "./InlineTerminalCard.js";
+import { type ChatItem, groupConsecutiveToolCalls, type ToolCallGroup } from "../lib/group-tool-calls.js";
 import { t as i18nT } from "../lib/i18n";
+import { BashOutputCard } from "./BashOutputCard.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { CopyButton } from "./CopyButton.js";
+import { MissingToolInlineError } from "./chat/MissingToolInlineError.js";
+import { FilePreviewHost, FilePreviewProvider } from "./FilePreviewContext.js";
+import { ImageLightbox } from "./ImageLightbox.js";
+import { InlineTerminalCard } from "./InlineTerminalCard.js";
+import { getInteractiveRenderer } from "./interactive-renderers/registry.js";
+import { MarkdownContent } from "./MarkdownContent.js";
+import { PreviewCard } from "./PreviewCard.js";
+import { RawEventCard } from "./RawEventCard.js";
+import { RetriedErrorBadge } from "./RetriedErrorBadge.js";
+import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { ThinkingBlock } from "./ThinkingBlock.js";
+import { ToolCallStep } from "./ToolCallStep.js";
+import type { ToolContext } from "./tool-renderers/index.js";
 
 interface Props {
   sessionId?: string;
@@ -309,6 +312,9 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
   }), []);
 
   return (
+    // Key by sessionId so switching sessions (ChatView is reused, not remounted)
+    // resets the hoisted preview — a preview open in session A never leaks into B.
+    <FilePreviewProvider key={sessionId}>
     <div className="flex-1 relative overflow-hidden flex flex-col">
     <div ref={scrollRef} onScroll={handleScroll} style={{ overflowAnchor: "auto" }} className={`h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"} space-y-1`}>
       {groupedMessages.map((item, idx) => {
@@ -456,6 +462,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               output={msg.content}
               exitCode={args?.exitCode ?? 0}
               excludeFromContext={args?.excludeFromContext ?? false}
+              source={args?.source}
               timestamp={msg.timestamp}
             />
           );
@@ -620,13 +627,25 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       */}
       {state.messages.length === 0 && !state.streamingText && !(state.pendingPrompt && !(queuedTexts?.includes(state.pendingPrompt.text))) && !(pendingSteering && pendingSteering.length > 0) && (
         loadingHistory ? (
-          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] gap-2">
-            <Icon path={mdiLoading} size={0.8} className="animate-spin" />
-            <p>{i18nT("auto.loading_conversation", undefined, "Loading conversation…")}</p>
+          <div
+            className="flex flex-col gap-3 px-4 py-3"
+            aria-busy="true"
+            role="status"
+            aria-label={i18nT("auto.loading_conversation", undefined, "Loading conversation…")}
+            data-testid="chat-history-skeleton"
+          >
+            <Skeleton variant="bubble" count={3} />
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-            <p>{i18nT("auto.no_messages_yet", undefined, "No messages yet")}</p>
+          <div className="flex items-center justify-center h-full">
+            <EmptyState
+              title={i18nT("auto.no_messages_yet", undefined, "No messages yet")}
+              body={i18nT(
+                "auto.no_messages_yet_body",
+                undefined,
+                "Send a prompt below to start the conversation.",
+              )}
+            />
           </div>
         )
       )}
@@ -642,5 +661,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
       </button>
     )}
     </div>
+    <FilePreviewHost />
+    </FilePreviewProvider>
   );
 });

@@ -213,7 +213,7 @@ The model proxy SHALL be available whenever the dashboard server is running, ind
 #### Scenario: Per-user key visibility (multi-user dashboard)
 
 - **GIVEN** the dashboard has `auth.allowedUsers: ["alice@x", "bob@x"]`
-- **AND** alice creates an API key labeled "alice-honcho"
+- **AND** alice creates an API key labeled "alice-ci"
 - **WHEN** bob lists `/api/model-proxy/api-keys`
 - **THEN** the response does NOT include alice's key
 
@@ -238,7 +238,7 @@ The dashboard SHALL expose REST endpoints for creating, listing, and deleting pr
 
 #### Scenario: Create key
 
-- **WHEN** the user POSTs `/api/model-proxy/api-keys` with `{label: "honcho"}` and a valid JWT
+- **WHEN** the user POSTs `/api/model-proxy/api-keys` with `{label: "ci"}` and a valid JWT
 - **THEN** the response is `201` with body `{id, label, createdAt, key: "pi-proxy-<48 chars>"}`
 - **AND** the `key` field is the cleartext key, returned ONCE
 - **AND** `~/.pi/dashboard/config.json#modelProxy.apiKeys` gains a new entry with `hash` set and `key` absent

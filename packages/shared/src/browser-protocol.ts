@@ -147,6 +147,20 @@ export interface BrowserOpenSpecUpdateMessage {
 }
 
 /**
+ * Folder-HEAD branch update. Broadcast by the server folder-head poll /
+ * watcher when a folder group key's git HEAD is first observed or changes.
+ * `branch` is the branch name, the short SHA for detached HEAD, or `null`
+ * when the folder is not a git repository. `cwd` is the resolved folder
+ * group key (matches the client's `group.cwd`).
+ * See change: refresh-folder-header-branch.
+ */
+export interface BrowserGitHeadUpdateMessage {
+  type: "git_head_update";
+  cwd: string;
+  branch: string | null;
+}
+
+/**
  * Per-repo OpenSpec change-grouping update. Broadcast after every successful
  * write to `<cwd>/openspec/groups/groups.json`, debounced 100 ms per cwd.
  * Full payload (no incremental delta) so client logic stays simple.
@@ -698,6 +712,7 @@ export type ServerToBrowserMessage =
   | BrowserUiDismissMessage
   | BrowserFilesListMessage
   | BrowserOpenSpecUpdateMessage
+  | BrowserGitHeadUpdateMessage
   | BrowserOpenSpecGroupsUpdateMessage
   | BrowserGoalsUpdateMessage
   | BrowserModelsListMessage

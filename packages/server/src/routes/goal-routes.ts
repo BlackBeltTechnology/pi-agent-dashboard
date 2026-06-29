@@ -28,6 +28,8 @@ export interface GoalRoutesDeps {
   store: GoalStore;
   /** Stamp (goalId) or clear (null) goalId on a session: in-memory + meta + broadcast. */
   applyGoalIdToSession: (sessionId: string, goalId: string | null) => void;
+  /** Rename the session card to the objective + dispatch the goal kickoff so the loop starts. */
+  primeGoalSession?: (sessionId: string, goal: { objective: string; criteria?: GoalCriterion[] }) => void;
   /** Spawn a headless session under a goal; resolves after spawn (link happens on register). */
   spawnGoalSession?: (
     cwd: string,
@@ -39,7 +41,7 @@ export interface GoalRoutesDeps {
 const VALID_STATUS: ReadonlySet<string> = new Set(["pursuing", "paused", "achieved", "cleared"]);
 
 export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDeps): void {
-  const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, spawnGoalSession } = deps;
+  const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession } = deps;
 
   function rejectInvalidCwd(reply: FastifyReply, cwd: string | undefined): cwd is undefined {
     if (!cwd) {
@@ -303,6 +305,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       try {
         const updated = await store.linkSession(cwd!, id, sessionId);
         applyGoalIdToSession(sessionId, id);
+        primeGoalSession?.(sessionId, updated);
         return { success: true, data: updated } satisfies ApiResponse;
       } catch (err) {
         return handleError(reply, err);

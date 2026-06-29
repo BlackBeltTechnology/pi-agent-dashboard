@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard UX primitives — mockup</title>
+<style>
+  /* ---- Real dashboard tokens (from packages/client/src/index.css) ---- */
+  html[data-theme="dark"]{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-purple:#a855f7; --accent-orange:#f97316; --shadow-card:rgba(0,0,0,.4);
+  }
+  html[data-theme="light"]{
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-blue:#2563eb; --accent-green:#16a34a; --accent-yellow:#ca8a04; --accent-red:#dc2626;
+    --accent-purple:#9333ea; --accent-orange:#ea580c; --shadow-card:rgba(0,0,0,.08);
+  }
+  /* ---- Proposed semantic status tokens (the contract layer) ---- */
+  html{ --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow);
+        --status-idle:var(--accent-green); --status-error:var(--accent-red); }
+
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+       background:var(--bg-primary);color:var(--text-primary);padding:0 0 80px}
+  html.grayscale body{filter:grayscale(1)}
+  .bar{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+       padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border-subtle)}
+  .bar b{font-size:13px;margin-right:auto}
+  .bar button{font:600 11px system-ui;padding:5px 10px;border-radius:7px;cursor:pointer;
+       background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  .bar button.on{color:var(--accent-blue);border-color:var(--accent-blue)}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px}
+  h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-tertiary);
+     margin:34px 0 12px;border-bottom:1px solid var(--border-subtle);padding-bottom:6px}
+  .cap{color:var(--text-muted);font-size:11px;margin:-6px 0 14px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.cols{grid-template-columns:1fr}}
+  .panel{background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:12px;padding:12px}
+  .panel h3{margin:2px 0 10px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
+
+  /* ---- Session card ---- */
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .card{position:relative;display:flex;gap:8px;padding:8px 10px;border-radius:12px;cursor:pointer;
+        background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+        box-shadow:0 2px 4px var(--shadow-card);transition:transform .15s}
+  .card:hover{transform:translateY(-1px)}
+  .gutter{width:18px;display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:3px;position:relative}
+  .rail{position:absolute;left:50%;top:26px;bottom:4px;transform:translateX(-50%);width:5px;border-radius:99px;background:var(--rail,transparent)}
+  /* dot encodes state by SHAPE, not only hue */
+  .dot{position:relative;z-index:1;width:14px;height:14px;border-radius:99px;display:grid;place-items:center;font-size:9px;font-weight:800;line-height:1}
+  .dot.needs{background:var(--status-needs-you);color:#fff}                /* ● filled */
+  .dot.work{background:transparent;border:2px solid var(--status-working);
+            background:conic-gradient(var(--status-working) 0 50%,transparent 50% 100%)} /* ◐ half */
+  .dot.idle{background:transparent;border:2px solid var(--status-idle)}    /* ○ ring */
+  .dot.err{background:var(--status-error);color:#fff}                      /* ✕ */
+  .body{flex:1;min-width:0}
+  .row1{display:flex;align-items:center;gap:8px}
+  .name{font-size:13px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .age{font-size:10px;color:var(--text-muted)}
+  .meta{display:flex;align-items:center;gap:8px;margin-top:3px;font-size:11px;color:var(--text-tertiary)}
+  .stat{display:inline-flex;align-items:center;gap:4px;font-weight:600}
+  .stat.needs{color:var(--status-needs-you)} .stat.work{color:var(--status-working)}
+  .stat.idle{color:var(--text-tertiary)} .stat.err{color:var(--status-error)}
+  .cost{margin-left:auto;color:var(--text-tertiary)}
+  .pulse{animation:br 2.4s ease-in-out infinite}
+  @keyframes br{0%,100%{opacity:1}50%{opacity:.55}}
+  @media(prefers-reduced-motion:reduce){.pulse{animation:none}}
+
+  /* needs-you rollup pill on folder header */
+  .folderhdr{display:flex;align-items:center;gap:8px;padding:6px 4px;margin-bottom:6px}
+  .folderhdr .fpath{font-weight:600;font-size:12px}
+  .rollup{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font:600 11px system-ui;
+          padding:3px 9px;border-radius:99px;cursor:pointer;
+          color:var(--status-needs-you);background:color-mix(in srgb,var(--status-needs-you) 14%,transparent);
+          border:1px solid color-mix(in srgb,var(--status-needs-you) 45%,transparent)}
+
+  /* BEFORE card (current: green rail/dot for ask_user, color-only) */
+  .card.before .gutter .rail{background:var(--accent-green)}
+  .card.before .dot{width:8px;height:8px;background:var(--accent-green);border:0}
+  .b-needs .stat{color:var(--accent-purple)} /* current: purple text only */
+  .b-idle .stat{color:var(--text-tertiary)}
+
+  /* ---- EmptyState ---- */
+  .empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:34px 16px}
+  .empty .ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:20px;
+              background:var(--bg-tertiary);border:1px solid var(--border-subtle);color:var(--text-tertiary)}
+  .empty .t{font-size:14px;font-weight:600}
+  .empty .d{font-size:12px;color:var(--text-tertiary);max-width:300px}
+  .cta{font:600 12px system-ui;padding:7px 14px;border-radius:8px;cursor:pointer;margin-top:4px;
+       color:#fff;background:var(--accent-blue);border:1px solid var(--accent-blue)}
+  .cta.ghost{background:transparent;color:var(--text-secondary);border-color:var(--border-secondary)}
+  .badtext{color:var(--text-tertiary);text-align:center;padding:34px;font-size:12px}
+
+  /* ---- Skeleton ---- */
+  .sk{border-radius:8px;background:linear-gradient(90deg,var(--bg-tertiary) 25%,var(--bg-surface) 37%,var(--bg-tertiary) 63%);
+      background-size:400% 100%;animation:sh 1.4s ease infinite}
+  @keyframes sh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+  @media(prefers-reduced-motion:reduce){.sk{animation:none;background:var(--bg-tertiary)}}
+  .bubble{max-width:78%;padding:10px;border-radius:12px;display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+  .bubble.me{margin-left:auto;align-items:flex-end}
+  .sk.l1{height:10px;width:160px}.sk.l2{height:10px;width:230px}.sk.l3{height:10px;width:120px}
+  .spinrow{display:flex;align-items:center;justify-content:center;gap:8px;padding:34px;color:var(--text-tertiary)}
+  .spin{width:18px;height:18px;border:2px solid var(--border-secondary);border-top-color:var(--accent-blue);
+        border-radius:99px;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---- ArtifactChip ---- */
+  .chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .glabel{font:600 9px system-ui;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted);margin-right:2px}
+  .chip{display:inline-flex;align-items:baseline;gap:3px;font:700 10px system-ui;padding:3px 7px;border-radius:7px;
+        border:1px solid var(--border-secondary);color:var(--text-muted);cursor:pointer}
+  .chip .sub{font:400 8px system-ui;opacity:.8}
+  .chip.done{color:var(--status-idle);border-color:color-mix(in srgb,var(--status-idle) 50%,transparent);background:color-mix(in srgb,var(--status-idle) 9%,transparent)}
+  .chip.cur{color:var(--status-working);border-color:color-mix(in srgb,var(--status-working) 50%,transparent);background:color-mix(in srgb,var(--status-working) 9%,transparent)}
+  .chip .ck{font-size:9px}
+  .legend{font-size:11px;color:var(--text-tertiary);margin-top:8px}
+  .legend b{color:var(--text-secondary)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>pi-dashboard · state &amp; feedback primitives</b>
+  <button id="t-dark" class="on" onclick="setT('dark')">Dark</button>
+  <button id="t-light" onclick="setT('light')">Light</button>
+  <button id="t-gray" onclick="toggleGray()">Grayscale test</button>
+</div>
+
+<div class="wrap">
+
+  <h2>1 · Status presentation — Attention routing (improve-dashboard-attention-routing)</h2>
+  <p class="cap">Toggle <b>Grayscale test</b>: states stay distinguishable by dot SHAPE + label + icon — never hue alone (WCAG 1.4.1). Folder shows a “needs you” rollup.</p>
+  <div class="cols">
+    <div class="panel">
+      <h3>Before — ask_user looks idle</h3>
+      <div class="folderhdr"><span class="fpath">📁 pi-agent-dashboard</span></div>
+      <ul>
+        <li class="card before b-needs"><div class="gutter"><span class="rail"></span><span class="dot"></span></div>
+          <div class="body"><div class="row1"><span class="name">Adapt skills</span><span class="age">1m</span></div>
+          <div class="meta"><span class="stat">⏵ Waiting for input</span><span class="cost">$1.98</span></div></div></li>
+        <li class="card before"><div class="gutter"><span class="rail" style="background:var(--accent-yellow)"></span><span class="dot" style="background:var(--accent-yellow)"></span></div>
+          <div class="body"><div class="row1"><span class="name">Improve UX</span><span class="age">11s</span></div>
+          <div class="meta"><span class="stat" style="color:var(--accent-green)">Thinking…</span><span class="cost">$0.40</span></div></div></li>
+        <li class="card before b-idle"><div class="gutter"><span class="rail"></span><span class="dot"></span></div>
+          <div class="body"><div class="row1"><span class="name">Goals hover</span><span class="age">10m</span></div>
+          <div class="meta"><span class="stat">Waiting for input</span><span class="cost">$5.38</span></div></div></li>
+      </ul>
+      <p class="legend">“Waiting for input” means two opposite things; the blocked one has a <b>green</b> rail like idle.</p>
+    </div>
+
+    <div class="panel">
+      <h3>After — needs-you isolated &amp; multi-channel</h3>
+      <div class="folderhdr"><span class="fpath">📁 pi-agent-dashboard</span>
+        <span class="rollup" title="Scroll to blocked sessions">⏵ 1 needs you</span></div>
+      <ul>
+        <li class="card" style="--rail:var(--status-needs-you);border-color:color-mix(in srgb,var(--status-needs-you) 35%,transparent)">
+          <div class="gutter"><span class="rail"></span><span class="dot needs">●</span></div>
+          <div class="body"><div class="row1"><span class="name">Adapt skills</span><span class="age">1m</span></div>
+          <div class="meta"><span class="stat needs">⏵ Needs you</span><span class="cost">$1.98</span></div></div></li>
+        <li class="card" style="--rail:color-mix(in srgb,var(--status-working) 45%,transparent)">
+          <div class="gutter"><span class="rail"></span><span class="dot work pulse"></span></div>
+          <div class="body"><div class="row1"><span class="name">Improve UX</span><span class="age">11s</span></div>
+          <div class="meta"><span class="stat work">◐ Working…</span><span class="cost">$0.40</span></div></div></li>
+        <li class="card" style="--rail:color-mix(in srgb,var(--status-idle) 40%,transparent)">
+          <div class="gutter"><span class="rail"></span><span class="dot idle"></span></div>
+          <div class="body"><div class="row1"><span class="name">Goals hover</span><span class="age">10m</span></div>
+          <div class="meta"><span class="stat idle">○ Idle</span><span class="cost">$5.38</span></div></div></li>
+      </ul>
+      <p class="legend"><b>●</b> needs-you (filled) · <b>◐</b> working (half/pulse) · <b>○</b> idle (ring) · distinct labels.</p>
+    </div>
+  </div>
+
+  <h2>2 · EmptyState primitive (client-utils)</h2>
+  <p class="cap">NN/g empty-state pattern: value-framed title → shape of success → at most one primary CTA + one escape hatch.</p>
+  <div class="cols">
+    <div class="panel"><h3>Before — bare string</h3><div class="badtext">No proposals</div></div>
+    <div class="panel"><h3>After — &lt;EmptyState&gt;</h3>
+      <div class="empty"><span class="ico">◴</span>
+        <span class="t">No proposals in this folder yet</span>
+        <span class="d">Capture an idea as a spec-driven change to track it from explore → apply.</span>
+        <span class="cta">+ New proposal</span>
+        <span class="cta ghost">Browse specs</span></div>
+    </div>
+  </div>
+
+  <h2>3 · Skeleton primitive (client-utils)</h2>
+  <p class="cap">Content-layout loads (chat history) use content-shaped skeletons, not a centered spinner — less perceived latency &amp; no layout shift (NN/g; Doherty). Honors reduced-motion.</p>
+  <div class="cols">
+    <div class="panel"><h3>Before — centered spinner</h3>
+      <div class="spinrow"><span class="spin"></span> Loading conversation…</div></div>
+    <div class="panel"><h3>After — &lt;Skeleton variant="bubble"&gt;</h3>
+      <div class="bubble"><span class="sk l2"></span><span class="sk l1"></span></div>
+      <div class="bubble me"><span class="sk l3"></span></div>
+      <div class="bubble"><span class="sk l1"></span><span class="sk l2"></span><span class="sk l3"></span></div>
+    </div>
+  </div>
+
+  <h2>4 · ArtifactChip — non-hue done channel + aria-label</h2>
+  <p class="cap">Done gets a ✓ glyph (not just green); current gets ◔; each chip carries an aria-label like “Proposal, done”. Grayscale test proves done≠todo without color.</p>
+  <div class="cols">
+    <div class="panel"><h3>Before — color only</h3>
+      <div class="chips"><span class="glabel">OpenSpec</span>
+        <span class="chip" style="color:var(--accent-green);border-color:var(--accent-green)">P</span>
+        <span class="chip" style="color:var(--accent-green);border-color:var(--accent-green)">D</span>
+        <span class="chip" style="color:var(--accent-orange);border-color:var(--accent-orange)">S</span>
+        <span class="chip">T <span class="sub">0/16</span></span></div>
+      <p class="legend">In grayscale, done (P/D) and todo (T) look identical.</p></div>
+    <div class="panel"><h3>After — glyph + label</h3>
+      <div class="chips"><span class="glabel">OpenSpec</span>
+        <span class="chip done" aria-label="Proposal, done">P <span class="ck">✓</span></span>
+        <span class="chip done" aria-label="Design, done">D <span class="ck">✓</span></span>
+        <span class="chip cur" aria-label="Specs, in progress">S <span class="ck">◔</span></span>
+        <span class="chip" aria-label="Tasks, to do">T <span class="sub">0/16</span></span></div>
+      <p class="legend"><b>✓</b> done · <b>◔</b> current · plain = todo — survives grayscale &amp; screen readers.</p></div>
+  </div>
+
+</div>
+<script>
+  function setT(t){document.documentElement.setAttribute('data-theme',t);
+    t1.classList.toggle('on',t==='dark');t2.classList.toggle('on',t==='light');}
+  function toggleGray(){document.documentElement.classList.toggle('grayscale');
+    document.getElementById('t-gray').classList.toggle('on');}
+  const t1=document.getElementById('t-dark'),t2=document.getElementById('t-light');
+</script>
+</body>
+</html>

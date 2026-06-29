@@ -99,6 +99,48 @@ function splitLineCol(s: string): { path: string; line?: number; col?: number } 
 const URL_TRAIL = /[.,;:!?)\]}>'"]+$/;
 
 /**
+ * Detect whether a relative-path match at `matchStart` sits on a unified-diff
+ * header line, so its synthetic `a/`/`b/` prefix can be stripped from the
+ * resolved path. Recognised line shapes:
+ *   `--- a/<path>` , `+++ b/<path>` , `diff --git a/<x> b/<y>`
+ * Returns true only when the text between the line start and the match is one
+ * of those diff markers, so an actual directory literally named `a` or `b`
+ * (e.g. `a/index.ts` in normal output) is never stripped.
+ */
+function onDiffHeaderLine(text: string, matchStart: number): boolean {
+  const lineStart = text.lastIndexOf("\n", matchStart - 1) + 1;
+  const nextNl = text.indexOf("\n", matchStart);
+  const line = text.slice(lineStart, nextNl === -1 ? text.length : nextNl);
+  const prefix = text.slice(lineStart, matchStart);
+  return (
+    prefix === "--- " ||
+    prefix === "+++ " ||
+    // First path of a `diff --git` line: only strip when the WHOLE line is a
+    // real `diff --git a/<x> b/<y>` header, so prose merely starting with
+    // `diff --git a/...` keeps its path intact.
+    (prefix === "diff --git " && /^diff --git a\/\S+ b\/\S+$/.test(line)) ||
+    // Second path: reaching it means the first token was already `a/<x>`.
+    /^diff --git a\/\S+ $/.test(prefix)
+  );
+}
+
+/**
+ * Drop a git-diff `a/` or `b/` prefix from a relative path token's *resolved*
+ * path when the token sits on a diff header line. The display `text` keeps the
+ * verbatim prefix (so the join-coverage contract holds); only the resolved
+ * path used by `/api/file` is corrected to the real working-tree path.
+ */
+function stripDiffPrefix(pathPart: string, text: string, matchStart: number): string {
+  if (
+    (pathPart.startsWith("a/") || pathPart.startsWith("b/")) &&
+    onDiffHeaderLine(text, matchStart)
+  ) {
+    return pathPart.slice(2);
+  }
+  return pathPart;
+}
+
+/**
  * Tokenise a tool-output string into a flat token stream.
  *
  * Contract:
@@ -197,11 +239,13 @@ export function tokenize(text: string): Token[] {
     } else if (groups.file_line) {
       // Relative path with a trailing `:line` or `:line:col` suffix.
       const { path: pathPart, line, col } = splitLineCol(matchText);
-      tokens.push({ kind: "file", text: matchText, path: pathPart, line, col });
+      const path = stripDiffPrefix(pathPart, text, matchStart);
+      tokens.push({ kind: "file", text: matchText, path, line, col });
       linkCount++;
     } else {
       // file_ext — relative bare path with recognised extension.
-      tokens.push({ kind: "file", text: matchText, path: matchText });
+      const path = stripDiffPrefix(matchText, text, matchStart);
+      tokens.push({ kind: "file", text: matchText, path });
       linkCount++;
     }
 

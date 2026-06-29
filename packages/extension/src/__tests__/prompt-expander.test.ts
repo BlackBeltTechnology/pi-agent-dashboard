@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { expandPromptTemplateFromDisk } from "../prompt-expander.js";
+import { expandPromptTemplateFromDisk, loadPromptTemplate } from "../prompt-expander.js";
 import { parseSkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 const tmpDir = join(import.meta.dirname ?? __dirname, "__tmp_prompt_test__");
@@ -264,5 +264,135 @@ describe("expandPromptTemplateFromDisk", () => {
     mkdirSync(tmpDir, { recursive: true });
     const result = expandPromptTemplateFromDisk("/opsx:nonexistent foo", tmpDir);
     expect(result).toBe("/opsx:nonexistent foo");
+  });
+});
+
+describe("loadPromptTemplate (executable-mode frontmatter)", () => {
+  it("resolves executable: bash to kind exec", () => {
+    writeFileSync(
+      join(promptsDir, "exec-cmd.md"),
+      "---\nexecutable: bash\n---\necho hi",
+    );
+    const loaded = loadPromptTemplate("/exec-cmd", tmpDir);
+    expect(loaded).toEqual({ kind: "exec", body: "echo hi", excludeFromContext: true, argsString: "" });
+  });
+
+  it("defaults excludeFromContext to true for executable: bash", () => {
+    writeFileSync(join(promptsDir, "exec-default.md"), "---\nexecutable: bash\n---\necho hi");
+    const loaded = loadPromptTemplate("/exec-default", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+    if (loaded?.kind === "exec") expect(loaded.excludeFromContext).toBe(true);
+  });
+
+  it("honours excludeFromContext: false override", () => {
+    writeFileSync(
+      join(promptsDir, "exec-capture.md"),
+      "---\nexecutable: bash\nexcludeFromContext: false\n---\necho hi",
+    );
+    const loaded = loadPromptTemplate("/exec-capture", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+    if (loaded?.kind === "exec") expect(loaded.excludeFromContext).toBe(false);
+  });
+
+  it("carries args string through to exec result", () => {
+    writeFileSync(join(promptsDir, "exec-args.md"), "---\nexecutable: bash\n---\necho \"$1\"");
+    const loaded = loadPromptTemplate("/exec-args abc 123", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+    if (loaded?.kind === "exec") expect(loaded.argsString).toBe("abc 123");
+  });
+
+  it("unsupported executable value falls back to kind llm (graceful degrade)", () => {
+    writeFileSync(join(promptsDir, "exec-node.md"), "---\nexecutable: node\n---\nbody text");
+    const loaded = loadPromptTemplate("/exec-node", tmpDir);
+    expect(loaded).toEqual({ kind: "llm", text: "body text" });
+  });
+
+  it("ignores unknown frontmatter keys (forward compat) while still exec", () => {
+    writeFileSync(
+      join(promptsDir, "exec-future.md"),
+      "---\nexecutable: bash\nfutureField: 42\n---\necho hi",
+    );
+    const loaded = loadPromptTemplate("/exec-future", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+  });
+
+  it("malformed (unclosed) frontmatter falls back to llm, never throws", () => {
+    // No trailing `---`: the whole file (including the leading ---) is body.
+    writeFileSync(join(promptsDir, "exec-bad.md"), "---\nexecutable: bash\necho hi");
+    const loaded = loadPromptTemplate("/exec-bad", tmpDir);
+    expect(loaded?.kind).toBe("llm");
+  });
+
+  it("frontmatter line without colon is ignored, executable still parses", () => {
+    writeFileSync(
+      join(promptsDir, "exec-nocolon.md"),
+      "---\nexecutable: bash\nstraylinewithoutcolon\n---\necho hi",
+    );
+    const loaded = loadPromptTemplate("/exec-nocolon", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+  });
+
+  it("value containing a colon parses (split on first colon)", () => {
+    writeFileSync(
+      join(promptsDir, "exec-colonval.md"),
+      "---\nexecutable: bash\ndescription: foo: bar\n---\necho hi",
+    );
+    const loaded = loadPromptTemplate("/exec-colonval", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+  });
+
+  it("regular template without executable resolves to kind llm with args appended", () => {
+    const loaded = loadPromptTemplate("/opsx-continue my-change", tmpDir);
+    expect(loaded?.kind).toBe("llm");
+    if (loaded?.kind === "llm") {
+      expect(loaded.text).toContain("Continue the change");
+      expect(loaded.text).toContain("my-change");
+    }
+  });
+
+  it("returns null when no template matched", () => {
+    expect(loadPromptTemplate("/nonexistent", tmpDir)).toBeNull();
+  });
+
+  it("resolves a bundled command via pi.getCommands() when cwd lacks the skill (real/Docker session)", () => {
+    // Skill installed OUTSIDE cwd (mimics extension install dir). cwd = tmpDir
+    // has no .pi/skills/pi-dashboard. Registry surfaces the skill's SKILL.md.
+    const installDir = join(tmpDir, "installed", "pi-dashboard");
+    const cmdDir = join(installDir, "commands");
+    mkdirSync(cmdDir, { recursive: true });
+    const skillMd = join(installDir, "SKILL.md");
+    writeFileSync(skillMd, "---\nname: pi-dashboard\n---\nskill body");
+    writeFileSync(join(cmdDir, "dashboard-server-health.md"), "---\nexecutable: bash\n---\necho ok");
+    // Session cwd: a sibling dir with NO skill on disk.
+    const sessionCwd = join(tmpDir, "some-user-project");
+    mkdirSync(sessionCwd, { recursive: true });
+    const pi = {
+      getCommands: () => [
+        { name: "pi-dashboard", source: "skill", sourceInfo: { path: skillMd } },
+      ],
+    };
+    const loaded = loadPromptTemplate("/dashboard:server-health", sessionCwd, pi);
+    expect(loaded?.kind).toBe("exec");
+    if (loaded?.kind === "exec") expect(loaded.body).toBe("echo ok");
+  });
+
+  it("resolves a skill-bundled command from <skill>/commands/*.md (colon alias)", () => {
+    const cmdDir = join(skillsDir, "pi-dashboard", "commands");
+    mkdirSync(cmdDir, { recursive: true });
+    writeFileSync(join(skillsDir, "pi-dashboard", "SKILL.md"), "---\nname: pi-dashboard\n---\nskill body");
+    writeFileSync(
+      join(cmdDir, "dashboard-server-health.md"),
+      '---\nexecutable: bash\n---\ncurl -s "$PI_DASHBOARD_BASE/api/health"',
+    );
+    const loaded = loadPromptTemplate("/dashboard:server-health", tmpDir);
+    expect(loaded?.kind).toBe("exec");
+    if (loaded?.kind === "exec") expect(loaded.body).toContain("/api/health");
+  });
+
+  it("expandPromptTemplateFromDisk returns ORIGINAL text for an exec template (never leaks bash body to LLM)", () => {
+    writeFileSync(join(promptsDir, "exec-legacy.md"), "---\nexecutable: bash\n---\necho hi");
+    // Multi-line passthrough path calls this then sendUserMessage; must NOT
+    // return the raw bash body. See change: add-dashboard-slash-commands.
+    expect(expandPromptTemplateFromDisk("/exec-legacy", tmpDir)).toBe("/exec-legacy");
   });
 });

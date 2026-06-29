@@ -141,6 +141,35 @@ export class PackageNotFoundError extends Error {
 export interface PackageMeta {
   description?: string;
   version?: string;
+  /** Skill ids derived from the package's `pi.skills` manifest. */
+  skills?: string[];
+}
+
+/**
+ * Derive skill ids from a package.json `pi.skills` array. The skill id is
+ * the final path segment (the SKILL.md directory name, e.g.
+ * `.pi/skills/document-converter` -> `document-converter`).
+ *
+ * Convention container dirs (`skills` / `skill`) are skipped: they hold
+ * multiple SKILL.md subfolders whose individual ids cannot be resolved from
+ * the path alone (that needs a file listing of the published tarball).
+ * Packages that point `pi.skills` at a specific skill directory resolve
+ * correctly; packages that point at a `skills/` container yield no derived
+ * ids (better than reporting the meaningless name "skills").
+ *
+ * Returns `undefined` when no resolvable skill ids remain.
+ */
+export function deriveSkillIds(piSkills: unknown): string[] | undefined {
+  if (!Array.isArray(piSkills)) return undefined;
+  const ids = piSkills
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.split("/").filter(Boolean).pop() ?? "")
+    .filter(Boolean)
+    .filter((id) => {
+      const lower = id.toLowerCase();
+      return lower !== "skills" && lower !== "skill";
+    });
+  return ids.length ? ids : undefined;
 }
 
 const metaCache = new Map<string, CacheEntry<PackageMeta | null>>();
@@ -164,6 +193,7 @@ export async function fetchPackageMeta(packageName: string): Promise<PackageMeta
     const meta: PackageMeta = {
       description: typeof json?.description === "string" ? json.description : undefined,
       version: typeof json?.version === "string" ? json.version : undefined,
+      skills: deriveSkillIds(json?.pi?.skills),
     };
     metaCache.set(`npm:${packageName}`, { data: meta, timestamp: Date.now() });
     return meta;
@@ -197,6 +227,7 @@ export async function fetchGithubPackageJson(
     const meta: PackageMeta = {
       description: typeof json?.description === "string" ? json.description : undefined,
       version: typeof json?.version === "string" ? json.version : undefined,
+      skills: deriveSkillIds(json?.pi?.skills),
     };
     metaCache.set(key, { data: meta, timestamp: Date.now() });
     return meta;

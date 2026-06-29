@@ -415,6 +415,9 @@ export default function App() {
   // change: pluginize-flows-via-registry.
   const [fileResults, setFileResults] = useState<{ query: string; files: FileEntry[] } | null>(null);
   const [openspecMap, setOpenspecMap] = useState<Map<string, OpenSpecData>>(new Map());
+  // Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
+  // See change: refresh-folder-header-branch.
+  const [folderGitMap, setFolderGitMap] = useState<Map<string, string | null>>(new Map());
   const [openspecGroupsMap, setOpenspecGroupsMap] = useState<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>(new Map());
   // Worktree-spawn dialog for the OpenSpec board route (board is a top-level
   // overlay; SessionList's own dialog isn't in scope here).
@@ -499,6 +502,7 @@ export default function App() {
           setSessionStates(new Map());
           setSessionCommands(new Map());
           setOpenspecMap(new Map());
+          setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
           subscribedRef.current.clear();
@@ -598,7 +602,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef },
   );
 
@@ -1110,6 +1114,7 @@ export default function App() {
       onSelect={handleSelect}
       contextUsageMap={contextUsageMap}
       openspecMap={openspecMap}
+      folderGitMap={folderGitMap}
       openspecGroupsMap={openspecGroupsMap}
       sessionOrderMap={sessionOrderMap}
       onReorderSessions={(cwd, sessionIds) => {

@@ -26,9 +26,9 @@ export interface SessionOrderManager {
    * (pruning the entry entirely if its list becomes empty) and inserts it
    * into `newKey` — at the front when `toFront` is set, else appended.
    * No-op when `oldKey === newKey`. Used by the deferred order-key
-   * resolution path: a worktree/jj session registers under its raw cwd key
+   * resolution path: a worktree session registers under its raw cwd key
    * (group identity not yet known) and is re-keyed to the parent key once
-   * `git_info_update` / `jj_state_update` arrives.
+   * `git_info_update` arrives.
    * See change: fix-worktree-spawn-placeholder-and-ordering.
    */
   rekey(oldKey: string, newKey: string, sessionId: string, opts?: { toFront?: boolean }): void;

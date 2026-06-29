@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # pi-dashboard all-in-one image.
 #
-# Stage `base`  — Debian Bookworm + Node 22 LTS, system tools, code-server, zrok.
+# Stage `base`  — Debian Bookworm + Node 24 LTS, system tools, code-server, zrok.
 # Stage `app`   — non-root `pi` user, global pi agent, built dashboard, cleanup.
 #
 # Debian (glibc), NOT Alpine (musl): node-pty needs glibc for correct PTY
@@ -10,7 +10,7 @@
 # ---------------------------------------------------------------------------
 
 # ============================ base stage ===================================
-FROM node:22-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 
 # Pinned tool versions — override at build time with --build-arg.
 ARG CODE_SERVER_VERSION=4.96.4
@@ -130,10 +130,22 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY scripts ./scripts
 COPY patches ./patches
 COPY packages ./packages
+# Faux model fixture (provider + scenario catalog). test-entrypoint.sh stages
+# these as a global auto-discovered pi extension under PI_E2E_SEED so UI-spawned
+# sessions drive a key-free faux model. See change: add-e2e-faux-model-roundtrip.
+COPY qa/fixtures ./qa/fixtures
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 
-RUN npm install \
+# Drop the committed lockfile before install: npm bug #4828 makes both
+# `npm install` and `npm ci` skip platform-matching optional deps when resolving
+# against a lockfile generated on another platform (here: the macOS lock omits
+# the install of `@rollup/rollup-linux-x64-gnu`, breaking the linux web-client
+# build with `Cannot find module .../rollup/dist/native.js`). Removing the lock
+# lets npm resolve the correct native binary for the build platform — the fix
+# the error itself prescribes. Scoped to this build image only.
+RUN rm -f package-lock.json \
+ && npm install \
  && npm run build \
  # Link the root package so `pi-dashboard` is on PATH.
  && npm link \

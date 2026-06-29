@@ -4,8 +4,8 @@
  *
  * Electron / GUI-launched processes can inherit a stripped PATH that
  * lacks `C:\Windows\System32`. Without System32 on PATH, every spawn
- * of `where.exe`, `powershell.exe`, `tasklist.exe`, `taskkill.exe`,
- * `wmic.exe` fails with ENOENT and cascades into Tools-panel red rows,
+ * of `where.exe`, `powershell.exe`, `tasklist.exe`, `taskkill.exe`
+ * fails with ENOENT and cascades into Tools-panel red rows,
  * empty process-scanner output, and broken bridge spawns.
  *
  * This helper is idempotent: calling it twice on the same env returns

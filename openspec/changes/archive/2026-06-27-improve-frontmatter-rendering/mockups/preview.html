@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Frontmatter in MarkdownPreviewView</title>
+<link rel="stylesheet" href="shared.css"/>
+<style>
+  .pv{display:flex;flex-direction:column;height:calc(100vh - 41px)}
+  .pv-head{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--border-secondary)}
+  .pv-head .back{background:none;border:none;color:var(--text-secondary);cursor:pointer;padding:3px 6px;border-radius:4px;font-size:16px}
+  .pv-head .back:hover{background:var(--bg-hover);color:var(--text-primary)}
+  .pv-head .title{font-size:13px;font-weight:600;color:var(--text-secondary)}
+  .pv-tabs{display:flex;gap:4px;padding:6px 14px;border-bottom:1px solid var(--border-secondary)}
+  .pv-tabs button{font-family:ui-monospace,monospace;font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;
+    background:none;border:none;color:var(--text-muted);cursor:pointer}
+  .pv-tabs button.on{background:var(--bg-surface);color:var(--text-primary)}
+  .pv-body{flex:1;overflow:auto;padding:18px 22px}
+  .pv-inner{max-width:760px}
+</style>
+</head>
+<body>
+  <div class="mk-top">
+    <h1>MarkdownPreviewView — OpenSpec proposal</h1>
+    <span class="caption">back button + tab bar (proposal / design / tasks)</span>
+    <span class="spacer"></span>
+    <a href="index.html">All mockups</a>
+    <button onclick="toggleTheme()">Theme</button>
+  </div>
+
+  <div class="pv">
+    <div class="pv-head">
+      <button class="back">←</button>
+      <span class="title">improve-frontmatter-rendering</span>
+    </div>
+    <div class="pv-tabs">
+      <button class="on">PROPOSAL</button>
+      <button>DESIGN</button>
+      <button>TASKS</button>
+    </div>
+    <div class="pv-body">
+      <div class="pv-inner">
+        <div id="props"></div>
+        <div class="md">
+          <h1>Improve frontmatter rendering</h1>
+          <h2>Why</h2>
+          <p>The markdown renderer loads no frontmatter plugin, so YAML headers are misparsed into a giant heading. Every <code>.md</code> surface that carries frontmatter is affected.</p>
+          <h2>What changes</h2>
+          <ul><li>Add <code>remark-frontmatter</code> + a YAML parser.</li><li>Render an Obsidian-style Properties panel, collapsed by default.</li><li>Add a <code>frontmatter</code> prop to <code>MarkdownContent</code> so chat opts out.</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="props.js"></script>
+<script>
+renderProps(document.getElementById('props'), [
+  {key:'title', type:'text', value:'Improve frontmatter rendering'},
+  {key:'status', type:'status', value:'draft'},
+  {key:'created', type:'date', value:'2026-06-27', rel:'today'},
+  {key:'capability', type:'text', value:'markdown-rendering'},
+  {key:'affects', type:'list', value:['FilePreviewOverlay','MarkdownPreviewView','SpecsBrowserView','SkillInvocationCard']},
+  {key:'breaking', type:'bool', value:false},
+], {collapsed:true});
+document.querySelectorAll('.pv-tabs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.pv-tabs button').forEach(x=>x.classList.remove('on'));b.classList.add('on');});
+</script>
+</body>
+</html>

@@ -50,6 +50,7 @@ async function startServerWithEnv(env: Record<string, string | undefined>): Prom
   const server = await createServer({
     port: 0,
     piPort: 0,
+    host: "127.0.0.1",
     dev: true,
     autoShutdown: false,
     shutdownIdleSeconds: 999,
@@ -80,7 +81,7 @@ async function startServerWithEnv(env: Record<string, string | undefined>): Prom
 }
 
 async function sendRegister(piPort: number, payload: Record<string, unknown>): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve, reject) => {
     ws.on("error", reject);
     ws.on("open", () => {

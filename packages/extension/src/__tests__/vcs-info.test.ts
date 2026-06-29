@@ -1,12 +1,12 @@
 /**
- * Tests for vcs-info.ts (git half — jj half is covered separately).
+ * Tests for vcs-info.ts.
  *
  * The file delegates to `@blackbelt-technology/pi-dashboard-shared/platform/git.js`
  * (the Recipe-based tool module). We mock that module so the tests focus
  * on the orchestration logic (branch detection, detached HEAD fallback,
  * PR detection) without spawning git.
  *
- * See changes: platform-command-executor, add-jj-workspace-plugin.
+ * See change: platform-command-executor.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 

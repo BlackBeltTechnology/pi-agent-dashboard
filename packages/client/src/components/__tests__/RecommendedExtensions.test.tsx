@@ -138,3 +138,36 @@ describe("RecommendedExtensions \u2014 Install all missing button", () => {
     expect(screen.getByText("Queued")).toBeTruthy();
   });
 });
+
+describe("RecommendedExtensions — derived skills badges", () => {
+  it("renders a skill badge per skillsRegistered entry", () => {
+    mockRecommended.mockReturnValue({
+      recommended: [
+        makeEntry({
+          id: "docconv",
+          source: "npm:docconv",
+          skillsRegistered: ["document-converter"],
+        }),
+      ],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<RecommendedExtensions scope="global" />);
+    const row = screen.getByTestId("recommended-skills-docconv");
+    expect(row.textContent).toContain("document-converter");
+  });
+
+  it("omits the skills row when the entry ships no skills", () => {
+    mockRecommended.mockReturnValue({
+      recommended: [makeEntry({ id: "noskill", source: "npm:noskill" })],
+      isLoading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<RecommendedExtensions scope="global" />);
+    expect(screen.queryByTestId("recommended-skills-noskill")).toBeNull();
+  });
+});

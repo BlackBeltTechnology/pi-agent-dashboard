@@ -133,11 +133,11 @@ describe("validateManifest — shouldRender + predicate (auto-hide-empty-session
         {
           slot: "session-card-memory",
           component: "Mem",
-          shouldRender: "shouldRenderHonchoMemory",
+          shouldRender: "shouldRenderMemory",
         },
       ],
     });
-    expect(m.claims[0].shouldRender).toBe("shouldRenderHonchoMemory");
+    expect(m.claims[0].shouldRender).toBe("shouldRenderMemory");
   });
 
   it("accepts predicate as a string (existing behavior preserved)", () => {

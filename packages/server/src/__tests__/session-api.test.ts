@@ -18,7 +18,7 @@ vi.mock("../process-manager.js", async (importOriginal) => {
 });
 
 function url(path: string) {
-  return `http://localhost:${httpPort}${path}`;
+  return `http://127.0.0.1:${httpPort}${path}`;
 }
 
 async function postJson(path: string, body?: Record<string, unknown>) {
@@ -46,6 +46,7 @@ describe("Session Control REST API", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

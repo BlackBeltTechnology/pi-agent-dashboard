@@ -254,6 +254,6 @@ target dialog parts deterministically.
 
 #### Scenario: testId propagation
 
-- **WHEN** a `Dialog` is rendered with `testId="jj-forget"`
-- **THEN** the dialog container SHALL have `data-testid="jj-forget"` and
-  the overlay SHALL have `data-testid="jj-forget-overlay"`
+- **WHEN** a `Dialog` is rendered with `testId="confirm-action"`
+- **THEN** the dialog container SHALL have `data-testid="confirm-action"` and
+  the overlay SHALL have `data-testid="confirm-action-overlay"`

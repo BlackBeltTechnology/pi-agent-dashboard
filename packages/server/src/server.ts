@@ -65,6 +65,7 @@ import { createGoalStore } from "./goal-store.js";
 import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
 import { decideBudgetHalt } from "./goal-budget-guard.js";
 import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
+import { primeGoalSession } from "./goal-session-primer.js";
 import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerDoctorRoutes } from "./routes/doctor-routes.js";
@@ -76,7 +77,6 @@ import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { PiCoreChecker } from "./pi-core-checker.js";
 import { PiCoreUpdater } from "./pi-core-updater.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
-import { registerJjRoutes } from "./routes/jj-routes.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { PackageManagerWrapper } from "./package-manager-wrapper.js";
@@ -107,6 +107,13 @@ import { detectCodeServerBinary } from "./editor-detection.js";
 export interface ServerConfig {
   port: number;
   piPort: number;
+  /**
+   * Host/interface the HTTP server and pi gateway bind to. Resolved by
+   * `buildConfig()` through `--host` → `PI_DASHBOARD_HOST` → `config.bindHost`
+   * → `"127.0.0.1"`. Governs both primary listeners; the model-proxy second
+   * port stays loopback. See change: configurable-bind-host.
+   */
+  host: string;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -277,21 +284,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // .meta.json overwrite (not a merge) — omitting it wipes the field set
       // by event-wiring / goal routes. See change: add-goals-folder-page.
       goalId: session.goalId,
-      // Persist the grouping-relevant worktree/jj parentage so a rebooted
+      // Persist the grouping-relevant worktree parentage so a rebooted
       // (bridge-less) scan can collapse this session under its parent repo.
       // Only the subset `resolveSessionGroupPath` needs is stored; volatile
-      // probe state (jj bookmarks/lastError, worktree base) is excluded.
+      // probe state (worktree base) is excluded.
       // See change: fix-cold-start-worktree-session-grouping.
       gitWorktree: session.gitWorktree
         ? { mainPath: session.gitWorktree.mainPath, name: session.gitWorktree.name }
         : undefined,
-      jjState: session.jjState
-        ? { workspaceRoot: session.jjState.workspaceRoot, workspaceName: session.jjState.workspaceName }
-        : undefined,
       cachedAt: Date.now(),
     });
     // Order-map key for this session: the RESOLVED group path (parent repo
-    // for worktree/jj sessions), the same key the client reads.
+    // for worktree sessions), the same key the client reads.
     // See change: simplify-session-card-ordering.
     const orderKey = resolveOrderKey(session, preferencesStore.getPinnedDirectories());
     // Status-transition tracking: the gated move runs ONCE per transition
@@ -677,6 +681,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pluginPiHandlers.set(GOAL_STATUS_MESSAGE, arr);
   }
 
+  // Rename a session card + dispatch the goal kickoff so a goal-linked session
+  // actually pursues its objective. Shared by the spawn path (event-wiring
+  // goal-link arm) and the explicit link path (goal-routes).
+  const primeGoalSessionImpl = (
+    sessionId: string,
+    goal: { objective: string; criteria?: import("@blackbelt-technology/pi-dashboard-shared/types.js").GoalCriterion[] },
+  ): void => {
+    primeGoalSession(
+      {
+        sendPrompt: (sid, text) => piGateway.sendToSession(sid, { type: "send_prompt", sessionId: sid, text }),
+        renameSession: (sid, name) => {
+          const updates = { name: name || undefined };
+          sessionManager.update(sid, updates);
+          browserGateway.broadcastSessionUpdated(sid, updates);
+          piGateway.sendToSession(sid, { type: "rename_session", sessionId: sid, name });
+        },
+      },
+      sessionId,
+      goal,
+    );
+  };
+
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
@@ -696,6 +722,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingAutomationRunRegistry,
     pendingGoalLinkRegistry,
     goalStore,
+    primeGoalSession: primeGoalSessionImpl,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
     dispatchPluginPiMessage,
@@ -878,6 +905,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     networkGuard,
     store: goalStore,
     applyGoalIdToSession,
+    primeGoalSession: primeGoalSessionImpl,
     spawnGoalSession: async (cwd, goalId, opts) => {
       pendingGoalLinkRegistry.enqueue(cwd, goalId);
       try {
@@ -908,7 +936,6 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
-  registerJjRoutes(fastify, { browserGateway, pendingAttachRegistry, networkGuard });
 
   // /api/bootstrap/* routes removed under change:
   // eliminate-electron-runtime-install (task 3.4). pi-core in-place
@@ -1298,7 +1325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         setSpawnDashboardPiPort(config.piPort);
       }
 
-      piGateway.start(config.piPort);
+      piGateway.start(config.piPort, config.host);
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
       // register routes. Fastify rejects route registration after listen().
@@ -1473,9 +1500,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       });
 
-      await fastify.listen({ port: config.port, host: "0.0.0.0" });
+      await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
-      console.log(`Dashboard server running at http://localhost:${config.port}`);
+      console.log(`Dashboard server running at http://${config.host}:${config.port}`);
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────

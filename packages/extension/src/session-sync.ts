@@ -6,7 +6,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from "./bridge-context.js";
 import { detectSessionSource } from "./source-detector.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { gatherGitInfo, gatherJjInfo } from "./vcs-info.js";
+import { gatherGitInfo } from "./vcs-info.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 

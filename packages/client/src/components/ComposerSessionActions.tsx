@@ -1,29 +1,33 @@
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCompassOutline,
-  mdiPlayCircleOutline,
-  mdiCheckCircleOutline,
-  mdiArchiveOutline,
-  mdiFormatListChecks,
-  mdiChevronRight,
-  mdiFastForward,
-} from "@mdi/js";
-import type { DashboardSession, OpenSpecChange, OpenSpecArtifact, ImageContent, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { ChangeState, deriveChangeState, DEFAULT_OPENSPEC_CONFIG } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
-import { deriveStepperState } from "./OpenSpecStepper.js";
 import {
   SessionCardBadgeSlot,
-  WorkspaceActionBarSlot,
   useSlotHasClaimsForSession,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
-import { TasksPopover } from "./TasksPopover.js";
-import { ExploreDialog } from "./ExploreDialog.js";
-import { DialogPortal } from "./DialogPortal.js";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import {
+  statusAriaLabel,
+  statusPresentation,
+} from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
+import type { DashboardSession, ImageContent, OpenSpecArtifact, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  mdiArchiveOutline,
+  mdiCheckCircleOutline,
+  mdiChevronRight,
+  mdiCompassOutline,
+  mdiFastForward,
+  mdiFormatListChecks,
+  mdiPlayCircleOutline,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
 import { t as i18nT } from "../lib/i18n";
+import { DialogPortal } from "./DialogPortal.js";
+import { ExploreDialog } from "./ExploreDialog.js";
+import { deriveStepperState } from "./OpenSpecStepper.js";
+import { buildOpenSpecTooltips } from "./SessionOpenSpecActions.js";
+import { TasksPopover } from "./TasksPopover.js";
+import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 
 /**
  * ComposerSessionActions — slim inline session-action row mounted inside
@@ -124,6 +128,7 @@ function IconButton({
  */
 function ArtifactChip({
   letter,
+  name,
   state,
   onClick,
   disabled,
@@ -132,6 +137,8 @@ function ArtifactChip({
   sub,
 }: {
   letter: string;
+  /** Full artifact name for the accessible label, e.g. "Proposal". */
+  name: string;
   state: "done" | "current" | "todo";
   onClick?: () => void;
   disabled?: boolean;
@@ -139,19 +146,28 @@ function ArtifactChip({
   testId: string;
   sub?: string;
 }) {
-  const cls =
-    state === "done"    ? "text-green-400 border-green-500/50 bg-green-500/8"
-    : state === "current" ? "text-orange-400 border-orange-500/50 bg-orange-500/8"
-    : "text-[var(--text-muted)] border-[var(--border-secondary)]";
+  // Color flows through the semantic --status-* token; the glyph (e.g. ✓ for
+  // done) is the mandatory non-hue channel so done≠todo without color.
+  const pres = statusPresentation(state);
+  // Localize the status word so the aria-label is fully translated, not
+  // mixed-language (e.g. "Propuesta, done").
+  const stateLabel = i18nT(`auto.artifact_state_${state}`, undefined, state);
   return (
     <button
       onClick={(e) => { e.stopPropagation(); if (!disabled && onClick) onClick(); }}
       disabled={disabled || !onClick}
       title={title}
+      aria-label={statusAriaLabel(name, state, stateLabel)}
       data-testid={testId}
       data-state={state}
-      className={`inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed ${cls}`}
+      className="focus-ring inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed"
+      style={{
+        color: pres.tokenVar,
+        borderColor: `color-mix(in srgb, ${pres.tokenVar} 50%, transparent)`,
+        backgroundColor: `color-mix(in srgb, ${pres.tokenVar} 8%, transparent)`,
+      }}
     >
+      <span aria-hidden="true" className="text-[8px]">{pres.glyph}</span>
       <span>{letter}</span>
       {sub && <span className="text-[8px] font-normal opacity-80">{sub}</span>}
     </button>
@@ -190,7 +206,6 @@ export function ComposerSessionActions({
   // Hooks must run unconditionally.
   const safeSession = session ?? (undefined as unknown as DashboardSession);
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", safeSession);
-  const hasJjActions = useSlotHasClaimsForSession("workspace-action-bar", safeSession);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -204,7 +219,7 @@ export function ComposerSessionActions({
   const isEnded = session.status === "ended";
 
   const showOpenSpec = !isEnded && (openspecHasDir !== false || openspecPending === true);
-  const showJj = hasBadge || hasJjActions;
+  const showStatus = hasBadge;
   const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree;
 
   const tips = buildOpenSpecTooltips({ attached, state: changeState, streaming });
@@ -225,7 +240,7 @@ export function ComposerSessionActions({
   };
 
   // Nothing to render? Bail early so we don't add an empty group to StatusBar.
-  if (!showOpenSpec && !showJj && !showGit) return null;
+  if (!showOpenSpec && !showStatus && !showGit) return null;
 
   return (
     <div
@@ -253,6 +268,7 @@ export function ComposerSessionActions({
             <>
               <ArtifactChip
                 letter="P"
+                name={i18nT("auto.artifact_proposal", undefined, "Proposal")}
                 state={artifactChipState("proposal")}
                 title={i18nT("auto.open_proposal_md", undefined, "Open proposal.md")}
                 testId="composer-artifact-p"
@@ -260,6 +276,7 @@ export function ComposerSessionActions({
               />
               <ArtifactChip
                 letter="D"
+                name={i18nT("auto.artifact_design", undefined, "Design")}
                 state={artifactChipState("design")}
                 title={i18nT("auto.open_design_md", undefined, "Open design.md")}
                 testId="composer-artifact-d"
@@ -267,6 +284,7 @@ export function ComposerSessionActions({
               />
               <ArtifactChip
                 letter="S"
+                name={i18nT("auto.artifact_specs", undefined, "Specs")}
                 state={artifactChipState("specs")}
                 title={i18nT("auto.open_specs", undefined, "Open specs")}
                 testId="composer-artifact-s"
@@ -275,6 +293,7 @@ export function ComposerSessionActions({
               {change.totalTasks > 0 && (
                 <ArtifactChip
                   letter="T"
+                  name={i18nT("auto.artifact_tasks", undefined, "Tasks")}
                   sub={`${change.completedTasks}/${change.totalTasks}`}
                   state={artifactChipState("tasks")}
                   title={i18nT("auto.open_task_list", undefined, "Open task list")}
@@ -361,24 +380,23 @@ export function ComposerSessionActions({
         </>
       )}
 
-      {showJj && (
+      {showStatus && (
         <>
           <Divider />
-          <GroupLabel testId="composer-jj-group-label">JJ</GroupLabel>
+          <GroupLabel testId="composer-status-group-label">STATUS</GroupLabel>
           {/* <fieldset disabled> natively disables every <button>/<input>
               inside per HTML spec. Used here to gate plugin-rendered
-              JJ actions while the session is streaming, without coupling
-              this strip to the jj-plugin's internal button rendering.
+              actions while the session is streaming, without coupling
+              this strip to a plugin's internal button rendering.
               See change: redesign-session-card-and-composer
               (statusbar-disable-on-streaming). */}
           <fieldset
             disabled={streaming}
-            data-testid="composer-jj-group"
+            data-testid="composer-status-group"
             title={streaming ? "Session is streaming" : undefined}
             className={`inline-flex items-center gap-1 flex-wrap p-0 m-0 border-0 min-w-0 ${streaming ? "opacity-40" : ""}`}
           >
             {hasBadge && <SessionCardBadgeSlot session={session} />}
-            {hasJjActions && <WorkspaceActionBarSlot session={session} />}
           </fieldset>
         </>
       )}

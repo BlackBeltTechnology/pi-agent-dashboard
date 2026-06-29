@@ -5,8 +5,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, sep as pathSep } from "node:path";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import * as jj from "@blackbelt-technology/pi-dashboard-shared/platform/jj.js";
-import type { DashboardEvent, JjState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FileChangeEvent, FileDiffEntry, EditOperation } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 import { isGitRepo } from "./git-operations.js";
 
@@ -178,113 +177,25 @@ export function enrichWithGitDiff(
   return { enrichedFiles: enriched, isGitRepo: true };
 }
 
-// ── jj enrichment (regime-aware) ─────────────────────────────────────────
-
-/**
- * Pure helper: pick the right diff base for a given jj state.
- *   - default workspace  → `@-`     (equivalent to `git diff HEAD`)
- *   - non-default        → `fork_point(@, trunk())`
- *
- * Exported for unit testing without spawning jj.
- */
-export function selectJjDiffBase(jjState: JjState | undefined): {
-  diffBase: string;
-  baseLabel: string;
-} {
-  const workspace = jjState?.workspaceName;
-  if (!workspace || workspace === "default") {
-    return { diffBase: "@-", baseLabel: "@-" };
-  }
-  // Use the `..` range form (always-supported) instead of `fork_point()`
-  // (which changed signature across jj versions). `trunk()` returns the
-  // most-recent ancestor on main/master/trunk; the diff base is the
-  // single tip of trunk so that `--from <base> --to @` materializes the
-  // cumulative diff across every agent commit in this workspace.
-  return { diffBase: "trunk()", baseLabel: "trunk()" };
-}
-
-/**
- * Enrich file entries with `jj diff` output, regime-aware. Runs
- * `jj diff --from <baseRev> --to @ -- <path>` per file. Handles new
- * files natively (no synthetic `/dev/null` fallback needed — jj
- * reports new files in unified diff format directly).
- */
-export function enrichWithJjDiff(
-  cwd: string,
-  files: FileDiffEntry[],
-  jjState: JjState | undefined,
-): { enrichedFiles: FileDiffEntry[]; vcsKind: "jj"; diffBase: string; baseLabel: string } {
-  const { diffBase, baseLabel } = selectJjDiffBase(jjState);
-  const labelOverride = resolveBaseLabel(cwd, diffBase, baseLabel);
-  const enriched = files.map((file) => {
-    try {
-      const diff = jj.diffOr({
-        cwd,
-        fromRev: diffBase,
-        toRev: "@",
-        path: file.path,
-      }).trim();
-      if (diff) return { ...file, gitDiff: diff };
-      return file;
-    } catch {
-      return file;
-    }
-  });
-  return { enrichedFiles: enriched, vcsKind: "jj", diffBase, baseLabel: labelOverride };
-}
-
-/**
- * Promote the abstract revset (e.g. `@-` or `fork_point(@, trunk())`) to
- * a human-friendly bookmark name when one exists. Best effort — falls
- * back to the abstract label if jj can't resolve it.
- */
-function resolveBaseLabel(cwd: string, diffBase: string, fallback: string): string {
-  const result = jj.logRevset({
-    cwd,
-    revset: diffBase,
-    template: 'bookmarks ++ "\\n"',
-  });
-  if (!result.ok) return fallback;
-  const first = result.value.trim().split("\n")[0]?.trim();
-  if (first && first.length > 0 && first.length < 100) return first;
-  return fallback;
-}
-
 // ── Unified dispatcher ──────────────────────────────────────────────────
 
 export interface VcsEnrichmentResult {
   enrichedFiles: FileDiffEntry[];
   isGitRepo: boolean;
-  vcsKind?: "git" | "jj";
+  vcsKind?: "git";
   diffBase?: string;
   baseLabel?: string;
 }
 
 /**
- * Regime-aware dispatcher. When the session has `jjState.isJjRepo`,
- * route through `enrichWithJjDiff` (which produces the cumulative diff
- * for non-default workspaces). Otherwise fall back to the existing
- * `enrichWithGitDiff` behavior unchanged — plain-git regime is byte-
- * equivalent to the pre-change response shape (modulo the now-optional
- * `vcsKind` field that older clients ignore).
- *
- * See change: add-jj-workspace-plugin.
+ * Dispatcher over git diff enrichment. Wraps `enrichWithGitDiff` and
+ * annotates the response with `vcsKind`/`diffBase`/`baseLabel` (optional
+ * fields older clients ignore).
  */
 export function enrichWithVcsDiff(
   cwd: string,
   files: FileDiffEntry[],
-  jjState: JjState | undefined,
 ): VcsEnrichmentResult {
-  if (jjState?.isJjRepo) {
-    const result = enrichWithJjDiff(cwd, files, jjState);
-    return {
-      enrichedFiles: result.enrichedFiles,
-      isGitRepo: jjState.isColocated === true,
-      vcsKind: "jj",
-      diffBase: result.diffBase,
-      baseLabel: result.baseLabel,
-    };
-  }
   const result = enrichWithGitDiff(cwd, files);
   return {
     ...result,

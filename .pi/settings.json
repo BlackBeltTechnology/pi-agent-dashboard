@@ -3,7 +3,6 @@
     {
       "source": "/Users/robson/Project/pi-agent-dashboard",
       "extensions": [
-        "+packages/extension/src/bridge.ts",
         "+packages/kb-extension/src/index.ts"
       ]
     }

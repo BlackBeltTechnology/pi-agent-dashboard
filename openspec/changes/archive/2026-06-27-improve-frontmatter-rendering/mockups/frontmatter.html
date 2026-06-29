@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frontmatter Rendering — Explore Mockup</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-code:#1a1a1a; --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --text-muted:#585858; --border-primary:#252525; --border-secondary:#333333;
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-purple:#a855f7; --link:#60a5fa;
+  }
+  [data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-code:#f5f5f5; --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+    --text-muted:#aaa; --border-primary:#e0e0e0; --border-secondary:#ccc; --link:#2563eb;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-secondary);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.55}
+  .topbar{display:flex;align-items:center;gap:16px;padding:10px 20px;border-bottom:1px solid var(--border-secondary);
+    position:sticky;top:0;background:var(--bg-primary);z-index:10}
+  .topbar h1{font-size:14px;margin:0;color:var(--text-primary);font-weight:600}
+  .topbar .spacer{flex:1}
+  .topbar button{background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-secondary);
+    border-radius:6px;padding:5px 12px;cursor:pointer;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
+  .col{border-right:1px solid var(--border-secondary);min-height:calc(100vh - 49px)}
+  .col:last-child{border-right:none}
+  .col-head{padding:8px 16px;border-bottom:1px solid var(--border-secondary);background:var(--bg-secondary);
+    font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);
+    display:flex;align-items:center;gap:8px}
+  .tag-bad{color:var(--accent-red)} .tag-good{color:var(--accent-green)}
+  .pane{padding:16px}
+  /* markdown-ish */
+  .md h1{font-size:1.5em;color:var(--text-primary);margin:.2em 0 .4em;font-weight:650;border-bottom:1px solid var(--border-secondary);padding-bottom:.2em}
+  .md h2{font-size:1.2em;color:var(--text-primary);margin:1em 0 .4em;font-weight:600}
+  .md p{margin:.5em 0;color:var(--text-secondary)}
+  .md code{background:var(--bg-surface);padding:2px 6px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.85em}
+  .md hr{border:none;border-top:1px solid var(--border-secondary);margin:.6em 0}
+  /* the BROKEN frontmatter render: giant setext H2 */
+  .broken-h2{font-size:1.2em;color:var(--text-primary);font-weight:600;border-bottom:1px solid var(--border-secondary);
+    padding-bottom:.2em;margin:.2em 0 .6em;line-height:1.5}
+
+  /* ---------- Option A: metadata card (key/value grid) ---------- */
+  .fm-card{border:1px solid var(--border-secondary);border-radius:8px;background:var(--bg-secondary);
+    margin:0 0 16px;overflow:hidden}
+  .fm-card-head{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--bg-tertiary);
+    cursor:pointer;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary)}
+  .fm-card-head .chev{transition:transform .15s;color:var(--text-muted)}
+  .fm-card.collapsed .chev{transform:rotate(-90deg)}
+  .fm-card.collapsed .fm-grid{display:none}
+  .fm-grid{display:grid;grid-template-columns:max-content 1fr;gap:0;padding:4px 0}
+  .fm-grid .k{padding:5px 12px;color:var(--text-muted);font-family:ui-monospace,monospace;font-size:12px;
+    border-bottom:1px solid var(--border-primary);white-space:nowrap}
+  .fm-grid .v{padding:5px 12px;color:var(--text-secondary);border-bottom:1px solid var(--border-primary);word-break:break-word}
+  .fm-grid .k:last-of-type,.fm-grid .v:last-of-type{border-bottom:none}
+  .chip{display:inline-block;background:var(--bg-surface);color:var(--text-secondary);border:1px solid var(--border-secondary);
+    border-radius:99px;padding:1px 9px;font-size:11px;margin:1px 4px 1px 0}
+
+  /* ---------- Option B: compact hero header ---------- */
+  .fm-hero{margin:0 0 16px;padding:0 0 12px;border-bottom:1px solid var(--border-secondary)}
+  .fm-hero h1{font-size:1.5em;color:var(--text-primary);margin:0 0 6px;font-weight:650}
+  .fm-hero .meta-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .badge{display:inline-flex;align-items:center;gap:4px;border-radius:99px;padding:2px 10px;font-size:11px;font-weight:600}
+  .badge.status{background:color-mix(in srgb,var(--accent-yellow) 18%,transparent);color:var(--accent-yellow);
+    border:1px solid color-mix(in srgb,var(--accent-yellow) 35%,transparent)}
+  .badge.dim{background:var(--bg-surface);color:var(--text-tertiary);border:1px solid var(--border-secondary)}
+  .meta-row .sep{color:var(--text-faint,#3a3a3a);opacity:.5}
+
+  .note{padding:10px 16px;color:var(--text-muted);font-size:12px;border-top:1px dashed var(--border-secondary)}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Frontmatter rendering — explore mockup</h1>
+    <span style="font-size:12px;color:var(--text-muted)">source = a real SKILL.md / proposal.md header</span>
+    <span class="spacer"></span>
+    <button onclick="toggleTheme()">Toggle theme</button>
+  </div>
+
+  <div class="grid">
+    <!-- ============ CURRENT (BROKEN) ============ -->
+    <div class="col">
+      <div class="col-head"><span class="tag-bad">●</span> CURRENT — broken</div>
+      <div class="pane md">
+        <hr/>
+        <div class="broken-h2">name: ci-troubleshoot description: Diagnose failed GitHub Actions runs… metadata: version: "0.1.0"</div>
+        <h1>CI Troubleshoot</h1>
+        <p>Diagnose CI failures for pi-agent-dashboard. The repo has 6 workflows…</p>
+      </div>
+      <div class="note">CommonMark reads leading <code>---</code> as <code>&lt;hr&gt;</code>, the YAML lines as a paragraph, and the closing <code>---</code> as a setext <strong>H2 underline</strong> → whole block becomes one giant heading.</div>
+    </div>
+
+    <!-- ============ OPTION A: METADATA CARD ============ -->
+    <div class="col">
+      <div class="col-head"><span class="tag-good">●</span> OPTION A — collapsible metadata card</div>
+      <div class="pane md">
+        <div class="fm-card" id="cardA">
+          <div class="fm-card-head" onclick="document.getElementById('cardA').classList.toggle('collapsed')">
+            <span class="chev">▾</span> Frontmatter
+          </div>
+          <div class="fm-grid">
+            <div class="k">name</div><div class="v">ci-troubleshoot</div>
+            <div class="k">description</div><div class="v">Diagnose failed GitHub Actions runs for pi-agent-dashboard…</div>
+            <div class="k">version</div><div class="v">0.1.0</div>
+            <div class="k">triggers</div><div class="v"><span class="chip">coderabbit autofix</span><span class="chip">ci red</span><span class="chip">release stuck</span></div>
+          </div>
+        </div>
+        <h1>CI Troubleshoot</h1>
+        <p>Diagnose CI failures for pi-agent-dashboard. The repo has 6 workflows…</p>
+      </div>
+      <div class="note">Generic. Renders ANY keys. Collapsible (default open for skills, collapsed for long proposals). Nested/array values become chips. Low risk.</div>
+    </div>
+
+    <!-- ============ OPTION B: HERO HEADER ============ -->
+    <div class="col">
+      <div class="col-head"><span class="tag-good">●</span> OPTION B — semantic hero header</div>
+      <div class="pane md">
+        <div class="fm-hero">
+          <h1>ci-troubleshoot</h1>
+          <div class="meta-row">
+            <span class="badge status">● draft</span>
+            <span class="badge dim">v0.1.0</span>
+            <span class="sep">·</span>
+            <span class="chip">coderabbit autofix</span><span class="chip">ci red</span><span class="chip">release</span>
+          </div>
+          <p style="margin:8px 0 0;color:var(--text-tertiary);font-size:13px">Diagnose failed GitHub Actions runs for pi-agent-dashboard…</p>
+        </div>
+        <h2>CI Troubleshoot</h2>
+        <p>Diagnose CI failures for pi-agent-dashboard. The repo has 6 workflows…</p>
+      </div>
+      <div class="note">Promotes well-known keys (name/title→H1, status→colored badge, version, tags→chips, description→subtitle). Prettier but needs a key-mapping convention; unknown keys still need a fallback (→ Option A grid).</div>
+    </div>
+  </div>
+
+<script>
+function toggleTheme(){
+  const r=document.documentElement;
+  r.setAttribute('data-theme', r.getAttribute('data-theme')==='dark'?'light':'dark');
+}
+</script>
+</body>
+</html>

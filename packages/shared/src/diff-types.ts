@@ -40,19 +40,16 @@ export interface SessionDiffResponse {
   isGitRepo: boolean;
   /**
    * VCS regime used to compute the per-file diffs. Optional for
-   * backwards compatibility — absent on responses produced before
-   * change `add-jj-workspace-plugin`.
+   * backwards compatibility.
    */
-  vcsKind?: "git" | "jj";
+  vcsKind?: "git";
   /**
    * The literal revset / ref used as the diff base (e.g. "HEAD",
    * "@-", "fork_point(@, trunk())"). Optional.
    */
   diffBase?: string;
   /**
-   * Human-readable label for `diffBase` (e.g. "develop", "trunk()",
-   * "HEAD"). Optional. Renders as "Diffing against \<baseLabel\>"
-   * in the client when `vcsKind === "jj"`.
+   * Human-readable label for `diffBase` (e.g. "HEAD"). Optional.
    */
   baseLabel?: string;
 }

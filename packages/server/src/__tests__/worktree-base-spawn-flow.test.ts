@@ -23,7 +23,7 @@ import { createServer, type DashboardServer } from "../server.js";
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function openBrowserWs(port: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${port}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   await new Promise<void>((resolve) => ws.on("open", () => resolve()));
   // Drain any initial server-pushed messages.
   await wait(50);
@@ -31,7 +31,7 @@ async function openBrowserWs(port: number): Promise<WebSocket> {
 }
 
 async function openPiWs(port: number): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${port}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   await new Promise<void>((resolve) => ws.on("open", () => resolve()));
   return ws;
 }
@@ -47,6 +47,7 @@ describe("§8 spawn→register persists gitWorktreeBase to .meta.json", () => {
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,

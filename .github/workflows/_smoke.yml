@@ -112,3 +112,9 @@ jobs:
       - name: Run standalone install smoke
         shell: pwsh
         run: ./scripts/test-standalone-npm-install.ps1 -Port 18000
+      - name: Windows introspection smoke (real PowerShell Get-CimInstance, no wmic)
+        # Exercises isVirtualMachine + defaultGetCmdline against LIVE PowerShell
+        # on a real Windows host (stub unit tests can't) and asserts no wmic /
+        # 'not recognized' leak to stderr. See change: replace-wmic-with-powershell.
+        shell: pwsh
+        run: npx tsx scripts/windows-introspection-smoke.ts

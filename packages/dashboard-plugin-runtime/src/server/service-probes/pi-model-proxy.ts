@@ -1,14 +1,12 @@
 /**
  * Service probe for `pi-model-proxy`.
  *
- * Lifted from `packages/honcho-plugin/src/server/pi-model-proxy-detect.ts`
- * so plugins can declare `requires.services: ["pi-model-proxy"]` and the
+ * Plugins declare `requires.services: ["pi-model-proxy"]` and the
  * dashboard runtime probes it once for every consumer.
  *
- * The original API is preserved verbatim (honcho-plugin re-exports from
- * here) — `detectPiModelProxy` still returns `{ installed, reachable,
- * models, error? }`. The simpler "is it reachable?" answer needed by the
- * requirements model is exposed via `probePiModelProxy`.
+ * `detectPiModelProxy` returns `{ installed, reachable, models, error? }`.
+ * The simpler "is it reachable?" answer needed by the requirements model
+ * is exposed via `probePiModelProxy`.
  *
  * See change: add-plugin-activation-ui (Layer 1.5, task 12).
  */
@@ -24,7 +22,7 @@ export interface ProxyDetection {
 }
 
 /**
- * Full installed + reachable probe (legacy honcho-plugin entry point).
+ * Full installed + reachable probe.
  *
  * Caller passes a `fetch`-equivalent so tests can mock cleanly.
  */
@@ -100,7 +98,7 @@ export async function probePiModelProxy(deps: {
   }
 }
 
-// Re-export legacy helpers used by honcho-plugin so the move is transparent.
+// Model-preference ordering for the proxy.
 export const PROXY_MODEL_PREFERENCE: readonly string[] = [
   "anthropic/claude-haiku-4-5",
   "anthropic/claude-haiku-3-5-20241022",

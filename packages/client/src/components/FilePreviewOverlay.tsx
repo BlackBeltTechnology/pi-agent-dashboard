@@ -1,14 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
 import { mdiClose, mdiLoading } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { getApiBase } from "../lib/api-context.js";
+import { t as i18nT } from "../lib/i18n";
+import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
-import { getApiBase } from "../lib/api-context.js";
 import { useThemeContext } from "./ThemeProvider.js";
-import { getSyntaxTheme } from "../lib/syntax-theme.js";
 import { detectLanguage } from "./tool-renderers/lang-detect.js";
-import { t as i18nT } from "../lib/i18n";
 
 /** DOM id of the scroll target line inside the highlighted code view. */
 const TARGET_LINE_ID = "file-preview-target-line";
@@ -28,6 +28,26 @@ interface Props {
 function getExt(p: string): string {
   const dot = p.lastIndexOf(".");
   return dot >= 0 ? p.slice(dot + 1).toLowerCase() : "";
+}
+
+/**
+ * Map a raw `/api/file` failure into a human message. Stale links in old
+ * sessions are the common case: the file was deleted, or the session's working
+ * directory no longer exists (e.g. a removed worktree). Both read as "gone"
+ * rather than a generic "Failed to read file".
+ */
+export function friendlyReadError(
+  rawError: string | undefined,
+  path: string,
+  cwd: string,
+): string {
+  if (rawError === "not found") {
+    return `File no longer exists at ${path} (session working directory: ${cwd}).`;
+  }
+  if (rawError === "unknown session path") {
+    return `Session working directory is no longer available, so ${path} can't be previewed (was: ${cwd}).`;
+  }
+  return rawError ?? "Failed to read file";
 }
 
 /**
@@ -66,7 +86,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
         const json = await res.json();
         if (cancelled) return;
         if (!json.success) {
-          setError(json.error ?? "Failed to read file");
+          setError(friendlyReadError(json.error, path, cwd));
           return;
         }
         if (json.data?.type !== "file") {
@@ -155,7 +175,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
               </div>
             )}
             {!error && !isImage && content !== null && isMd && (
-              <MarkdownContent content={content} />
+              <MarkdownContent content={content} frontmatter="properties" />
             )}
             {!error && !isImage && content !== null && !isMd && language && (
               <SyntaxHighlighter

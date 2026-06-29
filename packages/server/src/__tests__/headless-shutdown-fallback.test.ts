@@ -32,7 +32,7 @@ let server: DashboardServer;
 describe("Headless shutdown fallback", () => {
   beforeEach(async () => {
     server = await createServer({
-      port: 0, piPort: 0, dev: true,
+      port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
     editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });
@@ -56,7 +56,7 @@ describe("Headless shutdown fallback", () => {
     registry.register(pid, "/test/cwd", dummy);
 
     // Simulate bridge connecting and registering with that cwd
-    const bridge = new WebSocket(`ws://localhost:${piPort}`);
+    const bridge = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await waitForOpen(bridge);
     bridge.send(JSON.stringify({
       type: "session_register", sessionId: "headless-1", cwd: "/test/cwd", source: "tui",
@@ -75,7 +75,7 @@ describe("Headless shutdown fallback", () => {
     await delay(200);
 
     // Browser sends shutdown — bridge is disconnected, should fallback to kill
-    const browser = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(100);
 
@@ -96,7 +96,7 @@ describe("Headless shutdown fallback", () => {
   }, 15000);
 
   it("should not crash when no PID is linked for shutdown", async () => {
-    const browser = new WebSocket(`ws://localhost:${httpPort}/ws`);
+    const browser = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
     await waitForOpen(browser);
     await delay(100);
 

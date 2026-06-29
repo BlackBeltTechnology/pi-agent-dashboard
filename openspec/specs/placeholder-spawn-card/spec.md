@@ -5,7 +5,7 @@ When the user (or programmatic flow) issues a spawn, the system SHALL immediatel
 
 The client SHALL maintain `pendingSpawns: Map<requestId, { cwd, placeholderCwd, startedAt, attachProposal? }>`. Each placeholder card's React key SHALL be the `requestId`.
 
-The placeholder SHALL render in the group whose cwd equals the entry's `placeholderCwd` — the cwd of the folder group that will HOST the spawned session once it registers. `placeholderCwd` SHALL be resolved by the same session-grouping precedence the real session card uses (`pin > jjState.workspaceRoot > gitWorktree.mainPath > cwd`). For a normal spawn `placeholderCwd` SHALL equal the spawn `cwd`. For a worktree spawn `placeholderCwd` SHALL equal the PARENT repo path (where the worktree session groups), NOT the worktree path passed as the spawn `cwd`.
+The placeholder SHALL render in the group whose cwd equals the entry's `placeholderCwd` — the cwd of the folder group that will HOST the spawned session once it registers. `placeholderCwd` SHALL be resolved by the same session-grouping precedence the real session card uses (`pin > gitWorktree.mainPath > cwd`). For a normal spawn `placeholderCwd` SHALL equal the spawn `cwd`. For a worktree spawn `placeholderCwd` SHALL equal the PARENT repo path (where the worktree session groups), NOT the worktree path passed as the spawn `cwd`.
 
 #### Scenario: User clicks New in a group
 - **WHEN** the user clicks the "New" button in a workspace group header

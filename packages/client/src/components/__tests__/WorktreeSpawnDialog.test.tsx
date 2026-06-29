@@ -229,6 +229,29 @@ describe("WorktreeSpawnDialog — source toggle + default mode", () => {
     const pathInput = screen.getByTestId("worktree-path-input") as HTMLInputElement;
     expect(pathInput.value).toBe("/repo/.worktrees/old-experiment");
   });
+
+  it("checkout mode keeps a LOCAL slashed branch name intact (openspec/foo → openspec-foo)", async () => {
+    // Regression: a local branch whose name contains a slash must NOT be
+    // treated as a remote ref. The preview path must match the server's
+    // actual target (.worktrees/openspec-...), else orphan/path-exists
+    // checks run against the wrong path and contradict each other.
+    defaultMocks({
+      head: { branch: "develop", detached: false, sha: "x" },
+      localBranches: ["develop", "openspec/inline-raw-html-image-tags"],
+      remoteBranches: [],
+    });
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
+    await waitFor(() => screen.getByTestId("worktree-dialog-existing"));
+    fireEvent.click(screen.getByTestId("worktree-base-combobox"));
+    const option = await waitFor(() =>
+      screen.getByText("openspec/inline-raw-html-image-tags"),
+    );
+    fireEvent.click(option);
+    const pathInput = screen.getByTestId("worktree-path-input") as HTMLInputElement;
+    expect(pathInput.value).toBe(
+      "/repo/.worktrees/openspec-inline-raw-html-image-tags",
+    );
+  });
 });
 
 describe("WorktreeSpawnDialog — initialBranch + attachProposal props", () => {
@@ -432,6 +455,52 @@ describe("WorktreeSpawnDialog — create form", () => {
       target: { value: "feat/y" },
     });
     await waitFor(() => expect(screen.queryByTestId("worktree-dialog-error")).toBeNull());
+  });
+
+  // change: fix-worktree-fork-orphan-branch-recovery. Fork hits a lingering
+  // branch (no worktree); a one-click "Check out this branch instead"
+  // resubmits in checkout mode (no newBranch, base = the orphan branch).
+  it("branch_exists offers reuse-as-checkout that resubmits in checkout mode", async () => {
+    defaultMocks();
+    // First submit (fork) fails branch_exists; second (checkout) succeeds.
+    createWorktree
+      .mockResolvedValueOnce({ ok: false, code: "branch_exists", error: 'branch "os/foo" already exists' })
+      .mockResolvedValueOnce({
+        ok: true,
+        path: "/repo/.worktrees/os-foo",
+        branch: "os/foo",
+        excludeAppended: false,
+      });
+    const onSpawn = vi.fn();
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "os/foo" },
+    });
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+
+    const reuseBtn = await waitFor(() => screen.getByTestId("worktree-dialog-branch-reuse"));
+    fireEvent.click(reuseBtn);
+
+    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
+    // Second createWorktree call is checkout: base = orphan branch, no newBranch.
+    const lastCall = createWorktree.mock.calls.at(-1)?.[0];
+    expect(lastCall).toEqual(expect.objectContaining({ cwd: "/repo", base: "os/foo" }));
+    expect(lastCall).not.toHaveProperty("newBranch");
+    expect(onSpawn).toHaveBeenCalledWith("/repo/.worktrees/os-foo", { gitWorktreeBase: "os/foo" });
+  });
+
+  it("reuse-as-checkout button only renders for branch_exists, not other errors", async () => {
+    defaultMocks();
+    createWorktree.mockResolvedValue({ ok: false, code: "git_failed", error: "boom" });
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "feat/x" },
+    });
+    fireEvent.click(screen.getByTestId("worktree-dialog-create-submit"));
+    await waitFor(() => screen.getByTestId("worktree-dialog-error"));
+    expect(screen.queryByTestId("worktree-dialog-branch-reuse")).toBeNull();
   });
 });
 

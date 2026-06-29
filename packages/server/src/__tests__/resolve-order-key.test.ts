@@ -19,23 +19,6 @@ describe("resolveOrderKey", () => {
     expect(resolveOrderKey(s, [], "linux")).toBe("/repo");
   });
 
-  it("jj: key equals jjState.workspaceRoot", () => {
-    const s = session({
-      cwd: "/repo/.shadow/ws-a",
-      jjState: { workspaceRoot: "/repo", workspaceName: "ws-a", isJjRepo: true, isColocated: false },
-    });
-    expect(resolveOrderKey(s, [], "linux")).toBe("/repo");
-  });
-
-  it("jj wins over worktree when both present", () => {
-    const s = session({
-      cwd: "/repo/.shadow/ws-a",
-      jjState: { workspaceRoot: "/jjroot", workspaceName: "ws-a", isJjRepo: true, isColocated: false },
-      gitWorktree: { mainPath: "/wtroot", name: "ws-a" },
-    });
-    expect(resolveOrderKey(s, [], "linux")).toBe("/jjroot");
-  });
-
   it("explicit pin of the worktree cwd wins over worktree collapse", () => {
     const s = session({
       cwd: "/repo/.worktrees/feat-x",
@@ -44,13 +27,5 @@ describe("resolveOrderKey", () => {
     expect(resolveOrderKey(s, ["/repo/.worktrees/feat-x"], "linux")).toBe(
       "/repo/.worktrees/feat-x",
     );
-  });
-
-  it("explicit pin of the jj cwd wins over jj collapse", () => {
-    const s = session({
-      cwd: "/repo/.shadow/ws-a",
-      jjState: { workspaceRoot: "/repo", workspaceName: "ws-a", isJjRepo: true, isColocated: false },
-    });
-    expect(resolveOrderKey(s, ["/repo/.shadow/ws-a"], "linux")).toBe("/repo/.shadow/ws-a");
   });
 });

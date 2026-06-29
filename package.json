@@ -76,7 +76,9 @@
     "site:build": "npm --prefix site run build",
     "site:preview": "npm --prefix site run preview",
     "screenshots": "npm --prefix site run screenshots",
+    "pretest:e2e": "playwright install chromium",
     "test:e2e": "playwright test",
+    "pretest:e2e:ui": "playwright install chromium",
     "test:e2e:ui": "playwright test --ui"
   },
   "engines": {
@@ -92,8 +94,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.1",
-    "@earendil-works/pi-ai": "^0.80.0",
-    "@playwright/test": "^1.57.0",
+    "@earendil-works/pi-ai": "^0.75.5",
+    "@playwright/test": "1.61.1",
     "jsdom": "^29.0.2",
     "patch-package": "^8.0.1",
     "tsx": "^4.21.0",

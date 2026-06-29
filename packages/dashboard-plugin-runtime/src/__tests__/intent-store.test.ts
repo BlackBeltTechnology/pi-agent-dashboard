@@ -117,7 +117,7 @@ describe("IntentStore", () => {
     );
     const first = store.getForSlot("session-card-action-bar", "abc");
     store.set(
-      { pluginId: "jj", sessionId: "abc", slot: "session-card-action-bar" },
+      { pluginId: "goal", sessionId: "abc", slot: "session-card-action-bar" },
       sampleIntent,
     );
     const second = store.getForSlot("session-card-action-bar", "abc");
@@ -131,18 +131,18 @@ describe("IntentStore", () => {
       sampleIntent,
     );
     store.set(
-      { pluginId: "jj", sessionId: "abc", slot: "session-card-action-bar" },
+      { pluginId: "goal", sessionId: "abc", slot: "session-card-action-bar" },
       sampleIntent,
     );
     const intents = store.getForSlot("session-card-action-bar", "abc");
     expect(intents.size).toBe(2);
     expect(intents.has("flows")).toBe(true);
-    expect(intents.has("jj")).toBe(true);
+    expect(intents.has("goal")).toBe(true);
   });
 
   it("supports global slots with sessionId=null", () => {
     store.set(
-      { pluginId: "honcho", sessionId: null, slot: "settings-section" },
+      { pluginId: "subagents", sessionId: null, slot: "settings-section" },
       sampleIntent,
     );
     expect(store.getForSlot("settings-section", null).size).toBe(1);

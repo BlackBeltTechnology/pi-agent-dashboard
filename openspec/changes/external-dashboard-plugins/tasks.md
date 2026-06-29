@@ -66,7 +66,7 @@
 
 ## 10. End-to-end verification
 
-- [ ] 10.1 Manual smoke test: install `pi-memory-honcho` (or a fixture with a plugin manifest) globally; verify the new `<PluginsSection>` shows the plugin within ~1s of the install completing, no server restart required.
+- [ ] 10.1 Manual smoke test: install `@blackbelt-technology/pi-dashboard-subagents` (or a fixture with a plugin manifest) globally; verify the new `<PluginsSection>` shows the plugin within ~1s of the install completing, no server restart required.
 - [ ] 10.2 Manual smoke test: install the same package locally in a session cwd; verify the local-detected warning appears with actionable copy.
 - [ ] 10.3 Manual smoke test: uninstall globally; verify the section updates and the plugin disappears.
 - [ ] 10.4 Manual smoke test: simulate a failing plugin (throw in server entry); verify red badge + error text in the UI.

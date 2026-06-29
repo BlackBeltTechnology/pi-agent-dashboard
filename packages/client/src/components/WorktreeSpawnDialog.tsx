@@ -25,7 +25,7 @@ import {
 } from "../lib/git-api.js";
 import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
-  localNameOf,
+  resolveCheckoutLocalName,
   resolveDefaultBase,
   slugifyBranch,
 } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
@@ -170,12 +170,17 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   // ── derived state ───────────────────────────────────────
   // Path slug source depends on mode: fork slugs the new branch name;
   // checkout slugs the LOCAL name of the picked branch ref so `origin/foo`
-  // previews as `.worktrees/foo` (not `origin-foo`).
-  // See change: worktree-checkout-existing-branch.
+  // previews as `.worktrees/foo` (not `origin-foo`). A LOCAL branch whose
+  // name contains a slash (`openspec/foo`) keeps its full name so the
+  // preview/orphan-check path matches the server's actual target.
+  // See change: fix-worktree-checkout-local-slash-path.
   const slug = useMemo(() => {
-    if (sourceMode === "checkout") return slugifyBranch(localNameOf(base));
+    if (sourceMode === "checkout") {
+      const baseIsLocalBranch = data?.localBranches.some((b) => b.name === base) ?? false;
+      return slugifyBranch(resolveCheckoutLocalName(base, baseIsLocalBranch));
+    }
     return slugifyBranch(newBranch);
-  }, [sourceMode, newBranch, base]);
+  }, [sourceMode, newBranch, base, data]);
   const derivedPath = useMemo(() => {
     if (!data || !slug) return "";
     // Path preview: <repo>/.worktrees/<slug>. The repo root is the main
@@ -240,8 +245,18 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     onSpawn(entry.path, buildOpts());
   }, [onSpawn, buildOpts, onSpawnStart, cwd]);
 
-  const handleCreateAndSpawn = useCallback(async () => {
+  const handleCreateAndSpawn = useCallback(async (override?: { mode?: SourceMode; base?: string }) => {
     if (!data) return;
+    // `override` lets a recovery flow (branch_exists → reuse as checkout)
+    // resubmit with explicit mode/base instead of waiting for React state
+    // to flush. When absent we read live state as before.
+    // See change: fix-worktree-fork-orphan-branch-recovery.
+    const mode = override?.mode ?? sourceMode;
+    const submitBase = override?.base ?? base;
+    const isCheckout = mode === "checkout";
+    // On an override resubmit always let the server re-derive the path:
+    // the fork's slug/pathOverride doesn't apply to the checkout slug.
+    const submitPath = override ? null : pathOverride;
     // Signal the host to render a placeholder NOW, covering the
     // createWorktree latency window. See change:
     // add-worktree-spawn-placeholder-card.
@@ -250,11 +265,11 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     setSubmitError(null);
     let res;
     try {
-      if (sourceMode === "pr" && selectedPr) {
+      if (mode === "pr" && selectedPr) {
         res = await createWorktreeFromPr({
           cwd,
           prNumber: selectedPr.number,
-          ...(pathOverride ? { path: pathOverride } : {}),
+          ...(submitPath ? { path: submitPath } : {}),
         });
       } else {
         // Checkout mode omits `newBranch` entirely so the server runs
@@ -262,9 +277,9 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         // it. See change: worktree-checkout-existing-branch.
         res = await createWorktree({
           cwd,
-          base,
-          ...(checkoutMode ? {} : { newBranch }),
-          ...(pathOverride ? { path: pathOverride } : {}),
+          base: submitBase,
+          ...(isCheckout ? {} : { newBranch }),
+          ...(submitPath ? { path: submitPath } : {}),
         });
       }
     } catch (err: any) {
@@ -289,8 +304,25 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     }
     // Worktree created clean; spawn the session. Both branch modes carry
     // the base through as gitWorktreeBase; PR mode does not.
-    onSpawn(res.path, buildOpts(sourceMode === "pr" ? undefined : base));
-  }, [data, cwd, base, newBranch, sourceMode, checkoutMode, selectedPr, pathOverride, onSpawn, buildOpts, onSpawnStart, onSpawnAbort]);
+    onSpawn(res.path, buildOpts(mode === "pr" ? undefined : submitBase));
+  }, [data, cwd, base, newBranch, sourceMode, selectedPr, pathOverride, onSpawn, buildOpts, onSpawnStart, onSpawnAbort]);
+
+  // Recovery for fork mode's branch_exists: the branch lingers without a
+  // worktree (orphan from a prior failed/cleaned attempt). Checking it out
+  // reuses the branch instead of re-forking it. Switch the UI to checkout
+  // mode (keeps state consistent if THIS retry also fails) and resubmit
+  // once via the explicit override so we don't read stale state.
+  // See change: fix-worktree-fork-orphan-branch-recovery.
+  const handleReuseAsCheckout = useCallback(() => {
+    const orphanBranch = newBranch.trim();
+    if (!orphanBranch) return;
+    setSourceMode("checkout");
+    setBase(orphanBranch);
+    setPathOverride(null);
+    setSubmitError(null);
+    setAutoRetryArmed(true);
+    void handleCreateAndSpawn({ mode: "checkout", base: orphanBranch });
+  }, [newBranch, handleCreateAndSpawn]);
 
   // Clean-up the orphan path then optionally auto-retry submit.
   const handleCleanOrphan = useCallback(async (autoResubmit: boolean) => {
@@ -586,6 +618,19 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             <div className={errorClass(submitError.code)}>
               <span className="font-mono">{submitError.code}</span>: {submitError.error}
             </div>
+            {/* branch_exists recovery: the branch lingers without a worktree.
+                Offer a one-click reuse-as-checkout (mirrors orphan-path
+                cleanup). See change: fix-worktree-fork-orphan-branch-recovery. */}
+            {submitError.code === "branch_exists" && (
+              <button
+                type="button"
+                onClick={handleReuseAsCheckout}
+                data-testid="worktree-dialog-branch-reuse"
+                className="mt-1 px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10"
+              >
+                {i18nT("auto.check_out_this_branch_instead", undefined, "Check out this branch instead →")}
+              </button>
+            )}
             {submitError.stderr && (
               <details className="mt-1">
                 <summary className="text-[var(--text-muted)] cursor-pointer">{i18nT("auto.git_stderr", undefined, "git stderr")}</summary>
@@ -607,7 +652,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           <button
             type="button"
             disabled={!canSubmit || orphanDetected || cleaningOrphan}
-            onClick={handleCreateAndSpawn}
+            onClick={() => void handleCreateAndSpawn()}
             data-testid="worktree-dialog-create-submit"
             className="px-3 py-1 text-sm rounded bg-blue-500/80 hover:bg-blue-500 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] text-white"
           >

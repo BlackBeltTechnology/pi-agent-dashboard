@@ -98,10 +98,6 @@ Production client build output. Served by the server in production mode. Rebuild
 
 Each workspace package (`packages/extension/`, `packages/server/`, etc.) builds its own `dist/` for tsc output. Most don't need to be built (jiti runs source TS directly); they exist for npm publish.
 
-### `.shadow/<name>/`
-
-jj workspaces for parallel agent work. Don't read these directly unless you're investigating cross-workspace contention. See the `jj-workspace` skill.
-
 ## Quick "where is X" cheatsheet
 
 | Question | Path |

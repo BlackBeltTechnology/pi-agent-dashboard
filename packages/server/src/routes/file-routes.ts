@@ -8,6 +8,8 @@ import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/type
 import type { NetworkGuard } from "./route-deps.js";
 import { listDirectories, createDirectory, classifyPaths, parseFlagsQuery } from "../browse.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { isAllowed } from "../lib/path-containment.js";
+import { isImageUnderArtifactRoot } from "../lib/artifact-roots.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -121,7 +123,7 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
@@ -166,10 +168,19 @@ export function registerFileRoutes(
         reply.code(403);
         return { success: false, error: "unknown cwd" } satisfies ApiResponse;
       }
-      // Anti-traversal: probePath MUST be inside cwd.
+      // Anti-traversal: probePath MUST be inside cwd (or a pinned dir / repo
+      // git root). Pinned-dir anchor is exists-only; not folded onto read/raw/render.
+      // Reject relative probes up front: `path.resolve(relative)` would anchor
+      // on the SERVER process cwd, not the request cwd — with git-root widening
+      // that could turn a malformed probe into an existence check under the
+      // server's launch repo. The endpoint contract takes an absolute path.
+      if (!path.isAbsolute(probePath)) {
+        reply.code(403);
+        return { success: false, error: "path outside cwd" } satisfies ApiResponse;
+      }
       const resolved = path.resolve(probePath);
-      const cwdWithSep = cwd.endsWith(path.sep) ? cwd : cwd + path.sep;
-      if (resolved !== cwd && !resolved.startsWith(cwdWithSep)) {
+      const anchors = [cwd, ...preferencesStore.getPinnedDirectories()];
+      if (!(await isAllowed(resolved, { anchors }))) {
         reply.code(403);
         return { success: false, error: "path outside cwd" } satisfies ApiResponse;
       }
@@ -217,7 +228,14 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+      // Layers ①/② (cwd + git common root) serve any type. Layer ③ — artifact
+      // roots — is image-only and real-path contained; it covers agent
+      // screenshots that live outside every cwd and git root.
+      // See change: serve-agent-artifact-previews.
+      if (
+        !(await isAllowed(resolved, { anchors: [cwd] })) &&
+        !(await isImageUnderArtifactRoot(resolved))
+      ) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }
@@ -320,7 +338,7 @@ export function registerFileRoutes(
       }
 
       const resolved = path.resolve(cwd, relPath);
-      if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+      if (!(await isAllowed(resolved, { anchors: [cwd] }))) {
         reply.code(403);
         return { success: false, error: "path outside working directory" } satisfies ApiResponse;
       }

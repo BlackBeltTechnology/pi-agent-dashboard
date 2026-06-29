@@ -11,6 +11,13 @@ let mermaidIdCounter = 0;
 // instantly without a "Loading diagram…" flash or re-calling mermaid.render().
 export const _svgCache = new Map<string, string>();
 
+// ── Module-level error cache ────────────────────────────────────────────────
+// Failed renders are deterministic for a given (code, theme): the same invalid
+// source always fails the same way. Caching the error message lets a re-mounted
+// or re-rendered MermaidBlock show the error instantly instead of replaying
+// "Loading diagram…" → render → error, which flickers on every parent update.
+export const _errorCache = new Map<string, string>();
+
 function cacheKey(code: string, theme: string): string {
   return `${code}\0${theme}`;
 }
@@ -99,6 +106,7 @@ async function renderMermaid(
             gantt: { useMaxWidth: true },
           });
           _svgCache.clear();
+          _errorCache.clear();
           lastInitTheme = theme;
         }
         const sanitized = sanitizeMermaidCode(code);
@@ -118,6 +126,16 @@ async function renderMermaid(
 
 interface Props {
   code: string;
+  /**
+   * Whether the fenced ```mermaid block is closed in the source. While a
+   * diagram is still streaming the closing fence is absent, the `code` prop
+   * grows token-by-token, and every growth would otherwise trigger a render
+   * attempt against incomplete source — producing parse-error/loading flicker.
+   * Defaults to `true` so non-streaming callers render immediately; streaming
+   * callers (MarkdownContent) pass `false` until the fence closes so render
+   * happens exactly once, when the code checksum is final.
+   */
+  complete?: boolean;
 }
 
 // ── Zoom control buttons ────────────────────────────────────────────────────
@@ -125,11 +143,11 @@ interface Props {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export const MermaidBlock = React.memo(function MermaidBlock({ code }: Props) {
+export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
   const reactId = useId();
   const { resolved: theme } = useThemeContext();
   const [svg, setSvg] = useState<string | null>(() => _svgCache.get(cacheKey(code, theme)) ?? null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => _errorCache.get(cacheKey(code, theme)) ?? null);
   const [focused, setFocused] = useState(false);
   const cancelledRef = useRef(false);
   const prevCodeRef = useRef<string | null>(null);
@@ -138,6 +156,12 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: Props) {
   const { state: zoom, handlers, zoomIn, zoomOut, reset } = useZoomPan();
 
   useEffect(() => {
+    // Defer rendering until the fenced block is closed. While streaming, `code`
+    // grows each token; rendering incomplete source only flickers parse errors.
+    // Once the fence closes the checksum is final, so we render exactly once.
+    if (!complete) {
+      return;
+    }
     // Skip re-render if code and theme haven't changed
     if (prevCodeRef.current === code && prevThemeRef.current === theme && svg) {
       return;
@@ -146,16 +170,24 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: Props) {
     prevThemeRef.current = theme;
 
     cancelledRef.current = false;
-    // Don't clear existing SVG — keep showing the old diagram while re-rendering
-    setError(null);
 
-    // Check cache — if hit, use cached SVG and skip render
+    // Check caches — a hit (success or deterministic error) skips render and
+    // shows the result immediately, avoiding any loading flicker.
     const key = cacheKey(code, theme);
     const cached = _svgCache.get(key);
     if (cached) {
+      setError(null);
       setSvg(cached);
       return;
     }
+    const cachedError = _errorCache.get(key);
+    if (cachedError) {
+      setError(cachedError);
+      return;
+    }
+
+    // Don't clear existing SVG — keep showing the old diagram while re-rendering
+    setError(null);
 
     const id = `mermaid-${reactId.replace(/:/g, "")}-${mermaidIdCounter++}`;
 
@@ -165,8 +197,9 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: Props) {
         if (!cancelledRef.current) setSvg(result);
       },
       (err) => {
+        const msg = err instanceof Error ? err.message : "Failed to render diagram";
+        _errorCache.set(key, msg);
         if (!cancelledRef.current) {
-          const msg = err instanceof Error ? err.message : "Failed to render diagram";
           console.warn("[MermaidBlock] render failed:", msg, "\nCode:", code);
           setError(msg);
         }
@@ -176,7 +209,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code }: Props) {
     return () => {
       cancelledRef.current = true;
     };
-  }, [code, theme]);
+  }, [code, theme, complete]);
 
   // Attach non-passive wheel listener only when focused
   useEffect(() => {

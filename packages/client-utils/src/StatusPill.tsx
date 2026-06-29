@@ -4,8 +4,8 @@
  * Registered as `ui:status-pill` in the primitive registry. Plugins emit
  * `{primitive: "ui:status-pill", props: {state, text, icon?}}`.
  *
- * Mirrors the badge style from honcho-plugin's HonchoBadge so plugins
- * migrating to intent rendering get visual parity. See change:
+ * Provides a consistent badge style so plugins migrating to intent
+ * rendering get visual parity. See change:
  * adopt-server-driven-intent-rendering.
  */
 import React, { useEffect, useState } from "react";

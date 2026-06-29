@@ -82,11 +82,10 @@ export function getUnifiedOrder(sessions: DashboardSession[], terminals: Termina
  * falls back to `process.platform` when absent.
  *
  * Per-session group-key precedence (see `resolveSessionGroupPath`):
- * pin > `jjState.workspaceRoot` > `gitWorktree.mainPath` > `cwd`. Within a
+ * pin > `gitWorktree.mainPath` > `cwd`. Within a
  * group, sessions are ordered solely by the flat `sessionOrder`
  * (`sortSessionsByOrder` + the status-partition in SessionList) — NO
- * workspace-cluster adjacency. Reverses Decision 15 of
- * add-jj-workspace-plugin.
+ * workspace-cluster adjacency.
  * See change: simplify-session-card-ordering (Decision D8).
  */
 export function groupSessionsByDirectory(
@@ -96,12 +95,11 @@ export function groupSessionsByDirectory(
   platform?: NodeJS.Platform,
 ): { pinned: DirectoryGroup[]; unpinned: DirectoryGroup[] } {
   // Infer platform from observed paths (session cwds + pinned entries +
-  // jj workspace roots + git worktree main paths) when not explicitly
+  // git worktree main paths) when not explicitly
   // supplied. Callers can still pass `platform` to force a value.
   const plat = inferPlatform(
     [
       ...sessions.map((s) => s.cwd),
-      ...sessions.map((s) => s.jjState?.workspaceRoot),
       ...sessions.map((s) => s.gitWorktree?.mainPath),
       ...(pinnedDirectories ?? []),
     ],
@@ -128,10 +126,9 @@ export function groupSessionsByDirectory(
   // No workspace-cluster adjacency: order within a folder is governed
   // solely by the flat status-partitioned `sessionOrder` (applied by
   // `sortSessionsByOrder` below + the per-tier partition in SessionList).
-  // A worktree/jj session can therefore surface at the top of its tier
+  // A worktree session can therefore surface at the top of its tier
   // ahead of the main checkout. Grouping-under-parent (collapse) stays;
-  // only cluster ordering is dropped. Intentionally reverses Decision 15
-  // of add-jj-workspace-plugin — MUST NOT be re-introduced.
+  // only cluster ordering is dropped.
   // See change: simplify-session-card-ordering (Decision D8).
 
   // Build pinned groups in pinned order (including zero-session groups).
@@ -192,7 +189,6 @@ export function groupSessionsByDirectoryWithWorkspaces(
   const plat = inferPlatform(
     [
       ...sessions.map((s) => s.cwd),
-      ...sessions.map((s) => s.jjState?.workspaceRoot),
       ...(pinnedDirectories ?? []),
       ...workspaces.flatMap((w) => w.folders),
     ],

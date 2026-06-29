@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Frontmatter — edge cases</title>
+<link rel="stylesheet" href="shared.css"/>
+<style>
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 20px 80px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .case h2{font-size:13px;color:var(--text-primary);margin:0 0 4px;font-weight:600}
+  .case p.desc{margin:0 0 10px;color:var(--text-muted);font-size:12px}
+  @media(max-width:760px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="mk-top">
+    <h1>Frontmatter — edge cases</h1>
+    <span class="caption">malformed · empty · long values · nested · many fields · links</span>
+    <span class="spacer"></span>
+    <a href="index.html">All mockups</a>
+    <button onclick="toggleTheme()">Theme</button>
+  </div>
+
+  <div class="wrap">
+    <div class="case"><h2>Malformed YAML</h2><p class="desc">Parse fails → warn banner, panel still shows raw lines; body never crashes.</p><div id="c1"></div></div>
+    <div class="case"><h2>Empty / null values</h2><p class="desc">Blank, null, empty list → muted “—”.</p><div id="c2"></div></div>
+    <div class="case"><h2>Nested object</h2><p class="desc">metadata block → indented sub-grid.</p><div id="c3"></div></div>
+    <div class="case"><h2>Many fields (expanded)</h2><p class="desc">Scrolls with the body; still scannable.</p><div id="c4"></div></div>
+    <div class="case"><h2>Links &amp; URLs</h2><p class="desc">URL-typed values become clickable.</p><div id="c5"></div></div>
+    <div class="case"><h2>Single field</h2><p class="desc">Minimal skill header.</p><div id="c6"></div></div>
+  </div>
+
+<script src="props.js"></script>
+<script>
+renderProps(document.getElementById('c1'), [
+  {key:'name', type:'text', value:'broken-skill'},
+  {key:'triggers', type:'text', value:'[unclosed, list'},
+], {collapsed:false, warn:'Invalid YAML — showing raw values'});
+
+renderProps(document.getElementById('c2'), [
+  {key:'title', type:'empty', value:''},
+  {key:'author', type:'empty', value:'null'},
+  {key:'tags', type:'empty', value:'(empty list)'},
+], {collapsed:false});
+
+renderProps(document.getElementById('c3'), [
+  {key:'name', type:'text', value:'autofix'},
+  {key:'metadata', type:'obj', value:{version:'0.1.0', author:'pi', license:'MIT'}},
+  {key:'triggers', type:'list', value:['coderabbit','autofix']},
+], {collapsed:false});
+
+renderProps(document.getElementById('c4'), [
+  {key:'name', type:'text', value:'document-converter'},
+  {key:'description', type:'para', value:'Convert documents bidirectionally via the pi-doc-engine facade.'},
+  {key:'status', type:'status', value:'active'},
+  {key:'version', type:'num', value:'2.3.1'},
+  {key:'created', type:'date', value:'2026-01-12', rel:'5 months ago'},
+  {key:'updated', type:'date', value:'2026-06-25', rel:'2 days ago'},
+  {key:'keywords', type:'list', value:['docx','pdf','markdown','ocr','kb']},
+  {key:'deprecated', type:'bool', value:false},
+], {collapsed:false});
+
+renderProps(document.getElementById('c5'), [
+  {key:'name', type:'text', value:'pi-web-access'},
+  {key:'repository', type:'link', value:'https://github.com/BlackBeltTechnology/pi-web-access', label:'github.com/…/pi-web-access'},
+  {key:'docs', type:'link', value:'https://example.com/docs'},
+], {collapsed:false});
+
+renderProps(document.getElementById('c6'), [
+  {key:'name', type:'text', value:'browser'},
+], {collapsed:false});
+</script>
+</body>
+</html>

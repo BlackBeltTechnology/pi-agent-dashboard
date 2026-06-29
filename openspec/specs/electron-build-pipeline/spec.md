@@ -248,6 +248,64 @@ constrained.
 - **THEN** there SHALL exist a unit test that imports `forge.config.ts` and asserts the resolved DMG maker `name` field, when evaluated with `process.arch === "arm64"`, contains the substring `"darwin-arm64"`, AND when evaluated with `process.arch === "x64"`, contains `"darwin-x64"`
 - **AND** the test SHALL fail CI if a future refactor reintroduces a static name
 
+### Requirement: macos-alias native module readiness on darwin
+
+When the Electron build pipeline runs on `darwin`, the `macos-alias` native module (transitive dep of `@electron-forge/maker-dmg`) MUST have its `build/Release/volume.node` compiled before `electron-forge make` is invoked. The pipeline SHALL self-heal a missing build via `npm rebuild macos-alias`, and SHALL fail with an actionable error message when self-heal is impossible.
+
+#### Scenario: Postinstall succeeds
+
+- **WHEN** `pnpm install` (or `npm install`) runs on darwin AND `macos-alias` is present in the workspace AND Xcode Command Line Tools are installed
+- **THEN** the `packages/electron/postinstall` hook SHALL produce `<macos-alias-dir>/build/Release/volume.node`
+- **AND** SHALL exit zero
+
+#### Scenario: Postinstall on non-darwin host
+
+- **WHEN** the postinstall hook runs on `linux` or `win32`
+- **THEN** the hook SHALL exit zero immediately without attempting to build
+- **AND** SHALL NOT print warnings
+
+#### Scenario: Postinstall fails (no CLT) — non-fatal
+
+- **WHEN** the postinstall hook runs on darwin AND Xcode Command Line Tools are NOT installed AND `npm rebuild macos-alias` fails
+- **THEN** the hook SHALL print a clear suggestion (e.g., "run `xcode-select --install`")
+- **AND** SHALL exit zero (does not block `pnpm install`)
+
+#### Scenario: Build-time gate catches missing native module
+
+- **WHEN** `build-installer.sh` runs on darwin with a make target that produces a DMG AND `volume.node` is not present
+- **THEN** the script SHALL invoke the rebuild routine
+- **AND** if rebuild fails, SHALL exit non-zero before `electron-forge make` runs
+- **AND** SHALL print an actionable message naming `xcode-select --install` as the recovery step
+
+#### Scenario: Build-time gate passes silently when ready
+
+- **WHEN** `build-installer.sh` runs on darwin AND `volume.node` is present
+- **THEN** the script SHALL proceed to `electron-forge make` without printing rebuild output
+
+### Requirement: Doctor diagnostic for DMG prerequisites
+
+The Electron Doctor window SHALL include a darwin-only diagnostic row for the `macos-alias` native module readiness state. The row is a `DoctorCheck` with `name: "macos-alias native module"` and `section: "diagnostics"`. The row SHALL show `status: "ok"` when `volume.node` is present and `status: "warning"` otherwise. The `warning` state SHALL include a non-empty `suggestion` referencing the postinstall command and Xcode CLT. The row SHALL be omitted entirely when `macos-alias` is not installed (e.g. the shipped end-user app), so only contributors with the build toolchain present see it.
+
+#### Scenario: Doctor row on darwin with built native module
+
+- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `<macos-alias-dir>/build/Release/volume.node` exists
+- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", section: "diagnostics", status: "ok" }`
+
+#### Scenario: Doctor row on darwin with missing native module
+
+- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `volume.node` does not exist
+- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", status: "warning", suggestion: <non-empty> }`
+
+#### Scenario: Doctor when macos-alias is not installed
+
+- **WHEN** Doctor runs on darwin AND `macos-alias` cannot be resolved
+- **THEN** the report SHALL NOT include the `macos-alias native module` row
+
+#### Scenario: Doctor on non-darwin
+
+- **WHEN** Doctor runs on `linux` or `win32`
+- **THEN** the report SHALL NOT include the `macos-alias native module` row
+
 ### Requirement: macOS Catalina support
 The Electron app SHALL support macOS 10.15 (Catalina) and newer.
 
@@ -625,4 +683,81 @@ The Docker cross-build path SHALL produce ZIP only for Windows. NSIS Setup.exe S
 - **WHEN** `packages/electron/scripts/build-windows-zip.sh` runs on a Windows host (`$OSTYPE` matches `msys`, `cygwin`, or equivalent) with the `--with-nsis` flag
 - **THEN** it MAY invoke `electron-builder --win nsis` after the ZIP step
 - **AND** without `--with-nsis` (or on non-Windows hosts) it SHALL skip NSIS silently
+
+### Requirement: Bundle freshness invalidation
+
+`build-installer.sh` SHALL re-invoke `bundle-server.mjs` whenever ANY of the following sources is newer than `resources/server/.bundle-stamp`, OR the stamp file does not exist:
+
+- `packages/server/src/` (recursive mtime)
+- `packages/shared/src/` (recursive mtime)
+- `packages/extension/src/` (recursive mtime)
+- `packages/dashboard-plugin-runtime/src/` (recursive mtime)
+- `packages/dist/index.html` (Vite client output; `packages/client/vite.config.ts` `outDir: ../dist`)
+- `packages/electron/scripts/bundle-server.mjs`
+
+The watched workspace packages SHALL mirror `BUNDLED_WORKSPACE_PKGS` in `bundle-server.mjs` (`server`, `shared`, `extension`, `dashboard-plugin-runtime`).
+
+`bundle-server.mjs` SHALL write `<resources/server>/.bundle-stamp` ONLY on successful exit (post-verify passed).
+
+#### Scenario: First build, no stamp file
+
+- **WHEN** `build-installer.sh` runs AND `resources/server/.bundle-stamp` does not exist
+- **THEN** the script SHALL run `bundle-server.mjs`
+
+#### Scenario: Server source modified after last bundle
+
+- **WHEN** `packages/server/src/server.ts` has an mtime newer than `resources/server/.bundle-stamp`
+- **THEN** `build-installer.sh` SHALL re-invoke `bundle-server.mjs`
+- **AND** SHALL NOT skip with "Bundled server already present"
+
+#### Scenario: Shared protocol package modified after last bundle
+
+- **WHEN** any file under `packages/shared/src/` has an mtime newer than `resources/server/.bundle-stamp`
+- **THEN** `build-installer.sh` SHALL re-invoke `bundle-server.mjs`
+
+#### Scenario: Client rebuilt after last bundle
+
+- **WHEN** `packages/dist/index.html` mtime > `.bundle-stamp` mtime
+- **THEN** `build-installer.sh` SHALL re-invoke `bundle-server.mjs`
+
+#### Scenario: Cache is fresh
+
+- **WHEN** the stamp file exists AND every watched source has mtime <= stamp mtime
+- **THEN** the script SHALL skip the bundler invocation
+
+### Requirement: Client materialization post-condition
+
+`bundle-server.mjs` SHALL fail loudly (non-zero exit, error message identifying the failed step) when ANY of:
+
+- `clientSrc` (built client directory) cannot be located.
+- `<SERVER_BUNDLE>/node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html` does not exist after the materialization step completes.
+
+The script SHALL NOT print a warning and continue under these conditions.
+
+#### Scenario: No built client
+
+- **WHEN** `bundle-server.mjs` runs AND neither `dist/client/` nor `packages/client/dist/` nor `packages/dist/client/` contains `index.html`
+- **THEN** the script SHALL exit non-zero
+- **AND** the error message SHALL instruct running `npm run build` first
+
+#### Scenario: Materialization step did not place pi-dashboard-web
+
+- **WHEN** the bundler completes its materialization step AND `<SERVER_BUNDLE>/node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html` does not exist
+- **THEN** the script SHALL exit non-zero
+- **AND** SHALL NOT write the stamp file
+
+#### Scenario: Successful bundle
+
+- **WHEN** every step of `bundle-server.mjs` succeeds AND the post-verify check passes
+- **THEN** the script SHALL write `<SERVER_BUNDLE>/.bundle-stamp` with content `<git-sha>-<unix-ts>` (or equivalent identifier)
+- **AND** SHALL exit zero
+
+### Requirement: Repo-lint covering committed bundles
+
+A vitest under `packages/shared/src/__tests__/` SHALL assert that for every `resources/server/` directory present in the workspace, `node_modules/@blackbelt-technology/pi-dashboard-web/dist/index.html` resolves (file or symlink).
+
+#### Scenario: Committed bundle missing materialization
+
+- **WHEN** the lint test runs AND a `resources/server/` directory exists without the expected `pi-dashboard-web/dist/index.html`
+- **THEN** the test SHALL fail with a message naming the offending directory
 

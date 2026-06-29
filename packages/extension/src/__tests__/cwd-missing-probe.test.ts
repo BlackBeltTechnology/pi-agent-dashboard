@@ -30,7 +30,6 @@ function makeBc(): BridgeContext & { __sent: any[] } {
     lastGitBranch: undefined,
     lastGitPrNumber: undefined,
     lastGitWorktreeJson: undefined,
-    lastJjStateJson: undefined,
     lastSessionName: undefined,
     lastCwdMissing: undefined,
     hasRegisteredOnce: false,

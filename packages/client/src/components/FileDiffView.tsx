@@ -49,17 +49,8 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
           <Icon path={mdiArrowLeft} size={0.6} className="inline mr-0.5" />{i18nT("auto.back", undefined, "Back")}
         </button>
         <span className="text-sm font-medium">{i18nT("auto.changed_files", undefined, "Changed Files")}</span>
-        {!data?.isGitRepo && data && data?.vcsKind !== "jj" && (
+        {!data?.isGitRepo && data && (
           <span className="text-xs text-[var(--text-tertiary)] ml-1">{i18nT("auto.no_git", undefined, "(no git)")}</span>
-        )}
-        {data?.vcsKind === "jj" && data?.baseLabel && (
-          <span
-            className="text-xs text-[var(--text-tertiary)] ml-1 font-mono"
-            title={`Diff base: ${data.diffBase ?? data.baseLabel}`}
-            data-testid="diff-base-label"
-          >
-            (vs <span className="text-indigo-300">{data.baseLabel}</span>)
-          </span>
         )}
         <span className="flex-1" />
         {isMobile && !mobileShowTree && (

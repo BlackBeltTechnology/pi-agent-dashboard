@@ -140,6 +140,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     server = await createServer({
       port: HTTP_PORT,
       piPort: PI_PORT,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -183,7 +184,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
     expect(isProcessAlive(session.piPid)).toBe(true);
 
     // Drive Shutdown via browser WS (same message handleShutdown receives in prod).
-    const browser = new WebSocket(`ws://localhost:${HTTP_PORT}/ws`);
+    const browser = new WebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
     await waitForOpen(browser);
     browser.send(JSON.stringify({ type: "shutdown", sessionId: session.sessionId }));
 
@@ -227,7 +228,7 @@ describe("Session kill e2e (fix-keeper-kill-escalation)", () => {
 
     expect(isProcessAlive(session.piPid)).toBe(true);
 
-    const browser = new WebSocket(`ws://localhost:${HTTP_PORT}/ws`);
+    const browser = new WebSocket(`ws://127.0.0.1:${HTTP_PORT}/ws`);
     await waitForOpen(browser);
     browser.send(JSON.stringify({
       type: "force_kill",

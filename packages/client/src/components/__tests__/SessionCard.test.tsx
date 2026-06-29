@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, renderHook } from "@testing-library/react";
 import React from "react";
-import { SessionCard, GroupGitInfo } from "../SessionCard.js";
+import { SessionCard, GroupGitInfo, branchCache } from "../SessionCard.js";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -45,8 +45,8 @@ describe("SessionCard", () => {
   it("should show active status indicator", () => {
     const session = makeSession({ status: "active" });
     const { container } = render(<SessionCard session={session} {...defaultProps} />);
-    // Status indicator is the source icon colored by status (text-* class).
-    const statusIcon = container.querySelector(".text-green-500");
+    // Status indicator is the source icon colored by the idle status token.
+    const statusIcon = container.querySelector('[class*="status-idle"]');
     expect(statusIcon).toBeTruthy();
   });
 
@@ -105,26 +105,26 @@ describe("SessionCard", () => {
     const { container } = render(
       <SessionCard session={session} {...defaultProps} hasError={true} />,
     );
-    expect(container.querySelector(".text-red-500")).toBeTruthy();
+    expect(container.querySelector('[class*="status-error"]')).toBeTruthy();
   });
 
-  it("shows amber pulsing icon when isRetrying without lastError", () => {
+  it("shows working-token pulsing icon when isRetrying without lastError", () => {
     const session = makeSession({ status: "active" });
     const { container } = render(
       <SessionCard session={session} {...defaultProps} isRetrying={true} />,
     );
-    const icon = container.querySelector(".text-amber-500");
-    expect(icon).toBeTruthy();
-    expect(icon!.className).toContain("animate-pulse");
+    const icon = container.querySelector('[data-testid="session-status-icon"]') as HTMLElement;
+    expect(icon.className).toContain("status-working");
+    expect(icon.className).toContain("animate-pulse");
   });
 
-  it("red error icon wins over amber retry icon", () => {
+  it("error icon wins over retry icon", () => {
     const session = makeSession({ status: "active" });
     const { container } = render(
       <SessionCard session={session} {...defaultProps} hasError={true} isRetrying={true} />,
     );
-    expect(container.querySelector(".text-red-500")).toBeTruthy();
-    expect(container.querySelector(".text-amber-500")).toBeNull();
+    expect(container.querySelector('[class*="status-error"]')).toBeTruthy();
+    expect(container.querySelector('[class*="status-working"]')).toBeNull();
   });
 
   it("should show ended status for ended sessions", () => {
@@ -278,11 +278,41 @@ describe("SessionCard", () => {
     expect(card.className).toContain("card-unread-pulse");
   });
 
-  it("should show 'Waiting for input' when currentTool is ask_user", () => {
+  it("should show 'Needs you' (not 'Waiting for input') when currentTool is ask_user", () => {
     const session = makeSession({ status: "streaming", currentTool: "ask_user" });
     render(<SessionCard session={session} {...defaultProps} />);
-    expect(screen.getByText("Waiting for input")).toBeTruthy();
+    expect(screen.getByText("Needs you")).toBeTruthy();
     expect(screen.queryByText("ask_user")).toBeNull();
+    expect(screen.queryByText("Waiting for input")).toBeNull();
+  });
+
+  it("should show 'Idle' (not 'Waiting for input') for an idle, no-tool session", () => {
+    const session = makeSession({ status: "idle" });
+    render(<SessionCard session={session} {...defaultProps} />);
+    expect(screen.getByText("Idle")).toBeTruthy();
+    expect(screen.queryByText("Waiting for input")).toBeNull();
+  });
+
+  it("blocked (ask_user) and idle labels are distinct strings", () => {
+    const blocked = makeSession({ id: "b1", status: "streaming", currentTool: "ask_user" });
+    const { unmount } = render(<SessionCard session={blocked} {...defaultProps} />);
+    expect(screen.getByText("Needs you")).toBeTruthy();
+    unmount();
+    const idle = makeSession({ id: "i1", status: "idle" });
+    render(<SessionCard session={idle} {...defaultProps} />);
+    expect(screen.getByText("Idle")).toBeTruthy();
+  });
+
+  it("renders a distinct status-shape per state (needs-you filled vs idle ring)", () => {
+    const blocked = makeSession({ id: "b2", status: "streaming", currentTool: "ask_user" });
+    const { container: c1, unmount } = render(<SessionCard session={blocked} {...defaultProps} />);
+    const blockedIcon = c1.querySelector('[data-testid="session-status-icon"]') as HTMLElement;
+    expect(blockedIcon.getAttribute("data-status-shape")).toBe("needs-you");
+    unmount();
+    const idle = makeSession({ id: "i2", status: "idle" });
+    const { container: c2 } = render(<SessionCard session={idle} {...defaultProps} />);
+    const idleIcon = c2.querySelector('[data-testid="session-status-icon"]') as HTMLElement;
+    expect(idleIcon.getAttribute("data-status-shape")).toBe("idle");
   });
 
   it("should render compact context bar inline with activity and cost", () => {
@@ -472,6 +502,41 @@ describe("GroupGitInfo", () => {
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalled();
   });
+
+  // ── folder-head precedence (refresh-folder-header-branch) ───────────────
+
+  it("git_head_update overwrites a stale branchCache REST seed", () => {
+    // Seed the module-level REST cache so first paint shows os/foo.
+    branchCache.set("/seed", { branch: "os/foo", noGit: false });
+    const sessions = [makeSession()]; // no gitBranch → uses seed
+    const { rerender } = render(<GroupGitInfo sessions={sessions} cwd="/seed" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+    // git_head_update arrives → folderBranch develop overrides the seed.
+    rerender(<GroupGitInfo sessions={sessions} cwd="/seed" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+    branchCache.delete("/seed");
+  });
+
+  it("folder HEAD outranks a leaked child-worktree branch", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("with no folderBranch entry, falls back to session.gitBranch", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  it("folderBranch null renders the Init git non-git state", () => {
+    const sessions = [makeSession({ gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch={null} />);
+    expect(screen.getByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.getByText("Init git")).toBeTruthy();
+  });
 });
 
 // ── Subcard structure (redesign-session-card-subcards) ────────────────────────
@@ -501,10 +566,9 @@ describe("SessionCard subcard structure", () => {
     // MEMORY and FLOWS are intentionally absent (no plugin contributes in this
     // test — the plugin registry is not populated). See change:
     // add-flows-subcard for the new FLOWS subcard's wiring.
-    // WORKSPACE was split into GIT + JJ in change
-    // redesign-session-card-and-composer. JJ is absent here because no plugin
-    // claims session-card-badge or workspace-action-bar in this test.
-    const filtered = titles.filter((t) => t && /^(OPENSPEC|GIT|JJ|WORKSPACE|PROCESS|FLOWS|MEMORY)$/.test(t));
+    // The STATUS subcard (session-card-badge slot) is absent here because no
+    // plugin claims session-card-badge in this test.
+    const filtered = titles.filter((t) => t && /^(OPENSPEC|GIT|STATUS|PROCESS|FLOWS|MEMORY)$/.test(t));
     expect(filtered).toEqual(["OPENSPEC", "GIT", "PROCESS"]);
   });
 
@@ -745,18 +809,25 @@ describe("SessionCard left-gutter mosaic rail", () => {
     return el;
   }
 
-  it("renders green rail palette for idle/active sessions", () => {
+  it("renders idle-token rail tint for idle/active sessions", () => {
     const { container } = render(
       <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-green-500/40");
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-idle)_40%,transparent)]");
   });
 
-  it("renders amber rail palette for streaming sessions", () => {
+  it("renders working-token rail tint for streaming sessions", () => {
     const { container } = render(
       <SessionCard session={makeSession({ status: "streaming" })} {...defaultProps} />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-amber-500/40");
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-working)_40%,transparent)]");
+  });
+
+  it("renders needs-you-token rail tint for chat-routed ask_user (not green/idle)", () => {
+    const { container } = render(
+      <SessionCard session={makeSession({ status: "streaming", currentTool: "ask_user" })} {...defaultProps} />,
+    );
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-needs-you)_40%,transparent)]");
   });
 
   it("renders muted rail palette for ended sessions", () => {
@@ -774,7 +845,7 @@ describe("SessionCard left-gutter mosaic rail", () => {
         hasError={true}
       />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-red-500/40");
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-error)_40%,transparent)]");
   });
 
   it("selected idle session uses brighter -400/65 palette", () => {
@@ -785,7 +856,7 @@ describe("SessionCard left-gutter mosaic rail", () => {
         selectedId="test-session"
       />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-green-400/65");
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-idle)_65%,transparent)]");
   });
 
   it("selected streaming session uses brighter -400/65 palette", () => {
@@ -796,7 +867,7 @@ describe("SessionCard left-gutter mosaic rail", () => {
         selectedId="test-session"
       />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-amber-400/65");
+    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-working)_65%,transparent)]");
   });
 
   it("rail bar is a centered capsule (rounded-full, 6px wide, top-2 bottom-2)", () => {
@@ -813,7 +884,7 @@ describe("SessionCard left-gutter mosaic rail", () => {
     expect(bar!.className).toMatch(/top-7/);
     expect(bar!.className).toMatch(/bottom-2/);
     // Status palette class is applied.
-    expect(bar!.className).toContain("bg-green-500/40");
+    expect(bar!.className).toContain("bg-[color-mix(in_srgb,var(--status-idle)_40%,transparent)]");
   });
 
   it("source icon sits in a circular tertiary-surface chip above the rail bar", () => {

@@ -13,8 +13,8 @@ For each resolved package directory, the loader SHALL look for `pi-dashboard-plu
 
 #### Scenario: npm-installed plugin is discovered
 
-- **WHEN** `~/.pi/agent/settings.json#packages[]` contains `"npm:pi-memory-honcho"`, `npm root -g` returns `/usr/local/lib/node_modules`, and `/usr/local/lib/node_modules/pi-memory-honcho/package.json` declares a `pi-dashboard-plugin` field
-- **THEN** `discoverPlugins()` SHALL include the plugin in its result with `packageDir` resolved to `/usr/local/lib/node_modules/pi-memory-honcho`.
+- **WHEN** `~/.pi/agent/settings.json#packages[]` contains `"npm:@blackbelt-technology/pi-dashboard-subagents"`, `npm root -g` returns `/usr/local/lib/node_modules`, and `/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents/package.json` declares a `pi-dashboard-plugin` field
+- **THEN** `discoverPlugins()` SHALL include the plugin in its result with `packageDir` resolved to `/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents`.
 
 #### Scenario: Git-installed plugin is discovered
 
@@ -37,7 +37,7 @@ When the same plugin id is declared by both a workspace package under `<dashboar
 
 #### Scenario: Workspace plugin shadows pi-installed plugin
 
-- **WHEN** `packages/honcho-plugin/package.json` declares `"id": "honcho"` AND `~/.pi/agent/settings.json#packages[]` includes a pi-installed `pi-memory-honcho` whose plugin manifest also declares `"id": "honcho"`
+- **WHEN** `packages/subagents-plugin/package.json` declares `"id": "subagents"` AND `~/.pi/agent/settings.json#packages[]` includes a pi-installed `@blackbelt-technology/pi-dashboard-subagents` whose plugin manifest also declares `"id": "subagents"`
 - **THEN** `discoverPlugins()` SHALL produce one loaded entry for the workspace plugin, the pi-installed plugin SHALL appear in status with `loaded: false` and the shadowing error, and a `warn`-level log SHALL name both source paths.
 
 ### Requirement: Local-scope plugin installs are detected and surfaced as warnings, not loaded
@@ -48,8 +48,8 @@ The loader SHALL NOT execute the local plugin's server entry, register its bridg
 
 #### Scenario: Local-installed plugin appears as warning in status
 
-- **WHEN** session "abc" has cwd `/proj/A` and `/proj/A/.pi/settings.json#packages[]` includes `"npm:pi-memory-honcho"` whose manifest is detected
-- **THEN** `/api/health.plugins[]` SHALL contain `{ id: "honcho", source: "local-detected", enabled: false, loaded: false, error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.", claims: <count> }` AND no slot consumer SHALL render its components.
+- **WHEN** session "abc" has cwd `/proj/A` and `/proj/A/.pi/settings.json#packages[]` includes `"npm:@blackbelt-technology/pi-dashboard-subagents"` whose manifest is detected
+- **THEN** `/api/health.plugins[]` SHALL contain `{ id: "subagents", source: "local-detected", enabled: false, loaded: false, error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable.", claims: <count> }` AND no slot consumer SHALL render its components.
 
 #### Scenario: Same plugin installed both globally and locally produces one loaded + one warning
 
@@ -85,7 +85,7 @@ The helper SHALL invalidate both the in-memory `_discoveryCache` and any per-cwd
 
 #### Scenario: New plugin loads after install without restart
 
-- **WHEN** the user runs `POST /api/packages/install` with `{ source: "npm:pi-memory-honcho", scope: "global" }` and the operation succeeds
+- **WHEN** the user runs `POST /api/packages/install` with `{ source: "npm:@blackbelt-technology/pi-dashboard-subagents", scope: "global" }` and the operation succeeds
 - **THEN** the dashboard SHALL invoke `clearDiscoveryCache()`, re-run discovery + server-entry load, and the plugin's `settings-section` claim SHALL appear in the next `/api/health` response without restarting the server process.
 
 #### Scenario: Removed plugin disappears from status without restart
@@ -129,7 +129,7 @@ The section SHALL handle empty state ("No plugins installed.") and partial-failu
 
 #### Scenario: Healthy plugin row renders loaded status
 
-- **WHEN** plugin "honcho" is `{ loaded: true, claims: 1, source: "global" }`
+- **WHEN** plugin "subagents" is `{ loaded: true, claims: 1, source: "global" }`
 - **THEN** the row SHALL show its display name, a green "loaded" badge, "1 claim", no error text, and an enabled toggle.
 
 #### Scenario: Failed plugin shows error inline
@@ -144,8 +144,8 @@ The section SHALL handle empty state ("No plugins installed.") and partial-failu
 
 #### Scenario: Toggle disables plugin and persists
 
-- **WHEN** the user toggles plugin "honcho" off
-- **THEN** the client SHALL POST `plugins.honcho.enabled = false` to the existing plugin-config write endpoint, the server SHALL persist it, and the next `plugins_changed` broadcast SHALL show `{ enabled: false, loaded: false }` for that plugin.
+- **WHEN** the user toggles plugin "subagents" off
+- **THEN** the client SHALL POST `plugins.subagents.enabled = false` to the existing plugin-config write endpoint, the server SHALL persist it, and the next `plugins_changed` broadcast SHALL show `{ enabled: false, loaded: false }` for that plugin.
 
 #### Scenario: Empty state
 

@@ -1,13 +1,13 @@
-import React, { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from "react";
+import type { CommandInfo, FileEntry, ImageContent, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAlert, mdiClipboardText, mdiClose, mdiConsole, mdiFile, mdiFlash, mdiFolder, mdiPlay, mdiStop, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiClipboardText, mdiWrench, mdiFolder, mdiFile, mdiPlay, mdiStop, mdiAlert, mdiConsole, mdiClose, mdiWeb } from "@mdi/js";
-import type { CommandInfo, ImageContent, FileEntry, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { ChatMessage } from "../lib/event-reducer.js";
+import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../hooks/useImagePaste.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
-import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
+import type { ChatMessage } from "../lib/event-reducer.js";
 import { extractRecentUrls } from "../lib/extract-urls.js";
 import { useI18n } from "../lib/i18n.js";
+import { ImagePreviewStrip } from "./ImagePreviewStrip.js";
 
 /** Built-in pi commands available from the dashboard */
 const BUILTIN_COMMANDS: CommandInfo[] = [
@@ -642,7 +642,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
              See change: surface-mid-turn-prompt-queue. */
           disabled={disabled || (pendingPrompt && !isWorking)}
           rows={1}
-          className="flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder-gray-500 border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none disabled:opacity-50 resize-none"
+          className="focus-ring flex-1 bg-[var(--bg-tertiary)] rounded-lg px-4 py-2 text-sm text-[var(--text-primary)] placeholder-gray-500 border border-[var(--border-secondary)] disabled:opacity-50 resize-none"
           style={{ minHeight: "38px", maxHeight: "120px" }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
@@ -666,8 +666,9 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
           /* Send button mirrors textarea: enabled during streaming so the
              user can queue another mid-turn message. */
           disabled={disabled || (pendingPrompt && !isWorking) || !text.trim()}
-          className="p-2 bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
+          className="focus-ring flex items-center justify-center min-w-[44px] min-h-[44px] bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed self-end"
           title={t("command.send", undefined, "Send")}
+          aria-label={t("command.send", undefined, "Send")}
           data-testid="send-button"
         >
           <Icon path={mdiPlay} size={0.7} />

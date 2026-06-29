@@ -17,21 +17,21 @@ describe("manifest validator — requires", () => {
     const m = validateManifest({
       ...base,
       requires: {
-        piExtensions: ["pi-memory-honcho"],
-        binaries: ["jj"],
+        piExtensions: ["pi-web-access"],
+        binaries: ["zrok"],
         services: ["pi-model-proxy"],
       },
     });
     expect(m.requires).toEqual({
-      piExtensions: ["pi-memory-honcho"],
-      binaries: ["jj"],
+      piExtensions: ["pi-web-access"],
+      binaries: ["zrok"],
       services: ["pi-model-proxy"],
     });
   });
 
   it("accepts partial requires (only one field present)", () => {
-    const m = validateManifest({ ...base, requires: { binaries: ["jj"] } });
-    expect(m.requires).toEqual({ binaries: ["jj"] });
+    const m = validateManifest({ ...base, requires: { binaries: ["zrok"] } });
+    expect(m.requires).toEqual({ binaries: ["zrok"] });
   });
 
   it("rejects non-object requires", () => {
@@ -40,7 +40,7 @@ describe("manifest validator — requires", () => {
   });
 
   it("rejects non-array field", () => {
-    expect(() => validateManifest({ ...base, requires: { binaries: "jj" } })).toThrow(
+    expect(() => validateManifest({ ...base, requires: { binaries: "zrok" } })).toThrow(
       ManifestValidationError,
     );
   });

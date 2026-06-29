@@ -22,6 +22,7 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
     server = await createServer({
       port: 0,
       piPort: 0,
+      host: "127.0.0.1",
       dev: true,
       autoShutdown: false,
       shutdownIdleSeconds: 999,
@@ -44,7 +45,7 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
     const sessionFile = path.join(tmpDir, "s.jsonl");
     writeFileSync(sessionFile, "");
 
-    const bridgeWs = new WebSocket(`ws://localhost:${piPort}`);
+    const bridgeWs = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve, reject) => {
       bridgeWs.on("error", reject);
       bridgeWs.on("open", () => {
@@ -108,7 +109,7 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
     writeFileSync(sessionFile, "");
 
     // First bridge connects and populates the queues.
-    const ws1 = new WebSocket(`ws://localhost:${piPort}`);
+    const ws1 = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws1.on("open", () => {
         ws1.send(JSON.stringify({
@@ -134,7 +135,7 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
     await wait(80);
 
     // Second bridge re-registers same sessionId — pendingQueues MUST reset.
-    const ws2 = new WebSocket(`ws://localhost:${piPort}`);
+    const ws2 = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws2.on("open", () => {
         ws2.send(JSON.stringify({

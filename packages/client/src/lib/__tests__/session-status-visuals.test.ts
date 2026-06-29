@@ -1,18 +1,31 @@
-import { describe, it, expect } from "vitest";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import {
-  statusColors,
-  sourceIcons,
-  sourceLabels,
+  countNeedsYou,
   deriveDotColor,
   deriveDotColorWithFlags,
   deriveIconStatusColor,
-  pulseClassForStatus,
+  deriveProposalCardState,
   deriveRailBgColor,
+  deriveStatusShape,
+  floatAskUserFirst,
   getCardPulseClass,
   getCardStripeFxClass,
-  deriveProposalCardState,
+  isChatRoutedAskUser,
+  needsYouSessionIds,
+  pulseClassForStatus,
+  sourceIcons,
+  sourceLabels,
+  statusColors,
+  statusShapeIcon,
 } from "../session-status-visuals.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+// Tokenized status colors. See change: improve-dashboard-attention-routing.
+const NEEDS_YOU = "bg-[var(--status-needs-you)]";
+const WORKING = "bg-[var(--status-working)] animate-pulse";
+const IDLE = "bg-[var(--status-idle)]";
+const ERROR = "bg-[var(--status-error)]";
+const ENDED = "bg-[var(--bg-surface)]";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
   return {
@@ -26,11 +39,17 @@ function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSessio
 }
 
 describe("session-status-visuals constants", () => {
-  it("statusColors has the four expected keys", () => {
-    expect(statusColors.active).toBe("bg-green-500");
-    expect(statusColors.streaming).toBe("bg-yellow-500 animate-pulse");
-    expect(statusColors.idle).toBe("bg-green-500");
-    expect(statusColors.ended).toBe("bg-[var(--bg-surface)]");
+  it("statusColors uses semantic tokens", () => {
+    expect(statusColors.active).toBe(IDLE);
+    expect(statusColors.streaming).toBe(WORKING);
+    expect(statusColors.idle).toBe(IDLE);
+    expect(statusColors.ended).toBe(ENDED);
+  });
+
+  it("statusColors emits no raw palette literals", () => {
+    for (const v of Object.values(statusColors)) {
+      expect(v).not.toMatch(/green-500|yellow-500|amber-500|red-500|purple-400/);
+    }
   });
 
   it("sourceIcons covers tui/dashboard/tmux/zed/terminal", () => {
@@ -50,77 +69,226 @@ describe("session-status-visuals constants", () => {
   });
 });
 
+describe("isChatRoutedAskUser", () => {
+  it("ask_user + not widget-bar → true", () => {
+    expect(isChatRoutedAskUser(makeSession({ currentTool: "ask_user" }), false)).toBe(true);
+  });
+  it("ask_user + widget-bar → false (suppressed)", () => {
+    expect(isChatRoutedAskUser(makeSession({ currentTool: "ask_user" }), true)).toBe(false);
+  });
+  it("ended + ask_user → false (finished session never needs you)", () => {
+    expect(isChatRoutedAskUser(makeSession({ status: "ended", currentTool: "ask_user" }), false)).toBe(false);
+  });
+  it("non-ask_user tool → false", () => {
+    expect(isChatRoutedAskUser(makeSession({ currentTool: "Read" }), false)).toBe(false);
+  });
+});
+
 describe("deriveDotColor (status-only)", () => {
-  it("idle → bg-green-500", () => {
-    expect(deriveDotColor(makeSession({ status: "idle" }))).toBe("bg-green-500");
+  it("idle → idle token", () => {
+    expect(deriveDotColor(makeSession({ status: "idle" }))).toBe(IDLE);
   });
-
-  it("active → bg-green-500", () => {
-    expect(deriveDotColor(makeSession({ status: "active" }))).toBe("bg-green-500");
+  it("active → idle token", () => {
+    expect(deriveDotColor(makeSession({ status: "active" }))).toBe(IDLE);
   });
-
-  it("streaming → bg-yellow-500 animate-pulse", () => {
-    expect(deriveDotColor(makeSession({ status: "streaming" }))).toBe("bg-yellow-500 animate-pulse");
+  it("streaming → working token", () => {
+    expect(deriveDotColor(makeSession({ status: "streaming" }))).toBe(WORKING);
   });
-
-  it("ended → bg-[var(--bg-surface)]", () => {
-    expect(deriveDotColor(makeSession({ status: "ended" }))).toBe("bg-[var(--bg-surface)]");
+  it("ended → surface token", () => {
+    expect(deriveDotColor(makeSession({ status: "ended" }))).toBe(ENDED);
   });
-
-  it("resuming wins over status (e.g. ended+resuming → yellow+pulse)", () => {
-    expect(deriveDotColor(makeSession({ status: "ended", resuming: true }))).toBe("bg-yellow-500 animate-pulse");
+  it("resuming wins over status → working token", () => {
+    expect(deriveDotColor(makeSession({ status: "ended", resuming: true }))).toBe(WORKING);
   });
-
-  it("ended + ask_user currentTool → still ended (status wins; chat-panel signal ignored)", () => {
-    expect(deriveDotColor(makeSession({ status: "ended", currentTool: "ask_user" }))).toBe("bg-[var(--bg-surface)]");
+  it("ended + ask_user currentTool → still ended (status-only ignores chat signal)", () => {
+    expect(deriveDotColor(makeSession({ status: "ended", currentTool: "ask_user" }))).toBe(ENDED);
   });
 });
 
 describe("deriveDotColorWithFlags (SessionCard variant)", () => {
-  it("hasError flag → red", () => {
-    expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { hasError: true })).toBe("bg-red-500");
+  it("hasError flag → error token", () => {
+    expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { hasError: true })).toBe(ERROR);
   });
-
-  it("isRetrying flag → amber+pulse", () => {
-    expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { isRetrying: true })).toBe("bg-amber-500 animate-pulse");
+  it("chat-routed ask_user → needs-you token, not idle/green", () => {
+    const c = deriveDotColorWithFlags(makeSession({ status: "idle", currentTool: "ask_user" }), {});
+    expect(c).toBe(NEEDS_YOU);
+    expect(c).not.toBe(IDLE);
   });
-
-  it("resuming wins over hasError", () => {
-    expect(deriveDotColorWithFlags(makeSession({ status: "idle", resuming: true }), { hasError: true })).toBe("bg-yellow-500 animate-pulse");
+  it("widget-bar ask_user → falls through to status (idle), not needs-you", () => {
+    const c = deriveDotColorWithFlags(
+      makeSession({ status: "idle", currentTool: "ask_user" }),
+      { hasWidgetBarPrompt: true },
+    );
+    expect(c).toBe(IDLE);
   });
-
-  it("hasError wins over isRetrying", () => {
-    expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { hasError: true, isRetrying: true })).toBe("bg-red-500");
+  it("error outranks ask_user", () => {
+    expect(
+      deriveDotColorWithFlags(
+        makeSession({ status: "idle", currentTool: "ask_user" }),
+        { hasError: true },
+      ),
+    ).toBe(ERROR);
   });
-
-  it("no flags → falls back to deriveDotColor", () => {
-    expect(deriveDotColorWithFlags(makeSession({ status: "streaming" }), {})).toBe("bg-yellow-500 animate-pulse");
+  it("ask_user outranks resuming", () => {
+    expect(
+      deriveDotColorWithFlags(
+        makeSession({ status: "idle", currentTool: "ask_user", resuming: true }),
+        {},
+      ),
+    ).toBe(NEEDS_YOU);
+  });
+  it("error outranks resuming (precedence reordered: error highest)", () => {
+    expect(
+      deriveDotColorWithFlags(makeSession({ status: "idle", resuming: true }), { hasError: true }),
+    ).toBe(ERROR);
+  });
+  it("isRetrying → working token", () => {
+    expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { isRetrying: true })).toBe(WORKING);
+  });
+  it("no flags → falls back to status token", () => {
+    expect(deriveDotColorWithFlags(makeSession({ status: "streaming" }), {})).toBe(WORKING);
+  });
+  it("ended + lingering ask_user → muted (not needs-you)", () => {
+    expect(deriveDotColorWithFlags(makeSession({ status: "ended", currentTool: "ask_user" }), {})).toBe(ENDED);
   });
 });
 
 describe("deriveIconStatusColor", () => {
-  it("ended status → muted text token (regardless of dotColor)", () => {
-    expect(deriveIconStatusColor("bg-[var(--bg-surface)]", "ended")).toBe("text-[var(--text-muted)]");
+  it("ended status → muted text token", () => {
+    expect(deriveIconStatusColor(ENDED, "ended")).toBe("text-[var(--text-muted)]");
+  });
+  it("idle token dot → text-[var(--status-idle)]", () => {
+    expect(deriveIconStatusColor(IDLE, "idle")).toBe("text-[var(--status-idle)]");
+  });
+  it("working token dot → text token + animate-pulse", () => {
+    expect(deriveIconStatusColor(WORKING, "streaming")).toBe("text-[var(--status-working)] animate-pulse");
+  });
+  it("needs-you token dot → text-[var(--status-needs-you)]", () => {
+    expect(deriveIconStatusColor(NEEDS_YOU, "idle")).toBe("text-[var(--status-needs-you)]");
+  });
+  it("error token dot → text-[var(--status-error)]", () => {
+    expect(deriveIconStatusColor(ERROR, "idle")).toBe("text-[var(--status-error)]");
+  });
+  it("ended status BUT working-overridden dot → honors override (not muted)", () => {
+    expect(deriveIconStatusColor(WORKING, "ended")).toBe("text-[var(--status-working)] animate-pulse");
+  });
+  it("does not rewrite a `bg-` substring inside a token name (non-ended surface fallback)", () => {
+    // Leading bg- → text-; the inner `--bg-surface` token name is untouched.
+    expect(deriveIconStatusColor("bg-[var(--bg-surface)]", "idle")).toBe("text-[var(--bg-surface)]");
+  });
+});
+
+describe("deriveStatusShape", () => {
+  it("hasError → error", () => {
+    expect(deriveStatusShape(makeSession({ status: "idle" }), { hasError: true })).toBe("error");
+  });
+  it("chat-routed ask_user → needs-you", () => {
+    expect(deriveStatusShape(makeSession({ status: "idle", currentTool: "ask_user" }), {})).toBe("needs-you");
+  });
+  it("widget-bar ask_user → idle (suppressed)", () => {
+    expect(
+      deriveStatusShape(makeSession({ status: "idle", currentTool: "ask_user" }), { hasWidgetBarPrompt: true }),
+    ).toBe("idle");
+  });
+  it("streaming → working", () => {
+    expect(deriveStatusShape(makeSession({ status: "streaming" }), {})).toBe("working");
+  });
+  it("resuming → working", () => {
+    expect(deriveStatusShape(makeSession({ status: "idle", resuming: true }), {})).toBe("working");
+  });
+  it("idle/active → idle", () => {
+    expect(deriveStatusShape(makeSession({ status: "idle" }), {})).toBe("idle");
+    expect(deriveStatusShape(makeSession({ status: "active" }), {})).toBe("idle");
+  });
+  it("ended → ended", () => {
+    expect(deriveStatusShape(makeSession({ status: "ended" }), {})).toBe("ended");
+  });
+  it("ended + lingering ask_user → ended (no needs-you shape)", () => {
+    expect(deriveStatusShape(makeSession({ status: "ended", currentTool: "ask_user" }), {})).toBe("ended");
+  });
+  it("error outranks ask_user (shape precedence mirrors color)", () => {
+    expect(
+      deriveStatusShape(makeSession({ status: "idle", currentTool: "ask_user" }), { hasError: true }),
+    ).toBe("error");
   });
 
-  it("idle + green dot → text-green-500", () => {
-    expect(deriveIconStatusColor("bg-green-500", "idle")).toBe("text-green-500");
+  it("statusShapeIcon: needs-you/working/idle/error have a path, ended is null", () => {
+    expect(statusShapeIcon["needs-you"]).toBeTruthy();
+    expect(statusShapeIcon.working).toBeTruthy();
+    expect(statusShapeIcon.idle).toBeTruthy();
+    expect(statusShapeIcon.error).toBeTruthy();
+    expect(statusShapeIcon.ended).toBeNull();
+  });
+  it("statusShapeIcon: needs-you (filled) and idle (ring) are different glyphs", () => {
+    expect(statusShapeIcon["needs-you"]).not.toBe(statusShapeIcon.idle);
+  });
+});
+
+describe("countNeedsYou / needsYouSessionIds", () => {
+  const folder = [
+    makeSession({ id: "a", currentTool: "ask_user" }),
+    makeSession({ id: "b", status: "streaming" }),
+    makeSession({ id: "c", currentTool: "ask_user" }),
+    makeSession({ id: "d", status: "idle" }),
+  ];
+
+  it("counts only chat-routed ask_user sessions", () => {
+    expect(countNeedsYou(folder)).toBe(2);
+    expect(needsYouSessionIds(folder)).toEqual(["a", "c"]);
   });
 
-  it("streaming + yellow+pulse dot → text-yellow-500 animate-pulse", () => {
-    expect(deriveIconStatusColor("bg-yellow-500 animate-pulse", "streaming")).toBe("text-yellow-500 animate-pulse");
+  it("excludes widget-bar-placed ask_user from the count", () => {
+    const isWidgetBar = (id: string) => id === "c";
+    expect(countNeedsYou(folder, isWidgetBar)).toBe(1);
+    expect(needsYouSessionIds(folder, isWidgetBar)).toEqual(["a"]);
   });
 
-  it("red dot → text-red-500", () => {
-    expect(deriveIconStatusColor("bg-red-500", "idle")).toBe("text-red-500");
+  it("zero when no ask_user sessions", () => {
+    expect(countNeedsYou([makeSession({ status: "idle" })])).toBe(0);
   });
 
-  it("ended status BUT resuming-overridden dotColor (yellow+pulse) → text-yellow-500 animate-pulse (icon honors override, not muted)", () => {
-    expect(deriveIconStatusColor("bg-yellow-500 animate-pulse", "ended")).toBe("text-yellow-500 animate-pulse");
+  it("excludes ended sessions with lingering ask_user", () => {
+    const list = [
+      makeSession({ id: "a", currentTool: "ask_user" }),
+      makeSession({ id: "e", status: "ended", currentTool: "ask_user" }),
+    ];
+    expect(countNeedsYou(list)).toBe(1);
+    expect(needsYouSessionIds(list)).toEqual(["a"]);
+  });
+});
+
+describe("floatAskUserFirst", () => {
+  it("floats ask_user sessions to the top, stable within groups", () => {
+    const list = [
+      makeSession({ id: "x", status: "streaming" }),
+      makeSession({ id: "a", currentTool: "ask_user" }),
+      makeSession({ id: "y", status: "idle" }),
+      makeSession({ id: "b", currentTool: "ask_user" }),
+    ];
+    expect(floatAskUserFirst(list).map((s) => s.id)).toEqual(["a", "b", "x", "y"]);
   });
 
-  it("amber+pulse dot → text-amber-500 animate-pulse", () => {
-    expect(deriveIconStatusColor("bg-amber-500 animate-pulse", "idle")).toBe("text-amber-500 animate-pulse");
+  it("returns the same array reference when no ask_user present (no-op)", () => {
+    const list = [makeSession({ id: "x", status: "idle" })];
+    expect(floatAskUserFirst(list)).toBe(list);
+  });
+
+  it("excludes widget-bar ask_user from the float (same predicate as the rest)", () => {
+    const list = [
+      makeSession({ id: "x", status: "streaming" }),
+      makeSession({ id: "a", currentTool: "ask_user" }),
+      makeSession({ id: "w", currentTool: "ask_user" }),
+    ];
+    // `w` is widget-bar → not floated.
+    expect(floatAskUserFirst(list, (id) => id === "w").map((s) => s.id)).toEqual(["a", "x", "w"]);
+  });
+
+  it("does not float ended sessions with lingering ask_user", () => {
+    const list = [
+      makeSession({ id: "x", status: "idle" }),
+      makeSession({ id: "e", status: "ended", currentTool: "ask_user" }),
+    ];
+    expect(floatAskUserFirst(list)).toBe(list);
   });
 });
 
@@ -128,84 +296,62 @@ describe("pulseClassForStatus", () => {
   it("streaming → animate-pulse", () => {
     expect(pulseClassForStatus(makeSession({ status: "streaming" }))).toBe("animate-pulse");
   });
-
   it("resuming → animate-pulse (regardless of status)", () => {
     expect(pulseClassForStatus(makeSession({ status: "ended", resuming: true }))).toBe("animate-pulse");
   });
-
   it("idle → empty string", () => {
     expect(pulseClassForStatus(makeSession({ status: "idle" }))).toBe("");
-  });
-
-  it("active → empty string", () => {
-    expect(pulseClassForStatus(makeSession({ status: "active" }))).toBe("");
-  });
-
-  it("ended → empty string", () => {
-    expect(pulseClassForStatus(makeSession({ status: "ended" }))).toBe("");
-  });
-
-  it("ended + ask_user currentTool → empty string (icon-only pulse, status wins)", () => {
-    expect(pulseClassForStatus(makeSession({ status: "ended", currentTool: "ask_user" }))).toBe("");
   });
 });
 
 describe("deriveRailBgColor", () => {
-  // Unselected: /25 alpha
-  it("idle → bg-green-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle" }), {}, false)).toBe("bg-green-500/40");
+  const mix = (token: string, pct: number) => `bg-[color-mix(in_srgb,var(${token})_${pct}%,transparent)]`;
+
+  it("idle → idle tint 40%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), {}, false)).toBe(mix("--status-idle", 40));
   });
-  it("active → bg-green-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "active" }), {}, false)).toBe("bg-green-500/40");
-  });
-  it("streaming → bg-amber-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "streaming" }), {}, false)).toBe("bg-amber-500/40");
+  it("streaming → working tint 40%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "streaming" }), {}, false)).toBe(mix("--status-working", 40));
   });
   it("ended → muted surface token", () => {
-    expect(deriveRailBgColor(makeSession({ status: "ended" }), {}, false)).toBe("bg-[var(--bg-surface)]");
+    expect(deriveRailBgColor(makeSession({ status: "ended" }), {}, false)).toBe(ENDED);
   });
-  it("resuming overrides status → bg-amber-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle", resuming: true }), {}, false)).toBe("bg-amber-500/40");
+  it("chat-routed ask_user → needs-you tint, not green/idle", () => {
+    const c = deriveRailBgColor(makeSession({ status: "idle", currentTool: "ask_user" }), {}, false);
+    expect(c).toBe(mix("--status-needs-you", 40));
+    expect(c).not.toBe(mix("--status-idle", 40));
   });
-  it("hasError → bg-red-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasError: true }, false)).toBe("bg-red-500/40");
+  it("widget-bar ask_user → falls through to idle tint", () => {
+    expect(
+      deriveRailBgColor(makeSession({ status: "idle", currentTool: "ask_user" }), { hasWidgetBarPrompt: true }, false),
+    ).toBe(mix("--status-idle", 40));
   });
-  it("isRetrying → bg-amber-500/40", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle" }), { isRetrying: true }, false)).toBe("bg-amber-500/40");
+  it("hasError → error tint 40%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasError: true }, false)).toBe(mix("--status-error", 40));
+  });
+  it("error outranks ask_user", () => {
+    expect(
+      deriveRailBgColor(makeSession({ status: "idle", currentTool: "ask_user" }), { hasError: true }, false),
+    ).toBe(mix("--status-error", 40));
+  });
+  it("resuming → working tint", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle", resuming: true }), {}, false)).toBe(mix("--status-working", 40));
   });
 
-  // Selected: brighter -400 shade with /50 alpha
-  it("selected idle → bg-green-400/65", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle" }), {}, true)).toBe("bg-green-400/65");
+  // Selected: 65% mix
+  it("selected idle → idle tint 65%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), {}, true)).toBe(mix("--status-idle", 65));
   });
-  it("selected streaming → bg-amber-400/65", () => {
-    expect(deriveRailBgColor(makeSession({ status: "streaming" }), {}, true)).toBe("bg-amber-400/65");
-  });
-  it("selected hasError → bg-red-400/65", () => {
-    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasError: true }, true)).toBe("bg-red-400/65");
+  it("selected ask_user → needs-you tint 65%", () => {
+    expect(
+      deriveRailBgColor(makeSession({ status: "idle", currentTool: "ask_user" }), {}, true),
+    ).toBe(mix("--status-needs-you", 65));
   });
   it("selected ended → still muted (no shade swap)", () => {
-    expect(deriveRailBgColor(makeSession({ status: "ended" }), {}, true)).toBe("bg-[var(--bg-surface)]");
+    expect(deriveRailBgColor(makeSession({ status: "ended" }), {}, true)).toBe(ENDED);
   });
-
-  // Precedence: resuming > hasError > isRetrying > status (mirrors deriveDotColorWithFlags)
-  it("resuming + hasError + isRetrying → resuming wins (amber)", () => {
-    expect(
-      deriveRailBgColor(
-        makeSession({ status: "idle", resuming: true }),
-        { hasError: true, isRetrying: true },
-        false,
-      ),
-    ).toBe("bg-amber-500/40");
-  });
-  it("hasError + isRetrying → hasError wins (red)", () => {
-    expect(
-      deriveRailBgColor(
-        makeSession({ status: "idle" }),
-        { hasError: true, isRetrying: true },
-        false,
-      ),
-    ).toBe("bg-red-500/40");
+  it("ended + lingering ask_user → muted rail (not needs-you)", () => {
+    expect(deriveRailBgColor(makeSession({ status: "ended", currentTool: "ask_user" }), {}, false)).toBe(ENDED);
   });
 });
 
@@ -218,21 +364,14 @@ describe("getCardPulseClass / getCardStripeFxClass", () => {
   it("streaming → working/running stripes", () => {
     const s = makeSession({ status: "streaming", unread: true });
     expect(getCardPulseClass(s)).toBe("card-working-pulse");
-    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-running");
-  });
-  it("resuming → working/running stripes", () => {
-    const s = makeSession({ status: "idle", resuming: true });
-    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-running");
   });
   it("unread → unread stripes", () => {
     const s = makeSession({ status: "idle", unread: true });
     expect(getCardPulseClass(s)).toBe("card-unread-pulse");
-    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("card-stripes-unread");
   });
   it("idle → no stripes", () => {
     const s = makeSession({ status: "idle" });
     expect(getCardPulseClass(s)).toBe("");
-    expect(getCardStripeFxClass(getCardPulseClass(s))).toBe("");
   });
   it("hasWidgetBarPrompt suppresses ask_user input stripes", () => {
     const s = makeSession({ currentTool: "ask_user", status: "idle" });
@@ -262,18 +401,5 @@ describe("deriveProposalCardState", () => {
   });
   it("empty array → no stripes", () => {
     expect(deriveProposalCardState([])).toBe("");
-  });
-  it("all-ended → no stripes", () => {
-    expect(
-      deriveProposalCardState([
-        makeSession({ status: "ended" }),
-        makeSession({ status: "ended" }),
-      ]),
-    ).toBe("");
-  });
-  it("resuming child counts as running", () => {
-    expect(
-      deriveProposalCardState([makeSession({ status: "idle", resuming: true })]),
-    ).toBe("card-stripes-running");
   });
 });

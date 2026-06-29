@@ -12,7 +12,7 @@ import { createServer, type DashboardServer } from "../server.js";
  */
 
 async function connectSession(piPort: number, sessionId: string, cwd = "/tmp"): Promise<WebSocket> {
-  const ws = new WebSocket(`ws://localhost:${piPort}`);
+  const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify({ type: "session_register", sessionId, cwd, source: "cli" }));
@@ -59,7 +59,7 @@ function sendAgentEnd(ws: WebSocket, sessionId: string) {
 
 /** Open a browser ws, send one message, close. */
 async function sendBrowser(browserPort: number, msg: unknown): Promise<void> {
-  const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+  const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
   await new Promise<void>((resolve) => {
     ws.on("open", () => {
       ws.send(JSON.stringify(msg));
@@ -71,7 +71,7 @@ async function sendBrowser(browserPort: number, msg: unknown): Promise<void> {
 /** Collect session_updated broadcasts for a session. */
 function collectUpdates(browserPort: number): Promise<{ ws: WebSocket; updates: any[] }> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${browserPort}/ws`);
+    const ws = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     const updates: any[] = [];
     ws.on("message", (raw) => {
       try {
@@ -93,7 +93,7 @@ describe("replace-proposal race handling", () => {
 
   beforeEach(async () => {
     server = await createServer({
-      port: 0, piPort: 0, dev: true, autoShutdown: false,
+      port: 0, piPort: 0, host: "127.0.0.1", dev: true, autoShutdown: false,
       shutdownIdleSeconds: 999, tunnel: false,
       editor: { idleTimeoutMinutes: 10, maxInstances: 3 },
     });

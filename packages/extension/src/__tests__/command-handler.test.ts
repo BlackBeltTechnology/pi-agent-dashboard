@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { createCommandHandler, parseSendPrompt } from "../command-handler.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { createCommandHandler, parseSendPrompt, tryExecSlashTemplate, buildDashboardExecEnv } from "../command-handler.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
@@ -998,5 +1000,165 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
     await handler.handle({ type: "abort", sessionId: "s1" });
 
     expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  // attach_proposal_changed → onAttachProposalChanged mirror (task 3.4).
+  // See change: inject-session-context-into-agent.
+  describe("attach_proposal_changed", () => {
+    it("matching sessionId → calls onAttachProposalChanged with the value", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: "X" });
+
+      expect(onAttachProposalChanged).toHaveBeenCalledWith("X");
+    });
+
+    it("null payload → clears (calls with null)", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: null });
+
+      expect(onAttachProposalChanged).toHaveBeenCalledWith(null);
+    });
+
+    it("mismatched sessionId → dropped by the guard, callback untouched", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s2", attachedChange: "X" });
+
+      expect(onAttachProposalChanged).not.toHaveBeenCalled();
+    });
+
+    it("malformed attachedChange (non-string, non-null) → dropped, callback untouched", async () => {
+      const pi = createMockPi();
+      const onAttachProposalChanged = vi.fn();
+      const handler = createCommandHandler(pi as any, "s1", { onAttachProposalChanged });
+
+      await handler.handle({ type: "attach_proposal_changed", sessionId: "s1", attachedChange: 123 as any });
+
+      expect(onAttachProposalChanged).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("tryExecSlashTemplate (executable: bash slash pipeline)", () => {
+  const tmpDir = join(import.meta.dirname ?? __dirname, "__tmp_exec_slash__");
+  const promptsDir = join(tmpDir, ".pi", "prompts");
+
+  function mockPi() {
+    return {
+      sendUserMessage: vi.fn(),
+      getCommands: vi.fn().mockReturnValue([]),
+      exec: vi.fn().mockResolvedValue({ stdout: "OK", stderr: "", exitCode: 0 }),
+    };
+  }
+
+  beforeEach(() => {
+    mkdirSync(promptsDir, { recursive: true });
+    registryMock.bash = { ok: true, path: "/usr/bin/bash" };
+  });
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
+
+  it("runs an exec template as bash, emits bash_output with source slash-exec, no LLM", async () => {
+    writeFileSync(join(promptsDir, "dash-health.md"), "---\nexecutable: bash\n---\necho hi");
+    const pi = mockPi();
+    const eventSink = vi.fn();
+
+    const ran = await tryExecSlashTemplate(pi as any, "/dash-health", tmpDir, "s1", eventSink);
+
+    expect(ran).toBe(true);
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(eventSink).toHaveBeenCalledWith(expect.objectContaining({
+      type: "event_forward",
+      event: expect.objectContaining({
+        eventType: "bash_output",
+        data: expect.objectContaining({ source: "slash-exec", excludeFromContext: true }),
+      }),
+    }));
+  });
+
+  it("excludeFromContext: false also sends to the LLM (mirrors ! semantics)", async () => {
+    writeFileSync(
+      join(promptsDir, "dash-capture.md"),
+      "---\nexecutable: bash\nexcludeFromContext: false\n---\necho hi",
+    );
+    const pi = mockPi();
+    const eventSink = vi.fn();
+
+    const ran = await tryExecSlashTemplate(pi as any, "/dash-capture", tmpDir, "s1", eventSink);
+
+    expect(ran).toBe(true);
+    expect(eventSink).toHaveBeenCalled();
+    expect(pi.sendUserMessage).toHaveBeenCalled();
+  });
+
+  it("passes positional args after -- so $1, $2 bind in the body", async () => {
+    writeFileSync(join(promptsDir, "dash-info.md"), '---\nexecutable: bash\n---\necho "$1 $2"');
+    const pi = mockPi();
+
+    await tryExecSlashTemplate(pi as any, "/dash-info abc 123", tmpDir, "s1", vi.fn());
+
+    const argv = pi.exec.mock.calls[0]![1] as string[];
+    expect(argv.slice(-3)).toEqual(["--", "abc", "123"]);
+  });
+
+  it("injects PI_DASHBOARD_PORT / PI_DASHBOARD_BASE into the script", async () => {
+    writeFileSync(join(promptsDir, "dash-env.md"), "---\nexecutable: bash\n---\necho hi");
+    const pi = mockPi();
+
+    await tryExecSlashTemplate(pi as any, "/dash-env", tmpDir, "s1", vi.fn());
+
+    const script = (pi.exec.mock.calls[0]![1] as string[])[1];
+    expect(script).toContain("export PI_DASHBOARD_PORT=");
+    expect(script).toContain("export PI_DASHBOARD_BASE=");
+  });
+
+  it("returns false for a non-exec (LLM) template, no bash_output", async () => {
+    writeFileSync(join(promptsDir, "dash-llm.md"), "Just instructions for the LLM");
+    const pi = mockPi();
+    const eventSink = vi.fn();
+
+    const ran = await tryExecSlashTemplate(pi as any, "/dash-llm", tmpDir, "s1", eventSink);
+
+    expect(ran).toBe(false);
+    expect(pi.exec).not.toHaveBeenCalled();
+    expect(eventSink).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildDashboardExecEnv port resolution", () => {
+  const saved = { pi: process.env.PI_DASHBOARD_PORT, dash: process.env.DASHBOARD_PORT };
+  afterEach(() => {
+    if (saved.pi === undefined) delete process.env.PI_DASHBOARD_PORT;
+    else process.env.PI_DASHBOARD_PORT = saved.pi;
+    if (saved.dash === undefined) delete process.env.DASHBOARD_PORT;
+    else process.env.DASHBOARD_PORT = saved.dash;
+  });
+
+  it("prefers DASHBOARD_PORT env over config.json (Docker harness: config has no port)", () => {
+    delete process.env.PI_DASHBOARD_PORT;
+    process.env.DASHBOARD_PORT = "18000";
+    const env = buildDashboardExecEnv();
+    expect(env.PI_DASHBOARD_PORT).toBe("18000");
+    expect(env.PI_DASHBOARD_BASE).toBe("http://localhost:18000");
+  });
+
+  it("PI_DASHBOARD_PORT takes precedence over DASHBOARD_PORT", () => {
+    process.env.PI_DASHBOARD_PORT = "9001";
+    process.env.DASHBOARD_PORT = "18000";
+    expect(buildDashboardExecEnv().PI_DASHBOARD_PORT).toBe("9001");
+  });
+
+  it("falls back to 8000 when no env and no config port", () => {
+    delete process.env.PI_DASHBOARD_PORT;
+    delete process.env.DASHBOARD_PORT;
+    // Ephemeral HOME in tests has no ~/.pi/dashboard/config.json with a port.
+    expect(buildDashboardExecEnv().PI_DASHBOARD_PORT).toBe("8000");
   });
 });

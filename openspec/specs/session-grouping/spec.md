@@ -1,5 +1,5 @@
 ## Purpose
-Group session cards by working directory in the sidebar: pinned directories first, then recency-sorted folders, with worktree/jj collapse under the parent repo, workspace containers, and folder visual treatment.
+Group session cards by working directory in the sidebar: pinned directories first, then recency-sorted folders, with worktree collapse under the parent repo, workspace containers, and folder visual treatment.
 ## Requirements
 ### Requirement: Group sessions by directory
 The session list SHALL group sessions by their `cwd` value. Sessions with the same `cwd` SHALL appear together under a group header. ALL groups — including single-session groups — SHALL display a folder header. Sessions within each group SHALL be rendered in the order provided by the server's session order for that group's resolved key.
@@ -9,11 +9,10 @@ Pinned directory groups SHALL appear first, in the user-defined pinned order. Un
 The per-session group-key resolver (`resolveSessionGroupPath`) SHALL apply the following precedence (first match wins):
 
 1. **Explicit pin wins** — if `pathKey(session.cwd)` matches a pinned entry, the session SHALL group under its own cwd.
-2. **jj workspace collapse** — else if `session.jjState?.workspaceRoot` is set, the session SHALL group under that workspace root.
-3. **Git worktree collapse** — else if `session.gitWorktree?.mainPath` is set, the session SHALL group under the main worktree path.
-4. **Default** — else the session SHALL group under its cwd.
+2. **Git worktree collapse** — else if `session.gitWorktree?.mainPath` is set, the session SHALL group under the main worktree path.
+3. **Default** — else the session SHALL group under its cwd.
 
-Within a group, session order SHALL be governed solely by the server-provided session order (status-partitioned per the `session-ordering` capability). There SHALL be NO workspace-cluster adjacency constraint: worktree/jj sibling sessions are ordered purely by the flat order list, not forced adjacent. (This removes the prior `clusterByWorkspaceName` ordering; grouping-under-parent collapse — steps 2–3 above — is unchanged.)
+Within a group, session order SHALL be governed solely by the server-provided session order (status-partitioned per the `session-ordering` capability). There SHALL be NO workspace-cluster adjacency constraint: worktree sibling sessions are ordered purely by the flat order list, not forced adjacent. (This removes the prior `clusterByWorkspaceName` ordering; grouping-under-parent collapse — step 2 above — is unchanged.)
 
 #### Scenario: Multiple sessions in same directory
 - **WHEN** two or more sessions share the same `cwd`
@@ -42,16 +41,11 @@ Within a group, session order SHALL be governed solely by the server-provided se
 #### Scenario: Worktree session groups under parent repo
 - **WHEN** a session has `cwd = "/repo/.worktrees/feat-x"` and `gitWorktree.mainPath = "/repo"`
 - **AND** `/repo` is in the pinned list AND `/repo/.worktrees/feat-x` is not pinned
-- **AND** the session has no `jjState`
 - **THEN** the session SHALL render inside the `/repo` group
 
 #### Scenario: Explicit pin of worktree path wins
 - **WHEN** the user has pinned `/repo/.worktrees/feat-x` AND that pin's pathKey matches the session's cwd
 - **THEN** the session SHALL render under its own `/repo/.worktrees/feat-x` group, NOT inside `/repo`
-
-#### Scenario: Both jj workspace and git worktree present
-- **WHEN** a session carries both `jjState.workspaceRoot` and `gitWorktree.mainPath`
-- **THEN** the session SHALL group under `jjState.workspaceRoot` (jj wins because it is step 2 in precedence)
 
 #### Scenario: Worktree sessions ordered by flat order, not clustered
 - **WHEN** a folder group contains a main-checkout session and sessions from worktrees `feat-x` and `feat-y`, and a `feat-y` session is moved to front
@@ -234,18 +228,13 @@ The top-level area SHALL continue to apply today's pinned-first-then-session-dri
 - **THEN** the sidebar SHALL render exactly as it does today, with no workspace-tier UI elements
 
 ### Requirement: Cold-start grouping parity for worktree/workspace sessions
-A session restored from `.meta.json` at server startup, before any bridge has reattached, SHALL group under the same parent path that a live bridge would produce. The startup scanner SHALL reconstruct `session.gitWorktree` from persisted `mainPath`/`name` and `session.jjState` from persisted `workspaceRoot`/`workspaceName`, so `resolveSessionGroupPath` collapses the restored session under its parent repo / workspace root. Because the parent path is pinned or workspace-owned, its group SHALL render regardless of how many of its sessions are alive — restored ended worktree sessions SHALL therefore remain visible.
+A session restored from `.meta.json` at server startup, before any bridge has reattached, SHALL group under the same parent path that a live bridge would produce. The startup scanner SHALL reconstruct `session.gitWorktree` from persisted `mainPath`/`name`, so `resolveSessionGroupPath` collapses the restored session under its parent repo. Because the parent path is pinned or workspace-owned, its group SHALL render regardless of how many of its sessions are alive — restored ended worktree sessions SHALL therefore remain visible.
 
 #### Scenario: Cold-start worktree session collapses under pinned parent
 - **WHEN** the server restarts and restores an ended session with persisted `gitWorktree.mainPath = "/repo"` and `cwd = "/repo/.worktrees/feat-x"`
 - **AND** `/repo` is pinned and `/repo/.worktrees/feat-x` is not pinned
 - **AND** no bridge has reattached
 - **THEN** the session SHALL render inside the `/repo` group, not in a separate `/repo/.worktrees/feat-x` group
-
-#### Scenario: Cold-start jj workspace session collapses under parent
-- **WHEN** the server restarts and restores an ended session with persisted `jjState.workspaceRoot = "/repo"` and `cwd = "/repo/.shadow/feat-x"`
-- **AND** `/repo` is pinned and no bridge has reattached
-- **THEN** the session SHALL render inside the `/repo` group, not in a separate `.shadow/feat-x` group
 
 #### Scenario: Cold-start worktree session links to its OpenSpec change row
 - **WHEN** a restored worktree session has persisted `gitWorktree.mainPath = "/repo"` and `attachedProposal = "add-foo"`

@@ -6,6 +6,7 @@ describe("Server auto-shutdown", () => {
   const baseConfig: ServerConfig = {
     port: 0,
     piPort: 0,
+    host: "127.0.0.1",
     dev: true,
     autoShutdown: true,
     shutdownIdleSeconds: 2,
@@ -74,7 +75,7 @@ describe("Server auto-shutdown", () => {
     // Connect a session — this cancels the idle timer and sets lastConnectionTimestamp
     vi.useRealTimers();
     const { WebSocket } = await import("ws");
-    const ws = new WebSocket(`ws://localhost:${piPort}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({
@@ -108,7 +109,7 @@ describe("Server auto-shutdown", () => {
 
     vi.useRealTimers();
     const { WebSocket } = await import("ws");
-    const ws = new WebSocket(`ws://localhost:${piPort}`);
+    const ws = new WebSocket(`ws://127.0.0.1:${piPort}`);
     await new Promise<void>((resolve) => {
       ws.on("open", () => {
         ws.send(JSON.stringify({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { searchPackages, fetchReadme, PackageNotFoundError, clearCaches } from "../npm-search-proxy.js";
+import { searchPackages, fetchReadme, PackageNotFoundError, clearCaches, deriveSkillIds } from "../npm-search-proxy.js";
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -148,6 +148,34 @@ describe("npm-search-proxy", () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
 
       await expect(fetchReadme("broken")).rejects.toThrow("npm registry fetch failed: 500");
+    });
+  });
+
+  describe("deriveSkillIds", () => {
+    it("derives skill ids as the basename of each pi.skills path", () => {
+      expect(
+        deriveSkillIds([".pi/skills/document-converter", ".pi/skills/frontend-mockup-loop"]),
+      ).toEqual(["document-converter", "frontend-mockup-loop"]);
+    });
+
+    it("returns undefined for missing, non-array, or empty input", () => {
+      expect(deriveSkillIds(undefined)).toBeUndefined();
+      expect(deriveSkillIds("nope")).toBeUndefined();
+      expect(deriveSkillIds([])).toBeUndefined();
+      expect(deriveSkillIds([42, null])).toBeUndefined();
+    });
+
+    it("tolerates trailing slashes and bare names", () => {
+      expect(deriveSkillIds(["skills/foo/", "bar"])).toEqual(["foo", "bar"]);
+    });
+
+    it("skips convention container dirs (skills/skill) it cannot resolve", () => {
+      expect(deriveSkillIds(["skills"])).toBeUndefined();
+      expect(deriveSkillIds(["./skill"])).toBeUndefined();
+      // A container mixed with a specific skill dir keeps only the resolvable one.
+      expect(deriveSkillIds(["skills", ".pi/skills/document-converter"])).toEqual([
+        "document-converter",
+      ]);
     });
   });
 });

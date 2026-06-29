@@ -52,7 +52,7 @@ export function registerSessionRoutes(
       }
       const events = eventStore.getEvents(sessionId, 0).map((e) => e.event);
       const files = extractFileChanges(events, session.cwd);
-      const result = enrichWithVcsDiff(session.cwd, files, session.jjState);
+      const result = enrichWithVcsDiff(session.cwd, files);
       return {
         success: true,
         data: {

@@ -3,8 +3,7 @@
  *
  * `hasGoal` reads the plugin per-session event store synchronously (safe
  * outside React) so the `session-card-badge` slot only mounts `GoalChip`
- * when an active/paused/done snapshot exists. Mirrors the jj-plugin
- * `isInJjWorkspace` predicate pattern.
+ * when an active/paused/done snapshot exists.
  *
  * See change: add-goal-continuation-plugin.
  */

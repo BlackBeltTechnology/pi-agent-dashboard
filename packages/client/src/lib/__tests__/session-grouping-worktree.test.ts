@@ -6,8 +6,6 @@
  * cluster-adjacency (see change: simplify-session-card-ordering, D8):
  *   - Worktree session collapses under its `gitWorktree.mainPath`.
  *   - Explicit pin of the worktree path wins (pin > worktree).
- *   - When BOTH jjState.workspaceRoot AND gitWorktree.mainPath apply,
- *     jj wins (jj is step 2, worktree is step 3).
  *   - Within a group, order is the flat `sessionOrder` ONLY — no cluster
  *     adjacency. A worktree session can sort ahead of the main checkout.
  */
@@ -15,7 +13,6 @@ import { describe, it, expect } from "vitest";
 import type {
   DashboardSession,
   GitWorktreeInfo,
-  JjState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   groupSessionsByDirectory,
@@ -26,9 +23,9 @@ function mk(
   id: string,
   cwd: string,
   startedAt: number,
-  opts: { jjState?: Partial<JjState>; gitWorktree?: GitWorktreeInfo } = {},
+  opts: { gitWorktree?: GitWorktreeInfo } = {},
 ): DashboardSession {
-  const { jjState, gitWorktree } = opts;
+  const { gitWorktree } = opts;
   return {
     id,
     cwd,
@@ -38,13 +35,12 @@ function mk(
     tokensIn: 0,
     tokensOut: 0,
     cost: 0,
-    ...(jjState ? { jjState: { isJjRepo: true, isColocated: true, ...jjState } as JjState } : {}),
     ...(gitWorktree ? { gitWorktree } : {}),
   } as DashboardSession;
 }
 
-describe("resolveSessionGroupPath — worktree precedence (step 3)", () => {
-  it("worktree session resolves to mainPath when no pin / jj applies", () => {
+describe("resolveSessionGroupPath — worktree precedence (step 2)", () => {
+  it("worktree session resolves to mainPath when no pin applies", () => {
     const s = mk("s", "/repo/.worktrees/feat-x", 100, {
       gitWorktree: { mainPath: "/repo", name: "feat-x" },
     });
@@ -57,14 +53,6 @@ describe("resolveSessionGroupPath — worktree precedence (step 3)", () => {
     });
     const pinnedKeys = new Set(["/repo/.worktrees/feat-x"]);
     expect(resolveSessionGroupPath(s, pinnedKeys, "linux")).toBe("/repo/.worktrees/feat-x");
-  });
-
-  it("jj workspace wins over worktree (step 2 before step 3)", () => {
-    const s = mk("s", "/repo/.shadow/np", 100, {
-      jjState: { workspaceRoot: "/parent-jj-root", workspaceName: "np" },
-      gitWorktree: { mainPath: "/parent-git-root", name: "shadow-np" },
-    });
-    expect(resolveSessionGroupPath(s, new Set(), "linux")).toBe("/parent-jj-root");
   });
 
   it("plain checkout falls through to cwd", () => {
@@ -148,19 +136,6 @@ describe("groupSessionsByDirectory — worktree grouping (no clustering)", () =>
     const { pinned } = groupSessionsByDirectory([a, b, c], orderMap, ["/repo"], "linux");
     // Flat order honored verbatim — no cluster rule pulls `a` (main) first.
     expect(pinned[0]!.sessions.map((s) => s.id)).toEqual(["c", "b", "a"]);
-  });
-
-  it("jj + worktree on same session: jj wins clustering too", () => {
-    const s = mk("s", "/repo/.shadow/np", 100, {
-      jjState: { workspaceRoot: "/repo", workspaceName: "jj-ws" },
-      gitWorktree: { mainPath: "/repo", name: "wt-cluster" },
-    });
-    const main = mk("main", "/repo", 200);
-    const { pinned } = groupSessionsByDirectory([s, main], undefined, ["/repo"], "linux");
-    expect(pinned[0]!.cwd).toBe("/repo");
-    // Both group under /repo (jj workspaceRoot wins the group key). Order is
-    // flat startedAt desc (no clustering): main(200) before s(100).
-    expect(pinned[0]!.sessions.map((s) => s.id)).toEqual(["main", "s"]);
   });
 
   it("backward-compat: session without gitWorktree behaves as plain checkout", () => {

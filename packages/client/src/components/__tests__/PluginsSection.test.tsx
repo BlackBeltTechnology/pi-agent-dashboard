@@ -145,11 +145,11 @@ describe("PluginsSection", () => {
         loaded: true,
         claims: 1,
         requirements: {
-          piExtensions: [{ name: "pi-memory-honcho", satisfied: false }],
+          piExtensions: [{ name: "pi-web-access", satisfied: false }],
           binaries: [],
           services: [],
         },
-        missingRequirements: ["pi-memory-honcho"],
+        missingRequirements: ["pi-web-access"],
       },
     });
     const { fetchImpl } = makeFetchSequence([
@@ -160,9 +160,9 @@ describe("PluginsSection", () => {
 
     render(<PluginsSection />);
 
-    expect(await screen.findByTestId("missing-piExtension-pi-memory-honcho")).toBeTruthy();
-    // pi-memory-honcho is in RECOMMENDED_EXTENSIONS so the inline Install button appears.
-    expect(screen.getByTestId("install-piExtension-pi-memory-honcho")).toBeTruthy();
+    expect(await screen.findByTestId("missing-piExtension-pi-web-access")).toBeTruthy();
+    // pi-web-access is in RECOMMENDED_EXTENSIONS so the inline Install button appears.
+    expect(screen.getByTestId("install-piExtension-pi-web-access")).toBeTruthy();
   });
 
   it("missing piExtensions without a recommended match render the fallback link", async () => {

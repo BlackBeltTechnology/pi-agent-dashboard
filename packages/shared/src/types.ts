@@ -5,38 +5,6 @@ export type SessionSource = "tui" | "zed" | "tmux" | "dashboard" | "terminal" | 
 export type SessionStatus = "active" | "idle" | "streaming" | "ended";
 
 /**
- * Per-session jj (Jujutsu) probe state. Populated by the bridge when the
- * cwd contains a `.jj/` directory and the `jj` tool resolves; otherwise
- * left undefined.
- * See change: add-jj-workspace-plugin.
- */
-export interface JjState {
-  /** True iff cwd is inside a jj repo (`.jj/` reachable). */
-  isJjRepo: boolean;
-  /** True iff the repo is jj-colocated with git (both `.jj/` and `.git/`). */
-  isColocated: boolean;
-  /**
-   * Name of the workspace whose working copy is at this cwd.
-   * `"default"` for the original/source workspace; user-named for siblings
-   * created via `jj workspace add`.
-   */
-  workspaceName?: string;
-  /**
-   * Absolute path of the **parent repo root** (== cwd for the default
-   * workspace; the parent directory of `.shadow/<name>/` for any
-   * `jj workspace add`-created workspace). Derived via `jj root`, NOT
-   * `jj workspace root` — the latter returns the current workspace's own
-   * cwd, which would defeat workspace-aware session grouping. See change:
-   * fix-jj-workspace-root-probe.
-   */
-  workspaceRoot?: string;
-  /** Bookmarks present on the workspace's `@-` (used by the badge / fold-back). */
-  bookmarks?: string[];
-  /** Last probe error, surfaced for diagnostics. Empty when probe succeeded. */
-  lastError?: string;
-}
-
-/**
  * Per-session git-worktree state. Populated by the bridge's VCS probe when
  * `git rev-parse --git-common-dir` resolves outside `--show-toplevel` (the
  * canonical signal that this cwd is a worktree, not the main checkout).
@@ -101,15 +69,6 @@ export interface DashboardSession {
   gitBranchUrl?: string;
   gitPrNumber?: number;
   gitPrUrl?: string;
-  /**
-   * Per-session jj (Jujutsu) state. Populated by the bridge's per-session
-   * VCS probe when (a) the tool registry resolves `jj` AND (b) `.jj/` exists
-   * in the session cwd. Absent or `{ isJjRepo: false }` for sessions outside
-   * a jj repo — jj-plugin slot predicates treat both as inactive. NOT
-   * persisted to `.meta.json`; refreshed on every probe tick.
-   * See change: add-jj-workspace-plugin.
-   */
-  jjState?: JjState;
   /**
    * Per-session git-worktree identity. Set only when the session's cwd
    * is a git worktree (not the main checkout). See `GitWorktreeInfo`.
@@ -830,6 +789,15 @@ export interface BashOutputData {
   exitCode: number;
   /** true for !! (silent), false for ! (sent to LLM) */
   excludeFromContext: boolean;
+  /**
+   * Set to "slash-exec" when the output originates from an executable-mode
+   * slash template (`executable: bash` frontmatter). The client renders an
+   * "ℹ ran locally — LLM not invoked" footer for this source. Absent for
+   * `!` / `!!` invocations — additive, backward-compatible (older clients
+   * ignore the field and render no footer).
+   * See change: add-dashboard-slash-commands.
+   */
+  source?: "slash-exec";
   /**
    * Set when the shell binary could not be resolved (e.g. no bash on a
    * clean Windows host). The client renders MissingToolInlineError
