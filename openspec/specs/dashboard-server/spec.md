@@ -551,9 +551,9 @@ Rationale: Windows 11 22H2+ ships without wmic by default. Continued use produce
 - **THEN** the function SHALL return the actual command line string of the running process
 - **AND** SHALL NOT return `null` solely because wmic is missing
 
-#### Scenario: No wmic shell-invocation anywhere in shipped code
-- **WHEN** a release artefact's source / dist tree is scanned for `execSync\(.*wmic` or `spawnSync\([^,]*wmic`
-- **THEN** zero matches SHALL be found outside of `__tests__` directories
+#### Scenario: No wmic invocation anywhere in shipped code
+- **WHEN** a release artefact's source / dist tree is scanned for any shipped child-process invocation (`exec`, `execSync`, `execFile`, `execFileSync`, `spawn`, `spawnSync`) referencing `wmic`
+- **THEN** zero matches SHALL be found outside `__tests__` directories
 
 #### Scenario: Settings → Tools row absent
 - **WHEN** the user opens Settings → Tools on a Win 11 22H2 install

@@ -9,9 +9,10 @@
  *
  * Scope: only OUR bundled workspace code (paths under `@blackbelt-technology/`),
  * excluding test files. Third-party node_modules are out of scope — we don't
- * control their source. Matches a process-spawn API call referencing `wmic`
- * on the same line (comments mentioning "no wmic" do NOT match: they carry no
- * exec/spawn token).
+ * control their source. Strips comments first (so prose like "no wmic" never
+ * matches), then matches a process-spawn API call whose argument list references
+ * `wmic` — across newlines too, since the PowerShell replacements (and a future
+ * wmic regression) span multiple lines.
  *
  * Exit 0 = clean. Exit 1 = violation(s) found (prints file:line). Exit 2 =
  * bundle dir missing (build did not run).
@@ -28,8 +29,31 @@ const BUNDLE_ROOT = path.resolve(__dirname, "..", "resources", "server");
 /** Only our bundled workspace packages carry this path segment. */
 const OWN_CODE_SEGMENT = `${path.sep}@blackbelt-technology${path.sep}`;
 const SCANNED_EXT = new Set([".js", ".cjs", ".mjs", ".ts"]);
-/** exec/spawn API call referencing wmic on the same line. */
-const WMIC_INVOCATION = /\b(?:execSync|execFileSync|spawnSync|execFile|exec|spawn)\b[^;\n]*\bwmic\b/i;
+/** Comments (block + line) — blanked to spaces so byte offsets / line numbers stay stable. */
+const COMMENTS = /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+/** Start of a process-spawn API call. */
+const SPAWN_CALL = /\b(?:execSync|execFileSync|spawnSync|execFile|exec|spawn)\s*\(/g;
+/** Max chars to scan past a call opener for a `wmic` argument (covers multiline argv). */
+const ARG_WINDOW = 400;
+
+/** Blank out comments, preserving newlines + length so offsets map back to source lines. */
+function stripComments(src) {
+  return src.replace(COMMENTS, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/** Find wmic-referencing spawn calls in a (comment-stripped) source string. */
+function findWmicCalls(src) {
+  const hits = [];
+  const code = stripComments(src);
+  for (let m = SPAWN_CALL.exec(code); m !== null; m = SPAWN_CALL.exec(code)) {
+    const window = code.slice(m.index, m.index + ARG_WINDOW);
+    if (/\bwmic\b/i.test(window)) {
+      const line = code.slice(0, m.index).split("\n").length;
+      hits.push({ line, text: code.slice(m.index).split("\n")[0].trim() });
+    }
+  }
+  return hits;
+}
 
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
@@ -59,15 +83,12 @@ function main() {
   let scanned = 0;
   for (const file of walk(BUNDLE_ROOT)) {
     if (!file.includes(OWN_CODE_SEGMENT)) continue;
-    if (file.includes(`${path.sep}__tests__${path.sep}`) || /\.test\.[cm]?[jt]s$/.test(file)) continue;
+    if (file.includes(`${path.sep}__tests__${path.sep}`) || /\.(?:test|spec)\.[cm]?[jt]s$/.test(file)) continue;
     if (!SCANNED_EXT.has(path.extname(file))) continue;
     scanned += 1;
-    const lines = readFileSync(file, "utf-8").split("\n");
-    lines.forEach((line, i) => {
-      if (WMIC_INVOCATION.test(line)) {
-        violations.push({ file: path.relative(BUNDLE_ROOT, file), line: i + 1, text: line.trim() });
-      }
-    });
+    for (const hit of findWmicCalls(readFileSync(file, "utf-8"))) {
+      violations.push({ file: path.relative(BUNDLE_ROOT, file), line: hit.line, text: hit.text });
+    }
   }
 
   if (violations.length > 0) {
