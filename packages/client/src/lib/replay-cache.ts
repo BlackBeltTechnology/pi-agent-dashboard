@@ -83,6 +83,18 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
 
   let dbPromise: Promise<IDBDatabase> | null = null;
 
+  // Monotonic access stamp for LRU ordering. Wall-clock `Date.now()` TIES under
+  // fast execution (multiple put/get in the same millisecond), making eviction
+  // order non-deterministic. Track the last issued value and bump by 1 on a tie
+  // so ordering is strictly increasing within the instance while staying ~wall-
+  // clock (a fresh session's Date.now() dominates any persisted prior stamp).
+  let lastStamp = 0;
+  function nextStamp(): number {
+    const now = Date.now();
+    lastStamp = now > lastStamp ? now : lastStamp + 1;
+    return lastStamp;
+  }
+
   function openDb(): Promise<IDBDatabase> {
     if (!factory) return Promise.reject(new Error("IndexedDB unavailable"));
     if (!dbPromise) {
@@ -136,7 +148,7 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
     await safe(async () => {
       const db = await openDb();
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put({ ...entry, lastAccess: Date.now() });
+      tx.objectStore(STORE).put({ ...entry, lastAccess: nextStamp() });
       await txDone(tx);
     }, undefined);
   }
@@ -154,7 +166,7 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
         schemaVersion,
         maxSeq: value.maxSeq,
         payload: value.payload,
-        lastAccess: Date.now(),
+        lastAccess: nextStamp(),
       };
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).put(entry);
