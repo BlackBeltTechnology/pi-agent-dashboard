@@ -148,6 +148,10 @@ export function replayEntriesAsEvents(
         if (msg.details && typeof msg.details === "object") {
           eventData.details = msg.details;
         }
+        // Strategy B (reduce-session-replay-traffic): attach the JSONL entry id
+        // so a replayed heavy tool result can be stubbed and its full body
+        // re-fetched by entryId from the full-fidelity route.
+        if (entry.id) eventData.entryId = entry.id;
         messages.push(makeEvent(sessionId, "tool_execution_end", ts, eventData));
         openToolCalls.delete(msg.toolCallId);
       }

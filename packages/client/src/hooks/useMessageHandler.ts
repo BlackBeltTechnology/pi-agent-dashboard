@@ -15,6 +15,7 @@ import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { pathKey, inferPlatform } from "../lib/session-grouping.js";
 import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
 import { clearLoadingHistory } from "../lib/loading-history.js";
+import type { ReplayPersister } from "../lib/replay-persist.js";
 import type {
   ServerToBrowserMessage,
   SpawnFailureCode,
@@ -127,6 +128,13 @@ export interface MessageHandlerDeps {
     workspaces: ReadonlyArray<{ folders: ReadonlyArray<string> }>;
     sessions: ReadonlyArray<{ cwd: string }>;
   }>;
+  /**
+   * Strategy A durable replay-cache writer. Accumulates raw events from
+   * `event` / `event_replay` and persists (debounced) so a reload can
+   * delta-subscribe. `session_state_reset` drops the entry.
+   * See change: reduce-session-replay-traffic.
+   */
+  replayPersister?: ReplayPersister;
 }
 
 export function useMessageHandler(
@@ -140,7 +148,7 @@ export function useMessageHandler(
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setViewMessagesMap, setLoadingHistory,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayPersister } = deps;
 
   return useCallback((msg: ServerToBrowserMessage) => {
     switch (msg.type) {
@@ -270,6 +278,10 @@ export function useMessageHandler(
           return next;
         });
         maxSeqMapRef.current.set(msg.sessionId, 0);
+        // Strategy A invalidation: purge the durable cache so stale history is
+        // never stitched onto reset sequence numbers; full replay rebuilds it.
+        // See change: reduce-session-replay-traffic.
+        replayPersister?.drop(msg.sessionId);
         // Mirror the reset into the plugin-runtime per-session event
         // store so plugin reducers (e.g. flows-plugin) re-derive from
         // a clean stream after a replay. See change:
@@ -287,6 +299,8 @@ export function useMessageHandler(
         if (msg.seq > (maxSeqMapRef.current.get(msg.sessionId) ?? 0)) {
           maxSeqMapRef.current.set(msg.sessionId, msg.seq);
         }
+        // Strategy A: accumulate the live event into the durable replay buffer.
+        replayPersister?.record(msg.sessionId, [{ seq: msg.seq, event: msg.event }]);
         // Publish to the plugin-runtime per-session event store so
         // plugin slot consumers calling `useSessionEvents(sessionId)`
         // re-render with the extended event list. The shell's reducer
@@ -490,6 +504,15 @@ export function useMessageHandler(
           if (lastEvt.seq > (maxSeqMapRef.current.get(msg.sessionId) ?? 0)) {
             maxSeqMapRef.current.set(msg.sessionId, lastEvt.seq);
           }
+        }
+        // Strategy A: mirror the reducer into the durable replay buffer. A
+        // full-sweep reset (shouldReset) replaces the buffer; a delta appends.
+        // This is also the reconciliation path: an offline-drift replay whose
+        // firstSeq <= maxSeq resets and rebuilds the persisted tail too.
+        // See change: reduce-session-replay-traffic.
+        if (msg.events.length > 0) {
+          if (shouldReset) replayPersister?.seed(msg.sessionId, msg.events);
+          else replayPersister?.record(msg.sessionId, msg.events);
         }
         // Exit LOADING: first content (clear immediately so partial history
         // paints) OR terminal marker for a genuinely-empty session
@@ -915,5 +938,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setLoadingHistory, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayPersister]);
 }

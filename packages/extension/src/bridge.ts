@@ -1588,6 +1588,15 @@ function initBridge(pi: ExtensionAPI) {
         } catch (err) {
           console.error("[dashboard] tool-result image inline failed:", err);
         }
+        // Strategy B (reduce-session-replay-traffic): attach a stable fetch key
+        // so a later replay can stub this result and the client can re-fetch the
+        // full body. Use `toolCallId` — reliably present on every tool result AND
+        // on its persisted JSONL `toolResult` entry (`message.toolCallId`), so
+        // the full-fidelity route resolves it even when the disk-replay entry.id
+        // is unknown on the live path. The route matches id OR toolCallId.
+        if ((event as any).entryId === undefined && typeof (event as any).toolCallId === "string") {
+          (event as any).entryId = (event as any).toolCallId;
+        }
       }
 
       const msg = mapEventToProtocol(sessionId, event);

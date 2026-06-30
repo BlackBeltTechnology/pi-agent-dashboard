@@ -24,5 +24,16 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // PW_E2E_CHANNEL (e.g. "chrome" / "msedge") launches the installed system
+  // browser instead of Playwright's bundled chromium download. Unset → default
+  // bundled chromium. See change: reduce-session-replay-traffic.
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(process.env.PW_E2E_CHANNEL ? { channel: process.env.PW_E2E_CHANNEL } : {}),
+      },
+    },
+  ],
 });

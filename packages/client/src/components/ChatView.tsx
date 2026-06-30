@@ -446,6 +446,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               startedAt={msg.startedAt}
               duration={msg.duration}
               toolDetails={msg.toolDetails}
+              stub={msg.stub ? { byteSize: msg.stubByteSize, entryId: msg.stubEntryId } : undefined}
               showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
               onAbort={msg.toolStatus === "running" ? onAbort : undefined}
               onForceKill={msg.toolStatus === "running" ? onForceKill : undefined}

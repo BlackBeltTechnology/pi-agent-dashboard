@@ -30,6 +30,16 @@ export interface ChatMessage {
   args?: Record<string, unknown>;
   result?: string;
   toolStatus?: "running" | "complete" | "error";
+  /**
+   * Strategy B (reduce-session-replay-traffic): this replayed tool result was
+   * shipped as a STUB. `result` holds only the preview; the full untruncated
+   * body is fetched on expand from `/api/sessions/:sessionId/tool-result/:stubEntryId`.
+   */
+  stub?: boolean;
+  /** True pre-truncation byte size, for the "Show full output (N KB)" label. */
+  stubByteSize?: number;
+  /** Stable JSONL entry id the full-fidelity route keys on. */
+  stubEntryId?: string;
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -1323,6 +1333,12 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
       const idx = next.messages.findLastIndex((m) => m.toolCallId === toolCallId);
       if (idx !== -1) {
         const result = data.result as string | undefined;
+        // Strategy B: a replayed heavy tool result arrives as a stub (preview +
+        // byteSize + entryId, no full body). Carry the stub metadata onto the
+        // ChatMessage so the renderer shows the preview + an expand-to-fetch
+        // affordance. See change: reduce-session-replay-traffic.
+        const isStub = data.stub === true;
+        const stubPreview = isStub && typeof data.preview === "string" ? (data.preview as string) : undefined;
         const msgStartedAt = next.messages[idx].startedAt;
         next.messages = [...next.messages];
         // Extract tool details (e.g. AgentDetails from replayed sessions)
@@ -1342,10 +1358,21 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         next.messages[idx] = {
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
-          result: result ? truncateLines(result, 30) : next.messages[idx].result,
+          result: isStub
+            ? stubPreview
+            : result
+              ? truncateLines(result, 30)
+              : next.messages[idx].result,
           duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
           ...(images ? { images } : {}),
           ...(mergedDetails ? { toolDetails: mergedDetails } : {}),
+          ...(isStub
+            ? {
+                stub: true,
+                stubByteSize: typeof data.byteSize === "number" ? (data.byteSize as number) : undefined,
+                stubEntryId: typeof data.entryId === "string" ? (data.entryId as string) : undefined,
+              }
+            : {}),
         };
       }
 

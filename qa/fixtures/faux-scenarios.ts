@@ -301,6 +301,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: "export const x = 1;\n",
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Strategy B (reduce-session-replay-traffic): a bash result > 4 KB. On a FULL
+  // replay (fresh browser context / cache miss) it ships as a STUB — preview =
+  // first 200 chars (HEADMARKER + X's), full untruncated body (ending in
+  // TAILMARKER) fetched on expand from the JSONL full-fidelity route.
+  // HEADMARKER lands in the 200-char preview; TAILMARKER only appears after the
+  // expand-fetch, so a spec can distinguish stub-preview from full-fidelity.
+  // Two-step so the agent TERMINATES after the tool result (a single-step
+  // toolScenario loops forever in a real pi session, flooding context).
+  "tool-bash-large": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command: "printf 'HEADMARKER'; printf 'X%.0s' $(seq 1 6000); printf 'TAILMARKER'",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("large output done")]),
+    ],
+    expect: { toolName: "bash" },
+  },
   // Fix B end-to-end: bash writes a real PNG + echoes its absolute path; the
   // bridge inlines it as a type:"image" block. Two-step so the agent TERMINATES
   // after the tool result (a single-step tool scenario would loop forever in a

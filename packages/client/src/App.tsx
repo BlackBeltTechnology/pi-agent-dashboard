@@ -69,6 +69,9 @@ import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent,
 import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
 import { clearLoadingHistory } from "./lib/loading-history.js";
+import { replayCache } from "./lib/replay-cache.js";
+import { createReplayPersister } from "./lib/replay-persist.js";
+import { rehydrateSession } from "./lib/rehydrate-session.js";
 import { useEditors } from "./lib/use-editors.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
@@ -465,6 +468,11 @@ export default function App() {
   const [displayPrefsLoaded, setDisplayPrefsLoaded] = useState(false);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
+  // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
+  // "already rehydrated from IndexedDB" guard so reconnect re-subscribes don't
+  // re-read (and clobber) live state. See change: reduce-session-replay-traffic.
+  const replayPersisterRef = useRef(createReplayPersister());
+  const rehydratedRef = useRef(new Set<string>());
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
@@ -603,7 +611,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current },
   );
 
   useEffect(() => {
@@ -754,15 +762,49 @@ export default function App() {
     // clears subscribedRef, and adding `status` here re-triggers the effect).
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
-      send({ type: "subscribe", sessionId: selectedId, lastSeq: maxSeqMapRef.current.get(selectedId) ?? 0 });
-      // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
-      // and cold (disk-load) paths uniformly, since the warm path never sends
-      // an empty `isLast:false` start marker.
-      // See change: show-chat-history-loading-indicator.
-      beginLoadingHistory(selectedId);
-      // Request model list for this session if we don't have it yet (e.g. after page refresh)
-      if (!modelsMap.has(selectedId)) {
-        send({ type: "request_models", sessionId: selectedId });
+      const sid = selectedId;
+      // Send subscribe with the resolved cursor, enter LOADING, and request
+      // models if missing. Extracted so the cache-rehydrate path can call it
+      // after the async IndexedDB read resolves.
+      const doSubscribe = (lastSeq: number) => {
+        send({ type: "subscribe", sessionId: sid, lastSeq });
+        // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
+        // and cold (disk-load) paths uniformly, since the warm path never sends
+        // an empty `isLast:false` start marker.
+        // See change: show-chat-history-loading-indicator.
+        beginLoadingHistory(sid);
+        // Request model list for this session if we don't have it yet (e.g. after page refresh)
+        if (!modelsMap.has(sid)) {
+          send({ type: "request_models", sessionId: sid });
+        }
+      };
+      // Strategy A (reduce-session-replay-traffic): on the FIRST subscribe after
+      // a page load (no live cursor yet, not previously rehydrated), try the
+      // durable replay cache. A hit pre-seeds reduced state + the raw-event
+      // buffer and subscribes with `lastSeq = persistedMaxSeq` so the server
+      // delta-replays only the tail. Any miss/error degrades to `lastSeq: 0`.
+      // Reconnect re-subscribes already hold a live cursor → skip the cache read.
+      if (!maxSeqMapRef.current.has(sid) && !rehydratedRef.current.has(sid)) {
+        rehydratedRef.current.add(sid);
+        void rehydrateSession(sid, replayCache)
+          .then((r) => {
+            if (r) {
+              setSessionStates((prev) => {
+                const next = new Map(prev);
+                // Don't clobber state that arrived live while the read was in flight.
+                if (!next.has(sid)) next.set(sid, r.state);
+                return next;
+              });
+              if (!maxSeqMapRef.current.has(sid)) maxSeqMapRef.current.set(sid, r.lastSeq);
+              replayPersisterRef.current.seed(sid, r.events);
+              doSubscribe(maxSeqMapRef.current.get(sid) ?? r.lastSeq);
+            } else {
+              doSubscribe(0);
+            }
+          })
+          .catch(() => doSubscribe(0));
+      } else {
+        doSubscribe(maxSeqMapRef.current.get(sid) ?? 0);
       }
     }
   }, [selectedId, send, status]);
