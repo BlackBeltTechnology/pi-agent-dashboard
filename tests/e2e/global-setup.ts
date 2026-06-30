@@ -22,6 +22,11 @@ const CHANGE = "change add-playwright-e2e";
 // binary is not downloaded; existsSync is the real gate. try/catch backstops
 // versions that throw instead. See change self-heal-host-playwright-browser.
 function assertBrowserInstalled(): void {
+  // System-browser mode (PW_CHANNEL=chrome/msedge/...) does not use the bundled
+  // Chromium; Playwright launches the host browser by channel and errors
+  // clearly itself if it is missing. Skip the bundled-binary gate then.
+  // See change: adopt-pi-071-072-073-features (PW_CHANNEL system-browser opt-in).
+  if (process.env.PW_CHANNEL) return;
   let execPath: string | undefined;
   try {
     execPath = chromium.executablePath();

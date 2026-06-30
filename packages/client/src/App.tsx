@@ -64,6 +64,10 @@ import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent,
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory } from "./lib/loading-history.js";
+// Strategy A (reduce-session-replay-traffic): durable replay cursor.
+import { replayCache } from "./lib/replay-cache.js";
+import { createReplayPersister } from "./lib/replay-persist.js";
+import { rehydrateSession } from "./lib/rehydrate-session.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import {
@@ -487,6 +491,11 @@ export default function App() {
   const [displayPrefsLoaded, setDisplayPrefsLoaded] = useState(false);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
+  // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
+  // "already rehydrated from IndexedDB" guard so reconnect re-subscribes don't
+  // re-read (and clobber) live state. See change: reduce-session-replay-traffic.
+  const replayPersisterRef = useRef(createReplayPersister());
+  const rehydratedRef = useRef(new Set<string>());
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
@@ -528,6 +537,12 @@ export default function App() {
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
           subscribedRef.current.clear();
+          // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
+          // guards too. Otherwise switching back to a server that still has the
+          // same sessionId skips rehydration (rehydratedRef hit) and resubscribes
+          // with a stale maxSeq against the now-empty sessionStates map.
+          maxSeqMapRef.current.clear();
+          rehydratedRef.current.clear();
         },
         setWsUrl,
         persistLastServer: (h, p) => {
@@ -625,7 +640,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current },
   );
 
   useEffect(() => {
@@ -776,15 +791,49 @@ export default function App() {
     // clears subscribedRef, and adding `status` here re-triggers the effect).
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
-      send({ type: "subscribe", sessionId: selectedId, lastSeq: maxSeqMapRef.current.get(selectedId) ?? 0 });
-      // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
-      // and cold (disk-load) paths uniformly, since the warm path never sends
-      // an empty `isLast:false` start marker.
-      // See change: show-chat-history-loading-indicator.
-      beginLoadingHistory(selectedId);
-      // Request model list for this session if we don't have it yet (e.g. after page refresh)
-      if (!modelsMap.has(selectedId)) {
-        send({ type: "request_models", sessionId: selectedId });
+      const sid = selectedId;
+      // Send subscribe with the resolved cursor, enter LOADING, and request
+      // models if missing. Extracted so the cache-rehydrate path can call it
+      // after the async IndexedDB read resolves.
+      const doSubscribe = (lastSeq: number) => {
+        send({ type: "subscribe", sessionId: sid, lastSeq });
+        // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
+        // and cold (disk-load) paths uniformly, since the warm path never sends
+        // an empty `isLast:false` start marker.
+        // See change: show-chat-history-loading-indicator.
+        beginLoadingHistory(sid);
+        // Request model list for this session if we don't have it yet (e.g. after page refresh)
+        if (!modelsMap.has(sid)) {
+          send({ type: "request_models", sessionId: sid });
+        }
+      };
+      // Strategy A (reduce-session-replay-traffic): on the FIRST subscribe after
+      // a page load (no live cursor yet, not previously rehydrated), try the
+      // durable replay cache. A hit pre-seeds reduced state + the raw-event
+      // buffer and subscribes with `lastSeq = persistedMaxSeq` so the server
+      // delta-replays only the tail. Any miss/error degrades to `lastSeq: 0`.
+      // Reconnect re-subscribes already hold a live cursor → skip the cache read.
+      if (!maxSeqMapRef.current.has(sid) && !rehydratedRef.current.has(sid)) {
+        rehydratedRef.current.add(sid);
+        void rehydrateSession(sid, replayCache)
+          .then((r) => {
+            if (r) {
+              setSessionStates((prev) => {
+                const next = new Map(prev);
+                // Don't clobber state that arrived live while the read was in flight.
+                if (!next.has(sid)) next.set(sid, r.state);
+                return next;
+              });
+              if (!maxSeqMapRef.current.has(sid)) maxSeqMapRef.current.set(sid, r.lastSeq);
+              replayPersisterRef.current.seed(sid, r.events);
+              doSubscribe(maxSeqMapRef.current.get(sid) ?? r.lastSeq);
+            } else {
+              doSubscribe(0);
+            }
+          })
+          .catch(() => doSubscribe(0));
+      } else {
+        doSubscribe(maxSeqMapRef.current.get(sid) ?? 0);
       }
     }
   }, [selectedId, send, status]);
@@ -900,17 +949,9 @@ export default function App() {
   }, []);
 
   // Safety timeout: clear stuck pendingPrompt after 30s and show error.
-  // Pauses while the prompt text appears in pi's mirrored queues
-  // (i.e. pi has acknowledged custody). Resumes on removal.
-  // See change: add-followup-edit-and-steer-cancel.
-  const _selectedSessionForQueue = selectedId ? sessions.get(selectedId) : undefined;
-  const queuedTextsForSelected: string[] = [
-    ...(_selectedSessionForQueue?.pendingQueues?.steering ?? []),
-    ...(_selectedSessionForQueue?.pendingQueues?.followUp ?? []),
-  ];
-  const safetyTimerPaused = !!(
-    selectedState.pendingPrompt && queuedTextsForSelected.includes(selectedState.pendingPrompt.text)
-  );
+  // `pendingPrompt` is idle-scoped now (only ever set for a fresh-turn send),
+  // so it can never co-exist with a mid-turn queue entry — no pause logic
+  // needed. See change: optimistic-prompt-progress.
   usePendingPromptTimeout(!!selectedState.pendingPrompt, useCallback(() => {
     if (selectedId) {
       setSessionStates((prev) => {
@@ -929,7 +970,7 @@ export default function App() {
         return next;
       });
     }
-  }, [selectedId, setSessionStates]), safetyTimerPaused);
+  }, [selectedId, setSessionStates]));
 
   const selectedCommands = selectedId
     ? sessionCommands.get(selectedId) ?? []
@@ -980,7 +1021,7 @@ export default function App() {
     // primitives). QueuePanel is display-only; Stop is now the bare abort
     // (no yank-to-draft, which produced ghost duplicates). See change:
     // honest-mid-turn-queue-surface.
-    handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleSend,
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
@@ -1476,7 +1517,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — ONE
@@ -1604,6 +1645,7 @@ export default function App() {
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
+            onStopAfterTurn={handleStopAfterTurn}
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}

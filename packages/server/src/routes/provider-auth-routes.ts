@@ -4,6 +4,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   getProviderHandler,
+  getAllHandlers,
   generatePKCE,
   generateState,
   type AuthCodeHandler,
@@ -102,6 +103,14 @@ export function registerProviderAuthRoutes(
   // List OAuth providers
   fastify.get("/api/provider-auth/providers", async () => {
     return getOAuthProvidersMeta();
+  });
+
+  // List provider ids the dashboard's hand-written handler registry can
+  // drive. Catalogue ids absent here = OAuth providers the UI knows about
+  // but the dashboard cannot complete a login flow for. See change:
+  // adopt-pi-071-072-073-features.
+  fastify.get("/api/provider-auth/handlers", async () => {
+    return { ids: getAllHandlers().map((h) => h.providerId) };
   });
 
   // Full status (OAuth + API key)

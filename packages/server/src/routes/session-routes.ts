@@ -37,6 +37,26 @@ export function registerSessionRoutes(
     },
   );
 
+  // Full tool result lookup (localhost-only). The client renders only the
+  // last N lines of large tool output; this returns the full stored result
+  // for the "Show full output" affordance. 404 when the tool call is still
+  // in flight or its event was evicted. See change:
+  // adopt-pi-071-072-073-features.
+  fastify.get<{ Params: { sessionId: string; toolCallId: string } }>(
+    "/api/sessions/:sessionId/tool-result/:toolCallId",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { sessionId, toolCallId } = request.params;
+      const event = eventStore.findToolEndEvent(sessionId, toolCallId);
+      if (!event) {
+        reply.code(404);
+        return { error: "tool call still in flight or unknown" };
+      }
+      const data = (event.data ?? {}) as Record<string, unknown>;
+      return { result: data.result ?? "", isError: data.isError === true };
+    },
+  );
+
   // Session file diff endpoint (localhost-only)
   fastify.get<{ Querystring: { sessionId?: string } }>(
     "/api/session-diff",

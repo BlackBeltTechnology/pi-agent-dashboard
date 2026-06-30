@@ -67,7 +67,7 @@ import type { TerminalManager } from "./terminal-manager.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { ViewMessageStore } from "./view-message-store.js";
-import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
+import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleStopAfterTurn, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
 import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleAcceptReplaceProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer } from "./browser-handlers/session-meta-handler.js";
 import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleOpenInlineTerminal, handleCloseInlineTerminal } from "./browser-handlers/terminal-handler.js";
 import { handlePinDirectory, handleUnpinDirectory, handleReorderPinnedDirs, handleFavoriteModel, handleUnfavoriteModel, handleReorderSessions, handleOpenSpecRefresh, handleOpenSpecBulkArchive, handleExtensionUiResponse, handlePiGatewayForward, handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleSetWorkspaceCollapsed, handleAddFolderToWorkspace, handleRemoveFolderFromWorkspace, handleReorderWorkspaceFolders, handleReorderWorkspaces } from "./browser-handlers/directory-handler.js";
@@ -437,6 +437,11 @@ export function createBrowserGateway(
             break;
           case "abort":
             handleAbort(msg, ctx);
+            break;
+          case "stop_after_turn":
+            if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
+              handleStopAfterTurn(msg, ctx);
+            }
             break;
           // ── Follow-up queue mutation (bridge-owned buffer) ─────────────────
           //

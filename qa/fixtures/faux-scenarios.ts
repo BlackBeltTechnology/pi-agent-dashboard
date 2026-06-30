@@ -306,6 +306,27 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: "export const x = 1;\n",
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
+  // On a FULL replay the server pre-truncates it to the display form
+  // (`«N earlier lines hidden»` + last 200 lines) to trim replay bytes; the
+  // client renders the truncated form + a "Show full output" affordance
+  // (develop's adopt-pi-071-072-073-features mechanism). 500 numbered lines so
+  // line 1 (HEADMARKER-1) is dropped from the 200-line tail. Two-step so the
+  // agent TERMINATES after the tool result.
+  "tool-bash-large": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command: "seq 1 500 | sed 's/^/HEADMARKER-/'",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("large output done")]),
+    ],
+    expect: { toolName: "bash" },
+  },
   // Fix B end-to-end: bash writes a real PNG + echoes its absolute path; the
   // bridge inlines it as a type:"image" block. Two-step so the agent TERMINATES
   // after the tool result (a single-step tool scenario would loop forever in a

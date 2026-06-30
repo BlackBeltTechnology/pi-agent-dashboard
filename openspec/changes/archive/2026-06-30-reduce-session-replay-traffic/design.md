@@ -96,6 +96,73 @@ schema (stable). Leaning raw-events for resilience; confirm payload size and
 load-time reduce cost before committing. This decision gates the IndexedDB schema
 and the invalidation frequency, so resolve it first.
 
+> **SUPERSEDED (Strategy B reconciliation).** Develop shipped the same
+> user-facing "Show full output for large tool results" feature
+> (`adopt-pi-071-072-073-features`) while this change was in flight. Strategy B's
+> original stub mechanism (`{stub, byteSize, preview, entryId}` + JSONL
+> full-fidelity route keyed on id/toolCallId) was DROPPED. The shipped Strategy B
+> is a minimal server-side replay optimization: `replay-truncate.ts`
+> `truncateToolResultForReplay` pre-truncates heavy (>200-line) tool results to
+> develop's display form (`«N earlier lines hidden»` + last 200 lines) during
+> replay to trim replay bytes, reusing develop's client render + `toolCallId`
+> route + a 1-line `truncateOutputForDisplay` idempotency guard. The decisions
+> and findings below (stub threshold, byteSize, entryId plumbing) are retained
+> as HISTORICAL design context only — see the reconciled
+> `specs/lazy-expand-full-fidelity/spec.md` for the shipped contract.
+
+## Resolved decisions (Phase 1)
+
+### 1.1 Persist raw events, re-reduce on load
+Cache `payload = StoredEvent[]` (`{ seq, event }[]` up to `maxSeq`), NOT reduced
+`ChatMessage[]`. Reducer is pure → re-reduce on load is one synchronous pass over
+in-memory events, negligible for typical sessions. Binds cache only to the stable
+event wire schema, so `schemaVersion` bumps stay rare. Per-session size cap +
+LRU bound IndexedDB growth. Sequencing: A+B ship together (1.3 confirmed).
+
+### 1.2 Do NOT persist the pi-asset registry
+`replaySessionAssets` re-sends the whole `pi-asset:<hash>` registry on EVERY
+subscribe (delta or full), so the delta replay after reload re-delivers assets.
+Persisting base64 blobs would bloat IndexedDB. Accept one-round-trip
+placeholder-until-delta for images; no asset persistence.
+
+### 1.3 entryId on tool_execution_end — plumb both paths, ship B with A
+`state-replay.ts`: tool-result `entry.id` already in scope at the
+`tool_execution_end` emit site → attach `entryId: entry.id`. Live bridge path:
+tool results arrive as separate `toolResult` messages; attach the leaf entry id
+via `ctx.sessionManager.getLeafId()` (same fallback `message_end` uses). Full-
+fidelity route keys on this `entryId`, reads session JSONL. B ships with A.
+
+### 1.4 Stub threshold ≥ 4 KB, preview 200 chars
+Stub a finalized tool result when its `result` byteSize ≥ 4_000. preview = first
+200 chars of the result. Results < 4 KB replay inline unchanged.
+Streaming/in-flight never stubbed.
+
+## Implementation findings (corrections to premise)
+
+### Truncation is DISABLED by default — byteSize must not gate on it
+Proposal premise "large tool outputs are silently truncated to 4 KB" is FALSE in
+the default config: `config.ts` `DEFAULT_MEMORY_LIMITS.maxStringFieldSize = 0`,
+and `createTruncator(<=0)` returns identity → no truncation. `memory-event-store`'s
+own function default (4000) is overridden by the server to 0. So `byteSize`
+recording MUST NOT gate on "a truncated copy exists" (that path never fires in
+prod). `recordToolResultByteSize` computes byteSize from the original result
+text directly, gated only by the stub threshold, and annotates a COPY of the
+stored event (fresh shallow copy when truncation is off) so the live-broadcast
+object is never mutated. Caught only by the Docker E2E (unit tests used the
+function default 4000 = truncation on); added a `maxStringFieldSize=0` regression.
+
+### Live tool results are STRUCTURED, not strings
+The live bridge forwards `tool_execution_end` `result` as
+`{ content: [{ type: "text", text }] }`, NOT a flat string (only disk replay via
+`state-replay.ts` produces a string). `extractToolResultText` normalizes both
+shapes for byteSize + preview + the JSONL route body.
+
+### Strategy B keys on toolCallId (live) / entry.id (disk)
+Live path attaches `entryId = toolCallId` (always present on the event AND on the
+JSONL `toolResult` entry's `message.toolCallId`); disk path attaches
+`entryId = entry.id`. The full-fidelity route matches `id` OR `toolCallId`, so
+either replay origin resolves — more robust than the `getLeafId()` guess.
+
 ## Risks
 
 - **Stale history after offline fork/edit.** Mitigated by provisional-render +

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { autoStartServer, type AutoStartDeps, type DiscoveredServer } from "../server-auto-start.js";
 
 function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
@@ -115,11 +116,35 @@ describe("autoStartServer", () => {
     expect(deps.notify).toHaveBeenCalledTimes(1);
     const [msg, level] = (deps.notify as any).mock.calls[0];
     expect(msg).toMatch(/Dashboard server failed to start: exited/);
-    // Spec requirement (fix-windows-server-parity): failure notification
-    // MUST include the absolute path to ~/.pi/dashboard/server.log.
-    expect(msg).toMatch(/server\.log/);
+    // Spec requirement (fix-windows-server-parity + fix-bridge-server-start-
+    // diagnostics): failure notification MUST include the absolute path
+    // returned by getDashboardServerLogPath() — the same file the bridge
+    // auto-spawn now writes — not a hardcoded string.
+    expect(msg).toContain(getDashboardServerLogPath());
     expect(level).toBe("warning");
     expect(result.server).toBeUndefined();
+  });
+
+  // fix-bridge-server-start-diagnostics (CodeRabbit #3): the "See log:" suffix
+  // must only appear when the spawn actually owned/opened the log file. A
+  // JitiNotFoundError is thrown BEFORE launchDashboardServer opens the logFile
+  // fd, so no server.log exists — pointing the user at it resurfaces issue #99.
+  // launchServer signals this via logOwned:false.
+  it("omits the 'See log' suffix when the failure never owned a log (logOwned:false)", async () => {
+    const deps = makeDeps({
+      discoverDashboard: vi.fn().mockResolvedValue([]),
+      isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+      launchServer: vi.fn().mockResolvedValue({ success: false, message: "loader missing", logOwned: false }),
+    });
+
+    await autoStartServer(baseConfig, deps);
+
+    expect(deps.notify).toHaveBeenCalledTimes(1);
+    const [msg, level] = (deps.notify as any).mock.calls[0];
+    expect(msg).toMatch(/Dashboard server failed to start: loader missing/);
+    expect(msg).not.toMatch(/See log/);
+    expect(msg).not.toContain(getDashboardServerLogPath());
+    expect(level).toBe("warning");
   });
 
   it("does nothing when autoStart is disabled and no server found", async () => {

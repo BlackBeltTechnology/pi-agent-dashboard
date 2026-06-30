@@ -1,5 +1,5 @@
 import type { CommandInfo, FileEntry, ImageContent, ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiClipboardText, mdiClose, mdiConsole, mdiFile, mdiFlash, mdiFolder, mdiPlay, mdiStop, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiClipboardText, mdiClose, mdiConsole, mdiFile, mdiFlash, mdiFolder, mdiPlay, mdiStop, mdiStopCircleOutline, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useImagePaste } from "../hooks/useImagePaste.js";
@@ -71,6 +71,8 @@ interface Props {
   retrying?: boolean;
   onAbort?: () => void;
   onForceKill?: () => void;
+  /** Graceful stop: finish the current turn, then end the session cleanly. */
+  onStopAfterTurn?: () => void;
   pendingPrompt?: boolean;
   onCancelPending?: () => void;
   /** Current session id — used to reset history-navigation state on switch. */
@@ -152,7 +154,7 @@ function extractAtQuery(text: string): string | null {
 
 type StopState = "idle" | "aborting" | "killing";
 
-export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages }: Props) {
+export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages }: Props) {
   const { t } = useI18n();
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
@@ -188,6 +190,19 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   useEffect(() => {
     if (sessionStatus !== "streaming" && !retrying) setStopState("idle");
   }, [sessionStatus, retrying]);
+
+  // Graceful stop-after-turn optimistic pill. Cleared once the session is no
+  // longer streaming (next agent_end / session_removed flips status).
+  // See change: adopt-pi-071-072-073-features.
+  const [stopAfterTurnRequested, setStopAfterTurnRequested] = useState(false);
+  useEffect(() => {
+    if (sessionStatus !== "streaming") setStopAfterTurnRequested(false);
+  }, [sessionStatus]);
+  // Reset across session switches — CommandInput is reused, so a new session
+  // must not inherit the previous session's optimistic pill state.
+  useEffect(() => {
+    setStopAfterTurnRequested(false);
+  }, [sessionId]);
 
   // Reset history-navigation state whenever the session changes.
   useEffect(() => {
@@ -673,6 +688,26 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         >
           <Icon path={mdiPlay} size={0.7} />
         </button>
+        {isWorking && onStopAfterTurn && stopState === "idle" && !pendingPrompt && (
+          stopAfterTurnRequested ? (
+            <span
+              className="flex items-center gap-1 px-2 self-end text-xs text-[var(--text-muted)]"
+              data-testid="stop-after-turn-pill"
+            >
+              <Icon path={mdiStopCircleOutline} size={0.6} />
+              {t("command.stoppingAfterTurn", undefined, "stopping after this turn…")}
+            </span>
+          ) : (
+            <button
+              onClick={() => { onStopAfterTurn(); setStopAfterTurnRequested(true); }}
+              className="p-2 bg-[var(--bg-tertiary)] rounded-lg hover:bg-[var(--bg-secondary)] self-end"
+              title={t("command.stopAfterTurn", undefined, "Stop after turn — finish this turn, then end cleanly")}
+              data-testid="stop-after-turn-button"
+            >
+              <Icon path={mdiStopCircleOutline} size={0.7} />
+            </button>
+          )
+        )}
         {(isWorking || pendingPrompt) && (onAbort || onCancelPending) && stopState === "idle" && (
           <button
             onClick={() => {

@@ -2,7 +2,7 @@ import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtim
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
 import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiChevronDown, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiCheck, mdiChevronDown, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
@@ -52,13 +52,6 @@ interface Props {
   onCloseInlineTerminal?: (terminalId: string) => void;
   // onDismissError / onRetryAfterError moved to App.tsx → SessionBanner.
   // See change: unify-status-banner-and-terminal-limit-stop.
-  /**
-   * Texts currently in the bridge-owned mid-turn queue. When `pendingPrompt.text`
-   * matches an entry, the optimistic card is suppressed in favour of the
-   * queue chip rendered by `QueuePanel`. See modified `optimistic-prompt`
-   * capability + change `surface-mid-turn-prompt-queue`.
-   */
-  queuedTexts?: string[];
   /**
    * Pending steer messages from `Session.pendingQueues.steering`. Rendered
    * inline at the bottom of the chat list as user-style bubbles with a
@@ -196,7 +189,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, queuedTexts, pendingSteering, loadingHistory }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -602,12 +595,16 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         </div>
       ))}
 
-      {/* Legacy optimistic pending prompt card. Write site removed in v2;
-          this block stays dead-code so existing fixtures keep validating.
-          See change: surface-mid-turn-prompt-queue. */}
-      {state.pendingPrompt && !(queuedTexts?.includes(state.pendingPrompt.text)) && (
-        <div data-testid="pending-prompt-card" className="mt-4 mb-4 flex justify-end">
-          <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
+      {/* Optimistic pending-prompt card (idle-scoped). Re-wired write site in
+          useSessionActions.handleSend / handleSendPromptToSession. Two progress
+          states keyed off `pendingPrompt.status`, sharing identical bubble
+          geometry with a server-sourced user card so confirmation causes zero
+          layout shift. No queue-text suppression: idle-scoping guarantees the
+          card can never co-exist with a mid-turn queue chip.
+          See change: optimistic-prompt-progress. */}
+      {state.pendingPrompt && (
+        <div data-testid="pending-prompt-card" data-status={state.pendingPrompt.status} className="mt-4 mb-4 flex justify-end">
+          <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax} ${state.pendingPrompt.status === "sending" ? "opacity-60 prompt-sending-fx prompt-edge-pulse" : ""}`}>
             {state.pendingPrompt.images && state.pendingPrompt.images.length > 0 && (
               <ImageAttachments images={state.pendingPrompt.images} />
             )}
@@ -616,12 +613,17 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
                 <MarkdownContent content={state.pendingPrompt.text} />
               </div>
               <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                {state.pendingPrompt.delivery === "steer" ? (
-                  <span className="text-[10px] text-blue-400/70 font-medium">steering</span>
-                ) : state.pendingPrompt.delivery === "followUp" ? (
-                  <span className="text-[10px] text-amber-400/70 font-medium">follow-up</span>
-                ) : null}
-                <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
+                {state.pendingPrompt.status === "sending" ? (
+                  <>
+                    <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
+                    <span className="text-[10px] text-blue-400/70 font-medium">sending</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon path={mdiCheck} size={0.7} className="text-emerald-400 prompt-tick-in" />
+                    <span className="text-[10px] text-emerald-400/80 font-medium">sent</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -633,7 +635,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
         loading spinner while history is in flight, "No messages yet" for a
         genuinely-empty session, else nothing (bubbles render above).
       */}
-      {state.messages.length === 0 && !state.streamingText && !(state.pendingPrompt && !(queuedTexts?.includes(state.pendingPrompt.text))) && !(pendingSteering && pendingSteering.length > 0) && (
+      {state.messages.length === 0 && !state.streamingText && !state.pendingPrompt && !(pendingSteering && pendingSteering.length > 0) && (
         loadingHistory ? (
           <div
             className="flex flex-col gap-3 px-4 py-3"

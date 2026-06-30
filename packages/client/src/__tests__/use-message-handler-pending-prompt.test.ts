@@ -79,7 +79,7 @@ const SID = "session-abc";
 
 function stateWithPendingPrompt(): SessionState {
   const s = createInitialState();
-  s.pendingPrompt = { text: "hello", images: undefined };
+  s.pendingPrompt = { text: "hello", images: undefined, status: "sending" };
   // Mutate a couple of other fields to confirm they ARE reset (regression
   // guard: we must not silently expand the carry-over set).
   (s as any).streamingText = "leftover stream";
@@ -94,7 +94,7 @@ describe("useMessageHandler — pendingPrompt across reset/replay", () => {
     dispatch({ type: "session_state_reset", sessionId: SID });
 
     const after = getStates().get(SID)!;
-    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined });
+    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sending" });
     // Other fields wiped to defaults.
     expect(after.streamingText).toBe(createInitialState().streamingText);
     expect(after.messages).toEqual(createInitialState().messages);
@@ -116,7 +116,34 @@ describe("useMessageHandler — pendingPrompt across reset/replay", () => {
     });
 
     const after = getStates().get(SID)!;
-    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined });
+    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sending" });
+  });
+
+  it("prompt_received{fresh:true} promotes pendingPrompt to sent", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt()]]);
+    const { dispatch, getStates } = makeHarness(initial);
+
+    dispatch({ type: "prompt_received", sessionId: SID, fresh: true });
+
+    expect(getStates().get(SID)!.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sent" });
+  });
+
+  it("prompt_received{fresh:false} drops pendingPrompt (raced mid-turn)", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt()]]);
+    const { dispatch, getStates } = makeHarness(initial);
+
+    dispatch({ type: "prompt_received", sessionId: SID, fresh: false });
+
+    expect(getStates().get(SID)!.pendingPrompt).toBeUndefined();
+  });
+
+  it("prompt_received is a no-op when no pendingPrompt exists", () => {
+    const initial = new Map<string, SessionState>([[SID, createInitialState()]]);
+    const { dispatch, getStates } = makeHarness(initial);
+
+    dispatch({ type: "prompt_received", sessionId: SID, fresh: true });
+
+    expect(getStates().get(SID)!.pendingPrompt).toBeUndefined();
   });
 
   it("event_replay (no reset, firstSeq>maxSeq) does not touch pendingPrompt", () => {
@@ -132,6 +159,6 @@ describe("useMessageHandler — pendingPrompt across reset/replay", () => {
     });
 
     const after = getStates().get(SID)!;
-    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined });
+    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sending" });
   });
 });

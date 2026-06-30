@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { Icon } from "@mdi/react";
 import { mdiConsole } from "@mdi/js";
+import { truncateOutputForDisplay, TRUNCATION_MARKER_PREFIX } from "../lib/event-reducer.js";
+import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   command: string;
@@ -18,6 +21,14 @@ interface Props {
 export function BashOutputCard({ command, output, exitCode, excludeFromContext, source }: Props) {
   const isSuccess = exitCode === 0;
   const ranLocally = source === "slash-exec";
+
+  // Show-full-output affordance, mirroring ToolCallStep. The full output is
+  // already in client state (user `!bash`), so the toggle is purely local —
+  // no server fetch. See change: adopt-pi-071-072-073-features.
+  const [showFull, setShowFull] = useState(false);
+  const truncated = truncateOutputForDisplay(output);
+  const isTruncated = truncated.startsWith(TRUNCATION_MARKER_PREFIX);
+  const displayOutput = showFull ? output : truncated;
 
   return (
     <div className="mt-2 mb-2">
@@ -46,8 +57,21 @@ export function BashOutputCard({ command, output, exitCode, excludeFromContext, 
         {/* Output */}
         {output && (
           <pre className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)] overflow-x-auto max-h-[300px] overflow-y-auto whitespace-pre-wrap break-all">
-            {output}
+            {displayOutput}
           </pre>
+        )}
+        {isTruncated && (
+          <div className="px-3 pb-2 text-xs">
+            <button
+              onClick={() => setShowFull((v) => !v)}
+              className="text-[var(--accent)] hover:underline"
+              data-testid="bash-show-full-output"
+            >
+              {showFull
+                ? i18nT("auto.collapse_output", undefined, "Collapse output")
+                : i18nT("auto.show_full_output", undefined, "Show full output")}
+            </button>
+          </div>
         )}
         {/* Discoverability footer: only for executable-mode slash templates.
             Signals the operation was free (no LLM call). Absent for ! / !!.

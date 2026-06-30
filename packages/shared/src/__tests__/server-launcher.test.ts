@@ -8,6 +8,9 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   launchDashboardServer,
   JitiNotFoundError,
@@ -165,6 +168,70 @@ describe("launchDashboardServer — log-file stdio", () => {
     const closeIdx = calls.findIndex((c) => c.startsWith("close:42"));
     const writeIdx = calls.findIndex((c) => c.startsWith("write:42"));
     expect(closeIdx).toBeGreaterThan(writeIdx);
+  });
+});
+
+// fix-bridge-server-start-diagnostics: the bridge auto-spawn now passes
+// stdio:{logFile} (was "ignore") and healthTimeoutMs:10000 (was 2000). These
+// scenarios pin the shared primitive against the extension contract: the log
+// file is really created with a header line, and a slow cold start that only
+// becomes health-OK after the old 2 s mark (but before 10 s) resolves.
+describe("launchDashboardServer — extension auto-spawn contract", () => {
+  it("creates the log file with a header line (real fs, task 2.4)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-launch-log-"));
+    const logFile = join(dir, "nested", "server.log");
+    try {
+      const result = await launchDashboardServer(baseOpts({
+        stdio: { logFile },
+        starter: "Bridge",
+        // Real fs (no _fs stub) so the header is actually written to disk.
+        _spawnNodeScript: spawnSpy(() => makeFakeChild()),
+      }));
+      expect(result.healthOk).toBe(true);
+      expect(existsSync(logFile)).toBe(true);
+      const contents = readFileSync(logFile, "utf8");
+      expect(contents).toContain("Bridge launch");
+      expect(contents).toMatch(/\(parent pid \d+, port 8000, cli/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("slow cold start: health-OK after >2 s but <10 s resolves without readiness timeout (task 4.2)", async () => {
+    // Simulate the slow-host case: the server reaches writePid() but is not
+    // health-OK until well past the old 2 s window. The 10 s window must
+    // accommodate it. `now` advances 1 s per probe; `running` flips true on
+    // the 4th probe (~3 s elapsed > 2 s, < 10 s).
+    let now = 0;
+    let probes = 0;
+    const result = await launchDashboardServer(baseOpts({
+      healthTimeoutMs: 10_000,
+      _now: () => now,
+      _isDashboardRunning: probeSpy(async () => {
+        probes += 1;
+        now += 1_000; // each poll advances simulated clock by 1 s
+        return probes >= 4 ? { running: true, pid: 99 } : { running: false };
+      }),
+    }));
+    expect(result.healthOk).toBe(true);
+    expect(result.reportedPid).toBe(99);
+    expect(probes).toBe(4);
+  });
+
+  it("2 s window would have timed out the same slow start (regression guard)", async () => {
+    // Same slow start, but with the OLD 2 s window: it must reject with
+    // readiness timeout — demonstrating why the bump to 10 s is required.
+    let now = 0;
+    let probes = 0;
+    await expect(launchDashboardServer(baseOpts({
+      healthTimeoutMs: 2_000,
+      _now: () => now,
+      _isDashboardRunning: probeSpy(async () => {
+        probes += 1;
+        now += 1_000;
+        return probes >= 4 ? { running: true, pid: 99 } : { running: false };
+      }),
+    }))).rejects.toThrow(/readiness timeout/);
   });
 });
 
