@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, toDisplayString, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, extractAgentEndError, type SessionState, type PendingPrompt, type ChatMessage } from "../event-reducer.js";
+import { applyPromptReceived, createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, toDisplayString, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, extractAgentEndError, type SessionState, type PendingPrompt, type ChatMessage } from "../event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
@@ -886,7 +886,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should preserve pendingPrompt through unrelated events", () => {
-    const pending: PendingPrompt = { text: "Hello" };
+    const pending: PendingPrompt = { status: "sending", text: "Hello" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -908,7 +908,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt on message_start with role user", () => {
-    const pending: PendingPrompt = { text: "Fix the bug" };
+    const pending: PendingPrompt = { status: "sending", text: "Fix the bug" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -926,7 +926,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt on agent_start", () => {
-    const pending: PendingPrompt = { text: "Do something" };
+    const pending: PendingPrompt = { status: "sending", text: "Do something" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -939,7 +939,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should not clear pendingPrompt on message_start with non-user role", () => {
-    const pending: PendingPrompt = { text: "Hello" };
+    const pending: PendingPrompt = { status: "sending", text: "Hello" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -958,7 +958,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt on bash_output event", () => {
-    const pending: PendingPrompt = { text: "!!ls" };
+    const pending: PendingPrompt = { status: "sending", text: "!!ls" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -971,7 +971,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt on command_feedback event", () => {
-    const pending: PendingPrompt = { text: "/compact" };
+    const pending: PendingPrompt = { status: "sending", text: "/compact" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -984,14 +984,14 @@ describe("pendingPrompt", () => {
   });
 
   it("should store delivery field on pendingPrompt", () => {
-    const pending: PendingPrompt = { text: "Focus", delivery: "steer" };
+    const pending: PendingPrompt = { status: "sending", text: "Focus", delivery: "steer" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
-    expect(state.pendingPrompt).toEqual({ text: "Focus", delivery: "steer" });
+    expect(state.pendingPrompt).toEqual({ status: "sending", text: "Focus", delivery: "steer" });
   });
 
   it("should preserve delivery field on pendingPrompt through unrelated events", () => {
-    const pending: PendingPrompt = { text: "Later", delivery: "followUp" };
+    const pending: PendingPrompt = { status: "sending", text: "Later", delivery: "followUp" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1000,11 +1000,11 @@ describe("pendingPrompt", () => {
       timestamp: Date.now(),
       data: { tokensIn: 10, tokensOut: 5, contextUsage: { tokens: 100 } },
     });
-    expect(state.pendingPrompt).toEqual({ text: "Later", delivery: "followUp" });
+    expect(state.pendingPrompt).toEqual({ status: "sending", text: "Later", delivery: "followUp" });
   });
 
   it("should clear pendingPrompt with delivery on message_start (role: user)", () => {
-    const pending: PendingPrompt = { text: "Now", delivery: "steer" };
+    const pending: PendingPrompt = { status: "sending", text: "Now", delivery: "steer" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1022,7 +1022,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt with delivery on agent_start", () => {
-    const pending: PendingPrompt = { text: "Go", delivery: "steer" };
+    const pending: PendingPrompt = { status: "sending", text: "Go", delivery: "steer" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1035,7 +1035,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt with delivery on agent_end", () => {
-    const pending: PendingPrompt = { text: "Done", delivery: "followUp" };
+    const pending: PendingPrompt = { status: "sending", text: "Done", delivery: "followUp" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1048,7 +1048,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt with delivery on bash_output", () => {
-    const pending: PendingPrompt = { text: "!!ls", delivery: "followUp" };
+    const pending: PendingPrompt = { status: "sending", text: "!!ls", delivery: "followUp" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1061,7 +1061,7 @@ describe("pendingPrompt", () => {
   });
 
   it("should clear pendingPrompt with delivery on command_feedback", () => {
-    const pending: PendingPrompt = { text: "/compact", delivery: "steer" };
+    const pending: PendingPrompt = { status: "sending", text: "/compact", delivery: "steer" };
     let state = createInitialState();
     state = { ...state, pendingPrompt: pending };
 
@@ -1071,6 +1071,32 @@ describe("pendingPrompt", () => {
       data: { command: "/compact", status: "started" },
     });
     expect(state.pendingPrompt).toBeUndefined();
+  });
+});
+
+// Bridge `prompt_received` ack handling. See change: optimistic-prompt-progress.
+describe("applyPromptReceived", () => {
+  it("fresh:true promotes a sending pendingPrompt to sent", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sending" } };
+    const next = applyPromptReceived(state, true);
+    expect(next.pendingPrompt).toEqual({ text: "hi", status: "sent" });
+  });
+
+  it("fresh:false drops pendingPrompt entirely (raced mid-turn)", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sending" } };
+    const next = applyPromptReceived(state, false);
+    expect(next.pendingPrompt).toBeUndefined();
+  });
+
+  it("is a no-op when no pendingPrompt exists", () => {
+    const state = createInitialState();
+    expect(applyPromptReceived(state, true)).toBe(state);
+    expect(applyPromptReceived(state, false)).toBe(state);
+  });
+
+  it("fresh:true is idempotent on an already-sent prompt", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptReceived(state, true)).toBe(state);
   });
 });
 
@@ -2470,7 +2496,7 @@ describe("lastError extraction from agent_end", () => {
 describe("pendingPrompt safety", () => {
   it("should clear pendingPrompt on agent_end", () => {
     let state = createInitialState();
-    state = { ...state, pendingPrompt: { text: "Fix the bug" } };
+    state = { ...state, pendingPrompt: { text: "Fix the bug", status: "sending" } };
 
     state = reduceEvent(state, {
       eventType: "agent_end",
@@ -2482,7 +2508,7 @@ describe("pendingPrompt safety", () => {
 
   it("should clear pendingPrompt on agent_end even when error occurs", () => {
     let state = createInitialState();
-    state = { ...state, pendingPrompt: { text: "Fix the bug" } };
+    state = { ...state, pendingPrompt: { text: "Fix the bug", status: "sending" } };
 
     state = reduceEvent(state, {
       eventType: "agent_end",

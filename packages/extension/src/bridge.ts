@@ -1154,6 +1154,11 @@ function initBridge(pi: ExtensionAPI) {
       // See change: rework-mid-turn-prompt-queue (design.md D1).
       const deliverAs = delivery ?? ("followUp" as const);
       const wasStreaming = getBridgeState().isAgentStreaming;
+      // Per-send ack carrying the capture-before-send streaming verdict (slash /
+      // flow / template path). Mirrors the passthrough emit in command-handler.
+      // fresh:true → optimistic bubble "sent"; fresh:false → drop (raced mid-turn).
+      // See change: optimistic-prompt-progress.
+      connection.send({ type: "prompt_received", sessionId, fresh: !wasStreaming });
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
       if (wasStreaming && deliverAs === "followUp") {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The

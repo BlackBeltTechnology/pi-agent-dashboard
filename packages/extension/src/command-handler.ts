@@ -516,6 +516,11 @@ export function createCommandHandler(
           //
           // See change: rework-mid-turn-prompt-queue (design.md D1).
           const wasStreaming = options?.isStreaming?.() ?? false;
+          // Per-send ack carrying the capture-before-send streaming verdict.
+          // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
+          // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
+          // the snapshot is authoritative. See change: optimistic-prompt-progress.
+          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming });
           const da = msg.delivery ?? "followUp";
           if (wasStreaming && da === "followUp") {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage.

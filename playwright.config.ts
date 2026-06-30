@@ -24,5 +24,15 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Browser channel is env-driven so the suite can run against the SYSTEM
+  // browser instead of Playwright's bundled Chromium. `PW_CHANNEL=chrome`
+  // (or `msedge`, `chromium`) launches the installed binary — no
+  // `playwright install chromium` download needed. Default (unset) keeps the
+  // bundled Chromium. See change: optimistic-prompt-progress (e2e).
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], channel: process.env.PW_CHANNEL || undefined },
+    },
+  ],
 });

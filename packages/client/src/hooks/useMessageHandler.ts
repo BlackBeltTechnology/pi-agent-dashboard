@@ -3,7 +3,7 @@
  * Extracted from App.tsx — maps each message type to the correct state setter.
  */
 import { useCallback } from "react";
-import { createInitialState, reduceEvent, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
+import { createInitialState, reduceEvent, applyPromptReceived, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
 import type { DashboardSession, CommandInfo, FileEntry, OpenSpecData, OpenSpecGroup, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -293,6 +293,19 @@ export function useMessageHandler(
         // and the plugin store consume the same `msg.event`. See
         // change: pluginize-flows-via-registry.
         publishSessionEvent(msg.sessionId, msg.event);
+        break;
+
+      // Bridge ack for an idle-scoped optimistic send. fresh:true promotes the
+      // pendingPrompt bubble to "sent"; fresh:false drops it (the send raced
+      // into a mid-turn queue entry). See change: optimistic-prompt-progress.
+      case "prompt_received":
+        setSessionStates((prev) => {
+          const current = prev.get(msg.sessionId);
+          if (!current?.pendingPrompt) return prev;
+          const next = new Map(prev);
+          next.set(msg.sessionId, applyPromptReceived(current, msg.fresh));
+          return next;
+        });
         break;
 
       // chat-markdown-local-images-and-math: bridge-emitted local-image asset.

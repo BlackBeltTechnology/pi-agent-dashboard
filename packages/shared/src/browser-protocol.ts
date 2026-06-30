@@ -758,6 +758,7 @@ export type ServerToBrowserMessage =
   | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage
+  | PromptReceivedToBrowserMessage
   | ViewMessagesUpdateMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
@@ -842,6 +843,18 @@ export interface QueueUpdateToBrowserMessage {
   sessionId: string;
   steering: string[];
   followUp: string[];
+}
+
+/**
+ * Server -> browser: forwarded bridge ack for a `send_prompt`. `fresh:true`
+ * transitions the optimistic `pendingPrompt` to `status:"sent"`; `fresh:false`
+ * drops `pendingPrompt` (the send raced into a mid-turn queue entry, now owned
+ * by `mid-turn-prompt-queue`). See change: optimistic-prompt-progress.
+ */
+export interface PromptReceivedToBrowserMessage {
+  type: "prompt_received";
+  sessionId: string;
+  fresh: boolean;
 }
 
 /**

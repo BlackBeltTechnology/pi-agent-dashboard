@@ -99,8 +99,11 @@ Reference: `openspec/changes/optimistic-prompt-progress/mockup/index.html`.
         └── 30s no confirm ────────────▶ usePendingPromptTimeout clears + surfaces error (unchanged)
 ```
 
-## Open questions
+## Open questions — resolved
 
-1. **Does the bridge already expose a per-send ack?** If `send_prompt` handling can cheaply emit `prompt_received` with the capture-before-send verdict, Decision 2/3 is low-cost. If not, scope includes a new bridge→server→browser message. (Investigate `packages/extension/src/bridge.ts` send path + `browser-protocol.ts`.)
+1. **Does the bridge already expose a per-send ack?** RESOLVED — no existing per-send ack; a new `prompt_received` message is in scope. The capture-before-send streaming verdict is snapshotted at two sites BEFORE any `pi.sendUserMessage`:
+   - `packages/extension/src/command-handler.ts:518` — `const wasStreaming = options?.isStreaming?.() ?? false;` (passthrough regular-text path).
+   - `packages/extension/src/bridge.ts:1156` — `const wasStreaming = getBridgeState().isAgentStreaming;` (slash / flow / template path via `sessionPrompt`).
+   Both emit `prompt_received { sessionId, fresh: !wasStreaming }` via the event sink immediately after the snapshot. `fresh:true` ⇒ idle/fresh-turn send ⇒ client sets `status:"sent"`; `fresh:false` ⇒ raced mid-turn ⇒ client drops `pendingPrompt`. New message added bridge→server→browser: `PromptReceivedToServerMessage` (protocol.ts, ExtensionToServerMessage), `PromptReceivedToBrowserMessage` (browser-protocol.ts, ServerToBrowserMessage), server pass-through in `event-wiring.ts` next to `queue_update` via `browserGateway.sendToSubscribers`.
 2. **`handleSendPromptToSession` (card/board quick-send) vs `handleSend` (composer)** — both must apply the idle guard. Quick-send from a non-selected session means the client may not hold fresh `state` for that session; the bridge ack (Decision 2) covers this since the verdict is bridge-side, not client-snapshot-side.
 3. **Multiple rapid idle sends** — out of scope here (idle send starts a turn, so a second idle send is by definition mid-turn → queue). The "multiple in-flight pending" v1 requirement is superseded by idle-scoping; the spec delta removes it.

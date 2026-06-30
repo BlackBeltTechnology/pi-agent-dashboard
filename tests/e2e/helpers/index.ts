@@ -26,6 +26,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Optimistic idle-send bubble + mid-turn follow-up queue chip.
+  // See change: optimistic-prompt-progress.
+  pendingPromptCard: "pending-prompt-card",
+  queueChipFollowup: "queue-chip-followup",
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",

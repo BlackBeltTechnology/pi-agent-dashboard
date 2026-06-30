@@ -22,6 +22,10 @@ const CHANGE = "change add-playwright-e2e";
 // binary is not downloaded; existsSync is the real gate. try/catch backstops
 // versions that throw instead. See change self-heal-host-playwright-browser.
 function assertBrowserInstalled(): void {
+  // System-browser mode (PW_CHANNEL=chrome|msedge|chromium) launches the
+  // installed binary, not Playwright's bundled Chromium — skip the download
+  // gate. See change: optimistic-prompt-progress (e2e).
+  if (process.env.PW_CHANNEL) return;
   let execPath: string | undefined;
   try {
     execPath = chromium.executablePath();
