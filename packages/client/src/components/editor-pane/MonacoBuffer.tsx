@@ -60,6 +60,9 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
   const { resolved, themeName } = useTheme();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Server omits `content` for binary/image/pdf kinds (e.g. an extension-less
+  // file the client guessed as text but the server NUL-sniffed as binary).
+  const [unsupported, setUnsupported] = useState(false);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
 
@@ -68,6 +71,7 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
     let active = true;
     setContent(null);
     setError(null);
+    setUnsupported(false);
     fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
       .then((res) => res.json())
       .then((body) => {
@@ -76,13 +80,27 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
           setError(body.error ?? "Failed to load file");
           return;
         }
-        setContent(body.data.content ?? "");
+        if (typeof body.data.content !== "string") {
+          setUnsupported(true);
+          return;
+        }
+        setContent(body.data.content);
       })
       .catch((err) => active && setError(err?.message ?? "Network error"));
     return () => {
       active = false;
     };
   }, [cwd, path]);
+
+  // Re-scroll to `line` when it changes after the editor is already mounted
+  // (reopening the same buffer at a different line).
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (ed && content !== null && line && line > 0) {
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: 1 });
+    }
+  }, [line, content]);
 
   // Re-apply the derived Monaco theme whenever the dashboard theme/mode changes.
   useEffect(() => {
@@ -119,6 +137,13 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
 
   if (error) {
     return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
+  }
+  if (unsupported) {
+    return (
+      <div className="p-4 text-sm text-[var(--text-secondary)]">
+        This file is binary and can't be shown here — open it externally.
+      </div>
+    );
   }
 
   return (

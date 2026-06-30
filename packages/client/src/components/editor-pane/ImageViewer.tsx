@@ -5,13 +5,23 @@
  * See change: add-internal-monaco-editor-pane.
  */
 
+import { useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { getApiBase } from "../../lib/api-context.js";
 import type { ViewerProps } from "./types.js";
 
 export default function ImageViewer({ cwd, path }: ViewerProps) {
   const { state, handlers, zoomIn, zoomOut, reset } = useZoomPan();
+  const [failed, setFailed] = useState(false);
   const src = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+
+  if (failed) {
+    return (
+      <div className="flex h-full items-center justify-center p-4 text-sm text-[var(--text-secondary)]">
+        Couldn't load image: {path}
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-[var(--bg-primary)]">
@@ -23,6 +33,7 @@ export default function ImageViewer({ cwd, path }: ViewerProps) {
         <img
           src={src}
           alt={path}
+          onError={() => setFailed(true)}
           draggable={false}
           className="max-h-full max-w-full object-contain select-none"
           style={{

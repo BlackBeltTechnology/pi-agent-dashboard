@@ -27,6 +27,25 @@ function basename(p: string): string {
 export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder }: EditorTabsProps) {
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const tabRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Roving-tabindex keyboard navigation across the tab strip.
+  const onTabKeyDown = (e: React.KeyboardEvent, i: number) => {
+    let next: number | null = null;
+    if (e.key === "ArrowRight") next = Math.min(i + 1, openFiles.length - 1);
+    else if (e.key === "ArrowLeft") next = Math.max(i - 1, 0);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = openFiles.length - 1;
+    else if (e.key === "Enter" || e.key === " ") next = i;
+    else if (e.key === "Delete" || e.key === "Backspace") {
+      e.preventDefault();
+      onClose(i);
+      return;
+    } else return;
+    e.preventDefault();
+    onActivate(next);
+    tabRefs.current[next]?.focus();
+  };
 
   // Close the active tab on Ctrl/Cmd-W (best-effort; the browser may preempt).
   useEffect(() => {
@@ -43,12 +62,17 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
   }, [activeIndex, onClose]);
 
   return (
-    <div className="flex shrink-0 overflow-x-auto border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+    <div role="tablist" aria-label="Open files" className="flex shrink-0 overflow-x-auto border-b border-[var(--border-primary)] bg-[var(--bg-secondary)]">
       {openFiles.map((file, i) => (
         <div
           key={file.path}
+          ref={(el) => {
+            tabRefs.current[i] = el;
+          }}
           role="tab"
           aria-selected={i === activeIndex}
+          tabIndex={i === activeIndex ? 0 : -1}
+          onKeyDown={(e) => onTabKeyDown(e, i)}
           title={file.path}
           draggable
           onDragStart={() => {

@@ -38,7 +38,8 @@ async function listDir(cwd: string, relDir: string): Promise<DirEntry[]> {
   const [allNames, dirResult] = await Promise.all([
     fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(relDir || ".")}`)
       .then((r) => r.json())
-      .then((b) => (b.success && b.data?.type === "directory" ? (b.data.entries as string[]) : [])),
+      .then((b) => (b.success && b.data?.type === "directory" ? (b.data.entries as string[]) : []))
+      .catch(() => [] as string[]),
     browseDirectory(absDir)
       .then((res) => new Set(res.entries.map((e) => e.name)))
       .catch(() => new Set<string>()),

@@ -113,16 +113,30 @@ function keyFor(sessionId: string): string {
   return EDITOR_PANE_KEY_PREFIX + sessionId;
 }
 
+const VALID_VIEWERS: ReadonlySet<string> = new Set(["monaco", "image", "pdf", "markdown", "binary-warn"]);
+
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */
 function isValidState(v: unknown): v is EditorPaneState {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
-  if (!Array.isArray(s.openFiles) || typeof s.activeIndex !== "number" || !Array.isArray(s.treeOpenRoots)) {
+  if (
+    !Array.isArray(s.openFiles) ||
+    !Number.isInteger(s.activeIndex) ||
+    !Array.isArray(s.treeOpenRoots) ||
+    !s.treeOpenRoots.every((r) => typeof r === "string")
+  ) {
     return false;
   }
-  return s.openFiles.every(
-    (f) => f && typeof f === "object" && typeof (f as OpenFile).path === "string" && typeof (f as OpenFile).viewer === "string",
-  );
+  const filesOk = s.openFiles.every((f) => {
+    if (!f || typeof f !== "object") return false;
+    const file = f as OpenFile;
+    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer);
+  });
+  if (!filesOk) return false;
+  // activeIndex must address an open tab, or be -1 only when no tabs are open.
+  const ai = s.activeIndex as number;
+  if (s.openFiles.length === 0) return ai === -1;
+  return ai >= 0 && ai < s.openFiles.length;
 }
 
 /** Read persisted state for a session; empty state on absence/corruption. */

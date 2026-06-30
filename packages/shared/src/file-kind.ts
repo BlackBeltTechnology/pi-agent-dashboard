@@ -39,7 +39,7 @@ export const TEXT_EXTENSIONS = new Set([
   ".html", ".htm", ".css", ".scss", ".less",
   ".sql",
   ".sh", ".bash", ".zsh",
-  ".txt", ".xml", ".toml", ".ini", ".env", ".conf", ".log", ".csv",
+  ".txt", ".xml", ".toml", ".ini", ".conf", ".log", ".csv",
   ".c", ".cc", ".cpp", ".h", ".hpp",
   ".java", ".rb", ".php", ".lua",
   ".vue", ".svelte", ".graphql", ".proto",
