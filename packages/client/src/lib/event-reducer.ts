@@ -379,15 +379,18 @@ export function findFlushedAssistantRowIndex(messages: ChatMessage[]): number {
  * See change: adopt-pi-071-072-073-features.
  */
 export function deriveEffectiveAssistantText(msg: any, fallback: string): string {
-  if (msg?.content) {
-    if (Array.isArray(msg.content)) {
-      return msg.content
-        .filter((c: any) => c?.type === "text")
-        .map((c: any) => c.text)
-        .join("");
-    }
-    if (typeof msg.content === "string") return msg.content;
+  // Check shape, not truthiness: an extension may finalize the message to an
+  // empty string (`""`) for redaction. Treating `""` as "missing" would
+  // re-surface the streamed (un-redacted) text — a content leak. Only an
+  // absent/non-string/non-array content falls through to `fallback`.
+  const content = msg?.content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c: any) => c?.type === "text")
+      .map((c: any) => c.text)
+      .join("");
   }
+  if (typeof content === "string") return content;
   return fallback;
 }
 

@@ -2342,6 +2342,10 @@ function initBridge(pi: ExtensionAPI) {
     // sessionId on its session_register. See change: inject-session-context-into-agent.
     attachedChange = null;
     getBridgeState().attachedChange = null;
+    // Clear the stop-after-turn latch so a new/fork/resumed session does not
+    // inherit the previous session's pending graceful-stop and shut down on
+    // its first turn_end. See change: adopt-pi-071-072-073-features.
+    getBridgeState().shouldStopAfterTurn = false;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {

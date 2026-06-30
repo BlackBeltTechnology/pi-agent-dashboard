@@ -51,6 +51,9 @@ describe("deriveEffectiveAssistantText (pure helper)", () => {
     expect(deriveEffectiveAssistantText({}, "fb")).toBe("fb");
     expect(deriveEffectiveAssistantText(undefined, "fb")).toBe("fb");
   });
+  it("honors an empty-string redaction (does NOT fall back to streamed text)", () => {
+    expect(deriveEffectiveAssistantText({ content: "" }, "secret streamed text")).toBe("");
+  });
 });
 
 describe("message_end content replacement (A.2)", () => {
@@ -88,5 +91,17 @@ describe("message_end content replacement (A.2)", () => {
     ]);
     const assistantRow = state.messages.find((m) => m.role === "assistant");
     expect(assistantRow!.content).toBe("delta only");
+  });
+
+  it("redaction: message_end replacing streamed text with \"\" wins (no leak)", () => {
+    const state = applyEvents([
+      asstStart(1),
+      textDelta(2, "sensitive streamed text"),
+      asstEnd(3, "", { entryId: "e4", nonce: "n4" }),
+    ]);
+    const assistantRow = state.messages.find((m) => m.role === "assistant");
+    // Empty-string replacement honored: the streamed text is NOT re-surfaced.
+    expect(assistantRow?.content ?? "").toBe("");
+    expect(state.messages.some((m) => m.content === "sensitive streamed text")).toBe(false);
   });
 });

@@ -111,7 +111,14 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   // truncation marker, offer an on-demand fetch of the full stored result.
   // Collapse re-shows the truncated form. See change:
   // adopt-pi-071-072-073-features.
-  const isTruncated = typeof result === "string" && result.startsWith(TRUNCATION_MARKER_PREFIX);
+  // Only offer "Show full output" when both fetch ids are present — without
+  // them useToolFullResult skips the request, so flipping to full-output mode
+  // would strand a "Collapse output" control over still-truncated text.
+  const isTruncated =
+    typeof result === "string" &&
+    result.startsWith(TRUNCATION_MARKER_PREFIX) &&
+    !!context.sessionId &&
+    !!toolCallId;
   const [showFull, setShowFull] = useState(false);
   const fullResult = useToolFullResult(context.sessionId, toolCallId);
   const displayResult = showFull && fullResult.result != null ? fullResult.result : result;

@@ -198,6 +198,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   useEffect(() => {
     if (sessionStatus !== "streaming") setStopAfterTurnRequested(false);
   }, [sessionStatus]);
+  // Reset across session switches — CommandInput is reused, so a new session
+  // must not inherit the previous session's optimistic pill state.
+  useEffect(() => {
+    setStopAfterTurnRequested(false);
+  }, [sessionId]);
 
   // Reset history-navigation state whenever the session changes.
   useEffect(() => {

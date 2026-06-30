@@ -33,6 +33,7 @@ async function fetchStatus(): Promise<ProviderAuthStatus[]> {
 /** Provider ids the dashboard can actually complete a login flow for. */
 async function fetchHandlerIds(): Promise<Set<string>> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/handlers`);
+  if (!res.ok) throw new Error("Failed to load provider auth handlers");
   const data: ProviderAuthHandlerIdsResponse = await res.json();
   return new Set(data.ids ?? []);
 }
@@ -66,7 +67,10 @@ function relativeExpiry(expires: number): string {
 
 export function ProviderAuthSection() {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
-  const [handlerIds, setHandlerIds] = useState<Set<string>>(new Set());
+  // null = not yet known (loading or fetch failed). Never gate OAuth rows
+  // closed while unknown — a secondary capability probe must not become a
+  // hard sign-in outage. See change: adopt-pi-071-072-073-features.
+  const [handlerIds, setHandlerIds] = useState<Set<string> | null>(null);
   const [loading, setLoading] = useState(true);
   const { messages, showToast, dismissToast } = useToast();
 
@@ -80,7 +84,7 @@ export function ProviderAuthSection() {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
-    fetchHandlerIds().then(setHandlerIds).catch(() => {});
+    fetchHandlerIds().then(setHandlerIds).catch(() => setHandlerIds(null));
   }, []);
 
   if (loading) {
@@ -97,7 +101,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("auto.subscriptions_oauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
+          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
         ))}
       </div>
 

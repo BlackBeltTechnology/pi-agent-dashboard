@@ -42,12 +42,18 @@ describe("ProviderAuthSection — handler-gap detection", () => {
       expect(getAllByText("Sign In").length).toBe(2);
     });
 
-    const signInButtons = getAllByText("Sign In").map((el) => el.closest("button")!);
-    const anthropicBtn = signInButtons.find((b) => !b.disabled);
-    const customBtn = signInButtons.find((b) => b.disabled);
+    // The disabled state arrives only AFTER /handlers resolves — the row is
+    // NOT failed-closed during load. Wait for exactly one disabled button.
+    let customBtn: HTMLButtonElement | undefined;
+    let anthropicBtn: HTMLButtonElement | undefined;
+    await waitFor(() => {
+      const signInButtons = getAllByText("Sign In").map((el) => el.closest("button")!);
+      customBtn = signInButtons.find((b) => b.disabled);
+      anthropicBtn = signInButtons.find((b) => !b.disabled);
+      expect(customBtn).toBeTruthy();
+      expect(anthropicBtn).toBeTruthy();
+    });
 
-    expect(anthropicBtn).toBeTruthy();
-    expect(customBtn).toBeTruthy();
     expect(customBtn!.getAttribute("title")).toContain("OAuth flow not yet supported in dashboard for Custom LLM");
   });
 });
