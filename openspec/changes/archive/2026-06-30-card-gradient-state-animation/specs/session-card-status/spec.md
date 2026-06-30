@@ -1,3 +1,11 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Streaming/resuming cards show horizontally drifting diagonal stripes layered with a breathing pulse`
+- TO: `### Requirement: Streaming/resuming cards show a horizontal sweep gradient layered with a breathing tint`
+
+- FROM: `### Requirement: Unread sessions display the cyan-stripes pulse`
+- TO: `### Requirement: Unread sessions display the cyan sweep gradient`
+
 ## MODIFIED Requirements
 
 ### Requirement: Streaming/resuming cards show a horizontal sweep gradient layered with a breathing tint

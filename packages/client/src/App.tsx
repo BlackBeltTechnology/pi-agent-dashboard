@@ -1866,6 +1866,7 @@ export default function App() {
                 setPinDialogOpen(false);
               }}
               onCancel={() => setPinDialogOpen(false)}
+              onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
             />
           </DialogPortal>
         )}
@@ -2008,6 +2009,7 @@ export default function App() {
               setPinDialogOpen(false);
             }}
             onCancel={() => setPinDialogOpen(false)}
+            onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
           />
         </DialogPortal>
       )}

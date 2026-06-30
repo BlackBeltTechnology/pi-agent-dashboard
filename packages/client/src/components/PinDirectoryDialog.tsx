@@ -8,9 +8,11 @@ import { t as i18nT } from "../lib/i18n";
 interface Props {
   onPin: (path: string) => void;
   onCancel: () => void;
+  /** Forwarded to PathPicker's network-denied surface (Settings → Servers). */
+  onOpenServers?: () => void;
 }
 
-export function PinDirectoryDialog({ onPin, onCancel }: Props) {
+export function PinDirectoryDialog({ onPin, onCancel, onOpenServers }: Props) {
   return (
     <Dialog open onClose={onCancel} title={i18nT("auto.pin_directory", undefined, "Pin Directory")} size="lg" testId="pin-directory-dialog">
         <PathPicker
@@ -25,6 +27,7 @@ export function PinDirectoryDialog({ onPin, onCancel }: Props) {
           }}
           onCancel={onCancel}
           rows={8}
+          onOpenServers={onOpenServers}
         />
     </Dialog>
   );

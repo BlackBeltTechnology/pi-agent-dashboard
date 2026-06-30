@@ -33,6 +33,23 @@ Issue #99 shows "Credentials configured ✓" yet "Access denied" on browse. Befo
 
 Resolve this first; it determines whether the primary fix is server auth-plumbing or client legibility (likely both, but the emphasis shifts).
 
+## Resolved questions
+
+### 1.1 — Is `request.isAuthenticated` set for `/api/browse`? (auth-plumbing finding)
+Yes, when auth is enabled and a valid JWT cookie is present. The auth `onRequest` hook (`packages/server/src/auth-plugin.ts:246`) runs for every non-loopback request except `/api/health`, `/auth/*`, `/v1/*`, and configured bypass URL/host prefixes — `/api/browse` is covered. A same-origin `fetch` sends the cookie, the hook verifies it, and sets `(request as any).isAuthenticated = true` before the `createNetworkGuard` preHandler runs. So the guard correctly passes authenticated browse calls.
+
+Key sequencing detail: when auth is **enabled** and the request is **unauthenticated** (no/invalid cookie) with a non-HTML `Accept`, the hook returns `401 { error: "Authentication required" }` and the request **never reaches** the network guard. The guard's `403` is therefore only emitted when **auth is disabled** (the `onRequest` 401 gate is absent) and the source IP is not loopback / not in `trustedNetworks`.
+
+Conclusion: issue #99's bare `403 "Access denied"` is a guard denial under an **auth-disabled** deployment, not an auth-plumbing gap. The true remedy is adding the client subnet to `trustedNetworks` (or enabling + signing into auth). No server auth-plumbing change is needed; the work is client legibility + a self-describing 403. (`Credentials configured` in the UI does not imply a valid browser session cookie was present on the remote machine.)
+
+### 1.2 — Denial-surface affordance: inline "Trust this network" vs deep-link
+Deep-link to Settings → Servers only. An inline `trustedNetworks` write would need a new mutate endpoint and bypass the "no auto-trusting without explicit user action" non-goal. Keep the surface a navigational affordance to where `trustedNetworks` is edited; user makes the change deliberately.
+
+### 1.3 — Error literal + copy strings (confirmed)
+- `error`: `"network_not_allowed"` (stable machine-readable literal; clients branch on this).
+- `reason`: `"Source IP not loopback, not in trustedNetworks, and request not authenticated."`
+- `hint`: `"Add this network to trustedNetworks (Settings → Servers) or sign in."`
+
 ## Risks
 
 - **Breaking string-match consumers.** Any test or code matching the old `"Access denied"` body breaks — internal only; grep and update (task 2.3).
