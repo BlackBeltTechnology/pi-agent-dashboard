@@ -2,42 +2,13 @@
  * Session-related REST API routes.
  */
 import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { resolve, relative, isAbsolute } from "node:path";
 import type { FastifyInstance } from "fastify";
-import type { EventStore } from "../memory-event-store.js";
 import type { SessionManager } from "../memory-session-manager.js";
-import { enrichWithVcsDiff, extractFileChanges } from "../session-diff.js";
-import { loadSessionEntries } from "../session-file-reader.js";
+import type { EventStore } from "../memory-event-store.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
-
-/**
- * Strategy B (reduce-session-replay-traffic): extract the FULL untruncated
- * tool-result body for a JSONL entry. Reads the persisted session file, NOT the
- * 4 KB-truncated in-memory store, so an expanded stub reveals full fidelity.
- * Matches the key against the JSONL `entry.id` (disk-replay stubs) OR
- * `message.toolCallId` (live-path stubs, where the disk entry id is unknown) so
- * either replay origin resolves.
- */
-function readToolResultBody(
-  filePath: string,
-  key: string,
-): { result: string; isError: boolean } | null {
-  const entry = loadSessionEntries(filePath).find(
-    (e) => e.message?.role === "toolResult" && (e.id === key || e.message?.toolCallId === key),
-  );
-  if (!entry) return null;
-  const content = entry.message?.content as unknown;
-  const result = Array.isArray(content)
-    ? (content as Array<{ type?: string; text?: string }>)
-        .filter((c) => c?.type === "text")
-        .map((c) => c.text ?? "")
-        .join("")
-    : typeof content === "string"
-      ? content
-      : "";
-  return { result, isError: Boolean(entry.message?.isError) };
-}
+import { extractFileChanges, enrichWithVcsDiff } from "../session-diff.js";
 
 export function registerSessionRoutes(
   fastify: FastifyInstance,
@@ -66,25 +37,23 @@ export function registerSessionRoutes(
     },
   );
 
-  // Strategy B full-fidelity tool body by JSONL entry id. Reads the persisted
-  // session file (untruncated), unlike `/api/events/:sessionId/:seq` which is
-  // backed by the 4 KB-truncated in-memory store. 404 on unknown session/entry
-  // so an offline / stale expand degrades to preview + retry on the client.
-  fastify.get<{ Params: { sessionId: string; entryId: string } }>(
-    "/api/sessions/:sessionId/tool-result/:entryId",
+  // Full tool result lookup (localhost-only). The client renders only the
+  // last N lines of large tool output; this returns the full stored result
+  // for the "Show full output" affordance. 404 when the tool call is still
+  // in flight or its event was evicted. See change:
+  // adopt-pi-071-072-073-features.
+  fastify.get<{ Params: { sessionId: string; toolCallId: string } }>(
+    "/api/sessions/:sessionId/tool-result/:toolCallId",
+    { preHandler: networkGuard },
     async (request, reply) => {
-      const { sessionId, entryId } = request.params;
-      const session = sessionManager.get(sessionId);
-      if (!session?.sessionFile) {
+      const { sessionId, toolCallId } = request.params;
+      const event = eventStore.findToolEndEvent(sessionId, toolCallId);
+      if (!event) {
         reply.code(404);
-        return { success: false, error: "session not found" } satisfies ApiResponse;
+        return { error: "tool call still in flight or unknown" };
       }
-      const body = readToolResultBody(session.sessionFile, entryId);
-      if (!body) {
-        reply.code(404);
-        return { success: false, error: "tool result not found" } satisfies ApiResponse;
-      }
-      return { success: true, data: body } satisfies ApiResponse;
+      const data = (event.data ?? {}) as Record<string, unknown>;
+      return { result: data.result ?? "", isError: data.isError === true };
     },
   );
 

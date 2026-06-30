@@ -1,58 +1,68 @@
-## ADDED Requirements
+# lazy-expand-full-fidelity
 
-### Requirement: Heavy tool results replay as stubs with a preview
+## Purpose
 
-The server SHALL replay a finalized tool result that exceeds the configured stub
-threshold as a stub carrying its true pre-truncation byte size, a short preview,
-and a stable `entryId`, and SHALL NOT include the full body. The server SHALL
-replay results at or below the threshold inline, and SHALL never stub an
-in-flight or streaming result.
+Trim replay bandwidth for heavy tool results by pre-truncating them to the
+display form during replay, while preserving the existing "Show full output"
+full-fidelity affordance (provided by change `adopt-pi-071-072-073-features`).
 
-#### Scenario: Large tool result replays as a stub
+> Reconciliation note: the user-facing "Show full output" feature (truncation
+> marker + on-demand fetch by `toolCallId` from the in-memory store) shipped
+> independently on `develop` via `adopt-pi-071-072-073-features` while this
+> change was in flight. This capability was reconciled to LAYER on that
+> mechanism: it adds only the server-side replay-bandwidth optimization and an
+> idempotency guard, reusing develop's client render + fetch route verbatim.
 
-- **WHEN** the server replays a finalized `tool_execution_end` whose original
-  result exceeds the stub threshold
-- **THEN** the replayed event SHALL include `{ stub: true, byteSize, preview, entryId }`
-- **AND** SHALL NOT include the full result body
+## Requirements
+
+### Requirement: Heavy tool results are pre-truncated during replay
+
+The server SHALL pre-truncate a finalized tool result that exceeds the display
+line cap to the display form (`«N earlier lines hidden»` marker + last N lines)
+during replay, so the full body is not re-shipped on every full replay. The
+in-memory store SHALL retain the full result so the "Show full output" route can
+still serve it. Results at or below the cap SHALL replay inline unchanged.
+
+#### Scenario: Large tool result replays in truncated display form
+
+- **WHEN** the server replays a finalized `tool_execution_end` whose result
+  exceeds the display line cap
+- **THEN** the replayed event's `result` SHALL be the truncated display form
+  (marker + last N lines)
+- **AND** SHALL NOT include the full multi-screen body
 
 #### Scenario: Small tool result replays inline
 
-- **WHEN** the server replays a finalized tool result at or below the threshold
-- **THEN** the event SHALL be replayed inline with its body (unchanged behavior)
+- **WHEN** the server replays a finalized tool result at or below the cap
+- **THEN** the event SHALL be replayed inline with its body unchanged
 
-#### Scenario: Streaming tool result is never stubbed
+#### Scenario: Streaming tool result is never pre-truncated
 
 - **WHEN** a tool result is still streaming (not finalized)
-- **THEN** it SHALL be delivered inline via the live path, never as a stub
+- **THEN** it SHALL be delivered inline via the live path, never pre-truncated
+  on replay
 
-#### Scenario: Older clients ignore stub fields
+### Requirement: Display truncation is idempotent on the marker form
 
-- **WHEN** a client that predates this change receives a stubbed event
-- **THEN** the additive stub fields SHALL be ignored
-- **AND** the client SHALL render the inline preview text without error
+The client display-truncation helper SHALL pass a result already in the
+truncated display form through unchanged, so the server's pre-truncated replay
+renders identically to the live path and the "N earlier lines hidden" count is
+never corrupted by a second truncation.
 
-### Requirement: Expanding a stub fetches the full untruncated body
+#### Scenario: Re-truncating the marker form is a no-op
 
-A collapsed stub SHALL render its header and preview only. On expand, the client
-SHALL fetch the full, untruncated tool body from a JSONL-backed route keyed on
-`entryId` (not the runtime-local `seq`), and render it in place.
+- **WHEN** the client truncates a result that already starts with the
+  truncation marker
+- **THEN** it SHALL return the result unchanged
+
+### Requirement: Full body remains fetchable on expand
+
+Expanding a truncated tool result SHALL fetch the full, untruncated body from
+the existing `toolCallId`-keyed route (backed by the in-memory store), unchanged
+by this capability.
 
 #### Scenario: Expand reveals full fidelity
 
-- **WHEN** the user expands a stubbed tool result
-- **THEN** the client SHALL fetch the full body by `entryId` from the
-  full-fidelity route
-- **AND** SHALL render the untruncated content (which MAY exceed the 4 KB
-  in-memory truncation cap)
-
-#### Scenario: Full-fidelity route reads JSONL, not the truncated store
-
-- **WHEN** the full-fidelity route serves a tool body
-- **THEN** it SHALL read from the persisted session JSONL
-- **AND** SHALL NOT serve the 4 KB-truncated copy held in the in-memory store
-
-#### Scenario: Offline expand degrades gracefully
-
-- **WHEN** the user expands a stub while disconnected and the fetch fails
-- **THEN** the client SHALL keep showing the preview
-- **AND** SHALL surface a retry affordance rather than an empty card
+- **WHEN** the user expands a truncated tool result
+- **THEN** the client SHALL fetch the full body by `toolCallId`
+- **AND** SHALL render the untruncated content

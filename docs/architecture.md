@@ -917,6 +917,24 @@ The dashboard provides a GitHub-style file diff viewer for sessions. It shows wh
 
 **Entry point**: "Changed Files" button in SessionHeader (only visible when Write/Edit tool events exist). Works for both active and ended sessions.
 
+### Internal Monaco editor pane (v1 read-only)
+
+Route `/session/:id/editor?file=&line=` renders `EditorPane` in content area. Replaces ChatView. Mirrors FileDiffView takeover. Back button → `goBack`.
+
+Per-session tabs + tree state persist in localStorage key `pi-dashboard:editor-pane:<sessionId>`. No server persistence.
+
+Shared `fileKind` classifier (`packages/shared/src/file-kind.ts`) = single viewer-discrimination source. Used by server (`/api/file`) + client (`OpenFileButton`, `EditorFileTree`).
+
+Viewer registry: monaco (lazy), image, pdf, markdown, binary-warn.
+
+Monaco lazy chunk loads on first text-file open. ts.worker omitted (no LSP). Theme derives from active dashboard theme via `buildMonacoTheme`. Recolors live on theme/mode change.
+
+`OpenFileButton` now split button: default → internal pane; dropdown → native editors.
+
+Three file-open paths coexist; nothing removed. This pane = quick read-only glance. editor-view (code-server iframe) = full IDE. open-in-editor (native) = external.
+
+v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
+
 ### Markdown Preview View
 The web client includes a generic `MarkdownPreviewView` component that replaces the chat area. It supports a back button, title, optional tab bar, and loading/error states. For OpenSpec artifacts, the `useOpenSpecReader` hook maps artifact IDs (P/S/D/T) to file paths, fetches content via the file API, and concatenates specs from subdirectories.
 

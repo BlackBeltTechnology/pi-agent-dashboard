@@ -3,14 +3,14 @@ import { Icon } from "@mdi/react";
 import { mdiLoading, mdiCheck, mdiAlertCircle, mdiChevronRight, mdiChevronDown, mdiStop, mdiAlert, mdiHelpCircleOutline } from "@mdi/js";
 import { getToolRenderer, type ToolContext } from "./tool-renderers/index.js";
 import type { ChatImage } from "../lib/event-reducer.js";
+import { TRUNCATION_MARKER_PREFIX } from "../lib/event-reducer.js";
+import { useToolFullResult } from "../hooks/useToolFullResult.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { ElapsedBadge } from "./ElapsedBadge.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import { forToolName, CurrentPluginLayer, type ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { t as i18nT } from "../lib/i18n";
-import { getApiBase } from "../lib/api-context.js";
-import { fetchJson } from "../lib/fetch-json.js";
 
 /**
  * Evaluate a `tool-renderer` claim's optional `shouldRender`. Absent or truthy
@@ -45,12 +45,6 @@ interface Props {
   startedAt?: number;
   duration?: number;
   toolDetails?: Record<string, unknown>;
-  /**
-   * Strategy B (reduce-session-replay-traffic): when set, this result was
-   * replayed as a stub. `result` holds only the preview; expanding fetches the
-   * full untruncated body by `entryId`. See change: reduce-session-replay-traffic.
-   */
-  stub?: { byteSize?: number; entryId?: string };
   /**
    * When `false`, the tool-result body is omitted but the header (name +
    * status + elapsed) still renders. Defaults to `true` for back-compat.
@@ -103,7 +97,7 @@ const statusIcons: Record<string, ReactNode> = {
   error: <Icon path={mdiAlertCircle} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, stub, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill }: Props) {
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
@@ -113,29 +107,21 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const [stopState, setStopState] = useState<StopState>("idle");
   const Renderer = getToolRenderer(toolName);
 
-  // Strategy B lazy-expand: a stubbed result shows its preview until the user
-  // expands; on expand we fetch the full untruncated body by entryId. A failed
-  // fetch (offline / stale) keeps the preview and offers a retry — never an
-  // empty card. See change: reduce-session-replay-traffic.
-  const isStub = stub !== undefined && stub.entryId !== undefined;
-  const [fullResult, setFullResult] = useState<string | null>(null);
-  const [stubFetch, setStubFetch] = useState<"idle" | "loading" | "error">("idle");
-  const loadFullResult = React.useCallback(async () => {
-    if (!isStub || !context.sessionId || !stub?.entryId) return;
-    setStubFetch("loading");
-    try {
-      const json = await fetchJson<{ success: boolean; data?: { result?: string } }>(
-        `${getApiBase()}/api/sessions/${encodeURIComponent(context.sessionId)}/tool-result/${encodeURIComponent(stub.entryId)}`,
-      );
-      if (!json.success) throw new Error("not found");
-      setFullResult(String(json.data?.result ?? ""));
-      setStubFetch("idle");
-    } catch {
-      setStubFetch("error");
-    }
-  }, [isStub, context.sessionId, stub?.entryId]);
-  const effectiveResult = isStub && fullResult !== null ? fullResult : result;
-  const stubKb = stub?.byteSize ? Math.max(1, Math.round(stub.byteSize / 1024)) : undefined;
+  // Show-full-output affordance: when the rendered result carries the
+  // truncation marker, offer an on-demand fetch of the full stored result.
+  // Collapse re-shows the truncated form. See change:
+  // adopt-pi-071-072-073-features.
+  // Only offer "Show full output" when both fetch ids are present — without
+  // them useToolFullResult skips the request, so flipping to full-output mode
+  // would strand a "Collapse output" control over still-truncated text.
+  const isTruncated =
+    typeof result === "string" &&
+    result.startsWith(TRUNCATION_MARKER_PREFIX) &&
+    !!context.sessionId &&
+    !!toolCallId;
+  const [showFull, setShowFull] = useState(false);
+  const fullResult = useToolFullResult(context.sessionId, toolCallId);
+  const displayResult = showFull && fullResult.result != null ? fullResult.result : result;
 
   // Resolution chain: plugin `tool-renderer` claim → built-in registry → Generic.
   // One-shot at lookup time; a chosen plugin renderer that throws is caught by
@@ -221,25 +207,6 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
         </span>
       </button>
-      {expanded && showResultBody && isStub && fullResult === null && (
-        <div className="mt-1 ml-4 mb-1">
-          <button
-            type="button"
-            onClick={() => void loadFullResult()}
-            disabled={stubFetch === "loading"}
-            className="text-xs px-2 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-60"
-          >
-            {stubFetch === "loading"
-              ? i18nT("auto.loading", undefined, "Loading…")
-              : stubFetch === "error"
-                ? i18nT("auto.retry_full_output", undefined, "Retry — load full output")
-                : `${i18nT("auto.show_full_output", undefined, "Show full output")}${stubKb ? ` (${stubKb} KB)` : ""}`}
-          </button>
-          {stubFetch === "error" && (
-            <span className="ml-2 text-[var(--text-muted)]">{i18nT("auto.showing_preview_only", undefined, "showing preview only")}</span>
-          )}
-        </div>
-      )}
       {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>
@@ -250,7 +217,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                   toolInput={args ?? {}}
                   sessionId={context.sessionId ?? ""}
                   status={status}
-                  result={effectiveResult}
+                  result={displayResult}
                   images={images}
                   context={context}
                   toolDetails={toolDetails}
@@ -261,13 +228,37 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                 toolName={toolName}
                 args={args}
                 status={status}
-                result={effectiveResult}
+                result={displayResult}
                 images={images}
                 context={context}
                 toolDetails={toolDetails}
               />
             )}
           </ErrorBoundary>
+          {isTruncated && (
+            <div className="mt-1">
+              {fullResult.error ? (
+                <span className="text-[var(--text-muted)] italic" data-testid="tool-result-evicted">{fullResult.error}</span>
+              ) : showFull ? (
+                <button
+                  onClick={() => setShowFull(false)}
+                  className="text-[var(--accent)] hover:underline"
+                  data-testid="tool-collapse-output"
+                >
+                  {i18nT("auto.collapse_output", undefined, "Collapse output")}
+                </button>
+              ) : (
+                <button
+                  onClick={async () => { await fullResult.fetchFull(); setShowFull(true); }}
+                  disabled={fullResult.loading}
+                  className="text-[var(--accent)] hover:underline disabled:opacity-50"
+                  data-testid="tool-show-full-output"
+                >
+                  {fullResult.loading ? i18nT("auto.loading", undefined, "Loading…") : i18nT("auto.show_full_output", undefined, "Show full output")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

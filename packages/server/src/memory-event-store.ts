@@ -3,7 +3,6 @@
  * Replaces SQLite-backed event-store.ts.
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { extractToolResultText, STUB_BYTE_THRESHOLD } from "./tool-result-stub.js";
 
 export interface StoredEvent {
   seq: number;
@@ -17,6 +16,12 @@ export interface EventStore {
   getEvents(sessionId: string, minSeq: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
+  /**
+   * Find the most recent `tool_execution_end` event for a tool call. Pure
+   * read; returns undefined when the call is still in flight or its event was
+   * evicted under memory pressure. See change: adopt-pi-071-072-073-features.
+   */
+  findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined;
   /** Delete all events for a specific session */
   deleteEventsForSession(sessionId: string): number;
   /** Check if session has events in memory */
@@ -86,30 +91,6 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
 }
 
 /**
- * Strategy B (reduce-session-replay-traffic): record the pre-truncation byte
- * size of a HEAVY tool result so replay can stub it. Independent of whether the
- * in-memory truncation is enabled — `maxStringFieldSize` defaults to 0 (disabled),
- * so we must NOT gate on "a truncated copy exists". Computes byteSize from the
- * original (pre-truncation) result text, annotates a COPY of the stored event so
- * the caller's live-broadcast object is never mutated, and only annotates
- * results at/above the stub threshold so small results stay clean + inline.
- * Handles BOTH result shapes: flat string (disk replay) and the structured
- * `{ content: [{ type:"text", text }] }` object the live bridge forwards.
- */
-function recordToolResultByteSize(original: DashboardEvent, stored: DashboardEvent): DashboardEvent {
-  if (original.eventType !== "tool_execution_end") return stored;
-  const text = extractToolResultText((original.data as Record<string, unknown> | undefined)?.result);
-  if (text === undefined) return stored;
-  const byteSize = Buffer.byteLength(text, "utf8");
-  if (byteSize < STUB_BYTE_THRESHOLD) return stored; // small → inline, no stub
-  // Copy if `truncateEventData` returned the original (truncation disabled) so
-  // the live event object shared with the broadcast path is never mutated.
-  const out = stored === original ? { ...original, data: { ...(original.data as Record<string, unknown>) } } : stored;
-  (out.data as Record<string, unknown>).byteSize = byteSize;
-  return out;
-}
-
-/**
  * Truncate large event data to bound memory usage per event.
  */
 function createTruncator(maxStringSize: number) {
@@ -166,8 +147,7 @@ export function createMemoryEventStore(
     insertEvent(sessionId: string, event: DashboardEvent): number {
       const buf = getOrCreate(sessionId);
       const seq = buf.nextSeq++;
-      const stored = recordToolResultByteSize(event, truncateEventData(event));
-      buf.events.push({ seq, event: stored });
+      buf.events.push({ seq, event: truncateEventData(event) });
       // Trim oldest events when over the per-session limit (0 = unlimited)
       if (maxEventsPerSession > 0 && buf.events.length > maxEventsPerSession) {
         const excess = buf.events.length - maxEventsPerSession;
@@ -191,6 +171,22 @@ export function createMemoryEventStore(
       buf.lastAccess = Date.now();
       const entry = buf.events.find((e) => e.seq === seq);
       return entry?.event;
+    },
+
+    findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined {
+      const buf = buffers.get(sessionId);
+      if (!buf) return undefined;
+      buf.lastAccess = Date.now();
+      for (let i = buf.events.length - 1; i >= 0; i--) {
+        const ev = buf.events[i].event;
+        if (
+          ev.eventType === "tool_execution_end" &&
+          (ev.data as Record<string, unknown> | undefined)?.toolCallId === toolCallId
+        ) {
+          return ev;
+        }
+      }
+      return undefined;
     },
 
     deleteEventsForSession(sessionId: string): number {

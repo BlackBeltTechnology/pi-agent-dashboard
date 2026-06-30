@@ -7,7 +7,7 @@ import type { BrowserHandlerContext } from "./handler-context.js";
 import { extractStatsFromEvents } from "../event-status-extraction.js";
 import { pluginIntentCache } from "../plugin-intent-cache.js";
 import type { StoredEvent } from "../memory-event-store.js";
-import { maybeStubToolResult } from "../tool-result-stub.js";
+import { truncateToolResultForReplay } from "../replay-truncate.js";
 
 const REPLAY_BATCH_SIZE = 50;
 /** Max events to replay per session subscription (0 = unlimited) */
@@ -35,11 +35,11 @@ async function sendEventBatches(
     sendTo(ws, {
       type: "event_replay",
       sessionId,
-      // Strategy B: replay heavy finalized tool results as stubs (preview +
-      // byteSize + entryId, no full body). Additive — small results and all
-      // non-tool events pass through untouched; the live streaming path never
-      // calls this. See change: reduce-session-replay-traffic.
-      events: batch.map((e) => ({ seq: e.seq, event: maybeStubToolResult(e.event) })),
+      // Strategy B (reduce-session-replay-traffic): pre-truncate heavy tool
+      // results to the display form to trim replay bytes. Additive — the store
+      // keeps the full body for develop's "Show full output" route; small
+      // results and non-tool events pass through untouched.
+      events: batch.map((e) => ({ seq: e.seq, event: truncateToolResultForReplay(e.event) })),
       isLast: i + REPLAY_BATCH_SIZE >= stored.length,
     });
     // Yield to event loop between batches to allow GC and buffer flushing

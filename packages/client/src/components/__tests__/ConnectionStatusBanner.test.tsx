@@ -85,6 +85,55 @@ describe("ConnectionStatusBanner", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("renders 'Network not allowed' surface (not Disconnected) when networkDenied is set", () => {
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="pennyroyal.lan"
+        inFlightSwitch={false}
+        thresholdMs={3000}
+        networkDenied={{ hint: "Add this network to trustedNetworks (Settings → Servers) or sign in." }}
+      />,
+    );
+    // Renders immediately — no threshold wait for a definitive policy denial.
+    const alert = screen.queryByRole("alert");
+    expect(alert).not.toBeNull();
+    expect(screen.queryByText(/Network not allowed/i)).not.toBeNull();
+    expect(screen.queryByText(/trustedNetworks/i)).not.toBeNull();
+    // The transport "Disconnected from … Retrying" copy must NOT be shown.
+    expect(screen.queryByText(/Disconnected from/i)).toBeNull();
+  });
+
+  it("offers a Settings → Servers affordance in the network-not-allowed surface", () => {
+    const spy = vi.fn();
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="pennyroyal.lan"
+        inFlightSwitch={false}
+        networkDenied={{ hint: "remedy text" }}
+        onOpenServers={spy}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: /servers/i });
+    btn.click();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("transport drop (no networkDenied) still shows the Disconnected/Retrying banner", () => {
+    render(
+      <ConnectionStatusBanner
+        status="offline"
+        currentServerHost="my-pc"
+        inFlightSwitch={false}
+        thresholdMs={3000}
+      />,
+    );
+    act(() => vi.advanceTimersByTime(3001));
+    expect(screen.queryByText(/Disconnected from/i)).not.toBeNull();
+    expect(screen.queryByText(/Network not allowed/i)).toBeNull();
+  });
+
   it("renders Switch server button that calls onOpenServerSelector", () => {
     const spy = vi.fn();
     render(

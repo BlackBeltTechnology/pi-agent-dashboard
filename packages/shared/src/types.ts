@@ -70,6 +70,12 @@ export interface DashboardSession {
   gitPrNumber?: number;
   gitPrUrl?: string;
   /**
+   * pi-coding-agent version the session is actually running, reported by the
+   * bridge from inside pi's own process. Absent on older bridges and until the
+   * first report. See change: restore-pi-version-skew-surface.
+   */
+  piVersion?: string;
+  /**
    * Per-session git-worktree identity. Set only when the session's cwd
    * is a git worktree (not the main checkout). See `GitWorktreeInfo`.
    * Absent on older bridges and for plain checkouts. Clients should read
@@ -448,6 +454,14 @@ export interface ModelInfo {
    * badge, NOT `?`). See change: enrich-model-selector-capabilities-favorites.
    */
   metadataSource?: "catalog" | "fallback";
+  /**
+   * Thinking levels this model supports, derived from pi 0.72+'s per-model
+   * `thinkingLevelMap`. Keys whose value is non-null (string | true) are
+   * projected here; null map entries mean "pi level not supported by this
+   * model". Absent on pre-0.72 bridges (no map) → selector falls back to all
+   * canonical levels. See change: adopt-pi-071-072-073-features.
+   */
+  supportedThinkingLevels?: string[];
 }
 
 /**

@@ -8,9 +8,18 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as 
 interface Props {
   current?: string;
   onSelect: (level: string) => void;
+  /**
+   * Levels this model supports (pi 0.72+ per-model thinkingLevelMap). When
+   * provided, only these render (canonical order preserved). Undefined or
+   * empty → all canonical levels. See change: adopt-pi-071-072-073-features.
+   */
+  supportedLevels?: string[];
 }
 
-export function ThinkingLevelSelector({ current, onSelect }: Props) {
+export function ThinkingLevelSelector({ current, onSelect, supportedLevels }: Props) {
+  const levelsToRender = supportedLevels?.length
+    ? THINKING_LEVELS.filter((l) => supportedLevels.includes(l))
+    : THINKING_LEVELS;
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -45,7 +54,7 @@ export function ThinkingLevelSelector({ current, onSelect }: Props) {
           data-testid="thinking-level-dropdown"
         >
           <div className="overflow-y-auto" style={{ maxHeight }}>
-            {THINKING_LEVELS.map((level) => (
+            {levelsToRender.map((level) => (
               <button
                 key={level}
                 onClick={() => {

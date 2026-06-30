@@ -215,10 +215,22 @@ export function toModelInfo(m: any): {
   vision?: boolean;
   contextWindow?: number;
   metadataSource?: "catalog" | "fallback";
+  supportedThinkingLevels?: string[];
 } {
   const provider = m?.provider ?? "";
   const id = m?.id ?? "";
   const source = enrichmentSource.get(`${provider}/${id}`) ?? "catalog";
+  // Pi 0.72+ per-model thinking levels: project map keys whose value is
+  // non-null (string | true) — null means "pi level not supported by this
+  // model". Pre-0.72 (no map) → undefined. See change:
+  // adopt-pi-071-072-073-features.
+  const map = m?.thinkingLevelMap;
+  const supportedThinkingLevels =
+    map && typeof map === "object"
+      ? Object.entries(map)
+          .filter(([, v]) => v !== null)
+          .map(([k]) => k)
+      : undefined;
   return {
     provider,
     id,
@@ -227,6 +239,7 @@ export function toModelInfo(m: any): {
     vision: Array.isArray(m?.input) ? m.input.includes("image") : undefined,
     contextWindow: typeof m?.contextWindow === "number" ? m.contextWindow : undefined,
     metadataSource: source,
+    ...(supportedThinkingLevels ? { supportedThinkingLevels } : {}),
   };
 }
 

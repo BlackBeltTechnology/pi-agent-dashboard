@@ -1,78 +1,65 @@
 /**
- * Strategy B full-fidelity route: GET /api/sessions/:sessionId/tool-result/:entryId
- * returns the UNTRUNCATED tool body from JSONL; 404 on unknown session/entry.
+ * GET /api/sessions/:sessionId/tool-result/:toolCallId returns the full
+ * stored tool result, 404 when in-flight or evicted.
+ *
+ * See change: adopt-pi-071-072-073-features (C.1).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { registerSessionRoutes } from "../routes/session-routes.js";
+import { createMemoryEventStore, type EventStore } from "../memory-event-store.js";
 
-function noGuard() {
-  return async () => {};
+const PASSTHRU_GUARD = async () => {};
+
+function makeSessionManager(): any {
+  return { listAll: () => [], get: () => undefined };
 }
 
-function writeSessionFile(bodyText: string): string {
-  const file = path.join(os.tmpdir(), `ffr-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
-  const lines = [
-    JSON.stringify({ type: "session", id: "sess-1" }),
-    JSON.stringify({ type: "message", id: "u1", parentId: "sess-1", message: { role: "user", content: "run it" } }),
-    JSON.stringify({
-      type: "message",
-      id: "tr1",
-      parentId: "u1",
-      message: { role: "toolResult", toolCallId: "tc1", toolName: "Bash", isError: false, content: [{ type: "text", text: bodyText }] },
-    }),
-  ];
-  fs.writeFileSync(file, lines.join("\n"));
-  return file;
-}
-
-describe("GET /api/sessions/:sessionId/tool-result/:entryId", () => {
-  let app: FastifyInstance;
-  let file: string;
-  const bigBody = "FULL-".repeat(2000); // ~10 KB, well past the 4 KB store cap
+describe("GET /api/sessions/:sessionId/tool-result/:toolCallId", () => {
+  let fastify: FastifyInstance;
+  let eventStore: EventStore;
 
   beforeEach(async () => {
-    file = writeSessionFile(bigBody);
-    app = Fastify();
-    const sessionManager = {
-      get: (id: string) => (id === "sess-1" ? { sessionFile: file, cwd: "/tmp" } : undefined),
-    } as any;
-    registerSessionRoutes(app, { sessionManager, eventStore: {} as any, networkGuard: noGuard() as any });
-    await app.ready();
+    eventStore = createMemoryEventStore(() => false);
+    fastify = Fastify();
+    registerSessionRoutes(fastify, {
+      sessionManager: makeSessionManager(),
+      eventStore,
+      networkGuard: PASSTHRU_GUARD,
+    });
+    await fastify.ready();
   });
 
   afterEach(async () => {
-    await app.close();
-    fs.rmSync(file, { force: true });
+    if (fastify) await fastify.close();
   });
 
-  it("returns the untruncated tool body by entryId", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/sessions/sess-1/tool-result/tr1" });
+  it("returns 200 with the full result for a completed tool call", async () => {
+    eventStore.insertEvent("s1", {
+      eventType: "tool_execution_end",
+      timestamp: 1,
+      data: { toolCallId: "t1", result: "full output here", isError: false },
+    });
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/t1" });
     expect(res.statusCode).toBe(200);
-    const json = res.json();
-    expect(json.success).toBe(true);
-    expect(json.data.result).toBe(bigBody);
-    expect(json.data.result.length).toBeGreaterThan(4000);
-    expect(json.data.isError).toBe(false);
+    const body = JSON.parse(res.payload);
+    expect(body.result).toBe("full output here");
+    expect(body.isError).toBe(false);
   });
 
-  it("resolves by toolCallId when the key is not a JSONL entry id (live-path stub)", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/sessions/sess-1/tool-result/tc1" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().data.result).toBe(bigBody);
-  });
-
-  it("404s on an unknown entryId", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/sessions/sess-1/tool-result/nope" });
+  it("returns 404 for an in-flight tool call (no end event)", async () => {
+    eventStore.insertEvent("s1", {
+      eventType: "tool_execution_start",
+      timestamp: 1,
+      data: { toolCallId: "t2", toolName: "bash", args: {} },
+    });
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/s1/tool-result/t2" });
     expect(res.statusCode).toBe(404);
-    expect(res.json().success).toBe(false);
+    expect(JSON.parse(res.payload).error).toMatch(/in flight|unknown/);
   });
 
-  it("404s on an unknown session", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/sessions/ghost/tool-result/tr1" });
+  it("returns 404 for an evicted / unknown session", async () => {
+    const res = await fastify.inject({ method: "GET", url: "/api/sessions/ghost/tool-result/t3" });
     expect(res.statusCode).toBe(404);
   });
 });

@@ -292,6 +292,11 @@ export const SCENARIOS: Record<string, Scenario> = {
 
   // ── Client tool-renderer matrix (one per registry entry + unknown) ──────
   "tool-read": toolScenario("read", { path: "src/example.ts" }),
+  // Reads a file that REALLY exists in the sample-git fixture, so the
+  // OpenFileButton → internal Monaco editor pane opens a path the server can
+  // serve. Used by tests/e2e/editor-pane.spec.ts.
+  // See change: add-internal-monaco-editor-pane.
+  "tool-read-fixture": toolScenario("read", { path: "README.md" }),
   "tool-edit": toolScenario("edit", {
     path: "src/example.ts",
     edits: [{ oldText: "alpha", newText: "beta" }],
@@ -301,20 +306,19 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: "export const x = 1;\n",
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
-  // Strategy B (reduce-session-replay-traffic): a bash result > 4 KB. On a FULL
-  // replay (fresh browser context / cache miss) it ships as a STUB — preview =
-  // first 200 chars (HEADMARKER + X's), full untruncated body (ending in
-  // TAILMARKER) fetched on expand from the JSONL full-fidelity route.
-  // HEADMARKER lands in the 200-char preview; TAILMARKER only appears after the
-  // expand-fetch, so a spec can distinguish stub-preview from full-fidelity.
-  // Two-step so the agent TERMINATES after the tool result (a single-step
-  // toolScenario loops forever in a real pi session, flooding context).
+  // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
+  // On a FULL replay the server pre-truncates it to the display form
+  // (`«N earlier lines hidden»` + last 200 lines) to trim replay bytes; the
+  // client renders the truncated form + a "Show full output" affordance
+  // (develop's adopt-pi-071-072-073-features mechanism). 500 numbered lines so
+  // line 1 (HEADMARKER-1) is dropped from the 200-line tail. Two-step so the
+  // agent TERMINATES after the tool result.
   "tool-bash-large": {
     script: [
       fauxAssistantMessage(
         [
           fauxToolCall("bash", {
-            command: "printf 'HEADMARKER'; printf 'X%.0s' $(seq 1 6000); printf 'TAILMARKER'",
+            command: "seq 1 500 | sed 's/^/HEADMARKER-/'",
           }),
         ],
         { stopReason: "toolUse" },

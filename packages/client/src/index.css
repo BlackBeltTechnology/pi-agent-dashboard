@@ -205,31 +205,32 @@ body {
 .markdown-content strong { font-weight: 700; }
 .markdown-content em { font-style: italic; }
 
-/* ── Session-card status stripes ──────────────────────────────
-   Drifting 45° stripes signal card state: running=yellow, unread=cyan,
-   ask_user=purple. See change: throttle-idle-ui-animations.
+/* ── Session-card status sweep gradient ───────────────────────
+   A soft horizontal color band glides left→right to signal card state:
+   running=amber, unread=cyan, ask_user=purple. Models the pending-prompt
+   sweep shimmer — removes the hard diagonal edges that fought card text.
+   See change: card-gradient-state-animation (was diagonal stripes per
+   throttle-idle-ui-animations).
 
-   Compositor-only: the static repeating-linear-gradient lives on a
-   `.card-stripes-fx` overlay (rendered behind card content; the card root is
-   `relative isolate`) and SCROLLS via `transform: translateX` — NOT
-   `background-position`, which forces a per-frame repaint of every active card.
-   The overlay clips its translated tile to the card's rounded rect via
-   `overflow: hidden`; the dropdown menu lives unclipped on the card root, so
-   this never clips the menu. The state class on the card <li>
-   (`card-working-pulse` / `card-unread-pulse` / `card-input-stripes`) stays as
-   the state signal; the overlay carries the matching color class.
+   Compositor-only: the over-wide `.card-stripes-fx::before` overlay carries a
+   *repeating* soft band plus a flat tint underlay, and SCROLLS via
+   `transform: translateX` by exactly one period — NOT `background-position`,
+   which forces a per-frame repaint of every active card. The overlay clips its
+   translated tile to the card's rounded rect via `overflow: hidden`; the
+   dropdown menu lives unclipped on the card root, so this never clips the menu.
+   The state class on the card <li> (`card-working-pulse` / `card-unread-pulse`
+   / `card-input-stripes`) stays the state signal; the overlay carries the
+   matching color class.
 
-   Geometry: a 45° repeating-linear-gradient with 20px stops has a horizontal
-   (across-stripe) period of 20√2 ≈ 28.2843px. translateX by exactly one period
-   loops seamlessly; the overlay is widened one period on each side so the
-   translate never reveals a gap. Translating ACROSS the stripes (Δx, 0) gives
-   the barber-pole drift; translating ALONG them (45°) would be invisible. */
-@keyframes card-stripe-scroll {
-  to { transform: translateX(28.2843px); } /* 1 × (20√2) px across stripes */
-}
-@keyframes card-working-opacity-pulse {
-  0%, 100% { opacity: 0.6; }
-  50%      { opacity: 1;   }
+   Seamless loop: the band is a `repeating-linear-gradient(90deg, …)` with a
+   460px period, and the overlay is widened one period (460px) on each side.
+   translateX from 0 to exactly one period (460px) is pixel-identical at start
+   and end → no exit/re-entry snap. Constant `linear` velocity → no accel/decel
+   stutter. Period 460px > card width keeps a single-band "pulse" identity with
+   a gentle gap; the band is double-wide (soft edges at 60/400 around center
+   230) for a broad slow wash rather than a thin streak. */
+@keyframes card-sweep-scroll {
+  to { transform: translateX(460px); } /* exactly one band period */
 }
 .card-stripes-fx {
   position: absolute;
@@ -244,35 +245,29 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -28.2843px;
-  right: -28.2843px;
-  /* No background-size: let the repeating-linear-gradient fill naturally so its
-     20px/45° period never seams (a fixed tile that isn't a clean multiple of the
-     diagonal period creates visible bands). Seamless looping comes from
-     translateX by exactly one horizontal period (28.2843px), not background-size. */
-  /* Coprime-ish periods (2s scroll, 3s pulse) so the two effects never lock
-     into one rhythm — keeps the card ambient rather than mechanically pumping. */
-  animation:
-    card-stripe-scroll 2s linear infinite,
-    card-working-opacity-pulse 3s ease-in-out infinite;
+  left: -460px;
+  right: -460px;
+  animation: card-sweep-scroll 3.4s linear infinite;
 }
+/* The flat tint (second layer) is uniform, so translating it with the band is
+   invisible; the band (first layer) carries the moving wash. */
 /* running — amber (yellow-500) */
 .card-stripes-running::before {
   background-image:
-    repeating-linear-gradient(45deg, transparent 0 10px, rgba(234, 179, 8, 0.10) 10px 20px),
-    linear-gradient(rgba(234, 179, 8, 0.06), rgba(234, 179, 8, 0.06));
+    repeating-linear-gradient(90deg, transparent 0 60px, rgba(234, 179, 8, 0.16) 230px, transparent 400px 460px),
+    linear-gradient(rgba(234, 179, 8, 0.05), rgba(234, 179, 8, 0.05));
 }
 /* unread — cyan (cyan-400) */
 .card-stripes-unread::before {
   background-image:
-    repeating-linear-gradient(45deg, transparent 0 10px, rgba(34, 211, 238, 0.18) 10px 20px),
-    linear-gradient(rgba(34, 211, 238, 0.07), rgba(34, 211, 238, 0.07));
+    repeating-linear-gradient(90deg, transparent 0 60px, rgba(34, 211, 238, 0.20) 230px, transparent 400px 460px),
+    linear-gradient(rgba(34, 211, 238, 0.05), rgba(34, 211, 238, 0.05));
 }
 /* ask_user — purple (purple-500 rgb(168 85 247)) */
 .card-stripes-input::before {
   background-image:
-    repeating-linear-gradient(45deg, transparent 0 10px, rgba(168, 85, 247, 0.18) 10px 20px),
-    linear-gradient(rgba(168, 85, 247, 0.07), rgba(168, 85, 247, 0.07));
+    repeating-linear-gradient(90deg, transparent 0 60px, rgba(168, 85, 247, 0.22) 230px, transparent 400px 460px),
+    linear-gradient(rgba(168, 85, 247, 0.05), rgba(168, 85, 247, 0.05));
 }
 @media (prefers-reduced-motion: reduce) {
   .card-stripes-fx::before { animation: none; }

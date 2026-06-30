@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Optimistic prompt — progressing design</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --accent-blue:#3b82f6;
+  }
+  body{background:var(--bg-primary);color:var(--text-secondary);font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;}
+  .panel{background:var(--bg-secondary);border:1px solid var(--border-primary);}
+  /* shimmer used for the "sending" state border-left */
+  @keyframes pulseEdge{0%,100%{opacity:.35}50%{opacity:1}}
+  .edge-pulse{animation:pulseEdge 1.1s ease-in-out infinite;}
+  @keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  .sweep{overflow:hidden;}
+  .sweep::after{content:"";position:absolute;inset:0;border-radius:inherit;
+    background:linear-gradient(90deg,transparent,rgba(59,130,246,.10),transparent);
+    animation:sweep 1.4s ease-in-out infinite;}
+  .tick-in{animation:tickIn .35s cubic-bezier(.2,.8,.2,1);}
+  @keyframes tickIn{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+  .bubble-in{animation:bubbleIn .28s cubic-bezier(.2,.8,.2,1);}
+  @keyframes bubbleIn{0%{transform:translateY(6px) scale(.98);opacity:0}100%{transform:none;opacity:1}}
+  .spin{animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body class="p-6 md:p-10">
+<div class="max-w-5xl mx-auto">
+  <header class="mb-8">
+    <h1 class="text-xl font-semibold text-[var(--text-primary)]">Optimistic prompt — progressing design</h1>
+    <p class="text-sm text-[var(--text-tertiary)] mt-1">Mockup for re-wiring the removed optimistic bubble. Grounded in real tokens + the <code class="text-[var(--accent-blue)]">bg-blue-500/10 border-l-2 border-l-blue-400</code> bubble. Not implemented.</p>
+  </header>
+
+  <!-- STATE LEGEND -->
+  <div class="grid md:grid-cols-3 gap-3 mb-10">
+    <div class="panel rounded-lg p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">State 1 · sending</div>
+      <div class="text-xs text-[var(--text-tertiary)]">Bubble appears <b class="text-[var(--text-secondary)]">instantly</b> on send. Dimmed, left-edge pulses, faint sweep. Spinner + “sending”.</div>
+    </div>
+    <div class="panel rounded-lg p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">State 2 · sent (ack)</div>
+      <div class="text-xs text-[var(--text-tertiary)]">Server ack arrives. Spinner morphs to <b class="text-emerald-400">✓</b>, bubble settles to full opacity. Sub-second.</div>
+    </div>
+    <div class="panel rounded-lg p-3">
+      <div class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">State 3 · confirmed</div>
+      <div class="text-xs text-[var(--text-tertiary)]">Real event replaces the optimistic bubble in place. No layout jump, no fl/icker. Identical geometry.</div>
+    </div>
+  </div>
+
+  <!-- TWO LIVE TIMELINES -->
+  <div class="grid md:grid-cols-2 gap-6">
+
+    <!-- CURRENT -->
+    <section>
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-medium text-[var(--text-secondary)]">Current — no feedback</h2>
+        <span class="text-[10px] text-[var(--text-muted)]">message vanishes, gap, then appears</span>
+      </div>
+      <div class="panel rounded-xl h-[360px] flex flex-col">
+        <div id="cur-feed" class="flex-1 overflow-y-auto p-4 space-y-1"></div>
+        <div class="border-t border-[var(--border-primary)] p-3 flex gap-2">
+          <input id="cur-input" class="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none" placeholder="Type a message…" value="run the test suite" />
+          <button onclick="sendCurrent()" class="bg-[var(--accent-blue)] text-white text-sm font-medium rounded-lg px-4">Send</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROPOSED -->
+    <section>
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-medium text-[var(--text-secondary)]">Proposed — progressing</h2>
+        <span class="text-[10px] text-emerald-400/70">instant → ack → confirmed</span>
+      </div>
+      <div class="panel rounded-xl h-[360px] flex flex-col">
+        <div id="new-feed" class="flex-1 overflow-y-auto p-4 space-y-1"></div>
+        <div class="border-t border-[var(--border-primary)] p-3 flex gap-2">
+          <input id="new-input" class="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none" placeholder="Type a message…" value="run the test suite" />
+          <button onclick="sendNew()" class="bg-[var(--accent-blue)] text-white text-sm font-medium rounded-lg px-4">Send</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <p class="text-xs text-[var(--text-muted)] mt-6 text-center">Click Send on both. Left = today (3s blank gap). Right = optimistic bubble with sending → ✓ → confirmed transition (server delay simulated at 3s).</p>
+
+  <!-- STATIC FRAMES so reviewer sees each state without timing -->
+  <h2 class="text-sm font-medium text-[var(--text-secondary)] mt-12 mb-3">The three frames, side by side</h2>
+  <div class="panel rounded-xl p-6 space-y-4" id="frames"></div>
+</div>
+
+<script>
+  const bubbleBase = "max-w-[80%] rounded-xl shadow-md px-4 py-2 text-sm text-[var(--text-primary)]";
+  const confirmedCls = "bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400";
+
+  function row(inner){ const d=document.createElement('div'); d.className="flex justify-end bubble-in"; d.innerHTML=inner; return d; }
+  function spinner(){ return `<svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.2-8.5" stroke-linecap="round"/></svg>`; }
+  function check(){ return `<svg class="tick-in" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="3"><path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>`; }
+
+  // ---- CURRENT ----
+  function sendCurrent(){
+    const feed=document.getElementById('cur-feed'); const t=document.getElementById('cur-input').value.trim(); if(!t)return;
+    document.getElementById('cur-input').value="";
+    // nothing happens for 3s, then bubble appears
+    const wait=document.createElement('div'); wait.className="text-[10px] text-[var(--text-muted)] text-center py-2"; wait.textContent="(waiting for server… nothing on screen)"; feed.appendChild(wait); feed.scrollTop=feed.scrollHeight;
+    setTimeout(()=>{ wait.remove(); feed.appendChild(row(`<div class="${bubbleBase} ${confirmedCls}">${t}</div>`)); feed.scrollTop=feed.scrollHeight; },3000);
+  }
+
+  // ---- PROPOSED ----
+  function sendNew(){
+    const feed=document.getElementById('new-feed'); const t=document.getElementById('new-input').value.trim(); if(!t)return;
+    document.getElementById('new-input').value="";
+    // State 1: instant dimmed bubble
+    const r=row(`
+      <div class="relative sweep ${bubbleBase} bg-blue-500/[0.06] border border-blue-500/15 border-l-2 border-l-blue-400 edge-pulse opacity-60">
+        <div class="flex items-start gap-2">
+          <div class="flex-1">${t}</div>
+          <span class="status flex items-center gap-1 shrink-0 mt-0.5 text-[10px] text-blue-400/70">${spinner()}<span>sending</span></span>
+        </div>
+      </div>`);
+    feed.appendChild(r); feed.scrollTop=feed.scrollHeight;
+    const inner=r.firstElementChild; const status=r.querySelector('.status');
+    // State 2: ack at ~700ms — drop dim/pulse/sweep, swap to check
+    setTimeout(()=>{
+      inner.classList.remove('opacity-60','edge-pulse','sweep','bg-blue-500/[0.06]','border-blue-500/15');
+      inner.classList.add('bg-blue-500/10','border-blue-500/20');
+      status.innerHTML = `${check()}<span class="text-emerald-400/80">sent</span>`;
+    },700);
+    // State 3: confirmed at 3s — replace with canonical bubble (status drops away)
+    setTimeout(()=>{ status.style.transition="opacity .3s"; status.style.opacity="0"; setTimeout(()=>status.remove(),300); },3000);
+  }
+
+  // ---- STATIC FRAMES ----
+  const frames=document.getElementById('frames');
+  function frame(label,html){ return `<div class="flex items-center gap-4"><div class="w-28 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">${label}</div><div class="flex-1 flex justify-end">${html}</div></div>`; }
+  frames.innerHTML =
+    frame("1 · sending",`<div class="relative sweep ${bubbleBase} bg-blue-500/[0.06] border border-blue-500/15 border-l-2 border-l-blue-400 edge-pulse opacity-60"><div class="flex items-start gap-2"><div class="flex-1">run the test suite</div><span class="flex items-center gap-1 shrink-0 mt-0.5 text-[10px] text-blue-400/70">${spinner()}sending</span></div></div>`)
+  + `<div class="border-t border-[var(--border-primary)]"></div>`
+  + frame("2 · sent",`<div class="${bubbleBase} ${confirmedCls}"><div class="flex items-start gap-2"><div class="flex-1">run the test suite</div><span class="flex items-center gap-1 shrink-0 mt-0.5 text-[10px]">${check()}<span class="text-emerald-400/80">sent</span></span></div></div>`)
+  + `<div class="border-t border-[var(--border-primary)]"></div>`
+  + frame("3 · confirmed",`<div class="${bubbleBase} ${confirmedCls}">run the test suite</div>`);
+</script>
+</body>
+</html>

@@ -10,6 +10,13 @@ interface Props {
   onSelect: (path: string) => void;
   onCancel: () => void;
   rows?: number;
+  /**
+   * Affordance for the "Settings → Servers" link shown when a browse call is
+   * refused by the network guard (403 `network_not_allowed`). Optional — the
+   * remedy hint still renders without it.
+   * See change: distinguish-offline-from-network-denied.
+   */
+  onOpenServers?: () => void;
 }
 
 /**
@@ -29,12 +36,17 @@ type DisplayItem =
   | { type: "entry"; entry: BrowseEntry }
   | { type: "create-here"; name: string };
 
-export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props) {
+export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenServers }: Props) {
   const [inputValue, setInputValue] = useState(initialPath ?? "");
   const [entries, setEntries] = useState<BrowseEntry[]>([]);
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Set when a browse call is refused by the network guard (403
+  // network_not_allowed). Rendered as an actionable remedy surface,
+  // distinct from the bare `error` string. See change:
+  // distinguish-offline-from-network-denied.
+  const [denial, setDenial] = useState<{ hint?: string } | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const [invalidFlash, setInvalidFlash] = useState(false);
   const [newFolderMode, setNewFolderMode] = useState(false);
@@ -69,6 +81,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props)
 
       setLoading(true);
       setError(null);
+      setDenial(null);
       try {
         const result = await browseDirectory(dir, { q, signal: ctrl.signal });
         // Ignore stale response if a newer request superseded us
@@ -103,8 +116,15 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props)
 
         return result;
       } catch (err: unknown) {
-        const e = err as { name?: string; message?: string };
+        const e = err as { name?: string; message?: string; code?: string; hint?: string };
         if (e?.name === "AbortError") return;
+        // A network-guard denial is a distinct, actionable state — render the
+        // remedy hint, not a bare error string.
+        if (e?.code === "network_not_allowed") {
+          setDenial({ hint: e.hint });
+          setEntries([]);
+          return null;
+        }
         setError(e?.message ?? "Failed to browse");
         setEntries([]);
         return null;
@@ -407,10 +427,24 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8 }: Props)
         {loading && (
           <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("auto.loading", undefined, "Loading…")}</div>
         )}
-        {error && (
+        {denial && (
+          <div className="px-3 py-2 text-sm text-amber-400 flex flex-col gap-1.5">
+            <span className="font-medium">{i18nT("auto.network_not_allowed", undefined, "Network not allowed")}</span>
+            {denial.hint && <span className="text-amber-300/90">{denial.hint}</span>}
+            {onOpenServers && (
+              <button
+                onClick={onOpenServers}
+                className="self-start mt-0.5 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
+              >
+                {i18nT("auto.settings_servers", undefined, "Settings → Servers")}
+              </button>
+            )}
+          </div>
+        )}
+        {error && !denial && (
           <div className="px-3 py-2 text-sm text-red-400">{error}</div>
         )}
-        {!loading && !error && (
+        {!loading && !error && !denial && (
           <>
             {displayItems.map((item, i) => {
               const isHighlighted = i === highlightIndex;

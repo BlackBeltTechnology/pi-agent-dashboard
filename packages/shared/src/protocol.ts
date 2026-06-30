@@ -222,6 +222,20 @@ export interface SessionNameUpdateMessage {
   name: string;
 }
 
+/**
+ * Bridge -> server: the pi-coding-agent version of the process this bridge
+ * runs inside, read via `createRequire` from pi's own tree (ground truth for
+ * the session). Sent at register and whenever the polled value changes
+ * (e.g. after an out-of-band `pi update --self`). Server stores it as
+ * `DashboardSession.piVersion` and re-broadcasts. See change:
+ * restore-pi-version-skew-surface.
+ */
+export interface PiVersionUpdateMessage {
+  type: "pi_version_update";
+  sessionId: string;
+  version: string;
+}
+
 export interface SessionsListExtensionMessage {
   type: "sessions_list";
   sessionId: string;
@@ -515,6 +529,7 @@ export type ExtensionToServerMessage =
   | AssetRegisterMessage
   | DispatchExtensionCommandMessage
   | CwdMissingMessage
+  | PiVersionUpdateMessage
   | PluginPiMessage
   | QueueUpdateToServerMessage;
 
@@ -593,6 +608,16 @@ export interface SetModelMessage {
 
 export interface ShutdownExtensionMessage {
   type: "shutdown";
+  sessionId: string;
+}
+
+/**
+ * Server→bridge graceful stop: set a per-session flag; the bridge shuts
+ * down cleanly at the next turn_end. See change:
+ * adopt-pi-071-072-073-features.
+ */
+export interface StopAfterTurnExtensionMessage {
+  type: "stop_after_turn";
   sessionId: string;
 }
 
@@ -787,6 +812,7 @@ export type ServerToExtensionMessage =
   | ListSessionsExtensionMessage
   | SetModelMessage
   | ShutdownExtensionMessage
+  | StopAfterTurnExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RequestFlowsRefreshMessage

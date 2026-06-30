@@ -483,17 +483,14 @@ describe("Task 5.5 + 4.2: [text, toolCall, text] — second text appears at mess
       ]),
     );
 
-    // Decision (4.2): we accept the second text appearing only at message_end.
-    // Currently the reorder helper matches text → most-recent-unclaimed
-    // assistant row, which means the SECOND text block in content[] also
-    // tries to claim the SAME flushed assistant row (no second assistant row
-    // exists). Per our spec scenario "model emits text after toolCall —
-    // second text not streamed live", this is the accepted simpler path.
+    // Updated by change adopt-pi-071-072-073-features (A.2): message_end now
+    // honors the finalized content. The flushed row's content is replaced
+    // with the effective text derived from data.message.content (all text
+    // parts concatenated), so the trailing "Done." is no longer lost from
+    // the live stream — live render and /reload now agree.
     const assistants = state.messages.filter((m) => m.role === "assistant");
     expect(assistants).toHaveLength(1);
-    expect(assistants[0].content).toBe("I'll search:");
-    // The accepted UX tradeoff: "Done." is lost from the live stream view.
-    // (It's recoverable from session storage / replay.)
+    expect(assistants[0].content).toBe("I'll search:Done.");
   });
 });
 

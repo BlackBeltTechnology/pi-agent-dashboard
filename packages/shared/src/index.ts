@@ -9,3 +9,9 @@
 export * from "./doctor-core.js";
 export * from "./node-version.js";
 export type { ViewTarget } from "./types.js";
+export {
+  fileKind,
+  TEXT_EXTENSIONS,
+  IMAGE_EXTENSIONS,
+} from "./file-kind.js";
+export type { ViewerKind, FileKind, FileKindResult } from "./file-kind.js";
