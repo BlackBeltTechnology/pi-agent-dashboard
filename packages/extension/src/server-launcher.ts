@@ -28,6 +28,15 @@ export interface LaunchResult {
    * synchronously after launch. See change: tighten-process-list-ux.
    */
   childPid?: number;
+  /**
+   * Whether the spawn reached the log-owning path (i.e. `launchDashboardServer`
+   * opened `~/.pi/dashboard/server.log` before failing). `false` only for
+   * failures that abort BEFORE the log fd is opened (currently just
+   * `JitiNotFoundError` — loader resolution precedes log creation). Callers use
+   * this to avoid pointing users at a `server.log` that was never written.
+   * See change: fix-bridge-server-start-diagnostics (CodeRabbit #3).
+   */
+  logOwned?: boolean;
 }
 
 /**
@@ -107,21 +116,25 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
       port: config.port,
       starter: "Bridge",
     });
-    return { success: true, message: "Server started", childPid: result.childPid };
+    return { success: true, message: "Server started", childPid: result.childPid, logOwned: true };
   } catch (err: unknown) {
     if (err instanceof JitiNotFoundError) {
-      return { success: false, message: err.message };
+      // Thrown before the log fd is opened — no server.log exists.
+      return { success: false, message: err.message, logOwned: false };
     }
     if (err instanceof PortConflictError) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, logOwned: true };
     }
     if (err instanceof EarlyExitError) {
       return {
         success: false,
         message: `Server process exited (code=${err.code}) before health check. See ${getDashboardServerLogPath()}`,
+        logOwned: true,
       };
     }
+    // Readiness timeout (and any other post-spawn error): the log was opened
+    // before the readiness loop, so it exists and is worth pointing at.
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, message };
+    return { success: false, message, logOwned: true };
   }
 }
