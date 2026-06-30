@@ -191,12 +191,25 @@ export function useSessionActions(deps: SessionActionDeps) {
 
   const handleSend = useCallback((text: string, images?: ImageContent[], delivery?: "steer" | "followUp") => {
     if (selectedId) {
-      // Send and let pi's queue_update event populate authoritative chip state
-      // via `Session.pendingQueues`. No optimistic local pendingPrompt write.
-      // See change: add-followup-edit-and-steer-cancel.
       send({ type: "send_prompt", sessionId: selectedId, text, images, delivery });
+      // Optimistic feedback, scoped to idle / fresh-turn sends only. Mid-turn
+      // sends are governed by `mid-turn-prompt-queue` (authoritative
+      // `pendingQueues` chips) and SHALL NOT write `pendingPrompt`. The bridge
+      // `prompt_received` ack later confirms (status:"sent") or drops this on a
+      // same-tick race. See change: optimistic-prompt-progress.
+      setSessionStates((prev) => {
+        const current = prev.get(selectedId);
+        // Skip only when we KNOW the session is mid-turn. A freshly-selected
+        // idle session may have no state entry yet — treat absent as idle and
+        // seed from createInitialState() so the bubble still shows.
+        if (current && (current.isStreaming || current.status === "streaming")) return prev;
+        const base = current ?? createInitialState();
+        const next = new Map(prev);
+        next.set(selectedId, { ...base, pendingPrompt: { text, images, delivery, status: "sending" } });
+        return next;
+      });
     }
-  }, [selectedId, send]);
+  }, [selectedId, send, setSessionStates]);
 
   const handleSelect = useCallback((id: string) => {
     navigate(`/session/${id}`);
@@ -241,8 +254,21 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSendPromptToSession = useCallback(
     (sessionId: string, text: string, images?: ImageContent[]) => {
       send({ type: "send_prompt", sessionId, text, images });
+      // Same idle-scoped optimistic write as handleSend, for the card/board
+      // quick-send path. The session may not be selected, so we read its state
+      // from the map; if absent or streaming, skip the optimistic write and let
+      // the bridge ack / queue_update drive rendering.
+      // See change: optimistic-prompt-progress.
+      setSessionStates((prev) => {
+        const current = prev.get(sessionId);
+        if (current && (current.isStreaming || current.status === "streaming")) return prev;
+        const base = current ?? createInitialState();
+        const next = new Map(prev);
+        next.set(sessionId, { ...base, pendingPrompt: { text, images, status: "sending" } });
+        return next;
+      });
     },
-    [send],
+    [send, setSessionStates],
   );
 
   const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {

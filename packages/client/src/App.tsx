@@ -931,17 +931,9 @@ export default function App() {
   }, []);
 
   // Safety timeout: clear stuck pendingPrompt after 30s and show error.
-  // Pauses while the prompt text appears in pi's mirrored queues
-  // (i.e. pi has acknowledged custody). Resumes on removal.
-  // See change: add-followup-edit-and-steer-cancel.
-  const _selectedSessionForQueue = selectedId ? sessions.get(selectedId) : undefined;
-  const queuedTextsForSelected: string[] = [
-    ...(_selectedSessionForQueue?.pendingQueues?.steering ?? []),
-    ...(_selectedSessionForQueue?.pendingQueues?.followUp ?? []),
-  ];
-  const safetyTimerPaused = !!(
-    selectedState.pendingPrompt && queuedTextsForSelected.includes(selectedState.pendingPrompt.text)
-  );
+  // `pendingPrompt` is idle-scoped now (only ever set for a fresh-turn send),
+  // so it can never co-exist with a mid-turn queue entry — no pause logic
+  // needed. See change: optimistic-prompt-progress.
   usePendingPromptTimeout(!!selectedState.pendingPrompt, useCallback(() => {
     if (selectedId) {
       setSessionStates((prev) => {
@@ -960,7 +952,7 @@ export default function App() {
         return next;
       });
     }
-  }, [selectedId, setSessionStates]), safetyTimerPaused);
+  }, [selectedId, setSessionStates]));
 
   const selectedCommands = selectedId
     ? sessionCommands.get(selectedId) ?? []
@@ -1504,7 +1496,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — ONE

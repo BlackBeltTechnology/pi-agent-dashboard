@@ -16,6 +16,20 @@ export interface QueueUpdateToServerMessage {
   followUp: string[];
 }
 
+/**
+ * Bridge -> server: per-send acknowledgement of a `send_prompt`, carrying the
+ * bridge's authoritative capture-before-send streaming verdict. `fresh:true`
+ * means the send started a fresh turn (idle); `fresh:false` means it raced into
+ * a mid-turn queue entry. Server forwards verbatim to subscribed browsers so the
+ * optimistic `pendingPrompt` bubble can transition to "sent" or drop.
+ * See change: optimistic-prompt-progress.
+ */
+export interface PromptReceivedToServerMessage {
+  type: "prompt_received";
+  sessionId: string;
+  fresh: boolean;
+}
+
 // ── Extension → Server ──────────────────────────────────────────────
 
 export interface SessionRegisterMessage {
@@ -531,7 +545,8 @@ export type ExtensionToServerMessage =
   | CwdMissingMessage
   | PiVersionUpdateMessage
   | PluginPiMessage
-  | QueueUpdateToServerMessage;
+  | QueueUpdateToServerMessage
+  | PromptReceivedToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
 

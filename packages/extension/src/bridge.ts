@@ -1122,6 +1122,9 @@ function initBridge(pi: ExtensionAPI) {
         // Flow fast-path: typed /<user-defined-flow-name> wins over extension dispatch.
         const flowsList = getFlowsList();
         if (flowsList.some(f => f.name === cmdName)) {
+          // Non-turn slash route: settle any optimistic idle bubble so it does
+          // not hang to the 30s timeout. See change: optimistic-prompt-progress.
+          connection.send({ type: "prompt_received", sessionId, fresh: false });
           pi.events.emit("flow:run", { flowName: cmdName, task: cmdArgs.trim() || undefined });
           return;
         }
@@ -1139,7 +1142,12 @@ function initBridge(pi: ExtensionAPI) {
         (msg) => connection.send(msg),
         connection,
       );
-      if (handled) return;
+      if (handled) {
+        // Non-turn dispatch route: settle optimistic idle bubble (no message_start
+        // follows). See change: optimistic-prompt-progress.
+        connection.send({ type: "prompt_received", sessionId, fresh: false });
+        return;
+      }
 
       // Exec-mode slash template (executable: bash): run the body as bash and
       // skip the LLM entirely. Runs AFTER extension dispatch, BEFORE template
@@ -1151,7 +1159,12 @@ function initBridge(pi: ExtensionAPI) {
         sessionId,
         (msg) => connection.send(msg),
       );
-      if (ranExec) return;
+      if (ranExec) {
+        // Non-turn exec-template route: settle optimistic idle bubble.
+        // See change: optimistic-prompt-progress.
+        connection.send({ type: "prompt_received", sessionId, fresh: false });
+        return;
+      }
 
       // Fallback: route the user prompt based on delivery + streaming state.
       //
@@ -1168,6 +1181,11 @@ function initBridge(pi: ExtensionAPI) {
       // See change: rework-mid-turn-prompt-queue (design.md D1).
       const deliverAs = delivery ?? ("followUp" as const);
       const wasStreaming = getBridgeState().isAgentStreaming;
+      // Per-send ack carrying the capture-before-send streaming verdict (slash /
+      // flow / template path). Mirrors the passthrough emit in command-handler.
+      // fresh:true → optimistic bubble "sent"; fresh:false → drop (raced mid-turn).
+      // See change: optimistic-prompt-progress.
+      connection.send({ type: "prompt_received", sessionId, fresh: !wasStreaming });
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
       if (wasStreaming && deliverAs === "followUp") {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The

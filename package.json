@@ -79,7 +79,8 @@
     "pretest:e2e": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",
     "test:e2e": "playwright test",
     "pretest:e2e:ui": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:chrome": "PW_CHANNEL=chrome playwright test"
   },
   "engines": {
     "node": ">=22.19.0 <26"

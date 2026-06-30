@@ -2,8 +2,7 @@
  * Auto-start logic for the dashboard server.
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
-import os from "node:os";
-import path from "node:path";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 export interface DiscoveredServer {
   host: string;
@@ -16,7 +15,7 @@ export interface DiscoveredServer {
 export interface AutoStartDeps {
   discoverDashboard: (timeout?: number) => Promise<DiscoveredServer[]>;
   isDashboardRunning: (port: number) => Promise<{ running: boolean; portConflict?: boolean }>;
-  launchServer: (config: any) => Promise<{ success: boolean; message: string; childPid?: number }>;
+  launchServer: (config: any) => Promise<{ success: boolean; message: string; childPid?: number; logOwned?: boolean }>;
   notify: (message: string, level: "info" | "warning") => void;
   /**
    * Optional callback fired immediately BEFORE `launchServer(config)` is
@@ -151,11 +150,15 @@ export async function autoStartServer(
   }
 
   // Surface the log path so users can inspect the crash output without having
-  // to know the convention. See change: fix-windows-server-parity.
+  // to know the convention. The bridge auto-spawn owns this file when the spawn
+  // reached the log-owning path (stdio:{logFile}); only failures that abort
+  // before the log fd opens (JitiNotFoundError → logOwned:false) skip the
+  // suffix, so we never point users at a server.log that was never written.
+  // See change: fix-windows-server-parity, fix-bridge-server-start-diagnostics.
   deps.onLaunchEnd?.(false);
-  const logPath = path.join(os.homedir(), ".pi", "dashboard", "server.log");
+  const logSuffix = result.logOwned === false ? "" : `\nSee log: ${getDashboardServerLogPath()}`;
   deps.notify(
-    `Dashboard server failed to start: ${result.message}\nSee log: ${logPath}`,
+    `Dashboard server failed to start: ${result.message}${logSuffix}`,
     "warning",
   );
   return {};

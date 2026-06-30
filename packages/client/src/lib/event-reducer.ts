@@ -117,6 +117,28 @@ export interface PendingPrompt {
   images?: ChatImage[];
   /** Delivery mode set by the sender. "steer" = after current turn, "followUp" = after agent finishes. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
+  /**
+   * Progress state of the optimistic (idle-scoped) prompt bubble.
+   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt.
+   * Cleared entirely (→ confirmed) when the user `message_start` lands.
+   * See change: optimistic-prompt-progress.
+   */
+  status: "sending" | "sent";
+}
+
+/**
+ * Apply a bridge `prompt_received` ack to a session's optimistic
+ * `pendingPrompt`. `fresh:true` (idle/fresh-turn send) promotes the bubble to
+ * `status:"sent"`; `fresh:false` (raced into a mid-turn queue entry) drops
+ * `pendingPrompt` so the authoritative `queue_update` chip takes over with no
+ * double render. No-op when no `pendingPrompt` exists.
+ * See change: optimistic-prompt-progress.
+ */
+export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
+  if (!state.pendingPrompt) return state;
+  if (!fresh) return { ...state, pendingPrompt: undefined };
+  if (state.pendingPrompt.status === "sent") return state;
+  return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
 }
 
 export interface InteractiveUiRequest {

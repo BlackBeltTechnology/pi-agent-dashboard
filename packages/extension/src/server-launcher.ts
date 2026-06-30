@@ -7,6 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   launchDashboardServer,
   JitiNotFoundError,
@@ -27,6 +28,15 @@ export interface LaunchResult {
    * synchronously after launch. See change: tighten-process-list-ux.
    */
   childPid?: number;
+  /**
+   * Whether the spawn reached the log-owning path (i.e. `launchDashboardServer`
+   * opened `~/.pi/dashboard/server.log` before failing). `false` only for
+   * failures that abort BEFORE the log fd is opened (currently just
+   * `JitiNotFoundError` — loader resolution precedes log creation). Callers use
+   * this to avoid pointing users at a `server.log` that was never written.
+   * See change: fix-bridge-server-start-diagnostics (CodeRabbit #3).
+   */
+  logOwned?: boolean;
 }
 
 /**
@@ -85,10 +95,13 @@ export function buildSpawnArgs(config: DashboardConfig): string[] {
  * loader resolution, argv shape, env merge, log-file policy, and
  * readiness polling (see `packages/shared/src/server-launcher.ts`).
  *
- * Bridge-specific contract preserved: `DASHBOARD_STARTER=Bridge`,
- * `stdio: "ignore"` (Bridge auto-spawn never owns the log file),
- * 2 s health timeout (Bridge expects a fast cold-start when the
- * server is already on the same machine).
+ * Bridge-specific contract: `DASHBOARD_STARTER=Bridge`,
+ * `stdio: { logFile: getDashboardServerLogPath() }` (Bridge auto-spawn
+ * now owns the shared `~/.pi/dashboard/server.log` so a slow/crashed
+ * cold start leaves an inspectable log), and a 10 s cold-start health
+ * timeout (slow hosts reach `writePid()` but are not health-OK within
+ * 2 s; `EarlyExitError` still surfaces a real crash instantly).
+ * See change: fix-bridge-server-start-diagnostics.
  */
 export async function launchServer(config: DashboardConfig): Promise<LaunchResult> {
   const cliPath = resolveServerCliPath();
@@ -98,26 +111,30 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     const result = await launchDashboardServer({
       cliPath,
       extraArgs: args,
-      stdio: "ignore",
-      healthTimeoutMs: 2_000,
+      stdio: { logFile: getDashboardServerLogPath() },
+      healthTimeoutMs: 10_000,
       port: config.port,
       starter: "Bridge",
     });
-    return { success: true, message: "Server started", childPid: result.childPid };
+    return { success: true, message: "Server started", childPid: result.childPid, logOwned: true };
   } catch (err: unknown) {
     if (err instanceof JitiNotFoundError) {
-      return { success: false, message: err.message };
+      // Thrown before the log fd is opened — no server.log exists.
+      return { success: false, message: err.message, logOwned: false };
     }
     if (err instanceof PortConflictError) {
-      return { success: false, message: err.message };
+      return { success: false, message: err.message, logOwned: true };
     }
     if (err instanceof EarlyExitError) {
       return {
         success: false,
-        message: `Server process exited (code=${err.code}) before health check. See ~/.pi/dashboard/server.log`,
+        message: `Server process exited (code=${err.code}) before health check. See ${getDashboardServerLogPath()}`,
+        logOwned: true,
       };
     }
+    // Readiness timeout (and any other post-spawn error): the log was opened
+    // before the readiness loop, so it exists and is worth pointing at.
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, message };
+    return { success: false, message, logOwned: true };
   }
 }

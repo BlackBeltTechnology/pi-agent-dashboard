@@ -29,7 +29,17 @@ screenshots). It owns rendered-UI behaviour assertions.
 ```bash
 npm run test:e2e        # boot container, run specs, tear down
 npm run test:e2e:ui     # same, Playwright UI mode
+npm run test:e2e:chrome # same, but use the SYSTEM Google Chrome (no bundled download)
 ```
+
+### System browser (skip the bundled Chromium download)
+
+`PW_CHANNEL=<chrome|msedge|chromium>` launches the installed browser binary
+instead of Playwright's bundled Chromium. `playwright.config.ts` wires the
+channel from this env var, and `global-setup.ts` skips the bundled-Chromium
+preflight when it is set. `npm run test:e2e:chrome` is the shorthand
+(`PW_CHANNEL=chrome playwright test`, no `playwright install` step). CDP / WS
+routing specs still work (Chrome is Chromium-based).
 
 Default (managed) lifecycle:
 
@@ -118,6 +128,7 @@ step.
 | `tests/e2e/tool-output-selection.spec.ts` | Faux round-trip: `[[faux:text-linkrefs]]` → inline-code FileLink + UrlLink. Asserts `user-select:text` / `draggable=false`, a mouse drag crossing each link extends the selection (links don't hijack the drag), and a plain click still opens the preview. Task 3.2. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/inline-screenshot.spec.ts` | Faux round-trip: `[[faux:tool-screenshot]]` → real `bash` writes a PNG + echoes `Screenshot saved: <path>`; the bridge's `inlineToolResultImages` inlines it as a `type:"image"` block. Asserts an inline `data:image/png` `<img>` is visible (auto-expanded) and the consumed path is NOT linkified (D5). Change: inline-agent-screenshot-artifacts (automates task 4.2). Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/editor-pane.spec.ts` | Faux round-trip: `[[faux:tool-read-fixture]]` reads the real fixture `README.md` → `OpenFileButton` body click navigates to `/session/:id/editor` → MarkdownViewer renders the heading; the tree opens `hello.txt` (Monaco text), `logo.png` (ImageViewer `<img>` over `/api/file/raw`), `doc.pdf` (PdfViewer `<object>`); asserts 4 tabs, a concrete (non-transparent) Monaco background (theme inheritance), back-to-chat, and tab restore on re-entry. Binary fixtures `logo.png`/`doc.pdf` live in `docker/fixtures/sample-git/`. Change: add-internal-monaco-editor-pane. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/optimistic-prompt.spec.ts` | Change: optimistic-prompt-progress. (1) IDLE send → optimistic `pending-prompt-card` appears, then confirms with no leftover card. Widens the sub-second window by delaying server→client WS frames via `page.routeWebSocket` (CDP `emulateNetworkConditions` does NOT throttle an open WS). (2) MID-TURN send (during `[[faux:slow-stream]]`, sent with Alt+Enter = followUp) → no optimistic card; `queue-chip-followup` renders. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/helpers/` | `gotoDashboard(page)`, `ensureGitSession(page)`, `sendPrompt(page, text)` + testid→locator map |
 
 ## Conventions

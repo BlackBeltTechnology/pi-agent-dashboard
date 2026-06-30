@@ -1004,6 +1004,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // Bridge ack for a `send_prompt` (capture-before-send streaming verdict).
+    // Forwarded verbatim to subscribed browsers so the optimistic
+    // `pendingPrompt` bubble can transition to "sent" (fresh:true) or drop
+    // (fresh:false, raced mid-turn). Transient signal — not cached on the
+    // session. See change: optimistic-prompt-progress.
+    if (msg.type === "prompt_received") {
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "prompt_received",
+        sessionId,
+        fresh: msg.fresh,
+      });
+      return;
+    }
+
 
     if (msg.type === "first_message_update") {
       sessionManager.update(sessionId, { firstMessage: msg.firstMessage });
