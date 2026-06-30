@@ -1088,6 +1088,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       browserGateway.broadcastSessionUpdated(sessionId, { cwdMissing: true });
     }
 
+    if (msg.type === "pi_version_update") {
+      // Bridge reports the pi version its session actually runs (ground truth
+      // from inside pi's process). Store + broadcast, mirroring git_info_update.
+      // See change: restore-pi-version-skew-surface.
+      sessionManager.update(sessionId, { piVersion: msg.version });
+      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version });
+    }
+
     if (msg.type === "files_list") {
       browserGateway.sendToSubscribers(sessionId, {
         type: "files_list",

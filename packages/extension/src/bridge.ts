@@ -45,7 +45,7 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { runGitPollTick } from "./git-poll.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
-import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
+import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
@@ -1231,6 +1231,7 @@ function initBridge(pi: ExtensionAPI) {
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
+  function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
 
   // Forward all pi core events to the dashboard.
   // Events with special enrichment logic:
@@ -2242,9 +2243,10 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git info
+    // Send initial git info + the session's pi version
     sendGitInfoIfChanged(ctx.cwd);
     sendCwdMissingIfChanged(ctx.cwd);
+    sendPiVersionIfChanged();
 
     // Start metrics monitor and heartbeat
     startMetricsMonitor();
@@ -2331,6 +2333,7 @@ function initBridge(pi: ExtensionAPI) {
       sendCwdMissingIfChanged,
       sendSessionNameIfChanged,
       sendModelUpdateIfChanged,
+      sendPiVersionIfChanged,
     }), GIT_POLL_INTERVAL);
     getBridgeState().timers!.push(gitPollTimer);
   }

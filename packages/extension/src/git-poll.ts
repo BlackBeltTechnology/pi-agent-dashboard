@@ -21,6 +21,8 @@ export interface GitPollDeps {
   sendCwdMissingIfChanged: (cwd: string) => void;
   sendSessionNameIfChanged: () => void;
   sendModelUpdateIfChanged: () => void;
+  /** Re-read pi version; push pi_version_update only on change. */
+  sendPiVersionIfChanged: () => void;
 }
 
 export function runGitPollTick(deps: GitPollDeps): void {
@@ -32,4 +34,5 @@ export function runGitPollTick(deps: GitPollDeps): void {
   }
   deps.sendSessionNameIfChanged();
   deps.sendModelUpdateIfChanged();
+  deps.sendPiVersionIfChanged();
 }

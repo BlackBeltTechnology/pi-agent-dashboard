@@ -11,6 +11,7 @@ import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-a
 import { useLocation, useRoute } from "wouter";
 import { SettingsSectionSlot, SettingsDraftProvider, useSettingsDraftSource, type RegisteredSource, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
+import { PiVersionAdvisory } from "./PiVersionAdvisory.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { KnownServersSection } from "./KnownServersSection.js";
@@ -766,6 +767,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
 
             {activeTab === "general" && (
               <>
+                <PiVersionAdvisory />
                 <Section title={t("settings.interface", undefined, "Interface")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
