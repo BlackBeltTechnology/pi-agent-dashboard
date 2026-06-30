@@ -102,6 +102,13 @@ interface BridgeState {
    * when no change attached. See change: inject-session-context-into-agent.
    */
   attachedChange?: string | null;
+  /**
+   * Graceful stop-after-turn latch (pi 0.72+). Set true on a `stop_after_turn`
+   * message; the next `turn_end` calls cachedCtx.shutdown() (fallback abort)
+   * and clears the flag. Idempotent: repeated sets while pending are no-ops.
+   * See change: adopt-pi-071-072-073-features.
+   */
+  shouldStopAfterTurn?: boolean;
 }
 function getBridgeState(): BridgeState {
   if (!(process as any)[BRIDGE_KEY]) {
@@ -720,6 +727,13 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
+      // Graceful stop-after-turn: latch a per-session flag; the next turn_end
+      // shuts the session down cleanly. Idempotent. See change:
+      // adopt-pi-071-072-073-features.
+      if (msg.type === "stop_after_turn") {
+        getBridgeState().shouldStopAfterTurn = true;
+        return;
+      }
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -1247,6 +1261,7 @@ function initBridge(pi: ExtensionAPI) {
     "tool_execution_end",
     "session_compact",
     "model_select",
+    "thinking_level_select",
   ] as const;
   // Pass-through events: forwarded as-is with no special handling.
   // Unrecognized types render as expandable JSON cards in the dashboard.
@@ -1362,6 +1377,30 @@ function initBridge(pi: ExtensionAPI) {
         const msg = mapEventToProtocol(sessionId, enriched);
         connection.send(msg);
         return;
+      }
+
+      // Pi 0.71+ fires a dedicated thinking_level_select event when the
+      // thinking level changes alone (no model change). Push a model_update
+      // through the existing dedup gate so the dashboard reflects it
+      // immediately rather than waiting for the next model change.
+      // See change: adopt-pi-071-072-073-features.
+      if (eventType === "thinking_level_select") {
+        sendModelUpdateIfChanged();
+        return;
+      }
+
+      // Graceful stop-after-turn: when latched, shut the session down cleanly
+      // at this turn boundary. Fall back to abort if shutdown is unavailable.
+      // Clear the flag BEFORE calling shutdown so a double-fired turn_end
+      // can't re-trigger. See change: adopt-pi-071-072-073-features.
+      if (eventType === "turn_end" && getBridgeState().shouldStopAfterTurn) {
+        getBridgeState().shouldStopAfterTurn = false;
+        try {
+          if (typeof (ctx as any)?.shutdown === "function") (ctx as any).shutdown();
+          else (ctx as any)?.abort?.();
+        } catch (err) {
+          console.error("[dashboard] stop-after-turn shutdown failed:", err);
+        }
       }
 
       // For turn_end, enrich with contextUsage (pi-only API) so server can extract stats

@@ -99,7 +99,11 @@ export function StatusBar({
           </>
         )}
         <ModelSelector current={model} models={models} onSelect={onSelectModel} favorites={favorites} onToggleFavorite={onToggleFavorite} />
-        <ThinkingLevelSelector current={thinkingLevel} onSelect={onSelectThinkingLevel} />
+        <ThinkingLevelSelector
+          current={thinkingLevel}
+          onSelect={onSelectThinkingLevel}
+          supportedLevels={models?.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
+        />
         {actions && (
           <>
             <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-1 flex-shrink-0" />

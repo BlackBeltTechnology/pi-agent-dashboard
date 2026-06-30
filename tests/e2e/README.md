@@ -55,6 +55,33 @@ PW_E2E_USE_RUNNING=1 npm run test:e2e   # attach, assert :18000 healthy, no tear
 `globalSetup` only verifies health; `globalTeardown` is a no-op. You own the
 container lifecycle.
 
+## System browser (`PW_CHANNEL`)
+
+By default the suite uses Playwright's **bundled Chromium** (downloaded by the
+`pretest:e2e` step, hermetic — what CI runs). To drive a **system-installed**
+browser instead, set `PW_CHANNEL` to a Chromium-family channel:
+
+```bash
+PW_CHANNEL=chrome  npm run test:e2e   # system Google Chrome
+PW_CHANNEL=msedge  npm run test:e2e   # system Microsoft Edge
+# also: chrome-beta, chrome-dev, chrome-canary, msedge-beta, ...
+```
+
+When `PW_CHANNEL` is set:
+
+- `playwright.config.ts` swaps the single project to `{ channel: PW_CHANNEL }`
+  and renames it to the channel (specs show as `[chrome]` instead of
+  `[chromium]`).
+- `pretest:e2e` self-skips `playwright install chromium` (no download needed).
+- `global-setup.ts` skips the bundled-Chromium preflight — Playwright errors
+  clearly itself if the named system browser is absent.
+
+Caveats: requires that browser installed on the host; **Chromium-family only**
+(WebKit/Firefox still need `playwright install`). Same Blink engine as bundled
+Chromium, so rendering/pointer behaviour matches; use it to avoid the download
+or to validate against a specific stable Chrome/Edge. Combine with the fast
+path: `PW_CHANNEL=chrome PW_E2E_USE_RUNNING=1 npm run test:e2e`.
+
 **Scenario specs need the seed flag in the fast path.** Specs that pin a folder
 or spawn a session (e.g. `session-spawn.spec.ts`) require the onboarding gate
 cleared and the network guard opened. Managed mode sets `PI_E2E_SEED=1`
@@ -78,7 +105,7 @@ step.
 
 | Path | Purpose |
 |------|---------|
-| `playwright.config.ts` (repo root) | `testDir: tests/e2e`, `baseURL :18000`, chromium, global setup/teardown |
+| `playwright.config.ts` (repo root) | `testDir: tests/e2e`, `baseURL :18000`, bundled chromium (or `PW_CHANNEL` system browser), global setup/teardown |
 | `tests/e2e/global-setup.ts` | Boot container (or verify health in fast path), poll `/api/health` |
 | `tests/e2e/global-teardown.ts` | Tear down when managed; no-op in fast path |
 | `tests/e2e/lifecycle.ts` | Shared paths, health poll, marker, `PW_E2E_USE_RUNNING` |

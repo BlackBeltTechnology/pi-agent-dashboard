@@ -92,6 +92,14 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "force_kill", sessionId: selectedId });
   }, [selectedId, send, setSessionStates]);
 
+  // Graceful stop-after-turn: let the agent finish the current turn, then
+  // shut the session down cleanly. Distinct from abort (mid-stream) and
+  // force_kill (SIGKILL). See change: adopt-pi-071-072-073-features.
+  const handleStopAfterTurn = useCallback(() => {
+    if (!selectedId) return;
+    send({ type: "stop_after_turn", sessionId: selectedId });
+  }, [selectedId, send]);
+
   // ── Follow-up queue mutation (bridge-owned buffer) ──────────────────
   //
   // These five senders dispatch the wire messages defined in
@@ -393,7 +401,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   }, [selectedId, send]);
 
   return {
-    handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,

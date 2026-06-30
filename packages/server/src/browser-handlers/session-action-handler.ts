@@ -536,6 +536,19 @@ export function handleAbort(
   ctx.piGateway.sendToSession(msg.sessionId, { type: "abort", sessionId: msg.sessionId });
 }
 
+/**
+ * Graceful stop-after-turn: forward to the bridge, which sets a per-session
+ * flag and shuts down cleanly at the next turn_end. Distinct from abort
+ * (mid-stream interrupt) and force_kill (SIGKILL).
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function handleStopAfterTurn(
+  msg: Extract<BrowserToServerMessage, { type: "stop_after_turn" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  ctx.piGateway.sendToSession(msg.sessionId, { type: "stop_after_turn", sessionId: msg.sessionId });
+}
+
 // ── Follow-up queue mutation forwarders (bridge-owned buffer) ─────────────
 //
 // These five handlers forward bridge-owned-buffer mutation messages to the

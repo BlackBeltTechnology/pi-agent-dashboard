@@ -596,6 +596,16 @@ export interface ShutdownExtensionMessage {
   sessionId: string;
 }
 
+/**
+ * Server→bridge graceful stop: set a per-session flag; the bridge shuts
+ * down cleanly at the next turn_end. See change:
+ * adopt-pi-071-072-073-features.
+ */
+export interface StopAfterTurnExtensionMessage {
+  type: "stop_after_turn";
+  sessionId: string;
+}
+
 export interface FlowControlExtensionMessage {
   type: "flow_control";
   sessionId: string;
@@ -787,6 +797,7 @@ export type ServerToExtensionMessage =
   | ListSessionsExtensionMessage
   | SetModelMessage
   | ShutdownExtensionMessage
+  | StopAfterTurnExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RequestFlowsRefreshMessage

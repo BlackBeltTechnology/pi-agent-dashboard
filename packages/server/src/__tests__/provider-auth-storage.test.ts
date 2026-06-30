@@ -63,15 +63,18 @@ describe("provider-auth-storage", () => {
     expect(data["test-remove"]).toBeUndefined();
   });
 
-  it("getAuthStatus includes the 5 OAuth handlers", async () => {
+  // pi 0.71 removed google-gemini-cli + google-antigravity as built-in
+  // providers; the dashboard dropped their handlers. See change:
+  // adopt-pi-071-072-073-features.
+  it("getAuthStatus includes the 3 OAuth handlers", async () => {
     const { getAuthStatus } = await import("../provider-auth-storage.js");
     const statuses = getAuthStatus();
     const oauthIds = statuses.filter((s) => s.flowType !== "api_key").map((s) => s.id);
     expect(oauthIds).toContain("anthropic");
     expect(oauthIds).toContain("openai-codex");
     expect(oauthIds).toContain("github-copilot");
-    expect(oauthIds).toContain("google-gemini-cli");
-    expect(oauthIds).toContain("google-antigravity");
+    expect(oauthIds).not.toContain("google-gemini-cli");
+    expect(oauthIds).not.toContain("google-antigravity");
   });
 
   it("getAuthStatus includes zai from the bridge-pushed catalogue with flowType api_key", async () => {
@@ -132,7 +135,7 @@ describe("provider-auth-storage", () => {
     const { getAuthStatus } = await import("../provider-auth-storage.js");
     const statuses = getAuthStatus();
     expect(statuses.filter((s) => s.flowType === "api_key")).toHaveLength(0);
-    expect(statuses.filter((s) => s.flowType !== "api_key")).toHaveLength(5);
+    expect(statuses.filter((s) => s.flowType !== "api_key")).toHaveLength(3);
   });
 
   it("resolveAuthJsonKey strips '-api' suffix for OAuth-collision ids", async () => {

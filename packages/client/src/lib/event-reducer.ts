@@ -370,6 +370,28 @@ export function findFlushedAssistantRowIndex(messages: ChatMessage[]): number {
 }
 
 /**
+ * Derive the assistant text the UI should display for a finalized
+ * `message_end`. Pi 0.71+ lets extensions REPLACE the finalized message
+ * content (cost footers, redactions); the replacement lives on
+ * `msg.content`. Array content concatenates `type: "text"` parts; string
+ * content is used directly; missing content falls through to `fallback`
+ * (the delta-derived `streamingText`), preserving pre-0.71 behavior.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function deriveEffectiveAssistantText(msg: any, fallback: string): string {
+  if (msg?.content) {
+    if (Array.isArray(msg.content)) {
+      return msg.content
+        .filter((c: any) => c?.type === "text")
+        .map((c: any) => c.text)
+        .join("");
+    }
+    if (typeof msg.content === "string") return msg.content;
+  }
+  return fallback;
+}
+
+/**
  * Reorder the suffix of `messages` so that rows belonging to a single
  * assistant message_end land in the same order as the model's content
  * array. Without this, an assistant message of shape `[text, toolCall]`
@@ -630,6 +652,31 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
   const lines = str.split("\n");
   if (lines.length <= maxLines) return str;
   return lines.slice(0, maxLines).join("\n");
+}
+
+/** Marker prefix prepended to truncated tool output. U+00AB is visually
+ * distinct from literal tool text, so the UI can detect truncation by
+ * checking `result.startsWith("«")`. See change:
+ * adopt-pi-071-072-073-features. */
+export const TRUNCATION_MARKER_PREFIX = "«";
+
+/**
+ * Truncate tool output for display keeping the LAST N lines (default 200).
+ * Bash/test/install output puts the summary, error, and totals at the BOTTOM,
+ * so trailing lines carry the signal. Prepends a `«N earlier lines hidden»`
+ * marker when truncating; returns text unchanged when within the cap.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function truncateOutputForDisplay(
+  text: string | unknown,
+  opts?: { maxLines?: number },
+): string {
+  const maxLines = opts?.maxLines ?? 200;
+  const str = toDisplayString(text);
+  const lines = str.split("\n");
+  if (lines.length <= maxLines) return str;
+  const dropped = lines.length - maxLines;
+  return `${TRUNCATION_MARKER_PREFIX}${dropped} earlier lines hidden»\n${lines.slice(-maxLines).join("\n")}`;
 }
 
 /**
@@ -1105,6 +1152,10 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
           next.lastError = undefined;
         }
+        // Pi 0.71+ message_end may REPLACE the finalized content. Compute the
+        // effective text once and apply uniformly across branches.
+        // See change: adopt-pi-071-072-073-features.
+        const effectiveContent = deriveEffectiveAssistantText(msg, next.streamingText);
         if (next.streamingTextFlushed) {
           // Streaming text was already flushed at tool_execution_start.
           // Locate the unstamped flushed row and stamp entryId / nonce in
@@ -1118,6 +1169,11 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
               entryId: data.entryId as string | undefined,
               nonce: data.nonce as string | undefined,
             };
+            // Honor message_end content replacement: swap the flushed row's
+            // content only when it differs (avoid object-identity churn).
+            if (effectiveContent !== next.messages[flushedIdx].content) {
+              stamped.content = effectiveContent;
+            }
             next.messages = [
               ...next.messages.slice(0, flushedIdx),
               stamped,
@@ -1132,7 +1188,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
             {
               id: `msg-${next.messages.length}`,
               role: "assistant",
-              content: next.streamingText,
+              content: effectiveContent,
               timestamp: event.timestamp,
               entryId: data.entryId as string | undefined,
               nonce: data.nonce as string | undefined,
@@ -1290,14 +1346,14 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
             }
             next.messages[idx] = {
               ...next.messages[idx],
-              ...(text != null ? { result: truncateLines(text, 30) } : {}),
+              ...(text != null ? { result: truncateOutputForDisplay(text) } : {}),
               ...(details ? { toolDetails: details } : {}),
             };
           } else {
             // Plain string partialResult (standard tools)
             next.messages[idx] = {
               ...next.messages[idx],
-              result: truncateLines(partialResult as string, 30),
+              result: truncateOutputForDisplay(partialResult as string),
             };
           }
         }
@@ -1342,7 +1398,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         next.messages[idx] = {
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
-          result: result ? truncateLines(result, 30) : next.messages[idx].result,
+          result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
           duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
           ...(images ? { images } : {}),
           ...(mergedDetails ? { toolDetails: mergedDetails } : {}),

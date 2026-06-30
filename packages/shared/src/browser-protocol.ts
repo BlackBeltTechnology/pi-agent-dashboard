@@ -929,6 +929,16 @@ export interface ForceKillBrowserMessage {
   sessionId: string;
 }
 
+/**
+ * Graceful stop: let the agent finish the current turn, then shut the
+ * session down cleanly. Distinct from abort (mid-stream interrupt) and
+ * force_kill (SIGKILL). See change: adopt-pi-071-072-073-features.
+ */
+export interface StopAfterTurnBrowserMessage {
+  type: "stop_after_turn";
+  sessionId: string;
+}
+
 export interface ForceKillResultMessage {
   type: "force_kill_result";
   sessionId: string;
@@ -1370,6 +1380,7 @@ export type BrowserToServerMessage =
   | SetThinkingLevelBrowserMessage
   | SetModelBrowserMessage
   | ShutdownBrowserMessage
+  | StopAfterTurnBrowserMessage
   | ListSessionsBrowserMessage
   | ResumeSessionBrowserMessage
   | HideSessionBrowserMessage
