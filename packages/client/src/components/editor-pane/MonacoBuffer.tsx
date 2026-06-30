@@ -10,32 +10,14 @@
  * See change: add-internal-monaco-editor-pane (design §4, §7).
  */
 
-import Editor, { loader, type Monaco, type OnMount } from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
-import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
-import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
+import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../hooks/useTheme.js";
-// NOTE: the TypeScript language worker (`ts.worker`, ~6 MB) is deliberately
-// NOT imported. v1 is a read-only highlighter — syntax coloring comes from the
-// main-thread Monarch tokenizer, and the TS *language service* (diagnostics /
-// IntelliSense) is out of scope (design §4). ts/js fall back to editor.worker.
 import { getApiBase } from "../../lib/api-context.js";
 import { buildMonacoTheme } from "../../lib/monaco-theme.js";
+// Side-effect import: worker wiring + loader.config (shared with MarkdownEditor).
+import "./monaco-setup.js";
 import type { ViewerProps } from "./types.js";
-
-// Bundle workers locally instead of @monaco-editor/react's default CDN loader.
-(self as unknown as { MonacoEnvironment?: monaco.Environment }).MonacoEnvironment = {
-  getWorker(_workerId, label) {
-    if (label === "json") return new jsonWorker();
-    if (label === "css" || label === "scss" || label === "less") return new cssWorker();
-    if (label === "html" || label === "handlebars" || label === "razor") return new htmlWorker();
-    return new editorWorker();
-  },
-};
-loader.config({ monaco });
 
 /** Map a file extension to a Monaco language id (curated allowlist). */
 const LANGUAGE_BY_EXT: Record<string, string> = {

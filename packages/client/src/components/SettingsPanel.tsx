@@ -1,37 +1,38 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { DialogPortal } from "./DialogPortal.js";
-import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
-import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
-import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiContentSave, mdiAlert, mdiPlus, mdiDelete, mdiRestart, mdiUpdate, mdiCheckCircle, mdiCloseCircle, mdiPlay, mdiLoading, mdiCog, mdiServer, mdiViewDashboard, mdiWeb, mdiLock, mdiKey, mdiPackageVariant, mdiPuzzle, mdiClipboardText, mdiWrench } from "@mdi/js";
-import { testProvider, type TestProviderResult } from "../lib/providers-api.js";
-import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
-import { useLocation, useRoute } from "wouter";
-import { SettingsSectionSlot, SettingsDraftProvider, useSettingsDraftSource, type RegisteredSource, type SettingsDraftRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, SettingsSectionSlot, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
-import { PiVersionAdvisory } from "./PiVersionAdvisory.js";
-import { ProviderAuthSection } from "./ProviderAuthSection.js";
-import { ModelSelector } from "./ModelSelector.js";
-import { KnownServersSection } from "./KnownServersSection.js";
-import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
-import { PackageBrowser } from "./PackageBrowser.js";
-import { ToolsSection, SpawnFailuresSection } from "./ToolsSection.js";
+import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiAlert, mdiArrowLeft, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPlay, mdiPlus, mdiPuzzle, mdiRestart, mdiServer, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useRoute } from "wouter";
+import { useAsyncAction } from "../hooks/useAsyncAction.js";
+import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
+import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
+import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { getApiBase } from "../lib/api-context.js";
+import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
+import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
+import { t as i18nT } from "../lib/i18n";
+import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
+import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
+import { DialogPortal } from "./DialogPortal.js";
+import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
+import { KnownServersSection } from "./KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
+import { ModelSelector } from "./ModelSelector.js";
+import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
+import { OpenSpecProfileSection } from "./OpenSpecProfileSection.js";
+import { PackageBrowser } from "./PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
-import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
-import { useAsyncAction } from "../hooks/useAsyncAction.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { usePackageOperations } from "../hooks/usePackageOperations.js";
-import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
+import { PiVersionAdvisory } from "./PiVersionAdvisory.js";
 import { PluginsSection } from "./PluginsSection.js";
-import { OpenSpecProfileSection } from "./OpenSpecProfileSection.js";
-import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { LANGUAGE_OPTIONS, useI18n, type Language } from "../lib/i18n.js";
-import { t as i18nT } from "../lib/i18n";
+import { ProviderAuthSection } from "./ProviderAuthSection.js";
+import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -244,7 +245,11 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
   advanced: "developer",
   servers: "remote",
 };
-const VALID_PAGES = new Set<string>(VALID_SETTINGS_TABS);
+// `instructions` is a built-in global Instructions page, not a plugin-claimable
+// settings tab — so it is added to the client-side route whitelist only, NOT to
+// the shared VALID_SETTINGS_TABS (which gates the plugin slot contract).
+// See change: directory-settings-page-and-scoped-md-editing.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions"]);
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -679,6 +684,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
       label: t("settings.groupAdvanced", undefined, "Advanced"),
       items: [
         { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
+        { id: "instructions", label: i18nT("auto.instructions", undefined, "Instructions"), icon: mdiFileDocumentEditOutline },
       ],
     },
   ];
@@ -761,9 +767,15 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
           ))}
         </nav>
 
-        {/* Page content */}
-        <div data-testid="settings-content" className="flex-1 overflow-y-auto min-w-0">
-          <div className="p-4 space-y-6 max-w-3xl">
+        {/* Page content. The Instructions page is a full-bleed split editor, so
+            it renders directly in the content area (no padded/max-width/scroll
+            wrapper that would collapse its height). See change:
+            directory-settings-page-and-scoped-md-editing. */}
+        <div data-testid="settings-content" className="flex-1 min-h-0 min-w-0 flex flex-col">
+          {activeTab === "instructions" ? (
+            <InstructionsPage />
+          ) : (
+          <div className="p-4 space-y-6 max-w-3xl overflow-y-auto">
 
             {activeTab === "general" && (
               <>
@@ -1308,6 +1320,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
             )}
 
           </div>
+          )}
         </div>
       </div>
 

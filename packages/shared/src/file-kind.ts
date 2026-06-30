@@ -19,12 +19,25 @@ export interface FileKindResult {
   kind: FileKind;
   mimeType: string;
   viewer: ViewerKind;
-  /** Always `false` in v1 (read-only). v3/v4 repurpose this. */
+  /**
+   * Render-only in v1. As of `directory-settings-page-and-scoped-md-editing`,
+   * `true` for the writable markdown subset (`.md` / `.mdx`); the `Instructions`
+   * page mounts the markdown viewer in editable mode when this is set. The
+   * server-side write authorization is still gated independently by
+   * `isWritableMdTarget`; this flag only drives the UI.
+   */
   editable: boolean;
 }
 
 /** Markdown extensions render via `MarkdownViewer`, overriding the text/code path. */
 const MARKDOWN_EXTENSIONS = new Set([".md", ".mdx", ".markdown"]);
+
+/**
+ * Editable markdown subset. Narrower than `MARKDOWN_EXTENSIONS`: `.markdown`
+ * renders but stays read-only. Mirrors the write-guard's `.md`/`.mdx` allowance.
+ * See change: directory-settings-page-and-scoped-md-editing.
+ */
+const WRITABLE_MARKDOWN_EXTENSIONS = new Set([".md", ".mdx"]);
 
 /**
  * Text/code allowlist → Monaco. Intentionally narrow; unrecognized text
@@ -130,7 +143,12 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
   const mimeOf = (fallback: string): string => MIME_BY_EXT[ext] ?? fallback;
 
   if (MARKDOWN_EXTENSIONS.has(ext)) {
-    return { kind: "markdown", mimeType: mimeOf("text/markdown"), viewer: "markdown", editable: false };
+    return {
+      kind: "markdown",
+      mimeType: mimeOf("text/markdown"),
+      viewer: "markdown",
+      editable: WRITABLE_MARKDOWN_EXTENSIONS.has(ext),
+    };
   }
   if (ext === ".pdf") {
     return { kind: "pdf", mimeType: mimeOf("application/pdf"), viewer: "pdf", editable: false };

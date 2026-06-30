@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Directory Settings + Scoped Markdown Editing — Mockups</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-code: #1a1a1a;
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --text-faint: #3a3a3a;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --accent-purple: #a855f7;
+    --accent-primary: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #050505;
+    color: var(--text-secondary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 28px 20px 80px;
+  }
+  h1.page-title { color: var(--text-primary); font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--text-tertiary); font-size: 13px; margin: 0 0 28px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:28px; font-size:12px; color:var(--text-tertiary);}
+  .legend b{color:var(--text-secondary);font-weight:600;}
+  .mock-label {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+    margin: 30px 0 10px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .mock-label .tag {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--accent-blue); background: rgba(59,130,246,.12);
+    border: 1px solid rgba(59,130,246,.3); border-radius: 4px; padding: 1px 6px;
+  }
+  .mock-note { color: var(--text-tertiary); font-size: 12px; margin: 0 0 10px; max-width: 920px; }
+
+  /* App window frame */
+  .frame {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,.55);
+  }
+  .frame.desktop { width: 1080px; max-width: 100%; height: 660px; display:flex; flex-direction:column; }
+  .frame.mobile { width: 390px; max-width: 100%; height: 720px; display:flex; flex-direction:column; }
+
+  .icon { width: 1em; height: 1em; display:inline-block; vertical-align:-2px; fill: currentColor; }
+
+  /* Header */
+  .hdr {
+    display:flex; align-items:center; gap:12px; padding: 14px 16px;
+    border-bottom:1px solid var(--border-primary); flex-shrink:0;
+  }
+  .hdr .back { color: var(--text-muted); cursor:pointer; display:flex; }
+  .hdr .back:hover { color: var(--text-secondary); }
+  .hdr h2 { color: var(--text-primary); font-size: 18px; font-weight: 700; margin:0; }
+  .hdr .crumb { color: var(--text-tertiary); font-size:12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .spacer { flex:1; }
+  .btn {
+    display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:6px;
+    font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border-secondary);
+    background: var(--bg-tertiary); color: var(--text-secondary);
+  }
+  .btn:hover { background: var(--bg-secondary); }
+  .btn.primary { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+  .btn.primary:hover { background:#2f72e0; }
+  .btn.danger { color:#fca5a5; }
+  .btn[disabled], .btn.disabled { opacity:.4; cursor:not-allowed; }
+
+  .body { flex:1; display:flex; min-height:0; }
+
+  /* Left nav */
+  nav.rail {
+    width: 224px; flex-shrink:0; border-right:1px solid var(--border-primary);
+    padding: 8px; overflow-y:auto;
+  }
+  .grp-label {
+    padding: 12px 12px 4px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--text-tertiary);
+  }
+  .nav-item {
+    display:flex; align-items:center; gap:10px; padding: 8px 12px; border-radius:6px;
+    font-size:14px; color: var(--text-muted); cursor:pointer; margin-bottom:2px;
+  }
+  .nav-item:hover { background: var(--bg-secondary); color: var(--text-secondary); }
+  .nav-item.active { background: rgba(37,99,235,.15); color: var(--text-primary); font-weight:600; }
+  .nav-item .dot { margin-left:auto; width:6px;height:6px;border-radius:50%;background:var(--accent-yellow);}
+
+  .content { flex:1; overflow-y:auto; min-width:0; display:flex; flex-direction:column; }
+  .pad { padding: 18px 20px; }
+  .section-title { color: var(--text-primary); font-size:14px; font-weight:700; margin:0 0 4px; }
+  .section-desc { color: var(--text-tertiary); font-size:12px; margin:0 0 14px; }
+
+  /* Packages page card list */
+  .card {
+    background: var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:8px;
+    padding:12px 14px; margin-bottom:10px; display:flex; align-items:center; gap:12px;
+  }
+  .card .meta { flex:1; min-width:0; }
+  .card .name { color: var(--text-primary); font-size:13px; font-weight:600; }
+  .card .desc { color: var(--text-tertiary); font-size:12px; }
+  .chip { font-size:11px; padding:2px 8px; border-radius:999px; background: var(--bg-surface); color:var(--text-tertiary); }
+  .chip.installed { color:#86efac; background: rgba(34,197,94,.12); }
+
+  /* Resources tree */
+  .tree-grp { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-secondary); padding:6px 4px; display:flex; gap:6px; align-items:center;}
+  .tree-grp .count { color:var(--text-muted); font-weight:500;}
+  .tree-row { display:flex; align-items:center; gap:8px; padding:5px 8px 5px 28px; border-radius:5px; cursor:pointer; }
+  .tree-row:hover { background: var(--bg-hover); }
+  .tree-row .rn { color:var(--text-primary); font-size:13px; }
+  .tree-row .rd { color:var(--text-muted); font-size:11px; }
+
+  /* Instructions editor */
+  .instr-layout { display:flex; flex:1; min-height:0; }
+  .picker {
+    width: 240px; flex-shrink:0; border-right:1px solid var(--border-primary); display:flex; flex-direction:column;
+  }
+  .picker-hd { padding:10px 12px; border-bottom:1px solid var(--border-primary); display:flex; align-items:center; gap:8px;}
+  .picker-hd .scope { font-size:11px; color:var(--accent-blue); background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.25); border-radius:4px; padding:1px 6px; font-weight:600;}
+  .picker-search { margin:10px 12px; }
+  .input {
+    width:100%; background: var(--bg-code); border:1px solid var(--border-secondary); border-radius:6px;
+    color: var(--text-secondary); padding:6px 9px; font-size:12px; outline:none;
+  }
+  .input:focus { border-color: var(--accent-blue); }
+  .picker-list { overflow-y:auto; padding:0 6px 10px; }
+  .pk-section { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); padding:8px 8px 4px; font-weight:700;}
+  .pk-item { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:5px; cursor:pointer; font-size:13px; color:var(--text-secondary);}
+  .pk-item:hover { background:var(--bg-hover); color:var(--text-primary);}
+  .pk-item.active { background: rgba(37,99,235,.15); color:var(--text-primary); font-weight:600;}
+  .pk-item .path { font-size:10px; color:var(--text-muted); font-family:ui-monospace,Menlo,monospace; margin-left:auto;}
+
+  .editor-pane { flex:1; display:flex; flex-direction:column; min-width:0; }
+  .editor-tab {
+    display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--border-primary);
+    background: var(--bg-secondary); flex-shrink:0;
+  }
+  .editor-tab .fname { color:var(--text-primary); font-size:13px; font-weight:600; font-family:ui-monospace,Menlo,monospace;}
+  .editor-tab .dirty { width:7px;height:7px;border-radius:50%;background:var(--accent-yellow);}
+  .editor-tab .mtime { margin-left:auto; font-size:11px; color:var(--text-muted);}
+  .monaco {
+    flex:1; background: var(--bg-code); overflow:hidden; position:relative; min-height:0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; line-height:1.55;
+  }
+  .monaco .gutter { position:absolute; left:0; top:0; bottom:0; width:46px; background:var(--bg-code); border-right:1px solid var(--border-primary); color:var(--text-faint); text-align:right; padding:10px 8px 0 0;}
+  .monaco .code { padding:10px 14px 10px 58px; white-space:pre; color:var(--text-secondary); height:100%; overflow:auto;}
+  .monaco .code .h { color:#7dd3fc; }
+  .monaco .code .b { color:#e5e5e5; font-weight:600;}
+  .monaco .code .c { color:#86efac;}
+  .monaco .code .m { color:var(--text-muted);}
+  .monaco .caret { display:inline-block; width:2px; height:1.1em; background:var(--accent-blue); vertical-align:-2px; animation: blink 1s step-end infinite;}
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* Save Bar */
+  .savebar {
+    display:flex; align-items:center; gap:10px; padding:10px 16px; border-top:1px solid var(--border-primary);
+    background: var(--bg-secondary); flex-shrink:0;
+  }
+  .savebar .status { font-size:12px; color:var(--text-tertiary); }
+  .savebar .status.dirty { color: var(--accent-yellow); }
+
+  /* Banners */
+  .banner { padding:8px 14px; font-size:13px; display:flex; align-items:center; gap:8px; flex-shrink:0;}
+  .banner.err { background: rgba(239,68,68,.14); color:#fca5a5; }
+  .banner.ok  { background: rgba(34,197,94,.14); color:#86efac; }
+
+  /* Mobile */
+  .m-tabbar { display:flex; gap:6px; padding:10px 12px; overflow-x:auto; border-bottom:1px solid var(--border-primary); }
+  .m-list .grp-label { padding:14px 14px 4px; }
+  .m-row {
+    display:flex; align-items:center; gap:12px; padding:14px 14px; border-bottom:1px solid var(--border-primary);
+    cursor:pointer; color:var(--text-secondary);
+  }
+  .m-row:hover { background: var(--bg-secondary); }
+  .m-row .chev { margin-left:auto; color:var(--text-muted);}
+  .m-row.active { color:var(--text-primary); }
+
+  /* dialog */
+  .overlay { position:absolute; inset:0; background:var(--bg-overlay); display:flex; align-items:center; justify-content:center; }
+  .dialog { background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:10px; width:340px; padding:18px; box-shadow:0 18px 50px rgba(0,0,0,.6);}
+  .dialog h3 { color:var(--text-primary); margin:0 0 8px; font-size:15px;}
+  .dialog p { color:var(--text-tertiary); font-size:13px; margin:0 0 16px;}
+  .dialog .row { display:flex; gap:8px; justify-content:flex-end;}
+
+  .relative { position:relative; }
+  .grid2 { display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
+</style>
+</head>
+<body>
+
+<h1 class="page-title">Directory Settings + Scoped Markdown Editing</h1>
+<p class="sub">Static mockups for change <code>directory-settings-page-and-scoped-md-editing</code>. Dark theme, real dashboard tokens.</p>
+<div class="legend">
+  <span><b>Part 1</b> Directory Settings page shell (cog icon, left-nav, mobile hierarchy)</span>
+  <span><b>Part 2</b> Instructions editor (Monaco buffer + dirty Save Bar)</span>
+  <span><b>Part 3</b> Scope-aware write guard (403 / 409 states)</span>
+  <span><b>Part 4</b> Bounded file picker</span>
+</div>
+
+<!-- ============ 1. Packages page (default) ============ -->
+<div class="mock-label"><span class="tag">Part 1</span> Directory Settings — Packages page (default) · desktop</div>
+<p class="mock-note">Entry from FolderActionBar cog → <code>/folder/:cwd/settings/packages</code>. Left-nav mirrors global settings grouping. Packages demoted from co-equal tab to one page; manage actions intact.</p>
+<div class="frame desktop">
+  <div class="hdr">
+    <span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+    <h2>Directory Settings</h2>
+    <span class="crumb">~/Project/pi-agent-dashboard</span>
+    <div class="spacer"></div>
+  </div>
+  <div class="body">
+    <nav class="rail">
+      <div class="grp-label">Directory</div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> Instructions</div>
+      <div class="nav-item active"><svg class="icon" viewBox="0 0 24 24"><path d="M21 16.5c0 .38-.21.71-.53.88l-7.9 4.44c-.16.12-.36.18-.57.18s-.41-.06-.57-.18l-7.9-4.44A.991.991 0 0 1 3 16.5v-9c0-.38.21-.71.53-.88l7.9-4.44c.16-.12.36-.18.57-.18s.41.06.57.18l7.9 4.44c.32.17.53.5.53.88v9zM12 4.15 6.04 7.5 12 10.85l5.96-3.35L12 4.15z"/></svg> Packages</div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 8h10v2H7V8zm0 4h7v2H7v-2z"/></svg> Resources</div>
+    </nav>
+    <div class="content">
+      <div class="pad">
+        <div class="section-title">Packages</div>
+        <p class="section-desc">Workspace-scoped pi packages for this folder. Install, update, or remove.</p>
+        <div class="card">
+          <div class="meta"><div class="name">pi-web-access</div><div class="desc">Web search + librarian skills</div></div>
+          <span class="chip installed">installed · v2.1.0</span>
+          <span class="btn">Update</span><span class="btn danger">Remove</span>
+        </div>
+        <div class="card">
+          <div class="meta"><div class="name">context-mode</div><div class="desc">FTS5 knowledge base + ctx tools</div></div>
+          <span class="chip installed">installed · v0.9.3</span>
+          <span class="btn">Update</span><span class="btn danger">Remove</span>
+        </div>
+        <div class="card">
+          <div class="meta"><div class="name">pi-doc-engine</div><div class="desc">Document conversion facade</div></div>
+          <span class="chip">available</span>
+          <span class="btn primary">Install</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2. Resources page ============ -->
+<div class="mock-label"><span class="tag">Part 1</span> Directory Settings — Resources page · desktop</div>
+<p class="mock-note">Route <code>/folder/:cwd/settings/resources</code>. Browse-only listing from <code>pi-resource-scanner</code>, unchanged behaviour. Nav selection updates URL.</p>
+<div class="frame desktop">
+  <div class="hdr">
+    <span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+    <h2>Directory Settings</h2>
+    <span class="crumb">~/Project/pi-agent-dashboard</span>
+  </div>
+  <div class="body">
+    <nav class="rail">
+      <div class="grp-label">Directory</div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg> Instructions</div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M21 16.5c0 .38-.21.71-.53.88l-7.9 4.44a1.1 1.1 0 0 1-1.14 0l-7.9-4.44A.991.991 0 0 1 3 16.5v-9c0-.38.21-.71.53-.88l7.9-4.44a1.1 1.1 0 0 1 1.14 0l7.9 4.44c.32.17.53.5.53.88v9z"/></svg> Packages</div>
+      <div class="nav-item active"><svg class="icon" viewBox="0 0 24 24"><path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 8h10v2H7V8zm0 4h7v2H7v-2z"/></svg> Resources</div>
+    </nav>
+    <div class="content">
+      <div class="pad">
+        <div class="section-title">Resources</div>
+        <p class="section-desc">Skills, extensions, and instruction files discovered in this directory's pi scope.</p>
+        <div class="tree-grp"><svg class="icon" viewBox="0 0 24 24"><path d="M9 5v14l11-7z"/></svg> Skills <span class="count">(3)</span></div>
+        <div class="tree-row"><div><div class="rn">document-converter</div><div class="rd">Bidirectional document conversion</div></div></div>
+        <div class="tree-row"><div><div class="rn">browser</div><div class="rd">Browser automation via agent-browser</div></div></div>
+        <div class="tree-row"><div><div class="rn">pi-dashboard</div><div class="rd">Monitor &amp; control dashboard sessions</div></div></div>
+        <div class="tree-grp" style="margin-top:8px;"><svg class="icon" viewBox="0 0 24 24"><path d="M9 5v14l11-7z"/></svg> Extensions <span class="count">(2)</span></div>
+        <div class="tree-row"><div><div class="rn">pi-dashboard-subagents</div><div class="rd">Context-inheriting subagent producer</div></div></div>
+        <div class="tree-grp" style="margin-top:8px;"><svg class="icon" viewBox="0 0 24 24"><path d="M9 5v14l11-7z"/></svg> Instructions <span class="count">(4)</span></div>
+        <div class="tree-row"><div><div class="rn">AGENTS.md</div><div class="rd">Project-level agent guidelines</div></div></div>
+        <div class="tree-row"><div><div class="rn">.pi/skills/implement/SKILL.md</div><div class="rd">Implementation skill</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3. Instructions editor — directory scope ============ -->
+<div class="mock-label"><span class="tag">Part 2</span><span class="tag">Part 4</span> Instructions page — directory scope, dirty buffer · desktop</div>
+<p class="mock-note">Bounded picker (Part 4) on the left, editable Monaco buffer (Part 2) on the right. Buffer dirty → Save Bar enabled, dirty dot on tab + nav. Scope chip shows <code>directory</code>.</p>
+<div class="frame desktop">
+  <div class="hdr">
+    <span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+    <h2>Directory Settings</h2>
+    <span class="crumb">~/Project/pi-agent-dashboard</span>
+  </div>
+  <div class="body">
+    <nav class="rail">
+      <div class="grp-label">Directory</div>
+      <div class="nav-item active"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg> Instructions <span class="dot"></span></div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M21 16.5c0 .38-.21.71-.53.88l-7.9 4.44a1.1 1.1 0 0 1-1.14 0l-7.9-4.44A.991.991 0 0 1 3 16.5v-9c0-.38.21-.71.53-.88l7.9-4.44a1.1 1.1 0 0 1 1.14 0l7.9 4.44c.32.17.53.5.53.88v9z"/></svg> Packages</div>
+      <div class="nav-item"><svg class="icon" viewBox="0 0 24 24"><path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 8h10v2H7V8zm0 4h7v2H7v-2z"/></svg> Resources</div>
+    </nav>
+    <div class="content">
+      <div class="instr-layout">
+        <div class="picker">
+          <div class="picker-hd"><span class="scope">directory</span><span style="font-size:12px;color:var(--text-tertiary);">Pick a file</span></div>
+          <div class="picker-search"><input class="input" placeholder="Filter .md / .pi files…" /></div>
+          <div class="picker-list">
+            <div class="pk-section">Root</div>
+            <div class="pk-item active">AGENTS.md</div>
+            <div class="pk-item">README.md</div>
+            <div class="pk-section">.pi/</div>
+            <div class="pk-item">skills/implement/SKILL.md</div>
+            <div class="pk-item">skills/code-review/SKILL.md</div>
+            <div class="pk-item">agents/Explore.md</div>
+          </div>
+        </div>
+        <div class="editor-pane">
+          <div class="editor-tab">
+            <span class="dirty"></span>
+            <span class="fname">AGENTS.md</span>
+            <span class="mtime">loaded mtime 2026-06-30 14:02:11</span>
+          </div>
+          <div class="monaco">
+            <div class="gutter">1<br>2<br>3<br>4<br>5<br>6<br>7<br>8</div>
+            <div class="code"><span class="b"># PI Dashboard</span>
+
+<span class="m">## Project Overview</span>
+
+Web-based dashboard for monitoring pi agent sessions.
+Three-component architecture: bridge + server + client.
+
+Edit this line to steer the agent<span class="caret"></span></div>
+          </div>
+          <div class="savebar">
+            <span class="status dirty"><svg class="icon" viewBox="0 0 24 24" style="fill:var(--accent-yellow)"><path d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg> Unsaved changes</span>
+            <div class="spacer"></div>
+            <span class="btn">Discard</span>
+            <span class="btn primary"><svg class="icon" viewBox="0 0 24 24"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10v4z"/></svg> Save</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4. Clean buffer (gating disabled) ============ -->
+<div class="mock-label"><span class="tag">Part 2</span> Instructions — clean buffer, Save Bar disabled · desktop</div>
+<p class="mock-note">Freshly loaded / unmodified buffer: Save and Discard disabled, status shows "Saved". Demonstrates dirty-gating.</p>
+<div class="frame desktop" style="height:420px;">
+  <div class="hdr">
+    <span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+    <h2>Directory Settings</h2><span class="crumb">~/Project/pi-agent-dashboard</span>
+  </div>
+  <div class="body">
+    <div class="editor-pane">
+      <div class="editor-tab"><span class="fname">README.md</span><span class="mtime">loaded mtime 2026-06-30 13:50:02</span></div>
+      <div class="monaco">
+        <div class="gutter">1<br>2<br>3<br>4</div>
+        <div class="code"><span class="b"># pi-agent-dashboard</span>
+
+Remote monitoring &amp; control for pi sessions.</div>
+      </div>
+      <div class="savebar">
+        <span class="status"><svg class="icon" viewBox="0 0 24 24" style="fill:var(--accent-green)"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg> Saved</span>
+        <div class="spacer"></div>
+        <span class="btn disabled">Discard</span>
+        <span class="btn primary disabled">Save</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid2">
+<!-- ============ 5. 409 conflict ============ -->
+<div>
+<div class="mock-label"><span class="tag">Part 3</span> Save conflict — 409 mtime mismatch</div>
+<p class="mock-note">File changed on disk after load. Server returns <code>409</code>, file untouched, banner surfaced.</p>
+<div class="frame desktop" style="width:520px;height:380px;">
+  <div class="hdr"><h2 style="font-size:16px;">Instructions</h2><span class="crumb">~/proj</span></div>
+  <div class="banner err"><svg class="icon" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg> Conflict — file changed on disk since load. Your buffer was not saved.</div>
+  <div class="editor-pane">
+    <div class="editor-tab"><span class="dirty"></span><span class="fname">AGENTS.md</span><span class="mtime">409 conflict</span></div>
+    <div class="monaco"><div class="gutter">1<br>2<br>3</div><div class="code"><span class="b"># PI Dashboard</span>
+
+your edited content (unsaved)<span class="caret"></span></div></div>
+    <div class="savebar">
+      <span class="status dirty">Resolve conflict to continue</span>
+      <div class="spacer"></div>
+      <span class="btn">Reload from disk</span>
+      <span class="btn primary">Overwrite anyway</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 6. 403 out-of-scope ============ -->
+<div>
+<div class="mock-label"><span class="tag">Part 3</span> Write rejected — 403 out of scope</div>
+<p class="mock-note">Guard <code>isWritableMdTarget</code> rejects symlink-escape / non-<code>.md</code> / out-of-allowlist targets. Picker never offers these — this is the defense-in-depth server reply.</p>
+<div class="frame desktop" style="width:520px;height:380px;">
+  <div class="hdr"><h2 style="font-size:16px;">Instructions</h2><span class="crumb">~/.pi/agent</span></div>
+  <div class="banner err"><svg class="icon" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z"/></svg> 403 — target outside the writable allowlist. Write refused.</div>
+  <div class="editor-pane">
+    <div class="editor-tab"><span class="fname">notes.md → ~/.ssh/config</span><span class="mtime" style="color:#fca5a5;">symlink escape</span></div>
+    <div class="monaco"><div class="gutter">1<br>2</div><div class="code"><span class="m"># realpath resolves outside ~/.pi/agent</span>
+<span class="m"># guard rejects before any fs write</span></div></div>
+    <div class="savebar"><span class="status" style="color:#fca5a5;">Not writable</span><div class="spacer"></div><span class="btn disabled">Discard</span><span class="btn primary disabled">Save</span></div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ============ 7. Global scope ============ -->
+<div class="mock-label"><span class="tag">Part 2</span><span class="tag">Part 3</span> Global Instructions — Settings → Advanced (no cwd, ~/.pi/agent allowlist)</div>
+<p class="mock-note">Same surface mounted in global <code>SettingsPanel</code> → Advanced. Scope chip <code>global</code>; picker enumerates <code>~/.pi/agent/**/*.md</code> only.</p>
+<div class="frame desktop">
+  <div class="hdr">
+    <span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span>
+    <h2>Settings</h2>
+  </div>
+  <div class="body">
+    <nav class="rail">
+      <div class="grp-label">Dashboard</div>
+      <div class="nav-item">General</div>
+      <div class="grp-label">Advanced</div>
+      <div class="nav-item">Developer</div>
+      <div class="nav-item active"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg> Instructions</div>
+    </nav>
+    <div class="content">
+      <div class="instr-layout">
+        <div class="picker">
+          <div class="picker-hd"><span class="scope">global</span><span style="font-size:12px;color:var(--text-tertiary);">~/.pi/agent</span></div>
+          <div class="picker-search"><input class="input" placeholder="Filter…" /></div>
+          <div class="picker-list">
+            <div class="pk-section">~/.pi/agent</div>
+            <div class="pk-item active">MEMORY.md</div>
+            <div class="pk-item">USER.md</div>
+            <div class="pk-section">pi-hermes-memory/skills</div>
+            <div class="pk-item">reap-orphaned-pi-processes/SKILL.md</div>
+          </div>
+        </div>
+        <div class="editor-pane">
+          <div class="editor-tab"><span class="fname">~/.pi/agent/MEMORY.md</span><span class="mtime">loaded mtime 2026-06-29 09:11:40</span></div>
+          <div class="monaco">
+            <div class="gutter">1<br>2<br>3<br>4</div>
+            <div class="code"><span class="b"># Global Memory</span>
+
+<span class="c">- Robson prefers concise responses.</span>
+<span class="c">- Default model: …</span></div>
+          </div>
+          <div class="savebar"><span class="status">Saved</span><div class="spacer"></div><span class="btn disabled">Discard</span><span class="btn primary disabled">Save</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 8. Mobile hierarchy ============ -->
+<div class="mock-label"><span class="tag">Part 1</span> Mobile hierarchy — list → detail depth</div>
+<p class="mock-note">Narrow viewport degrades to the global-settings mobile hierarchy (<code>hasFolderSettingsRoute</code> drives depth). Left: page list. Right: drilled into Instructions with unsaved-changes guard dialog.</p>
+<div class="grid2">
+  <div class="frame mobile">
+    <div class="hdr"><span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span><h2 style="font-size:16px;">Directory Settings</h2></div>
+    <div class="m-list">
+      <div class="grp-label">Directory</div>
+      <div class="m-row"><svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z"/></svg> Instructions <span class="chip" style="margin-left:auto;">3 files</span><span class="chev"><svg class="icon" viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></span></div>
+      <div class="m-row">Packages <span class="chev"><svg class="icon" viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></span></div>
+      <div class="m-row">Resources <span class="chev"><svg class="icon" viewBox="0 0 24 24"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></span></div>
+    </div>
+  </div>
+
+  <div class="frame mobile relative">
+    <div class="hdr"><span class="back"><svg class="icon" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></span><h2 style="font-size:16px;">Instructions</h2><span class="dirty" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent-yellow);"></span></div>
+    <div class="editor-tab"><span class="fname">AGENTS.md</span></div>
+    <div class="monaco" style="flex:1;">
+      <div class="gutter">1<br>2<br>3</div>
+      <div class="code"><span class="b"># PI Dashboard</span>
+
+editing on mobile<span class="caret"></span></div>
+    </div>
+    <div class="savebar"><span class="status dirty">Unsaved</span><div class="spacer"></div><span class="btn">Discard</span><span class="btn primary">Save</span></div>
+    <div class="overlay">
+      <div class="dialog">
+        <h3>Unsaved changes</h3>
+        <p>You have unsaved edits to <b>AGENTS.md</b>. Leave without saving?</p>
+        <div class="row"><span class="btn">Stay</span><span class="btn danger">Discard &amp; leave</span><span class="btn primary">Save &amp; leave</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

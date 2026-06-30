@@ -1,6 +1,6 @@
 /**
  * Unified action bar for folder groups in the sidebar.
- * Buttons: Terminals(N) | Editor | Zed | Clean up broken | Pi Resources
+ * Buttons: Terminals(N) | Editor | Zed | Clean up broken | Directory Settings
  */
 
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
@@ -10,9 +10,9 @@ import {
   mdiBroom,
   mdiCircleSmall,
   mdiCodeBraces,
+  mdiCog,
   mdiConsoleLine,
   mdiOpenInNew,
-  mdiToyBrickOutline,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -152,14 +152,14 @@ export function FolderActionBar({
         />
       )}
 
-      {/* Pi Resources — right-aligned */}
+      {/* Directory Settings — right-aligned. See change: directory-settings-page-and-scoped-md-editing. */}
       <button
         onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
         className="focus-ring ml-auto text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
-        title={i18nT("auto.pi_resources", undefined, "Pi Resources")}
-        aria-label={i18nT("auto.pi_resources", undefined, "Pi Resources")}
+        title={i18nT("auto.directory_settings", undefined, "Directory Settings")}
+        aria-label={i18nT("auto.directory_settings", undefined, "Directory Settings")}
       >
-        <Icon path={mdiToyBrickOutline} size={0.5} />
+        <Icon path={mdiCog} size={0.5} />
       </button>
     </div>
   );

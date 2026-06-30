@@ -1,14 +1,15 @@
-import { describe, it, expect } from "vitest";
-import {
-  buildOpenSpecPreviewUrl,
-  buildOpenSpecArchiveUrl,
-  buildOpenSpecSpecsUrl,
-  buildPiResourcesUrl,
-  buildPiResourceFileUrl,
-  buildSessionDiffUrl,
-  buildEditorUrl,
-} from "../route-builders.js";
+import { describe, expect, it } from "vitest";
 import { decodeFolderPath, encodeFolderPath } from "../folder-encoding.js";
+import {
+  buildEditorUrl,
+  buildFolderSettingsUrl,
+  buildOpenSpecArchiveUrl,
+  buildOpenSpecPreviewUrl,
+  buildOpenSpecSpecsUrl,
+  buildPiResourceFileUrl,
+  buildPiResourcesUrl,
+  buildSessionDiffUrl,
+} from "../route-builders.js";
 
 describe("route-builders", () => {
   describe("buildOpenSpecPreviewUrl", () => {
@@ -38,6 +39,29 @@ describe("route-builders", () => {
       expect(buildOpenSpecArchiveUrl(cwd)).toBe(`/folder/${enc}/openspec/archive`);
       expect(buildOpenSpecSpecsUrl(cwd)).toBe(`/folder/${enc}/openspec/specs`);
       expect(buildPiResourcesUrl(cwd)).toBe(`/folder/${enc}/pi-resources`);
+    });
+  });
+
+  describe("buildFolderSettingsUrl", () => {
+    it("omits the page segment when page is undefined", () => {
+      const cwd = "/proj";
+      expect(buildFolderSettingsUrl(cwd)).toBe(`/folder/${encodeFolderPath(cwd)}/settings`);
+    });
+
+    it("appends an encodeURIComponent-encoded page segment", () => {
+      const cwd = "/proj";
+      const enc = encodeFolderPath(cwd);
+      expect(buildFolderSettingsUrl(cwd, "packages")).toBe(`/folder/${enc}/settings/packages`);
+      expect(buildFolderSettingsUrl(cwd, "resources")).toBe(`/folder/${enc}/settings/resources`);
+    });
+
+    it("round-trips cwd with spaces/Unicode and encodes odd page slugs", () => {
+      const cwd = "/home/user/My Projects/résumé";
+      const url = buildFolderSettingsUrl(cwd, "a b/c");
+      const m = url.match(/^\/folder\/([^/]+)\/settings\/(.+)$/);
+      expect(m).not.toBeNull();
+      expect(decodeFolderPath(m![1])).toBe(cwd);
+      expect(m![2]).toBe("a%20b%2Fc");
     });
   });
 

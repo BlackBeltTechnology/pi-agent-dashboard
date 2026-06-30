@@ -33,6 +33,16 @@ describe("fileKind", () => {
     expect(fileKind(abs("README.md")).kind).toBe("markdown");
   });
 
+  it("marks the writable markdown subset (.md/.mdx) editable, others read-only", () => {
+    expect(fileKind(abs("README.md")).editable).toBe(true);
+    expect(fileKind(abs("doc.mdx")).editable).toBe(true);
+    // .markdown renders but stays read-only (mirrors the write guard).
+    expect(fileKind(abs("notes.markdown")).editable).toBe(false);
+    // Non-markdown viewers remain read-only.
+    expect(fileKind(abs("src/foo.ts")).editable).toBe(false);
+    expect(fileKind(abs("pic.png")).editable).toBe(false);
+  });
+
   it("classifies a known TS file with the expected mimeType", () => {
     const r = fileKind(abs("src/foo.ts"));
     expect(r).toEqual({

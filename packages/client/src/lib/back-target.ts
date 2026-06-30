@@ -27,10 +27,14 @@ export function parseRouteDepthInput(url: string): MobileDepthInput {
 
   let hasFolderRoute = false;
   let hasFolderOverlay = false;
+  let hasFolderSettingsRoute = false;
   if (segs[0] === "folder" && segs.length >= 3) {
     const sub = segs[2];
     if (segs.length === 3 && (sub === "terminals" || sub === "editor")) {
       hasFolderRoute = true;
+    } else if (sub === "settings") {
+      // /folder/:cwd/settings[/:page] — depth-1 detail, mirrors /settings.
+      hasFolderSettingsRoute = true;
     } else if (sub === "openspec") {
       // archive / specs / :changeName/:artifactId all count as overlay.
       hasFolderOverlay = true;
@@ -48,6 +52,7 @@ export function parseRouteDepthInput(url: string): MobileDepthInput {
     hasSessionRoute,
     hasFolderRoute,
     hasSettingsRoute: segs[0] === "settings",
+    hasFolderSettingsRoute,
     hasTunnelRoute: segs[0] === "tunnel-setup",
     hasOverlayRoute: hasDiffRoute || hasFolderOverlay || hasUrlViewRoute,
     hasPiResourceRoute,

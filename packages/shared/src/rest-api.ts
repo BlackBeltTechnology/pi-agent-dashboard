@@ -2,14 +2,15 @@
  * REST API endpoint types.
  */
 import type {
-  DashboardSession,
-  DashboardEvent,
   ApiResponse,
+  DashboardEvent,
+  DashboardSession,
   OpenSpecGroup,
   OpenSpecGroupsFile,
 } from "./types.js";
 
 export type { ApiResponse } from "./types.js";
+
 import type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
 
 export type { EnrichedRecommendedExtension } from "./recommended-extensions.js";
@@ -64,7 +65,72 @@ export interface FileContentResult {
    * See change: add-internal-monaco-editor-pane.
    */
   content?: string;
+  /**
+   * On-disk modification time (ms, rounded). Carried by the editable markdown
+   * surface and echoed back on `POST /api/file/write` for optimistic-concurrency
+   * conflict detection. See change: directory-settings-page-and-scoped-md-editing.
+   */
+  mtime?: number;
 }
+
+// ── File Write (markdown editing) ─────────────────────────────────
+
+/**
+ * Request body for `POST /api/file/write`.
+ * - `cwd` present → directory scope; `path` resolves against `cwd` via
+ *   `path.resolve(cwd, path)`, so it accepts BOTH an absolute path (as returned
+ *   by `MdCandidate.path`) and a cwd-relative path — absolute wins.
+ * - `cwd` absent  → global scope; `path` MUST be absolute under `~/.pi/agent`.
+ * Authorization is gated server-side by `isWritableMdTarget`.
+ * See change: directory-settings-page-and-scoped-md-editing.
+ */
+export interface FileWriteRequest {
+  cwd?: string;
+  /** Absolute on-disk path (e.g. from `MdCandidate.path`) or, with `cwd`, a cwd-relative path. */
+  path: string;
+  content: string;
+  /** mtime the buffer was loaded at; mismatch with disk → 409 Conflict. */
+  mtime: number;
+}
+
+export interface FileWriteResult {
+  /** New on-disk mtime after the write (ms, rounded). */
+  mtime: number;
+}
+
+export type FileWriteResponse = ApiResponse<FileWriteResult>;
+
+/**
+ * One candidate for the Instructions file picker. Every candidate is guaranteed
+ * to satisfy `isWritableMdTarget` server-side (picker ⊆ guard).
+ * See change: directory-settings-page-and-scoped-md-editing.
+ */
+export interface MdCandidate {
+  /** Absolute, on-disk path (the write target). */
+  path: string;
+  /** Path relative to the scope root, for display. */
+  relPath: string;
+}
+
+export interface MdCandidatesResult {
+  candidates: MdCandidate[];
+}
+
+export type MdCandidatesResponse = ApiResponse<MdCandidatesResult>;
+
+/**
+ * `GET /api/file/md-read?cwd=<cwd?>&path=<path>` — scoped markdown read for the
+ * Instructions editor, gated by the same `isWritableMdTarget` guard as write +
+ * candidates. Serves global scope (`~/.pi/agent`) which `/api/file` cannot.
+ * See change: directory-settings-page-and-scoped-md-editing.
+ */
+export interface MdReadResult {
+  content: string;
+  /** On-disk mtime (ms, rounded) the buffer is loaded at; carried into the write. */
+  mtime: number;
+}
+
+export type MdReadResponse = ApiResponse<MdReadResult>;
 
 /**
  * `GET /api/file/raw?cwd=<cwd>&path=<relPath>` streams raw file bytes with a
@@ -491,6 +557,7 @@ export type ListRecommendedExtensionsResponse = ApiResponse<{
 // ── Tool registry ────────────────────
 
 import type { Resolution } from "./tool-registry/types.js";
+
 export type { Resolution, Source, TriedEntry } from "./tool-registry/types.js";
 
 export type ListToolsResponse = ApiResponse<{ tools: Resolution[] }>;

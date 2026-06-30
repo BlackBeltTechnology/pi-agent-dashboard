@@ -10,6 +10,7 @@ import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { CommandInput } from "./components/CommandInput.js";
 import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
+import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { EditorView } from "./components/EditorView.js";
 import { EditorPane } from "./components/editor-pane/EditorPane.js";
 import { FileDiffView } from "./components/FileDiffView.js";
@@ -24,7 +25,6 @@ import { MissingRequiredBanner } from "./components/MissingRequiredBanner.js";
 import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
 import { MobileShell } from "./components/MobileShell.js";
 import { OpenSpecBoardView } from "./components/OpenSpecBoardView.js";
-import { PiResourcesView } from "./components/PiResourcesView.js";
 import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
 import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
@@ -76,6 +76,7 @@ import {
 import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/plugins-api.js";
 import {
+  buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecBoardUrl,
   buildOpenSpecPreviewUrl,
@@ -330,6 +331,10 @@ export default function App() {
   const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
+  // Directory Settings page — depth-1 detail surface that mirrors global
+  // /settings (NOT a depth-2 overlay). See change:
+  // directory-settings-page-and-scoped-md-editing.
+  const [folderSettingsMatch, folderSettingsParams] = useRoute("/folder/:encodedCwd/settings/:page?");
   // `/view` overlay routes (change: render-file-previews).
   const [fileViewMatch, fileViewParams] = useRoute("/folder/:encodedCwd/view");
   const [urlViewMatch] = useRoute("/pi-view");
@@ -355,6 +360,13 @@ export default function App() {
   const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
+  const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "resources"] as const;
+  const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
+  const folderSettingsPage: DirectorySettingsPage =
+    folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
+      ? (folderSettingsPageRaw as DirectorySettingsPage)
+      : "packages";
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
   const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
   const editorFile = editorMatch ? fileViewSearch.get("file") : null;
@@ -1408,8 +1420,11 @@ export default function App() {
           onBack={goBack}
         />
       ) : piResourcesMatch && piResourcesCwd ? (
-        <PiResourcesView
-          cwd={piResourcesCwd}
+        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+      ) : folderSettingsMatch && folderSettingsCwd ? (
+        <DirectorySettings
+          cwd={folderSettingsCwd}
+          page={folderSettingsPage}
           onBack={goBack}
           onViewFile={handleViewPiResourceFile}
         />
@@ -1762,6 +1777,7 @@ export default function App() {
       hasSessionRoute: !!selectedId,
       hasFolderRoute: !!folderTermCwd || !!folderEditorCwd,
       hasSettingsRoute: !!settingsMatch,
+      hasFolderSettingsRoute: !!folderSettingsMatch,
       hasTunnelRoute: !!tunnelSetupMatch,
       hasOverlayRoute: hasShellOverlayRoute,
       hasPiResourceRoute: hasPiResourceRouteFlag,
@@ -1833,8 +1849,11 @@ export default function App() {
                 onBack={goBack}
               />
             ) : piResourcesMatch && piResourcesCwd ? (
-              <PiResourcesView
-                cwd={piResourcesCwd}
+              <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+            ) : folderSettingsMatch && folderSettingsCwd ? (
+              <DirectorySettings
+                cwd={folderSettingsCwd}
+                page={folderSettingsPage}
                 onBack={goBack}
                 onViewFile={handleViewPiResourceFile}
               />
@@ -1945,8 +1964,11 @@ export default function App() {
               onBack={goBack}
             />
           ) : piResourcesMatch && piResourcesCwd && !selectedId ? (
-            <PiResourcesView
-              cwd={piResourcesCwd}
+            <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+          ) : folderSettingsMatch && folderSettingsCwd && !selectedId ? (
+            <DirectorySettings
+              cwd={folderSettingsCwd}
+              page={folderSettingsPage}
               onBack={goBack}
               onViewFile={handleViewPiResourceFile}
             />

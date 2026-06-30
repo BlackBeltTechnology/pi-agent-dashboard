@@ -935,6 +935,20 @@ Three file-open paths coexist; nothing removed. This pane = quick read-only glan
 
 v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to separate proposals.
 
+### Directory Settings + scoped markdown editing
+
+Dashboard's first user-facing WRITE surface. Prior dashboard read-only.
+
+Entry: FolderActionBar cog → `/folder/:cwd/settings/:page?` (pages instructions/packages/resources). Legacy `/folder/:cwd/pi-resources` redirects → `…/settings/packages`.
+
+Instructions page edits markdown. Two scopes: directory (cwd) = markdown under cwd + `.pi/` tree; global (no cwd) = `~/.pi/agent/**/*.{md,mdx}` only.
+
+Single security boundary: `isWritableMdTarget` (realpath-normalized, markdown-only, scope-bounded allowlist). cwd-containment alone insufficient for global dir → explicit allowlist root. Symlink/`..` escape rejected. Fail-closed.
+
+Three endpoints share the guard: md-read (read), md-candidates (picker list), file/write (write). Picker ⊆ guard. Write uses mtime optimistic-concurrency → 409 on disk change; atomic tmp+rename.
+
+Editor = Monaco (reuses add-internal-monaco-editor-pane primitives; MarkdownEditor editable buffer, lazy-loaded). Save contract mirrors unify-settings-save-contract (dirty-gated Save Bar + unsaved-changes guard).
+
 ### Markdown Preview View
 The web client includes a generic `MarkdownPreviewView` component that replaces the chat area. It supports a back button, title, optional tab bar, and loading/error states. For OpenSpec artifacts, the `useOpenSpecReader` hook maps artifact IDs (P/S/D/T) to file paths, fetches content via the file API, and concatenates specs from subdirectories.
 

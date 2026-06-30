@@ -8,8 +8,8 @@
  *   - depth 2 ambiguous overlays (openspec/pi-resources/pi-resource/view) → "/"
  *   - depth 0 ("/") → null (no-op)
  */
-import { describe, it, expect } from "vitest";
-import { computeBackTarget, routeDepth, isModalRoute } from "../back-target.js";
+import { describe, expect, it } from "vitest";
+import { computeBackTarget, isModalRoute, routeDepth } from "../back-target.js";
 
 describe("computeBackTarget", () => {
   it("returns null at depth 0 (cards)", () => {
@@ -25,6 +25,9 @@ describe("computeBackTarget", () => {
       "/settings",
       "/settings/remote",
       "/settings?tab=servers",
+      "/folder/Zm9v/settings",
+      "/folder/Zm9v/settings/packages",
+      "/folder/Zm9v/settings/resources",
       "/tunnel-setup",
     ];
     for (const route of depth1) {
