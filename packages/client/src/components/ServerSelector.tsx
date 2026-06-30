@@ -31,6 +31,11 @@ export function isLoopbackOrigin(hostname: string): boolean {
   return LOOPBACK_HOSTNAMES.has(hostname);
 }
 
+/** Collapse any loopback alias (127.0.0.1, ::1) to `localhost` for dedup/keys. */
+function canonicalLoopbackHost(host: string): string {
+  return isLoopbackOrigin(host) ? "localhost" : host;
+}
+
 /**
  * Build the selector's display list. Seeds the `localhost` "Local" entry
  * ONLY when the page origin is loopback — a `localhost` probe from a remote
@@ -50,12 +55,14 @@ export function buildServerEntries(
     entries.push({ host: "localhost", port: currentPort, label: "Local", isLocal: true });
   }
   for (const s of knownServers) {
-    if (s.host === "localhost" || s.host === "127.0.0.1") continue;
+    if (isLoopbackOrigin(s.host)) continue;
     entries.push({ host: s.host, port: s.port, label: s.label, isLocal: false });
   }
-  const currentKey = `${currentHost}:${currentPort}`;
-  if (!entries.some((e) => `${e.host}:${e.port}` === currentKey)) {
-    const isLocal = currentHost === "localhost" || currentHost === "127.0.0.1";
+  // Canonicalize loopback aliases so a current host of 127.0.0.1/::1 dedups
+  // against the seeded `localhost` row and is classified Local, not Remote.
+  const currentKey = `${canonicalLoopbackHost(currentHost)}:${currentPort}`;
+  if (!entries.some((e) => `${canonicalLoopbackHost(e.host)}:${e.port}` === currentKey)) {
+    const isLocal = isLoopbackOrigin(currentHost);
     entries.push({ host: currentHost, port: currentPort, isLocal });
   }
   return entries;

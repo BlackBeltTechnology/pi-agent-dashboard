@@ -132,4 +132,30 @@ describe("buildServerEntries (origin-gated localhost seed)", () => {
     expect(entries[0].host).toBe("localhost");
     expect(entries.some((e) => e.host === "remote.local")).toBe(true);
   });
+
+  it("dedups a 127.0.0.1 current host against the seeded localhost row", () => {
+    // Loopback origin seeds localhost; current host is the 127.0.0.1 alias on
+    // the same port → must NOT produce a second row.
+    const entries = buildServerEntries([], "127.0.0.1", 8000, "localhost");
+    const loopbackRows = entries.filter(
+      (e) => e.host === "localhost" || e.host === "127.0.0.1" || e.host === "::1",
+    );
+    expect(loopbackRows).toHaveLength(1);
+    expect(loopbackRows[0].host).toBe("localhost");
+  });
+
+  it("filters a ::1 known server (loopback alias) out to avoid a duplicate", () => {
+    const known: KnownServer[] = [
+      { host: "::1", port: 8000, addedAt: "2024-01-01T00:00:00Z" },
+    ];
+    const entries = buildServerEntries(known, "localhost", 8000, "localhost");
+    expect(entries.some((e) => e.host === "::1")).toBe(false);
+  });
+
+  it("classifies a ::1 current host as Local, not Remote", () => {
+    // Remote origin: no seed; current host is the ::1 loopback alias.
+    const entries = buildServerEntries([], "::1", 8000, "pennyroyal.lan");
+    const row = entries.find((e) => e.host === "::1");
+    expect(row?.isLocal).toBe(true);
+  });
 });
