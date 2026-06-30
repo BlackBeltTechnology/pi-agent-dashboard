@@ -29,9 +29,12 @@ describe("Monaco lazy chunk size guard", () => {
     }
     const monacoChunks = readdirSync(assetsDir).filter((f) => /monaco/i.test(f) && f.endsWith(".js"));
     if (monacoChunks.length === 0) {
-      // Build present but Monaco not emitted (e.g. tree-shaken in a partial
-      // build) — don't assert against a missing artifact.
-      return;
+      // A build ran (assets present) but no Monaco chunk matched — a rename or
+      // merge into another lazy asset would silently disable this guard. Fail
+      // loudly so the regression surfaces instead of passing green.
+      expect.fail(
+        "dist/assets exists but no Monaco chunk (/monaco/i *.js) was emitted — the lazy chunk may have been renamed or merged, disabling the size guard.",
+      );
     }
 
     let gzipped = 0;

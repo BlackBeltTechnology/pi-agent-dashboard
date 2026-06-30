@@ -35,6 +35,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeItem, setActiveItem] = useState(0);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const menuRef = useRef<HTMLUListElement>(null);
 
   const nativeEditors = isLocalhost() ? editors : [];
@@ -58,9 +59,14 @@ export function OpenFileButton({ filePath, line, context }: Props) {
     }
   };
 
-  const openInEditor = (editorId: string) => {
-    setMenuOpen(false);
-    void openEditor(cwd, editorId, filePath, line);
+  const openInEditor = async (editorId: string) => {
+    setLaunchError(null);
+    const res = await openEditor(cwd, editorId, filePath, line);
+    if (res.success) {
+      setMenuOpen(false);
+    } else {
+      setLaunchError(res.error ?? "Failed to open in editor");
+    }
   };
 
   const onMenuKeyDown = (e: React.KeyboardEvent) => {
@@ -73,7 +79,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
     } else if (e.key === "Enter") {
       e.preventDefault();
       const ed = nativeEditors[activeItem];
-      if (ed) openInEditor(ed.id);
+      if (ed) void openInEditor(ed.id);
     } else if (e.key === "Escape") {
       e.preventDefault();
       setMenuOpen(false);
@@ -115,6 +121,9 @@ export function OpenFileButton({ filePath, line, context }: Props) {
           onBlur={() => setMenuOpen(false)}
           className="absolute right-0 top-full z-20 mt-1 min-w-[10rem] rounded border border-[var(--border-secondary)] bg-[var(--bg-surface)] py-1 text-xs shadow-lg outline-none"
         >
+          {launchError && (
+            <li className="px-3 py-1 text-[var(--accent-red)]">{launchError}</li>
+          )}
           {nativeEditors.map((ed, i) => (
             <li
               key={ed.id}
@@ -122,7 +131,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
               onMouseEnter={() => setActiveItem(i)}
               onClick={(e) => {
                 e.stopPropagation();
-                openInEditor(ed.id);
+                void openInEditor(ed.id);
               }}
               className={[
                 "cursor-pointer px-3 py-1",

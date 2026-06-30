@@ -11,6 +11,13 @@ import type { ViewerProps } from "./types.js";
 
 export default function BinaryWarn({ cwd, path }: ViewerProps) {
   const [editors, setEditors] = useState<DetectedEditor[]>([]);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+
+  const launch = async (editorId: string) => {
+    setLaunchError(null);
+    const res = await openEditor(cwd, editorId, path);
+    if (!res.success) setLaunchError(res.error ?? "Failed to open in editor");
+  };
 
   useEffect(() => {
     let active = true;
@@ -32,7 +39,7 @@ export default function BinaryWarn({ cwd, path }: ViewerProps) {
             <button
               key={ed.id}
               type="button"
-              onClick={() => openEditor(cwd, ed.id, path)}
+              onClick={() => launch(ed.id)}
               className="rounded border border-[var(--border-secondary)] px-3 py-1 hover:bg-[var(--bg-hover)]"
             >
               Open in {ed.name}
@@ -40,6 +47,7 @@ export default function BinaryWarn({ cwd, path }: ViewerProps) {
           ))}
         </div>
       )}
+      {launchError && <p className="text-xs text-[var(--accent-red)]">{launchError}</p>}
     </div>
   );
 }
