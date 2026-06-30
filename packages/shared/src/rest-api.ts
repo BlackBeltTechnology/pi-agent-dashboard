@@ -322,6 +322,11 @@ export interface AuthorizeResponse {
   authUrl: string;
 }
 
+/** Provider ids the dashboard's hand-written OAuth handler registry can drive. */
+export interface ProviderAuthHandlerIdsResponse {
+  ids: string[];
+}
+
 export interface DeviceCodeResponse {
   flowId: string;
   userCode: string;

@@ -16,6 +16,12 @@ export interface EventStore {
   getEvents(sessionId: string, minSeq: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
+  /**
+   * Find the most recent `tool_execution_end` event for a tool call. Pure
+   * read; returns undefined when the call is still in flight or its event was
+   * evicted under memory pressure. See change: adopt-pi-071-072-073-features.
+   */
+  findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined;
   /** Delete all events for a specific session */
   deleteEventsForSession(sessionId: string): number;
   /** Check if session has events in memory */
@@ -165,6 +171,22 @@ export function createMemoryEventStore(
       buf.lastAccess = Date.now();
       const entry = buf.events.find((e) => e.seq === seq);
       return entry?.event;
+    },
+
+    findToolEndEvent(sessionId: string, toolCallId: string): DashboardEvent | undefined {
+      const buf = buffers.get(sessionId);
+      if (!buf) return undefined;
+      buf.lastAccess = Date.now();
+      for (let i = buf.events.length - 1; i >= 0; i--) {
+        const ev = buf.events[i].event;
+        if (
+          ev.eventType === "tool_execution_end" &&
+          (ev.data as Record<string, unknown> | undefined)?.toolCallId === toolCallId
+        ) {
+          return ev;
+        }
+      }
+      return undefined;
     },
 
     deleteEventsForSession(sessionId: string): number {

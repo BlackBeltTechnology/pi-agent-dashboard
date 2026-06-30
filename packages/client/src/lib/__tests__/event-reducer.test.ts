@@ -225,8 +225,10 @@ describe("eventReducer", () => {
     expect(state.messages[0].args).toEqual({ path: "file.ts" });
   });
 
-  it("should truncate tool result to 30 lines", () => {
-    const longResult = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+  // Truncation now keeps the LAST 200 lines + a marker (pi 0.73 bash streaming
+  // UX). See change: adopt-pi-071-072-073-features.
+  it("should truncate large tool result to last 200 lines + marker", () => {
+    const longResult = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
     const state = applyEvents([
       {
         eventType: "tool_execution_start",
@@ -241,11 +243,13 @@ describe("eventReducer", () => {
     ]);
 
     const lines = state.messages[0].result!.split("\n");
-    expect(lines.length).toBeLessThanOrEqual(30);
+    expect(lines.length).toBe(201); // marker + last 200
+    expect(lines[0]).toBe("«100 earlier lines hidden»");
+    expect(lines[lines.length - 1]).toBe("line 300");
   });
 
-  it("should truncate partial result to 30 lines on tool_execution_update", () => {
-    const longResult = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\n");
+  it("should truncate large partial result to last 200 lines on tool_execution_update", () => {
+    const longResult = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n");
     const state = applyEvents([
       {
         eventType: "tool_execution_start",
@@ -260,7 +264,8 @@ describe("eventReducer", () => {
     ]);
 
     const lines = state.messages[0].result!.split("\n");
-    expect(lines.length).toBeLessThanOrEqual(30);
+    expect(lines.length).toBe(201);
+    expect(lines[0]).toBe("«100 earlier lines hidden»");
   });
 
   it("should extract toolDetails from structured partialResult object", () => {

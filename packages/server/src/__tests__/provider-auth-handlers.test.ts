@@ -32,9 +32,9 @@ describe("provider-auth-handlers", () => {
   });
 
   describe("registry", () => {
-    it("has all 5 providers", () => {
+    it("has all 3 providers", () => {
       const handlers = getAllHandlers();
-      expect(handlers.length).toBe(5);
+      expect(handlers.length).toBe(3);
     });
 
     it("gets anthropic handler", () => {
@@ -72,22 +72,6 @@ describe("provider-auth-handlers", () => {
       const url = h.buildAuthUrl("http://localhost:9998/callback", "s", dummyPkce);
       expect(url).toContain("auth.openai.com/oauth/authorize");
       expect(url).toContain("codex_cli_simplified_flow=true");
-    });
-
-    it("google-gemini-cli builds Google auth URL", () => {
-      const h = getProviderHandler("google-gemini-cli") as AuthCodeHandler;
-      const url = h.buildAuthUrl("http://localhost:9998/callback", "s", dummyPkce);
-      expect(url).toContain("accounts.google.com");
-      expect(url).toContain("cloud-platform");
-      expect(url).toContain("access_type=offline");
-    });
-
-    it("google-antigravity builds Google auth URL with extra scopes", () => {
-      const h = getProviderHandler("google-antigravity") as AuthCodeHandler;
-      const url = h.buildAuthUrl("http://localhost:9998/callback", "s", dummyPkce);
-      expect(url).toContain("accounts.google.com");
-      expect(url).toContain("cclog");
-      expect(url).toContain("experimentsandconfigs");
     });
   });
 });

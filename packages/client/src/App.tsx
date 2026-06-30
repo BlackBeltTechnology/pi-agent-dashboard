@@ -960,7 +960,7 @@ export default function App() {
     // primitives). QueuePanel is display-only; Stop is now the bare abort
     // (no yank-to-draft, which produced ghost duplicates). See change:
     // honest-mid-turn-queue-surface.
-    handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleSend,
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
@@ -1581,6 +1581,7 @@ export default function App() {
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
+            onStopAfterTurn={handleStopAfterTurn}
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}

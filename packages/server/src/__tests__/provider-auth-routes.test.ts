@@ -71,6 +71,13 @@ describe("provider-auth-routes", () => {
     expect(data[0].id).toBe("anthropic");
   });
 
+  it("GET /api/provider-auth/handlers returns the driveable handler ids", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/provider-auth/handlers" });
+    expect(res.statusCode).toBe(200);
+    const data = JSON.parse(res.payload);
+    expect(data.ids).toEqual(["anthropic", "openai-codex", "github-copilot"]);
+  });
+
   it("GET /api/provider-auth/status returns all provider statuses", async () => {
     const res = await app.inject({ method: "GET", url: "/api/provider-auth/status" });
     expect(res.statusCode).toBe(200);

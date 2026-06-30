@@ -18,7 +18,7 @@ import {
   mdiArrowRight,
   mdiKeyPlus,
 } from "@mdi/js";
-import type { ProviderAuthStatus, DeviceCodeResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ProviderAuthStatus, DeviceCodeResponse, ProviderAuthHandlerIdsResponse } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { Toast, useToast, type ToastVariant } from "./Toast.js";
 import { useAsyncAction } from "../hooks/useAsyncAction.js";
 import { t as i18nT } from "../lib/i18n";
@@ -28,6 +28,14 @@ import { t as i18nT } from "../lib/i18n";
 async function fetchStatus(): Promise<ProviderAuthStatus[]> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/status`);
   return res.json();
+}
+
+/** Provider ids the dashboard can actually complete a login flow for. */
+async function fetchHandlerIds(): Promise<Set<string>> {
+  const res = await fetch(`${getApiBase()}/api/provider-auth/handlers`);
+  if (!res.ok) throw new Error("Failed to load provider auth handlers");
+  const data: ProviderAuthHandlerIdsResponse = await res.json();
+  return new Set(data.ids ?? []);
 }
 
 /** DELETE a provider credential, surfacing the backend error detail on failure. */
@@ -59,6 +67,10 @@ function relativeExpiry(expires: number): string {
 
 export function ProviderAuthSection() {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
+  // null = not yet known (loading or fetch failed). Never gate OAuth rows
+  // closed while unknown — a secondary capability probe must not become a
+  // hard sign-in outage. See change: adopt-pi-071-072-073-features.
+  const [handlerIds, setHandlerIds] = useState<Set<string> | null>(null);
   const [loading, setLoading] = useState(true);
   const { messages, showToast, dismissToast } = useToast();
 
@@ -71,6 +83,9 @@ export function ProviderAuthSection() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    fetchHandlerIds().then(setHandlerIds).catch(() => setHandlerIds(null));
+  }, []);
 
   if (loading) {
     return <div className="text-[var(--text-muted)] text-sm py-2">{i18nT("auto.loading_provider_status", undefined, "Loading provider status…")}</div>;
@@ -86,7 +101,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("auto.subscriptions_oauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
+          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
         ))}
       </div>
 
@@ -103,7 +118,7 @@ export function ProviderAuthSection() {
 
 // ── OAuth Provider Row ───────────────────────────────────────────────────────
 
-function OAuthProviderRow({ provider, onChanged, showToast }: { provider: ProviderAuthStatus; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
+function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provider: ProviderAuthStatus; supported: boolean; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceModal, setDeviceModal] = useState<DeviceCodeResponse | null>(null);
@@ -247,14 +262,18 @@ function OAuthProviderRow({ provider, onChanged, showToast }: { provider: Provid
             </button>
           </div>
         ) : (
-          <button
-            onClick={handleSignIn}
-            disabled={busy}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50"
-          >
-            {busy ? <Icon path={mdiLoading} size={0.5} className="animate-spin" /> : <Icon path={mdiLogin} size={0.5} />}
-            {i18nT("auto.sign_in", undefined, "Sign In")}
-          </button>
+          // Tooltip lives on the wrapper span: a disabled <button> does not fire
+          // hover events in all browsers, so a `title` on it would never show.
+          <span title={supported ? undefined : `OAuth flow not yet supported in dashboard for ${provider.name}`} className="inline-flex">
+            <button
+              onClick={supported ? handleSignIn : undefined}
+              disabled={busy || !supported}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50"
+            >
+              {busy ? <Icon path={mdiLoading} size={0.5} className="animate-spin" /> : <Icon path={mdiLogin} size={0.5} />}
+              {i18nT("auto.sign_in", undefined, "Sign In")}
+            </button>
+          </span>
         )}
       </div>
 
