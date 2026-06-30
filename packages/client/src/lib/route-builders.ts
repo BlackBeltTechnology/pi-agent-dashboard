@@ -62,3 +62,12 @@ export function buildPiResourceFileUrl(path: string, title: string): string {
 export function buildSessionDiffUrl(sessionId: string): string {
   return `/session/${encodeURIComponent(sessionId)}/diff`;
 }
+
+/** `/session/:id/editor?file=<rel>&line=<n>` — internal Monaco editor pane.
+ *  See change: add-internal-monaco-editor-pane. */
+export function buildEditorUrl(sessionId: string, filePath: string, line?: number): string {
+  const params = new URLSearchParams();
+  params.set("file", filePath);
+  if (line && line > 0) params.set("line", String(line));
+  return `/session/${encodeURIComponent(sessionId)}/editor?${params.toString()}`;
+}

@@ -47,9 +47,34 @@ export type AggregateStatsResponse = ApiResponse<AggregateStats>;
 
 // ── File Read ───────────────────────────────────────────────────────
 
+import type { FileKind } from "./file-kind.js";
+
 export interface FileContentResult {
   type: "file";
-  content: string;
+  /** Viewer-discrimination class from the shared `fileKind` classifier. */
+  kind: FileKind;
+  /** Resolved MIME type for the entry. */
+  mimeType: string;
+  /** File size in bytes. */
+  size: number;
+  /**
+   * UTF-8 content. Present for text-renderable kinds (`text` / `markdown` /
+   * `unknown` → Monaco / Markdown viewers); omitted for `image` / `pdf` /
+   * `binary`, which fetch raw bytes via `GET /api/file/raw`.
+   * See change: add-internal-monaco-editor-pane.
+   */
+  content?: string;
+}
+
+/**
+ * `GET /api/file/raw?cwd=<cwd>&path=<relPath>` streams raw file bytes with a
+ * resolved `Content-Type` header and HTTP Range support. Same cwd-allowlist +
+ * anti-traversal gate as `/api/file`. Not a JSON envelope — the body is the
+ * file itself. Used by image / pdf tabs.
+ */
+export interface FileRawQuery {
+  cwd: string;
+  path: string;
 }
 
 export interface DirectoryListResult {

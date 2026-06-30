@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+## REMOVED Requirements
+
+### Requirement: OpenFileButton preview fallback when no editor
+
+**Reason**: Superseded by the split-button behavior below. The default click now opens the internal Monaco editor pane (not the preview overlay), and detected native editors move to a dropdown. `OpenFileButton` still renders whenever a `cwd` + `filePath` are present, never hidden merely because no editor is detected.
+
+## ADDED Requirements
 
 ### Requirement: OpenFileButton SHALL be a split button defaulting to the internal pane
 
