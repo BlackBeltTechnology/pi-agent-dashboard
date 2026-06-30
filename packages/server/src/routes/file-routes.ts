@@ -98,28 +98,39 @@ async function performAtomicMdWrite(
   content: string,
   mtime: number,
 ): Promise<MdWriteOutcome> {
-  let current;
+  // Canonicalize to the realpath target: an in-scope symlink to an allowed
+  // markdown file is authorized by `isWritableMdTarget` on its realpath, so we
+  // persist to the real file and leave the symlink intact (rename does not
+  // follow symlinks). Missing file → 404.
+  let real: string;
+  let current: import("node:fs").Stats;
   try {
-    current = await fs.stat(resolved);
+    real = await fs.realpath(resolved);
+    current = await fs.stat(real);
   } catch {
     return { code: 404, error: "file not found" };
   }
-  if (Math.round(current.mtimeMs) !== mtime) {
+  // Full-precision mtime token: rounding could collapse two fast saves into one
+  // token and let a stale write pass the 409 check.
+  if (current.mtimeMs !== mtime) {
     return { code: 409, error: "file changed on disk since it was loaded" };
   }
   const tmpPath = path.join(
-    path.dirname(resolved),
-    `.${path.basename(resolved)}.${randomBytes(8).toString("hex")}.tmp`,
+    path.dirname(real),
+    `.${path.basename(real)}.${randomBytes(8).toString("hex")}.tmp`,
   );
   try {
     await fs.writeFile(tmpPath, content, { encoding: "utf-8", flag: "wx" });
-    await fs.rename(tmpPath, resolved);
+    // Preserve the original file mode so a private (e.g. 0600) instruction file
+    // is not widened to the umask default on replace.
+    await fs.chmod(tmpPath, current.mode & 0o777);
+    await fs.rename(tmpPath, real);
   } catch (err) {
     await fs.rm(tmpPath, { force: true }).catch(() => {});
     return { code: 500, error: err instanceof Error ? err.message : "write failed" };
   }
-  const after = await fs.stat(resolved);
-  return { code: 200, mtime: Math.round(after.mtimeMs) };
+  const after = await fs.stat(real);
+  return { code: 200, mtime: after.mtimeMs };
 }
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
@@ -369,9 +380,10 @@ export function registerFileRoutes(
       try {
         const stat = await fs.stat(resolved);
         const content = await fs.readFile(resolved, "utf-8");
+        // Full-precision mtime token (matches the write-side conflict check).
         return {
           success: true,
-          data: { content, mtime: Math.round(stat.mtimeMs) },
+          data: { content, mtime: stat.mtimeMs },
         } satisfies ApiResponse;
       } catch {
         reply.code(404);

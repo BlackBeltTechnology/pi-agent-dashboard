@@ -1,7 +1,7 @@
 # directory-settings-page Specification
 
 ## Purpose
-TBD - created by archiving change directory-settings-page-and-scoped-md-editing. Update Purpose after archive.
+Defines the directory-scoped settings page: a cog-iconed surface at `/folder/:cwd/settings/:page?` mirroring the global settings left-nav + mobile hierarchy, with Instructions, Packages, and Resources pages (Packages default). Replaces the flat two-tab Pi Resources view.
 ## Requirements
 ### Requirement: Directory surface SHALL open as a settings page
 

@@ -1,7 +1,7 @@
 # scoped-markdown-editing Specification
 
 ## Purpose
-TBD - created by archiving change directory-settings-page-and-scoped-md-editing. Update Purpose after archive.
+Defines the editable markdown surface (Instructions page) for directory and global scope: a Monaco buffer + scope-bounded file picker, persisted via `POST /api/file/write` with mtime conflict detection, gated by a scope-aware `isWritableMdTarget` write allowlist (cwd tree for directory scope, `~/.pi/agent` for global).
 ## Requirements
 ### Requirement: Instructions page SHALL edit markdown in directory and global scope
 
@@ -51,7 +51,7 @@ The Instructions page SHALL expose a Save Bar enabled only when the buffer is di
 
 ### Requirement: Write target authorization SHALL be allowlist-bounded
 
-The server SHALL gate every markdown write through a pure `isWritableMdTarget(absPath, { cwd? })` check. With a `cwd`, allowed targets SHALL be `<cwd>/**/*.md` and `<cwd>/.pi/**`. Without a `cwd` (global scope), allowed targets SHALL be limited to `~/.pi/agent/**/*.md`. Paths SHALL be realpath-normalized before the check; symlink or `..` escape and non-markdown targets SHALL be rejected with `403`.
+The server SHALL gate every markdown write through an `isWritableMdTarget(absPath, { cwd? })` check (realpath-normalized; resolves symlinks via async filesystem I/O). With a `cwd`, allowed targets SHALL be `<cwd>/**/*.md` and `<cwd>/.pi/**`. Without a `cwd` (global scope), allowed targets SHALL be limited to `~/.pi/agent/**/*.md`. Paths SHALL be realpath-normalized before the check; symlink or `..` escape and non-markdown targets SHALL be rejected with `403`.
 
 The file picker SHALL only offer candidates that satisfy the same allowlist, so the UI can never present a target the guard rejects.
 

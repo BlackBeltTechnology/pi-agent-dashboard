@@ -986,7 +986,7 @@ export default function App() {
   const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
   const folderTitleCwd = folderEditorCwd ?? folderTermCwd
     ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
-    ?? piResourcesCwd ?? null;
+    ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);

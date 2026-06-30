@@ -22,18 +22,12 @@ import type {
   MdCandidate,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { lazy, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
 import { t as i18nT } from "../../lib/i18n";
 import { FilePicker } from "./FilePicker.js";
+// The lazy Monaco mount + mtime formatting live in InstructionsEditorPane.
 import { InstructionsEditorPane } from "./InstructionsEditorPane.js";
-
-// Lazy boundary for the heavy Monaco chunk (worker imports + monaco-editor),
-// mirroring `MonacoBuffer`'s lazy mount in the viewer-registry. Keeps Monaco
-// out of the eager bundle so the Directory Settings shell stays light.
-const _MarkdownEditor = lazy(() =>
-  import("../editor-pane/MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
-);
 
 interface Props {
   cwd?: string;
@@ -42,16 +36,6 @@ interface Props {
 interface Message {
   type: "success" | "error";
   text: string;
-}
-
-/** Format a numeric mtime (ms) for the file-tab header. */
-function _fmtMtime(mtime: number | null): string {
-  if (mtime === null) return "";
-  try {
-    return new Date(mtime).toLocaleString();
-  } catch {
-    return String(mtime);
-  }
 }
 
 /** Build the scoped markdown read URL; global scope omits `cwd`. */

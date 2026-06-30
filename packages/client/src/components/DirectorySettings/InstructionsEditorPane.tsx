@@ -177,7 +177,8 @@ export function InstructionsEditorPane({
         <button
           type="button"
           onClick={onSave}
-          disabled={!dirty || saving}
+          // loadedMtime === null ⇒ no conflict token ⇒ save would no-op; keep it disabled.
+          disabled={!dirty || saving || loadedMtime === null}
           data-testid="instructions-save-btn"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium disabled:opacity-50"
         >

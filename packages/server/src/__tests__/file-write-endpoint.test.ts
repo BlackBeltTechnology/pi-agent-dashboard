@@ -25,7 +25,8 @@ function makeApp(cwds: string[]): FastifyInstance {
 }
 
 async function readMtime(p: string): Promise<number> {
-  return Math.round((await fsp.stat(p)).mtimeMs);
+  // Full-precision mtime token, matching the server's conflict check (no rounding).
+  return (await fsp.stat(p)).mtimeMs;
 }
 
 async function write(app: FastifyInstance, body: Record<string, unknown>) {
