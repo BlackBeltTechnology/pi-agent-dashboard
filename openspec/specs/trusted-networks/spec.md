@@ -1,3 +1,6 @@
+## Purpose
+Network access policy for guarded endpoints: an allow-list (CIDR/wildcard/exact) that, with loopback and authenticated requests, governs the network guard.
+## Requirements
 ### Requirement: Top-level trustedNetworks config field
 The config module SHALL support a top-level `trustedNetworks` field of type `string[]` in `~/.pi/dashboard/config.json`. Each entry SHALL be an IPv4 CIDR (e.g. `192.168.1.0/24`), wildcard (e.g. `10.0.0.*`), or exact IP address. The default SHALL be an empty array. At load time, the config module SHALL merge `trustedNetworks` with `auth.bypassHosts` (if present) into a single deduplicated list available as `resolvedTrustedNetworks` on the config object.
 
@@ -18,31 +21,28 @@ The config module SHALL support a top-level `trustedNetworks` field of type `str
 - **THEN** `resolvedTrustedNetworks` SHALL be an empty array
 
 ### Requirement: Network guard factory
-The `localhost-guard` module SHALL export a `createNetworkGuard(trustedNetworks: string[])` function that returns a Fastify preHandler. The returned handler SHALL allow requests that satisfy any of: (a) loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`), (b) IP matching an entry in `trustedNetworks` (CIDR, wildcard, or exact match), or (c) `request.isAuthenticated` is `true` (set by the auth `onRequest` hook). All other requests SHALL receive a 403 response. The existing `localhostGuard` export SHALL be preserved for backward compatibility.
+The `localhost-guard` module SHALL export a `createNetworkGuard(trustedNetworks: string[])` function that returns a Fastify preHandler. The returned handler SHALL allow requests that satisfy any of: (a) loopback address (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`), (b) IP matching an entry in `trustedNetworks` (CIDR, wildcard, or exact match), or (c) `request.isAuthenticated` is `true` (set by the auth `onRequest` hook).
+
+All other requests SHALL receive a **403 with a self-describing JSON body** of the shape `{ success: false, error: "network_not_allowed", reason: string, hint: string }`:
+- `error` SHALL be the machine-readable literal `"network_not_allowed"` (replacing the prior human string `"Access denied"`), so clients can branch on policy-denial vs transport failure.
+- `reason` SHALL describe the cause (e.g. `"source IP not loopback, not in trustedNetworks, and request not authenticated"`).
+- `hint` SHALL describe the remedy (e.g. `"Add this network to trustedNetworks (Settings → Servers) or sign in."`).
+
+The existing `localhostGuard` export SHALL be preserved for backward compatibility.
 
 #### Scenario: Loopback IP allowed
 - **WHEN** a request arrives from `127.0.0.1`
 - **THEN** the guard SHALL allow the request regardless of trustedNetworks or authentication
 
-#### Scenario: Trusted CIDR allowed
-- **WHEN** `trustedNetworks` contains `192.168.1.0/24` and a request arrives from `192.168.1.42`
-- **THEN** the guard SHALL allow the request
-
-#### Scenario: Trusted wildcard allowed
-- **WHEN** `trustedNetworks` contains `10.0.0.*` and a request arrives from `10.0.0.5`
-- **THEN** the guard SHALL allow the request
-
-#### Scenario: Authenticated remote user allowed
-- **WHEN** a request arrives from `203.0.113.5` (not loopback, not trusted) and `request.isAuthenticated` is `true`
-- **THEN** the guard SHALL allow the request
-
-#### Scenario: Untrusted unauthenticated IP blocked
-- **WHEN** `trustedNetworks` is `["192.168.1.0/24"]` and a request arrives from `10.0.0.5` with `request.isAuthenticated` being `false`
-- **THEN** the guard SHALL return 403
-
-#### Scenario: Empty trustedNetworks, no auth (localhost only)
+#### Scenario: Denied request body is self-describing
 - **WHEN** `trustedNetworks` is empty, `request.isAuthenticated` is `false`, and a request arrives from `192.168.1.5`
 - **THEN** the guard SHALL return 403
+- **AND** the response body SHALL be `{ success: false, error: "network_not_allowed", reason, hint }` where `error` is exactly `"network_not_allowed"`
+- **AND** `hint` SHALL name the remedy (add to `trustedNetworks` or authenticate)
+
+#### Scenario: Authenticated request allowed
+- **WHEN** `request.isAuthenticated` is `true`
+- **THEN** the guard SHALL allow the request and SHALL NOT emit the `network_not_allowed` body
 
 ### Requirement: Network guard threaded to all protected routes
 All route files that currently use `localhostGuard` as a preHandler SHALL receive the network guard via their deps parameter instead of importing `localhostGuard` directly. The `RouteDeps` type SHALL include a `networkGuard` field. The server SHALL create the guard from `resolvedTrustedNetworks` at startup and pass it to all route registrations.
@@ -173,3 +173,4 @@ The WebSocket upgrade handler in `server.ts` SHALL admit a connection from an IP
 #### Scenario: WebSocket upgrade from untrusted IP in bypassHosts-only config
 - **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and a WebSocket upgrade request arrives from `10.0.0.5` (not in trusted list)
 - **THEN** the upgrade SHALL be rejected with 403
+

@@ -78,7 +78,7 @@
     "fix-doctor-bundle-aware-probes": "electrun-execution",
     "fix-doctor-windows-launch-test": "ui",
     "add-bundle-mode-marker": "electrun-execution",
-    "add-internal-monaco-editor-pane": "sdasdasd",
+    "add-internal-monaco-editor-pane": "ui",
     "fix-stale-bundled-server-cache": "ui",
     "skip-affected-bundled-node": "ui",
     "add-package-health-cleanup": "electrun-execution",
@@ -150,14 +150,7 @@
   "changeOrder": {
     "__ungrouped__": [],
     "ui": [
-      "fix-bridge-server-start-diagnostics",
-      "modernize-pi-version-handling",
-      "adopt-pi-071-072-073-features",
-      "filter-oauth-incompatible-models",
-      "remove-vestigial-tsconfig-references",
-      "distinguish-offline-from-network-denied",
-      "reduce-session-replay-traffic",
-      "unify-error-retry-lifecycle"
+      "add-internal-monaco-editor-pane"
     ],
     "next-phase": [
       "macos-notarization",
@@ -168,11 +161,7 @@
       "manage-node-runtime-updates",
       "project-init-skill-and-profiles"
     ],
-    "sdasdasd": [
-      "focus-driven-folder-compaction",
-      "add-internal-monaco-editor-pane",
-      "restore-pi-version-skew-surface"
-    ],
+    "sdasdasd": [],
     "ui-extensions": [
       "add-extension-ui-a11y-baseline",
       "add-extension-ui-action-result-contract",

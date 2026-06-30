@@ -7,7 +7,27 @@ import type {
   MkdirResult,
 } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
-import { fetchJson } from "./fetch-json.js";
+import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
+
+/**
+ * Thrown when a browse call is refused by the server's network guard
+ * (HTTP 403 with `error: "network_not_allowed"`). Carries the server's
+ * remedy `hint` so the UI can render an actionable surface instead of a
+ * bare "Access denied". `code` lets callers branch without importing the
+ * class (duck-typing survives module mocks).
+ * See change: distinguish-offline-from-network-denied.
+ */
+export class NetworkNotAllowedError extends Error {
+  readonly code = "network_not_allowed" as const;
+  readonly hint?: string;
+  readonly reason?: string;
+  constructor(hint?: string, reason?: string) {
+    super(hint ?? "network_not_allowed");
+    this.name = "NetworkNotAllowedError";
+    this.hint = hint;
+    this.reason = reason;
+  }
+}
 
 export interface BrowseOptions {
   /** Optional substring query. Empty / whitespace is treated as no filter. */
@@ -27,9 +47,16 @@ export async function browseDirectory(
   const qs = params.toString();
   const url = qs ? `${getApiBase()}/api/browse?${qs}` : `${getApiBase()}/api/browse`;
 
-  const json = await fetchJson(url, { signal: options?.signal });
-  if (!json.success) {
-    throw new Error(json.error ?? "browse failed");
+  // Use the response-preserving variant so a 403 policy-denial JSON body is
+  // parsed (it carries `error: "network_not_allowed"` + `hint`) instead of
+  // being collapsed into an opaque ApiHttpError. A non-JSON body (proxy HTML)
+  // still throws ApiHttpError via the content-type guard inside.
+  const { res, json } = await fetchJsonResponse(url, { signal: options?.signal });
+  if (res.status === 403 && json?.error === "network_not_allowed") {
+    throw new NetworkNotAllowedError(json.hint, json.reason);
+  }
+  if (!res.ok || !json?.success) {
+    throw new Error(json?.error ?? `browse failed (HTTP ${res.status})`);
   }
   return json.data;
 }

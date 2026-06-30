@@ -143,6 +143,27 @@ describe("pi-version-skew", () => {
       expect(out.upgradeRecommended).toBe(true);
     });
 
+    it("sets error naming both versions when below minimum", () => {
+      const out = computeCompatibility(
+        { minimum: "0.78.0", recommended: "0.78.0", maximum: null },
+        "0.74.2",
+      );
+      expect(out.error).toBeTruthy();
+      expect(out.error).toContain("0.74.2");
+      expect(out.error).toContain("0.78.0");
+    });
+
+    it("leaves error absent at or above minimum", () => {
+      expect(
+        computeCompatibility({ minimum: "0.5.0", recommended: "0.6.7", maximum: null }, "0.6.0").error,
+      ).toBeUndefined();
+      expect(computeCompatibility(range, "0.6.7").error).toBeUndefined();
+    });
+
+    it("leaves error absent when pi is unresolvable", () => {
+      expect(computeCompatibility(range, undefined).error).toBeUndefined();
+    });
+
     it("flags upgradeRecommended when below recommended (but >= minimum)", () => {
       const out = computeCompatibility(
         { minimum: "0.5.0", recommended: "0.6.7", maximum: null },

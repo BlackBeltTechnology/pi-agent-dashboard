@@ -1,47 +1,25 @@
+## Purpose
+Dashboard-header dropdown to view, probe, and switch between known servers without losing the current session context.
+## Requirements
 ### Requirement: Server selector in dashboard header
-The dashboard header SHALL include a server selector dropdown showing known servers (persisted) plus localhost. Availability probing SHALL run once per dropdown open — not on mount, not on a timer, not while the dropdown is closed. Entries whose probes report unreachable SHALL be rendered with reduced opacity, a `disabled` attribute, and a `cursor-not-allowed` affordance; the selector SHALL NOT call `onSwitch` for unreachable entries. Clicking a reachable entry delegates to the transactional switch.
+The dashboard header SHALL include a server selector dropdown showing known servers (persisted) plus, **only when the page is served from a loopback origin**, a `localhost` "Local" entry. The `localhost` "Local" row SHALL be seeded ONLY when `window.location.hostname` is one of `localhost`, `127.0.0.1`, or `::1`. When the dashboard is served from a remote host, the selector SHALL NOT seed a `localhost` entry — the current (served) origin is the operative server — so the selector never shows a phantom "localhost:<port> is unreachable" row that probes the browser's own machine.
 
-#### Scenario: Single localhost server (default)
-- **WHEN** no known servers are configured
-- **THEN** the selector SHALL show localhost with an indicator reflecting its most recent probe result (or no indicator before the first open)
+Availability probing SHALL run once per dropdown open — not on mount, not on a timer, not while the dropdown is closed. Entries whose probes report unreachable SHALL be rendered with reduced opacity, a `disabled` attribute, and a `cursor-not-allowed` affordance; the selector SHALL NOT call `onSwitch` for unreachable entries. A probe that fails the network guard (HTTP 403 `network_not_allowed`) SHALL be rendered as a distinct "Network not allowed" state — NOT "Unreachable" — since the server is reachable but the client's network/auth is not permitted.
 
-#### Scenario: Known servers displayed
-- **WHEN** the config contains known servers
-- **THEN** the dropdown SHALL list localhost first, then known servers with their label, host:port, and a "Local" or "Remote" badge
+#### Scenario: Loopback origin seeds localhost
+- **WHEN** the page origin hostname is `localhost` or `127.0.0.1`
+- **THEN** the selector SHALL seed the `localhost` "Local" entry first, then known servers
 
-#### Scenario: Manage servers shortcut
-- **WHEN** the dropdown is open
-- **THEN** a "Manage servers…" button SHALL appear at the top
-- **AND** clicking it SHALL navigate to the Servers tab in Settings (`/settings?tab=servers`)
+#### Scenario: Remote origin does NOT seed localhost
+- **WHEN** the page is served from a non-loopback host (e.g. `pennyroyal.lan`)
+- **THEN** the selector SHALL NOT seed a `localhost` entry
+- **AND** no "localhost:<port> is unreachable" row SHALL appear
+- **AND** the served origin SHALL be the operative current entry
 
-#### Scenario: No probe on mount
-- **WHEN** the selector mounts and the dropdown is closed
-- **THEN** no health-check request SHALL be issued
-
-#### Scenario: Probe once per dropdown open
-- **WHEN** the dropdown transitions from closed to open
-- **THEN** each non-current entry SHALL be probed exactly once via `GET /api/health` with a 2-second timeout
-- **AND** no further probes SHALL be issued until the dropdown is closed and reopened
-
-#### Scenario: No probe while dropdown is closed
-- **WHEN** the dropdown is closed
-- **THEN** no periodic probe timer SHALL be running
-- **AND** no background health-check requests SHALL be issued
-
-#### Scenario: Unreachable entry is disabled
-- **WHEN** an entry's probe reports unreachable
-- **THEN** the entry SHALL render with reduced opacity and a `cursor-not-allowed` style
-- **AND** the entry SHALL have the `disabled` attribute set
-- **AND** clicking the entry SHALL NOT invoke `onSwitch`
-
-#### Scenario: Reachable entry is clickable
-- **WHEN** an entry's probe reports reachable (or no probe has run yet for this open-cycle)
-- **THEN** the entry SHALL render with normal hover affordance
-- **AND** clicking the entry SHALL invoke `onSwitch(host, port)`
-
-#### Scenario: Current server probe shortcut
-- **WHEN** an entry matches the currently connected server
-- **THEN** its reachability SHALL be derived from the live connection state, not from a separate probe
+#### Scenario: 403 renders as Network not allowed, not Unreachable
+- **WHEN** an entry's probe (or a guarded API call to it) returns HTTP 403 with `error: "network_not_allowed"`
+- **THEN** that entry SHALL render a "Network not allowed" indicator distinct from the "Unreachable" indicator
+- **AND** a transport failure or non-403 probe failure SHALL still render "Unreachable"
 
 ### Requirement: Server switching
 Selecting a different server in the dropdown SHALL perform a transactional switch: a staging WebSocket connection is opened to the target while the current ("live") connection remains active, and the switch is committed only after the staging connection reaches the `OPEN` state. If the staging connection fails or times out, the switch is aborted and the live connection is preserved with no state loss.
@@ -103,3 +81,4 @@ The server SHALL broadcast discovered peer servers to connected browsers for the
 #### Scenario: Server sends peer update
 - **WHEN** a new peer server appears or disappears on the network
 - **THEN** the server SHALL broadcast a `servers_updated` message to all connected browsers
+

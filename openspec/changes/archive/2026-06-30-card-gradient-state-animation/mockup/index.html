@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session card state animation — stripes → animated gradient</title>
+<style>
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+    /* state colors — identical to the live stripes */
+    --run: 234,179,8;    /* running  — amber  */
+    --unread: 34,211,238;/* unread   — cyan   */
+    --ask: 168,85,247;   /* ask_user — purple */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg-primary);color:var(--text-secondary);
+    font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 32px 80px}
+  h1{font-size:18px;color:var(--text-primary);margin:0 0 4px}
+  .sub{color:var(--text-tertiary);margin:0 0 28px;font-size:13px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-tertiary);
+    margin:34px 0 14px;font-weight:600;border-bottom:1px solid var(--border-primary);padding-bottom:8px}
+  .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+  @media(max-width:1100px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .col-label{font-size:11px;color:var(--text-muted);margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em}
+
+  /* ── real card shell ─────────────────────────────── */
+  /* no overflow:hidden on the root — the rainbow glow halo must bleed past the
+     edge. The .fx child clips its own sweep via its own overflow:hidden. */
+  .card{position:relative;isolation:isolate;
+    background:var(--bg-tertiary);border:1px solid var(--border-primary);
+    border-radius:12px;padding:14px 16px;min-height:74px}
+  .card .row1{display:flex;align-items:center;gap:8px}
+  .card .icon{width:16px;height:16px;border-radius:4px;flex:0 0 auto}
+  .card .title{color:var(--text-primary);font-weight:600;font-size:14px}
+  .card .time{margin-left:auto;color:var(--text-muted);font-size:11px}
+  .card .row2{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px}
+  .card .model{color:var(--text-tertiary);font-size:12px}
+  .card .state-run{color:rgb(var(--run))}
+  .card .state-unread{color:rgb(var(--unread))}
+  .card .state-ask{color:rgb(var(--ask))}
+  .card .cost{margin-left:auto;color:var(--text-tertiary);font-size:12px}
+
+  /* fx layer shared geometry */
+  .fx{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none;z-index:-1}
+
+  /* ════════ 0. CURRENT — barber-pole stripes ════════ */
+  @keyframes stripe-scroll{to{transform:translateX(28.2843px)}}
+  @keyframes stripe-pulse{0%,100%{opacity:.6}50%{opacity:1}}
+  .fx-stripe::before{content:"";position:absolute;top:0;bottom:0;left:-28.2843px;right:-28.2843px;
+    animation:stripe-scroll 2s linear infinite, stripe-pulse 3s ease-in-out infinite}
+  .s-run.fx-stripe::before{background-image:
+    repeating-linear-gradient(45deg,transparent 0 10px,rgba(var(--run),.10) 10px 20px),
+    linear-gradient(rgba(var(--run),.06),rgba(var(--run),.06))}
+  .s-unread.fx-stripe::before{background-image:
+    repeating-linear-gradient(45deg,transparent 0 10px,rgba(var(--unread),.18) 10px 20px),
+    linear-gradient(rgba(var(--unread),.07),rgba(var(--unread),.07))}
+  .s-ask.fx-stripe::before{background-image:
+    repeating-linear-gradient(45deg,transparent 0 10px,rgba(var(--ask),.18) 10px 20px),
+    linear-gradient(rgba(var(--ask),.07),rgba(var(--ask),.07))}
+
+  /* ════════ A. SWEEP (seamless) — pending-prompt shimmer ════════
+     Fluid fix: an over-wide layer carries a *repeating* soft band and is
+     translated by exactly ONE period at constant velocity (linear). No exit /
+     re-entry, no snap. Compositor-only (transform), same as the old stripes.
+     Period 460px > card width → usually one band visible = single-sweep feel,
+     but the loop is gapless. */
+  @keyframes sweep-460{to{transform:translateX(460px)}}
+  .fx-sweep::before{content:"";position:absolute;inset:0}              /* flat base tint */
+  .fx-sweep::after {content:"";position:absolute;top:0;bottom:0;left:-460px;right:-460px;
+    animation:sweep-460 3.4s linear infinite}
+  /* band DOUBLE-WIDE: soft edges at 60/400 around the 230 center (was 140/320). */
+  .s-run.fx-sweep::before{background:rgba(var(--run),.05)}
+  .s-run.fx-sweep::after {background:repeating-linear-gradient(90deg,transparent 0 60px,rgba(var(--run),.16) 230px,transparent 400px 460px)}
+  .s-unread.fx-sweep::before{background:rgba(var(--unread),.05)}
+  .s-unread.fx-sweep::after {background:repeating-linear-gradient(90deg,transparent 0 60px,rgba(var(--unread),.20) 230px,transparent 400px 460px)}
+  .s-ask.fx-sweep::before{background:rgba(var(--ask),.05)}
+  .s-ask.fx-sweep::after {background:repeating-linear-gradient(90deg,transparent 0 60px,rgba(var(--ask),.22) 230px,transparent 400px 460px)}
+
+  /* ════════ A2. SWEEP-FLOW (seamless, continuous train) ════════
+     Same technique, shorter period (240px) → a gentle continuous flow of light
+     crossing the card. No single "pulse" — calmest motion that still reads as
+     directional/active. */
+  @keyframes sweep-240{to{transform:translateX(240px)}}
+  .fx-flow::before{content:"";position:absolute;inset:0}
+  .fx-flow::after {content:"";position:absolute;top:0;bottom:0;left:-240px;right:-240px;
+    animation:sweep-240 3s linear infinite}
+  .s-run.fx-flow::before{background:rgba(var(--run),.05)}
+  .s-run.fx-flow::after {background:repeating-linear-gradient(90deg,transparent 0 70px,rgba(var(--run),.15) 120px,transparent 170px 240px)}
+  .s-unread.fx-flow::before{background:rgba(var(--unread),.05)}
+  .s-unread.fx-flow::after {background:repeating-linear-gradient(90deg,transparent 0 70px,rgba(var(--unread),.19) 120px,transparent 170px 240px)}
+  .s-ask.fx-flow::before{background:rgba(var(--ask),.05)}
+  .s-ask.fx-flow::after {background:repeating-linear-gradient(90deg,transparent 0 70px,rgba(var(--ask),.21) 120px,transparent 170px 240px)}
+
+  /* ════════ B. BREATHE — whole-card tint pulse ════════
+     No moving edges at all; the flat tint slowly drifts in opacity.
+     Calmest, but least directional. */
+  @keyframes breathe{0%,100%{opacity:.35}50%{opacity:1}}
+  .fx-breathe::before{content:"";position:absolute;inset:0;animation:breathe 2.8s ease-in-out infinite}
+  .s-run.fx-breathe::before{background:
+    radial-gradient(120% 140% at 0% 50%,rgba(var(--run),.16),rgba(var(--run),.04) 60%,transparent)}
+  .s-unread.fx-breathe::before{background:
+    radial-gradient(120% 140% at 0% 50%,rgba(var(--unread),.20),rgba(var(--unread),.05) 60%,transparent)}
+  .s-ask.fx-breathe::before{background:
+    radial-gradient(120% 140% at 0% 50%,rgba(var(--ask),.22),rgba(var(--ask),.05) 60%,transparent)}
+
+  /* ════════ C. EDGE-GLOW — color hugs left rail, clean center ════════
+     Gradient is densest at the left border and fades to transparent before
+     the text column → best text legibility. Glow breathes + a faint band
+     sweeps only within the left third. */
+  @keyframes edge-pulse{0%,100%{opacity:.5}50%{opacity:1}}
+  @keyframes edge-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(60%)}}
+  .fx-edge::before{content:"";position:absolute;inset:0;animation:edge-pulse 2.6s ease-in-out infinite}
+  .fx-edge::after {content:"";position:absolute;top:0;bottom:0;left:0;width:45%;
+    animation:edge-sweep 2.6s ease-in-out infinite}
+  .s-run.fx-edge::before{background:linear-gradient(90deg,rgba(var(--run),.22),rgba(var(--run),.05) 35%,transparent 60%)}
+  .s-run.fx-edge::after {background:linear-gradient(90deg,rgba(var(--run),.14),transparent)}
+  .s-unread.fx-edge::before{background:linear-gradient(90deg,rgba(var(--unread),.26),rgba(var(--unread),.06) 35%,transparent 60%)}
+  .s-unread.fx-edge::after {background:linear-gradient(90deg,rgba(var(--unread),.16),transparent)}
+  .s-ask.fx-edge::before{background:linear-gradient(90deg,rgba(var(--ask),.28),rgba(var(--ask),.06) 35%,transparent 60%)}
+  .s-ask.fx-edge::after {background:linear-gradient(90deg,rgba(var(--ask),.16),transparent)}
+
+  /* selected card — combined state: the REAL rotating rainbow neon ring + glow
+     (ported from index.css card-ring-fx / card-glow-fx), layered with the
+     status sweep gradient behind the content. Static blue border + tint is the
+     fallback base the rim sits on. */
+  .card.sel{border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.05)}
+  @keyframes neon-rotate{to{transform:rotate(360deg)}}
+  /* crisp 1px rainbow rim, masked to the border band */
+  .ring-fx{position:absolute;inset:-1px;border-radius:inherit;overflow:hidden;pointer-events:none;z-index:-1;padding:1px;
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;container-type:size}
+  .ring-fx::before{content:"";position:absolute;left:50%;top:50%;width:200cqmax;height:200cqmax;margin-left:-100cqmax;margin-top:-100cqmax;
+    background:conic-gradient(from 0deg,rgb(59 130 246/.45),rgb(139 92 246/.45),rgb(236 72 153/.45),rgb(34 211 238/.45),rgb(59 130 246/.45));
+    transform-origin:center;animation:neon-rotate 13s linear infinite}
+  /* blurred rainbow halo — inner (tight) + outer (wider, softer) */
+  .glow-fx{position:absolute;inset:-2px;border-radius:inherit;overflow:hidden;pointer-events:none;z-index:-2;filter:blur(8px);opacity:.42;container-type:size}
+  .glow-fx-outer{inset:-7px;z-index:-3;filter:blur(16px);opacity:.29}
+  .glow-fx::before{content:"";position:absolute;left:50%;top:50%;width:200cqmax;height:200cqmax;margin-left:-100cqmax;margin-top:-100cqmax;
+    background:conic-gradient(from 0deg,rgb(59 130 246/.10),rgb(139 92 246/.10),rgb(236 72 153/.10),rgb(34 211 238/.10),rgb(59 130 246/.10));
+    transform-origin:center;animation:neon-rotate 13s linear infinite}
+  .sel-tag{position:absolute;top:8px;right:10px;font-size:9px;letter-spacing:.06em;
+    text-transform:uppercase;color:rgb(96,165,250);font-weight:600;opacity:.9;z-index:3}
+
+  /* left status rail (exists on the real card) for B/C realism */
+  .rail{position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:12px 0 0 12px}
+  .s-run .rail{background:rgba(var(--run),.6)}
+  .s-unread .rail{background:rgba(var(--unread),.6)}
+  .s-ask .rail{background:rgba(var(--ask),.6)}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--text-tertiary)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+  <h1>Session card state animation</h1>
+  <p class="sub">Replace moving barber-pole stripes with a fluid animated gradient — same state colors, modeled on the pending-prompt sweep. Seamless loop: an over-wide repeating-gradient layer translated by exactly one period at constant velocity (no exit/restart snap).</p>
+  <div class="legend">
+    <span><span class="dot" style="background:rgb(234,179,8)"></span>running (amber)</span>
+    <span><span class="dot" style="background:rgb(34,211,238)"></span>unread (cyan)</span>
+    <span><span class="dot" style="background:rgb(168,85,247)"></span>ask_user (purple)</span>
+  </div>
+
+  <h2>0 · Current — barber-pole stripes (the readability problem)</h2>
+  <div class="grid" id="g0"></div>
+
+  <h2>A · Sweep — seamless single band (★ fluid fix · pending-prompt feel)</h2>
+  <div class="grid" id="gA"></div>
+
+  <h2>A2 · Sweep-flow — seamless continuous train (calmer rhythm)</h2>
+  <div class="grid" id="gA2"></div>
+
+  <h2>B · Breathe — whole-card tint pulse (no moving edges)</h2>
+  <div class="grid" id="gB"></div>
+
+  <h2>C · Edge-glow — color hugs the rail, text column stays clean ★ best legibility</h2>
+  <div class="grid" id="gC"></div>
+
+<script>
+  const states=[
+    {k:"run",   ico:"#a78bfa", title:"pi-agent-dashboard",         model:"anthropic/claude-opus-4-8", state:"Thinking…",   cls:"state-run",    time:"12s", cost:"$0.82"},
+    {k:"unread",ico:"#34d399", title:"reduce-session-replay",      model:"anthropic/claude-opus-4-8", state:"3 new messages",cls:"state-unread", time:"1m",  cost:"$0.41"},
+    {k:"ask",   ico:"#60a5fa", title:"fix-bridge-diagnostics",     model:"anthropic/claude-sonnet-4", state:"Needs you · ask_user", cls:"state-ask", time:"now", cost:"$0.12"},
+  ];
+  function card(fx, st, selected){
+    // fx + state live on the CHILD .fx layer (clips its own sweep); rail/text
+    // colour use s-* on the root. Selected adds the rainbow ring + glow layers.
+    return `<div class="card s-${st.k}${selected?" sel":""}">
+      <div class="rail"></div>
+      <div class="fx s-${st.k} ${fx}"></div>
+      ${selected?`<div class="ring-fx"></div><div class="glow-fx"></div><div class="glow-fx glow-fx-outer"></div><span class="sel-tag">selected</span>`:""}
+      <div class="row1">
+        <span class="icon" style="background:${st.ico}"></span>
+        <span class="title">${st.title}</span>
+        <span class="time">${st.time}</span>
+      </div>
+      <div class="row2">
+        <span class="model">${st.model}</span>
+        <span class="${st.cls}">${st.state}</span>
+        <span class="cost">${st.cost}</span>
+      </div>
+    </div>`;
+  }
+  const map={g0:"fx-stripe",gA:"fx-sweep",gA2:"fx-flow",gB:"fx-breathe",gC:"fx-edge"};
+  for(const [id,fx] of Object.entries(map)){
+    // 3 status columns + a 4th SELECTED column (combined: selection + running state).
+    const cells = states.map(s=>card(fx,s,false));
+    cells.push(card(fx, states[0], true));
+    document.getElementById(id).innerHTML = cells.join("");
+  }
+</script>
+</body>
+</html>

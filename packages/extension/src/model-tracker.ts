@@ -2,7 +2,8 @@
  * Model and thinking-level change detection.
  * Sends model_update only when values actually change.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
 import { gatherGitInfo } from "./vcs-info.js";
@@ -66,6 +67,53 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
     // present → absent, so the server can clear its cached value.
     gitWorktree: info.gitWorktree ?? null,
   });
+}
+
+/**
+ * Last pi version pushed via `pi_version_update`. Module-scoped: a single pi
+ * process has exactly one pi version, so this correctly survives bridge
+ * reconnect and suppresses redundant pushes. See change:
+ * restore-pi-version-skew-surface.
+ */
+let lastPiVersion: string | undefined;
+
+/** Default reader: pi-coding-agent version from inside the bridge's own tree. */
+function defaultReadPiVersion(): string | undefined {
+  const pkg = createRequire(import.meta.url).resolve("@earendil-works/pi-coding-agent/package.json");
+  const parsed = JSON.parse(readFileSync(pkg, "utf8")) as { version?: string };
+  return typeof parsed.version === "string" ? parsed.version : undefined;
+}
+
+/**
+ * Send `pi_version_update` when the bridge's pi version differs from the last
+ * sent value (including the first read). The bridge runs inside pi's own tree,
+ * so `createRequire` resolution always succeeds. A read failure logs a warning
+ * and skips the send; the next poll tick retries. `readVersion` is injectable
+ * for tests.
+ */
+export function sendPiVersionIfChanged(
+  bc: BridgeContext,
+  readVersion: () => string | undefined = defaultReadPiVersion,
+): void {
+  let version: string | undefined;
+  try {
+    version = readVersion();
+  } catch (e) {
+    console.warn("[dashboard] pi version read failed:", e);
+    return;
+  }
+  if (!version || version === lastPiVersion) return;
+  lastPiVersion = version;
+  bc.connection.send({
+    type: "pi_version_update",
+    sessionId: bc.sessionId,
+    version,
+  });
+}
+
+/** Test-only: clear the module-scoped pi-version cache. */
+export function _resetPiVersionCache(): void {
+  lastPiVersion = undefined;
 }
 
 /**
