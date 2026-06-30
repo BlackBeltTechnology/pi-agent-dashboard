@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { autoStartServer, type AutoStartDeps, type DiscoveredServer } from "../server-auto-start.js";
 
 function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
@@ -115,9 +116,11 @@ describe("autoStartServer", () => {
     expect(deps.notify).toHaveBeenCalledTimes(1);
     const [msg, level] = (deps.notify as any).mock.calls[0];
     expect(msg).toMatch(/Dashboard server failed to start: exited/);
-    // Spec requirement (fix-windows-server-parity): failure notification
-    // MUST include the absolute path to ~/.pi/dashboard/server.log.
-    expect(msg).toMatch(/server\.log/);
+    // Spec requirement (fix-windows-server-parity + fix-bridge-server-start-
+    // diagnostics): failure notification MUST include the absolute path
+    // returned by getDashboardServerLogPath() — the same file the bridge
+    // auto-spawn now writes — not a hardcoded string.
+    expect(msg).toContain(getDashboardServerLogPath());
     expect(level).toBe("warning");
     expect(result.server).toBeUndefined();
   });

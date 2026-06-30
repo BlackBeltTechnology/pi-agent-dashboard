@@ -7,6 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
   launchDashboardServer,
   JitiNotFoundError,
@@ -85,10 +86,13 @@ export function buildSpawnArgs(config: DashboardConfig): string[] {
  * loader resolution, argv shape, env merge, log-file policy, and
  * readiness polling (see `packages/shared/src/server-launcher.ts`).
  *
- * Bridge-specific contract preserved: `DASHBOARD_STARTER=Bridge`,
- * `stdio: "ignore"` (Bridge auto-spawn never owns the log file),
- * 2 s health timeout (Bridge expects a fast cold-start when the
- * server is already on the same machine).
+ * Bridge-specific contract: `DASHBOARD_STARTER=Bridge`,
+ * `stdio: { logFile: getDashboardServerLogPath() }` (Bridge auto-spawn
+ * now owns the shared `~/.pi/dashboard/server.log` so a slow/crashed
+ * cold start leaves an inspectable log), and a 10 s cold-start health
+ * timeout (slow hosts reach `writePid()` but are not health-OK within
+ * 2 s; `EarlyExitError` still surfaces a real crash instantly).
+ * See change: fix-bridge-server-start-diagnostics.
  */
 export async function launchServer(config: DashboardConfig): Promise<LaunchResult> {
   const cliPath = resolveServerCliPath();
@@ -98,8 +102,8 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     const result = await launchDashboardServer({
       cliPath,
       extraArgs: args,
-      stdio: "ignore",
-      healthTimeoutMs: 2_000,
+      stdio: { logFile: getDashboardServerLogPath() },
+      healthTimeoutMs: 10_000,
       port: config.port,
       starter: "Bridge",
     });
@@ -114,7 +118,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     if (err instanceof EarlyExitError) {
       return {
         success: false,
-        message: `Server process exited (code=${err.code}) before health check. See ~/.pi/dashboard/server.log`,
+        message: `Server process exited (code=${err.code}) before health check. See ${getDashboardServerLogPath()}`,
       };
     }
     const message = err instanceof Error ? err.message : String(err);

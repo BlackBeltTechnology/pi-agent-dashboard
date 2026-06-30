@@ -2,8 +2,7 @@
  * Auto-start logic for the dashboard server.
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
-import os from "node:os";
-import path from "node:path";
+import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 export interface DiscoveredServer {
   host: string;
@@ -151,9 +150,11 @@ export async function autoStartServer(
   }
 
   // Surface the log path so users can inspect the crash output without having
-  // to know the convention. See change: fix-windows-server-parity.
+  // to know the convention. The bridge auto-spawn now owns this file
+  // (stdio:{logFile}), so the path always exists when this warning fires.
+  // See change: fix-windows-server-parity, fix-bridge-server-start-diagnostics.
   deps.onLaunchEnd?.(false);
-  const logPath = path.join(os.homedir(), ".pi", "dashboard", "server.log");
+  const logPath = getDashboardServerLogPath();
   deps.notify(
     `Dashboard server failed to start: ${result.message}\nSee log: ${logPath}`,
     "warning",
