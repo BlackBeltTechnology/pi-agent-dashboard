@@ -1,6 +1,6 @@
-import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -59,8 +59,13 @@ export function resolvePortsFromStateFile(workspace: string): {
   const parsed = JSON.parse(fs.readFileSync(stateFile, "utf8"));
   const dashboardPort = Number(parsed.dashboardPort);
   const gatewayPort = Number(parsed.gatewayPort);
-  if (!Number.isInteger(dashboardPort) || !Number.isInteger(gatewayPort)) {
-    throw new Error(`Malformed ${stateFile}: dashboardPort/gatewayPort are not integers`);
+  // Same bounds as the env-port path: reject 0 / >65535 so a malformed state
+  // file can't yield an unusable healthUrl.
+  const inRange = (p: number) => Number.isInteger(p) && p >= 1 && p <= 65_535;
+  if (!inRange(dashboardPort) || !inRange(gatewayPort)) {
+    throw new Error(
+      `Malformed ${stateFile}: dashboardPort/gatewayPort must be integer ports in [1, 65535]`,
+    );
   }
   return { dashboardPort, gatewayPort };
 }

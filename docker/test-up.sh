@@ -113,21 +113,26 @@ UP_STDERR="$(mktemp)"
 trap 'rm -f "$UP_STDERR"' EXIT
 attempt=0
 while true; do
-  # tee keeps stderr live for the attached manual flow while capturing it for
-  # the bind-collision probe below. `|| status=$?` keeps set -e from killing the
-  # script on a (retryable) bind failure before we can inspect it.
+  # Capture docker's stderr through a REAL pipe (not process substitution): bash
+  # waits for the whole pipeline to finish before the grep below, so the bind-
+  # collision check sees fully-flushed output (process substitution does not
+  # sync, and could race the grep). fd3 carries docker stdout to the terminal;
+  # stderr is tee'd live (attached manual flow) AND captured to UP_STDERR.
+  # `|| status=$?` keeps set -e from killing the script on a retryable failure;
+  # pipefail makes status reflect docker's exit (tee succeeds).
   status=0
-  docker compose -p "$COMPOSE_PROJECT_NAME" "${COMPOSE_FILES[@]}" up "$@" 2> >(tee "$UP_STDERR" >&2) || status=$?
+  { docker compose -p "$COMPOSE_PROJECT_NAME" "${COMPOSE_FILES[@]}" up "$@" 2>&1 1>&3 3>&- | tee "$UP_STDERR" >&2; } 3>&1 || status=$?
   if [ "$status" -eq 0 ]; then
     break
   fi
   if [ "$PORTS_PINNED" = "1" ] || ! grep -q 'port is already allocated' "$UP_STDERR"; then
     exit "$status"
   fi
-  if (( ++attempt >= MAX_BIND_RETRIES )); then
+  if (( attempt >= MAX_BIND_RETRIES )); then
     echo "fix-parallel-e2e-docker-collisions: port bind kept colliding after ${MAX_BIND_RETRIES} retries" >&2
     exit 1
   fi
+  attempt=$(( attempt + 1 ))
   echo "fix-parallel-e2e-docker-collisions: port already allocated — re-deriving (attempt ${attempt}/${MAX_BIND_RETRIES})" >&2
   derive_ports
   export DASHBOARD_PORT PI_GATEWAY_PORT

@@ -4,7 +4,7 @@
 
 Playwright `globalSetup` SHALL spin up the Docker test harness (`docker/test-up.sh`) and wait until `GET <baseURL>/api/health` returns 200 before any spec runs. `globalTeardown` SHALL tear the container down (`docker/test-down.sh`, `compose down -v`), discarding all ephemeral state.
 
-In managed mode, `globalSetup` SHALL NOT pre-pin or `:0`-probe the host ports. It SHALL let `test-up.sh` derive a free port pair within the disjoint windows from the throwaway workspace's `HOST_CWD`, then resolve the chosen ports from the worktree's `.pi-test-harness.json` state file and propagate them (`PW_E2E_PORT`/`PW_GATEWAY_PORT`) so `baseURL` and worker processes stay in sync with the container. This makes two parallel managed runs (different workspaces) non-colliding without an ephemeral-port race.
+In managed mode, `globalSetup` SHALL NOT pre-pin or `:0`-probe the host ports. It SHALL let `test-up.sh` derive a free port pair within the disjoint windows from the throwaway workspace's `HOST_CWD`, then resolve the chosen ports from the throwaway workspace's `.pi-test-harness.json` state file and propagate them (`PW_E2E_PORT`/`PW_GATEWAY_PORT`) so `baseURL` and worker processes stay in sync with the container. This makes two parallel managed runs (different workspaces) non-colliding without an ephemeral-port race.
 
 When `PW_E2E_USE_RUNNING=1` is set, `globalSetup` SHALL NOT spin up a container; it SHALL only assert that the attach port (`PW_E2E_PORT`, default `:18000`) is already healthy, and `globalTeardown` SHALL NOT tear anything down (the caller owns the container).
 

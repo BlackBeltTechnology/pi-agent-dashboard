@@ -35,6 +35,47 @@ function assertBrowserInstalled(): void {
   }
 }
 
+/**
+ * Poll the workspace state file + health endpoint until a derived dashboard port
+ * is healthy. Re-reads .pi-test-harness.json EACH iteration so a bind-collision
+ * retry that rewrites the ports (change fix-parallel-e2e-docker-collisions D2) is
+ * followed instead of pinning a stale, abandoned port. First run builds the
+ * image (slow); warm runs are seconds. Throws on timeout.
+ */
+async function bootHealthyPorts(
+  workspace: string,
+  logPath: string,
+  timeoutMs: number,
+): Promise<{ dashboardPort: number; gatewayPort: number }> {
+  const deadline = Date.now() + timeoutMs;
+  let ports: { dashboardPort: number; gatewayPort: number } | undefined;
+  while (Date.now() < deadline) {
+    try {
+      ports = resolvePortsFromStateFile(workspace);
+    } catch {
+      // state file not written yet (or mid-rewrite) — keep waiting
+      await new Promise((r) => setTimeout(r, 1_000));
+      continue;
+    }
+    try {
+      const res = await fetch(`http://localhost:${ports.dashboardPort}/api/health`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (res.ok) return ports;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  const where = ports
+    ? `${ports.dashboardPort}/${ports.gatewayPort}`
+    : "none (state file never written)";
+  throw new Error(
+    `[${CHANGE}] container never became healthy within ${timeoutMs / 1_000}s ` +
+      `(last ports: ${where}). Check ${logPath} and docker/test-up.sh.`,
+  );
+}
+
 export default async function globalSetup(): Promise<void> {
   // Preflight FIRST: never pay the container boot only to die at browser launch.
   assertBrowserInstalled();
@@ -75,6 +116,11 @@ export default async function globalSetup(): Promise<void> {
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
   };
+  // Strip any inherited port pins: a caller-exported DASHBOARD_PORT/
+  // PI_GATEWAY_PORT would make test-up.sh honour them verbatim (PORTS_PINNED),
+  // skip in-window derivation, and reintroduce cross-worktree collisions.
+  delete env.DASHBOARD_PORT;
+  delete env.PI_GATEWAY_PORT;
   let child;
   try {
     // --build is MANDATORY for the managed path: the dashboard server+client run
@@ -95,36 +141,9 @@ export default async function globalSetup(): Promise<void> {
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.
   fs.writeFileSync(MARKER_PATH, JSON.stringify({ workspace, pid: child.pid, logPath }));
 
-  // test-up.sh writes .pi-test-harness.json into the workspace (HOST_CWD) BEFORE
-  // `docker compose up`, so it appears well before health. Poll for it, then
-  // propagate the chosen ports into PW_E2E_PORT/PW_GATEWAY_PORT so worker
-  // processes (spawned after this) inherit the container port → baseURL in sync.
-  const stateDeadline = Date.now() + 60_000;
-  let ports: { dashboardPort: number; gatewayPort: number } | undefined;
-  while (Date.now() < stateDeadline) {
-    try {
-      ports = resolvePortsFromStateFile(workspace);
-      break;
-    } catch {
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  }
-  if (!ports) {
-    throw new Error(
-      `[${CHANGE}] test-up.sh never wrote a parseable ${workspace}/.pi-test-harness.json ` +
-        `within 60s. Check ${logPath} and docker/test-up.sh.`,
-    );
-  }
+  const ports = await bootHealthyPorts(workspace, logPath, 180_000);
+  // Lock in the healthy ports so worker processes (spawned after this) inherit
+  // the container port → baseURL in sync.
   process.env.PW_E2E_PORT = String(ports.dashboardPort);
   process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
-  const healthUrl = `http://localhost:${ports.dashboardPort}/api/health`;
-
-  // First run builds the image (slow); warm runs are seconds.
-  const healthy = await waitForHealth(180_000, undefined, healthUrl);
-  if (!healthy) {
-    throw new Error(
-      `[${CHANGE}] container never became healthy at ${healthUrl} within 180s. ` +
-        `Check ${logPath} and docker/test-up.sh.`,
-    );
-  }
 }
