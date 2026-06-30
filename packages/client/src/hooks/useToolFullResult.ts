@@ -24,6 +24,7 @@ export function useToolFullResult(sessionId: string | undefined, toolCallId: str
     if (!sessionId || !toolCallId) return;
     setLoading(true);
     setError(undefined);
+    setResult(undefined); // clear stale full output before re-fetching
     try {
       const res = await fetch(`${getApiBase()}/api/sessions/${sessionId}/tool-result/${toolCallId}`);
       if (!res.ok) {

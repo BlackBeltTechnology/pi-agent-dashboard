@@ -54,6 +54,8 @@ describe("ProviderAuthSection — handler-gap detection", () => {
       expect(anthropicBtn).toBeTruthy();
     });
 
-    expect(customBtn!.getAttribute("title")).toContain("OAuth flow not yet supported in dashboard for Custom LLM");
+    // Tooltip lives on the wrapper span (a disabled button does not fire hover).
+    const tooltipHost = customBtn!.closest("[title]") as HTMLElement;
+    expect(tooltipHost.getAttribute("title")).toContain("OAuth flow not yet supported in dashboard for Custom LLM");
   });
 });

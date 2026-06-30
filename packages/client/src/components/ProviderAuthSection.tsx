@@ -262,15 +262,18 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
             </button>
           </div>
         ) : (
-          <button
-            onClick={supported ? handleSignIn : undefined}
-            disabled={busy || !supported}
-            title={supported ? undefined : `OAuth flow not yet supported in dashboard for ${provider.name}`}
-            className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50"
-          >
-            {busy ? <Icon path={mdiLoading} size={0.5} className="animate-spin" /> : <Icon path={mdiLogin} size={0.5} />}
-            {i18nT("auto.sign_in", undefined, "Sign In")}
-          </button>
+          // Tooltip lives on the wrapper span: a disabled <button> does not fire
+          // hover events in all browsers, so a `title` on it would never show.
+          <span title={supported ? undefined : `OAuth flow not yet supported in dashboard for ${provider.name}`} className="inline-flex">
+            <button
+              onClick={supported ? handleSignIn : undefined}
+              disabled={busy || !supported}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-blue-600 hover:bg-blue-500 text-white font-medium disabled:opacity-50"
+            >
+              {busy ? <Icon path={mdiLoading} size={0.5} className="animate-spin" /> : <Icon path={mdiLogin} size={0.5} />}
+              {i18nT("auto.sign_in", undefined, "Sign In")}
+            </button>
+          </span>
         )}
       </div>
 

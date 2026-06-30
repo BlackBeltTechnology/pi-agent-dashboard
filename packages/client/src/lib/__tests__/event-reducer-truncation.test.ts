@@ -57,6 +57,16 @@ describe("reducer wires truncateOutputForDisplay", () => {
     expect(row.result!.split("\n")).toHaveLength(201);
   });
 
+  it("structured tool_execution_update.partialResult.content keeps last 200 of 500", () => {
+    const state = applyEvents([
+      { eventType: "tool_execution_start", timestamp: 1, data: { toolCallId: "t3", toolName: "Agent", args: {} } },
+      { eventType: "tool_execution_update", timestamp: 2, data: { toolCallId: "t3", partialResult: { content: [{ text: lines(500) }], details: { status: "running" } } } },
+    ]);
+    const row = state.messages.find((m) => m.toolCallId === "t3")!;
+    expect(row.result!.startsWith("«300 earlier lines hidden»")).toBe(true);
+    expect(row.result!.split("\n")).toHaveLength(201);
+  });
+
   it("tool_execution_end.result keeps last 200 of 1000", () => {
     const state = applyEvents([
       { eventType: "tool_execution_start", timestamp: 1, data: { toolCallId: "t2", toolName: "bash", args: {} } },

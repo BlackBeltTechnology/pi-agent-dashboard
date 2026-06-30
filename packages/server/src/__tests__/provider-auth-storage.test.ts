@@ -75,6 +75,8 @@ describe("provider-auth-storage", () => {
     expect(oauthIds).toContain("github-copilot");
     expect(oauthIds).not.toContain("google-gemini-cli");
     expect(oauthIds).not.toContain("google-antigravity");
+    // Exact set (registry order): no extra/dropped handlers.
+    expect(oauthIds).toEqual(["anthropic", "openai-codex", "github-copilot"]);
   });
 
   it("getAuthStatus includes zai from the bridge-pushed catalogue with flowType api_key", async () => {

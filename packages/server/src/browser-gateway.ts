@@ -439,7 +439,9 @@ export function createBrowserGateway(
             handleAbort(msg, ctx);
             break;
           case "stop_after_turn":
-            handleStopAfterTurn(msg, ctx);
+            if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
+              handleStopAfterTurn(msg, ctx);
+            }
             break;
           // ── Follow-up queue mutation (bridge-owned buffer) ─────────────────
           //
