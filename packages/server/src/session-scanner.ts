@@ -113,6 +113,12 @@ function sessionFromMeta(
     // showing a stale resume button on a session whose dir was removed.
     // See change: add-worktree-lifecycle-actions.
     cwdMissing: meta.cwd ? !existsSync(meta.cwd) : undefined,
+    // Mirror the liveness marker so cold-start restore (server.ts) can
+    // classify interrupted-session recovery candidates without re-reading
+    // the sidecar. See change: reopen-sessions-after-shutdown.
+    live: meta.live,
+    liveEpoch: meta.liveEpoch,
+    closedReason: meta.closedReason,
     dataUnavailable: true,
   };
 }

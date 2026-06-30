@@ -698,8 +698,30 @@ export interface ServerRestartingMessage {
   requestId?: string;
 }
 
+/**
+ * Server → browser: cold-start recovery offer. Broadcast once, to all
+ * connected clients, when ≥1 session was interrupted by an unclean host
+ * shutdown and the `reopenSessionsAfterShutdown` setting is `"ask"`. The
+ * client renders this as a sticky notification in the top-right toast stack
+ * (no auto-timeout); accepting routes each candidate through `resume_session`.
+ * See change: reopen-sessions-after-shutdown.
+ */
+export interface RecoveryCandidate {
+  sessionId: string;
+  name?: string;
+  cwd?: string;
+  model?: string;
+  /** Server boot id under which the session was last seen running. */
+  liveEpoch?: number;
+}
+export interface RecoveryOfferMessage {
+  type: "recovery_offer";
+  candidates: RecoveryCandidate[];
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
+  | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | SessionAddedMessage
   | SessionUpdatedMessage

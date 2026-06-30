@@ -25,6 +25,18 @@ export interface MetaPersistence {
    * persist-process-drawer-collapse.
    */
   setProcessDrawerCollapsed(sessionFile: string, collapsed: boolean): void;
+  /**
+   * Eagerly (atomically, NOT debounced) write the liveness marker fields
+   * into `.meta.json`. Used to stamp `{ live, liveEpoch }` while a session
+   * runs and `{ live:false, closedReason? }` on close, so the marker is
+   * durable on disk before an unclean host shutdown. Merges onto any pending
+   * debounced write so an in-flight stats update is not lost.
+   * See change: reopen-sessions-after-shutdown.
+   */
+  setLiveness(
+    sessionFile: string,
+    liveness: { live: boolean; liveEpoch?: number; closedReason?: string },
+  ): void;
   /** Flush all pending writes immediately. */
   flushAll(): void;
   /** Stop all debounce timers. */
@@ -46,7 +58,19 @@ export function createMetaPersistence(): MetaPersistence {
     if (!entry) return;
     clearTimeout(entry.timer);
     pending.delete(sessionFile);
-    writeSessionMeta(sessionFile, entry.meta);
+    // The debounced path owns all fields EXCEPT the eager liveness marker
+    // (see change: reopen-sessions-after-shutdown / design D2). `save()`
+    // performs a full overwrite, so carry forward any on-disk liveness
+    // fields the caller did not explicitly set — otherwise a routine stats
+    // write would clobber `live`/`liveEpoch`/`closedReason`.
+    const meta = { ...entry.meta };
+    if (meta.live === undefined && meta.liveEpoch === undefined && meta.closedReason === undefined) {
+      const onDisk = readSessionMeta(sessionFile);
+      if (onDisk?.live !== undefined) meta.live = onDisk.live;
+      if (onDisk?.liveEpoch !== undefined) meta.liveEpoch = onDisk.liveEpoch;
+      if (onDisk?.closedReason !== undefined) meta.closedReason = onDisk.closedReason;
+    }
+    writeSessionMeta(sessionFile, meta);
   }
 
   return {
@@ -63,6 +87,21 @@ export function createMetaPersistence(): MetaPersistence {
 
     setProcessDrawerCollapsed(sessionFile: string, collapsed: boolean): void {
       mergeSessionMeta(sessionFile, { processDrawerCollapsed: collapsed });
+    },
+
+    setLiveness(sessionFile, liveness): void {
+      // Fold any pending debounced fields into the eager write so a queued
+      // stats update is not clobbered by this out-of-band write.
+      const queued = pending.get(sessionFile);
+      if (queued) {
+        clearTimeout(queued.timer);
+        pending.delete(sessionFile);
+      }
+      const base = queued?.meta ?? readSessionMeta(sessionFile) ?? {};
+      const next: SessionMeta = { ...base, live: liveness.live };
+      if (liveness.liveEpoch !== undefined) next.liveEpoch = liveness.liveEpoch;
+      if (liveness.closedReason !== undefined) next.closedReason = liveness.closedReason;
+      writeSessionMeta(sessionFile, next);
     },
 
     save(sessionFile: string, meta: SessionMeta): void {

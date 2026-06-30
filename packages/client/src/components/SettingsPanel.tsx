@@ -82,6 +82,7 @@ interface Config {
   spawnStrategy: string;
   /** Reattach placement policy. See change: reattach-move-to-front. */
   reattachPlacement?: "preserve" | "streaming-only" | "always";
+  reopenSessionsAfterShutdown?: "off" | "ask" | "auto";
   /** Move completed/ended sessions to front of their tier. See change: simplify-session-card-ordering. */
   completedFirst?: boolean;
   /** Move ask_user sessions to front of active tier. See change: simplify-session-card-ordering. */
@@ -152,7 +153,7 @@ const NEEDS_ISSUER = new Set(["keycloak", "oidc"]);
 const CONFIG_FIELD_PAGE: Record<string, string> = {
   port: "server", piPort: "server", bindHost: "server", autoShutdown: "server", shutdownIdleSeconds: "server",
   tunnel: "server", memoryLimits: "server",
-  spawnStrategy: "sessions", reattachPlacement: "sessions", completedFirst: "sessions",
+  spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "sessions", defaultModel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
@@ -181,6 +182,9 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   if (config.spawnStrategy !== original.spawnStrategy) partial.spawnStrategy = config.spawnStrategy;
   if (config.reattachPlacement !== original.reattachPlacement) {
     partial.reattachPlacement = config.reattachPlacement ?? "always";
+  }
+  if ((config.reopenSessionsAfterShutdown ?? "ask") !== (original.reopenSessionsAfterShutdown ?? "ask")) {
+    partial.reopenSessionsAfterShutdown = config.reopenSessionsAfterShutdown ?? "ask";
   }
   if ((config.completedFirst ?? false) !== (original.completedFirst ?? false)) {
     partial.completedFirst = config.completedFirst ?? false;
@@ -922,6 +926,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     />
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("auto.when_the_dashboard_restarts_and_a", undefined, "When the dashboard restarts and a still-alive pi session reconnects, choose where its card goes in the folder list.")}
+                    </p>
+                  </div>
+                  <div>
+                    <SelectField
+                      label={i18nT("auto.reopen_sessions_after_shutdown", undefined, "Reopen sessions after shutdown")}
+                      value={config.reopenSessionsAfterShutdown ?? "ask"}
+                      options={[
+                        { value: "ask", label: "Ask (default)" },
+                        { value: "auto", label: "Reopen automatically" },
+                        { value: "off", label: "Never" },
+                      ]}
+                      onChange={(v) => update((c) => { c.reopenSessionsAfterShutdown = v as "off" | "ask" | "auto"; })}
+                    />
+                    <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      {i18nT("auto.when_sessions_were_running_at_shutdown", undefined, "When sessions were running when the machine shut down or crashed, offer to reopen them on next launch. Ask shows a prompt; Auto reopens them silently; Never ignores them.")}
                     </p>
                   </div>
                   <div>

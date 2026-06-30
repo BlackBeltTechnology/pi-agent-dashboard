@@ -36,6 +36,7 @@ import { SessionList } from "./components/SessionList.js";
 import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
+import { RecoveryOfferHost } from "./components/RecoveryOfferHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { StatusBar } from "./components/StatusBar.js";
@@ -1877,6 +1878,7 @@ export default function App() {
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
         <SpawnErrorToastHost />
+        <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} />
         {/* First-launch chat-display preset picker. Opens once when the
             server reports `displayPrefs: undefined`. See change:
             configurable-chat-display. */}

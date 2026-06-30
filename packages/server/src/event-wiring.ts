@@ -153,6 +153,15 @@ export interface EventWiringDeps {
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginRawEvent?: (sessionId: string, event: unknown) => void;
+  /**
+   * Optional eager liveness stamping. When both provided, the wiring stamps
+   * `{ live:true, liveEpoch }` into a session's `.meta.json` once per
+   * activation (first live activity event under the current epoch), via the
+   * eager (non-debounced) write path, so an unclean host shutdown leaves a
+   * recoverable marker on disk. See change: reopen-sessions-after-shutdown.
+   */
+  metaPersistence?: import("./meta-persistence.js").MetaPersistence;
+  liveEpoch?: number;
 }
 
 /**
@@ -184,7 +193,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingClientCorrelations,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
+    metaPersistence,
+    liveEpoch,
   } = deps;
+
+  // Once-per-activation guard for the eager liveness marker: maps sessionId
+  // → epoch already stamped. Prevents a fresh atomic write on every event.
+  // See change: reopen-sessions-after-shutdown.
+  const stampedLiveEpoch = new Map<string, number>();
 
   /**
    * Deferred order-key re-resolution. A worktree session registers BEFORE
@@ -550,6 +566,16 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (!replayingSessions.has(sessionId) && isActivityEvent(msg.event.eventType)) {
         const now = Date.now();
         sessionManager.update(sessionId, { lastActivityAt: now });
+        // Stamp the eager liveness marker once per activation. Guarded so an
+        // unchanged `{ live:true, liveEpoch }` is not rewritten per event.
+        // See change: reopen-sessions-after-shutdown.
+        if (metaPersistence && liveEpoch !== undefined && stampedLiveEpoch.get(sessionId) !== liveEpoch) {
+          const sf = sessionManager.get(sessionId)?.sessionFile;
+          if (sf) {
+            metaPersistence.setLiveness(sf, { live: true, liveEpoch });
+            stampedLiveEpoch.set(sessionId, liveEpoch);
+          }
+        }
         const lastBroadcast = lastActivityBroadcastAt.get(sessionId) ?? 0;
         if (now - lastBroadcast >= LAST_ACTIVITY_BROADCAST_INTERVAL_MS) {
           lastActivityBroadcastAt.set(sessionId, now);

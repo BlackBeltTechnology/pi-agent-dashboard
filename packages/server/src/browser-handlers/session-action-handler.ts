@@ -527,7 +527,14 @@ export async function handleShutdown(
   msg: Extract<BrowserToServerMessage, { type: "shutdown" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { sessionManager, piGateway, headlessPidRegistry, broadcast } = ctx;
+  const { sessionManager, piGateway, headlessPidRegistry, broadcast, metaPersistence } = ctx;
+  // Durably clear the liveness marker with a manual reason so cold start does
+  // NOT treat this intentional close as an interrupted-session recovery
+  // candidate. See change: reopen-sessions-after-shutdown.
+  const shutdownFile = sessionManager.get(msg.sessionId)?.sessionFile;
+  if (shutdownFile && metaPersistence) {
+    metaPersistence.setLiveness(shutdownFile, { live: false, closedReason: "manual" });
+  }
   piGateway.sendToSession(msg.sessionId, { type: "shutdown", sessionId: msg.sessionId });
   // Escalates SIGTERM → 2 s → SIGKILL via shared killProcess ladder.
   // See change: fix-keeper-kill-escalation.
@@ -644,11 +651,18 @@ export async function handleForceKill(
   msg: Extract<BrowserToServerMessage, { type: "force_kill" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws } = ctx;
+  const { sessionManager, piGateway, headlessPidRegistry, broadcast, sendTo, ws, metaPersistence } = ctx;
   const session = sessionManager.get(msg.sessionId);
   if (!session) {
     sendTo(ws, { type: "force_kill_result", sessionId: msg.sessionId, success: false, message: "Session not found" });
     return;
+  }
+
+  // Force-kill is an intentional close: durably clear the liveness marker
+  // with a manual reason so cold start does not offer to reopen it.
+  // See change: reopen-sessions-after-shutdown.
+  if (session.sessionFile && metaPersistence) {
+    metaPersistence.setLiveness(session.sessionFile, { live: false, closedReason: "manual" });
   }
 
   // Force-close the bridge WebSocket regardless of PID availability

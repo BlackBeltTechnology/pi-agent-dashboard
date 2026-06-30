@@ -18,7 +18,7 @@ import {
   reconcilePluginBridgePackages,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { mergeSessionMeta, isRecoveryCandidate } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
@@ -31,6 +31,7 @@ import { registerCsp, resolveCspMode } from "./csp.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { detectCodeServerBinary } from "./editor-detection.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createEditorManager, type EditorManager } from "./editor-manager.js";
 import { createEditorPidRegistry } from "./editor-pid-registry.js";
 import { handleEditorUpgrade, registerEditorProxy } from "./editor-proxy.js";
@@ -254,6 +255,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   const sessionManager = createMemorySessionManager();
   const metaPersistence = createMetaPersistence();
+  // Stable per-boot id stamped into the liveness marker so cold start can
+  // attribute a `live:true` sidecar to a specific server run. A new value
+  // each createServer() call is sufficient — the classifier only needs
+  // `live===true && closedReason!=="manual"`; the epoch is diagnostic and
+  // guards the once-per-activation rewrite. Sidecars lacking `liveEpoch`
+  // (pre-feature or fallback) still classify on `live` alone (task 4.1).
+  // See change: reopen-sessions-after-shutdown.
+  const liveEpoch = Date.now();
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
   const pendingForkRegistry = createPendingForkRegistry();
   // Maps spawnToken → originating browser requestId. Surfaced as
@@ -268,9 +277,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanResult = scanAllSessions();
+  // Interrupted-session recovery candidates discovered on cold start. A
+  // candidate (`live===true && closedReason!=="manual"`) was running when the
+  // host died. Candidates are EXEMPT from the force-`ended` normalization
+  // below so the interrupted state survives long enough to offer a reopen.
+  // See change: reopen-sessions-after-shutdown.
+  const recoveryCandidates: DashboardSession[] = [];
   for (const session of scanResult.sessions) {
     const restored = { ...session, dataUnavailable: true };
-    if (restored.status !== "ended") {
+    const candidate = isRecoveryCandidate({
+      live: session.live,
+      closedReason: session.closedReason,
+    });
+    if (candidate) {
+      restored.recoveryCandidate = true;
+      recoveryCandidates.push(restored);
+    } else if (restored.status !== "ended") {
+      // Non-candidate normalization unchanged: force any non-`ended`
+      // restored status to `ended`.
       restored.status = "ended";
       restored.endedAt = restored.endedAt ?? Date.now();
     }
@@ -667,6 +691,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   try { pkgVersion = __require("../package.json").version ?? "unknown"; } catch {}
   const selfHostname = os.hostname();
 
+  // Pending cold-start recovery offer (ask mode). Held so it replays to every
+  // client that connects after start() broadcast it once — broadcastToAll at
+  // cold start reaches nobody (clients attach later). Cleared is not required
+  // server-side; clients dedupe/dismiss locally ("once per dirty boot").
+  // See change: reopen-sessions-after-shutdown.
+  let pendingRecoveryOffer: import("@blackbelt-technology/pi-dashboard-shared/browser-protocol.js").RecoveryOfferMessage | null = null;
+
   // Send this server + discovered peers to new browser connections
   browserGateway.onConnect = (ws) => {
     const selfServer: DiscoveredServer = {
@@ -680,6 +711,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     };
     const all = [selfServer, ...Array.from(peerServers.values())];
     browserGateway.sendToClient(ws, { type: "servers_discovered", servers: all });
+    if (pendingRecoveryOffer) browserGateway.sendToClient(ws, pendingRecoveryOffer);
   };
 
   // Plugin pi-message dispatch registry + raw-event subscribers.
@@ -828,6 +860,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingClientCorrelations,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
+    metaPersistence,
+    liveEpoch,
   });
 
   // Auto-shutdown idle timer
@@ -1877,6 +1911,58 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       idleTimer.start();
+
+      // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
+      //   off  → classify but take no action
+      //   ask  → broadcast one recovery offer to all connected clients
+      //   auto → resume every candidate via the existing resume flow
+      // Concurrent acceptances are deduped by `pendingResumeIntents`
+      // (last-write-wins) so a session spawns at most once.
+      // See change: reopen-sessions-after-shutdown.
+      if (recoveryCandidates.length > 0) {
+        const mode = loadConfig().reopenSessionsAfterShutdown;
+        if (mode === "ask") {
+          pendingRecoveryOffer = {
+            type: "recovery_offer",
+            candidates: recoveryCandidates.map((s) => ({
+              sessionId: s.id,
+              name: s.name,
+              cwd: s.cwd,
+              model: s.model,
+              liveEpoch: s.liveEpoch,
+            })),
+          };
+          // Reaches any already-connected clients; onConnect replays to the rest.
+          browserGateway.broadcastToAll(pendingRecoveryOffer);
+        } else if (mode === "auto") {
+          const resumeConfig = loadConfig();
+          for (const cand of recoveryCandidates) {
+            if (!cand.sessionFile) continue;
+            // Tag the resume intent so the ended→alive reattach branch keeps
+            // the slot; dedupes concurrent acceptances. Mirrors the core of
+            // handleResumeSession (no ws at cold start).
+            pendingResumeIntents.record(cand.id, "keep");
+            const result = await spawnPiSession(cand.cwd, {
+              sessionFile: cand.sessionFile,
+              mode: "continue",
+              strategy: resumeConfig.spawnStrategy,
+            });
+            if (result.process && result.pid) {
+              browserGateway.headlessPidRegistry.register(
+                result.pid,
+                cand.cwd,
+                result.process,
+                result.spawnToken,
+                keeperOptsFromSpawnResult(result),
+              );
+            }
+            if (result.dashboardSpawned && result.success) {
+              pendingDashboardSpawns.set(cand.cwd, (pendingDashboardSpawns.get(cand.cwd) ?? 0) + 1);
+            }
+          }
+        }
+        // mode === "off": no-op.
+      }
     },
 
     async stop() {
@@ -1895,6 +1981,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       idleTimer.cancel();
       directoryService.stopPolling();
       browserGateway.shutdownHeadlessProcesses();
+      // Clean teardown (idle timer / app quit) is intentional: clear the
+      // liveness marker for every still-running session so cold start does
+      // NOT classify them as interrupted recovery candidates. No
+      // `closedReason` — this is a clean stop, not a manual close.
+      // See change: reopen-sessions-after-shutdown.
+      for (const s of sessionManager.listActive()) {
+        if (s.sessionFile) metaPersistence.setLiveness(s.sessionFile, { live: false });
+      }
       metaPersistence.flushAll();
       metaPersistence.dispose();
       pendingForkRegistry.dispose();

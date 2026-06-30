@@ -32,6 +32,16 @@ describe("loadConfig", () => {
     expect(config.shutdownIdleSeconds).toBe(300);
   });
 
+  it("reopenSessionsAfterShutdown defaults to ask and round-trips valid values; invalid → ask", () => {
+    expect(loadConfig().reopenSessionsAfterShutdown).toBe("ask");
+    fs.writeFileSync(configFile, JSON.stringify({ reopenSessionsAfterShutdown: "auto" }));
+    expect(loadConfig().reopenSessionsAfterShutdown).toBe("auto");
+    fs.writeFileSync(configFile, JSON.stringify({ reopenSessionsAfterShutdown: "off" }));
+    expect(loadConfig().reopenSessionsAfterShutdown).toBe("off");
+    fs.writeFileSync(configFile, JSON.stringify({ reopenSessionsAfterShutdown: "bogus" }));
+    expect(loadConfig().reopenSessionsAfterShutdown).toBe("ask");
+  });
+
   it("should default bindHost to 127.0.0.1 when absent and preserve an explicit value", () => {
     const defaultConfig = loadConfig();
     expect(defaultConfig.bindHost).toBe("127.0.0.1");

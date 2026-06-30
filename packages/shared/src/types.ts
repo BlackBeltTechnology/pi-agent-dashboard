@@ -144,6 +144,18 @@ export interface DashboardSession {
   hidden?: boolean;
   firstMessage?: string;
   dataUnavailable?: boolean;
+  /**
+   * Liveness marker fields mirrored from `.meta.json` at scan time so
+   * cold-start restore can classify interrupted-session recovery candidates
+   * (`live===true && closedReason!=="manual"`). Server-internal; not part of
+   * the steady-state wire contract. See change: reopen-sessions-after-shutdown.
+   */
+  live?: boolean;
+  liveEpoch?: number;
+  closedReason?: string;
+  /** Set at cold-start restore when the scanned session is a recovery
+   *  candidate. See change: reopen-sessions-after-shutdown. */
+  recoveryCandidate?: boolean;
   resuming?: boolean;
   /**
    * Client-side transient: set optimistically when the user triggers

@@ -105,8 +105,34 @@ export interface SessionMeta {
    */
   goalId?: string;
 
+  /**
+   * Liveness marker — stamped eagerly (atomic, NOT debounced) while a
+   * session runs. `live: true` + `liveEpoch` (server boot id) persist on
+   * disk before an unclean host shutdown so cold start can tell an
+   * interrupted session from an intentionally-closed one. A clean close
+   * sets `live: false`; manual close / force-kill also set
+   * `closedReason: "manual"`. Absent on pre-feature sidecars (treated as
+   * not-live, not a recovery candidate).
+   * See change: reopen-sessions-after-shutdown.
+   */
+  live?: boolean;
+  liveEpoch?: number;
+  closedReason?: string;
+
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;
+}
+
+/**
+ * Classify a session as an interrupted-session recovery candidate from its
+ * liveness marker: a sidecar still carrying `live === true` and NOT carrying
+ * `closedReason === "manual"` was running when the host died (a clean exit
+ * clears `live`; a manual close stamps the reason). Pre-feature sidecars
+ * (no `live`) are never candidates. Reads ONLY per-session meta — never the
+ * home-lock. See change: reopen-sessions-after-shutdown.
+ */
+export function isRecoveryCandidate(meta: SessionMeta | undefined): boolean {
+  return meta?.live === true && meta.closedReason !== "manual";
 }
 
 /**

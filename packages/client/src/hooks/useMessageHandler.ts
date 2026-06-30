@@ -2,7 +2,7 @@
  * Hook that handles ServerToBrowserMessage dispatch.
  * Extracted from App.tsx — maps each message type to the correct state setter.
  */
-
+import { setRecoveryOffer, clearRecoveryOffer } from "../lib/recovery-offer-bus.js";
 import type {
   PreflightReason,
   ServerToBrowserMessage,
@@ -563,7 +563,15 @@ export function useMessageHandler(
         break;
       }
 
+      case "recovery_offer":
+        // Cold-start interrupted-session offer. Sticky top-right notification
+        // (no auto-timeout). See change: reopen-sessions-after-shutdown.
+        setRecoveryOffer(msg.candidates);
+        break;
+
       case "resume_result":
+        // Resuming any session retires the recovery offer (no nag).
+        if (msg.success) clearRecoveryOffer();
         if (!msg.success) {
           console.warn("[dashboard] Resume/fork failed:", msg.message);
           setSessions((prev) => {

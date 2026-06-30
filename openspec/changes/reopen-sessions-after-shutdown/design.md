@@ -60,6 +60,17 @@ A crash cannot lie (it leaves the stale `live:true`); a clean exit can truthfull
 
 No device identity exists; the server is the single source of truth (one server per HOME). The "these N sessions are recoverable" decision is made once, at server cold start. The prompt is broadcast to all attached clients. Concurrent "reopen all" from two devices is deduped by the existing `pendingResumeIntents` (last-write-wins, claim 1) — no double-spawn, no new identity machinery.
 
+### D4a — Prompt presentation: sticky top-right notification, not a modal
+
+The `ask`-mode offer reuses the dashboard's existing top-right notification stack (`Toast.tsx` / `SpawnErrorToastHost`: `fixed top-4 right-4 gap-2`) rather than introducing a new surface. It queues with other notifications (grouped, spaced) and stays non-blocking. Two deltas from an ordinary toast:
+- **Sticky**: no auto-timeout (ordinary toasts self-dismiss ~3s). A recovery offer must not silently vanish.
+- **Inline action**: one primary "Reopen" action + non-destructive dismiss.
+The card is calm/neutral with a small amber attention dot — an interrupted session is recoverable, not an error (no red). Copy is minimal ("Reopen N sessions?"). REJECTED: center modal + scrim (blocks the dashboard; disappears-on-resume feels like data loss) and full-width edge banner (too heavy for a recoverable, dismissible offer). Mock: `mocks/recovery-prompt.html`.
+
+### D4b — Auto-dismiss on resume; once per dirty boot
+
+If the user opens/resumes ANY session before acting on the offer, the offer has served its purpose → the client dismisses it silently (no nag). The offer is shown once per dirty boot; an explicit dismiss or a resume does not bring it back until the next unclean shutdown.
+
 ### D5 — The setting gates only the final step
 
 `reopenSessionsAfterShutdown: "off" | "ask" | "auto"`, default `"ask"`.

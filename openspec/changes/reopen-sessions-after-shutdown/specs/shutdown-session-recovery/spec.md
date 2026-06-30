@@ -103,6 +103,35 @@ On cold start with at least one recovery candidate, the server's behavior SHALL 
 - **WHEN** classification completes (in any setting mode)
 - **THEN** the server SHALL NOT broadcast a recovery offer
 
+### Requirement: Ask-mode prompt SHALL surface as a sticky top-right notification
+
+In `ask` mode the client SHALL render the recovery offer as a notification in the existing top-right notification stack (shared with dashboard toasts), NOT as a blocking modal or a full-width banner. The notification SHALL be sticky — it SHALL NOT auto-dismiss on a timer the way ordinary toasts do. It SHALL offer a single primary action to reopen the candidates and a non-destructive dismiss. Dismissing SHALL NOT delete or alter the sessions on disk.
+
+#### Scenario: Offer renders in the top-right notification stack
+
+- **GIVEN** an `ask`-mode recovery offer is received by a client
+- **WHEN** the client renders it
+- **THEN** it SHALL appear in the top-right notification stack alongside any other notifications
+- **AND** SHALL NOT block interaction with the dashboard beneath it
+
+#### Scenario: Offer does not auto-time-out
+
+- **GIVEN** a rendered recovery offer notification
+- **WHEN** time passes with no user action
+- **THEN** the notification SHALL remain visible (no auto-dismiss timer)
+
+#### Scenario: Resuming any session clears the offer
+
+- **GIVEN** a rendered recovery offer notification that the user has not acted on
+- **WHEN** the user opens or resumes any session
+- **THEN** the client SHALL dismiss the recovery offer notification
+
+#### Scenario: Offer shown once per dirty boot
+
+- **GIVEN** a recovery offer was dismissed (explicitly or by resuming a session)
+- **WHEN** no new unclean shutdown has occurred since
+- **THEN** the client SHALL NOT re-show the offer
+
 ### Requirement: Reopen SHALL reuse the existing resume flow and dedupe across devices
 
 Reopening a recovery candidate SHALL use the existing `resume_session` flow. Concurrent reopen requests for the same session from multiple connected devices SHALL be deduplicated by the existing `pendingResumeIntents` registry such that the session is spawned at most once.
