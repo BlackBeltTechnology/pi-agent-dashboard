@@ -588,6 +588,47 @@ describe("PathPicker", () => {
     expect(getInput().value).toBe("/Users/robson/");
   });
 
+  // ── change: distinguish-offline-from-network-denied ──────────────────────
+
+  it("renders the remedy hint (not a bare error) on a 403 network_not_allowed browse denial", async () => {
+    const denial = Object.assign(new Error("network_not_allowed"), {
+      code: "network_not_allowed",
+      hint: "Add this network to trustedNetworks (Settings → Servers) or sign in.",
+    });
+    mockBrowse.mockRejectedValue(denial);
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Network not allowed/i)).toBeTruthy();
+      expect(screen.getByText(/trustedNetworks/i)).toBeTruthy();
+    });
+  });
+
+  it("offers a Settings → Servers affordance on a network_not_allowed denial", async () => {
+    const onOpenServers = vi.fn();
+    const denial = Object.assign(new Error("network_not_allowed"), {
+      code: "network_not_allowed",
+      hint: "remedy text",
+    });
+    mockBrowse.mockRejectedValue(denial);
+
+    renderPicker({ onOpenServers });
+
+    const btn = await screen.findByRole("button", { name: /servers/i });
+    fireEvent.click(btn);
+    expect(onOpenServers).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders existing error copy for a non-denial browse failure", async () => {
+    mockBrowse.mockRejectedValue(new Error("ENOENT: no such directory"));
+
+    renderPicker();
+
+    await waitFor(() => expect(screen.getByText(/no such directory/i)).toBeTruthy());
+    expect(screen.queryByText(/Network not allowed/i)).toBeNull();
+  });
+
   // ── change: split-browse-flags ──────────────────────────────────────────
 
   it("renders git/pi badges after the lazy classifyPaths phase resolves", async () => {

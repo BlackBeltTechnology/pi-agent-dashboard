@@ -16,6 +16,8 @@ dist/
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
+# Hand-authored Vite ambient types (?worker / ?url) — not a build artifact.
+!packages/client/src/vite-env.d.ts
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/git

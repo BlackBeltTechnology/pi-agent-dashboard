@@ -69,7 +69,16 @@ export function createNetworkGuard(trustedNetworks: string[]) {
     if (isLoopback(request.ip)) return;
     if (trustedNetworks.length > 0 && isBypassedHost(request.ip, trustedNetworks)) return;
     if ((request as any).isAuthenticated) return;
-    reply.code(403).send({ success: false, error: "Access denied" });
+    // Self-describing denial so clients can branch on policy-denial vs
+    // transport failure. `error` is the stable machine-readable literal;
+    // `reason`/`hint` are human copy. See change:
+    // distinguish-offline-from-network-denied.
+    reply.code(403).send({
+      success: false,
+      error: "network_not_allowed",
+      reason: "Source IP not loopback, not in trustedNetworks, and request not authenticated.",
+      hint: "Add this network to trustedNetworks (Settings → Servers) or sign in.",
+    });
   };
 }
 

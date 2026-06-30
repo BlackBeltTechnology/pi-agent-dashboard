@@ -6,6 +6,7 @@ import {
   buildPiResourcesUrl,
   buildPiResourceFileUrl,
   buildSessionDiffUrl,
+  buildEditorUrl,
 } from "../route-builders.js";
 import { decodeFolderPath, encodeFolderPath } from "../folder-encoding.js";
 
@@ -59,6 +60,16 @@ describe("route-builders", () => {
       // Raw URL must not contain the literal special chars
       expect(url).not.toContain("?d&e");
       expect(url).not.toContain("#f");
+    });
+  });
+
+  describe("buildEditorUrl", () => {
+    it("builds an editor route with the file query", () => {
+      expect(buildEditorUrl("abc-123", "src/foo.ts")).toBe("/session/abc-123/editor?file=src%2Ffoo.ts");
+    });
+    it("includes line when positive, omits otherwise", () => {
+      expect(buildEditorUrl("s1", "a.ts", 42)).toBe("/session/s1/editor?file=a.ts&line=42");
+      expect(buildEditorUrl("s1", "a.ts", 0)).toBe("/session/s1/editor?file=a.ts");
     });
   });
 

@@ -19,6 +19,7 @@ function makeDeps(overrides: Partial<GitPollDeps> = {}): GitPollDeps {
     sendCwdMissingIfChanged: vi.fn(),
     sendSessionNameIfChanged: vi.fn(),
     sendModelUpdateIfChanged: vi.fn(),
+    sendPiVersionIfChanged: vi.fn(),
     ...overrides,
   };
 }
@@ -31,6 +32,7 @@ describe("runGitPollTick", () => {
     expect(deps.sendCwdMissingIfChanged).toHaveBeenCalledWith("/repo");
     expect(deps.sendSessionNameIfChanged).toHaveBeenCalledTimes(1);
     expect(deps.sendModelUpdateIfChanged).toHaveBeenCalledTimes(1);
+    expect(deps.sendPiVersionIfChanged).toHaveBeenCalledTimes(1);
   });
 
   it("name + model checks fire even when cwd is absent (stale-ctx swap)", () => {

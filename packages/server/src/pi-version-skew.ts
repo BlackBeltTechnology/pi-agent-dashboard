@@ -83,6 +83,8 @@ export interface BootstrapCompatibility {
   upgradeRecommended?: boolean;
   /** Set when `current > maximum`. */
   upgradeDashboard?: boolean;
+  /** Set when `current < minimum`; names both the running and required versions. */
+  error?: string;
 }
 
 /**
@@ -176,10 +178,11 @@ export function computeCompatibility(
   const out: BootstrapCompatibility = { ...range, current };
   if (!current) return out;
   if (isBelow(current, range.minimum)) {
-    // Minimum-violated is signalled by leaving `upgradeRecommended` true
-    // AND letting callers populate `bootstrapState.error` with the
-    // block-ops message.
+    // Below minimum: hard advisory. Signal via both `upgradeRecommended`
+    // (soft flag, kept for back-compat) and a populated `error` string
+    // naming both versions, which drives the red advisory state.
     out.upgradeRecommended = true;
+    out.error = `pi ${current} is below the minimum supported version ${range.minimum}; upgrade pi to at least ${range.minimum}.`;
     return out;
   }
   if (isBelow(current, range.recommended)) {

@@ -70,6 +70,12 @@ export interface DashboardSession {
   gitPrNumber?: number;
   gitPrUrl?: string;
   /**
+   * pi-coding-agent version the session is actually running, reported by the
+   * bridge from inside pi's own process. Absent on older bridges and until the
+   * first report. See change: restore-pi-version-skew-surface.
+   */
+  piVersion?: string;
+  /**
    * Per-session git-worktree identity. Set only when the session's cwd
    * is a git worktree (not the main checkout). See `GitWorktreeInfo`.
    * Absent on older bridges and for plain checkouts. Clients should read
