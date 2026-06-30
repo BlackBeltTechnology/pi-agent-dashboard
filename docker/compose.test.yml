@@ -17,6 +17,12 @@
 
 services:
   pi-dashboard:
+    # Per-worktree image tag so two worktrees never share/clobber a baked image
+    # (the dashboard server+client run from BAKED source, not the overlay). The
+    # managed e2e path passes --build; teardown removes the tag. Falls back to
+    # :local for the manual base flow. See change fix-parallel-e2e-docker-collisions.
+    image: "pi-dashboard:${TEST_IMAGE_TAG:-local}"
+
     # No restart — a QA instance should die when stopped, not respawn.
     restart: "no"
 

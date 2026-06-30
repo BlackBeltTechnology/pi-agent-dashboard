@@ -4,10 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import {
-  DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
-  PI_GATEWAY_PORT,
+  resolvePortsFromStateFile,
   TEST_UP,
   USE_RUNNING,
   waitForHealth,
@@ -66,20 +65,23 @@ export default async function globalSetup(): Promise<void> {
   // the in-container browser reach guarded endpoints like directory listing).
   // Without it, scenario specs cannot pin a folder or spawn a session. Blank
   // any host provider keys so they never leak into the disposable container.
-  // Override-as-a-pair: the container binds + listens on exactly the port
-  // Playwright probes (D1 override path), keeping baseURL in sync.
+  // Ports are NOT pre-pinned: test-up.sh hash-derives them in-window from the
+  // unique workspace path (change fix-parallel-e2e-docker-collisions D1); we
+  // read the chosen pair back from the state file below.
   const env = {
     ...process.env,
     PI_E2E_SEED: "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
-    DASHBOARD_PORT: String(DASHBOARD_PORT),
-    PI_GATEWAY_PORT: String(PI_GATEWAY_PORT),
   };
   let child;
   try {
-    child = spawn("bash", [TEST_UP, "-d"], {
+    // --build is MANDATORY for the managed path: the dashboard server+client run
+    // from BAKED image source under a per-worktree tag (D3). Without it a run
+    // silently tests whichever worktree built the tag first. BuildKit caches
+    // all but the COPY packages layer, so the rebuild stays cheap.
+    child = spawn("bash", [TEST_UP, "-d", "--build"], {
       cwd: workspace,
       detached: true,
       stdio: ["ignore", logFd, logFd],
@@ -93,11 +95,35 @@ export default async function globalSetup(): Promise<void> {
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.
   fs.writeFileSync(MARKER_PATH, JSON.stringify({ workspace, pid: child.pid, logPath }));
 
+  // test-up.sh writes .pi-test-harness.json into the workspace (HOST_CWD) BEFORE
+  // `docker compose up`, so it appears well before health. Poll for it, then
+  // propagate the chosen ports into PW_E2E_PORT/PW_GATEWAY_PORT so worker
+  // processes (spawned after this) inherit the container port → baseURL in sync.
+  const stateDeadline = Date.now() + 60_000;
+  let ports: { dashboardPort: number; gatewayPort: number } | undefined;
+  while (Date.now() < stateDeadline) {
+    try {
+      ports = resolvePortsFromStateFile(workspace);
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  if (!ports) {
+    throw new Error(
+      `[${CHANGE}] test-up.sh never wrote a parseable ${workspace}/.pi-test-harness.json ` +
+        `within 60s. Check ${logPath} and docker/test-up.sh.`,
+    );
+  }
+  process.env.PW_E2E_PORT = String(ports.dashboardPort);
+  process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
+  const healthUrl = `http://localhost:${ports.dashboardPort}/api/health`;
+
   // First run builds the image (slow); warm runs are seconds.
-  const healthy = await waitForHealth(180_000);
+  const healthy = await waitForHealth(180_000, undefined, healthUrl);
   if (!healthy) {
     throw new Error(
-      `[${CHANGE}] container never became healthy at ${HEALTH_URL} within 180s. ` +
+      `[${CHANGE}] container never became healthy at ${healthUrl} within 180s. ` +
         `Check ${logPath} and docker/test-up.sh.`,
     );
   }
