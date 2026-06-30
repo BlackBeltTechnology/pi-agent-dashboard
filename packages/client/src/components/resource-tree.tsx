@@ -45,10 +45,11 @@ function ResourceItem({ resource, onView, depth = 0 }: { resource: PiResource; o
   );
 }
 
-function ResourceGroup({ label, resources, onView, depth = 1 }: { label: string; resources: PiResource[]; onView: (r: PiResource) => void; depth?: number }) {
+function ResourceGroup({ kind, label, resources, onView, depth = 1 }: { kind: PiResource["type"]; label: string; resources: PiResource[]; onView: (r: PiResource) => void; depth?: number }) {
   const [collapsed, setCollapsed] = useState(true);
   if (resources.length === 0) return null;
-  const icon = label === "Skills" ? mdiBookOpenPageVariant : label === "Extensions" ? mdiPuzzleOutline : mdiTextBoxOutline;
+  // Icon derives from the stable resource type, not the localized label.
+  const icon = kind === "skill" ? mdiBookOpenPageVariant : kind === "extension" ? mdiPuzzleOutline : mdiTextBoxOutline;
   return (
     <div className="mb-1">
       <button
@@ -107,9 +108,9 @@ function PackageItem({ pkg, onView }: { pkg: PiPackageInfo; onView: (r: PiResour
           )}
           {hasResources ? (
             <>
-              <ResourceGroup label={i18nT("auto.skills", undefined, "Skills")} resources={pkg.resources.skills} onView={onView} depth={2} />
-              <ResourceGroup label={i18nT("auto.extensions", undefined, "Extensions")} resources={pkg.resources.extensions} onView={onView} depth={2} />
-              <ResourceGroup label={i18nT("auto.prompts", undefined, "Prompts")} resources={pkg.resources.prompts} onView={onView} depth={2} />
+              <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={pkg.resources.skills} onView={onView} depth={2} />
+              <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={pkg.resources.extensions} onView={onView} depth={2} />
+              <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={pkg.resources.prompts} onView={onView} depth={2} />
             </>
           ) : (
             <p className="text-[10px] text-[var(--text-muted)] italic" style={{ paddingLeft: "40px" }}>{i18nT("auto.no_resources", undefined, "(no resources)")}</p>
@@ -164,9 +165,9 @@ export function MergedScopeSection({ title, scope, packages, onView }: {
           <>
             {hasLoose && (
               <>
-                <ResourceGroup label={i18nT("auto.skills", undefined, "Skills")} resources={scope.skills} onView={onView} depth={1} />
-                <ResourceGroup label={i18nT("auto.extensions", undefined, "Extensions")} resources={scope.extensions} onView={onView} depth={1} />
-                <ResourceGroup label={i18nT("auto.prompts", undefined, "Prompts")} resources={scope.prompts} onView={onView} depth={1} />
+                <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={scope.skills} onView={onView} depth={1} />
+                <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={scope.extensions} onView={onView} depth={1} />
+                <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={scope.prompts} onView={onView} depth={1} />
               </>
             )}
             {contributingPackages.map((pkg) => (
