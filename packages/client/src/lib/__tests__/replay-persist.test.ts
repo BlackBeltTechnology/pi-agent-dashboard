@@ -54,7 +54,7 @@ describe("replay-persist", () => {
     await p.flush("s1");
     expect(await cache.get("s1")).not.toBeNull();
 
-    p.drop("s1");
+    await p.drop("s1");
     // Buffer cleared: a later flush writes nothing back.
     await p.flush("s1");
     expect(await cache.get("s1")).toBeNull();

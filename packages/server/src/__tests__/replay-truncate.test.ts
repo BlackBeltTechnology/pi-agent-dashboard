@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import { truncateToolResultForReplay } from "../replay-truncate.js";
 
 const MARKER = "«";
@@ -26,6 +26,13 @@ describe("truncateToolResultForReplay (Strategy B, reconciled onto develop)", ()
     expect(typeof r).toBe("string");
     expect(r.startsWith(`${MARKER}100 earlier lines hidden»`)).toBe(true);
     expect(r).toContain("row-300");
+  });
+
+  it("truncates a > 200-line result that merely STARTS with « (not the full header)", () => {
+    const text = `« not a real marker\n${Array.from({ length: 400 }, (_, i) => `q${i}`).join("\n")}`;
+    const out = truncateToolResultForReplay(toolEnd(text));
+    const r = out.data.result as string;
+    expect(r.startsWith(`${MARKER}201 earlier lines hidden»`)).toBe(true);
   });
 
   it("leaves a <= 200-line result unchanged (inline)", () => {

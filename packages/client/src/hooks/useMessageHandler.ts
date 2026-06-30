@@ -281,7 +281,7 @@ export function useMessageHandler(
         // Strategy A invalidation: purge the durable cache so stale history is
         // never stitched onto reset sequence numbers; full replay rebuilds it.
         // See change: reduce-session-replay-traffic.
-        replayPersister?.drop(msg.sessionId);
+        void replayPersister?.drop(msg.sessionId);
         // Mirror the reset into the plugin-runtime per-session event
         // store so plugin reducers (e.g. flows-plugin) re-derive from
         // a clean stream after a replay. See change:

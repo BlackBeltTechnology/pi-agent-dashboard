@@ -700,9 +700,11 @@ export function truncateOutputForDisplay(
   const str = toDisplayString(text);
   // Idempotency: a result already in the display form (server pre-truncated it
   // on replay to trim bytes — see change: reduce-session-replay-traffic) starts
-  // with the marker. Re-truncating would corrupt the "N earlier lines hidden"
-  // count, so pass it through unchanged.
-  if (str.startsWith(TRUNCATION_MARKER_PREFIX)) return str;
+  // with the FULL marker header. Match the exact header (not just a leading «,
+  // which a raw tool result could legitimately start with) so we never skip
+  // truncating genuine output. Re-truncating the display form would corrupt the
+  // "N earlier lines hidden" count, so pass it through unchanged.
+  if (/^«\d+ earlier lines hidden»\n/.test(str)) return str;
   const lines = str.split("\n");
   if (lines.length <= maxLines) return str;
   const dropped = lines.length - maxLines;

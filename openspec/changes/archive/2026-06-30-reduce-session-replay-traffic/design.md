@@ -96,6 +96,20 @@ schema (stable). Leaning raw-events for resilience; confirm payload size and
 load-time reduce cost before committing. This decision gates the IndexedDB schema
 and the invalidation frequency, so resolve it first.
 
+> **SUPERSEDED (Strategy B reconciliation).** Develop shipped the same
+> user-facing "Show full output for large tool results" feature
+> (`adopt-pi-071-072-073-features`) while this change was in flight. Strategy B's
+> original stub mechanism (`{stub, byteSize, preview, entryId}` + JSONL
+> full-fidelity route keyed on id/toolCallId) was DROPPED. The shipped Strategy B
+> is a minimal server-side replay optimization: `replay-truncate.ts`
+> `truncateToolResultForReplay` pre-truncates heavy (>200-line) tool results to
+> develop's display form (`«N earlier lines hidden»` + last 200 lines) during
+> replay to trim replay bytes, reusing develop's client render + `toolCallId`
+> route + a 1-line `truncateOutputForDisplay` idempotency guard. The decisions
+> and findings below (stub threshold, byteSize, entryId plumbing) are retained
+> as HISTORICAL design context only — see the reconciled
+> `specs/lazy-expand-full-fidelity/spec.md` for the shipped contract.
+
 ## Resolved decisions (Phase 1)
 
 ### 1.1 Persist raw events, re-reduce on load

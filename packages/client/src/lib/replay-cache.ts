@@ -139,16 +139,22 @@ export function createReplayCache(opts: ReplayCacheOptions = {}): ReplayCache {
         return null;
       }
       // Touch last-access for LRU ordering.
-      await touch(entry);
+      await touch(sessionId);
       return entry;
     }, null);
   }
 
-  async function touch(entry: ReplayCacheEntry): Promise<void> {
+  // Read-modify-write the lastAccess stamp in ONE transaction so a concurrent
+  // put()/flush that landed between get()'s read and this write is not rolled
+  // back to a stale payload/maxSeq snapshot. Only bumps lastAccess; never
+  // resurrects a deleted entry.
+  async function touch(sessionId: string): Promise<void> {
     await safe(async () => {
       const db = await openDb();
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put({ ...entry, lastAccess: nextStamp() });
+      const store = tx.objectStore(STORE);
+      const current = (await promisify(store.get(sessionId))) as ReplayCacheEntry | undefined;
+      if (current) store.put({ ...current, lastAccess: nextStamp() });
       await txDone(tx);
     }, undefined);
   }

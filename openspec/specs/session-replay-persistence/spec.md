@@ -1,14 +1,18 @@
 # session-replay-persistence Specification
 
 ## Purpose
-TBD - created by archiving change reduce-session-replay-traffic. Update Purpose after archive.
+Persist a per-session replay cursor + raw event tail to IndexedDB so a page
+reload of an already-seen session triggers a delta replay (tail only) instead of
+a full replay. The cache is an optimization only — any miss, reset, or version
+mismatch degrades safely to full replay.
 ## Requirements
 ### Requirement: Durable replay cursor survives page reload
 
-The client SHALL persist a per-session replay cursor and reduced chat state to
-IndexedDB, and SHALL rehydrate it on page load so an already-seen session
-resubscribes with a non-zero `lastSeq`, triggering a delta replay rather than a
-full replay.
+The client SHALL persist a per-session replay cursor (`maxSeq`) and the RAW event
+tail (`{ seq, event }[]`, NOT a reduced chat-message snapshot) to IndexedDB, and
+SHALL rehydrate on page load by re-reducing those raw events so an already-seen
+session resubscribes with a non-zero `lastSeq`, triggering a delta replay rather
+than a full replay.
 
 #### Scenario: Reload of a seen session delta-replays
 

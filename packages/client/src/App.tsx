@@ -525,6 +525,12 @@ export default function App() {
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
           subscribedRef.current.clear();
+          // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
+          // guards too. Otherwise switching back to a server that still has the
+          // same sessionId skips rehydration (rehydratedRef hit) and resubscribes
+          // with a stale maxSeq against the now-empty sessionStates map.
+          maxSeqMapRef.current.clear();
+          rehydratedRef.current.clear();
         },
         setWsUrl,
         persistLastServer: (h, p) => {

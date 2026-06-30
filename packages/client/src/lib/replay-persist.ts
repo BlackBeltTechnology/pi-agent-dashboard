@@ -19,8 +19,9 @@ export interface ReplayPersister {
   record(sessionId: string, events: CachedEvent[]): void;
   /** Replace the buffer wholesale (rehydrate seeding / replay reset). */
   seed(sessionId: string, events: CachedEvent[]): void;
-  /** Clear buffer + delete the persisted entry (invalidation). */
-  drop(sessionId: string): void;
+  /** Clear buffer + delete the persisted entry (invalidation). Awaitable so a
+   *  fast reload/close after session_state_reset can't race a surviving entry. */
+  drop(sessionId: string): Promise<void>;
   /** Force an immediate flush (tests / unmount). */
   flush(sessionId: string): Promise<void>;
 }
@@ -80,14 +81,14 @@ export function createReplayPersister(
     schedule(sessionId);
   }
 
-  function drop(sessionId: string): void {
+  async function drop(sessionId: string): Promise<void> {
     const t = timers.get(sessionId);
     if (t) {
       clearTimeout(t);
       timers.delete(sessionId);
     }
     buffers.delete(sessionId);
-    void cache.delete(sessionId);
+    await cache.delete(sessionId);
   }
 
   return { record, seed, drop, flush };

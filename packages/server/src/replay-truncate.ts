@@ -22,8 +22,10 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-const TRUNCATION_MARKER_PREFIX = "«";
 const MAX_DISPLAY_LINES = 200;
+/** Exact display-form header, so a raw result merely starting with « is not
+ *  mistaken for already-truncated (which would ship the full body). */
+const TRUNCATION_HEADER_RE = /^«\d+ earlier lines hidden»\n/;
 
 function extractContentBlockText(blocks: unknown[]): string | null {
   const texts = blocks
@@ -62,10 +64,10 @@ export function truncateToolResultForReplay(event: DashboardEvent): DashboardEve
   const data = event.data as Record<string, unknown> | undefined;
   if (!data || typeof data !== "object") return event;
   const str = toDisplayString(data.result);
-  if (str.startsWith(TRUNCATION_MARKER_PREFIX)) return event; // already display form
+  if (TRUNCATION_HEADER_RE.test(str)) return event; // already display form
   const lines = str.split("\n");
   if (lines.length <= MAX_DISPLAY_LINES) return event; // small → leave inline
   const dropped = lines.length - MAX_DISPLAY_LINES;
-  const truncated = `${TRUNCATION_MARKER_PREFIX}${dropped} earlier lines hidden»\n${lines.slice(-MAX_DISPLAY_LINES).join("\n")}`;
+  const truncated = `«${dropped} earlier lines hidden»\n${lines.slice(-MAX_DISPLAY_LINES).join("\n")}`;
   return { ...event, data: { ...data, result: truncated } };
 }
