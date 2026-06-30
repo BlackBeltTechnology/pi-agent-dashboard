@@ -55,6 +55,22 @@ describe("CommandHandler", () => {
     expect(pi.sendUserMessage).toHaveBeenCalledWith("Hello agent", { deliverAs: "followUp" });
   });
 
+  // Non-turn commands never produce a user message_start, so the bridge settles
+  // any optimistic idle pendingPrompt with `prompt_received {fresh:false}` (drop)
+  // instead of letting it hang to the 30s timeout.
+  // See change: optimistic-prompt-progress (CodeRabbit follow-up).
+  it("emits prompt_received{fresh:false} for a non-turn command (bash)", async () => {
+    const pi = createMockPi();
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+    await handler.handle({ type: "send_prompt", sessionId: "s1", text: "!ls" } as ServerToExtensionMessage);
+
+    expect(eventSink).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "prompt_received", sessionId: "s1", fresh: false }),
+    );
+  });
+
   it("should ignore messages for different sessionIds", async () => {
     const pi = createMockPi();
     const handler = createCommandHandler(pi as any, "s1");

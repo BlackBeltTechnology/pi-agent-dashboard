@@ -3,7 +3,7 @@
 ## 1. Investigate the bridge ack feasibility (resolves design open questions)
 - [x] 1.1 Read `packages/extension/src/bridge.ts` `send_prompt` handling + the capture-before-send streaming gate; confirm where the idle/streaming verdict is known. → verify: cite the line that snapshots `isAgentStreaming` before `pi.sendUserMessage`. (bridge.ts:1156 `const wasStreaming = getBridgeState().isAgentStreaming;`; command-handler.ts:518 `const wasStreaming = options?.isStreaming?.() ?? false;`)
 - [x] 1.2 Decide: emit a new `prompt_received { fresh: boolean }` ack, or reuse an existing signal. → verify: documented in `design.md` open-question 1 resolution. (New `prompt_received` ack chosen.)
-- [x] 1.3 If new message needed, add `prompt_received` to `src/shared/browser-protocol.ts` (bridge→server→browser) + server pass-through in `browser-gateway.ts`. → verify: `npm test` type-checks; protocol union compiles. (Added `PromptReceivedToServerMessage` in protocol.ts + `PromptReceivedToBrowserMessage` in browser-protocol.ts; server pass-through in event-wiring.ts via `sendToSubscribers`.)
+- [x] 1.3 If new message needed, add `prompt_received` to `packages/shared/src/browser-protocol.ts` (bridge→server→browser) + server pass-through in `packages/server/src/event-wiring.ts`. → verify: `npm test` type-checks; protocol union compiles. (Added `PromptReceivedToServerMessage` in protocol.ts + `PromptReceivedToBrowserMessage` in browser-protocol.ts; server pass-through in event-wiring.ts via `sendToSubscribers`.)
 
 ## 2. Extend `PendingPrompt` type + reducer
 - [x] 2.1 Add `status: "sending" | "sent"` to `PendingPrompt` (`packages/client/src/lib/event-reducer.ts:115`). → verify: `tsc` passes.

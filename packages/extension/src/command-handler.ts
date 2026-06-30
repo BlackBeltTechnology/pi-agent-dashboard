@@ -352,6 +352,16 @@ export function createCommandHandler(
         case "send_prompt": {
           const parsed = parseSendPrompt(msg.text);
 
+          // Non-turn commands (bash/compact/shutdown/reload/new/model/mgmt)
+          // return early below and never produce a user `message_start`, so an
+          // optimistic idle `pendingPrompt` bubble would hang until the 30s
+          // safety timeout. Settle it immediately (fresh:false → drop). The
+          // passthrough + slash paths emit their own `prompt_received` with the
+          // real streaming verdict. See change: optimistic-prompt-progress.
+          if (parsed.type !== "passthrough" && parsed.type !== "slash") {
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
+          }
+
           // Route based on parsed command type
           if (parsed.type === "bash") {
             await handleBashCommand(pi, sessionId, parsed.command, parsed.excludeFromContext, options?.eventSink);
