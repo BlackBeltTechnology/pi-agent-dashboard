@@ -154,7 +154,31 @@ const viewerRegistry: Record<ViewerKind, React.ComponentType<ViewerProps>> = {
 
 **Trade-off:** Slightly more indirection than a `switch (kind)`. Worth it for the seam — registries are the explicit extension point if v5+ wants plugin-contributed viewers.
 
-### 7. Pane mount in App.tsx, not inside SessionCard
+### 7. Full theme inheritance via a theme derived from dashboard tokens
+
+**Decision:** The Monaco pane inherits the dashboard's active named theme (`base / dracula / nord / github / catppuccin / tokyo-night / rose-pine / solarized / gruvbox`) AND light/dark mode — not just built-in `vs` / `vs-dark`. v1 derives a Monaco `IStandaloneThemeData` at runtime from the active theme's CSS-variable token map and registers it via `monaco.editor.defineTheme()` + `setTheme()`.
+
+New helper `packages/client/src/lib/monaco-theme.ts` exporting `buildMonacoTheme(themeName: string, resolved: "light" | "dark"): { name: string; data: IStandaloneThemeData }`. It reads the same `getTheme(themeName)` token map the rest of the client consults (`packages/client/src/lib/themes.ts`) and maps:
+
+- **Editor UI colors** (`colors` field) from the dashboard tokens — `editor.background` ← `--bg-code`, `editor.foreground` ← `--text-primary`, `editorLineNumber.foreground` ← `--text-muted`, `editorLineNumber.activeForeground` ← `--text-secondary`, `editor.selectionBackground` ← `--bg-selected`, `editor.lineHighlightBackground` ← `--bg-hover`, `editorCursor.foreground` ← `--text-primary`, `editorIndentGuide.background` ← `--border-subtle`, gutter/widget/scrollbar surfaces ← `--bg-secondary` / `--bg-surface` / `--border-primary`.
+- **Token (syntax) rules** (`rules` field) from the accent palette — `keyword` ← `--accent-purple`, `string` ← `--accent-green`, `number` ← `--accent-orange`, `comment` ← `--text-tertiary` (italic), `type` ← `--accent-blue`, `function` ← `--accent-blue`, `variable` ← `--text-primary`, `constant` ← `--accent-orange`, `regexp` ← `--accent-red`, `delimiter`/`operator` ← `--text-secondary`. The same accent-to-role mapping the prism layer already uses, so Monaco and the chat code blocks read as one palette.
+- **Base** = `vs-dark` when `resolved === "dark"`, else `vs`, so any unmapped Monaco scope falls back to a sane default of the right polarity.
+
+Resolution requires concrete hex/rgb values, not `var(--token)` indirection (Monaco renders to canvas, cannot read CSS vars). `base` theme tokens are not in the inline-override map (`applyThemeVars` strips them so CSS `:root` drives the page) — so `monaco-theme.ts` reads from the `THEMES` registry's `base` entry directly, which holds the concrete `:root` values, rather than from computed styles.
+
+`MonacoBuffer` consumes `useTheme()` (`{ resolved, themeName }`); a `useEffect` keyed on both re-runs `defineTheme` + `setTheme` whenever the user switches theme or mode, so an open pane recolors live alongside the rest of the dashboard. Theme name is stable (`pi-monaco-<themeName>-<resolved>`) so repeated `defineTheme` calls are idempotent.
+
+**Why:** The dashboard ships nine curated themes and the user expects the editor to match the chrome it sits inside, exactly like `DiffPanel` / `RichDiff` already route the active theme into `@git-diff-view`. Built-in `vs` / `vs-dark` alone would make the pane the one surface that ignores the chosen theme — a jarring inconsistency on every non-base theme.
+
+**Trade-off:** A per-theme token-to-scope mapping is more code than a two-line `vs` / `vs-dark` switch, and Monaco's TextMate scopes are coarser than prism's, so syntax coloring is an approximation, not a pixel match to the chat blocks. Accepted: one shared `monaco-theme.ts` keeps the mapping in a single tested place, and approximate-but-themed beats exact-but-off-theme.
+
+**Alternatives considered:**
+
+- **Built-in `vs` / `vs-dark` only (light/dark sync, no named-theme inheritance).** Rejected: leaves the pane visibly off-theme under dracula/nord/etc. — the inconsistency the user flagged.
+- **Pre-author nine static Monaco theme JSON files.** Rejected: duplicates the token values already in `themes.ts`; drifts when a theme's tokens change. Deriving from the single source keeps them in lockstep.
+- **Inject CSS variables into Monaco via `editor.background: 'var(--bg-code)'`.** Rejected: Monaco's theme API takes concrete colors only; CSS-var strings are not honored by the canvas renderer.
+
+### 8. Pane mount in App.tsx, not inside SessionCard
 
 **Decision:** The pane mounts in `App.tsx`'s content-area routing block, parallel to `FileDiffView` / `MarkdownPreviewView` / `OpenSpecPreview`. It does NOT live inside `SessionCard.tsx`.
 
@@ -174,6 +198,7 @@ const viewerRegistry: Record<ViewerKind, React.ComponentType<ViewerProps>> = {
 2. **Markdown viewer reuse.** `packages/client/src/components/MarkdownContent.tsx` is the project's canonical markdown renderer. The pane's `MarkdownViewer.tsx` should be a thin wrapper around it, ensuring `pi-asset:` image URLs in agent-authored markdown resolve through `SessionAssetsContext`. Decision: wrap, don't fork.
 3. **Tab close UX.** Standard "×" on hover, middle-click closes, Ctrl/Cmd-W keyboard shortcut. No "are you sure?" prompt — v1 is read-only so no unsaved changes are possible. v4 will add a dirty-state prompt.
 4. **Mobile behavior.** Same route, same component tree. Tabs scroll horizontally; tree rail collapses by default; viewer fills remaining width. No special mobile component. Confirmed acceptable per `MobileShell` patterns.
+5. **Theme / color-scheme inheritance.** Resolved in Decision 7: the pane inherits the dashboard's active named theme + light/dark mode via a Monaco theme derived from the `themes.ts` token map (`monaco-theme.ts` + `buildMonacoTheme`). Not deferred. The non-Monaco viewers (image / PDF / markdown / binary-warn) already inherit the dashboard's Tailwind theme through normal CSS and need no special handling.
 
 ## References
 
@@ -182,3 +207,5 @@ const viewerRegistry: Record<ViewerKind, React.ComponentType<ViewerProps>> = {
 - Existing native-editor handoff: `packages/client/src/components/tool-renderers/OpenFileButton.tsx`, `packages/client/src/lib/editor-api.ts`
 - Existing code-server iframe (parallel feature, not modified): `openspec/specs/editor-view/spec.md`
 - Existing path-traversal security model: `packages/server/src/routes/file-routes.ts` (cwd matched against known session paths + `path.resolve` startsWith check)
+- Existing theme system: `packages/client/src/lib/themes.ts` (`THEMES` registry, `getTheme`, token maps), `packages/client/src/hooks/useTheme.ts` (`useTheme` → `{ resolved, themeName }`)
+- Existing precedent for routing the active theme into a third-party editor: `packages/client/src/components/DiffPanel.tsx` / `RichDiff.tsx` (theme → `@git-diff-view`), `packages/client/src/lib/syntax-theme.ts` (`getSyntaxTheme(resolved, themeName)`)

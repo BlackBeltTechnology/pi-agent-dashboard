@@ -62,6 +62,7 @@ import { TerminalsView } from "./components/TerminalsView.js";
 import { EditorView } from "./components/EditorView.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { FileDiffView } from "./components/FileDiffView.js";
+import { EditorPane } from "./components/editor-pane/EditorPane.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
@@ -338,6 +339,8 @@ export default function App() {
   const fileViewPath = fileViewMatch ? fileViewSearch.get("path") : null;
   const fileViewCwd = fileViewMatch && fileViewParams ? decodeFolderPath(fileViewParams.encodedCwd) : null;
   const [diffMatch, diffParams] = useRoute("/session/:id/diff");
+  // Internal Monaco editor pane route. See change: add-internal-monaco-editor-pane.
+  const [editorMatch, editorParams] = useRoute("/session/:id/editor");
   // Subagent inspector popout route. See change: add-subagent-inspector §7.
   // Plugin-owned overlay routes (subagent popout, flow-agent popout, etc.)
   // dispatch via `<ShellOverlayRouteSlot>` from dashboard-plugin-runtime.
@@ -353,6 +356,10 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
+  const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
+  const editorFile = editorMatch ? fileViewSearch.get("file") : null;
+  const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
+  const editorLine = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : null;
   // Subagent popout decoded params + parent-session label.
   // See change: add-subagent-inspector §7.
   // Plugin overlay routes are tracked by the slot consumer hook.
@@ -364,11 +371,13 @@ export default function App() {
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
-    !!piResourcesMatch || !!diffMatch ||
+    !!piResourcesMatch || !!diffMatch || !!editorMatch ||
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
-  const selectedId = deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams);
+  const selectedId =
+    deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams) ??
+    (editorMatch ? editorParams?.id : undefined);
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
 
@@ -1423,6 +1432,14 @@ export default function App() {
         />
       ) : diffMatch && diffSessionId ? (
         <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+      ) : editorMatch && editorSessionId && selectedSession ? (
+        <EditorPane
+          sessionId={editorSessionId}
+          cwd={selectedSession.cwd}
+          initialFile={editorFile}
+          initialLine={editorLine}
+          onBack={goBack}
+        />
       ) : (
         <>
           {/* Plugin slot: content-header-sticky — contributions from
@@ -1800,6 +1817,14 @@ export default function App() {
               <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
             ) : diffMatch && diffSessionId ? (
               <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+            ) : editorMatch && editorSessionId && selectedSession ? (
+              <EditorPane
+                sessionId={editorSessionId}
+                cwd={selectedSession.cwd}
+                initialFile={editorFile}
+                initialLine={editorLine}
+                onBack={goBack}
+              />
             ) : piResourceFileMatch && piResourceFilePath ? (
               <PiResourceFileRoute
                 filePath={piResourceFilePath}

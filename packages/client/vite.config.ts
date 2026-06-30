@@ -108,6 +108,10 @@ export default defineConfig({
               "@dnd-kit/utilities",
             ],
             "util": ["fuse.js", "qrcode", "wouter", "ansi-to-react"],
+            // Monaco is heavy + only referenced by the lazily-imported
+            // MonacoBuffer, so this chunk is fetched on first text-file open.
+            // See change: add-internal-monaco-editor-pane.
+            "monaco": ["monaco-editor", "@monaco-editor/react"],
           };
           for (const [chunk, deps] of Object.entries(chunks)) {
             if (deps.some((dep) => id.includes(`/node_modules/${dep}/`))) {

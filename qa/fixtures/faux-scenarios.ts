@@ -292,6 +292,11 @@ export const SCENARIOS: Record<string, Scenario> = {
 
   // ── Client tool-renderer matrix (one per registry entry + unknown) ──────
   "tool-read": toolScenario("read", { path: "src/example.ts" }),
+  // Reads a file that REALLY exists in the sample-git fixture, so the
+  // OpenFileButton → internal Monaco editor pane opens a path the server can
+  // serve. Used by tests/e2e/editor-pane.spec.ts.
+  // See change: add-internal-monaco-editor-pane.
+  "tool-read-fixture": toolScenario("read", { path: "README.md" }),
   "tool-edit": toolScenario("edit", {
     path: "src/example.ts",
     edits: [{ oldText: "alpha", newText: "beta" }],

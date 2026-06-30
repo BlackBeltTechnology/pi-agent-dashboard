@@ -14,6 +14,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { extToContentType } from "../lib/mime-types.js";
+import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
 // long-running so we eat it once. See change: render-file-previews.
@@ -135,8 +136,35 @@ export function registerFileRoutes(
           entries.sort();
           return { success: true, data: { type: "directory", entries } } satisfies ApiResponse;
         }
-        const content = await fs.readFile(resolved, "utf-8");
-        return { success: true, data: { type: "file", content } } satisfies ApiResponse;
+        // Classify by extension + a bounded sniff (first 1024 bytes) so binary
+        // files are not slurped whole just to discriminate. Content is returned
+        // only for text-renderable kinds (monaco / markdown viewers); image /
+        // pdf / binary tabs fetch raw bytes via `/api/file/raw`.
+        // See change: add-internal-monaco-editor-pane.
+        const fh = await fs.open(resolved, "r");
+        let kindResult;
+        let content: string | undefined;
+        try {
+          const sniffLen = Math.min(1024, stat.size);
+          const sniff = Buffer.alloc(sniffLen);
+          if (sniffLen > 0) await fh.read(sniff, 0, sniffLen, 0);
+          kindResult = fileKind(resolved, sniff);
+          if (kindResult.viewer === "monaco" || kindResult.viewer === "markdown") {
+            content = await fh.readFile("utf-8");
+          }
+        } finally {
+          await fh.close();
+        }
+        return {
+          success: true,
+          data: {
+            type: "file",
+            kind: kindResult.kind,
+            mimeType: kindResult.mimeType,
+            size: stat.size,
+            ...(content !== undefined ? { content } : {}),
+          },
+        } satisfies ApiResponse;
       } catch {
         reply.code(404);
         return { success: false, error: "not found" } satisfies ApiResponse;

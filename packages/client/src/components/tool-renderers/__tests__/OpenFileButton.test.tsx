@@ -1,38 +1,28 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import * as editorApi from "../../../lib/editor-api.js";
 import { FilePreviewHost, FilePreviewProvider } from "../../FilePreviewContext.js";
 import { ThemeProvider } from "../../ThemeProvider.js";
 import { OpenFileButton } from "../OpenFileButton.js";
 import type { ToolContext } from "../types.js";
 
-const originalLocation = window.location;
-function setHost(host: string) {
-  Object.defineProperty(window, "location", {
-    value: { ...originalLocation, hostname: host },
-    writable: true,
-  });
-}
-function restoreHost() {
-  Object.defineProperty(window, "location", { value: originalLocation, writable: true });
-}
-
-function renderBtn(ui: React.ReactElement) {
-  return render(
-    <ThemeProvider>
-      <FilePreviewProvider>
-        {ui}
-        <FilePreviewHost />
-      </FilePreviewProvider>
-    </ThemeProvider>,
+/** Render the split button inside a controllable wouter router. */
+function renderBtn(ui: React.ReactElement, startPath = "/session/s1") {
+  const { hook, history } = memoryLocation({ path: startPath, record: true });
+  const result = render(
+    <Router hook={hook}>
+      <ThemeProvider>
+        <FilePreviewProvider>
+          {ui}
+          <FilePreviewHost />
+        </FilePreviewProvider>
+      </ThemeProvider>
+    </Router>,
   );
-}
-
-// No-provider render: exercises OpenFileButton's leaf-local fallback overlay
-// (README/markdown/plugin surfaces with no FilePreviewProvider mounted).
-function renderBtnNoProvider(ui: React.ReactElement) {
-  return render(<ThemeProvider>{ui}</ThemeProvider>);
+  return { ...result, history };
 }
 
 beforeAll(() => {
@@ -47,67 +37,72 @@ beforeAll(() => {
   });
 });
 
-describe("OpenFileButton", () => {
+const ctxWith = (editors: ToolContext["editors"]): ToolContext => ({
+  cwd: "/Users/me/repo",
+  editors,
+  sessionId: "s1",
+});
+
+describe("OpenFileButton (split button)", () => {
   beforeEach(() => {
     vi.spyOn(editorApi, "openEditor").mockResolvedValue({ success: true });
   });
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
-    restoreHost();
   });
 
-  it("localhost + editor → opens in editor", async () => {
-    setHost("localhost");
-    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [{ id: "code", name: "VS Code" }] };
-    const { getByRole } = renderBtn(<OpenFileButton filePath="src/foo.ts" line={3} context={ctx} />);
-    fireEvent.click(getByRole("button"));
-    await Promise.resolve();
-    expect(editorApi.openEditor).toHaveBeenCalledWith("/Users/me/repo", "code", "src/foo.ts", 3);
-  });
-
-  it("no editor → opens preview overlay (no openEditor)", async () => {
-    setHost("localhost");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }) as any,
-    );
-    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
-    const { getByRole, findByTestId } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
-    fireEvent.click(getByRole("button"));
+  it("body click navigates to the internal editor route", () => {
+    const ctx = ctxWith([{ id: "zed", name: "Zed" }]);
+    const { getByTitle, history } = renderBtn(<OpenFileButton filePath="src/foo.ts" line={3} context={ctx} />);
+    fireEvent.click(getByTitle("Open src/foo.ts"));
+    expect(history.at(-1)).toBe("/session/s1/editor?file=src%2Ffoo.ts&line=3");
     expect(editorApi.openEditor).not.toHaveBeenCalled();
-    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
   });
 
-  it("no provider → renders its own fallback preview overlay", async () => {
-    setHost("localhost");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ success: true, data: { type: "file", content: "" } }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }) as any,
-    );
-    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [] };
-    const { getByRole, findByTestId } = renderBtnNoProvider(
-      <OpenFileButton filePath="src/foo.ts" context={ctx} />,
-    );
-    fireEvent.click(getByRole("button"));
-    expect(editorApi.openEditor).not.toHaveBeenCalled();
-    expect(await findByTestId("file-preview-overlay")).toBeTruthy();
+  it("dropdown opens the native editor and does NOT navigate", () => {
+    const ctx = ctxWith([{ id: "zed", name: "Zed" }]);
+    const { getByLabelText, getByText, history } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
+    fireEvent.click(getByLabelText("More open options"));
+    fireEvent.click(getByText("Open in Zed"));
+    expect(editorApi.openEditor).toHaveBeenCalledWith("/Users/me/repo", "zed", "src/foo.ts", undefined);
+    expect(history.at(-1)).toBe("/session/s1"); // unchanged
+  });
+
+  it("hides the dropdown caret when no native editor is detected", () => {
+    const ctx = ctxWith([]);
+    const { queryByLabelText, getByText } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
+    expect(queryByLabelText("More open options")).toBeNull();
+    expect(getByText("Open")).toBeTruthy();
+  });
+
+  it("keyboard ArrowDown + Enter invokes the second editor; Escape closes", () => {
+    const ctx = ctxWith([
+      { id: "zed", name: "Zed" },
+      { id: "code", name: "VS Code" },
+    ]);
+    const { getByLabelText, getByRole } = renderBtn(<OpenFileButton filePath="a.ts" context={ctx} />);
+    fireEvent.click(getByLabelText("More open options"));
+    const menu = getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    fireEvent.keyDown(menu, { key: "Enter" });
+    expect(editorApi.openEditor).toHaveBeenCalledWith("/Users/me/repo", "code", "a.ts", undefined);
+  });
+
+  it("renders even without a native editor (button visible)", () => {
+    const ctx = ctxWith([]);
+    const { getByText } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
+    expect(getByText("Open")).toBeTruthy();
   });
 
   it("no cwd → renders nothing", () => {
-    setHost("localhost");
-    const ctx: ToolContext = { cwd: undefined, editors: [{ id: "code", name: "VS Code" }] };
+    const ctx: ToolContext = { cwd: undefined, editors: [{ id: "zed", name: "Zed" }], sessionId: "s1" };
     const { container } = renderBtn(<OpenFileButton filePath="src/foo.ts" context={ctx} />);
     expect(container.querySelector("button")).toBeNull();
   });
 
   it("no filePath → renders nothing", () => {
-    setHost("localhost");
-    const ctx: ToolContext = { cwd: "/Users/me/repo", editors: [{ id: "code", name: "VS Code" }] };
+    const ctx = ctxWith([{ id: "zed", name: "Zed" }]);
     const { container } = renderBtn(<OpenFileButton context={ctx} />);
     expect(container.querySelector("button")).toBeNull();
   });
