@@ -116,11 +116,15 @@ export default async function globalSetup(): Promise<void> {
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
   };
-  // Strip any inherited port pins: a caller-exported DASHBOARD_PORT/
-  // PI_GATEWAY_PORT would make test-up.sh honour them verbatim (PORTS_PINNED),
-  // skip in-window derivation, and reintroduce cross-worktree collisions.
+  // Strip any inherited port pins so test-up.sh always derives in-window. A
+  // caller-exported DASHBOARD_PORT/PI_GATEWAY_PORT (the pair test-up.sh reads)
+  // would be honoured verbatim (PORTS_PINNED), skip derivation, and reintroduce
+  // cross-worktree collisions. PW_E2E_PORT/PW_GATEWAY_PORT are Playwright-host
+  // vars test-up.sh ignores, but strip them too for defense-in-depth.
   delete env.DASHBOARD_PORT;
   delete env.PI_GATEWAY_PORT;
+  delete env.PW_E2E_PORT;
+  delete env.PW_GATEWAY_PORT;
   let child;
   try {
     // --build is MANDATORY for the managed path: the dashboard server+client run
