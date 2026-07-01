@@ -124,15 +124,29 @@ export interface SessionMeta {
 }
 
 /**
- * Classify a session as an interrupted-session recovery candidate from its
- * liveness marker: a sidecar still carrying `live === true` and NOT carrying
- * `closedReason === "manual"` was running when the host died (a clean exit
- * clears `live`; a manual close stamps the reason). Pre-feature sidecars
- * (no `live`) are never candidates. Reads ONLY per-session meta — never the
- * home-lock. See change: reopen-sessions-after-shutdown.
+ * Classify a session as an interrupted-session recovery candidate.
+ *
+ * A candidate was RUNNING when the host died. Detection uses BOTH durable
+ * signals, because neither alone is sufficient:
+ *   - `status !== "ended"` — the persisted lifecycle status. A clean close
+ *     runs `unregister()` which sets + persists `status: "ended"` (dashboard
+ *     ✕ AND a pi TUI quit both go through this). A crash never reaches
+ *     `unregister()`, so the sidecar keeps its last running status
+ *     (`idle`/`streaming`/`active`). This half excludes every clean
+ *     unregister, including a TUI quit.
+ *   - `live === true` — the eager (atomic, crash-durable) liveness bit. A
+ *     clean server `stop()` (idle timer / app quit) clears it to `false`
+ *     WITHOUT unregistering each session, so its persisted status stays
+ *     non-`ended`. This half excludes the idle/app-quit stop that the status
+ *     half would otherwise wrongly grab.
+ *
+ * Together they recover EXACTLY the crash case: persisted non-`ended` status
+ * AND a still-set `live` marker. Pre-feature sidecars (no `live`) are never
+ * candidates. Reads ONLY per-session meta — never the home-lock.
+ * See change: reopen-sessions-after-shutdown.
  */
 export function isRecoveryCandidate(meta: SessionMeta | undefined): boolean {
-  return meta?.live === true && meta.closedReason !== "manual";
+  return meta?.live === true && meta.status !== "ended" && meta.closedReason !== "manual";
 }
 
 /**

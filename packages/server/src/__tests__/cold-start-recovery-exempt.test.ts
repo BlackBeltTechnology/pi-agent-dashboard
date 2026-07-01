@@ -14,6 +14,7 @@ interface Seed {
   id: string;
   live?: boolean;
   closedReason?: string;
+  status?: string;
 }
 
 function seedSession(sessionsDir: string, cwdName: string, s: Seed): void {
@@ -25,7 +26,7 @@ function seedSession(sessionsDir: string, cwdName: string, s: Seed): void {
   const meta: Record<string, unknown> = {
     source: "cli",
     cwd: cwdDir,
-    status: "streaming", // non-ended, so we can observe normalization
+    status: s.status ?? "streaming", // non-ended default, so we can observe normalization
     startedAt: Date.now(),
     cachedAt: Date.now() + 60_000, // future → scanner trusts cache, no re-extract
   };
@@ -50,9 +51,14 @@ describe("cold-start recovery-candidate exemption", () => {
   });
 
   it("preserves candidate status; forces non-candidate to ended", async () => {
+    // crash: live:true + non-ended status → candidate
     seedSession(sessionsDir, "proj", { id: "cand-1111-2222-3333-444444444444", live: true });
+    // idle/app-quit clean stop(): live:false, status non-ended → NOT candidate
     seedSession(sessionsDir, "proj", { id: "clean-1111-2222-3333-444444444444", live: false });
+    // dashboard ✕: live:true but closedReason:manual (+ status ended) → NOT candidate
     seedSession(sessionsDir, "proj", { id: "manual-111-2222-3333-444444444444", live: true, closedReason: "manual" });
+    // pi TUI quit: clean unregister persisted status:ended, live:true left set → NOT candidate
+    seedSession(sessionsDir, "proj", { id: "tuiqt-11-2222-3333-444444444444", live: true, status: "ended" });
 
     vi.stubEnv("PI_CODING_AGENT_SESSION_DIR", sessionsDir);
     vi.resetModules();
@@ -76,5 +82,10 @@ describe("cold-start recovery-candidate exemption", () => {
     const manual = server.sessionManager.get("manual-111-2222-3333-444444444444");
     expect(manual?.status).toBe("ended");
     expect(manual?.recoveryCandidate).toBeFalsy();
+
+    // TUI quit: persisted status:ended → excluded by the status half, stays ended.
+    const tui = server.sessionManager.get("tuiqt-11-2222-3333-444444444444");
+    expect(tui?.status).toBe("ended");
+    expect(tui?.recoveryCandidate).toBeFalsy();
   });
 });

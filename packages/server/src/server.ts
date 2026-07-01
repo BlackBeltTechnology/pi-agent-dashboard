@@ -257,8 +257,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const metaPersistence = createMetaPersistence();
   // Stable per-boot id stamped into the liveness marker so cold start can
   // attribute a `live:true` sidecar to a specific server run. A new value
-  // each createServer() call is sufficient — the classifier only needs
-  // `live===true && closedReason!=="manual"`; the epoch is diagnostic and
+  // each createServer() call is sufficient — the classifier needs
+  // `live===true && status!=="ended"`; the epoch is diagnostic and
   // guards the once-per-activation rewrite. Sidecars lacking `liveEpoch`
   // (pre-feature or fallback) still classify on `live` alone (task 4.1).
   // See change: reopen-sessions-after-shutdown.
@@ -278,8 +278,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Restore sessions from per-session .meta.json files (scans ~/.pi/agent/sessions/)
   const scanResult = scanAllSessions();
   // Interrupted-session recovery candidates discovered on cold start. A
-  // candidate (`live===true && closedReason!=="manual"`) was running when the
-  // host died. Candidates are EXEMPT from the force-`ended` normalization
+  // candidate (`live===true && status!=="ended"`, see isRecoveryCandidate)
+  // was running when the host died. Candidates are EXEMPT from the
+  // force-`ended` normalization
   // below so the interrupted state survives long enough to offer a reopen.
   // See change: reopen-sessions-after-shutdown.
   const recoveryCandidates: DashboardSession[] = [];
@@ -287,6 +288,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const restored = { ...session, dataUnavailable: true };
     const candidate = isRecoveryCandidate({
       live: session.live,
+      status: session.status,
       closedReason: session.closedReason,
     });
     if (candidate) {

@@ -41,17 +41,31 @@ When a session is closed intentionally — manual close (`handleShutdown`), forc
 
 ### Requirement: Cold start SHALL classify interrupted sessions as recovery candidates
 
-On server cold start, for each rediscovered session, the server SHALL classify it as a recovery candidate WHEN its `.meta.json` carries `live: true` AND does NOT carry `closedReason: "manual"`. All other sessions SHALL NOT be candidates.
+On server cold start, for each rediscovered session, the server SHALL classify it as a recovery candidate WHEN its `.meta.json` carries `live: true` AND its persisted `status` is NOT `"ended"` AND it does NOT carry `closedReason: "manual"`. All other sessions SHALL NOT be candidates.
 
-#### Scenario: Interrupted session is a candidate
+Both durable signals are required because neither alone is sufficient. A clean close runs `unregister()`, which sets and persists `status: "ended"` — this covers BOTH a dashboard close and a pi TUI quit, so the `status !== "ended"` condition excludes every clean unregister. A crash never reaches `unregister()`, so the sidecar keeps its last running status. A clean server `stop()` (idle timer / app quit) clears `live: false` WITHOUT unregistering each session, leaving a non-`ended` status; the `live === true` condition excludes that case. Together they match EXACTLY the crash scenario.
 
-- **GIVEN** a `.meta.json` with `live: true` and no `closedReason`
+#### Scenario: Interrupted (crashed) session is a candidate
+
+- **GIVEN** a `.meta.json` with `live: true` and a non-`ended` status (e.g. `idle`/`streaming`) and no `closedReason`
 - **WHEN** the server classifies sessions on cold start
 - **THEN** the session SHALL be a recovery candidate
 
-#### Scenario: Cleanly closed session is not a candidate
+#### Scenario: Cleanly stopped session is not a candidate
 
-- **GIVEN** a `.meta.json` with `live: false` (with or without `closedReason: "manual"`)
+- **GIVEN** a `.meta.json` with `live: false` (idle timer / app-quit clean stop), regardless of status
+- **WHEN** the server classifies sessions on cold start
+- **THEN** the session SHALL NOT be a recovery candidate
+
+#### Scenario: Cleanly unregistered session (dashboard close or pi TUI quit) is not a candidate
+
+- **GIVEN** a `.meta.json` whose persisted `status` is `"ended"` (a clean `unregister()` ran), even if `live: true` remains set
+- **WHEN** the server classifies sessions on cold start
+- **THEN** the session SHALL NOT be a recovery candidate
+
+#### Scenario: Manual close is not a candidate
+
+- **GIVEN** a `.meta.json` carrying `closedReason: "manual"`
 - **WHEN** the server classifies sessions on cold start
 - **THEN** the session SHALL NOT be a recovery candidate
 

@@ -1,31 +1,44 @@
 /**
- * Recovery-candidate classifier: `live===true && closedReason!=="manual"`.
- * Covers the three cold-start scenarios + the liveEpoch-absent fallback.
- * See change: reopen-sessions-after-shutdown.
+ * Recovery-candidate classifier: `live===true && status!=="ended"` (and not
+ * `closedReason==="manual"`). Covers the four close-path scenarios + the
+ * liveEpoch-absent fallback. See change: reopen-sessions-after-shutdown.
  */
 import { describe, it, expect } from "vitest";
 import { isRecoveryCandidate, type SessionMeta } from "../session-meta.js";
 
 describe("isRecoveryCandidate", () => {
-  it("interrupted session (live:true, no closedReason) is a candidate", () => {
-    expect(isRecoveryCandidate({ live: true, liveEpoch: 5 } as SessionMeta)).toBe(true);
+  // Crash mid-run: no unregister ran, so the sidecar keeps its last running
+  // status and `live` was never cleared.
+  it("crash (live:true, status non-ended) IS a candidate", () => {
+    expect(isRecoveryCandidate({ live: true, status: "idle", liveEpoch: 5 } as SessionMeta)).toBe(true);
+    expect(isRecoveryCandidate({ live: true, status: "streaming" } as SessionMeta)).toBe(true);
   });
 
-  it("cleanly closed session (live:false) is NOT a candidate", () => {
-    expect(isRecoveryCandidate({ live: false } as SessionMeta)).toBe(false);
-    expect(isRecoveryCandidate({ live: false, closedReason: "manual" } as SessionMeta)).toBe(false);
+  // pi TUI quit / dashboard ✕: unregister() persisted status:"ended".
+  it("clean unregister (status:ended) is NOT a candidate, even if live:true", () => {
+    // TUI quit leaves live:true but status:ended → excluded by the status half.
+    expect(isRecoveryCandidate({ live: true, status: "ended" } as SessionMeta)).toBe(false);
+    // dashboard ✕ additionally stamps closedReason:manual.
+    expect(isRecoveryCandidate({ live: false, status: "ended", closedReason: "manual" } as SessionMeta)).toBe(false);
   });
 
-  it("manual-close (live:true but closedReason:manual) is NOT a candidate", () => {
-    expect(isRecoveryCandidate({ live: true, closedReason: "manual" } as SessionMeta)).toBe(false);
+  // Idle / app-quit clean stop(): clears live:false without unregistering,
+  // so status stays non-ended — excluded by the live half.
+  it("clean stop() (live:false, status non-ended) is NOT a candidate", () => {
+    expect(isRecoveryCandidate({ live: false, status: "idle" } as SessionMeta)).toBe(false);
+  });
+
+  it("manual-close reason is also excluded regardless of status", () => {
+    expect(isRecoveryCandidate({ live: true, status: "idle", closedReason: "manual" } as SessionMeta)).toBe(false);
   });
 
   it("pre-feature session without marker is NOT a candidate", () => {
     expect(isRecoveryCandidate({} as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ status: "idle" } as SessionMeta)).toBe(false);
     expect(isRecoveryCandidate(undefined)).toBe(false);
   });
 
-  it("fallback: live:true with absent liveEpoch still classifies as candidate", () => {
-    expect(isRecoveryCandidate({ live: true } as SessionMeta)).toBe(true);
+  it("fallback: live:true + non-ended status with absent liveEpoch still classifies", () => {
+    expect(isRecoveryCandidate({ live: true, status: "idle" } as SessionMeta)).toBe(true);
   });
 });
