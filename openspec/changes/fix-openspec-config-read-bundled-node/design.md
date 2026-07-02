@@ -44,13 +44,13 @@ Edge case — server running under `ELECTRON_RUN_AS_NODE` (the `execpath-fallbac
 
 **Why over alternatives:** deterministic — the interpreter is supplied explicitly, independent of PATH contents or install topology. Mirrors the already-proven Windows path (single code path, less divergence). The shebang approach is exactly what fails today.
 
-### Decision 2 — Seed a real `node` dir into `buildSpawnEnv` (defense-in-depth, secondary)
+### Decision 2 — Seed a real `node` dir into `buildSpawnEnv` — TRIED, then REVERTED as redundant
 
-Add the resolved node bin dir (and the managed `~/.pi-dashboard/node/bin`, when present) to the PATH `buildSpawnEnv` constructs, so any *other* shebang-based child spawn also resolves `node`.
+Originally proposed as defense-in-depth: add the managed `~/.pi-dashboard/node/bin` to the PATH `buildSpawnEnv` constructs, so any *other* shebang-based child spawn also resolves `node`.
 
-**Why secondary, not primary:** it does not help the `execpath-fallback` topology (no real `node` dir exists to seed) and it still relies on PATH inheritance. Useful breadth (covers CLIs we don't node-wrap) but insufficient alone. Ship alongside Decision 1, not instead of it.
+**Outcome: reverted (commit `fix(ci): revert redundant buildSpawnEnv managed-node prepend`).** It was redundant — every caller already guarantees a real node dir on the child PATH: `process-manager` wraps with `prependManagedNodeToPath` (from `embed-managed-node-runtime`), and `server-launcher` / electron `launch-source` build the resolver with `processExecPath = pick.nodeBin` (the picked real node), so `buildSpawnEnv` already prepends its dir. It was also off the actual fix path — the openspec spawn goes through the runner's `toArgv` node-wrap (Decision 1), not `buildSpawnEnv`. And the extra `existsSync`/`os.homedir()` widened a pre-existing cross-file HOME-mutation race, flaking `process-manager-managed-path.test.ts` in CI.
 
-**Alternative rejected:** *only* fix `buildSpawnEnv`. Rejected because it leaves the shebang dependency intact and fails when the real node dir is absent.
+**Net:** Decision 1 (node-wrap by absolute node path) is the sole fix; it removes the PATH dependency entirely, so seeding PATH was unnecessary. Decision 2 is retained here only as a rejected-alternative record.
 
 ### Decision 3 — Surface CLI-read failure instead of degrading to empty
 
@@ -65,7 +65,7 @@ Stop collapsing a failed `openspec config list` into an empty profile.
 ## Risks / Trade-offs
 
 - **Resolving `.js` over the `.bin` symlink could change `source` in resolution trails / break tests asserting the `.bin` path.** → Update fixtures; keep managed-bin as a lower-priority fallback so behavior degrades sensibly.
-- **`registry.resolve("node")` might itself fail in a degraded bundle.** → Node-wrap falls back to `process.execPath`; when that is the Electron binary, set `ELECTRON_RUN_AS_NODE=1` on the child spawn so it still runs as node.
+- **`registry.resolve("node")` might itself fail in a degraded bundle.** → Node-wrap falls back to `process.execPath`; when that is the Electron binary, the runner's `buildSpawnEnvForArgv` sets `ELECTRON_RUN_AS_NODE=1` on the child spawn so it still runs as node.
 - **Returning an HTTP error from `GET /config` could surface a scarier UI than today's silent empty.** → Intended: a clear "couldn't read config" beats a wrong "not found." Client must render it as recoverable (retry), not fatal.
 - **Windows regression risk** from touching shared `nodeScriptToArgv`. → The change generalizes the unix branch only; the Windows branch keeps its exact existing shape. Cover with a unix + win32 argv test matrix.
 - **Legacy managed-node topology** (`~/.pi-dashboard/node/bin`) not covered by `pickNodeForServer`. → Decision 2 explicitly seeds it; Decision 1 makes it moot when a real node resolves.

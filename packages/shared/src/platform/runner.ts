@@ -117,10 +117,20 @@ function tryGetRegistry(): LazyRegistry | null {
  * `ELECTRON_RUN_AS_NODE=1`, so force that flag on the child's env. This is
  * the safety net for the `execpath-fallback` topology; when
  * `registry.resolve("node")` yields a real node it is never triggered.
+ *
+ * `deps` (execPath / electronVersion) are injected for deterministic
+ * testing; production callers omit them and read the live process.
+ * Exported for unit tests.
  */
-function buildSpawnEnvForArgv(execCmd: string, ctxEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv | undefined {
-  const underElectron = Boolean((process as { versions?: { electron?: string } }).versions?.electron);
-  const electronAsNode = underElectron && execCmd === process.execPath;
+export function buildSpawnEnvForArgv(
+  execCmd: string,
+  ctxEnv?: NodeJS.ProcessEnv,
+  deps?: { execPath?: string; electronVersion?: string },
+): NodeJS.ProcessEnv | undefined {
+  const execPath = deps?.execPath ?? process.execPath;
+  const electronVersion =
+    deps?.electronVersion ?? (process as { versions?: { electron?: string } }).versions?.electron;
+  const electronAsNode = Boolean(electronVersion) && execCmd === execPath;
   if (!ctxEnv && !electronAsNode) return undefined;
   const merged: NodeJS.ProcessEnv = ctxEnv ? { ...process.env, ...ctxEnv } : { ...process.env };
   if (electronAsNode) merged.ELECTRON_RUN_AS_NODE = "1";
