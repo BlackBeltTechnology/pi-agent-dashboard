@@ -117,6 +117,28 @@ describe("FilePreviewOverlay — non-blocking inspector", () => {
 
     composer.remove();
   });
+
+  it("measures composer height and sets the backdrop bottom cutout accordingly", async () => {
+    // Mount a composer-root with a known height BEFORE the overlay renders, so
+    // the measurement effect reads it and reserves an equal bottom cutout —
+    // real coverage of the ResizeObserver-driven inset (not just the dismissal
+    // path). The dim layer must stop `80px` above the viewport bottom.
+    const composer = document.createElement("div");
+    composer.setAttribute("data-testid", "composer-root");
+    Object.defineProperty(composer, "getBoundingClientRect", {
+      value: () => ({ height: 80 }) as DOMRect,
+    });
+    document.body.appendChild(composer);
+    mockFileFetch("x\n");
+    renderOverlay(<FilePreviewOverlay cwd="/repo" path="notes.txt" onClose={() => {}} />);
+    await waitFor(() => {
+      const backdrop = document.querySelector(
+        '[data-testid="file-preview-backdrop"]',
+      ) as HTMLElement | null;
+      expect(backdrop?.style.bottom).toBe("80px");
+    });
+    composer.remove();
+  });
 });
 
 import { friendlyReadError } from "../FilePreviewOverlay.js";
