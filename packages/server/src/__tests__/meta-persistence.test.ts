@@ -190,6 +190,33 @@ describe("meta-persistence", () => {
     mp.dispose();
   });
 
+  it("setLiveness clears a stale closedReason when omitted on re-activation", () => {
+    // Regression (CodeRabbit PR #210): a resumed-then-crashed session must not
+    // keep an earlier `closedReason:"manual"`, or cold start wrongly excludes it.
+    const mp = createMetaPersistence();
+    const sf = sessionFile("reactivate");
+    mp.setLiveness(sf, { live: false, closedReason: "manual" });
+    expect(readSessionMeta(sf)?.closedReason).toBe("manual");
+    // Re-activate without a closedReason — the stale reason must be dropped.
+    mp.setLiveness(sf, { live: true, liveEpoch: 99 });
+    const meta = readSessionMeta(sf);
+    expect(meta?.live).toBe(true);
+    expect(meta?.liveEpoch).toBe(99);
+    expect(meta?.closedReason).toBeUndefined();
+    mp.dispose();
+  });
+
+  it("setLiveness clears a stale liveEpoch when omitted", () => {
+    const mp = createMetaPersistence();
+    const sf = sessionFile("epoch-clear");
+    mp.setLiveness(sf, { live: true, liveEpoch: 12 });
+    mp.setLiveness(sf, { live: false });
+    const meta = readSessionMeta(sf);
+    expect(meta?.live).toBe(false);
+    expect(meta?.liveEpoch).toBeUndefined();
+    mp.dispose();
+  });
+
   it("mid-write crash leaves the prior sidecar intact (atomic tmp+rename)", () => {
     const mp = createMetaPersistence();
     const sf = sessionFile("live4");

@@ -35,7 +35,7 @@ Five independent read-only code audits established the ground truth this design 
 
 Shutdown is exactly when we cannot trust code to run, so the signal must already be on disk *before* the machine dies. While a session runs, stamp its `.meta.json` with `{ live: true, liveEpoch: <server-boot-id> }` at turn boundaries.
 
-```
+```text
 running session   → eager write { live:true, liveEpoch }
 manual close      → write { live:false, closedReason:"manual" }   (claim 3 gap → fix)
 clean stop()      → write { live:false } per torn-down session
@@ -43,8 +43,8 @@ crash / PC down   → marker NEVER updated → still { live:true } next boot
 ```
 
 Cold-start classification:
-```
-meta.live === true  AND  closedReason !== "manual"   →  recovery candidate
+```text
+meta.live === true  AND  status !== "ended"  AND  closedReason !== "manual"   →  recovery candidate
 ```
 A crash cannot lie (it leaves the stale `live:true`); a clean exit can truthfully clear it.
 

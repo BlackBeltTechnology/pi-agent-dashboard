@@ -99,8 +99,15 @@ export function createMetaPersistence(): MetaPersistence {
       }
       const base = queued?.meta ?? readSessionMeta(sessionFile) ?? {};
       const next: SessionMeta = { ...base, live: liveness.live };
+      // Liveness fields omitted from this payload MUST be cleared, not
+      // carried forward from the prior sidecar — otherwise a stale
+      // `closedReason: "manual"` survives a later `{ live:true }` re-activation
+      // and wrongly excludes a resumed-then-crashed session from recovery.
+      // See change: reopen-sessions-after-shutdown.
       if (liveness.liveEpoch !== undefined) next.liveEpoch = liveness.liveEpoch;
+      else delete next.liveEpoch;
       if (liveness.closedReason !== undefined) next.closedReason = liveness.closedReason;
+      else delete next.closedReason;
       writeSessionMeta(sessionFile, next);
     },
 

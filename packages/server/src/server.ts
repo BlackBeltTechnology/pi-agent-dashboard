@@ -283,10 +283,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // force-`ended` normalization
   // below so the interrupted state survives long enough to offer a reopen.
   // See change: reopen-sessions-after-shutdown.
+  //
+  // Read the recovery mode ONCE here: in `off` mode we must NOT exempt
+  // candidates from normalization, otherwise an interrupted session stays
+  // stuck in a non-`ended` "zombie" state forever (no offer resolves it, no
+  // self-clean) — regressing the pre-feature behavior. In `off`, candidates
+  // fall through to the force-`ended` branch like any other non-`ended`
+  // restored session.
+  const recoveryMode = loadConfig().reopenSessionsAfterShutdown;
   const recoveryCandidates: DashboardSession[] = [];
   for (const session of scanResult.sessions) {
     const restored = { ...session, dataUnavailable: true };
-    const candidate = isRecoveryCandidate({
+    const candidate = recoveryMode !== "off" && isRecoveryCandidate({
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
@@ -1915,14 +1923,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       idleTimer.start();
 
       // Cold-start recovery offer. Gated by `reopenSessionsAfterShutdown`:
-      //   off  → classify but take no action
+      //   off  → handled at classify time (candidates normalized to `ended`,
+      //          so `recoveryCandidates` is empty here — this block is skipped)
       //   ask  → broadcast one recovery offer to all connected clients
       //   auto → resume every candidate via the existing resume flow
       // Concurrent acceptances are deduped by `pendingResumeIntents`
       // (last-write-wins) so a session spawns at most once.
       // See change: reopen-sessions-after-shutdown.
       if (recoveryCandidates.length > 0) {
-        const mode = loadConfig().reopenSessionsAfterShutdown;
+        const mode = recoveryMode;
         if (mode === "ask") {
           pendingRecoveryOffer = {
             type: "recovery_offer",

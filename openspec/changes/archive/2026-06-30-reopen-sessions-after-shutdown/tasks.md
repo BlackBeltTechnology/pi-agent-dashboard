@@ -16,12 +16,12 @@
 
 ## 4. Cold-start classification & restore exemption
 
-- [x] 4.1 Add a recovery-candidate classifier (`live===true && closedReason!=="manual"`) consumed during cold-start session restore; surface `live`/`liveEpoch`/`closedReason` through `packages/server/src/session-scanner.ts`. → verify: unit tests for the three classification scenarios (interrupted=candidate, cleanly-closed=not, no-marker=not).
+- [x] 4.1 Add a recovery-candidate classifier (`live===true && status!=="ended" && closedReason!=="manual"`) consumed during cold-start session restore; surface `live`/`liveEpoch`/`closedReason` through `packages/server/src/session-scanner.ts`. → verify: unit tests for the three classification scenarios (interrupted=candidate, cleanly-closed=not, no-marker=not).
 - [x] 4.2 Exempt recovery candidates from the force-`ended` status normalization at `packages/server/src/server.ts:239-240`; leave non-candidate normalization unchanged. → verify: test asserts candidate status preserved, non-candidate still rewritten to `ended`.
 
 ## 5. Recovery offer & reopen flow
 
-- [x] 5.1 On cold start with ≥1 candidate, branch on `reopenSessionsAfterShutdown`: `off` → no-op; `ask` → broadcast one recovery offer; `auto` → resume all candidates via existing `resume_session`. → verify: tests for all three modes + the zero-candidate no-offer case.
+- [x] 5.1 On cold start with ≥1 candidate, branch on `reopenSessionsAfterShutdown`: `off` → normalize interrupted sessions to `ended` (no zombie state); `ask` → broadcast one recovery offer; `auto` → resume all candidates via existing `resume_session`. → verify: tests for all three modes + the zero-candidate no-offer case.
 - [x] 5.2 Route reopen acceptances through the existing `resume_session` handler; confirm `pendingResumeIntents` dedupes concurrent multi-device acceptances to at-most-once spawn. → verify: test simulating two acceptances for one session asserts a single spawn.
 - [x] 5.3 Assert classification reads ONLY per-session `.meta.json` and never the home-lock. → verify: test varies home-lock state (present/absent/stale) and asserts identical candidate results.
 
@@ -34,3 +34,14 @@
 
 - [x] 7.1 End-to-end test: spawn → stamp live → simulate unclean exit (no clean stop) → cold start → candidate detected → reopen succeeds; contrast with manual-close and clean-stop paths yielding no candidate.
 - [x] 7.2 Run `npm test`; add per-file rows to the matching `docs/file-index-<area>.md` splits for changed/added files per the Documentation Update Protocol.
+
+## 8. CodeRabbit review fixes (PR #210)
+
+- [x] 8.1 `off`-mode zombie state: read recovery mode once before the classify loop; in `off` do NOT exempt candidates — normalize them to `ended` like any other non-`ended` restored session (`packages/server/src/server.ts`). → verify: `cold-start-recovery-exempt` + off-mode normalization test.
+- [x] 8.2 Desktop mount gap: `<RecoveryOfferHost>` was mounted only in the mobile tree; mount it in the desktop tree too (after `{connectionBanner}`) so `ask` mode surfaces on desktop (`packages/client/src/App.tsx`).
+- [x] 8.3 Server-switch stale offer: call `clearRecoveryOffer()` from `App.handleServerSwitch()`'s `clearInMemoryState` so an offer from server A can't reopen stale IDs on server B.
+- [x] 8.4 Stale liveness carry-forward: `meta-persistence.setLiveness()` now clears `liveEpoch`/`closedReason` when omitted from the payload, so a prior `closedReason:"manual"` cannot survive a later `{ live:true }` re-activation.
+- [x] 8.5 Spec alignment: home-lock requirement now lists (`live`, `status`, `closedReason`); eager-write contract now covers `closedReason` + pending-merge + omitted-field clearing; off-mode normalization scenario added (`openspec/specs/`).
+- [x] 8.6 Docs lint: escape `\|` in `docs/file-index-shared.md` union type; add `text` language tags to archived `design.md` fences; correct classifier formula in both.
+- [ ] 8.7 SKIPPED — CodeRabbit "move change bundle out of `archive/`": false positive. This repo's `openspec-archive-change` skill archives to `openspec/changes/archive/<date>-<name>/` by design; location is correct.
+- [ ] 8.8 DEFERRED — 6 CodeRabbit Major comments target the unrelated `register-plugin-automation-events` change bundled into this PR. Recommend splitting that change into its own PR rather than fixing here.

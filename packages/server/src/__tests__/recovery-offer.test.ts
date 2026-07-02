@@ -46,7 +46,7 @@ async function connectAndCollect(port: number): Promise<Record<string, unknown>[
 
 describe("cold-start recovery offer", () => {
   let sessionsDir: string;
-  let server: { stop: () => Promise<void>; httpPort: () => number | null };
+  let server: { stop: () => Promise<void>; httpPort: () => number | null; sessionManager: { get: (id: string) => any } };
 
   beforeEach(() => {
     sessionsDir = mkdtempSync(path.join(os.tmpdir(), "pi-offer-"));
@@ -87,6 +87,18 @@ describe("cold-start recovery offer", () => {
     const port = await boot();
     const msgs = await connectAndCollect(port);
     expect(msgs.filter((m) => m.type === "recovery_offer")).toHaveLength(0);
+  });
+
+  it("off mode: interrupted session is normalized to ended (no zombie)", async () => {
+    // Regression (CodeRabbit PR #210): in `off` mode an interrupted session
+    // must NOT be exempted from normalization, or it stays non-`ended` forever.
+    writeConfig("off");
+    const id = "dddd1111-2222-3333-4444-555555555555";
+    seedCandidate(sessionsDir, id, true);
+    await boot();
+    const s = server.sessionManager.get(id);
+    expect(s?.status).toBe("ended");
+    expect(s?.recoveryCandidate).toBeFalsy();
   });
 
   it("auto mode: no recovery_offer (resumes without prompting)", async () => {

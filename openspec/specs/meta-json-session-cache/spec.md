@@ -142,12 +142,24 @@ The `.meta.json` sidecar SHALL support three additional optional fields: `live` 
 
 ### Requirement: Liveness marker SHALL use an eager write path bypassing the debounce
 
-The liveness marker (`live` / `liveEpoch`) SHALL be persisted via an immediate atomic write (tmp + rename) rather than the existing per-session debounced write queue, so the marker is durable on disk before an unclean shutdown. The debounced path SHALL remain in use for all other dashboard-owned fields.
+The liveness marker (`live` / `liveEpoch`) and any concurrent `closedReason` update SHALL be persisted via an immediate atomic write (tmp + rename) rather than the existing per-session debounced write queue, so the marker is durable on disk before an unclean shutdown. The eager write SHALL first merge any pending debounced snapshot for that session so a queued stats update is not clobbered, and SHALL clear liveness fields absent from the current payload rather than carry stale values forward. The debounced path SHALL remain in use for all other dashboard-owned fields.
 
 #### Scenario: Liveness write is immediate
 
 - **WHEN** the server stamps `live: true` on session activation
 - **THEN** the write SHALL be flushed to `.meta.json` immediately, not deferred to the debounce window
+
+#### Scenario: Eager write merges pending debounced fields
+
+- **GIVEN** a queued (not-yet-flushed) debounced stats update for a session
+- **WHEN** an eager liveness write occurs for that session
+- **THEN** the queued fields SHALL be merged into the atomic write and not lost
+
+#### Scenario: Omitted liveness fields are cleared, not carried forward
+
+- **GIVEN** a sidecar carrying `closedReason: "manual"` from a prior close
+- **WHEN** an eager write stamps `{ live: true, liveEpoch }` without a `closedReason`
+- **THEN** the persisted `closedReason` SHALL be removed, not retained
 
 #### Scenario: Non-liveness fields still debounced
 

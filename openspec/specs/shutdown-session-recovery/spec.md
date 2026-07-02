@@ -93,7 +93,7 @@ The existing cold-start restore logic that force-rewrites any non-`ended` sessio
 
 ### Requirement: Server SHALL offer to reopen recovery candidates gated by a setting
 
-On cold start with at least one recovery candidate, the server's behavior SHALL be governed by the `reopenSessionsAfterShutdown` setting: `off` (classify but take no further action), `ask` (broadcast a single recovery offer to all connected clients), or `auto` (resume all candidates without prompting). The default SHALL be `ask`.
+On cold start with at least one recovery candidate, the server's behavior SHALL be governed by the `reopenSessionsAfterShutdown` setting: `off` (do NOT classify interrupted sessions as candidates — normalize them to `ended` like any other non-`ended` restored session, so none remain in a non-`ended` "zombie" state), `ask` (broadcast a single recovery offer to all connected clients), or `auto` (resume all candidates without prompting). The default SHALL be `ask`.
 
 #### Scenario: Ask mode broadcasts one offer
 
@@ -101,11 +101,13 @@ On cold start with at least one recovery candidate, the server's behavior SHALL 
 - **WHEN** the server completes cold-start classification
 - **THEN** it SHALL broadcast exactly one recovery offer listing the N candidates to all connected clients
 
-#### Scenario: Off mode takes no action
+#### Scenario: Off mode takes no action and normalizes interrupted sessions
 
 - **GIVEN** setting `reopenSessionsAfterShutdown = "off"`
-- **WHEN** cold-start classification finds candidates
+- **AND** a session that would otherwise classify as an interrupted recovery candidate
+- **WHEN** cold start runs
 - **THEN** the server SHALL NOT broadcast a recovery offer and SHALL NOT auto-resume
+- **AND** the session's non-`ended` status SHALL be force-normalized to `ended` (no persistent zombie state)
 
 #### Scenario: Auto mode resumes without prompting
 
@@ -168,6 +170,6 @@ The recovery-candidate classification SHALL be derived solely from per-session `
 
 - **GIVEN** a cold start with any home-lock state (present, absent, stale, or freshly released)
 - **WHEN** the server classifies recovery candidates
-- **THEN** the classification result SHALL depend only on per-session `.meta.json` `live` / `closedReason` fields
+- **THEN** the classification result SHALL depend only on per-session `.meta.json` fields (`live`, `status`, `closedReason`)
 - **AND** SHALL NOT change based on the home-lock file or its metadata
 
