@@ -12,8 +12,8 @@
 
 ## 3. Seed real node dir into buildSpawnEnv (Decision 2, defense-in-depth)
 
-- [x] 3.1 In `packages/shared/src/platform/binary-lookup.ts`, extend `buildSpawnEnv` to prepend the resolved node bin dir and, when present, the managed `~/.pi-dashboard/node/bin` to the child PATH. (Existing `nodeBin` from `processExecPath` kept; added `getManagedNodeBinDir` when `isManagedNodePresent`.)
-- [x] 3.2 Guard against duplicate PATH entries (reuse the existing `currentPath.includes(dir)` pattern).
+- [x] 3.1 Defense-in-depth (real node bin dir on child PATH): **already provided by existing code**, no new `buildSpawnEnv` change needed. `process-manager.buildSpawnEnv` wraps `resolver.buildSpawnEnv` with `prependManagedNodeToPath` (seeds `~/.pi-dashboard/node/bin` at PATH head); `server-launcher` + `electron/launch-source` construct the resolver with `processExecPath: pick.nodeBin` (the picked real node), so `dirname(nodeBin)` is already prepended. A duplicate prepend inside the shared `ToolResolver.buildSpawnEnv` was implemented then **reverted** — it was redundant and its extra `existsSync`/`os.homedir()` widened a pre-existing cross-file `HOME`-mutation race that flaked `process-manager-managed-path.test.ts` in CI. The real fix is Decision 1 (node-wrap via the runner, which does not use `buildSpawnEnv`).
+- [x] 3.2 Duplicate-PATH guard: existing `prependManagedNodeToPath` already dedups via `currentPath.split(delimiter).includes(dir)`; no change needed.
 
 ## 4. Surface CLI-read failure instead of empty degradation (Decision 3)
 
