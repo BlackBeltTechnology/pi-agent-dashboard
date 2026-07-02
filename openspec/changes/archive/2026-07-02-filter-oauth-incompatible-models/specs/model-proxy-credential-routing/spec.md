@@ -22,10 +22,6 @@ For each model, the system SHALL include it in the available set only when at le
 - **WHEN** `auth.json` has an `anthropic` `api_key` credential (with no OAuth credential)
 - **THEN** every Anthropic model in the registry SHALL appear in `/v1/models`, including ones flagged `oauthCompatible: false`
 
-#### Scenario: Mixed credentials prefer the more permissive kind
-- **WHEN** `auth.json` has both an `oauth` and an `api_key` credential for the same provider
-- **THEN** the API-key path SHALL determine model availability, so all models of that provider appear in `/v1/models`
-
 #### Scenario: No credential excludes provider entirely
 - **WHEN** `auth.json` has no credential for `openai`
 - **THEN** no `openai/*` model SHALL appear in `/v1/models`
@@ -55,7 +51,7 @@ The set of reason values SHALL be:
 - `"no-credential"` — provider has no credential of any kind
 - `"oauth-incompatible"` — provider has only an OAuth credential and the model is flagged `oauthCompatible: false`
 
-The existing `/api/model-proxy/diagnostics` endpoint SHALL include the reason for each model when present.
+A new `GET /api/model-proxy/diagnostics` endpoint (added by this change) SHALL include the reason for each model when present. No such endpoint exists today.
 
 #### Scenario: Diagnostic shows excluded reason for OAuth-incompatible model
 - **WHEN** the user queries `/api/model-proxy/diagnostics` with only an Anthropic OAuth credential configured

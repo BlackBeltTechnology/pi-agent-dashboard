@@ -56,6 +56,9 @@ export const OAUTH_INCOMPATIBLE: Record<string /*provider*/, ReadonlySet<string 
     // ...all snapshots that predate the Claude Code allowlist
   ]),
   // openai: new Set([...]) // Codex-token-incompatible ids, populated when needed
+  // NOTE: Codex OAuth is stored under auth.json key `openai-codex`, while pi-ai
+  // models carry provider `openai`. The filter keys on `model.provider`, so a raw
+  // `openai` slot will not see the `openai-codex` cred without a provider-key remap.
 };
 
 export function isOauthIncompatible(provider: string, id: string): boolean { ... }
@@ -67,7 +70,7 @@ Built-in models loaded in `getAllModels()` get `oauthCompatible = !isOauthIncomp
 
 ### D3. Excluded-reason annotations
 
-`getAvailable()` produces the filtered list. Extend `getAll()` with a sibling `getAllAnnotated()` that returns `{ model, excludedReason: null | "no-credential" | "oauth-incompatible" }`. Used by `/api/model-proxy/diagnostics` (existing) and any future Settings UI. Keeps the public `getAll()` shape unchanged.
+`getAvailable()` produces the filtered list. Add a sibling `getAllAnnotated()` that returns `{ model, excludedReason: null | "no-credential" | "oauth-incompatible" }`. Consumed by a **new** `GET /api/model-proxy/diagnostics` route created in this change (no such route exists today; `getAll()` currently has zero callers) and any future Settings UI. Keeps the public `getAll()` shape unchanged.
 
 ### D4. Drift policy
 
@@ -100,4 +103,4 @@ Rollback: revert the commit; cache invalidation happens on next `refresh()`.
 ## Open Questions
 
 - Should `models.json` (user-defined custom models) accept an `oauthCompatible` field, or is documenting the workaround (omit OAuth credential) sufficient? **Decision: accept the field; matches the registry shape and costs nothing.** Implemented in tasks.
-- Do we want a CLI / API hook to query exclusion reasons (for the future Settings UI)? **Decision: yes, expose via existing `/api/model-proxy/diagnostics` endpoint by including `excludedReason` per entry.** Implemented in tasks.
+- Do we want a CLI / API hook to query exclusion reasons (for the future Settings UI)? **Decision: yes, expose via a new `GET /api/model-proxy/diagnostics` route (created in this change) returning `excludedReason` per entry.** Implemented in tasks.

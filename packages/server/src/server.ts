@@ -92,6 +92,7 @@ import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
+import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
 import { writeConfigPartial } from "./config-api.js";
 import { loadServerEntries, discoverPlugins, getPluginStatusStore, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
@@ -1136,6 +1137,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // Register refresh route (JWT-gated)
       registerModelProxyRefreshRoutes(fastify);
+
+      // Register diagnostics route (JWT-gated). See change: filter-oauth-incompatible-models.
+      registerModelProxyDiagnosticsRoutes(fastify);
     }
   }
 

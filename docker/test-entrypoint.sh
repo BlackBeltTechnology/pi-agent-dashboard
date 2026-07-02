@@ -87,9 +87,32 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     # `defaultModel` makes the bridge call pi.setModel(faux/faux-1) on each
     # brand-new UI-spawned session (bridge-default-model-gate) so the round-trip
     # specs reach a key-free model with no --model flag.
-    printf '{"spawnStrategy":"%s","trustedNetworks":["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"],"defaultModel":"faux/faux-1"}\n' "${PI_SPAWN_STRATEGY:-tmux}" \
-      > "${PI_DIR}/dashboard/config.json"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) + defaultModel → config.json"
+    # `modelProxy` enabled + one seeded proxy API key so the OAuth-filter E2E
+    # spec (tests/e2e/model-proxy-oauth-filter.spec.ts) can auth to /v1/*. Key
+    # cleartext is a fixed constant shared with the spec (E2E_PROXY_KEY below);
+    # stored hash = sha256(cleartext). Disposable localhost container only.
+    # See change: filter-oauth-incompatible-models.
+    E2E_PROXY_KEY="pi-proxy-e2e-oauth-filter-000000000000000000000000000000"
+    node -e '
+      const crypto = require("node:crypto");
+      const fs = require("node:fs");
+      const [key, spawnStrategy, out] = process.argv.slice(1);
+      const hash = crypto.createHash("sha256").update(key).digest("hex");
+      const cfg = {
+        spawnStrategy: spawnStrategy || "tmux",
+        trustedNetworks: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+        defaultModel: "faux/faux-1",
+        modelProxy: {
+          enabled: true,
+          maxConcurrentStreams: 16,
+          perKeyConcurrentStreams: 4,
+          logRequests: false,
+          apiKeys: [{ id: "e2e", label: "e2e-oauth-filter", hash, scopes: ["all"], createdAt: 0 }],
+        },
+      };
+      fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+    ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (RFC1918) + defaultModel + modelProxy apiKey → config.json"
   fi
 
   # --- Faux model: stage the fixture as a global auto-discovered extension ---

@@ -24,6 +24,17 @@ screenshots). It owns rendered-UI behaviour assertions.
   npx playwright install chromium
   ```
 
+  **Use the system Google Chrome instead** (no download): set
+  `PW_SYSTEM_CHROME=1`. `playwright.config.ts` then launches `channel:"chrome"`
+  and `globalSetup` skips the bundled-binary preflight. Requires Google Chrome
+  installed on the host.
+
+  ```bash
+  # attach to a container already up on :18000, run one spec via system Chrome
+  PI_E2E_SEED=1 docker/test-up.sh -d --build   # --build picks up local source changes
+  PW_E2E_USE_RUNNING=1 PW_SYSTEM_CHROME=1 npx playwright test model-proxy-oauth-filter
+  ```
+
 ## Run
 
 ```bash

@@ -24,5 +24,15 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // PW_SYSTEM_CHROME=1 → use the system-installed Google Chrome (channel:"chrome")
+  // instead of Playwright's bundled Chromium (no `npx playwright install` needed).
+  projects: [
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(process.env.PW_SYSTEM_CHROME ? { channel: "chrome" } : {}),
+      },
+    },
+  ],
 });

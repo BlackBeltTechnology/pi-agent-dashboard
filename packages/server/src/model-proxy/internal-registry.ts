@@ -8,6 +8,7 @@
  * See change: add-dashboard-model-proxy, design §1.
  */
 import type { InternalAuthStorage } from "./internal-auth-storage.js";
+import { isOauthIncompatible } from "./oauth-compat.js";
 
 /**
  * Minimal surface expected from the pi-ai module (runtime-resolved).
@@ -40,6 +41,8 @@ export interface CustomModelEntry {
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;
+  /** Routable over an OAuth credential. Default true when absent. See change: filter-oauth-incompatible-models. */
+  oauthCompatible?: boolean;
 }
 
 export interface InternalRegistryDeps {
@@ -70,7 +73,7 @@ export class InternalRegistry {
     if (this.cachedModels) return this.cachedModels;
     const all = this.getAllModels();
     const auth = this.deps.readAuth();
-    const filtered = all.filter((m: any) => this.hasAuth(m.provider, auth));
+    const filtered = all.filter((m: any) => this.canRouteModel(m, auth[m.provider]));
     this.cachedModels = filtered;
     return filtered;
   }
@@ -95,6 +98,26 @@ export class InternalRegistry {
     return this.getAllModels();
   }
 
+  /**
+   * All models annotated with the reason each is excluded from getAvailable().
+   * null = included; "no-credential" = provider has no usable credential;
+   * "oauth-incompatible" = only an OAuth credential and model flagged
+   * oauthCompatible:false. Diagnostics only. See change: filter-oauth-incompatible-models.
+   */
+  getAllAnnotated(): Array<{ model: any; excludedReason: null | "no-credential" | "oauth-incompatible" }> {
+    const all = this.getAllModels();
+    const auth = this.deps.readAuth();
+    return all.map((model: any) => {
+      let excludedReason: null | "no-credential" | "oauth-incompatible" = null;
+      if (!this.hasAuth(model.provider, auth)) {
+        excludedReason = "no-credential";
+      } else if (!this.canRouteModel(model, auth[model.provider])) {
+        excludedReason = "oauth-incompatible";
+      }
+      return { model, excludedReason };
+    });
+  }
+
   // ── Private ─────────────────────────────────────────────────────────
 
   private getAllModels(): any[] {
@@ -102,10 +125,13 @@ export class InternalRegistry {
 
     const models: any[] = [];
 
-    // 1. Built-in models from pi-ai
+    // 1. Built-in models from pi-ai (shallow-copied so we can annotate
+    //    oauthCompatible without mutating pi-ai's shared model objects).
     for (const provider of this.piAi.getProviders()) {
       try {
-        models.push(...this.piAi.getModels(provider));
+        for (const model of this.piAi.getModels(provider)) {
+          models.push({ ...model, oauthCompatible: !isOauthIncompatible(provider, model.id) });
+        }
       } catch {
         // Provider may not have models registered
       }
@@ -138,6 +164,7 @@ export class InternalRegistry {
         cost: cm.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: cm.contextWindow ?? 128000,
         maxTokens: cm.maxTokens ?? 8192,
+        oauthCompatible: cm.oauthCompatible ?? true,
         ...(cm.headers ? { headers: cm.headers } : {}),
       };
       models.push(model);
@@ -152,6 +179,20 @@ export class InternalRegistry {
     if (!cred) return false;
     if (cred.type === "api_key" && cred.key) return true;
     if (cred.type === "oauth" && (cred.access || cred.refresh)) return true;
+    return false;
+  }
+
+  /**
+   * Can the given provider credential route this model?
+   * api_key routes everything; oauth routes only when the model is not flagged
+   * OAuth-incompatible (oauthCompatible !== false). See change: filter-oauth-incompatible-models, design §D1.
+   */
+  private canRouteModel(model: any, cred: any): boolean {
+    if (!cred) return false;
+    if (cred.type === "api_key" && cred.key) return true;
+    if (cred.type === "oauth" && (cred.access || cred.refresh)) {
+      return model.oauthCompatible !== false;
+    }
     return false;
   }
 }

@@ -7,9 +7,9 @@ Dashboard model proxy's `/v1/models` advertises every model pi-ai knows for any 
 - Extend `InternalRegistry.getAvailable()` so filtering considers *credential kind × model id*, not only provider presence.
 - Add a per-model `oauthCompatible?: boolean` flag (default `true`) in the registry's enriched model entry.
 - Maintain a small overrides table (`packages/server/src/model-proxy/oauth-compat.ts`) that flags known OAuth-incompatible model ids (legacy Anthropic snapshots, Codex-restricted OpenAI ids, etc.). Built-in models inherit the flag at registration time.
-- `getAvailable()`: for each model, if the only available credential for its provider is `oauth` and `oauthCompatible === false`, exclude it. If both `oauth` and `api_key` are present for the provider, include it (api-key path can route).
+- `getAvailable()`: for each model, if the provider's credential is `oauth` and `oauthCompatible === false`, exclude it. (auth.json holds one credential per provider key — `api_key` OR `oauth`, never both — so there is no "mixed creds" branch.)
 - No change to `/v1/chat/completions` / `/v1/messages` runtime routing; only `/v1/models` listing and downstream `find()` lookup change.
-- Diagnostics: `getAll()` keeps returning the unfiltered set (used by Settings → Tools / debug); add an `excludedReason` annotation to entries dropped by the filter so the UI can later surface "hidden because requires API key".
+- Diagnostics: `getAll()` keeps returning the unfiltered set; add a `getAllAnnotated()` sibling that attaches an `excludedReason` to entries dropped by the filter, exposed via a **new** `GET /api/model-proxy/diagnostics` route so the UI can later surface "hidden because requires API key".
 
 ## Capabilities
 
@@ -22,7 +22,7 @@ Dashboard model proxy's `/v1/models` advertises every model pi-ai knows for any 
 
 ## Impact
 
-- Code: `packages/server/src/model-proxy/internal-registry.ts` (filter logic), new `oauth-compat.ts` (override table + helper), `internal-registry.test.ts` (new cases).
+- Code: `packages/server/src/model-proxy/internal-registry.ts` (filter logic), new `oauth-compat.ts` (override table + helper), new `internal-registry.test.ts`, `packages/server/src/routes/model-proxy-routes.ts` (new `GET /api/model-proxy/diagnostics` route).
 - Behavior: `/v1/models` returns a smaller, accurate list when only OAuth is configured for a provider. Callers using legacy model ids will get `404` from `/v1/models` instead of a confusing upstream `404` mid-stream — clearer failure mode.
 - No client/extension/protocol changes. No new config keys. No migration.
 - Override table is hand-maintained; documented in `docs/architecture.md` model-proxy section. Drift risk is low (Anthropic OAuth allowlist changes ~quarterly) and bounded — falling back to current behavior (model listed but unreachable) is the cost of a stale entry, not a regression.

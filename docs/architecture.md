@@ -2190,6 +2190,24 @@ sequenceDiagram
 3. On hit: checks `revokedAt`, `expiresAt`, scope vs. route path.
 4. On success: attaches `request.proxyApiKeyId`, resets per-IP backoff, debounced `lastUsedAt` write.
 
+### Credential-kind routing filter
+
+`getAvailable()` / `find()` filter by credential kind × model id, not provider presence alone. Private `canRouteModel(model, cred)`:
+
+- `api_key` cred with `key` → routes every model of provider.
+- `oauth` cred with `access`/`refresh` token → routes model only when `model.oauthCompatible !== false`.
+- No cred → excludes all provider models.
+
+`auth.json` holds one credential per provider key (`api_key` OR `oauth`, never both). No mixed-cred branch.
+
+Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INCOMPATIBLE: Record<provider, ReadonlySet<modelId>>` + `isOauthIncompatible(provider, id)`. Flags legacy Anthropic snapshots (`claude-3-5-haiku-20241022`, `claude-3-5-sonnet-*`, `claude-3-7-sonnet-*`, `claude-3-opus-*`, `claude-3-haiku-*`, `claude-3-sonnet-*`) unreachable over OAuth. `getAllModels()` sets `oauthCompatible = !isOauthIncompatible(provider, id)` on built-in models; custom models propagate `models.json#oauthCompatible` (default `true`). Hand-maintained. Review when provider ships new model. Stale entry falls back to listed-but-unreachable — not a regression.
+
+Note: Codex OAuth stored under `auth.json` key `openai-codex`; pi-ai OpenAI models carry provider `openai`. Filter keys on `model.provider`, so raw `openai` override slot never sees `openai-codex` cred without provider-key remap. `openai` slot left empty.
+
+`GET /api/model-proxy/diagnostics` (JWT-gated, main instance only, `routes/model-proxy-diagnostics-routes.ts`): `getAllAnnotated()` → `{id, provider, excludedReason}` per model. `excludedReason` ∈ `null` (included) | `"no-credential"` | `"oauth-incompatible"`. Feeds future Settings UI. 503 when pi-ai unresolved.
+
+See change: `filter-oauth-incompatible-models`.
+
 ### Refresh trigger map
 
 | Trigger | Site |

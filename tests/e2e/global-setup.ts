@@ -22,6 +22,9 @@ const CHANGE = "change add-playwright-e2e";
 // binary is not downloaded; existsSync is the real gate. try/catch backstops
 // versions that throw instead. See change self-heal-host-playwright-browser.
 function assertBrowserInstalled(): void {
+  // PW_SYSTEM_CHROME=1 opts into the system-installed Google Chrome
+  // (channel:"chrome" in playwright.config.ts) — skip the bundled-binary check.
+  if (process.env.PW_SYSTEM_CHROME) return;
   let execPath: string | undefined;
   try {
     execPath = chromium.executablePath();
