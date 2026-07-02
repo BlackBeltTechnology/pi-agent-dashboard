@@ -555,7 +555,11 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // Explore dialog can reuse the exact same behavior.
 
   return (
-    <div ref={composerRef} className="border-t border-[var(--border-primary)] p-3 relative">
+    <div
+      ref={composerRef}
+      data-testid="composer-root"
+      className="border-t border-[var(--border-primary)] p-3 relative"
+    >
       {/* Autocomplete dropdown */}
       {dropdownMode === "command" && (
         <div
