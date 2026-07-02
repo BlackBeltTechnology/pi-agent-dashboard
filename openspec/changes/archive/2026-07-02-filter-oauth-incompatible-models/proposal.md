@@ -22,7 +22,7 @@ Dashboard model proxy's `/v1/models` advertises every model pi-ai knows for any 
 
 ## Impact
 
-- Code: `packages/server/src/model-proxy/internal-registry.ts` (filter logic), new `oauth-compat.ts` (override table + helper), new `internal-registry.test.ts`, `packages/server/src/routes/model-proxy-routes.ts` (new `GET /api/model-proxy/diagnostics` route).
+- Code: `packages/server/src/model-proxy/internal-registry.ts` (filter logic), new `oauth-compat.ts` (override table + helper), new `internal-registry.test.ts`, `packages/server/src/routes/model-proxy-diagnostics-routes.ts` (new `GET /api/model-proxy/diagnostics` route).
 - Behavior: `/v1/models` returns a smaller, accurate list when only OAuth is configured for a provider. Callers using legacy model ids will get `404` from `/v1/models` instead of a confusing upstream `404` mid-stream — clearer failure mode.
 - No client/extension/protocol changes. No new config keys. No migration.
 - Override table is hand-maintained; documented in `docs/architecture.md` model-proxy section. Drift risk is low (Anthropic OAuth allowlist changes ~quarterly) and bounded — falling back to current behavior (model listed but unreachable) is the cost of a stale entry, not a regression.
