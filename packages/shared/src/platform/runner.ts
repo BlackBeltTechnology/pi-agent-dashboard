@@ -13,10 +13,11 @@
  *
  * See change: platform-command-executor.
  */
-import path from "node:path";
+
 import { existsSync } from "node:fs";
-import { spawnSync, spawn, buildSafeArgv } from "./exec.js";
+import path from "node:path";
 import { ToolResolver } from "./binary-lookup.js";
+import { buildSafeArgv, spawn, spawnSync } from "./exec.js";
 // The tool registry publishes itself on a well-known `globalThis` symbol
 // when `getDefaultRegistry()` is first called from any consumer. The
 // runner reads that global to avoid a load-order cycle (tool-registry
@@ -101,6 +102,39 @@ const GLOBAL_REGISTRY_KEY = Symbol.for("pi-dashboard.tool-registry");
 function tryGetRegistry(): LazyRegistry | null {
   const reg = (globalThis as unknown as { [k: symbol]: LazyRegistry | undefined })[GLOBAL_REGISTRY_KEY];
   return reg ?? null;
+}
+
+/**
+ * Build the spawn env for a resolved executor argv.
+ *
+ * Default behavior is unchanged: when the caller supplied `ctx.env`, merge
+ * it over `process.env`; otherwise inherit `process.env` (return undefined).
+ *
+ * Electron edge (see change: fix-openspec-config-read-bundled-node): when a
+ * Node-script executor node-wraps to `process.execPath` and the server is
+ * itself running under Electron (`process.versions.electron`), that
+ * interpreter is the Electron binary. It only behaves as `node` with
+ * `ELECTRON_RUN_AS_NODE=1`, so force that flag on the child's env. This is
+ * the safety net for the `execpath-fallback` topology; when
+ * `registry.resolve("node")` yields a real node it is never triggered.
+ *
+ * `deps` (execPath / electronVersion) are injected for deterministic
+ * testing; production callers omit them and read the live process.
+ * Exported for unit tests.
+ */
+export function buildSpawnEnvForArgv(
+  execCmd: string,
+  ctxEnv?: NodeJS.ProcessEnv,
+  deps?: { execPath?: string; electronVersion?: string },
+): NodeJS.ProcessEnv | undefined {
+  const execPath = deps?.execPath ?? process.execPath;
+  const electronVersion =
+    deps?.electronVersion ?? (process as { versions?: { electron?: string } }).versions?.electron;
+  const electronAsNode = Boolean(electronVersion) && execCmd === execPath;
+  if (!ctxEnv && !electronAsNode) return undefined;
+  const merged: NodeJS.ProcessEnv = ctxEnv ? { ...process.env, ...ctxEnv } : { ...process.env };
+  if (electronAsNode) merged.ELECTRON_RUN_AS_NODE = "1";
+  return merged;
 }
 
 /**
@@ -220,7 +254,7 @@ export function run<Input, Output>(
   try {
     const result = spawnSync(safeArgv[0], safeArgv.slice(1), {
       cwd: ctx.cwd,
-      env: ctx.env ? { ...process.env, ...ctx.env } : undefined,
+      env: buildSpawnEnvForArgv(execCmd, ctx.env),
       encoding: "utf-8",
       timeout,
       stdio: ["pipe", "pipe", "pipe"],
@@ -315,7 +349,7 @@ export function runAsync<Input, Output>(
     try {
       child = spawn(safeArgv[0], safeArgv.slice(1), {
         cwd: ctx.cwd,
-        env: ctx.env ? { ...process.env, ...ctx.env } : undefined,
+        env: buildSpawnEnvForArgv(execCmd, ctx.env),
         stdio: ["ignore", "pipe", "pipe"],
         ...spawnOptions, // shell: false, windowsHide: true
       });

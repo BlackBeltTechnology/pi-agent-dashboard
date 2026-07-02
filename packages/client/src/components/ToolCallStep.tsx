@@ -3,6 +3,8 @@ import { Icon } from "@mdi/react";
 import { mdiLoading, mdiCheck, mdiAlertCircle, mdiChevronRight, mdiChevronDown, mdiStop, mdiAlert, mdiHelpCircleOutline } from "@mdi/js";
 import { getToolRenderer, type ToolContext } from "./tool-renderers/index.js";
 import type { ChatImage } from "../lib/event-reducer.js";
+import { TRUNCATION_MARKER_PREFIX } from "../lib/event-reducer.js";
+import { useToolFullResult } from "../hooks/useToolFullResult.js";
 import { useMobile } from "../hooks/useMobile.js";
 import { ElapsedBadge } from "./ElapsedBadge.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
@@ -105,6 +107,22 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const [stopState, setStopState] = useState<StopState>("idle");
   const Renderer = getToolRenderer(toolName);
 
+  // Show-full-output affordance: when the rendered result carries the
+  // truncation marker, offer an on-demand fetch of the full stored result.
+  // Collapse re-shows the truncated form. See change:
+  // adopt-pi-071-072-073-features.
+  // Only offer "Show full output" when both fetch ids are present — without
+  // them useToolFullResult skips the request, so flipping to full-output mode
+  // would strand a "Collapse output" control over still-truncated text.
+  const isTruncated =
+    typeof result === "string" &&
+    result.startsWith(TRUNCATION_MARKER_PREFIX) &&
+    !!context.sessionId &&
+    !!toolCallId;
+  const [showFull, setShowFull] = useState(false);
+  const fullResult = useToolFullResult(context.sessionId, toolCallId);
+  const displayResult = showFull && fullResult.result != null ? fullResult.result : result;
+
   // Resolution chain: plugin `tool-renderer` claim → built-in registry → Generic.
   // One-shot at lookup time; a chosen plugin renderer that throws is caught by
   // the per-tool ErrorBoundary below (no silent fall-through). When no
@@ -199,7 +217,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                   toolInput={args ?? {}}
                   sessionId={context.sessionId ?? ""}
                   status={status}
-                  result={result}
+                  result={displayResult}
                   images={images}
                   context={context}
                   toolDetails={toolDetails}
@@ -210,13 +228,37 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                 toolName={toolName}
                 args={args}
                 status={status}
-                result={result}
+                result={displayResult}
                 images={images}
                 context={context}
                 toolDetails={toolDetails}
               />
             )}
           </ErrorBoundary>
+          {isTruncated && (
+            <div className="mt-1">
+              {fullResult.error ? (
+                <span className="text-[var(--text-muted)] italic" data-testid="tool-result-evicted">{fullResult.error}</span>
+              ) : showFull ? (
+                <button
+                  onClick={() => setShowFull(false)}
+                  className="text-[var(--accent)] hover:underline"
+                  data-testid="tool-collapse-output"
+                >
+                  {i18nT("auto.collapse_output", undefined, "Collapse output")}
+                </button>
+              ) : (
+                <button
+                  onClick={async () => { await fullResult.fetchFull(); setShowFull(true); }}
+                  disabled={fullResult.loading}
+                  className="text-[var(--accent)] hover:underline disabled:opacity-50"
+                  data-testid="tool-show-full-output"
+                >
+                  {fullResult.loading ? i18nT("auto.loading", undefined, "Loading…") : i18nT("auto.show_full_output", undefined, "Show full output")}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

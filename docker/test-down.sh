@@ -30,6 +30,10 @@ fi
 # down does not mount it. Default to /tmp when invoked outside a project.
 export HOST_CWD="${HOST_CWD:-/tmp}"
 
+# Per-worktree image tag (same pure function as test-up) so compose interpolates
+# the same `image:` and `down` resolves cleanly.
+export TEST_IMAGE_TAG="$project"
+
 docker compose -p "$project" \
   -f "${SCRIPT_DIR}/compose.yml" \
   -f "${SCRIPT_DIR}/compose.test.yml" \
@@ -37,3 +41,10 @@ docker compose -p "$project" \
 
 # Drop the per-worktree state file after a successful down.
 rm -f "$STATE_FILE"
+
+# Remove this worktree's baked image so per-worktree tags don't accumulate.
+# Runs AFTER down -v (no container references it). Best-effort/non-fatal: a
+# missing tag (never built, or already pruned) must not fail teardown. Targets
+# only THIS worktree's tag via the CWD-derived project name; never the base
+# pi-dashboard:local. See change fix-parallel-e2e-docker-collisions D4.
+docker image rm -f "pi-dashboard:${project}" 2>/dev/null || true

@@ -19,6 +19,12 @@ interface Props {
   streamingText?: string;
   onSelectModel: (model: string) => void;
   onSelectThinkingLevel: (level: string) => void;
+  /**
+   * User-initiated re-request of the model list for the selected session.
+   * Forwarded to ModelSelector's footer refresh control.
+   * See change: refresh-model-selector-models.
+   */
+  onRefreshModels?: () => void;
 
   /**
    * @deprecated Roles UI moved to a `settings-section` plugin contribution
@@ -66,6 +72,7 @@ export function StatusBar({
   streamingText,
   onSelectModel,
   onSelectThinkingLevel,
+  onRefreshModels,
   actions,
   leading,
 }: Props) {
@@ -98,8 +105,12 @@ export function StatusBar({
             <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] flex-shrink-0" />
           </>
         )}
-        <ModelSelector current={model} models={models} onSelect={onSelectModel} favorites={favorites} onToggleFavorite={onToggleFavorite} />
-        <ThinkingLevelSelector current={thinkingLevel} onSelect={onSelectThinkingLevel} />
+        <ModelSelector current={model} models={models} onSelect={onSelectModel} onRefresh={onRefreshModels} favorites={favorites} onToggleFavorite={onToggleFavorite} />
+        <ThinkingLevelSelector
+          current={thinkingLevel}
+          onSelect={onSelectThinkingLevel}
+          supportedLevels={models?.find((m) => `${m.provider}/${m.id}` === model)?.supportedThinkingLevels}
+        />
         {actions && (
           <>
             <span aria-hidden="true" className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-1 flex-shrink-0" />

@@ -23,6 +23,54 @@ interface ServerEntry {
   isLocal: boolean;
 }
 
+/** Page-origin hostnames treated as loopback for the localhost seed gate. */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+
+/** True when the page is served from a loopback origin. */
+export function isLoopbackOrigin(hostname: string): boolean {
+  return LOOPBACK_HOSTNAMES.has(hostname);
+}
+
+/** Collapse any loopback alias (127.0.0.1, ::1) to `localhost` for dedup/keys. */
+function canonicalLoopbackHost(host: string): string {
+  return isLoopbackOrigin(host) ? "localhost" : host;
+}
+
+/**
+ * Build the selector's display list. Seeds the `localhost` "Local" entry
+ * ONLY when the page origin is loopback — a `localhost` probe from a remote
+ * browser is meaningless (it targets the browser's own machine). For remote
+ * origins the served host is the operative current entry. The current server
+ * is always present (appended if not already in the known list).
+ * See change: distinguish-offline-from-network-denied.
+ */
+export function buildServerEntries(
+  knownServers: { host: string; port: number; label?: string }[],
+  currentHost: string,
+  currentPort: number,
+  originHostname: string,
+): ServerEntry[] {
+  const entries: ServerEntry[] = [];
+  if (isLoopbackOrigin(originHostname)) {
+    entries.push({ host: "localhost", port: currentPort, label: "Local", isLocal: true });
+  }
+  for (const s of knownServers) {
+    if (isLoopbackOrigin(s.host)) continue;
+    entries.push({ host: s.host, port: s.port, label: s.label, isLocal: false });
+  }
+  // Canonicalize loopback aliases so a current host of 127.0.0.1/::1 dedups
+  // against the seeded `localhost` row and is classified Local, not Remote.
+  const currentKey = `${canonicalLoopbackHost(currentHost)}:${currentPort}`;
+  if (!entries.some((e) => `${canonicalLoopbackHost(e.host)}:${e.port}` === currentKey)) {
+    const isLocal = isLoopbackOrigin(currentHost);
+    entries.push({ host: currentHost, port: currentPort, isLocal });
+  }
+  return entries;
+}
+
+/** Probe outcome for a selector entry. */
+type ProbeState = "available" | "unreachable" | "denied";
+
 interface Props {
   /** mDNS-discovered servers — kept for Settings panel, no longer primary data source */
   servers?: DiscoveredServerInfo[];
@@ -39,7 +87,7 @@ interface Props {
 export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const [availability, setAvailability] = useState<Map<string, boolean>>(new Map());
+  const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
   const [knownServers, setKnownServers] = useState<KnownServer[]>([]);
 
   // Load known servers from API on mount and when dropdown opens
@@ -55,21 +103,12 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   useEffect(() => { loadKnown(); }, [loadKnown]);
   useEffect(() => { if (open) loadKnown(); }, [open, loadKnown]);
 
-  // Build the display list: localhost first, then known servers
-  const entries: ServerEntry[] = [
-    { host: "localhost", port: currentPort, label: "Local", isLocal: true },
-    ...knownServers
-      .filter((s) => !(s.host === "localhost" || s.host === "127.0.0.1"))
-      .map((s) => ({ host: s.host, port: s.port, label: s.label, isLocal: false })),
-  ];
-
-  // If current server isn't in the list, add it
+  // Build the display list. The `localhost` "Local" seed is gated on a
+  // loopback page origin so remote clients never see a phantom localhost row.
+  const originHostname =
+    typeof window !== "undefined" ? window.location.hostname : "localhost";
+  const entries = buildServerEntries(knownServers, currentHost, currentPort, originHostname);
   const currentKey = `${currentHost}:${currentPort}`;
-  const isCurrentInList = entries.some((e) => `${e.host}:${e.port}` === currentKey);
-  if (!isCurrentInList) {
-    const isLocal = currentHost === "localhost" || currentHost === "127.0.0.1";
-    entries.push({ host: currentHost, port: currentPort, isLocal });
-  }
 
   // Probe availability only when the dropdown opens — once per open.
   // No background probing, no periodic timer, no mount probe.
@@ -82,12 +121,25 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
       // Current server's status is derived from `connected` — skip the probe.
       if (key === currentKey) continue;
       fetch(`http://${s.host}:${s.port}/api/health`, { signal: AbortSignal.timeout(2000) })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => {
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, d?.ok === true));
+        .then(async (r): Promise<ProbeState> => {
+          // A guarded response (403 network_not_allowed) means the server is
+          // reachable but the client's network/auth is not permitted — a
+          // distinct "denied" state, NOT "unreachable".
+          if (r.status === 403) {
+            const body = await r.json().catch(() => null);
+            if (body?.error === "network_not_allowed") return "denied";
+            return "unreachable";
+          }
+          if (!r.ok) return "unreachable";
+          const d = await r.json().catch(() => null);
+          return d?.ok === true ? "available" : "unreachable";
+        })
+        .then((state) => {
+          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, state));
         })
         .catch(() => {
-          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, false));
+          // Transport failure (no response) — genuine unreachable.
+          if (!cancelled) setAvailability((prev) => new Map(prev).set(key, "unreachable"));
         });
     }
     return () => {
@@ -138,22 +190,32 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
             const key = `${entry.host}:${entry.port}`;
             const isCurrent = key === currentKey;
             const probe = availability.get(key);
-            const unreachable = !isCurrent && probe === false;
+            const denied = !isCurrent && probe === "denied";
+            const unreachable = !isCurrent && probe === "unreachable";
+            // Both denied and unreachable disable switching, but render distinctly.
+            const blocked = denied || unreachable;
             const isSwitching = inFlightSwitchKey === key;
             return (
               <button
                 key={key}
-                disabled={unreachable}
-                title={unreachable ? `${entry.host}:${entry.port} is unreachable` : undefined}
+                disabled={blocked}
+                title={
+                  denied
+                    ? `${entry.host}:${entry.port}: network not allowed`
+                    : unreachable
+                    ? `${entry.host}:${entry.port} is unreachable`
+                    : undefined
+                }
                 onClick={() => {
-                  if (unreachable) return;
+                  if (blocked) return;
                   if (!isCurrent) onSwitch(entry.host, entry.port);
                   setOpen(false);
                 }}
                 data-unreachable={unreachable || undefined}
+                data-denied={denied || undefined}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left transition-colors ${
                   isCurrent ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"
-                } ${unreachable ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-tertiary)] cursor-pointer"}`}
+                } ${blocked ? "opacity-50 cursor-not-allowed" : "hover:bg-[var(--bg-tertiary)] cursor-pointer"}`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="truncate font-medium">{entry.label ?? entry.host}</div>
@@ -177,9 +239,11 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
                   />
                 ) : isCurrent ? (
                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? "bg-green-500" : "bg-red-500"}`} />
+                ) : denied ? (
+                  <span className="shrink-0 text-[10px] text-amber-400">{i18nT("auto.network_not_allowed", undefined, "Network not allowed")}</span>
                 ) : unreachable ? (
                   <span className="shrink-0 text-[10px] text-red-400">{i18nT("auto.unreachable", undefined, "Unreachable")}</span>
-                ) : probe === true ? (
+                ) : probe === "available" ? (
                   <span className="shrink-0 text-[10px] text-green-500">{i18nT("auto.available", undefined, "Available")}</span>
                 ) : null}
               </button>

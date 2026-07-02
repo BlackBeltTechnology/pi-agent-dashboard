@@ -1,0 +1,62 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-video-transcription",
+  "version": "0.5.4",
+  "description": "Full TypeScript port of the video-transcription pi skill. Transcribes local video/audio to speaker-diarized SRT via the Soniox async API, with long-recording chunking and idempotent re-runs. ffmpeg/ffprobe are external prerequisites.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/video-transcription"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "video-transcription",
+    "transcription",
+    "srt",
+    "subtitles",
+    "soniox",
+    "ffmpeg",
+    "speaker-diarization"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/video-transcription"
+    ]
+  },
+  "bin": {
+    "pi-transcribe": "src/bin/transcribe.ts"
+  },
+  "files": [
+    "src/",
+    "!src/__tests__",
+    ".pi/skills/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "parity": "tsx parity/parity-check.ts",
+    "parity:docker": "parity/run.sh"
+  },
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*",
+    "vitest": "^2.1.8"
+  }
+}

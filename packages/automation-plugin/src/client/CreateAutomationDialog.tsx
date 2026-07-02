@@ -30,9 +30,12 @@ import {
   updateAutomation,
   listTriggerKinds,
   isGitCapable,
+  listActions,
 } from "./api.js";
 import { nextFire } from "../shared/cron.js";
 import type {
+  ActionDescriptor,
+  ActionPayloadField,
   AutomationConfig,
   AutomationScope,
   Concurrency,
@@ -41,6 +44,33 @@ import type {
   Visibility,
   TriggerCategoryDescriptor,
 } from "../shared/automation-types.js";
+
+/** Built-in actions shown before/if `listActions` returns nothing. */
+const BUILTIN_ACTIONS: ActionDescriptor[] = [
+  { id: "core.prompt", source: "core", label: "Prompt", description: "Seed a fresh session with a prompt.", available: true, payloadSchema: [] },
+  { id: "core.skill", source: "core", label: "Skill", description: "Invoke a $skill in a fresh session.", available: true, payloadSchema: [] },
+];
+
+/** Map a bare `prompt`/`skill` action kind to its `core.*` id. */
+function normalizeActionId(kind: string): string {
+  if (kind === "prompt") return "core.prompt";
+  if (kind === "skill") return "core.skill";
+  return kind;
+}
+
+/** Initial payload string-map from a saved action payload. */
+function coercePayload(payload?: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (payload) for (const [k, v] of Object.entries(payload)) out[k] = v == null ? "" : String(v);
+  return out;
+}
+
+/** Default payload values for an action's schema (enum → first option). */
+function defaultsForSchema(schema: ActionPayloadField[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of schema) out[f.key] = f.type === "enum" ? (f.options?.[0] ?? "") : "";
+  return out;
+}
 
 export interface CreateAutomationDialogProps {
   /** Repo cwd used for folder-scope writes. */
@@ -151,9 +181,15 @@ export function CreateAutomationDialog({
     (initialConfig?.on.cron as string | undefined) ?? "0 9 * * 1",
   );
 
-  const [actionKind, setActionKind] = useState<"prompt" | "skill">(
-    initialConfig?.action.kind ?? "prompt",
+  const [actionId, setActionId] = useState<string>(
+    normalizeActionId(initialConfig?.action.kind ?? "core.prompt"),
   );
+  const [actions, setActions] = useState<ActionDescriptor[]>(BUILTIN_ACTIONS);
+  const [actionSearch, setActionSearch] = useState("");
+  const [actionPayload, setActionPayload] = useState<Record<string, string>>(() =>
+    coercePayload(initialConfig?.action.payload),
+  );
+  const [openSources, setOpenSources] = useState<Record<string, boolean>>({ core: true });
   const [promptBody, setPromptBody] = useState(initialPromptBody ?? "");
   const [skill, setSkill] = useState(initialConfig?.action.skill ?? "");
 
@@ -182,6 +218,22 @@ export function CreateAutomationDialog({
       cancelled = true;
     };
   }, []);
+
+  // Load registered actions resolved for the cwd (availability + enum options).
+  useEffect(() => {
+    let cancelled = false;
+    void listActions(cwd).then((acts) => {
+      if (cancelled || acts.length === 0) return;
+      setActions(acts);
+      // Keep the selected action's source expanded.
+      const sel = acts.find((a) => a.id === actionId);
+      if (sel) setOpenSources((prev) => ({ ...prev, [sel.source]: true }));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cwd]);
 
   // Probe git capability for the chosen folder cwd (gates worktree mode).
   useEffect(() => {
@@ -222,8 +274,9 @@ export function CreateAutomationDialog({
   const needsEvents = !isScheduled && (activeCategory?.events.length ?? 0) > 0;
   const eventsMissing = needsEvents && selectedEvents.length === 0;
   const cronInvalid = isScheduled && !nextRun;
+  const skillMissing = actionId === "core.skill" && !skill.trim();
   const submitDisabled =
-    busy || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || !model;
+    busy || categoryPlanned || eventsMissing || (isScheduled && cronInvalid) || !model || skillMissing;
 
   function toggleEvent(ev: string): void {
     setSelectedEvents((prev) =>
@@ -241,15 +294,24 @@ export function CreateAutomationDialog({
       setError("This trigger category is not available yet.");
       return;
     }
+    if (actionId === "core.skill" && !skill.trim()) {
+      setError("Skill name is required.");
+      return;
+    }
     const onBlock: AutomationConfig["on"] = isScheduled
       ? { kind: "schedule", cron: effectiveCron }
       : { kind: mapCategoryToKind(category), events: selectedEvents };
+    let actionBlock: AutomationConfig["action"];
+    if (actionId === "core.prompt") {
+      actionBlock = { kind: "prompt", prompt: "./prompt.md" };
+    } else if (actionId === "core.skill") {
+      actionBlock = { kind: "skill", skill: skill.trim().startsWith("$") ? skill.trim() : `$${skill.trim()}` };
+    } else {
+      actionBlock = { kind: actionId, payload: { ...actionPayload } };
+    }
     const config: AutomationConfig = {
       on: onBlock,
-      action:
-        actionKind === "prompt"
-          ? { kind: "prompt", prompt: "./prompt.md" }
-          : { kind: "skill", skill: skill.trim().startsWith("$") ? skill.trim() : `$${skill.trim()}` },
+      action: actionBlock,
       model,
       mode,
       sandbox,
@@ -262,7 +324,7 @@ export function CreateAutomationDialog({
       ...(scope === "folder" && cwd ? { cwd } : {}),
       name: name.trim(),
       config,
-      ...(actionKind === "prompt" ? { promptBody } : {}),
+      ...(actionId === "core.prompt" ? { promptBody } : {}),
     };
     const res = editing ? await updateAutomation(body) : await createAutomation(body);
     setBusy(false);
@@ -481,18 +543,21 @@ export function CreateAutomationDialog({
 
         {/* ── ACTION ───────────────────────────────────────────── */}
         <Group title="Action">
-          <Field label="Action">
-            <Segmented
-              testid="create-action-kind"
-              value={actionKind}
-              onChange={(v) => setActionKind(v as "prompt" | "skill")}
-              options={[
-                { value: "prompt", label: "prompt" },
-                { value: "skill", label: "skill" },
-              ]}
-            />
-          </Field>
-          {actionKind === "prompt" ? (
+          <ActionPicker
+            actions={actions}
+            selectedId={actionId}
+            search={actionSearch}
+            openSources={openSources}
+            onSearch={setActionSearch}
+            onToggleSource={(s) => setOpenSources((p) => ({ ...p, [s]: !p[s] }))}
+            onSelect={(desc) => {
+              setActionId(desc.id);
+              if (desc.id !== "core.prompt" && desc.id !== "core.skill") {
+                setActionPayload(defaultsForSchema(desc.payloadSchema));
+              }
+            }}
+          />
+          {actionId === "core.prompt" && (
             <Field label="Prompt (durable, saved to prompt.md)">
               <textarea
                 value={promptBody}
@@ -502,7 +567,8 @@ export function CreateAutomationDialog({
                 className="input"
               />
             </Field>
-          ) : (
+          )}
+          {actionId === "core.skill" && (
             <Field label="Skill ($skill-name)">
               <input
                 type="text"
@@ -513,6 +579,13 @@ export function CreateAutomationDialog({
                 className="input font-mono"
               />
             </Field>
+          )}
+          {actionId !== "core.prompt" && actionId !== "core.skill" && (
+            <ActionPayloadForm
+              schema={actions.find((a) => a.id === actionId)?.payloadSchema ?? []}
+              values={actionPayload}
+              onChange={(k, v) => setActionPayload((p) => ({ ...p, [k]: v }))}
+            />
           )}
           <Field label="Model">
             <div className="flex gap-1 mb-1">
@@ -652,7 +725,7 @@ export function CreateAutomationDialog({
 
         <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-footer-caption">
           Writes .pi/automation/{name.trim() || "<name>"}/automation.yaml
-          {actionKind === "prompt" ? " + prompt.md" : ""}
+          {actionId === "core.prompt" ? " + prompt.md" : ""}
         </p>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -740,5 +813,178 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="block mb-0.5">{label}</span>
       {children}
     </label>
+  );
+}
+
+/**
+ * Grouped, searchable action picker (Direction A). Actions grouped by source
+ * plugin in collapsible groups; a filter narrows the list; unavailable sources
+ * render disabled-with-reason (kept visible for discoverability).
+ * See change: register-plugin-automation-events.
+ */
+function ActionPicker({
+  actions,
+  selectedId,
+  search,
+  openSources,
+  onSearch,
+  onToggleSource,
+  onSelect,
+}: {
+  actions: ActionDescriptor[];
+  selectedId: string;
+  search: string;
+  openSources: Record<string, boolean>;
+  onSearch: (v: string) => void;
+  onToggleSource: (source: string) => void;
+  onSelect: (desc: ActionDescriptor) => void;
+}): React.ReactElement {
+  const q = search.trim().toLowerCase();
+  const matched = actions.filter(
+    (a) => !q || a.id.toLowerCase().includes(q) || a.label.toLowerCase().includes(q) || a.source.toLowerCase().includes(q),
+  );
+  // Group by source, preserving the descriptor sort order.
+  const sources: string[] = [];
+  const bySource = new Map<string, ActionDescriptor[]>();
+  for (const a of matched) {
+    if (!bySource.has(a.source)) {
+      bySource.set(a.source, []);
+      sources.push(a.source);
+    }
+    bySource.get(a.source)!.push(a);
+  }
+  return (
+    <div data-testid="create-action-picker">
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+        placeholder={`Filter ${actions.length} actions…`}
+        aria-label="Filter actions"
+        data-testid="create-action-search"
+        className="input mb-2"
+      />
+      {matched.length === 0 ? (
+        <p className="text-[11px] text-[var(--text-muted)] px-1 py-2" data-testid="create-action-zero">
+          No actions match “{search}”. Try a plugin (<code>flows</code>) or verb (<code>run</code>).
+        </p>
+      ) : (
+        <div className="rounded border border-[var(--border-secondary)] divide-y divide-[var(--border-secondary)]">
+          {sources.map((src) => {
+            const items = bySource.get(src)!;
+            const sourceAvailable = items.some((a) => a.available);
+            const open = (openSources[src] ?? false) || q.length > 0;
+            return (
+              <div key={src}>
+                <button
+                  type="button"
+                  onClick={() => onToggleSource(src)}
+                  aria-expanded={open}
+                  data-testid={`action-group-${src}`}
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] font-semibold"
+                >
+                  <span className="text-[var(--text-muted)]">{open ? "▾" : "▸"}</span>
+                  <span className="capitalize">{src}</span>
+                  <span className="ml-auto text-[10px] font-normal text-[var(--text-muted)]">
+                    {sourceAvailable ? `${items.length} action${items.length !== 1 ? "s" : ""}` : "⚠ not available here"}
+                  </span>
+                </button>
+                {open && (
+                  <div className="px-2 pb-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {items.map((a) => {
+                      const selected = a.id === selectedId;
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          disabled={!a.available}
+                          title={!a.available ? a.unavailableReason : a.description}
+                          onClick={() => onSelect(a)}
+                          aria-pressed={selected}
+                          data-testid={`create-action-${a.id}`}
+                          className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] ${
+                            selected
+                              ? "border-[var(--accent,#6366f1)] bg-[var(--accent,#6366f1)]/10"
+                              : "border-[var(--border-secondary)]"
+                          } ${a.available ? "" : "opacity-50 cursor-not-allowed"}`}
+                        >
+                          <span className="font-mono">
+                            <span className="text-[var(--text-muted)]">{a.source}.</span>
+                            {a.id.slice(a.source.length + 1)}
+                          </span>
+                          {a.description && (
+                            <span className="ml-auto text-[9.5px] text-[var(--text-muted)] truncate">{a.description}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Schema-driven payload form for the selected plugin action. */
+function ActionPayloadForm({
+  schema,
+  values,
+  onChange,
+}: {
+  schema: ActionPayloadField[];
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+}): React.ReactElement {
+  if (schema.length === 0) {
+    return (
+      <p className="text-[11px] text-[var(--text-muted)] mt-2" data-testid="action-payload-empty">
+        This action takes no payload. It runs with the automation’s folder scope.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2" data-testid="action-payload">
+      {schema.map((f) => (
+        <Field key={f.key} label={f.label}>
+          {f.type === "enum" ? (
+            <select
+              value={values[f.key] ?? ""}
+              onChange={(e) => onChange(f.key, e.target.value)}
+              data-testid={`action-payload-${f.key}`}
+              className="input"
+            >
+              {(f.options ?? []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : f.type === "multiline" ? (
+            <textarea
+              value={values[f.key] ?? ""}
+              onChange={(e) => onChange(f.key, e.target.value)}
+              rows={3}
+              data-testid={`action-payload-${f.key}`}
+              className="input"
+            />
+          ) : (
+            // string | text | any UNKNOWN type → plain text input (forward-compat
+            // fallback for a newer contributor). See change: decouple-automation-action-registry.
+            <input
+              type="text"
+              value={values[f.key] ?? ""}
+              onChange={(e) => onChange(f.key, e.target.value)}
+              data-testid={`action-payload-${f.key}`}
+              className="input"
+            />
+          )}
+          {f.help && <span className="block mt-0.5 text-[9.5px] text-[var(--text-muted)]">{f.help}</span>}
+        </Field>
+      ))}
+    </div>
   );
 }

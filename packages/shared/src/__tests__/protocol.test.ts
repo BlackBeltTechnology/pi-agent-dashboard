@@ -14,6 +14,7 @@ import type {
   SessionStatus,
   CommandInfo,
   ApiResponse,
+  ModelInfo,
 } from "../types.js";
 
 describe("Protocol message serialization round-trip", () => {
@@ -86,6 +87,10 @@ describe("Protocol message serialization round-trip", () => {
       },
       {
         type: "request_state_sync",
+        sessionId: "s1",
+      },
+      {
+        type: "stop_after_turn",
         sessionId: "s1",
       },
       {
@@ -203,6 +208,10 @@ describe("Protocol message serialization round-trip", () => {
         sessionId: "s1",
       },
       {
+        type: "stop_after_turn",
+        sessionId: "s1",
+      },
+      {
         type: "request_commands",
         sessionId: "s1",
       },
@@ -237,6 +246,19 @@ describe("Shared data model types", () => {
   it("should have correct SessionStatus values", () => {
     const statuses: SessionStatus[] = ["active", "streaming", "ended"];
     expect(statuses).toHaveLength(3);
+  });
+
+  it("ModelInfo carries supportedThinkingLevels through a JSON round-trip", () => {
+    const model: ModelInfo = {
+      provider: "anthropic",
+      id: "claude",
+      supportedThinkingLevels: ["medium", "high"],
+    };
+    const round = JSON.parse(JSON.stringify(model)) as ModelInfo;
+    expect(round.supportedThinkingLevels).toEqual(["medium", "high"]);
+    // Optional: absent field survives as undefined.
+    const bare: ModelInfo = { provider: "x", id: "y" };
+    expect(JSON.parse(JSON.stringify(bare)).supportedThinkingLevels).toBeUndefined();
   });
 
   it("should construct valid ApiResponse", () => {

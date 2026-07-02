@@ -16,6 +16,9 @@ export interface MobileDepthInput {
   hasFolderRoute: boolean;
   /** /settings */
   hasSettingsRoute: boolean;
+  /** /folder/:cwd/settings — Directory Settings (depth-1 detail, mirrors
+   *  global settings). See change: directory-settings-page-and-scoped-md-editing. */
+  hasFolderSettingsRoute: boolean;
   /** /tunnel-setup */
   hasTunnelRoute: boolean;
   /** Any of the 6 shell-owned overlay routes (openspec preview/archive/specs, readme, pi-resources, session diff). */
@@ -38,6 +41,7 @@ export function getMobileDepth(input: MobileDepthInput): number {
     input.hasSessionRoute ||
     input.hasFolderRoute ||
     input.hasSettingsRoute ||
+    input.hasFolderSettingsRoute ||
     input.hasTunnelRoute
   ) return 1;
   return 0;

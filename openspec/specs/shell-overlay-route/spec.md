@@ -14,6 +14,10 @@ slot consumer reads them via the typed `ClaimEntry` contract):
 - `component: string` — exported component name from the plugin's client entry.
 - `path: string` — wouter path pattern (e.g. `/session/:sid/flow/:flowId/agent/:agentId`), MUST start with `/`.
 - `sessionParam: string` (optional, default `"sid"`) — name of the URL parameter that holds the parent session id; used by the slot consumer to resolve `DashboardSession` metadata for the claim.
+- `depth: 1 | 2` (optional) — the shell navigation depth this route occupies for the depth-aware back action (`1` = detail, `2` = overlay-on-detail). When omitted, the route SHALL be treated as `depth: 2` (overlay → cards) and the validator SHALL emit a non-fatal warning advising the author to declare `depth`.
+- `parentPath: string` (optional) — for `depth: 2` routes, the wouter path pattern of the route the back action returns to; `:params` in `parentPath` SHALL be interpolated from the current route match. When omitted, a `depth: 2` route's back target defaults to `/` (cards).
+
+Each `shell-overlay-route` claim SHALL contribute one route descriptor (`{ pattern: path, depth, computeParent }`) consumed by the back-target route classifier, so the global depth-aware back action resolves plugin routes without any core-shell edit.
 
 For backward compatibility, `config.path` / `config.sessionParam` are
 recognised by the validator and lifted to the top-level normalised
@@ -40,6 +44,18 @@ claim, but new manifests SHALL use the top-level fields directly.
 - **WHEN** the manifest validator processes a claim with `config: { path: "/legacy/:id", sessionParam: "sid" }` and no top-level `path`
 - **THEN** validation SHALL succeed
 - **AND** the normalised claim SHALL have `path === "/legacy/:id"` and `sessionParam === "sid"` as top-level fields
+
+#### Scenario: Missing depth warns and defaults to overlay
+
+- **WHEN** the manifest validator processes a `shell-overlay-route` claim with `path` but no `depth`
+- **THEN** validation SHALL succeed with a non-fatal warning naming the claim
+- **AND** the contributed route descriptor SHALL have `depth === 2` with a back target of `/`
+
+#### Scenario: Declared depth and parent produce a descriptor
+
+- **WHEN** the manifest validator processes a claim with `path: "/automation/run/:sid"`, `depth: 2`, `parentPath: "/folder/:encodedCwd/automations"`
+- **THEN** validation SHALL succeed
+- **AND** the contributed route descriptor SHALL have `depth === 2` and a `computeParent` that interpolates `:encodedCwd` from the current match
 
 ### Requirement: `<ShellOverlayRouteSlot>` consumer renders the first matching claim
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { validateManifest, ManifestValidationError } from "../manifest-validator.js";
 
 const validManifest = {
@@ -168,5 +168,43 @@ describe("validateManifest — shouldRender + predicate (auto-hide-empty-session
     for (const c of m.claims) {
       expect(c.shouldRender).toBeUndefined();
     }
+  });
+});
+
+describe("validateManifest — shell-overlay-route depth (fix-plugin-and-scoped-back-navigation)", () => {
+  const overlay = (extra: Record<string, unknown>) => ({
+    ...validManifest,
+    claims: [{ slot: "shell-overlay-route", component: "Foo", path: "/foo/:id", ...extra }],
+  });
+
+  it("warns and omits depth when a shell-overlay-route claim has no depth", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const m = validateManifest(overlay({}));
+    expect(m.claims[0].depth).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('omits "depth"'));
+    warn.mockRestore();
+  });
+
+  it("passes through declared depth + parentPath", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const m = validateManifest(
+      overlay({ depth: 2, parentPath: "/folder/:encodedCwd/automations" }),
+    );
+    expect(m.claims[0].depth).toBe(2);
+    expect(m.claims[0].parentPath).toBe("/folder/:encodedCwd/automations");
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("rejects an out-of-range depth", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(() => validateManifest(overlay({ depth: 3 }))).toThrow(ManifestValidationError);
+  });
+
+  it("rejects a non-rooted parentPath", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(() => validateManifest(overlay({ depth: 2, parentPath: "folder/x" }))).toThrow(
+      ManifestValidationError,
+    );
   });
 });

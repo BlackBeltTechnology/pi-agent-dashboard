@@ -6,6 +6,13 @@ import { BASE_URL } from "./tests/e2e/lifecycle.js";
 // once in tests/e2e/lifecycle.ts so baseURL matches the container.
 // Lifecycle (boot/teardown of the container) lives in tests/e2e/global-*.ts.
 // See openspec change add-playwright-e2e, parallelize-test-harness + tests/e2e/README.md.
+//
+// Browser selection: default uses Playwright's bundled Chromium. Set
+// PW_CHANNEL to a Chromium-family channel ("chrome", "msedge", "chrome-beta",
+// "chrome-canary") to drive the SYSTEM-installed browser instead — no
+// `playwright install chromium` needed (the pretest:e2e download self-skips).
+// CI leaves PW_CHANNEL unset so the hermetic bundled Chromium is used.
+const PW_CHANNEL = process.env.PW_CHANNEL;
 export default defineConfig({
   testDir: "tests/e2e",
   // Container boot is slow; first run may build the image. Keep generous.
@@ -24,15 +31,9 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  // PW_SYSTEM_CHROME=1 → use the system-installed Google Chrome (channel:"chrome")
-  // instead of Playwright's bundled Chromium (no `npx playwright install` needed).
   projects: [
-    {
-      name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        ...(process.env.PW_SYSTEM_CHROME ? { channel: "chrome" } : {}),
-      },
-    },
+    PW_CHANNEL
+      ? { name: PW_CHANNEL, use: { ...devices["Desktop Chrome"], channel: PW_CHANNEL } }
+      : { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
 });

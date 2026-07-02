@@ -9,7 +9,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createEngine, buildRunPrompt, effectiveVisibility } from "../server/engine.js";
+import { createEngine, buildRunPrompt, buildRunDispatch, effectiveVisibility } from "../server/engine.js";
+import { ActionRegistry } from "../server/action-registry.js";
 import { listRuns } from "../server/run-store.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
@@ -91,6 +92,65 @@ describe("buildRunPrompt", () => {
   });
   it("emits the $skill token for skill actions", () => {
     expect(buildRunPrompt(skillAutomation("s"))).toBe("$recent-code-bugfix");
+  });
+  it("delegates to a registered plugin action's buildPrompt with the payload", () => {
+    const reg = new ActionRegistry();
+    reg.register({
+      id: "flows.run",
+      source: "flows",
+      label: "Run",
+      buildPrompt: ({ payload }) => `/flows run ${payload.flow as string} :: ${payload.task as string}`,
+    });
+    const a: DiscoveredAutomation = {
+      name: "f",
+      scope: "folder",
+      dir: "/tmp/x/.pi/automation/f",
+      valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "flows.run", payload: { flow: "nightly", task: "build" } },
+        model: "@fast",
+        mode: "local",
+        sandbox: "workspace-write",
+        concurrency: "skip",
+      },
+    };
+    expect(buildRunPrompt(a, reg)).toBe("/flows run nightly :: build");
+  });
+});
+
+describe("buildRunDispatch", () => {
+  function flowAutomation(): DiscoveredAutomation {
+    return {
+      name: "f", scope: "folder", dir: "/tmp/x/.pi/automation/f", valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "flows.run", payload: { flow: "test:x", task: "go" } },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+  }
+
+  it("resolves an event dispatch for an event action", () => {
+    const reg = new ActionRegistry();
+    reg.register({
+      id: "flows.run", source: "flows", label: "Run",
+      buildEvent: ({ payload }) => ({ eventType: "flow:run", data: { flowName: payload.flow, task: payload.task } }),
+    });
+    expect(buildRunDispatch(flowAutomation(), reg)).toEqual({
+      kind: "event", eventType: "flow:run", data: { flowName: "test:x", task: "go" },
+    });
+  });
+
+  it("resolves a prompt dispatch for a prompt action", () => {
+    const a = promptAutomation("p", "do the thing");
+    expect(buildRunDispatch(a)).toEqual({ kind: "prompt", text: "do the thing" });
+  });
+
+  it("emits nothing (empty prompt) when buildEvent returns null", () => {
+    const reg = new ActionRegistry();
+    reg.register({ id: "flows.run", source: "flows", label: "Run", buildEvent: () => null });
+    expect(buildRunDispatch(flowAutomation(), reg)).toEqual({ kind: "prompt", text: "" });
   });
 });
 

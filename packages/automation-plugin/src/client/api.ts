@@ -3,6 +3,7 @@
  * routes return unwrapped objects). See change: add-automation-plugin.
  */
 import type {
+  ActionDescriptor,
   DiscoveredAutomation,
   AutomationConfig,
   AutomationScope,
@@ -19,6 +20,21 @@ export async function listTriggerKinds(): Promise<TriggerCategoryDescriptor[]> {
     if (!res.ok) return [];
     const json = (await res.json()) as { categories?: TriggerCategoryDescriptor[] };
     return json.categories ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch registered automation actions resolved for `cwd` (availability +
+ *  enum options) for the action picker. See change:
+ *  register-plugin-automation-events. */
+export async function listActions(cwd: string | undefined): Promise<ActionDescriptor[]> {
+  const url = cwd ? `${BASE}/actions?cwd=${encodeURIComponent(cwd)}` : `${BASE}/actions`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as { actions?: ActionDescriptor[] };
+    return json.actions ?? [];
   } catch {
     return [];
   }

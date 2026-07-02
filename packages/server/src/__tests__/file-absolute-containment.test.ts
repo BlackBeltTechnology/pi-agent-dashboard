@@ -54,7 +54,7 @@ describe("GET /api/file — absolute path containment", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual({ type: "file", content: "const x = 1;\n" });
+    expect(body.data).toMatchObject({ type: "file", kind: "text", content: "const x = 1;\n" });
   });
 
   it("allows a file:// URI resolving inside a known session cwd", async () => {
@@ -65,7 +65,7 @@ describe("GET /api/file — absolute path containment", () => {
       url: `/api/file?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(uri)}`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ type: "file", content: "const x = 1;\n" });
+    expect(res.json().data).toMatchObject({ type: "file", kind: "text", content: "const x = 1;\n" });
   });
 
   it("rejects an absolute path outside every session cwd (no content)", async () => {
@@ -142,7 +142,7 @@ describe("GET /api/file — git-root widening (worktree sessions)", () => {
       url: `/api/file?cwd=${encodeURIComponent(worktree)}&path=${encodeURIComponent(target)}`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ type: "file", content: "root-content\n" });
+    expect(res.json().data).toMatchObject({ type: "file", kind: "text", content: "root-content\n" });
   });
 
   it("rejects a symlink under the repo root whose real target escapes (HTTP 403)", async () => {

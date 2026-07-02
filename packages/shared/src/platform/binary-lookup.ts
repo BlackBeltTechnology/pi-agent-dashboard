@@ -3,15 +3,16 @@
  * Replaces scattered whichSync/resolvePiCommand/resolveTsxCommand implementations
  * with a single configurable resolver.
  */
-import { execSync, spawnSync, buildSafeArgv } from "./exec.js";
-import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
-import { augmentEnvWithGitSource } from "./git-source.js";
+
 import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
+import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
+import { buildSafeArgv, execSync, spawnSync } from "./exec.js";
+import { augmentEnvWithGitSource } from "./git-source.js";
 
 // ── jiti loader resolution constants ──────────────────────────────────────
 

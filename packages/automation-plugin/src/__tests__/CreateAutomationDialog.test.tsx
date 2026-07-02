@@ -18,13 +18,14 @@ import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runti
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { TriggerCategoryDescriptor, AutomationConfig } from "../shared/automation-types.js";
 
-const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable } = vi.hoisted(() => ({
+const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions } = vi.hoisted(() => ({
   createAutomation: vi.fn(async (_b: any) => ({ ok: true as const })),
   updateAutomation: vi.fn(async (_b: any) => ({ ok: true as const })),
   listTriggerKinds: vi.fn(async (): Promise<TriggerCategoryDescriptor[]> => []),
   isGitCapable: vi.fn(async (_cwd?: string) => false),
+  listActions: vi.fn(async (_cwd?: string) => [] as any[]),
 }));
-vi.mock("../client/api.js", () => ({ createAutomation, updateAutomation, listTriggerKinds, isGitCapable }));
+vi.mock("../client/api.js", () => ({ createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions }));
 
 import { CreateAutomationDialog } from "../client/CreateAutomationDialog.js";
 
@@ -150,16 +151,83 @@ describe("CreateAutomationDialog (redesign)", () => {
     expect((getByTestId("trigger-cat-git") as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("segmented Action control writes the chosen action kind", async () => {
+  it("action picker selects the built-in skill action and writes its kind", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.change(getByTestId("create-name"), { target: { value: "sk" } });
-    fireEvent.click(getByTestId("create-action-kind-skill"));
+    fireEvent.click(getByTestId("create-action-core.skill"));
     fireEvent.change(getByTestId("create-skill"), { target: { value: "$recent-code-bugfix" } });
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(createAutomation).toHaveBeenCalled());
     expect(createAutomation.mock.calls[0]![0]!.config.action).toEqual({
       kind: "skill",
       skill: "$recent-code-bugfix",
+    });
+  });
+
+  it("blocks core.skill submission when the skill field is empty (no `$` skill)", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "sk" } });
+    fireEvent.click(getByTestId("create-action-core.skill"));
+    fireEvent.click(getByTestId("create-submit"));
+    // submit stays disabled / rejects — no create call fires with a bare "$"
+    await Promise.resolve();
+    expect(createAutomation).not.toHaveBeenCalled();
+  });
+
+  it("renders a plugin action's schema-driven payload and writes kind + payload", async () => {
+    listActions.mockResolvedValue([
+      { id: "core.prompt", source: "core", label: "Prompt", available: true, payloadSchema: [] },
+      {
+        id: "flows.run",
+        source: "flows",
+        label: "Run a flow",
+        available: true,
+        payloadSchema: [
+          { key: "flow", label: "Flow", type: "enum", options: ["test:capabilities", "custom:deploy"] },
+          { key: "task", label: "Task", type: "multiline" },
+        ],
+      },
+    ]);
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "nightly" } });
+    await waitFor(() => expect(getByTestId("action-group-flows")).toBeTruthy());
+    fireEvent.click(getByTestId("action-group-flows"));
+    fireEvent.click(getByTestId("create-action-flows.run"));
+    await waitFor(() => expect(getByTestId("action-payload-flow")).toBeTruthy());
+    fireEvent.change(getByTestId("action-payload-flow"), { target: { value: "custom:deploy" } });
+    fireEvent.change(getByTestId("action-payload-task"), { target: { value: "ship it" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.action).toEqual({
+      kind: "flows.run",
+      payload: { flow: "custom:deploy", task: "ship it" },
+    });
+  });
+
+  it("renders an unknown payload field type as a text input (fallback) and writes its value", async () => {
+    listActions.mockResolvedValue([
+      { id: "core.prompt", source: "core", label: "Prompt", available: true, payloadSchema: [] },
+      {
+        id: "future.act",
+        source: "future",
+        label: "Future action",
+        available: true,
+        payloadSchema: [{ key: "weird", label: "Weird", type: "totally-new-type" }],
+      },
+    ]);
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "fut" } });
+    await waitFor(() => expect(getByTestId("action-group-future")).toBeTruthy());
+    fireEvent.click(getByTestId("action-group-future"));
+    fireEvent.click(getByTestId("create-action-future.act"));
+    // unknown type still renders an editable control (text input fallback)
+    await waitFor(() => expect(getByTestId("action-payload-weird")).toBeTruthy());
+    fireEvent.change(getByTestId("action-payload-weird"), { target: { value: "hello" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.action).toEqual({
+      kind: "future.act",
+      payload: { weird: "hello" },
     });
   });
 

@@ -36,6 +36,25 @@ export interface PluginClaim {
    * See change: fix-flows-plugin-polish (path-as-first-class-claim-field).
    */
   sessionParam?: string;
+  /**
+   * Shell navigation depth a `shell-overlay-route` occupies for the
+   * depth-aware back action: `1` = detail (back → cards), `2` = overlay-on-
+   * detail (back → declared `parentPath`, else cards). When omitted, the route
+   * is treated as `depth: 2` and the validator emits a non-fatal warning.
+   *
+   * See change: fix-plugin-and-scoped-back-navigation.
+   */
+  depth?: 1 | 2;
+  /**
+   * For `depth: 2` `shell-overlay-route` claims: the wouter path pattern the
+   * back action returns to. `:params` are interpolated from the current route
+   * match; when a required `:param` is not present in the match (e.g. a run
+   * URL that omits the parent's cwd) the back target degrades to `/`. When
+   * omitted, a `depth: 2` route's back target defaults to `/`.
+   *
+   * See change: fix-plugin-and-scoped-back-navigation.
+   */
+  parentPath?: string;
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**

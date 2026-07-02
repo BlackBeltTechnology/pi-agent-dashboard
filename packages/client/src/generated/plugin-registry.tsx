@@ -29,13 +29,16 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "shell-overlay-route",
                 "component": "AutomationBoard",
-                "path": "/folder/:encodedCwd/automations"
+                "path": "/folder/:encodedCwd/automations",
+                "depth": 1
             },
             {
                 "slot": "shell-overlay-route",
                 "component": "AutomationRunMonitor",
                 "path": "/automation/run/:sid",
-                "sessionParam": "sid"
+                "sessionParam": "sid",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd/automations"
             },
             {
                 "slot": "session-card-badge",
@@ -55,8 +58,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "automation", priority: 100, slot: "sidebar-folder-section", Component: FolderAutomationSection },
-      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations", Component: AutomationBoard },
-      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/automation/run/:sid", sessionParam: "sid", Component: AutomationRunMonitor },
+      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations", depth: 1, Component: AutomationBoard },
+      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/automation/run/:sid", sessionParam: "sid", depth: 2, parentPath: "/folder/:encodedCwd/automations", Component: AutomationRunMonitor },
       { pluginId: "automation", priority: 100, slot: "session-card-badge", Component: AutomationBadge, predicate: isAutomationRun },
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],

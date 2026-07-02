@@ -1,121 +1,127 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useRoute, useLocation, useSearchParams, Redirect, Switch, Route } from "wouter";
-import { useWebSocket } from "./hooks/useWebSocket.js";
-import { setInitSender } from "./lib/worktree-init-bus.js";
-import { dispatchPluginMessage } from "./lib/plugins-api.js";
-import { useSidebarState } from "./hooks/useSidebarState.js";
-import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
-import { useAppHidden } from "./hooks/useAppHidden.js";
-import { SessionList } from "./components/SessionList.js";
-import { ResizableSidebar } from "./components/ResizableSidebar.js";
-import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
-import { MobileShell } from "./components/MobileShell.js";
-import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
-import { useMobile } from "./hooks/useMobile.js";
-import { getMobileDepth } from "./lib/mobile-depth.js";
+import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiRefresh } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
+import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ChatViewMenu } from "./components/ChatViewMenu.js";
-import { SessionBanner } from "./components/SessionBanner.js";
+import { CommandInput } from "./components/CommandInput.js";
+import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
+import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
+import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
+import { EditorView } from "./components/EditorView.js";
+import { EditorPane } from "./components/editor-pane/EditorPane.js";
+import { FileDiffView } from "./components/FileDiffView.js";
+import { InstallBanner } from "./components/InstallBanner.js";
+import { LandingPage } from "./components/LandingPage.js";
 // Flow components are no longer imported by the shell. They render
 // exclusively via plugin slot claims (content-header-sticky,
 // content-view, content-inline-footer, command-route). See change:
 // pluginize-flows-via-registry.
 import { MarkdownPreviewView } from "./components/MarkdownPreviewView.js";
-import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
-import { PiResourcesView } from "./components/PiResourcesView.js";
-import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
-import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
-import { OpenSpecBoardView } from "./components/OpenSpecBoardView.js";
-import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
-import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
-import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
-import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { SessionHeader } from "./components/SessionHeader.js";
-import { ServerSelector } from "./components/ServerSelector.js";
-import { Toast, useToast } from "./components/Toast.js";
-import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
-import { performServerSwitch } from "./lib/server-switch.js";
-import { openStagingSocket } from "./lib/staging-socket.js";
-import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
-import { useLaunchSource } from "./hooks/useLaunchSource.js";
-import { TokenStatsBar } from "./components/TokenStatsBar.js";
-
-import { CommandInput } from "./components/CommandInput.js";
-import { QueuePanel } from "./components/QueuePanel.js";
-import { readAllDrafts, writeDraft, deleteDraft } from "./lib/draft-storage.js";
-import { extractUserPromptHistory } from "./lib/message-history.js";
-import { StatusBar } from "./components/StatusBar.js";
-import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
-import { Icon } from "@mdi/react";
-import { mdiRefresh } from "@mdi/js";
-import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
-import { LandingPage } from "./components/LandingPage.js";
-import { SettingsPanel } from "./components/SettingsPanel.js";
-import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
-import { InstallBanner } from "./components/InstallBanner.js";
-
-import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
-
 import { MissingRequiredBanner } from "./components/MissingRequiredBanner.js";
-import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
+import { HamburgerButton, MobileOverlay } from "./components/MobileOverlay.js";
+import { MobileShell } from "./components/MobileShell.js";
+import { OpenSpecBoardView } from "./components/OpenSpecBoardView.js";
+import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
+import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
+import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
+import { QueuePanel } from "./components/QueuePanel.js";
+import { ResizableSidebar } from "./components/ResizableSidebar.js";
+import { ServerSelector } from "./components/ServerSelector.js";
+import { SessionBanner } from "./components/SessionBanner.js";
+import { SessionHeader } from "./components/SessionHeader.js";
+import { SessionList } from "./components/SessionList.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
+import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
+import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
+import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
-import { EditorView } from "./components/EditorView.js";
-import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
-import { FileDiffView } from "./components/FileDiffView.js";
+import { Toast, useToast } from "./components/Toast.js";
+import { TokenStatsBar } from "./components/TokenStatsBar.js";
+import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
+import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
+import { useAppHidden } from "./hooks/useAppHidden.js";
+import { useContentViews } from "./hooks/useContentViews.js";
+import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
+import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
+import { useLaunchSource } from "./hooks/useLaunchSource.js";
+import { useMessageHandler } from "./hooks/useMessageHandler.js";
+import { useMobile } from "./hooks/useMobile.js";
+import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
+import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
+import { useSidebarState } from "./hooks/useSidebarState.js";
+import { useWebSocket } from "./hooks/useWebSocket.js";
+import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
+import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
-import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
-import { useMessageHandler } from "./hooks/useMessageHandler.js";
+import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
+import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory } from "./lib/loading-history.js";
-import { useEditors } from "./lib/use-editors.js";
-import { useContentViews } from "./hooks/useContentViews.js";
-import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
+// Strategy A (reduce-session-replay-traffic): durable replay cursor.
+import { replayCache } from "./lib/replay-cache.js";
+import { createReplayPersister } from "./lib/replay-persist.js";
+import { rehydrateSession } from "./lib/rehydrate-session.js";
+import { extractUserPromptHistory } from "./lib/message-history.js";
+import { getMobileDepth } from "./lib/mobile-depth.js";
 import {
+  initNavTracker,
+  popNav,
+  predecessor,
+  recordNavigation,
+  resetNavStack,
+} from "./lib/nav-tracker.js";
+import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
+import { dispatchPluginMessage } from "./lib/plugins-api.js";
+import {
+  buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
   buildOpenSpecBoardUrl,
   buildOpenSpecPreviewUrl,
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
 } from "./lib/route-builders.js";
-import { goBack as goBackAction } from "./lib/history-back.js";
-import {
-  recordNavigation,
-  resetNavStack,
-  initNavTracker,
-  predecessor,
-  popNav,
-} from "./lib/nav-tracker.js";
+import { performServerSwitch } from "./lib/server-switch.js";
+import { openStagingSocket } from "./lib/staging-socket.js";
+import { useEditors } from "./lib/use-editors.js";
+import { setInitSender } from "./lib/worktree-init-bus.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
 const NAV_TRACKER = { predecessor, popNav };
-import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
-import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
-import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
-import { useSessionActions } from "./hooks/useSessionActions.js";
-import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
-import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
-import type { DashboardSession, CommandInfo, FileEntry, OpenSpecData, OpenSpecGroup, ModelInfo, RoleInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { SearchableSelectDialog, type SelectOption } from "./components/SearchableSelectDialog.js";
+
+import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { DialogPortal } from "./components/DialogPortal.js";
+import { ErrorBoundary } from "./components/ErrorBoundary.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
-import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
-import { DialogPortal } from "./components/DialogPortal.js";
-import { useProvidersReady } from "./hooks/useProvidersReady.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
-import { ErrorBoundary } from "./components/ErrorBoundary.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { ToolContext } from "./components/tool-renderers/index.js";
-import { buildContextUsageMap } from "./lib/context-usage.js";
-import { ApiContext, deriveApiBase, VITE_API_URL, setGlobalApiBase } from "./lib/api-context.js";
-import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
 import { FirstLaunchDisplayModal } from "./components/FirstLaunchDisplayModal.js";
-import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
+import { PinDirectoryDialog } from "./components/PinDirectoryDialog.js";
+import { SearchableSelectDialog, type SelectOption } from "./components/SearchableSelectDialog.js";
+import type { ToolContext } from "./components/tool-renderers/index.js";
+import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
+import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
+import { useProvidersReady } from "./hooks/useProvidersReady.js";
+import { useSessionActions } from "./hooks/useSessionActions.js";
+import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
+import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api-context.js";
+import { buildContextUsageMap } from "./lib/context-usage.js";
+import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
 import { useI18n } from "./lib/i18n.js";
-import { PluginContextProvider, applyPluginConfigUpdate, initPluginConfigs, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
+import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
+import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
+
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
 const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
@@ -123,16 +129,18 @@ const EMPTY_INTERACTIVE_REQUESTS: readonly never[] = Object.freeze([]);
 // `useSessionSubagents` contract. Shell state holds the stricter `SubagentState`
 // which is upcast at the closure boundary below.
 const EMPTY_SUBAGENTS_MAP: ReadonlyMap<string, SubagentStateSnapshot> = Object.freeze(new Map());
+
 import {
-  ContentViewSlot,
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,
+  ContentViewSlot,createSlotRegistry, 
   forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
-  useShellOverlayRouteMatched,
+  useShellOverlayRouteMatched
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
+import { registerPluginRouteDescriptors } from "./lib/back-target.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
 
@@ -146,6 +154,14 @@ for (const entry of PLUGIN_REGISTRY) {
     _pluginRegistry.addClaim(claim);
   }
 }
+
+// Feed plugin `shell-overlay-route` claims into the back-target classifier so
+// the depth-aware back action resolves plugin routes (declared depth/parent)
+// instead of the old depth-0 dead no-op. See change:
+// fix-plugin-and-scoped-back-navigation.
+registerPluginRouteDescriptors(
+  claimsToRouteDescriptors(PLUGIN_REGISTRY.flatMap((entry) => entry.claims)),
+);
 
 const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 const wsPort = window.location.port ? `:${window.location.port}` : "";
@@ -329,6 +345,10 @@ export default function App() {
   const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
+  // Directory Settings page — depth-1 detail surface that mirrors global
+  // /settings (NOT a depth-2 overlay). See change:
+  // directory-settings-page-and-scoped-md-editing.
+  const [folderSettingsMatch, folderSettingsParams] = useRoute("/folder/:encodedCwd/settings/:page?");
   // `/view` overlay routes (change: render-file-previews).
   const [fileViewMatch, fileViewParams] = useRoute("/folder/:encodedCwd/view");
   const [urlViewMatch] = useRoute("/pi-view");
@@ -338,6 +358,8 @@ export default function App() {
   const fileViewPath = fileViewMatch ? fileViewSearch.get("path") : null;
   const fileViewCwd = fileViewMatch && fileViewParams ? decodeFolderPath(fileViewParams.encodedCwd) : null;
   const [diffMatch, diffParams] = useRoute("/session/:id/diff");
+  // Internal Monaco editor pane route. See change: add-internal-monaco-editor-pane.
+  const [editorMatch, editorParams] = useRoute("/session/:id/editor");
   // Subagent inspector popout route. See change: add-subagent-inspector §7.
   // Plugin-owned overlay routes (subagent popout, flow-agent popout, etc.)
   // dispatch via `<ShellOverlayRouteSlot>` from dashboard-plugin-runtime.
@@ -352,7 +374,19 @@ export default function App() {
   const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
+  const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "resources"] as const;
+  const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
+  const folderSettingsPage: DirectorySettingsPage =
+    folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
+      ? (folderSettingsPageRaw as DirectorySettingsPage)
+      : "packages";
   const diffSessionId = diffMatch && diffParams ? diffParams.id : null;
+  const editorSessionId = editorMatch && editorParams ? editorParams.id : null;
+  const editorFile = editorMatch ? fileViewSearch.get("file") : null;
+  const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
+  const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
+  const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
   // Subagent popout decoded params + parent-session label.
   // See change: add-subagent-inspector §7.
   // Plugin overlay routes are tracked by the slot consumer hook.
@@ -364,11 +398,13 @@ export default function App() {
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
-    !!piResourcesMatch || !!diffMatch ||
+    !!piResourcesMatch || !!diffMatch || !!editorMatch ||
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
-  const selectedId = deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams);
+  const selectedId =
+    deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams) ??
+    (editorMatch ? editorParams?.id : undefined);
   const selectedSessionIdRef = useRef<string | undefined>(selectedId);
   selectedSessionIdRef.current = selectedId;
 
@@ -465,6 +501,11 @@ export default function App() {
   const [displayPrefsLoaded, setDisplayPrefsLoaded] = useState(false);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
+  // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
+  // "already rehydrated from IndexedDB" guard so reconnect re-subscribes don't
+  // re-read (and clobber) live state. See change: reduce-session-replay-traffic.
+  const replayPersisterRef = useRef(createReplayPersister());
+  const rehydratedRef = useRef(new Set<string>());
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
@@ -506,6 +547,12 @@ export default function App() {
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
           subscribedRef.current.clear();
+          // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
+          // guards too. Otherwise switching back to a server that still has the
+          // same sessionId skips rehydration (rehydratedRef hit) and resubscribes
+          // with a stale maxSeq against the now-empty sessionStates map.
+          maxSeqMapRef.current.clear();
+          rehydratedRef.current.clear();
         },
         setWsUrl,
         persistLastServer: (h, p) => {
@@ -603,7 +650,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setEditorStatuses, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setViewMessagesMap, setLoadingHistory },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayPersister: replayPersisterRef.current },
   );
 
   useEffect(() => {
@@ -754,15 +801,49 @@ export default function App() {
     // clears subscribedRef, and adding `status` here re-triggers the effect).
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
-      send({ type: "subscribe", sessionId: selectedId, lastSeq: maxSeqMapRef.current.get(selectedId) ?? 0 });
-      // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
-      // and cold (disk-load) paths uniformly, since the warm path never sends
-      // an empty `isLast:false` start marker.
-      // See change: show-chat-history-loading-indicator.
-      beginLoadingHistory(selectedId);
-      // Request model list for this session if we don't have it yet (e.g. after page refresh)
-      if (!modelsMap.has(selectedId)) {
-        send({ type: "request_models", sessionId: selectedId });
+      const sid = selectedId;
+      // Send subscribe with the resolved cursor, enter LOADING, and request
+      // models if missing. Extracted so the cache-rehydrate path can call it
+      // after the async IndexedDB read resolves.
+      const doSubscribe = (lastSeq: number) => {
+        send({ type: "subscribe", sessionId: sid, lastSeq });
+        // Enter LOADING. Covers warm (in-memory replay / reconnect re-subscribe)
+        // and cold (disk-load) paths uniformly, since the warm path never sends
+        // an empty `isLast:false` start marker.
+        // See change: show-chat-history-loading-indicator.
+        beginLoadingHistory(sid);
+        // Request model list for this session if we don't have it yet (e.g. after page refresh)
+        if (!modelsMap.has(sid)) {
+          send({ type: "request_models", sessionId: sid });
+        }
+      };
+      // Strategy A (reduce-session-replay-traffic): on the FIRST subscribe after
+      // a page load (no live cursor yet, not previously rehydrated), try the
+      // durable replay cache. A hit pre-seeds reduced state + the raw-event
+      // buffer and subscribes with `lastSeq = persistedMaxSeq` so the server
+      // delta-replays only the tail. Any miss/error degrades to `lastSeq: 0`.
+      // Reconnect re-subscribes already hold a live cursor → skip the cache read.
+      if (!maxSeqMapRef.current.has(sid) && !rehydratedRef.current.has(sid)) {
+        rehydratedRef.current.add(sid);
+        void rehydrateSession(sid, replayCache)
+          .then((r) => {
+            if (r) {
+              setSessionStates((prev) => {
+                const next = new Map(prev);
+                // Don't clobber state that arrived live while the read was in flight.
+                if (!next.has(sid)) next.set(sid, r.state);
+                return next;
+              });
+              if (!maxSeqMapRef.current.has(sid)) maxSeqMapRef.current.set(sid, r.lastSeq);
+              replayPersisterRef.current.seed(sid, r.events);
+              doSubscribe(maxSeqMapRef.current.get(sid) ?? r.lastSeq);
+            } else {
+              doSubscribe(0);
+            }
+          })
+          .catch(() => doSubscribe(0));
+      } else {
+        doSubscribe(maxSeqMapRef.current.get(sid) ?? 0);
       }
     }
   }, [selectedId, send, status]);
@@ -878,17 +959,9 @@ export default function App() {
   }, []);
 
   // Safety timeout: clear stuck pendingPrompt after 30s and show error.
-  // Pauses while the prompt text appears in pi's mirrored queues
-  // (i.e. pi has acknowledged custody). Resumes on removal.
-  // See change: add-followup-edit-and-steer-cancel.
-  const _selectedSessionForQueue = selectedId ? sessions.get(selectedId) : undefined;
-  const queuedTextsForSelected: string[] = [
-    ...(_selectedSessionForQueue?.pendingQueues?.steering ?? []),
-    ...(_selectedSessionForQueue?.pendingQueues?.followUp ?? []),
-  ];
-  const safetyTimerPaused = !!(
-    selectedState.pendingPrompt && queuedTextsForSelected.includes(selectedState.pendingPrompt.text)
-  );
+  // `pendingPrompt` is idle-scoped now (only ever set for a fresh-turn send),
+  // so it can never co-exist with a mid-turn queue entry — no pause logic
+  // needed. See change: optimistic-prompt-progress.
   usePendingPromptTimeout(!!selectedState.pendingPrompt, useCallback(() => {
     if (selectedId) {
       setSessionStates((prev) => {
@@ -907,7 +980,7 @@ export default function App() {
         return next;
       });
     }
-  }, [selectedId, setSessionStates]), safetyTimerPaused);
+  }, [selectedId, setSessionStates]));
 
   const selectedCommands = selectedId
     ? sessionCommands.get(selectedId) ?? []
@@ -923,7 +996,7 @@ export default function App() {
   const openspecConfig = useOpenSpecConfig(selectedSession?.cwd);
   const folderTitleCwd = folderEditorCwd ?? folderTermCwd
     ?? openspecPreviewCwd ?? archiveCwd ?? specsCwd
-    ?? piResourcesCwd ?? null;
+    ?? piResourcesCwd ?? folderSettingsCwd ?? null;
   useDocumentTitle(selectedSession, folderTitleCwd ?? undefined);
   const selectedCwd = selectedSession?.cwd;
   const editorCwds = useMemo(() => selectedCwd ? [selectedCwd] : [], [selectedCwd]);
@@ -958,7 +1031,7 @@ export default function App() {
     // primitives). QueuePanel is display-only; Stop is now the bare abort
     // (no yank-to-draft, which produced ghost duplicates). See change:
     // honest-mid-turn-queue-surface.
-    handleAbort, handleForceKill, handleCancelPending, handleRespondToUi, handleSend,
+    handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession,
@@ -1398,8 +1471,11 @@ export default function App() {
           onBack={goBack}
         />
       ) : piResourcesMatch && piResourcesCwd ? (
-        <PiResourcesView
-          cwd={piResourcesCwd}
+        <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+      ) : folderSettingsMatch && folderSettingsCwd ? (
+        <DirectorySettings
+          cwd={folderSettingsCwd}
+          page={folderSettingsPage}
           onBack={goBack}
           onViewFile={handleViewPiResourceFile}
         />
@@ -1423,6 +1499,14 @@ export default function App() {
         />
       ) : diffMatch && diffSessionId ? (
         <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+      ) : editorMatch && editorSessionId && selectedSession ? (
+        <EditorPane
+          sessionId={editorSessionId}
+          cwd={selectedSession.cwd}
+          initialFile={editorFile}
+          initialLine={editorLine}
+          onBack={goBack}
+        />
       ) : (
         <>
           {/* Plugin slot: content-header-sticky — contributions from
@@ -1443,7 +1527,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} queuedTexts={queuedTextsForSelected} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — ONE
@@ -1497,6 +1581,7 @@ export default function App() {
             status={selectedState.status}
             currentTool={selectedState.currentTool}
             streamingText={selectedState.streamingText || undefined}
+            onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
             leading={selectedSession && selectedCwd ? (
               <>
                 <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
@@ -1571,6 +1656,7 @@ export default function App() {
             retrying={selectedState.retryState !== undefined}
             onAbort={handleAbort}
             onForceKill={handleForceKill}
+            onStopAfterTurn={handleStopAfterTurn}
             pendingPrompt={!!selectedState.pendingPrompt}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}
@@ -1744,6 +1830,7 @@ export default function App() {
       hasSessionRoute: !!selectedId,
       hasFolderRoute: !!folderTermCwd || !!folderEditorCwd,
       hasSettingsRoute: !!settingsMatch,
+      hasFolderSettingsRoute: !!folderSettingsMatch,
       hasTunnelRoute: !!tunnelSetupMatch,
       hasOverlayRoute: hasShellOverlayRoute,
       hasPiResourceRoute: hasPiResourceRouteFlag,
@@ -1800,6 +1887,14 @@ export default function App() {
               <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
             ) : diffMatch && diffSessionId ? (
               <FileDiffView sessionId={diffSessionId} onBack={goBack} />
+            ) : editorMatch && editorSessionId && selectedSession ? (
+              <EditorPane
+                sessionId={editorSessionId}
+                cwd={selectedSession.cwd}
+                initialFile={editorFile}
+                initialLine={editorLine}
+                onBack={goBack}
+              />
             ) : piResourceFileMatch && piResourceFilePath ? (
               <PiResourceFileRoute
                 filePath={piResourceFilePath}
@@ -1807,8 +1902,11 @@ export default function App() {
                 onBack={goBack}
               />
             ) : piResourcesMatch && piResourcesCwd ? (
-              <PiResourcesView
-                cwd={piResourcesCwd}
+              <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+            ) : folderSettingsMatch && folderSettingsCwd ? (
+              <DirectorySettings
+                cwd={folderSettingsCwd}
+                page={folderSettingsPage}
                 onBack={goBack}
                 onViewFile={handleViewPiResourceFile}
               />
@@ -1866,6 +1964,7 @@ export default function App() {
                 setPinDialogOpen(false);
               }}
               onCancel={() => setPinDialogOpen(false)}
+              onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
             />
           </DialogPortal>
         )}
@@ -1918,8 +2017,11 @@ export default function App() {
               onBack={goBack}
             />
           ) : piResourcesMatch && piResourcesCwd && !selectedId ? (
-            <PiResourcesView
-              cwd={piResourcesCwd}
+            <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
+          ) : folderSettingsMatch && folderSettingsCwd && !selectedId ? (
+            <DirectorySettings
+              cwd={folderSettingsCwd}
+              page={folderSettingsPage}
               onBack={goBack}
               onViewFile={handleViewPiResourceFile}
             />
@@ -2008,6 +2110,7 @@ export default function App() {
               setPinDialogOpen(false);
             }}
             onCancel={() => setPinDialogOpen(false)}
+            onOpenServers={() => { setPinDialogOpen(false); navigate("/settings/remote"); }}
           />
         </DialogPortal>
       )}

@@ -4,10 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import {
-  DASHBOARD_PORT,
   HEALTH_URL,
   MARKER_PATH,
-  PI_GATEWAY_PORT,
+  resolvePortsFromStateFile,
   TEST_UP,
   USE_RUNNING,
   waitForHealth,
@@ -22,9 +21,11 @@ const CHANGE = "change add-playwright-e2e";
 // binary is not downloaded; existsSync is the real gate. try/catch backstops
 // versions that throw instead. See change self-heal-host-playwright-browser.
 function assertBrowserInstalled(): void {
-  // PW_SYSTEM_CHROME=1 opts into the system-installed Google Chrome
-  // (channel:"chrome" in playwright.config.ts) — skip the bundled-binary check.
-  if (process.env.PW_SYSTEM_CHROME) return;
+  // System-browser mode (PW_CHANNEL=chrome/msedge/...) does not use the bundled
+  // Chromium; Playwright launches the host browser by channel and errors
+  // clearly itself if it is missing. Skip the bundled-binary gate then.
+  // See change: adopt-pi-071-072-073-features (PW_CHANNEL system-browser opt-in).
+  if (process.env.PW_CHANNEL) return;
   let execPath: string | undefined;
   try {
     execPath = chromium.executablePath();
@@ -37,6 +38,47 @@ function assertBrowserInstalled(): void {
         "Install it first: npx playwright install chromium",
     );
   }
+}
+
+/**
+ * Poll the workspace state file + health endpoint until a derived dashboard port
+ * is healthy. Re-reads .pi-test-harness.json EACH iteration so a bind-collision
+ * retry that rewrites the ports (change fix-parallel-e2e-docker-collisions D2) is
+ * followed instead of pinning a stale, abandoned port. First run builds the
+ * image (slow); warm runs are seconds. Throws on timeout.
+ */
+async function bootHealthyPorts(
+  workspace: string,
+  logPath: string,
+  timeoutMs: number,
+): Promise<{ dashboardPort: number; gatewayPort: number }> {
+  const deadline = Date.now() + timeoutMs;
+  let ports: { dashboardPort: number; gatewayPort: number } | undefined;
+  while (Date.now() < deadline) {
+    try {
+      ports = resolvePortsFromStateFile(workspace);
+    } catch {
+      // state file not written yet (or mid-rewrite) — keep waiting
+      await new Promise((r) => setTimeout(r, 1_000));
+      continue;
+    }
+    try {
+      const res = await fetch(`http://localhost:${ports.dashboardPort}/api/health`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (res.ok) return ports;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  const where = ports
+    ? `${ports.dashboardPort}/${ports.gatewayPort}`
+    : "none (state file never written)";
+  throw new Error(
+    `[${CHANGE}] container never became healthy within ${timeoutMs / 1_000}s ` +
+      `(last ports: ${where}). Check ${logPath} and docker/test-up.sh.`,
+  );
 }
 
 export default async function globalSetup(): Promise<void> {
@@ -69,20 +111,32 @@ export default async function globalSetup(): Promise<void> {
   // the in-container browser reach guarded endpoints like directory listing).
   // Without it, scenario specs cannot pin a folder or spawn a session. Blank
   // any host provider keys so they never leak into the disposable container.
-  // Override-as-a-pair: the container binds + listens on exactly the port
-  // Playwright probes (D1 override path), keeping baseURL in sync.
+  // Ports are NOT pre-pinned: test-up.sh hash-derives them in-window from the
+  // unique workspace path (change fix-parallel-e2e-docker-collisions D1); we
+  // read the chosen pair back from the state file below.
   const env = {
     ...process.env,
     PI_E2E_SEED: "1",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
-    DASHBOARD_PORT: String(DASHBOARD_PORT),
-    PI_GATEWAY_PORT: String(PI_GATEWAY_PORT),
   };
+  // Strip any inherited port pins so test-up.sh always derives in-window. A
+  // caller-exported DASHBOARD_PORT/PI_GATEWAY_PORT (the pair test-up.sh reads)
+  // would be honoured verbatim (PORTS_PINNED), skip derivation, and reintroduce
+  // cross-worktree collisions. PW_E2E_PORT/PW_GATEWAY_PORT are Playwright-host
+  // vars test-up.sh ignores, but strip them too for defense-in-depth.
+  delete env.DASHBOARD_PORT;
+  delete env.PI_GATEWAY_PORT;
+  delete env.PW_E2E_PORT;
+  delete env.PW_GATEWAY_PORT;
   let child;
   try {
-    child = spawn("bash", [TEST_UP, "-d"], {
+    // --build is MANDATORY for the managed path: the dashboard server+client run
+    // from BAKED image source under a per-worktree tag (D3). Without it a run
+    // silently tests whichever worktree built the tag first. BuildKit caches
+    // all but the COPY packages layer, so the rebuild stays cheap.
+    child = spawn("bash", [TEST_UP, "-d", "--build"], {
       cwd: workspace,
       detached: true,
       stdio: ["ignore", logFd, logFd],
@@ -96,12 +150,9 @@ export default async function globalSetup(): Promise<void> {
   // Mark managed BEFORE the wait so a crash mid-boot still gets torn down.
   fs.writeFileSync(MARKER_PATH, JSON.stringify({ workspace, pid: child.pid, logPath }));
 
-  // First run builds the image (slow); warm runs are seconds.
-  const healthy = await waitForHealth(180_000);
-  if (!healthy) {
-    throw new Error(
-      `[${CHANGE}] container never became healthy at ${HEALTH_URL} within 180s. ` +
-        `Check ${logPath} and docker/test-up.sh.`,
-    );
-  }
+  const ports = await bootHealthyPorts(workspace, logPath, 180_000);
+  // Lock in the healthy ports so worker processes (spawned after this) inherit
+  // the container port → baseURL in sync.
+  process.env.PW_E2E_PORT = String(ports.dashboardPort);
+  process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
 }

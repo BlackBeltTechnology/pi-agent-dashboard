@@ -425,6 +425,10 @@ interface ShellOverlayRouteClaim {
   path?: string;
   /** First-class session-param field (preferred). Defaults to "sid". */
   sessionParam?: string;
+  /** Back-action depth (1 = detail, 2 = overlay). See change: fix-plugin-and-scoped-back-navigation. */
+  depth?: 1 | 2;
+  /** Back-action parent path pattern for depth-2 routes. See change: fix-plugin-and-scoped-back-navigation. */
+  parentPath?: string;
   /** Legacy fallback: some older manifests put `path` / `sessionParam` under `config`. */
   config?: Record<string, unknown>;
   Component?: React.ComponentType<Record<string, unknown>>;

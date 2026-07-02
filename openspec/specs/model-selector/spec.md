@@ -311,7 +311,6 @@ The Save button SHALL render the count of dirty roles in its label when `pending
 - **THEN** the Save button label SHALL read `Save (2)`
 - **AND** the round-tripped entry's pill SHALL NOT render a dirty marker
 
-
 ### Requirement: ModelInfo SHALL carry capability metadata
 
 The `ModelInfo` wire type SHALL include optional `name`, `reasoning`, `vision`,
@@ -447,3 +446,55 @@ NOT reset the provider filter (only the transient text filter resets).
 - **GIVEN** the user typed `opus` into the text filter then closed the dropdown
 - **WHEN** the user reopens the dropdown
 - **THEN** the text filter SHALL be empty while the provider filter is preserved
+
+### Requirement: Thinking-level selector filters per model
+
+`ModelInfo` SHALL carry an optional `supportedThinkingLevels?: string[]` field populated by the bridge from pi 0.72+'s per-model `thinkingLevelMap`. The bridge SHALL include only the keys whose value is non-null (a `null` value in `thinkingLevelMap` means "this pi level is not supported by this model" and SHALL NOT be surfaced).
+
+The dashboard's `ThinkingLevelSelector` SHALL render only the levels in `supportedThinkingLevels` when the array is non-empty, preserving the canonical ordering `off, minimal, low, medium, high, xhigh`. When the field is undefined or empty (pre-0.72 pi or models without a declared map), the selector SHALL render all six levels — preserving today's behavior as a fallback.
+
+#### Scenario: Anthropic model exposes a subset
+- **WHEN** an Anthropic model has `thinkingLevelMap: { medium: "medium", high: "high", xhigh: null }`
+- **THEN** `ModelInfo.supportedThinkingLevels` SHALL be `["medium", "high"]`
+- **AND** the selector SHALL render exactly two options: medium and high
+
+#### Scenario: Pre-0.72 model with no map
+- **WHEN** the model object has no `thinkingLevelMap` field
+- **THEN** `ModelInfo.supportedThinkingLevels` SHALL be undefined
+- **AND** the selector SHALL render all six levels (today's fallback)
+
+#### Scenario: Model selector dropdown unaffected
+- **WHEN** the user opens the model selector
+- **THEN** all available models SHALL still appear regardless of their `supportedThinkingLevels` (filtering applies only to the thinking-level selector)
+
+### Requirement: User-initiated model list refresh
+
+The model selector dropdown SHALL provide a refresh control in its footer that re-requests the available model list for the currently selected session. Activating the control SHALL send a `request_models` message scoped to the selected session, deliberately bypassing the client's "fetch once per session" guard (`!modelsMap.has(sessionId)`), so a live session can pull a fresh list on demand. The resulting `models_list` push SHALL update the dropdown through the existing per-session update path.
+
+The control SHALL show a transient busy indicator from activation until either a `models_list` for the selected session arrives or a short safety timeout elapses, after which it returns to its idle state.
+
+The `onRefresh` capability SHALL be an optional prop on the selector; when absent (e.g. no session selected, or a host that does not provide it) the footer refresh control SHALL NOT render, preserving backward compatibility for the registered UI primitive.
+
+#### Scenario: Refresh a stale list mid-session
+
+- **WHEN** a session is live and the user opens the model dropdown and activates the refresh control
+- **THEN** the client sends `request_models` for the selected session
+- **AND** the control enters a busy state
+- **AND** on receipt of the `models_list` for that session the dropdown shows the updated models and the control returns to idle
+
+#### Scenario: Refresh bypasses the fetch-once guard
+
+- **WHEN** the selected session already has an entry in `modelsMap`
+- **AND** the user activates the refresh control
+- **THEN** the client still sends `request_models` for that session (the `!modelsMap.has(sessionId)` guard does not suppress the explicit user action)
+
+#### Scenario: Busy state clears on safety timeout
+
+- **WHEN** the refresh control is busy and no `models_list` for the selected session arrives
+- **THEN** the busy indicator clears after the safety timeout and the control returns to idle
+
+#### Scenario: No refresh control without a handler
+
+- **WHEN** the selector is rendered without an `onRefresh` handler
+- **THEN** the footer refresh control SHALL NOT render
+

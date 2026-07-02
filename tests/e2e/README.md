@@ -24,23 +24,22 @@ screenshots). It owns rendered-UI behaviour assertions.
   npx playwright install chromium
   ```
 
-  **Use the system Google Chrome instead** (no download): set
-  `PW_SYSTEM_CHROME=1`. `playwright.config.ts` then launches `channel:"chrome"`
-  and `globalSetup` skips the bundled-binary preflight. Requires Google Chrome
-  installed on the host.
-
-  ```bash
-  # attach to a container already up on :18000, run one spec via system Chrome
-  PI_E2E_SEED=1 docker/test-up.sh -d --build   # --build picks up local source changes
-  PW_E2E_USE_RUNNING=1 PW_SYSTEM_CHROME=1 npx playwright test model-proxy-oauth-filter
-  ```
-
 ## Run
 
 ```bash
 npm run test:e2e        # boot container, run specs, tear down
 npm run test:e2e:ui     # same, Playwright UI mode
+npm run test:e2e:chrome # same, but use the SYSTEM Google Chrome (no bundled download)
 ```
+
+### System browser (skip the bundled Chromium download)
+
+`PW_CHANNEL=<chrome|msedge|chromium>` launches the installed browser binary
+instead of Playwright's bundled Chromium. `playwright.config.ts` wires the
+channel from this env var, and `global-setup.ts` skips the bundled-Chromium
+preflight when it is set. `npm run test:e2e:chrome` is the shorthand
+(`PW_CHANNEL=chrome playwright test`, no `playwright install` step). CDP / WS
+routing specs still work (Chrome is Chromium-based).
 
 Default (managed) lifecycle:
 
@@ -66,6 +65,33 @@ PW_E2E_USE_RUNNING=1 npm run test:e2e   # attach, assert :18000 healthy, no tear
 `globalSetup` only verifies health; `globalTeardown` is a no-op. You own the
 container lifecycle.
 
+## System browser (`PW_CHANNEL`)
+
+By default the suite uses Playwright's **bundled Chromium** (downloaded by the
+`pretest:e2e` step, hermetic — what CI runs). To drive a **system-installed**
+browser instead, set `PW_CHANNEL` to a Chromium-family channel:
+
+```bash
+PW_CHANNEL=chrome  npm run test:e2e   # system Google Chrome
+PW_CHANNEL=msedge  npm run test:e2e   # system Microsoft Edge
+# also: chrome-beta, chrome-dev, chrome-canary, msedge-beta, ...
+```
+
+When `PW_CHANNEL` is set:
+
+- `playwright.config.ts` swaps the single project to `{ channel: PW_CHANNEL }`
+  and renames it to the channel (specs show as `[chrome]` instead of
+  `[chromium]`).
+- `pretest:e2e` self-skips `playwright install chromium` (no download needed).
+- `global-setup.ts` skips the bundled-Chromium preflight — Playwright errors
+  clearly itself if the named system browser is absent.
+
+Caveats: requires that browser installed on the host; **Chromium-family only**
+(WebKit/Firefox still need `playwright install`). Same Blink engine as bundled
+Chromium, so rendering/pointer behaviour matches; use it to avoid the download
+or to validate against a specific stable Chrome/Edge. Combine with the fast
+path: `PW_CHANNEL=chrome PW_E2E_USE_RUNNING=1 npm run test:e2e`.
+
 **Scenario specs need the seed flag in the fast path.** Specs that pin a folder
 or spawn a session (e.g. `session-spawn.spec.ts`) require the onboarding gate
 cleared and the network guard opened. Managed mode sets `PI_E2E_SEED=1`
@@ -89,7 +115,7 @@ step.
 
 | Path | Purpose |
 |------|---------|
-| `playwright.config.ts` (repo root) | `testDir: tests/e2e`, `baseURL :18000`, chromium, global setup/teardown |
+| `playwright.config.ts` (repo root) | `testDir: tests/e2e`, `baseURL :18000`, bundled chromium (or `PW_CHANNEL` system browser), global setup/teardown |
 | `tests/e2e/global-setup.ts` | Boot container (or verify health in fast path), poll `/api/health` |
 | `tests/e2e/global-teardown.ts` | Tear down when managed; no-op in fast path |
 | `tests/e2e/lifecycle.ts` | Shared paths, health poll, marker, `PW_E2E_USE_RUNNING` |
@@ -101,6 +127,8 @@ step.
 | `tests/e2e/tool-output-links.spec.ts` | Faux round-trip: `[[faux:text-difflinks]]` → assistant diff header linkifies; clicking `a/src/ghost.ts` strips the diff prefix (previews `src/ghost.ts`) and FilePreviewOverlay shows the stale-file "no longer exists" message. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/tool-output-selection.spec.ts` | Faux round-trip: `[[faux:text-linkrefs]]` → inline-code FileLink + UrlLink. Asserts `user-select:text` / `draggable=false`, a mouse drag crossing each link extends the selection (links don't hijack the drag), and a plain click still opens the preview. Task 3.2. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/inline-screenshot.spec.ts` | Faux round-trip: `[[faux:tool-screenshot]]` → real `bash` writes a PNG + echoes `Screenshot saved: <path>`; the bridge's `inlineToolResultImages` inlines it as a `type:"image"` block. Asserts an inline `data:image/png` `<img>` is visible (auto-expanded) and the consumed path is NOT linkified (D5). Change: inline-agent-screenshot-artifacts (automates task 4.2). Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/editor-pane.spec.ts` | Faux round-trip: `[[faux:tool-read-fixture]]` reads the real fixture `README.md` → `OpenFileButton` body click navigates to `/session/:id/editor` → MarkdownViewer renders the heading; the tree opens `hello.txt` (Monaco text), `logo.png` (ImageViewer `<img>` over `/api/file/raw`), `doc.pdf` (PdfViewer `<object>`); asserts 4 tabs, a concrete (non-transparent) Monaco background (theme inheritance), back-to-chat, and tab restore on re-entry. Binary fixtures `logo.png`/`doc.pdf` live in `docker/fixtures/sample-git/`. Change: add-internal-monaco-editor-pane. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/optimistic-prompt.spec.ts` | Change: optimistic-prompt-progress. (1) IDLE send → optimistic `pending-prompt-card` appears, then confirms with no leftover card. Widens the sub-second window by delaying server→client WS frames via `page.routeWebSocket` (CDP `emulateNetworkConditions` does NOT throttle an open WS). (2) MID-TURN send (during `[[faux:slow-stream]]`, sent with Alt+Enter = followUp) → no optimistic card; `queue-chip-followup` renders. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/helpers/` | `gotoDashboard(page)`, `ensureGitSession(page)`, `sendPrompt(page, text)` + testid→locator map |
 
 ## Conventions

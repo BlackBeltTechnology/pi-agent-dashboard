@@ -399,6 +399,11 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {(state.thinkingLevel || session.thinkingLevel) && (
         <span className="text-[var(--text-tertiary)] inline-flex items-center gap-0.5"><Icon path={mdiHeadLightbulb} size={0.45} /> {state.thinkingLevel || session.thinkingLevel}</span>
       )}
+      {/* pi version the session actually runs, reported by the bridge. */}
+      {/* See change: restore-pi-version-skew-surface. */}
+      {session.piVersion && (
+        <span className="text-[var(--text-tertiary)]" title="pi version">pi {session.piVersion}</span>
+      )}
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />

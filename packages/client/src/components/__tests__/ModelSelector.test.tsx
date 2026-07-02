@@ -4,7 +4,7 @@
  * See change: enrich-model-selector-capabilities-favorites.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
 import { ModelSelector } from "../ModelSelector.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -77,6 +77,52 @@ describe("ModelSelector favorites", () => {
     const rows = screen.getAllByTestId("model-row");
     expect(rows.length).toBe(1);
     expect(rows[0].textContent).toContain("claude-haiku-4-5");
+  });
+});
+
+describe("ModelSelector refresh control (refresh-model-selector-models)", () => {
+  it("calls onRefresh and enters busy (disabled) state on activation", () => {
+    const onRefresh = vi.fn();
+    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    open();
+    const btn = screen.getByTestId("model-refresh");
+    expect(btn.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(btn);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    // Busy: control disabled while awaiting a new models list.
+    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("does not render the refresh control when onRefresh is undefined", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    expect(screen.queryByTestId("model-refresh")).toBeNull();
+  });
+
+  it("clears busy state when the models prop identity changes", () => {
+    const onRefresh = vi.fn();
+    const { rerender } = render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    open();
+    fireEvent.click(screen.getByTestId("model-refresh"));
+    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
+    // A fresh models_list arrives => new array identity.
+    rerender(<ModelSelector models={[...models]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("clears busy state on the safety timeout when no new list arrives", () => {
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn();
+      render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+      open();
+      fireEvent.click(screen.getByTestId("model-refresh"));
+      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

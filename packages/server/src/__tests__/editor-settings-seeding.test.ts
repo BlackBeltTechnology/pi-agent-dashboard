@@ -52,6 +52,7 @@ describe("editor settings seeding (writeVscodeUserSettings via setTheme)", () =>
     expect(s["update.mode"]).toBe("none");
     expect(s["extensions.autoCheckUpdates"]).toBe(false);
     expect(s["workbench.startupEditor"]).toBe("none");
+    expect(s["workbench.secondarySideBar.defaultVisibility"]).toBe("hidden");
     // theme keys also present
     expect(s["workbench.colorTheme"]).toBe("Default Dark Modern");
   });

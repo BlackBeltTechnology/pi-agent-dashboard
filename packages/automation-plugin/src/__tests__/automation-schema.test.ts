@@ -139,4 +139,46 @@ sandbox: yolo
     );
     expect(error).toContain("sandbox");
   });
+
+  it("accepts a registered plugin action id with a payload", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+action: { kind: flows.run, payload: { flow: nightly-build-and-tag, task: "build and tag" } }
+model: "@fast"
+`,
+      KNOWN,
+      new Set(["flows.run"]),
+    );
+    expect(error).toBeUndefined();
+    expect(config?.action.kind).toBe("flows.run");
+    expect(config?.action.payload).toEqual({ flow: "nightly-build-and-tag", task: "build and tag" });
+  });
+
+  it("rejects an unregistered action kind, naming it, isolating the automation", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+action: { kind: slack.post }
+model: x
+`,
+      KNOWN,
+      new Set(["flows.run"]),
+    );
+    expect(config).toBeUndefined();
+    expect(error).toContain("slack.post");
+  });
+
+  it("rejects a non-mapping action.payload", () => {
+    const { error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+action: { kind: flows.run, payload: "nope" }
+model: x
+`,
+      KNOWN,
+      new Set(["flows.run"]),
+    );
+    expect(error).toContain("payload");
+  });
 });

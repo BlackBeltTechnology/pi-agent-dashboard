@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { getMobileDepth, type MobileDepthInput } from "../mobile-depth.js";
 
 function input(over: Partial<MobileDepthInput> = {}): MobileDepthInput {
@@ -6,6 +6,7 @@ function input(over: Partial<MobileDepthInput> = {}): MobileDepthInput {
     hasSessionRoute: false,
     hasFolderRoute: false,
     hasSettingsRoute: false,
+    hasFolderSettingsRoute: false,
     hasTunnelRoute: false,
     hasOverlayRoute: false,
     hasPiResourceRoute: false,
@@ -28,6 +29,10 @@ describe("getMobileDepth", () => {
 
   it("returns 1 when settings route is active", () => {
     expect(getMobileDepth(input({ hasSettingsRoute: true }))).toBe(1);
+  });
+
+  it("returns 1 when folder-settings route is active (mirrors global settings tier)", () => {
+    expect(getMobileDepth(input({ hasFolderSettingsRoute: true }))).toBe(1);
   });
 
   it("returns 1 when tunnel-setup route is active", () => {

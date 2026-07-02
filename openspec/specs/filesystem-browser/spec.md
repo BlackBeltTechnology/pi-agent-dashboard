@@ -1,5 +1,6 @@
-## ADDED Requirements
-
+## Purpose
+Server-side directory browse API plus the PathPicker UI for choosing filesystem paths when pinning directories or spawning sessions.
+## Requirements
 ### Requirement: Directory browse API
 The server SHALL expose `GET /api/browse?path=<dir>&q=<query>&detect=<0|1>` (localhost-only) that returns directory entries for the given path. The response SHALL include `{ success: true, data: { entries: Array<{ name, path, isGit?, isPi? }>, parent: string | null, current: string } }`. Only directories SHALL be listed (no files). Hidden directories (names starting with `.`) SHALL be excluded. If `path` is omitted, it SHALL default to the user's home directory. The entry limit SHALL be 200, applied AFTER filtering and ranking so best matches are never truncated.
 
@@ -172,131 +173,16 @@ Directory creation SHALL be non-recursive (`fs.mkdir` without `recursive: true`)
 - **THEN** the server SHALL return `{ success: false, error: "localhost only" }` and SHALL NOT create any directory
 
 ### Requirement: PathPicker component
-The web client SHALL provide a reusable `PathPicker` component combining a text input with a fixed-height scrollable directory list for keyboard-first filesystem navigation.
+The PathPicker (Pin Directory dialog) SHALL browse directories via `GET /api/browse` and render an inline error region on failure. When the failure is a network-guard denial (HTTP 403 with `error: "network_not_allowed"`), the PathPicker SHALL render the server-supplied `hint` and an affordance to Settings → Servers — NOT a bare "Access denied" string. Other failures (e.g. directory not found, transport error) SHALL keep their existing error copy.
 
-The component SHALL display:
-- Text input (always focused) showing the current path with cursor
-- Fixed-height directory list (configurable rows, default 8) below the input
-- `..` entry at the top of the list for parent navigation (except at root)
-- Visual indicators for git repos (`isGit`) and pi projects (`isPi`)
-- Highlight on the currently selected list entry
-- A footer with **Cancel**, **＋ New folder**, and **Select** buttons
-- When the typed partial has no exact match, an inline **"＋ Create \"&lt;name&gt;\" here"** row at the end of the list
+#### Scenario: Browse denied by network guard
+- **WHEN** `GET /api/browse` returns HTTP 403 with `{ error: "network_not_allowed", hint }`
+- **THEN** the PathPicker SHALL render the `hint` (remedy) text instead of a bare "Access denied"
+- **AND** SHALL offer a link/affordance to Settings → Servers to add the network to `trustedNetworks`
 
-The component SHALL send the typed partial to the server as the `q` query parameter so filtering and ranking happen server-side. Requests SHALL be debounced at 150ms and older in-flight requests SHALL be cancelled when a newer input state is sent.
-
-The trailing-separator shortcut for Enter / Select SHALL be OS-aware: the input MAY end with the POSIX separator `/` OR the Windows separator `\` (including UNC paths terminated by `\`). The picker SHALL NOT reject an input solely because its trailing character is the OS-native separator that the picker itself wrote during the prior navigation step (`descendInto` + `withTrailingSep`, or the initial fetch effect on mount).
-
-#### Scenario: Open PathPicker
-- **WHEN** PathPicker mounts with `initialPath="/Users/robson/"`
-- **THEN** the input SHALL show `/Users/robson/` and the list SHALL show subdirectories of that path
-
-#### Scenario: Open PathPicker without initialPath
-- **WHEN** PathPicker mounts without `initialPath`
-- **THEN** it SHALL default to the user's home directory
-
-#### Scenario: Type to filter (substring, server-side)
-- **WHEN** the user types characters after the last `/` in the input
-- **THEN** the component SHALL send the typed partial to `/api/browse` as `q` (debounced 150ms)
-- **AND** the list SHALL display the server's ranked substring-filtered results in returned order
-- **AND** the highlight SHALL reset to the first list entry
-
-#### Scenario: Arrow key navigation
-- **WHEN** the user presses ↓ or ↑
-- **THEN** the highlight SHALL move through the filtered list entries (including the inline "Create here" row when present)
-- **AND** focus SHALL remain in the text input
-
-#### Scenario: Tab descends into directory
-- **WHEN** the user presses Tab with a highlighted entry
-- **THEN** the input SHALL become `parentPath + highlightedEntry + /`
-- **AND** the list SHALL fetch and show the contents of that directory
-
-#### Scenario: Single match auto-complete
-- **WHEN** only one entry matches the typed partial
-- **THEN** Tab SHALL complete that entry without requiring arrow key selection first
-
-#### Scenario: Enter on exact match selects and closes
-- **WHEN** the user presses Enter AND the trimmed partial matches a visible entry name (case-insensitive)
-- **THEN** `onSelect` SHALL be called with that entry's absolute path
-- **AND** the picker SHALL close
-
-#### Scenario: Enter on trailing-separator current directory selects and closes
-- **WHEN** the user presses Enter AND the input ends with the OS-native separator (`/` on POSIX, `\` on Windows, `/` also accepted for forward-slash Windows input) AND the parsed parent equals the currently-fetched directory
-- **THEN** `onSelect` SHALL be called with the current input value
-- **AND** the picker SHALL close
-
-#### Scenario: Enter on Windows backslash-terminated path selects and closes
-- **GIVEN** a Windows session where the picker has navigated to `C:\Users\me` and `inputValue` is `"C:\\Users\\me\\"` (the form `descendInto` produces via `withTrailingSep(_, "win32")`)
-- **WHEN** the user presses Enter without typing any partial name
-- **THEN** `onSelect` SHALL be called once with `"C:\\Users\\me\\"`
-- **AND** the picker SHALL close
-- **AND** the input SHALL NOT show the invalid-flash indicator
-
-#### Scenario: Select button on Windows backslash-terminated path selects and closes
-- **GIVEN** the same Windows setup as above
-- **WHEN** the user clicks the footer **Select** button
-- **THEN** `onSelect` SHALL be called once with the input value (same outcome as Enter)
-
-#### Scenario: Enter on single candidate completes (does not close)
-- **WHEN** the user presses Enter AND there is exactly one filtered candidate AND the partial is NOT an exact match
-- **THEN** the input SHALL become `candidate.path` followed by the OS-native separator
-- **AND** the list SHALL refetch for the new directory
-- **AND** `onSelect` SHALL NOT be called
-
-#### Scenario: Enter on non-existent path is a no-op
-- **WHEN** the user presses Enter AND none of the above rules apply (no exact match, zero or multiple candidates, input does not end with `/` or `\`)
-- **THEN** `onSelect` SHALL NOT be called
-- **AND** the picker SHALL remain open
-- **AND** the input SHALL show a brief visual "invalid" indicator (e.g. red outline or shake)
-
-#### Scenario: Select button follows Enter rules
-- **WHEN** the user clicks the footer Select button
-- **THEN** the component SHALL apply the same rules as Enter above (never confirming a non-existent path)
-
-#### Scenario: Escape cancels
-- **WHEN** the user presses Escape
-- **THEN** `onCancel` SHALL be called
-
-#### Scenario: Click entry descends
-- **WHEN** the user clicks a directory entry in the list
-- **THEN** the input SHALL become that entry's path + `/`
-- **AND** the list SHALL fetch and show the contents of that directory
-
-#### Scenario: Click `..` goes up
-- **WHEN** the user clicks the `..` entry
-- **THEN** the input SHALL navigate to the parent directory
-- **AND** the list SHALL show the parent's contents
-
-#### Scenario: Backspace past slash
-- **WHEN** the user backspaces past a `/` separator
-- **THEN** the resolved parent SHALL change to the grandparent directory
-- **AND** the list SHALL fetch the grandparent's contents
-- **AND** the remaining text after the new last `/` SHALL be sent as `q`
-
-#### Scenario: Paste full path
-- **WHEN** the user pastes a full path like `/Users/robson/Project/pi-agent-dashboard`
-- **THEN** PathPicker SHALL resolve the deepest valid directory
-- **AND** display its contents in the list
-
-#### Scenario: Empty directory
-- **WHEN** the resolved directory has no subdirectories
-- **THEN** the list SHALL show only `..` and a "No subdirectories" hint
-
-#### Scenario: No filter matches
-- **WHEN** the typed partial matches no entries
-- **THEN** the list SHALL show `..`, a "No matches" hint, and the inline "Create \"&lt;partial&gt;\" here" row
-
-#### Scenario: Loading state
-- **WHEN** the PathPicker is fetching directory contents from the API
-- **THEN** a loading indicator SHALL be shown in the list area
-
-#### Scenario: Git repo indicator
-- **WHEN** a directory entry has `isGit: true`
-- **THEN** it SHALL show a visual git indicator
-
-#### Scenario: Pi project indicator
-- **WHEN** a directory entry has `isPi: true`
-- **THEN** it SHALL show a visual pi indicator
+#### Scenario: Browse non-denial error unchanged
+- **WHEN** `GET /api/browse` fails for a non-403 reason (directory not found, transport error)
+- **THEN** the PathPicker SHALL render its existing error copy for that case
 
 ### Requirement: PathPicker new folder creation
 The `PathPicker` component SHALL let users create a new directory inside the currently-browsed parent directory via two affordances:
@@ -335,3 +221,4 @@ Both SHALL call `POST /api/browse/mkdir` with `{ parent: <currently-browsed dire
 #### Scenario: Inline create hidden on exact match
 - **WHEN** the typed partial exactly matches an existing visible entry name (case-insensitive)
 - **THEN** the inline "Create here" row SHALL NOT be shown
+

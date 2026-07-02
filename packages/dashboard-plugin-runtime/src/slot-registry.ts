@@ -36,6 +36,10 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   path?: string;
   /** Session-id URL parameter name for `shell-overlay-route` claims. */
   sessionParam?: string;
+  /** Back-action depth for `shell-overlay-route` claims (1 = detail, 2 = overlay). */
+  depth?: 1 | 2;
+  /** Back-action parent path pattern for `depth: 2` `shell-overlay-route` claims. */
+  parentPath?: string;
   tab?: string;
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;

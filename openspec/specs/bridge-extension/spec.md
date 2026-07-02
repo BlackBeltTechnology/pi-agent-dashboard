@@ -1,4 +1,20 @@
-## ADDED Requirements
+## Purpose
+
+Bridge extension behavior: forwards pi session events to the dashboard, tracks model and thinking-level changes, manages session lifecycle, and handles server→bridge control messages (abort, shutdown, stop-after-turn).
+## Requirements
+### Requirement: Relay plugin-emitted events into the session bus
+
+The bridge SHALL handle a `plugin_emit_event` control message from the server: when `pi.events` is available and the message carries a non-empty string `eventType`, it SHALL call `pi.events.emit(eventType, data)` where `data` is the message's `data` object (or `{}` when absent). The bridge SHALL NOT restrict `eventType` to a known set — it relays whatever the server-side plugin requested. A missing or non-string `eventType` SHALL be ignored (no emit).
+
+#### Scenario: Bridge re-emits a configured event
+
+- **WHEN** the bridge receives `{ type: "plugin_emit_event", eventType: "flow:run", data: { flowName: "test:x", task: "go" } }`
+- **THEN** it SHALL call `pi.events.emit("flow:run", { flowName: "test:x", task: "go" })`.
+
+#### Scenario: Malformed emit is ignored
+
+- **WHEN** the bridge receives `{ type: "plugin_emit_event" }` with no `eventType`
+- **THEN** it SHALL emit nothing and SHALL NOT throw.
 
 ### Requirement: Dev build and server shutdown on reload cleanup
 When `devBuildOnReload` is `true` in the loaded config, the bridge extension's cleanup function (called on `/reload`) SHALL perform the following before the normal cleanup:
@@ -88,7 +104,6 @@ The bridge SHALL store a reference to the agent session (from `cachedCtx`) that 
 #### Scenario: Session reference passed to handler
 - **WHEN** a slash command needs routing via `session.prompt()`
 - **THEN** the command handler SHALL have access to the session's `prompt()` method through its stored context reference
-## ADDED Requirements
 
 ### Requirement: UI proxy activation on session start
 The bridge extension SHALL activate the UI proxy in the `session_start` handler. The proxy SHALL wrap `ctx.ui.confirm`, `ctx.ui.select`, `ctx.ui.input`, `ctx.ui.editor`, and `ctx.ui.notify` with dashboard-forwarding versions. The proxy SHALL receive the WebSocket connection, session ID getter, and `ctx.hasUI` flag.
@@ -151,7 +166,6 @@ The standalone `.pi/extensions/ask-user.ts` file SHALL be removed from the proje
 #### Scenario: File removed
 - **WHEN** the project is built
 - **THEN** `.pi/extensions/ask-user.ts` SHALL NOT exist
-## ADDED Requirements
 
 ### Requirement: Bridge listens to flow events on pi.events
 The bridge extension SHALL register listeners on `pi.events` for all `flow:*` event names and forward them as `event_forward` messages using the mapped `eventType` values defined in the flow-event-bridge spec.
@@ -236,7 +250,6 @@ The bridge SHALL maintain the previous process scan result (array of PIDs). Afte
 - **WHEN** a previously reported process is no longer in the scan
 - **THEN** a `process_list` message SHALL be sent with the updated list
 
-
 ### Requirement: Bridge uses mDNS discovery for server connection
 The bridge extension SHALL use mDNS browsing as the primary mechanism to discover the dashboard server, falling back to config-based port probe when mDNS is unavailable.
 
@@ -252,7 +265,6 @@ The bridge extension SHALL use mDNS browsing as the primary mechanism to discove
 - **WHEN** no server is found via mDNS or fallback and `autoStart` is `true`
 - **THEN** the bridge SHALL launch the server as a detached process
 - **AND** wait for the server's mDNS advertisement (up to 10 seconds, fallback to config probe) before connecting
-
 
 ### Requirement: Remove OpenSpec activity detection from bridge
 The bridge extension SHALL NOT call `detectOpenSpecActivity()` or track OpenSpec state (`currentOpenSpecPhase`, `currentOpenSpecChange`). It SHALL NOT send `openspec_activity_update` protocol messages. The `tool_execution_start` and `agent_end` events SHALL be forwarded as raw `event_forward` messages without OpenSpec processing.
@@ -324,8 +336,6 @@ When the bridge's `autoStartServer` flow catches a `launchServer` failure, the `
 - **WHEN** `launchServer` returns `{ success: false }` or throws during auto-start
 - **THEN** `ui.notify` SHALL be called with a message that includes the absolute path `~/.pi/dashboard/server.log` (or its platform-expanded equivalent)
 
-
-
 ### Requirement: Bridge does not call pi session-replacement APIs
 
 The bridge extension SHALL NOT invoke `pi.newSession(...)`, `ctx.fork(...)`, or `ctx.switchSession(...)` from any code under `packages/extension/src/` (excluding `__tests__/`).
@@ -391,7 +401,6 @@ This requirement is enforced by a repository-level lint test (`packages/extensio
 #### Scenario: `prompt.type === "multiselect"` outside the TUI adapter is permitted
 - **WHEN** `bridge.ts` references `type: "multiselect"` in the `(ctx.ui as any).multiselect = (title, options, opts) => bus.request({ type: "multiselect", ... })` patch
 - **THEN** the lint test SHALL pass — that string is in the patch site, not in the TUI adapter, and is part of the working bus-routed primary path
-## ADDED Requirements
 
 ### Requirement: Bridge SHALL patch `ctx.ui.multiselect` alongside select/input/confirm/editor
 
@@ -511,7 +520,6 @@ In `command-handler.ts`'s slash else-arm (the test-shim path used when `options.
 - **WHEN** `command-handler.ts`'s slash else-arm runs (in a unit test or non-bridge context) AND `options.sessionPrompt` is undefined AND `options.eventSink` is provided
 - **THEN** `tryDispatchExtensionCommand` SHALL be called with `connection: undefined`
 - **AND** the helper SHALL degrade to Path D for any extension slash command (no `dispatch_extension_command` emitted)
-## ADDED Requirements
 
 ### Requirement: Default model applied only to brand-new sessions
 
@@ -588,7 +596,6 @@ The pre-existing gate on `event.reason === "startup"` SHALL remain in place; the
 - **THEN** the bridge SHALL treat the message count as `0` (via optional-chaining `?? 0`)
 - **AND** the bridge SHALL call `pi.setModel()` with the resolved default model
 - **AND** the bridge SHALL prefer this "apply on resume" failure mode over the alternative "silently skip on new"
-## ADDED Requirements
 
 ### Requirement: Bridge extension ships a universal `browser` skill
 
@@ -660,3 +667,80 @@ Rationale: extensions branch on `ctx.hasUI` to decide whether to call `ctx.ui.no
 - **THEN** the bridge SHALL catch the error
 - **AND** the bridge SHALL log `[dashboard] failed to flip ctx.hasUI` exactly once
 - **AND** `session_start` SHALL continue without crashing
+
+### Requirement: Bridge listens to thinking_level_select
+
+The bridge SHALL register a `pi.on("thinking_level_select", ...)` listener (pi 0.71+) and SHALL push a `model_update` message via the existing `sendModelUpdateIfChanged` debouncer whenever the listener fires. The bridge SHALL NOT rely on `model_select` to surface thinking-level changes.
+
+The model-tracker's equality check that gates `model_update` pushes SHALL consider both `model` and `thinkingLevel` — a change in thinkingLevel alone (model unchanged) SHALL still produce a push.
+
+#### Scenario: Thinking level change without model change
+- **WHEN** the user changes thinking level from `medium` to `high` (model unchanged)
+- **AND** pi emits `thinking_level_select`
+- **THEN** the bridge SHALL emit one `model_update` with the existing model and the new thinkingLevel `"high"`
+
+#### Scenario: Repeated event with same level is a no-op
+- **WHEN** `thinking_level_select` fires twice with the same value
+- **THEN** the bridge SHALL push at most one `model_update` for that value (the second is suppressed by the existing debouncer)
+
+#### Scenario: Pre-0.71 pi (unlikely under 0.73 floor)
+- **WHEN** the bridge runs against a pi that does NOT emit `thinking_level_select`
+- **THEN** the listener registration SHALL be a no-op and the bridge SHALL still operate (no crash, no error)
+
+### Requirement: Bridge handles stop_after_turn for graceful exit
+
+The bridge SHALL accept a `{ type: "stop_after_turn", sessionId }` message from the server. On receipt, the bridge SHALL set a per-session flag (`shouldStopAfterTurn = true`) and, on the next `pi.events.on("turn_end")` callback while the flag is set, SHALL call `cachedCtx.shutdown()` (graceful) — falling back to `cachedCtx.abort()` only if `shutdown` is unavailable. The flag SHALL be cleared after the shutdown call is initiated. Repeated `stop_after_turn` messages while the flag is already set SHALL be no-ops.
+
+The `turn_end` listener SHALL be wrapped in try/catch — failure SHALL NOT crash the bridge.
+
+#### Scenario: Stop after turn waits for clean boundary
+- **WHEN** the bridge receives `stop_after_turn` while pi is mid-stream
+- **THEN** the bridge SHALL set the flag and let the current turn complete
+- **AND** at the next `turn_end`, SHALL call `cachedCtx.shutdown()`, clearing the flag
+
+#### Scenario: Idempotent flag set
+- **WHEN** the bridge receives `stop_after_turn` twice in rapid succession before any `turn_end` fires
+- **THEN** the flag SHALL be set once and the second message SHALL be a no-op (no second shutdown)
+
+#### Scenario: Falls back when shutdown unavailable
+- **WHEN** `cachedCtx.shutdown` is not a function (e.g. older pi or invalid state)
+- **THEN** the bridge SHALL call `cachedCtx.abort()` instead and log a warning, preserving the clean-termination intent at best-effort
+
+
+### Requirement: Bridge reports its session's pi version
+
+The bridge SHALL report the pi-coding-agent version of the process it runs inside, per session, via a `{ type: "pi_version_update", sessionId, version }` message to the server. The version SHALL be read from inside the bridge's own process (`createRequire(import.meta.url).resolve("@earendil-works/pi-coding-agent/package.json")` + `readFileSync`), which is the ground-truth pi for that session — distinct from the server-side `readCurrentPiVersion()` read that drives the global `/api/health.compatibility` advisory.
+
+The bridge SHALL send the message once when the session registers, and again whenever a later read yields a version different from the last value sent (including after an out-of-band pi upgrade). A module-scoped `lastPiVersion` SHALL suppress redundant sends, including across reconnect. The version re-read SHALL piggyback on the existing git/model poll tick (`runGitPollTick`, 30s) — no dedicated timer.
+
+A read failure SHALL log a warning and skip the send without crashing the bridge or interrupting the heartbeat; the next tick retries.
+
+#### Scenario: Push at session register
+- **WHEN** the bridge registers a session against pi 0.80.2
+- **THEN** the bridge SHALL send `{ type: "pi_version_update", sessionId, version: "0.80.2" }`
+
+#### Scenario: No push when version unchanged
+- **WHEN** a poll tick re-reads the same version already sent
+- **THEN** no `pi_version_update` SHALL be sent
+
+#### Scenario: Push after out-of-band upgrade
+- **WHEN** the user runs `pi update --self` so the bridge's process now resolves to a newer pi version
+- **AND** the next poll tick fires
+- **THEN** the bridge SHALL send `pi_version_update` with the new version
+
+#### Scenario: Read failure is silent
+- **WHEN** the pi version read throws
+- **THEN** the bridge SHALL log a warning, skip the send, and keep the poll loop running
+
+#### Scenario: Reconnect does not redundantly push
+- **WHEN** the bridge reconnects against the same pi version it last sent
+- **THEN** no `pi_version_update` SHALL be sent because `lastPiVersion` is unchanged
+
+### Requirement: Server stores and broadcasts reported pi version
+
+On receipt of `pi_version_update`, the server SHALL store `version` as `DashboardSession.piVersion` for that session and broadcast a session update to subscribed browsers, mirroring the `git_info_update` handling. Older bridges that never send the message SHALL leave `piVersion` undefined; no client behaviour depends on its presence beyond an optional read-only display in the session header.
+
+#### Scenario: Stored and broadcast
+- **WHEN** the server receives `{ type: "pi_version_update", sessionId, version: "0.80.2" }`
+- **THEN** the session record's `piVersion` SHALL become `"0.80.2"`
+- **AND** a session-updated broadcast carrying `{ piVersion: "0.80.2" }` SHALL be sent to that session's browser subscribers

@@ -54,6 +54,22 @@ export type OnEventFn = (handler: (sessionId: string, event: unknown) => void) =
  */
 export type SendToSessionFn = (sessionId: string, text: string) => boolean;
 
+/**
+ * Emit a configured pi event INTO a running session's in-process event bus
+ * (relayed over the bridge as a `plugin_emit_event` control message; the
+ * in-session bridge does `pi.events.emit(eventType, data)`). Decoupled: the
+ * host does not know which events exist — a plugin action emits whatever it
+ * registered. Gated to first-party / trusted plugins (same gate as
+ * `spawnSession`/`abortSession`): untrusted plugins get a hook returning
+ * `false` without sending. Returns `true` when the control message was
+ * dispatched to a connected session. See change: automation-emit-configured-event.
+ */
+export type EmitEventToSessionFn = (
+  sessionId: string,
+  eventType: string,
+  data?: Record<string, unknown>,
+) => boolean;
+
 /** Register a handler for a browser WebSocket message type. */
 export type RegisterBrowserHandlerFn = (type: string, handler: (msg: unknown, ws: unknown) => void) => void;
 
@@ -112,6 +128,32 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
  */
 export type AbortSessionFn = (sessionId: string) => boolean;
 
+/**
+ * Publish a value under `name` into the host-owned cross-plugin service
+ * registry (last write wins). In-process only — values never cross the
+ * bridge. See change: register-plugin-automation-events.
+ */
+export type ProvideFn = (name: string, value: unknown) => void;
+
+/**
+ * Read a value previously published via `provide(name, ...)`. Returns
+ * `undefined` when nothing was provided under `name` (never throws). The
+ * loader's topological order (manifest.dependsOn) guarantees a provider's
+ * registerPlugin runs before a dependent that declares it.
+ * See change: register-plugin-automation-events.
+ */
+export type ConsumeFn = <T = unknown>(name: string) => T | undefined;
+
+/**
+ * Enumerate every value published via `provide(name, …)` whose `name` starts
+ * with `prefix`, paired with its key. Enables publish/collect: producers
+ * `provide` under a namespaced key, a consumer collects the namespace lazily,
+ * independent of plugin load order. In-process only (never crosses the
+ * bridge). Returns `[]` when nothing matches (never throws). Result order is
+ * unspecified. See change: decouple-automation-action-registry.
+ */
+export type ConsumeAllFn = <T = unknown>(prefix: string) => Array<{ key: string; value: T }>;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -125,6 +167,11 @@ export interface ServerPluginContext {
   /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
   sendToSession: SendToSessionFn;
   /**
+   * Emit a configured pi event into a running session. See change:
+   * automation-emit-configured-event.
+   */
+  emitEventToSession: EmitEventToSessionFn;
+  /**
    * Spawn a new pi session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that always resolves `{ success: false }`.
    * See change: add-automation-plugin.
@@ -136,6 +183,21 @@ export interface ServerPluginContext {
    * automation-ui-mockup-parity.
    */
   abortSession: AbortSessionFn;
+  /**
+   * Publish a value other plugins can consume. See change:
+   * register-plugin-automation-events.
+   */
+  provide: ProvideFn;
+  /**
+   * Consume a value published by another plugin. Returns `undefined` when
+   * absent. See change: register-plugin-automation-events.
+   */
+  consume: ConsumeFn;
+  /**
+   * Collect every value published under keys starting with `prefix`.
+   * See change: decouple-automation-action-registry.
+   */
+  consumeAll: ConsumeAllFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
   logger: PluginLogger;
@@ -151,8 +213,12 @@ export interface ServerContextDeps {
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
   sendToSession: SendToSessionFn;
+  emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
+  provide: ProvideFn;
+  consume: ConsumeFn;
+  consumeAll: ConsumeAllFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
 }
@@ -175,8 +241,12 @@ export function createServerPluginContext(
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
     sendToSession: deps.sendToSession,
+    emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
+    provide: deps.provide,
+    consume: deps.consume,
+    consumeAll: deps.consumeAll,
 
     getPluginConfig<T>(): T {
       return deps.getPluginConfig(pluginId) as T;

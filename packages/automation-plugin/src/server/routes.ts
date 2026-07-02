@@ -19,7 +19,8 @@
  */
 import os from "node:os";
 import type { FastifyInstance } from "fastify";
-import type { AutomationConfig, AutomationScope } from "../shared/automation-types.js";
+import type { ActionDescriptor, AutomationConfig, AutomationScope } from "../shared/automation-types.js";
+import { BUILTIN_ACTION_ALIASES } from "../shared/automation-types.js";
 
 /** Phase-1 registered trigger kinds (mirrors the server registry). */
 const KNOWN_KINDS = new Set(["schedule"]);
@@ -27,6 +28,26 @@ const KNOWN_KINDS = new Set(["schedule"]);
 /** Resolve the scope base dir for a (scope, cwd) pair. */
 function scopeBaseFor(scope: AutomationScope, cwd: string | undefined): string {
   return scope === "global" ? os.homedir() : (cwd ?? process.cwd());
+}
+
+/** Built-in action kinds always accepted (aliased to core.* at read time). */
+const BUILTIN_ACTION_KINDS = new Set(Object.keys(BUILTIN_ACTION_ALIASES));
+
+/**
+ * Reject an automation whose `action.kind` is neither a built-in alias nor a
+ * registered action id, BEFORE it is written to disk. Mirrors the read-path
+ * validation so `/create` + `/update` cannot persist a config that `/list`
+ * would later mark invalid. See change: register-plugin-automation-events.
+ */
+function unknownActionKind(
+  config: AutomationConfig | undefined,
+  ids: ReadonlySet<string> | undefined,
+): string | undefined {
+  const kind = config?.action?.kind;
+  if (typeof kind !== "string" || kind.length === 0) return undefined; // writer surfaces shape errors
+  if (BUILTIN_ACTION_KINDS.has(kind)) return undefined;
+  if (ids?.has(kind)) return undefined;
+  return kind;
 }
 
 /** Optional hooks supplied by the engine for routes that need run control. */
@@ -43,6 +64,18 @@ export interface AutomationRouteHooks {
     cwd?: string;
     runId: string;
   }) => { ok: boolean; error?: string };
+  /**
+   * Registered automation actions resolved for a cwd (availability +
+   * enum options). Reads the live action registry shared with the engine.
+   * See change: register-plugin-automation-events.
+   */
+  listActions?: (cwd?: string) => ActionDescriptor[];
+  /**
+   * All registered action ids (cwd-independent), for schema validation on the
+   * `/list` + `/definition` routes so plugin-backed automations parse as valid.
+   * See change: register-plugin-automation-events.
+   */
+  actionIds?: () => ReadonlySet<string>;
 }
 
 export function mountAutomationRoutes(
@@ -93,6 +126,12 @@ export function mountAutomationRoutes(
     return { ok: true };
   });
 
+  fastify.get("/api/plugins/automation/actions", async (req) => {
+    const q = (req.query ?? {}) as { cwd?: string };
+    if (!hooks.listActions) return { actions: [] };
+    return { actions: hooks.listActions(q.cwd) };
+  });
+
   fastify.get("/api/plugins/automation/trigger-kinds", async () => {
     const { TriggerRegistry, deriveTriggerTaxonomy } = await import("./trigger-registry.js");
     const { scheduleTrigger } = await import("./schedule-trigger.js");
@@ -124,6 +163,7 @@ export function mountAutomationRoutes(
     const automations = scanAutomations(
       { repoRoot: q.cwd, homeDir: os.homedir(), scanFolder: !!q.cwd, scanGlobal: true },
       KNOWN_KINDS,
+      hooks.actionIds?.(),
     );
     return { automations };
   });
@@ -171,6 +211,11 @@ export function mountAutomationRoutes(
       reply.code(400);
       return { error: `invalid automation name: "${body.name}"` };
     }
+    const badKind = unknownActionKind(body.config, hooks.actionIds?.());
+    if (badKind) {
+      reply.code(400);
+      return { error: `unknown action kind: "${badKind}"` };
+    }
     const scope = body.scope ?? "folder";
     const base = scopeBaseFor(scope, body.cwd);
     try {
@@ -203,6 +248,11 @@ export function mountAutomationRoutes(
     if (!isValidAutomationName(body.name)) {
       reply.code(400);
       return { error: `invalid automation name: "${body.name}"` };
+    }
+    const badKind = unknownActionKind(body.config, hooks.actionIds?.());
+    if (badKind) {
+      reply.code(400);
+      return { error: `unknown action kind: "${badKind}"` };
     }
     const scope = body.scope ?? "folder";
     const base = scopeBaseFor(scope, body.cwd);
@@ -244,7 +294,7 @@ export function mountAutomationRoutes(
       reply.code(404);
       return { error: "automation not found" };
     }
-    const { config, error } = parseAutomationYaml(rawText, KNOWN_KINDS);
+    const { config, error } = parseAutomationYaml(rawText, KNOWN_KINDS, hooks.actionIds?.());
     if (!config) {
       reply.code(422);
       return { error: error ?? "invalid automation.yaml" };

@@ -1004,6 +1004,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // Bridge ack for a `send_prompt` (capture-before-send streaming verdict).
+    // Forwarded verbatim to subscribed browsers so the optimistic
+    // `pendingPrompt` bubble can transition to "sent" (fresh:true) or drop
+    // (fresh:false, raced mid-turn). Transient signal — not cached on the
+    // session. See change: optimistic-prompt-progress.
+    if (msg.type === "prompt_received") {
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "prompt_received",
+        sessionId,
+        fresh: msg.fresh,
+      });
+      return;
+    }
+
 
     if (msg.type === "first_message_update") {
       sessionManager.update(sessionId, { firstMessage: msg.firstMessage });
@@ -1086,6 +1100,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: add-worktree-lifecycle-actions.
       sessionManager.update(sessionId, { cwdMissing: true });
       browserGateway.broadcastSessionUpdated(sessionId, { cwdMissing: true });
+    }
+
+    if (msg.type === "pi_version_update") {
+      // Bridge reports the pi version its session actually runs (ground truth
+      // from inside pi's process). Store + broadcast, mirroring git_info_update.
+      // See change: restore-pi-version-skew-surface.
+      sessionManager.update(sessionId, { piVersion: msg.version });
+      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version });
     }
 
     if (msg.type === "files_list") {

@@ -45,13 +45,16 @@
       {
         "slot": "shell-overlay-route",
         "component": "AutomationBoard",
-        "path": "/folder/:encodedCwd/automations"
+        "path": "/folder/:encodedCwd/automations",
+        "depth": 1
       },
       {
         "slot": "shell-overlay-route",
         "component": "AutomationRunMonitor",
         "path": "/automation/run/:sid",
-        "sessionParam": "sid"
+        "sessionParam": "sid",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd/automations"
       },
       {
         "slot": "session-card-badge",

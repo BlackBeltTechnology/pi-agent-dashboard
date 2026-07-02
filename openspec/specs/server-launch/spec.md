@@ -23,8 +23,22 @@ All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts
 #### Scenario: Extension auto-spawn
 
 - **WHEN** the bridge extension detects no running server and decides to auto-spawn
-- **THEN** it calls `launchDashboardServer({ cliPath, stdio: "ignore", healthTimeoutMs: 2000, ... })`
+- **THEN** it calls `launchDashboardServer({ cliPath, stdio: { logFile: getDashboardServerLogPath() }, healthTimeoutMs: 10000, starter: "Bridge", port, ... })`
+- **AND** the spawned server's stdout/stderr SHALL be captured to `~/.pi/dashboard/server.log` (the bridge path no longer uses `stdio: "ignore"`)
 - **AND** does not import `resolveJitiImport` or call `child_process.spawn` for the server directly
+
+#### Scenario: Slow cold start within the extended window
+
+- **GIVEN** the bridge auto-spawn ran on a slow host where the server reaches `writePid()` but is not health-OK within 2 s
+- **WHEN** the server becomes health-OK before `healthTimeoutMs` (10 s) elapses
+- **THEN** `launchDashboardServer` SHALL resolve successfully (no `readiness timeout`)
+- **AND** the bridge SHALL NOT emit a "failed to start" warning
+
+#### Scenario: Failure copy references the written log
+
+- **WHEN** the bridge auto-spawn fails (readiness timeout or `EarlyExitError`)
+- **THEN** the warning surfaced by `server-auto-start.ts` and the `EarlyExitError` message SHALL reference the path returned by `getDashboardServerLogPath()` — the same file the bridge spawn now writes
+- **AND** that file SHALL exist and contain the spawn header line plus any server stdout/stderr captured before failure
 
 #### Scenario: CLI `pi-dashboard start`
 
@@ -89,9 +103,15 @@ When `stdio: { logFile }` is supplied, `launchDashboardServer` SHALL:
 - Close the parent's fd after `spawn` returns (child retains its inherited copy).
 
 The absolute log-file path is **caller-owned**. Conventions in the migrated tree:
-- Extension: `stdio: "ignore"` (no log).
+- Extension (bridge auto-spawn): `stdio: { logFile: getDashboardServerLogPath() }` → `~/.pi/dashboard/server.log`.
 - CLI (`cmdStart`): `~/.pi/dashboard/server.log`.
 - Electron: existing electron log path (unchanged by this proposal).
+
+#### Scenario: Extension auto-spawn writes the shared server log
+
+- **WHEN** the bridge auto-spawns the server via `stdio: { logFile: getDashboardServerLogPath() }`
+- **THEN** `~/.pi/dashboard/server.log` SHALL be created (if absent) with the header line written before the child sees the fd
+- **AND** a subsequent `cat ~/.pi/dashboard/server.log` SHALL show the launch header and any captured server output, never "No such file or directory"
 
 #### Scenario: Header line written before child sees fd
 

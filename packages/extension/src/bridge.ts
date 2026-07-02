@@ -45,7 +45,7 @@ import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { runGitPollTick } from "./git-poll.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
-import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
+import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
@@ -102,6 +102,13 @@ interface BridgeState {
    * when no change attached. See change: inject-session-context-into-agent.
    */
   attachedChange?: string | null;
+  /**
+   * Graceful stop-after-turn latch (pi 0.72+). Set true on a `stop_after_turn`
+   * message; the next `turn_end` calls cachedCtx.shutdown() (fallback abort)
+   * and clears the flag. Idempotent: repeated sets while pending are no-ops.
+   * See change: adopt-pi-071-072-073-features.
+   */
+  shouldStopAfterTurn?: boolean;
 }
 function getBridgeState(): BridgeState {
   if (!(process as any)[BRIDGE_KEY]) {
@@ -720,6 +727,13 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
+      // Graceful stop-after-turn: latch a per-session flag; the next turn_end
+      // shuts the session down cleanly. Idempotent. See change:
+      // adopt-pi-071-072-073-features.
+      if (msg.type === "stop_after_turn") {
+        getBridgeState().shouldStopAfterTurn = true;
+        return;
+      }
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -834,6 +848,18 @@ function initBridge(pi: ExtensionAPI) {
       // Now handled by PromptBus: dashboard sends prompt_response,
       // bus calls respond(), adapters get onResponse() for cross-cancellation.
       // Route flow control messages to pi-flows via pi.events
+      // Generic plugin-registered event emission. A dashboard plugin action
+      // (e.g. automation) emits a configured event INTO this session; the
+      // bridge relays it onto pi.events. Decoupled: the bridge does not know
+      // which events exist. See change: automation-emit-configured-event.
+      if (msg.type === "plugin_emit_event" && pi.events) {
+        const eventType = (msg as { eventType?: unknown }).eventType;
+        if (typeof eventType === "string" && eventType.length > 0) {
+          const data = (msg as { data?: unknown }).data;
+          pi.events.emit(eventType, data && typeof data === "object" ? (data as Record<string, unknown>) : {});
+        }
+        return;
+      }
       if (msg.type === "flow_control" && pi.events) {
         if (msg.action === "abort") {
           pi.events.emit("flow:abort", {});
@@ -1108,6 +1134,9 @@ function initBridge(pi: ExtensionAPI) {
         // Flow fast-path: typed /<user-defined-flow-name> wins over extension dispatch.
         const flowsList = getFlowsList();
         if (flowsList.some(f => f.name === cmdName)) {
+          // Non-turn slash route: settle any optimistic idle bubble so it does
+          // not hang to the 30s timeout. See change: optimistic-prompt-progress.
+          connection.send({ type: "prompt_received", sessionId, fresh: false });
           pi.events.emit("flow:run", { flowName: cmdName, task: cmdArgs.trim() || undefined });
           return;
         }
@@ -1125,7 +1154,12 @@ function initBridge(pi: ExtensionAPI) {
         (msg) => connection.send(msg),
         connection,
       );
-      if (handled) return;
+      if (handled) {
+        // Non-turn dispatch route: settle optimistic idle bubble (no message_start
+        // follows). See change: optimistic-prompt-progress.
+        connection.send({ type: "prompt_received", sessionId, fresh: false });
+        return;
+      }
 
       // Exec-mode slash template (executable: bash): run the body as bash and
       // skip the LLM entirely. Runs AFTER extension dispatch, BEFORE template
@@ -1137,7 +1171,12 @@ function initBridge(pi: ExtensionAPI) {
         sessionId,
         (msg) => connection.send(msg),
       );
-      if (ranExec) return;
+      if (ranExec) {
+        // Non-turn exec-template route: settle optimistic idle bubble.
+        // See change: optimistic-prompt-progress.
+        connection.send({ type: "prompt_received", sessionId, fresh: false });
+        return;
+      }
 
       // Fallback: route the user prompt based on delivery + streaming state.
       //
@@ -1154,6 +1193,11 @@ function initBridge(pi: ExtensionAPI) {
       // See change: rework-mid-turn-prompt-queue (design.md D1).
       const deliverAs = delivery ?? ("followUp" as const);
       const wasStreaming = getBridgeState().isAgentStreaming;
+      // Per-send ack carrying the capture-before-send streaming verdict (slash /
+      // flow / template path). Mirrors the passthrough emit in command-handler.
+      // fresh:true → optimistic bubble "sent"; fresh:false → drop (raced mid-turn).
+      // See change: optimistic-prompt-progress.
+      connection.send({ type: "prompt_received", sessionId, fresh: !wasStreaming });
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
       if (wasStreaming && deliverAs === "followUp") {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
@@ -1231,6 +1275,7 @@ function initBridge(pi: ExtensionAPI) {
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
+  function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
 
   // Forward all pi core events to the dashboard.
   // Events with special enrichment logic:
@@ -1247,6 +1292,7 @@ function initBridge(pi: ExtensionAPI) {
     "tool_execution_end",
     "session_compact",
     "model_select",
+    "thinking_level_select",
   ] as const;
   // Pass-through events: forwarded as-is with no special handling.
   // Unrecognized types render as expandable JSON cards in the dashboard.
@@ -1362,6 +1408,30 @@ function initBridge(pi: ExtensionAPI) {
         const msg = mapEventToProtocol(sessionId, enriched);
         connection.send(msg);
         return;
+      }
+
+      // Pi 0.71+ fires a dedicated thinking_level_select event when the
+      // thinking level changes alone (no model change). Push a model_update
+      // through the existing dedup gate so the dashboard reflects it
+      // immediately rather than waiting for the next model change.
+      // See change: adopt-pi-071-072-073-features.
+      if (eventType === "thinking_level_select") {
+        sendModelUpdateIfChanged();
+        return;
+      }
+
+      // Graceful stop-after-turn: when latched, shut the session down cleanly
+      // at this turn boundary. Fall back to abort if shutdown is unavailable.
+      // Clear the flag BEFORE calling shutdown so a double-fired turn_end
+      // can't re-trigger. See change: adopt-pi-071-072-073-features.
+      if (eventType === "turn_end" && getBridgeState().shouldStopAfterTurn) {
+        getBridgeState().shouldStopAfterTurn = false;
+        try {
+          if (typeof (ctx as any)?.shutdown === "function") (ctx as any).shutdown();
+          else (ctx as any)?.abort?.();
+        } catch (err) {
+          console.error("[dashboard] stop-after-turn shutdown failed:", err);
+        }
       }
 
       // For turn_end, enrich with contextUsage (pi-only API) so server can extract stats
@@ -1588,6 +1658,26 @@ function initBridge(pi: ExtensionAPI) {
         } catch (err) {
           console.error("[dashboard] tool-result image inline failed:", err);
         }
+        // Forward the tool result's structured `details` to the client. pi's
+        // live tool_execution_end extension event exposes the full ToolResult
+        // ({ content, details }) on `event.result`, but only `result` is
+        // otherwise surfaced — the reducer reads a top-level `data.details`
+        // (the same field the replay path synthesizes from the persisted
+        // entry). Lift `result.details` to the event so renderers (e.g. the
+        // flow_agents list card) get a non-truncated structured payload LIVE,
+        // not only after a replay/refresh. No-op when result carries no
+        // details or already has a top-level details.
+        // See change: flow-agents-readable-list.
+        try {
+          const r = (event as any).result;
+          if (
+            !(event as any).details &&
+            r && typeof r === "object" && !Array.isArray(r) &&
+            (r as any).details && typeof (r as any).details === "object"
+          ) {
+            (event as any).details = (r as any).details;
+          }
+        } catch { /* non-fatal */ }
       }
 
       const msg = mapEventToProtocol(sessionId, event);
@@ -2242,9 +2332,10 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git info
+    // Send initial git info + the session's pi version
     sendGitInfoIfChanged(ctx.cwd);
     sendCwdMissingIfChanged(ctx.cwd);
+    sendPiVersionIfChanged();
 
     // Start metrics monitor and heartbeat
     startMetricsMonitor();
@@ -2303,6 +2394,10 @@ function initBridge(pi: ExtensionAPI) {
     // sessionId on its session_register. See change: inject-session-context-into-agent.
     attachedChange = null;
     getBridgeState().attachedChange = null;
+    // Clear the stop-after-turn latch so a new/fork/resumed session does not
+    // inherit the previous session's pending graceful-stop and shut down on
+    // its first turn_end. See change: adopt-pi-071-072-073-features.
+    getBridgeState().shouldStopAfterTurn = false;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
@@ -2331,6 +2426,7 @@ function initBridge(pi: ExtensionAPI) {
       sendCwdMissingIfChanged,
       sendSessionNameIfChanged,
       sendModelUpdateIfChanged,
+      sendPiVersionIfChanged,
     }), GIT_POLL_INTERVAL);
     getBridgeState().timers!.push(gitPollTimer);
   }

@@ -2,6 +2,10 @@
  * Main barrel export for @blackbelt-technology/dashboard-plugin-runtime.
  */
 export * from "./slot-registry.js";
+// Re-exported from shared so the runtime keeps a single public surface; the
+// implementation lives in shared to avoid a worktree dual-instance split.
+// See change: fix-plugin-and-scoped-back-navigation.
+export { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 export * from "./slot-consumers.js";
 export * from "./prompt-component-registry.js";
 export {

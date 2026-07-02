@@ -72,6 +72,53 @@ describe("nav-tracker", () => {
     expect(predecessor()).toEqual({ url: "/session/A", depth: 1 });
   });
 
+  // History-observation patch: plugin components + session-card routing call
+  // wouter's raw `useLocation` (→ history.pushState) directly, bypassing App's
+  // wrapped `navigate`/`recordNavigation`. initNavTracker patches pushState/
+  // replaceState so those navigations still record, letting goBack prove a
+  // shallower in-app predecessor. See change: fix-plugin-and-scoped-back-navigation.
+  describe("history.pushState/replaceState observation", () => {
+    it("records raw history.pushState navigations that bypass recordNavigation", () => {
+      resetNavStack("/");
+      const detach = initNavTracker();
+      try {
+        window.history.pushState(null, "", "/session/A");
+        window.history.pushState(null, "", "/session/A/diff");
+        // Board→run analogue: predecessor is the launching route, recorded via
+        // the patch (no explicit recordNavigation call).
+        expect(predecessor()).toEqual({ url: "/session/A", depth: 1 });
+      } finally {
+        detach();
+        window.history.replaceState(null, "", "/");
+      }
+    });
+
+    it("replaceState overwrites the stack top instead of appending", () => {
+      resetNavStack("/");
+      const detach = initNavTracker();
+      try {
+        window.history.pushState(null, "", "/session/A");
+        window.history.replaceState(null, "", "/session/B");
+        // top replaced A→B, predecessor still the seed
+        expect(predecessor()).toEqual({ url: "/", depth: 0 });
+      } finally {
+        detach();
+        window.history.replaceState(null, "", "/");
+      }
+    });
+
+    it("detach restores original pushState (no recording after teardown)", () => {
+      resetNavStack("/");
+      const detach = initNavTracker();
+      window.history.pushState(null, "", "/session/A");
+      detach();
+      window.history.pushState(null, "", "/session/B");
+      // after detach, /session/B is not recorded → predecessor still "/"
+      expect(predecessor()).toEqual({ url: "/", depth: 0 });
+      window.history.replaceState(null, "", "/");
+    });
+  });
+
   it("initNavTracker keeps only one popstate listener across repeated calls", () => {
     const added = vi.spyOn(window, "addEventListener");
     const removed = vi.spyOn(window, "removeEventListener");

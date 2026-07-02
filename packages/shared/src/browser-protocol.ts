@@ -758,6 +758,7 @@ export type ServerToBrowserMessage =
   | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
   | QueueUpdateToBrowserMessage
+  | PromptReceivedToBrowserMessage
   | ViewMessagesUpdateMessage;
 
 // ── Browser → Server ────────────────────────────────────────────────
@@ -845,6 +846,18 @@ export interface QueueUpdateToBrowserMessage {
 }
 
 /**
+ * Server -> browser: forwarded bridge ack for a `send_prompt`. `fresh:true`
+ * transitions the optimistic `pendingPrompt` to `status:"sent"`; `fresh:false`
+ * drops `pendingPrompt` (the send raced into a mid-turn queue entry, now owned
+ * by `mid-turn-prompt-queue`). See change: optimistic-prompt-progress.
+ */
+export interface PromptReceivedToBrowserMessage {
+  type: "prompt_received";
+  sessionId: string;
+  fresh: boolean;
+}
+
+/**
  * Server → browser: full snapshot of a session's `/view` preview rows.
  * Sent on subscribe (as a snapshot) and on every change (append). Each
  * entry is a minimal ChatMessage shape with `view` set; the client merges
@@ -926,6 +939,16 @@ export interface ShutdownBrowserMessage {
 
 export interface ForceKillBrowserMessage {
   type: "force_kill";
+  sessionId: string;
+}
+
+/**
+ * Graceful stop: let the agent finish the current turn, then shut the
+ * session down cleanly. Distinct from abort (mid-stream interrupt) and
+ * force_kill (SIGKILL). See change: adopt-pi-071-072-073-features.
+ */
+export interface StopAfterTurnBrowserMessage {
+  type: "stop_after_turn";
   sessionId: string;
 }
 
@@ -1370,6 +1393,7 @@ export type BrowserToServerMessage =
   | SetThinkingLevelBrowserMessage
   | SetModelBrowserMessage
   | ShutdownBrowserMessage
+  | StopAfterTurnBrowserMessage
   | ListSessionsBrowserMessage
   | ResumeSessionBrowserMessage
   | HideSessionBrowserMessage

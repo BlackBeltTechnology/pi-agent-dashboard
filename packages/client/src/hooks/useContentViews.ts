@@ -12,7 +12,7 @@
  */
 import { useCallback } from "react";
 import {
-  buildPiResourcesUrl,
+  buildFolderSettingsUrl,
   buildPiResourceFileUrl,
 } from "../lib/route-builders.js";
 
@@ -25,7 +25,9 @@ export function useContentViews(options: UseContentViewsOptions) {
   const { navigate } = options;
 
   const handleOpenPiResources = useCallback((cwd: string) => {
-    navigate(buildPiResourcesUrl(cwd));
+    // Repointed to the Directory Settings page (defaults to the packages
+    // page). See change: directory-settings-page-and-scoped-md-editing.
+    navigate(buildFolderSettingsUrl(cwd));
   }, [navigate]);
 
   const handleViewPiResourceFile = useCallback((filePath: string, title: string) => {

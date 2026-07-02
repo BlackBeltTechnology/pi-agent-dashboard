@@ -178,7 +178,7 @@ describe("ChatView", () => {
 
   it("renders optimistic pending prompt card with spinner", () => {
     const state = createInitialState();
-    state.pendingPrompt = { text: "Fix the bug" };
+    state.pendingPrompt = { text: "Fix the bug", status: "sending" };
     const { getByTestId, container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
     const card = getByTestId("pending-prompt-card");
     expect(card).not.toBeNull();
@@ -186,6 +186,49 @@ describe("ChatView", () => {
     // Should have animate-spin spinner
     const spinner = card.querySelector(".animate-spin");
     expect(spinner).not.toBeNull();
+  });
+
+  it("sending state: dimmed bubble, sweep clipped to bubble, spinner + sending label", () => {
+    const state = createInitialState();
+    state.pendingPrompt = { text: "Fix the bug", status: "sending" };
+    const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    const card = container.querySelector('[data-testid="pending-prompt-card"]') as HTMLElement;
+    expect(card.getAttribute("data-status")).toBe("sending");
+    const bubble = card.firstElementChild as HTMLElement;
+    // Dimmed + sweep clip lives on the bubble (overflow:hidden via prompt-sending-fx).
+    expect(bubble.className).toContain("opacity-60");
+    expect(bubble.className).toContain("prompt-sending-fx");
+    expect(bubble.className).toContain("prompt-edge-pulse");
+    expect(card.querySelector(".animate-spin")).not.toBeNull();
+    expect(card.textContent).toContain("sending");
+  });
+
+  it("sent state: full opacity, success check + sent label, no dim/sweep", () => {
+    const state = createInitialState();
+    state.pendingPrompt = { text: "Fix the bug", status: "sent" };
+    const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+    const card = container.querySelector('[data-testid="pending-prompt-card"]') as HTMLElement;
+    expect(card.getAttribute("data-status")).toBe("sent");
+    const bubble = card.firstElementChild as HTMLElement;
+    expect(bubble.className).not.toContain("opacity-60");
+    expect(bubble.className).not.toContain("prompt-sending-fx");
+    expect(card.querySelector(".animate-spin")).toBeNull();
+    expect(card.textContent).toContain("sent");
+  });
+
+  it("zero layout shift: sending and sent share identical bubble geometry classes", () => {
+    const geom = (status: "sending" | "sent") => {
+      const state = createInitialState();
+      state.pendingPrompt = { text: "same text", status };
+      const { container, unmount } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
+      const bubble = (container.querySelector('[data-testid="pending-prompt-card"]') as HTMLElement).firstElementChild as HTMLElement;
+      const cls = new Set(bubble.className.split(/\s+/));
+      // Only the geometry/box classes must match across states.
+      const geometry = ["rounded-xl", "border", "border-l-2", "border-l-blue-400", "px-4", "py-2", "max-w-[80%]"].filter((c) => cls.has(c));
+      unmount();
+      return geometry.sort().join(" ");
+    };
+    expect(geom("sending")).toBe(geom("sent"));
   });
 
   it("does not render pending prompt card when pendingPrompt is undefined", () => {
@@ -199,6 +242,7 @@ describe("ChatView", () => {
     const state = createInitialState();
     state.pendingPrompt = {
       text: "Check this",
+      status: "sending",
       images: [{ data: "abc123", mimeType: "image/png" }],
     };
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
@@ -229,7 +273,7 @@ describe("ChatView", () => {
 
   it("hides empty-state message when pendingPrompt is set", () => {
     const state = createInitialState();
-    state.pendingPrompt = { text: "Hello" };
+    state.pendingPrompt = { text: "Hello", status: "sending" };
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
     expect(container.textContent).not.toContain("No messages yet");
   });

@@ -14,8 +14,10 @@
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
  * redesign-automation-editor-and-board, automation-ui-mockup-parity.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@mdi/react";
+import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   listAutomations,
   listRuns,
@@ -326,7 +328,9 @@ function AutomationCard({
     ? nextFire(cfg.on.cron, new Date())
     : null;
   const stripeFx = stripeFxClass(state);
+  const Popover = useUiPrimitive(UI_PRIMITIVE_KEYS.popover);
   const [menuOpen, setMenuOpen] = useState(false);
+  const overflowRef = useRef<HTMLButtonElement>(null);
 
   return (
     <li
@@ -395,27 +399,35 @@ function AutomationCard({
               </>
             )
           )}
-          <div className="relative">
-            <CardBtn testid={`overflow-${a.name}`} onClick={() => setMenuOpen((v) => !v)} label="⋯" />
-            {menuOpen && (
+          <CardBtn ref={overflowRef} testid={`overflow-${a.name}`} onClick={() => setMenuOpen((v) => !v)} label="⋯" />
+          {menuOpen && overflowRef.current && (
+            // Render the menu in the popover primitive's body portal so it is
+            // not clipped by the card <li>'s `overflow-hidden` (which exists
+            // to clip the decorative FX layers). See change:
+            // fix-automation-overflow-menu-clip.
+            <Popover anchorEl={overflowRef.current} onDismiss={() => setMenuOpen(false)}>
               <div
                 data-testid={`overflow-menu-${a.name}`}
-                className="absolute left-0 z-10 mt-1 flex flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-1 shadow"
+                className="flex flex-col rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] p-1 shadow"
               >
                 <CardBtn testid={`edit-${a.name}`} onClick={() => { setMenuOpen(false); onEdit(); }} label="Edit" />
                 <CardBtn testid={`delete-${a.name}`} onClick={() => { setMenuOpen(false); onDelete(); }} label="Delete" danger />
               </div>
-            )}
-          </div>
+            </Popover>
+          )}
         </div>
       </div>
     </li>
   );
 }
 
-function CardBtn({ testid, onClick, label, danger }: { testid: string; onClick: () => void; label: string; danger?: boolean }): React.ReactElement {
+const CardBtn = React.forwardRef<
+  HTMLButtonElement,
+  { testid: string; onClick: () => void; label: string; danger?: boolean }
+>(function CardBtn({ testid, onClick, label, danger }, ref): React.ReactElement {
   return (
     <button
+      ref={ref}
       type="button"
       data-testid={testid}
       onClick={onClick}
@@ -424,7 +436,7 @@ function CardBtn({ testid, onClick, label, danger }: { testid: string; onClick: 
       {label}
     </button>
   );
-}
+});
 
 function triggerSummary(cfg: AutomationConfig): string {
   if (cfg.on.kind === "schedule") return `schedule: ${cfg.on.cron ?? "?"}`;

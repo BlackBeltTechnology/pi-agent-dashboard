@@ -47,11 +47,57 @@ export interface TriggerCategoryDescriptor {
 }
 
 /** The `action:` block. `prompt` is a path (relative to the automation dir);
- *  `skill` is a `$skill-name` token. */
+ *  `skill` is a `$skill-name` token.
+ *
+ *  `kind` accepts any registered action id of the form `<source>.<verb>`
+ *  (e.g. `flows.run`). The built-ins `core.prompt` / `core.skill` keep their
+ *  `prompt` / `skill` companion fields; bare `prompt` / `skill` in existing
+ *  files normalize to the `core.*` ids. Plugin-registered actions carry their
+ *  values in `payload`. See change: register-plugin-automation-events. */
 export interface AutomationAction {
-  kind: "prompt" | "skill";
+  kind: string;
   prompt?: string;
   skill?: string;
+  /** Schema-driven values for plugin-registered actions. */
+  payload?: Record<string, unknown>;
+}
+
+/** Bare `action.kind` aliases that map to the built-in `core.*` actions.
+ *  Single source of truth for read-path + write-path validation and the
+ *  registry's `normalizeActionKind`. See change: register-plugin-automation-events. */
+export const BUILTIN_ACTION_ALIASES = { prompt: "core.prompt", skill: "core.skill" } as const;
+
+/** One field in an action's payload schema. `enum` options are resolved
+ *  per-cwd server-side and sent to the client already-populated.
+ *  `type` is a CLOSED, versioned primitive set: the client renders one
+ *  control per known type and falls back to a text input for an unrecognized
+ *  type (forward-compat with a newer contributor). Adding a type = one
+ *  versioned extension here + one client renderer.
+ *  See change: register-plugin-automation-events, decouple-automation-action-registry. */
+export interface ActionPayloadField {
+  key: string;
+  label: string;
+  type: "string" | "multiline" | "text" | "enum";
+  help?: string;
+  /** Populated for `enum` fields in the client-facing descriptor. */
+  options?: string[];
+}
+
+/** Serializable action descriptor sent to the create-automation dialog.
+ *  Function members (available/buildPrompt) stay server-side.
+ *  See change: register-plugin-automation-events. */
+export interface ActionDescriptor {
+  /** Namespaced id `<source>.<verb>`, e.g. `flows.run`. */
+  id: string;
+  /** Owning plugin/source, e.g. `flows` | `core`. */
+  source: string;
+  label: string;
+  description?: string;
+  /** False when the action's source is not usable in the current cwd. */
+  available: boolean;
+  /** Reason shown when `available` is false. */
+  unavailableReason?: string;
+  payloadSchema: ActionPayloadField[];
 }
 
 /** A fully-parsed, valid `automation.yaml`. */

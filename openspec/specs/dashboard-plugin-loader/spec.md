@@ -6,6 +6,48 @@ This capability covers the **plugin loader runtime**: monorepo manifest discover
 
 The requirements below are layered: the design-level (contract) requirements come from change `dashboard-plugin-architecture`, and the implementation-level (runtime) requirements come from change `add-dashboard-shell-slots-runtime`. The motivating design notes live in `openspec/changes/dashboard-plugin-architecture/design.md`.
 ## Requirements
+### Requirement: Emit a configured event into a session
+
+`ServerPluginContext` SHALL expose `emitEventToSession(sessionId: string, eventType: string, data?: Record<string, unknown>): boolean`. It SHALL relay a `plugin_emit_event` control message to the target session over the bridge so the in-session bridge re-emits `eventType` with `data` on `pi.events`. It SHALL be gated to first-party / trusted plugins using the same gate as `spawnSession`/`abortSession`: an untrusted plugin SHALL receive a hook that returns `false` and sends nothing. A non-string or empty `eventType` SHALL return `false` without sending. It SHALL return `true` only when the control message is dispatched to a connected session.
+
+The host SHALL NOT enumerate or validate `eventType` against a fixed set — a plugin emits whatever event it registered.
+
+#### Scenario: Trusted plugin emits an event
+
+- **WHEN** a trusted plugin calls `ctx.emitEventToSession("sess-1", "flow:run", { flowName: "test:x", task: "go" })` for a connected session
+- **THEN** a `plugin_emit_event` control message carrying `eventType: "flow:run"` and the data SHALL be dispatched to that session and the call SHALL return `true`.
+
+#### Scenario: Untrusted plugin is denied
+
+- **WHEN** an untrusted plugin (manifest priority > 100) calls `ctx.emitEventToSession(...)`
+- **THEN** the call SHALL return `false` and SHALL send nothing.
+
+#### Scenario: Invalid event type
+
+- **WHEN** `emitEventToSession` is called with an empty string `eventType`
+- **THEN** it SHALL return `false` and SHALL send nothing.
+
+### Requirement: Prefix enumeration over the service board
+
+`ServerPluginContext` SHALL expose `consumeAll<T = unknown>(prefix: string): Array<{ key: string; value: T }>` returning every value published via `provide(name, …)` whose `name` starts with `prefix`, paired with its key. It SHALL read the same host-owned in-process service registry as `consume`; values SHALL NOT cross the bridge. Order of results is unspecified. An empty result SHALL be returned (never throw) when no key matches.
+
+`consumeAll` enables publish/collect: a producer `provide`s a namespaced key and a consumer enumerates the namespace lazily, independent of plugin load order.
+
+#### Scenario: Collect all publishers under a namespace
+
+- **WHEN** plugin A calls `provide("automation.action.flows", cA)` and plugin B calls `provide("automation.action.core", cB)`, then a consumer calls `consumeAll("automation.action.")`
+- **THEN** the consumer SHALL receive entries for both keys with values `cA` and `cB`.
+
+#### Scenario: Order independence
+
+- **WHEN** a consumer calls `consumeAll(prefix)` after all plugins have loaded
+- **THEN** it SHALL observe every matching contribution regardless of the order in which producers and the consumer were loaded.
+
+#### Scenario: No match
+
+- **WHEN** `consumeAll("nope.")` is called and no provided key starts with `nope.`
+- **THEN** it SHALL return an empty array and SHALL NOT throw.
+
 ### Requirement: Plugin runtime is a separate workspace package
 
 The plugin runtime SHALL live in its own monorepo workspace package `packages/dashboard-plugin-runtime/`. The package SHALL export at minimum the following entry points:
@@ -1204,6 +1246,22 @@ For unsatisfied requirements with no matching recommended-extensions entry, the 
 
 - **WHEN** the build runs the protocol-completeness test
 - **THEN** the `ServerToBrowserMessage` union in `packages/shared/src/browser-protocol.ts` SHALL NOT contain any new variant added by this change; plugin toggles ride on the existing `plugin_config_update` and requirement installs ride on the existing `package_progress` / `package_operation_complete`.
+
+### Requirement: Cross-plugin service seam
+
+`ServerPluginContext` SHALL expose `provide(name: string, value: unknown): void` and `consume<T = unknown>(name: string): T | undefined`, backed by a single host-owned registry shared across all plugins in the process. `provide` SHALL store the value under `name` (last write wins). `consume` SHALL return the value previously provided under `name`, or `undefined` when none exists. The seam SHALL be in-process only; values SHALL NOT cross the bridge.
+
+The loader's existing topological load order (by `manifest.dependsOn`) SHALL guarantee that a provider plugin's `registerPlugin` runs before any plugin that declares it in `dependsOn`, so a dependent's `consume` observes the provided value.
+
+#### Scenario: Consumer observes provider's value
+
+- **WHEN** plugin A calls `ctx.provide("automation.action-registry", registry)` in `registerPlugin`, and plugin B declares `dependsOn: ["A"]` and calls `ctx.consume("automation.action-registry")`
+- **THEN** B SHALL receive the same registry instance A provided.
+
+#### Scenario: Missing provider degrades gracefully
+
+- **WHEN** a plugin calls `ctx.consume("absent-service")` and nothing was provided under that name
+- **THEN** `consume` SHALL return `undefined` and SHALL NOT throw.
 
 ## Related Capabilities
 

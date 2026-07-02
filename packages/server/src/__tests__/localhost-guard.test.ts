@@ -146,4 +146,27 @@ describe("createNetworkGuard", () => {
     await guard(mockRequest("192.168.1.5", false), reply);
     expect(reply.statusCode).toBe(403);
   });
+
+  it("denial body is self-describing { success, error, reason, hint }", async () => {
+    const guard = createNetworkGuard([]);
+    const reply = mockReply();
+    await guard(mockRequest("192.168.1.5", false), reply);
+    expect(reply.statusCode).toBe(403);
+    expect(reply.body.success).toBe(false);
+    expect(reply.body.error).toBe("network_not_allowed");
+    expect(typeof reply.body.reason).toBe("string");
+    expect(reply.body.reason.length).toBeGreaterThan(0);
+    expect(typeof reply.body.hint).toBe("string");
+    // hint must name the remedy: trustedNetworks and/or sign in
+    expect(reply.body.hint).toMatch(/trustedNetworks/i);
+    expect(reply.body.hint).toMatch(/sign in/i);
+  });
+
+  it("does not emit the network_not_allowed body when authenticated", async () => {
+    const guard = createNetworkGuard([]);
+    const reply = mockReply();
+    await guard(mockRequest("203.0.113.5", true), reply);
+    expect(reply.statusCode).toBe(0);
+    expect(reply.body).toBeNull();
+  });
 });

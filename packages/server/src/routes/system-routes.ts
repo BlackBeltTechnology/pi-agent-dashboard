@@ -38,6 +38,13 @@ import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-da
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { fileURLToPath } from "node:url";
+import {
+  readPiCompatibility,
+  readCurrentPiVersion,
+  computeCompatibility,
+  type BootstrapCompatibility,
+} from "../pi-version-skew.js";
 
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
@@ -120,6 +127,28 @@ export function registerSystemRoutes(
     } catch { /* best-effort */ }
   };
   const serverStartTime = Date.now();
+
+  // pi-version-skew compatibility surface for `/api/health`. Computed lazily
+  // and cached 30s: the probe does a ToolRegistry resolve + file read, which
+  // must not run on every rapid health poll. `null` when pi is unresolvable
+  // (a clean install may legitimately predate a pi install). See change:
+  // restore-pi-version-skew-surface.
+  const serverPkgJsonPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json");
+  const COMPAT_CACHE_MS = 30_000;
+  let compatCache: { at: number; value: BootstrapCompatibility | null } | null = null;
+  const readCompatibility = (): BootstrapCompatibility | null => {
+    const now = Date.now();
+    if (compatCache && now - compatCache.at < COMPAT_CACHE_MS) return compatCache.value;
+    let value: BootstrapCompatibility | null = null;
+    try {
+      const current = readCurrentPiVersion();
+      value = current ? computeCompatibility(readPiCompatibility(serverPkgJsonPath), current) : null;
+    } catch {
+      value = null;
+    }
+    compatCache = { at: now, value };
+    return value;
+  };
 
   // Editor detection endpoint
   fastify.get<{ Querystring: { path?: string } }>(
@@ -369,6 +398,10 @@ export function registerSystemRoutes(
       eventLoopDelay,
       // Recent session-hydration timing samples, newest-first. Additive field.
       hydration,
+      // pi-version-skew compatibility (30s-cached) or null when pi is
+      // unresolvable. Drives the Settings → General advisory. See change:
+      // restore-pi-version-skew-surface.
+      compatibility: readCompatibility(),
     };
   });
 

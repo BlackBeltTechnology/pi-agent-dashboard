@@ -117,6 +117,28 @@ export interface PendingPrompt {
   images?: ChatImage[];
   /** Delivery mode set by the sender. "steer" = after current turn, "followUp" = after agent finishes. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
+  /**
+   * Progress state of the optimistic (idle-scoped) prompt bubble.
+   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt.
+   * Cleared entirely (→ confirmed) when the user `message_start` lands.
+   * See change: optimistic-prompt-progress.
+   */
+  status: "sending" | "sent";
+}
+
+/**
+ * Apply a bridge `prompt_received` ack to a session's optimistic
+ * `pendingPrompt`. `fresh:true` (idle/fresh-turn send) promotes the bubble to
+ * `status:"sent"`; `fresh:false` (raced into a mid-turn queue entry) drops
+ * `pendingPrompt` so the authoritative `queue_update` chip takes over with no
+ * double render. No-op when no `pendingPrompt` exists.
+ * See change: optimistic-prompt-progress.
+ */
+export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
+  if (!state.pendingPrompt) return state;
+  if (!fresh) return { ...state, pendingPrompt: undefined };
+  if (state.pendingPrompt.status === "sent") return state;
+  return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
 }
 
 export interface InteractiveUiRequest {
@@ -367,6 +389,31 @@ export function findFlushedAssistantRowIndex(messages: ChatMessage[]): number {
     if (m.entryId === undefined && m.nonce === undefined) return i;
   }
   return -1;
+}
+
+/**
+ * Derive the assistant text the UI should display for a finalized
+ * `message_end`. Pi 0.71+ lets extensions REPLACE the finalized message
+ * content (cost footers, redactions); the replacement lives on
+ * `msg.content`. Array content concatenates `type: "text"` parts; string
+ * content is used directly; missing content falls through to `fallback`
+ * (the delta-derived `streamingText`), preserving pre-0.71 behavior.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function deriveEffectiveAssistantText(msg: any, fallback: string): string {
+  // Check shape, not truthiness: an extension may finalize the message to an
+  // empty string (`""`) for redaction. Treating `""` as "missing" would
+  // re-surface the streamed (un-redacted) text — a content leak. Only an
+  // absent/non-string/non-array content falls through to `fallback`.
+  const content = msg?.content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c: any) => c?.type === "text")
+      .map((c: any) => c.text)
+      .join("");
+  }
+  if (typeof content === "string") return content;
+  return fallback;
 }
 
 /**
@@ -630,6 +677,38 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
   const lines = str.split("\n");
   if (lines.length <= maxLines) return str;
   return lines.slice(0, maxLines).join("\n");
+}
+
+/** Marker prefix prepended to truncated tool output. U+00AB is visually
+ * distinct from literal tool text, so the UI can detect truncation by
+ * checking `result.startsWith("«")`. See change:
+ * adopt-pi-071-072-073-features. */
+export const TRUNCATION_MARKER_PREFIX = "«";
+
+/**
+ * Truncate tool output for display keeping the LAST N lines (default 200).
+ * Bash/test/install output puts the summary, error, and totals at the BOTTOM,
+ * so trailing lines carry the signal. Prepends a `«N earlier lines hidden»`
+ * marker when truncating; returns text unchanged when within the cap.
+ * See change: adopt-pi-071-072-073-features.
+ */
+export function truncateOutputForDisplay(
+  text: string | unknown,
+  opts?: { maxLines?: number },
+): string {
+  const maxLines = opts?.maxLines ?? 200;
+  const str = toDisplayString(text);
+  // Idempotency: a result already in the display form (server pre-truncated it
+  // on replay to trim bytes — see change: reduce-session-replay-traffic) starts
+  // with the FULL marker header. Match the exact header (not just a leading «,
+  // which a raw tool result could legitimately start with) so we never skip
+  // truncating genuine output. Re-truncating the display form would corrupt the
+  // "N earlier lines hidden" count, so pass it through unchanged.
+  if (/^«\d+ earlier lines hidden»\n/.test(str)) return str;
+  const lines = str.split("\n");
+  if (lines.length <= maxLines) return str;
+  const dropped = lines.length - maxLines;
+  return `${TRUNCATION_MARKER_PREFIX}${dropped} earlier lines hidden»\n${lines.slice(-maxLines).join("\n")}`;
 }
 
 /**
@@ -1105,6 +1184,10 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
           next.lastError = undefined;
         }
+        // Pi 0.71+ message_end may REPLACE the finalized content. Compute the
+        // effective text once and apply uniformly across branches.
+        // See change: adopt-pi-071-072-073-features.
+        const effectiveContent = deriveEffectiveAssistantText(msg, next.streamingText);
         if (next.streamingTextFlushed) {
           // Streaming text was already flushed at tool_execution_start.
           // Locate the unstamped flushed row and stamp entryId / nonce in
@@ -1118,6 +1201,11 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
               entryId: data.entryId as string | undefined,
               nonce: data.nonce as string | undefined,
             };
+            // Honor message_end content replacement: swap the flushed row's
+            // content only when it differs (avoid object-identity churn).
+            if (effectiveContent !== next.messages[flushedIdx].content) {
+              stamped.content = effectiveContent;
+            }
             next.messages = [
               ...next.messages.slice(0, flushedIdx),
               stamped,
@@ -1132,7 +1220,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
             {
               id: `msg-${next.messages.length}`,
               role: "assistant",
-              content: next.streamingText,
+              content: effectiveContent,
               timestamp: event.timestamp,
               entryId: data.entryId as string | undefined,
               nonce: data.nonce as string | undefined,
@@ -1290,14 +1378,14 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
             }
             next.messages[idx] = {
               ...next.messages[idx],
-              ...(text != null ? { result: truncateLines(text, 30) } : {}),
+              ...(text != null ? { result: truncateOutputForDisplay(text) } : {}),
               ...(details ? { toolDetails: details } : {}),
             };
           } else {
             // Plain string partialResult (standard tools)
             next.messages[idx] = {
               ...next.messages[idx],
-              result: truncateLines(partialResult as string, 30),
+              result: truncateOutputForDisplay(partialResult as string),
             };
           }
         }
@@ -1342,7 +1430,7 @@ export function reduceEvent(state: SessionState, event: DashboardEvent): Session
         next.messages[idx] = {
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
-          result: result ? truncateLines(result, 30) : next.messages[idx].result,
+          result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
           duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
           ...(images ? { images } : {}),
           ...(mergedDetails ? { toolDetails: mergedDetails } : {}),

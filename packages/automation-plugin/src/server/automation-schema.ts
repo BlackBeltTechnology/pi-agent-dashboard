@@ -63,6 +63,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 export function parseAutomationYaml(
   rawText: string,
   knownKinds: ReadonlySet<string>,
+  knownActionIds: ReadonlySet<string> = new Set(),
 ): ParseResult {
   let doc: unknown;
   try {
@@ -113,7 +114,7 @@ export function parseAutomationYaml(
   if (!isRecord(action)) {
     return { error: "missing or invalid `action:` block" };
   }
-  const actionResult = validateAction(action);
+  const actionResult = validateAction(action, knownActionIds);
   if ("error" in actionResult) return { error: actionResult.error };
 
   // ── model ────────────────────────────────────────────────────────────
@@ -161,23 +162,43 @@ export function parseAutomationYaml(
 
 function validateAction(
   action: Record<string, unknown>,
+  knownActionIds: ReadonlySet<string>,
 ): { value: AutomationAction } | { error: string } {
   const kind = action.kind;
+  if (typeof kind !== "string" || kind.length === 0) {
+    return { error: "`action.kind` must be a non-empty string" };
+  }
+  // Optional schema-driven payload for plugin-registered actions.
+  let payload: Record<string, unknown> | undefined;
+  if (action.payload !== undefined) {
+    if (!isRecord(action.payload)) {
+      return { error: "`action.payload` must be a mapping" };
+    }
+    payload = action.payload as Record<string, unknown>;
+  }
+  const withPayload = (v: AutomationAction): AutomationAction =>
+    payload ? { ...v, payload } : v;
+
   if (kind === "prompt") {
     const prompt = action.prompt;
     if (typeof prompt !== "string" || prompt.length === 0) {
       return { error: "`action.prompt` must be a path string for prompt actions" };
     }
-    return { value: { kind: "prompt", prompt } };
+    return { value: withPayload({ kind: "prompt", prompt }) };
   }
   if (kind === "skill") {
     const skill = action.skill;
     if (typeof skill !== "string" || skill.length === 0) {
       return { error: "`action.skill` must be a `$skill-name` string for skill actions" };
     }
-    return { value: { kind: "skill", skill } };
+    return { value: withPayload({ kind: "skill", skill }) };
   }
-  return { error: '`action.kind` must be "prompt" or "skill"' };
+  // Plugin-registered action: `kind` must be a registered `<source>.<verb>`
+  // id. Unknown ids isolate this automation (mirrors unknown trigger kind).
+  if (knownActionIds.has(kind)) {
+    return { value: withPayload({ kind }) };
+  }
+  return { error: `unknown action kind: "${kind}"` };
 }
 
 function pickEnum<T extends string>(

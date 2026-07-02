@@ -608,6 +608,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
   const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
+  // Host-owned cross-plugin service registry backing ServerPluginContext
+  // provide/consume. One instance shared across every plugin context; the
+  // loader's topological order guarantees a provider's registerPlugin runs
+  // before a dependent's consume. In-process only.
+  // See change: register-plugin-automation-events.
+  const pluginServiceRegistry = new Map<string, unknown>();
   function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
     const arr = pluginPiHandlers.get(messageType);
     if (!arr) return;
@@ -1441,6 +1447,33 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
+              },
+              // Emit a configured pi event into a session (relayed as a
+              // `plugin_emit_event` control message; the in-session bridge
+              // re-emits it on pi.events). Same trust gate as abortSession.
+              // See change: automation-emit-configured-event.
+              emitEventToSession: (sessionId, eventType, data) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (typeof eventType !== "string" || eventType.length === 0) return false;
+                return piGateway.sendToSession(sessionId, {
+                  type: "plugin_emit_event",
+                  sessionId,
+                  eventType,
+                  data: data ?? {},
+                });
+              },
+              provide: (name, value) => { pluginServiceRegistry.set(name, value); },
+              consume: <T = unknown>(name: string) =>
+                pluginServiceRegistry.get(name) as T | undefined,
+              // Prefix enumeration for publish/collect (in-process only).
+              // See change: decouple-automation-action-registry.
+              consumeAll: <T = unknown>(prefix: string) => {
+                const out: Array<{ key: string; value: T }> = [];
+                for (const [key, value] of pluginServiceRegistry) {
+                  if (key.startsWith(prefix)) out.push({ key, value: value as T });
+                }
+                return out;
               },
               registerBrowserHandler: (type, handler) =>
                 browserGateway.registerHandler(type, (msg, ws) =>

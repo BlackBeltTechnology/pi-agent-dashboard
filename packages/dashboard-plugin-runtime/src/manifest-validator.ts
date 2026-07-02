@@ -79,6 +79,30 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     if (typeof c.sessionParam !== "string" && typeof sessionParamVal === "string") {
       c.sessionParam = sessionParamVal;
     }
+    // depth: optional 1 | 2. Missing depth defaults to overlay (2) so the
+    // contributed route descriptor backs to cards instead of the old dead
+    // no-op; warn so authors declare it. See change:
+    // fix-plugin-and-scoped-back-navigation.
+    if (c.depth !== undefined && c.depth !== 1 && c.depth !== 2) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" depth must be 1 or 2 if provided`,
+      );
+    }
+    if (c.depth === undefined) {
+      console.warn(
+        `[plugin:${pluginId}] claims[${index}] shell-overlay-route claim omits "depth"; defaulting to 2 (overlay → cards). Declare "depth" (1 or 2) for correct back navigation.`,
+      );
+    }
+    // parentPath: optional string starting with "/".
+    if (c.parentPath !== undefined) {
+      if (typeof c.parentPath !== "string" || !c.parentPath.startsWith("/")) {
+        throw new ManifestValidationError(
+          pluginId,
+          `claims[${index}] slot "shell-overlay-route" parentPath must be a string starting with "/" if provided`,
+        );
+      }
+    }
   }
 
   // settings-section: validate optional tab field
@@ -118,6 +142,8 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
     ...(typeof c.path === "string" ? { path: c.path } : {}),
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
+    ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
+    ...(typeof c.parentPath === "string" ? { parentPath: c.parentPath } : {}),
     ...(typeof c.tab === "string" ? { tab: c.tab as SettingsTab } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),

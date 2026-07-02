@@ -50,6 +50,15 @@ export function buildPiResourcesUrl(cwd: string): string {
   return `/folder/${encodeFolderPath(cwd)}/pi-resources`;
 }
 
+/** `/folder/:encodedCwd/settings[/:page]` — Directory Settings page.
+ *  Omits the trailing page segment when `page` is undefined (defaults to
+ *  the packages page in the route handler). See change:
+ *  directory-settings-page-and-scoped-md-editing. */
+export function buildFolderSettingsUrl(cwd: string, page?: string): string {
+  const base = `/folder/${encodeFolderPath(cwd)}/settings`;
+  return page === undefined ? base : `${base}/${encodeURIComponent(page)}`;
+}
+
 /** `/pi-resource?path=...&title=...` */
 export function buildPiResourceFileUrl(path: string, title: string): string {
   const params = new URLSearchParams();
@@ -61,4 +70,13 @@ export function buildPiResourceFileUrl(path: string, title: string): string {
 /** `/session/:id/diff` */
 export function buildSessionDiffUrl(sessionId: string): string {
   return `/session/${encodeURIComponent(sessionId)}/diff`;
+}
+
+/** `/session/:id/editor?file=<rel>&line=<n>` — internal Monaco editor pane.
+ *  See change: add-internal-monaco-editor-pane. */
+export function buildEditorUrl(sessionId: string, filePath: string, line?: number): string {
+  const params = new URLSearchParams();
+  params.set("file", filePath);
+  if (line && line > 0) params.set("line", String(line));
+  return `/session/${encodeURIComponent(sessionId)}/editor?${params.toString()}`;
 }

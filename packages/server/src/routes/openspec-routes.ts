@@ -1,31 +1,33 @@
 /**
  * OpenSpec and Pi Resources REST API routes (localhost-only).
  */
-import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import { hasOpenSpecRoot, type DirectoryService } from "../directory-service.js";
-import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
+  configListAsync,
   configListOrAsync,
   configProfile,
-  update as openspecUpdate,
-  writeOpenSpecConfigFile,
-  workflowSetSignature,
-  openSpecConfigFilePath,
   EXPANDED_WORKFLOWS,
+  openSpecConfigFilePath,
+  update as openspecUpdate,
+  workflowSetSignature,
+  writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
-import type { NetworkGuard } from "./route-deps.js";
+import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
+import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
+import type { SessionManager } from "../memory-session-manager.js";
 import { scanOpenSpecArchive } from "../openspec-archive.js";
 import {
-  readTasks,
-  toggleTask,
-  NotFoundError,
   LineMismatchError,
   NotACheckboxError,
+  NotFoundError,
+  readTasks,
+  toggleTask,
 } from "../openspec-tasks.js";
-import path from "node:path";
-import fs from "node:fs/promises";
+import type { PreferencesStore } from "../preferences-store.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 /** Callback to broadcast an openspec_update after a successful toggle. */
 export type OpenSpecBroadcaster = (cwd: string) => void;
@@ -66,7 +68,20 @@ export function registerOpenSpecRoutes(
       }
       // Async spawn so a cold read (openspec CLI ~1s) never blocks the event
       // loop / stalls concurrent requests. See change: fix-openspec-profile-load-race.
-      const raw = (await configListOrAsync({ cwd }, null)) as Partial<OpenSpecConfig> | null;
+      //
+      // Use the Result-returning variant (not `configListOrAsync`) so a CLI
+      // spawn/exit failure (e.g. exit 127 when the bundled Electron server's
+      // stripped PATH can't run the `#!/usr/bin/env node` shebang) surfaces as
+      // a distinct error state instead of silently degrading to an empty
+      // `{ profile:"custom", workflows:[] }` that the Settings panel renders as
+      // "not found." The client throws on this 502 and shows a retry state.
+      // See change: fix-openspec-config-read-bundled-node.
+      const result = await configListAsync({ cwd });
+      if (!result.ok) {
+        reply.code(502);
+        return { success: false, error: "openspec config read failed" } satisfies ApiResponse;
+      }
+      const raw = result.value as Partial<OpenSpecConfig> | null;
       // Defensive normalisation: missing fields fall back to safe defaults
       // so the client always receives a well-formed OpenSpecConfig shape.
       const data: OpenSpecConfig = {

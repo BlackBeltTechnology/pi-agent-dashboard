@@ -102,6 +102,31 @@ describe("ModelSelector", () => {
   });
 });
 
+describe("StatusBar model refresh (refresh-model-selector-models)", () => {
+  it("forwards the footer refresh to onRefreshModels, sending request_models for the selected session even when modelsMap already has it", () => {
+    // Mirror the App wiring: send() closure + selectedId, guarded ONLY on
+    // selectedId (the !modelsMap.has(sid) fetch-once guard must NOT apply).
+    const send = vi.fn();
+    const selectedId = "s1";
+    const modelsMap = new Map<string, ModelInfo[]>([[selectedId, models]]); // already cached
+    const onRefreshModels = () => selectedId && send({ type: "request_models", sessionId: selectedId });
+
+    render(
+      <StatusBar
+        model="anthropic/claude-4"
+        models={modelsMap.get(selectedId)}
+        status="idle"
+        onSelectModel={() => {}}
+        onSelectThinkingLevel={() => {}}
+        onRefreshModels={onRefreshModels}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    fireEvent.click(screen.getByTestId("model-refresh"));
+    expect(send).toHaveBeenCalledWith({ type: "request_models", sessionId: selectedId });
+  });
+});
+
 describe("ThinkingLevelSelector", () => {
   it("renders current thinking level", () => {
     render(<StatusBar model="anthropic/claude-4" models={models} thinkingLevel="high" status="idle" onSelectModel={() => {}} onSelectThinkingLevel={() => {}} />);

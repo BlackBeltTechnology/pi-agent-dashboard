@@ -27,28 +27,76 @@ import type {
 } from "../shared/automation-types.js";
 import { TriggerRegistry } from "./trigger-registry.js";
 import { scheduleTrigger } from "./schedule-trigger.js";
+import {
+  ActionRegistry,
+  createActionRegistryWithBuiltins,
+  normalizeActionKind,
+} from "./action-registry.js";
 import { createScheduler, automationKey, type Scheduler } from "./scheduler.js";
 import { createRunner, type Runner } from "./runner.js";
 import { scanAutomations } from "./scanner.js";
 import { resolveModel } from "./model-resolver.js";
 import { startRun as storeStartRun, finishRun as storeFinishRun } from "./run-store.js";
 
-/** Build the prompt text delivered to a run session for an automation action. */
-export function buildRunPrompt(automation: DiscoveredAutomation): string {
+/**
+ * Build the prompt text delivered to a run session for an automation action.
+ *
+ * Resolves `action.kind` (normalizing bare `prompt`/`skill` to `core.*`)
+ * against the registry and delegates to the action's `buildPrompt`. Falls
+ * back to the legacy inline prompt/skill behavior when no registry is given
+ * or the action is unregistered (defensive). See change:
+ * register-plugin-automation-events.
+ */
+export function buildRunPrompt(
+  automation: DiscoveredAutomation,
+  actionRegistry?: ActionRegistry,
+): string {
   const action = automation.config!.action;
+  const reg = actionRegistry?.get(normalizeActionKind(action.kind));
+  if (reg) {
+    return reg.buildPrompt ? reg.buildPrompt({ payload: action.payload ?? {}, automation }).trim() : "";
+  }
+  // Legacy fallback (no registry / unregistered): inline prompt|skill.
   if (action.kind === "skill") {
-    // `$skill-name` token is delivered as-is so pi's skill router picks it up.
     return action.skill!.startsWith("$") ? action.skill! : `$${action.skill}`;
   }
-  // prompt action: read the durable prompt.md (path resolved against dir).
-  const promptPath = path.isAbsolute(action.prompt!)
-    ? action.prompt!
-    : path.join(automation.dir, action.prompt!);
-  try {
-    return fs.readFileSync(promptPath, "utf-8").trim();
-  } catch {
-    return "";
+  if (action.prompt) {
+    const promptPath = path.isAbsolute(action.prompt)
+      ? action.prompt
+      : path.join(automation.dir, action.prompt);
+    try {
+      return fs.readFileSync(promptPath, "utf-8").trim();
+    } catch {
+      return "";
+    }
   }
+  return "";
+}
+
+/**
+ * How a run is delivered to its session: seed a prompt, or emit a configured
+ * event. Resolved at start from the action's `buildPrompt`/`buildEvent`.
+ * See change: automation-emit-configured-event.
+ */
+export type RunDispatch =
+  | { kind: "prompt"; text: string }
+  | { kind: "event"; eventType: string; data?: Record<string, unknown> };
+
+/** Resolve the dispatch for an automation's action against the registry. */
+export function buildRunDispatch(
+  automation: DiscoveredAutomation,
+  actionRegistry?: ActionRegistry,
+): RunDispatch {
+  const action = automation.config!.action;
+  const reg = actionRegistry?.get(normalizeActionKind(action.kind));
+  if (reg?.buildEvent) {
+    const ev = reg.buildEvent({ payload: action.payload ?? {}, automation });
+    if (ev && typeof ev.eventType === "string" && ev.eventType.length > 0) {
+      return { kind: "event", eventType: ev.eventType, ...(ev.data ? { data: ev.data } : {}) };
+    }
+    return { kind: "prompt", text: "" };
+  }
+  return { kind: "prompt", text: buildRunPrompt(automation, actionRegistry) };
 }
 
 /** Effective board visibility: per-automation field ?? settings default. */
@@ -89,6 +137,15 @@ export interface EngineDeps {
   spawnSession: SpawnLike;
   /** Host-provided session abort. Returns false when not connected/untrusted. */
   abortSession?: (sessionId: string) => boolean;
+  /**
+   * Shared action registry (built-ins + plugin-registered). When omitted the
+   * engine creates one with only the built-ins. See change:
+   * register-plugin-automation-events.
+   */
+  /** Resolve the current action registry (collected fresh from published
+   *  contributions). Called at dispatch + scan time. See change:
+   *  decouple-automation-action-registry. */
+  resolveRegistry?: () => ActionRegistry;
   /** Scope targets to scan/arm (global + per-folder). */
   listScopes: () => ScopeTarget[];
   config: () => EngineConfig;
@@ -107,6 +164,8 @@ export interface RunContext {
   automation: DiscoveredAutomation;
   cwd: string;
   promptText: string;
+  /** When set, dispatch emits this event into the session instead of a prompt. */
+  emitEvent?: { eventType: string; data?: Record<string, unknown> };
   modelError?: string;
   sessionId?: string;
   delivered: boolean;
@@ -143,6 +202,8 @@ export interface Engine {
   scheduler: Scheduler;
   runner: Runner;
   registry: TriggerRegistry;
+  /** Shared action registry (built-ins + plugin-registered). */
+  actionRegistry: ActionRegistry;
   dispose(): void;
 }
 
@@ -157,6 +218,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
   const registry = new TriggerRegistry();
   registry.register(scheduleTrigger);
+  const resolveRegistry = deps.resolveRegistry ?? (() => createActionRegistryWithBuiltins({ warn }));
 
   // cwd(normalized) → FIFO queue of RunContexts awaiting register/end
   // correlation. Keyed by cwd (the only signal available at
@@ -248,7 +310,8 @@ export function createEngine(deps: EngineDeps): Engine {
     });
 
     const rec = storeStartRun(scopeBase, automation.name);
-    const promptText = buildRunPrompt(automation);
+    const dispatch = buildRunDispatch(automation, resolveRegistry());
+    const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
 
     const ctx: RunContext = {
       key: automationKey(automation),
@@ -257,6 +320,9 @@ export function createEngine(deps: EngineDeps): Engine {
       automation,
       cwd: normalize(runCwd),
       promptText,
+      ...(dispatch.kind === "event"
+        ? { emitEvent: { eventType: dispatch.eventType, ...(dispatch.data ? { data: dispatch.data } : {}) } }
+        : {}),
       ...(resolved.error ? { modelError: resolved.error } : {}),
       delivered: false,
     };
@@ -292,6 +358,7 @@ export function createEngine(deps: EngineDeps): Engine {
     scheduler,
     runner,
     registry,
+    get actionRegistry() { return resolveRegistry(); },
 
     start(): void {
       this.refresh();
@@ -308,6 +375,7 @@ export function createEngine(deps: EngineDeps): Engine {
               ...(s.scope === "global" ? { homeDir: s.base, scanGlobal: true, scanFolder: false } : {}),
             },
             registry.kinds(),
+            resolveRegistry().ids(),
           ),
         );
       }

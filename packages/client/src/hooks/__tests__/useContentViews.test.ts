@@ -5,20 +5,21 @@
  *
  * See change: overlay-url-routing.
  */
-import { describe, it, expect, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useContentViews } from "../useContentViews.js";
+
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { encodeFolderPath } from "../../lib/folder-encoding.js";
+import { useContentViews } from "../useContentViews.js";
 
 describe("useContentViews", () => {
-  it("handleOpenPiResources navigates to /folder/:encodedCwd/pi-resources", () => {
+  it("handleOpenPiResources navigates to the Directory Settings page", () => {
     const navigate = vi.fn();
     const { result } = renderHook(() => useContentViews({ navigate }));
 
     act(() => result.current.handleOpenPiResources("/some/cwd"));
 
     expect(navigate).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/some/cwd")}/pi-resources`);
+    expect(navigate).toHaveBeenCalledWith(`/folder/${encodeFolderPath("/some/cwd")}/settings`);
   });
 
   it("handleViewPiResourceFile navigates to /pi-resource with query string", () => {

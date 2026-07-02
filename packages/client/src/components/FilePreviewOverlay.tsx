@@ -103,7 +103,10 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     };
   }, [cwd, path, isImage]);
 
-  // Esc + backdrop click dismiss.
+  // Esc + backdrop click dismiss. The backdrop element is the dim layer over
+  // the message area only (see render): clicking it closes; clicks inside the
+  // panel or down in the composer cutout never match its testid, so they are
+  // click-isolated.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCloseRef.current();
@@ -117,6 +120,32 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     return () => {
       document.removeEventListener("keydown", handleKey);
       document.removeEventListener("click", handleClick);
+    };
+  }, []);
+
+  // The preview is a non-blocking inspector: its dim backdrop must not cover the
+  // chat composer, or it intercepts pointer events on the send button (a user
+  // could not send a prompt without first dismissing the preview). Reserve a
+  // bottom cutout the height of the composer so the composer pokes through and
+  // stays interactive while the dim layer still blocks + dismisses over the
+  // message area. Falls back to a full-viewport backdrop when no composer is
+  // mounted (e.g. preview opened from a dialog). See change:
+  // fix-file-preview-backdrop-blocks-composer.
+  const [composerInset, setComposerInset] = useState(0);
+  useEffect(() => {
+    const el = document.querySelector('[data-testid="composer-root"]') as HTMLElement | null;
+    if (!el) return;
+    const measure = () => setComposerInset(el.getBoundingClientRect().height);
+    measure();
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(measure);
+      ro.observe(el);
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", measure);
     };
   }, []);
 
@@ -134,14 +163,20 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
 
   return (
     <DialogPortal>
-      <div
-        data-testid={BACKDROP_ID}
-        className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
-      >
+      {/* Outer wrapper spans the viewport but is click-through, so the composer
+          cutout at the bottom stays interactive. */}
+      <div className="fixed inset-0 z-50 pointer-events-none">
+        {/* Dim + dismiss layer: covers the message area only, stopping above the
+            composer (bottom = measured composer height). */}
         <div
-          className="bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-          data-testid="file-preview-overlay"
+          data-testid={BACKDROP_ID}
+          className="absolute inset-x-0 top-0 bg-black/60 flex items-center justify-center p-4 pointer-events-auto"
+          style={{ bottom: composerInset }}
         >
+          <div
+            className="bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col pointer-events-auto"
+            data-testid="file-preview-overlay"
+          >
           <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-secondary)]">
             <span className="text-sm font-mono text-[var(--text-secondary)] truncate flex-1" title={path}>
               {path}
@@ -215,6 +250,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
                 })}
               </pre>
             )}
+          </div>
           </div>
         </div>
       </div>

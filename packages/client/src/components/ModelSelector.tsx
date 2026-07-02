@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Icon } from "@mdi/react";
-import { mdiChevronDown, mdiLoading, mdiStar, mdiStarOutline, mdiBrain, mdiEye } from "@mdi/js";
+import { mdiChevronDown, mdiLoading, mdiStar, mdiStarOutline, mdiBrain, mdiEye, mdiRefresh } from "@mdi/js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { usePopoverFlip } from "../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../lib/i18n";
@@ -21,6 +21,14 @@ interface Props {
   current?: string;
   models?: ModelInfo[];
   onSelect: (model: string) => void;
+
+  /**
+   * User-initiated re-request of the model list for the current session.
+   * When provided, a footer refresh control renders in the dropdown; when
+   * absent the control is omitted (backward-compatible for the registered UI
+   * primitive). See change: refresh-model-selector-models.
+   */
+  onRefresh?: () => void;
 
   /** Favorite model labels (`"provider/id"`), server-persisted, hydrated by App. */
   favorites?: string[];
@@ -86,11 +94,12 @@ function CapBadges({ m }: { m: ModelInfo }) {
   );
 }
 
-export function ModelSelector({ current, models, onSelect, favorites, onToggleFavorite }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, favorites, onToggleFavorite }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingModel, setPendingModel] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   // Persistent per-browser view state (restored from localStorage on mount).
   const [providerFilter, setProviderFilter] = useState<string>(() => readLS(PROVIDER_FILTER_KEY));
   const [favOnly, setFavOnly] = useState<boolean>(() => readLS(FAV_ONLY_KEY) === "1");
@@ -118,6 +127,21 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
     const timer = setTimeout(() => setPendingModel(null), 10_000);
     return () => clearTimeout(timer);
   }, [pendingModel]);
+
+  // Clear refreshing when a new `models` list arrives (prop identity changes)
+  // — the completion signal for a user-initiated refresh.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on `models` identity, not `refreshing`.
+  useEffect(() => {
+    if (refreshing) setRefreshing(false);
+  }, [models]);
+
+  // Safety timeout: clear refreshing after 10s if no `models_list` arrives
+  // (e.g. the refreshed list is byte-identical, so the prop identity is stable).
+  useEffect(() => {
+    if (!refreshing) return;
+    const timer = setTimeout(() => setRefreshing(false), 10_000);
+    return () => clearTimeout(timer);
+  }, [refreshing]);
 
   const uniqueProviders = useMemo(
     () => (hasModels ? [...new Set(models!.map((m) => m.provider))].sort() : []),
@@ -331,6 +355,24 @@ export function ModelSelector({ current, models, onSelect, favorites, onToggleFa
               </>
             )}
           </div>
+
+          {/* ── Footer: user-initiated refresh (only when a handler is wired) ── */}
+          {onRefresh && (
+            <div className="border-t border-[var(--border-secondary)] p-1">
+              <button
+                type="button"
+                data-testid="model-refresh"
+                disabled={refreshing}
+                onClick={() => { setRefreshing(true); onRefresh(); }}
+                className="flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-default"
+              >
+                <Icon path={mdiRefresh} size={0.55} className={refreshing ? "animate-spin" : undefined} />
+                {refreshing
+                  ? i18nT("auto.refreshing_models", undefined, "Refreshing…")
+                  : i18nT("auto.refresh_models", undefined, "Refresh models")}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

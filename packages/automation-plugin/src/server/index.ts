@@ -23,8 +23,17 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import type { AutomationScope, Visibility } from "../shared/automation-types.js";
 import { mountAutomationRoutes } from "./routes.js";
 import type { Engine } from "./engine.js";
+import {
+  type ActionRegistry,
+  coreActionContributions,
+  collectActionRegistry,
+  ACTION_CONTRIBUTION_PREFIX,
+} from "./action-registry.js";
 
 const PLUGIN_ID = "automation";
+
+/** Key under which automation publishes its own built-in contributions. */
+export const CORE_ACTION_KEY = "automation.action.core";
 
 interface AutomationPluginConfig {
   defaultVisibility?: Visibility;
@@ -38,13 +47,43 @@ interface AutomationPluginConfig {
  *  once it inits (~1 s after boot). */
 let engineRef: Engine | null = null;
 
+/** Module-scoped collector so route hooks + engine resolve the same live set.
+ *  Set at registerPlugin. Collects published contributions on each call
+ *  (publish/collect). See change: decouple-automation-action-registry. */
+let collectRegistry: (() => ActionRegistry) | null = null;
+
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("automation-plugin server entry activated");
+  // Publish automation's OWN built-in actions (core.prompt/core.skill) for
+  // collection — built-ins are peers, not privileged. Any plugin publishes
+  // under `automation.action.<source>`; automation collects lazily on read,
+  // so load order is irrelevant. See change: decouple-automation-action-registry.
+  ctx.provide(CORE_ACTION_KEY, coreActionContributions());
+  collectRegistry = () =>
+    collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) });
+  const actionRegistry = { descriptorsForCwd: (cwd: string) => collectRegistry!().descriptorsForCwd(cwd) };
+  // Per-cwd descriptor cache: descriptorsForCwd() runs each action's
+  // available(cwd) + enum options(cwd), which hit the filesystem (e.g. flows
+  // discovery). Cache briefly so a burst of `/actions` requests for one cwd
+  // does not re-walk disk per call; the TTL keeps it responsive to on-disk
+  // flow changes. See change: register-plugin-automation-events.
+  const descriptorCache = new Map<string, { ts: number; value: ReturnType<typeof actionRegistry.descriptorsForCwd> }>();
+  const DESCRIPTOR_TTL_MS = 3000;
+  function descriptorsForCwdCached(cwd: string) {
+    const hit = descriptorCache.get(cwd);
+    const now = Date.now();
+    if (hit && now - hit.ts < DESCRIPTOR_TTL_MS) return hit.value;
+    const value = actionRegistry.descriptorsForCwd(cwd);
+    descriptorCache.set(cwd, { ts: now, value });
+    return value;
+  }
   // Mount REST routes synchronously (must register before fastify.listen).
   // Handler bodies lazy-import heavy modules so this stays cheap.
   mountAutomationRoutes(ctx.fastify, {
     runNow: ({ scope, cwd, name }) => runNowViaEngine(scope, cwd, name),
     stopRun: ({ runId }) => stopRunViaEngine(runId),
+    listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
+    actionIds: () => collectRegistry!().ids(),
   });
   // Detach: do not block server boot on engine init / heavy imports, and
   // delay past the immediate post-boot window so short integration tests
@@ -102,6 +141,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   const engine = createEngine({
     spawnSession: (opts) => ctx.spawnSession(opts),
     abortSession: (id) => ctx.abortSession(id),
+    resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
     listScopes,
     config: pluginConfig,
     homeDir,
@@ -154,7 +194,11 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
         // retries) and clear the half-initialized buffers instead of
         // stranding a "delivered" run that never received its prompt.
         try {
-          if (pendingRun.promptText) {
+          if (pendingRun.emitEvent) {
+            // Event-dispatch action: emit the configured event into the run
+            // session instead of seeding a prompt.
+            ctx.emitEventToSession(sessionId, pendingRun.emitEvent.eventType, pendingRun.emitEvent.data);
+          } else if (pendingRun.promptText) {
             runPrompt.set(sessionId, pendingRun.promptText);
             ctx.sendToSession(sessionId, pendingRun.promptText);
           }
@@ -164,7 +208,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
           runPrompt.delete(sessionId);
           runText.delete(sessionId);
           logger.warn(
-            `automation prompt delivery failed for runId=${stampedRunId}: ${err instanceof Error ? err.message : String(err)}`,
+            `automation action delivery failed for runId=${stampedRunId}: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -262,6 +306,7 @@ async function runNowViaEngine(
       ? { homeDir: base, scanGlobal: true, scanFolder: false }
       : { repoRoot: base, scanFolder: true, scanGlobal: false },
     eng.registry.kinds(),
+    eng.actionRegistry.ids(),
   ).find((a) => a.name === name && a.scope === scope && a.valid);
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
   const r = eng.startRunFor(found);
