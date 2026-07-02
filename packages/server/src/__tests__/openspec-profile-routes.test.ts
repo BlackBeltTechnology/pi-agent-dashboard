@@ -8,8 +8,9 @@
  * The shared platform/openspec module is mocked so no real `openspec` CLI
  * runs and no global config file is touched.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 
 const PASSTHRU_GUARD = async () => {};
@@ -21,8 +22,12 @@ const mock = {
   writeOpenSpecConfigFile: vi.fn(),
   globalWorkflows: ["propose", "explore", "apply", "archive"] as string[],
   globalProfile: "core" as string | undefined,
-  // null => simulate a failed/unparseable `openspec config list`.
+  // null => `openspec config list` succeeded (exit 0) but produced null/
+  // unparseable JSON (a successful-but-empty read, NOT a spawn failure).
   configListResult: undefined as Record<string, unknown> | null | undefined,
+  // true => the CLI spawn/exit itself failed (e.g. exit 127 under a stripped
+  // bundled-Electron PATH). Distinct from configListResult=null.
+  configListFails: false,
   configListAsyncCalls: 0,
 };
 
@@ -40,6 +45,13 @@ vi.mock("../directory-service.js", () => ({
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/openspec.js", () => ({
   configListOr: () => ({ workflows: mock.globalWorkflows }),
+  // Result-returning variant used by GET /api/openspec/config so a spawn/exit
+  // failure surfaces as a 502 instead of a silently-empty profile.
+  configListAsync: async () => {
+    mock.configListAsyncCalls += 1;
+    if (mock.configListFails) return { ok: false, error: { kind: "exit", code: 127, signal: null, stdout: "", stderr: "" } };
+    return { ok: true, value: currentConfigListValue() };
+  },
   configListOrAsync: async () => {
     mock.configListAsyncCalls += 1;
     return currentConfigListValue();
@@ -73,6 +85,7 @@ describe("openspec profile-config REST routes", () => {
     mock.globalWorkflows = ["propose", "explore", "apply", "archive"];
     mock.globalProfile = "core";
     mock.configListResult = undefined;
+    mock.configListFails = false;
     mock.configListAsyncCalls = 0;
     signatures = {};
     sessionCwds = ["/proj/a"];
@@ -351,8 +364,8 @@ describe("openspec profile-config REST routes", () => {
     expect(mock.configListAsyncCalls).toBe(1);
   });
 
-  it("GET config returns safe defaults when the CLI read fails", async () => {
-    mock.configListResult = null; // simulate failed/unparseable `openspec config list`
+  it("GET config returns safe defaults on a successful-but-empty read (exit 0, null JSON)", async () => {
+    mock.configListResult = null; // CLI exit 0 but null/unparseable JSON
     await setup();
     const res = await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
     expect(res.statusCode).toBe(200);
@@ -360,6 +373,29 @@ describe("openspec profile-config REST routes", () => {
     expect(body.data.profile).toBe("custom");
     expect(body.data.delivery).toBe("both");
     expect(body.data.workflows).toEqual([]);
+  });
+
+  // The bundled-Electron bug: a stripped child PATH makes the openspec spawn
+  // exit 127. That MUST surface as a distinct error state, not a fake-empty
+  // "custom" profile that the Settings panel renders as "not found."
+  // See change: fix-openspec-config-read-bundled-node.
+  it("GET config returns a 502 error state (not an empty profile) when the CLI spawn fails", async () => {
+    mock.configListFails = true;
+    await setup();
+    const res = await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
+    expect(res.statusCode).toBe(502);
+    const body = JSON.parse(res.payload);
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/read failed/i);
+  });
+
+  it("GET config does not cache a failed read (retry re-attempts the CLI)", async () => {
+    mock.configListFails = true;
+    await setup();
+    await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
+    await fastify.inject({ method: "GET", url: "/api/openspec/config?cwd=/proj/a" });
+    // Both requests re-ran the CLI — the 502 path never populates the cache.
+    expect(mock.configListAsyncCalls).toBe(2);
   });
 
   it("excludes the global config dir's parent (~/.config) even though it has openspec/", async () => {

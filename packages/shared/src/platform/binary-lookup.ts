@@ -3,15 +3,17 @@
  * Replaces scattered whichSync/resolvePiCommand/resolveTsxCommand implementations
  * with a single configurable resolver.
  */
-import { execSync, spawnSync, buildSafeArgv } from "./exec.js";
-import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
-import { augmentEnvWithGitSource } from "./git-source.js";
+
 import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { MANAGED_BIN, MANAGED_DIR } from "../managed-paths.js";
+import { ensureWindowsSystemPath } from "./ensure-windows-path.js";
+import { buildSafeArgv, execSync, spawnSync } from "./exec.js";
+import { augmentEnvWithGitSource } from "./git-source.js";
+import { getManagedNodeBinDir, isManagedNodePresent } from "./managed-node-path.js";
 
 // ── jiti loader resolution constants ──────────────────────────────────────
 
@@ -481,6 +483,20 @@ export class ToolResolver {
       : null;
     if (nodeBin && !currentPath.includes(nodeBin)) {
       parts.push(nodeBin);
+    }
+
+    // Managed Node runtime bin dir (`~/.pi-dashboard/node/bin` on unix,
+    // `~/.pi-dashboard/node` on Windows). Seeded so shebang-based child
+    // spawns (`#!/usr/bin/env node`) resolve a real `node` even when the
+    // dashboard server runs under Electron (its own execPath dir holds
+    // `Electron`, not `node`). Defense-in-depth alongside the explicit
+    // node-wrap in the tool registry.
+    // See change: fix-openspec-config-read-bundled-node.
+    if (isManagedNodePresent(base, opts.platform)) {
+      const managedNodeBin = getManagedNodeBinDir(base, opts.platform);
+      if (!currentPath.includes(managedNodeBin) && !parts.includes(managedNodeBin)) {
+        parts.push(managedNodeBin);
+      }
     }
 
     // Extra bin dirs

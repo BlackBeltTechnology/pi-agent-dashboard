@@ -8,14 +8,12 @@
  *
  * See change: consolidate-tool-resolution.
  */
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ToolDefinition, Source, InstallHints } from "./types.js";
 import type { ToolRegistry } from "./registry.js";
 import {
-  type StrategyDeps,
   bareImportStrategy,
   bundledGitBashStrategy,
   bundledNodeStrategy,
@@ -24,9 +22,10 @@ import {
   managedRuntimeStrategy,
   npmGlobalStrategy,
   overrideStrategy,
+  type StrategyDeps,
   whereStrategy,
 } from "./strategies.js";
-import type { Strategy } from "./types.js";
+import type { InstallHints, Source, Strategy, ToolDefinition } from "./types.js";
 
 // ── Classifier ──────────────────────────────────────────────────────────────
 
@@ -375,35 +374,61 @@ function packageDirModuleDef(
 // See change: consolidate-tool-resolution (follow-up).
 
 /**
+ * Resolve a Node-script executor's resolved path to a `.js` entry point
+ * suitable for node-wrapping, or null when it is not a Node script.
+ *
+ * - Already a `.js` path → return it verbatim (Windows `.js` entry, or a
+ *   unix `bare-import`/`managedModule` hit like `bin/openspec.js`).
+ * - Unix only: the `managedBin` strategy resolves `.bin/openspec` — a
+ *   `#!/usr/bin/env node` shebang SYMLINK whose real target is the
+ *   package's `bin/openspec.js`. Dereference it so we can node-wrap the
+ *   real `.js` and stop depending on the shebang finding `node` on PATH.
+ *   Windows managed-bin resolves a `.cmd` shim (not a symlink), so the
+ *   deref is skipped there — preserving the Windows branch byte-for-byte.
+ */
+function resolveJsScript(resolvedPath: string, platform: NodeJS.Platform): string | null {
+  if (/\.js$/i.test(resolvedPath)) return resolvedPath;
+  if (platform !== "win32") {
+    try {
+      const real = realpathSync(resolvedPath);
+      if (/\.js$/i.test(real)) return real;
+    } catch {
+      // Not a symlink / missing on disk — fall through to shebang path.
+    }
+  }
+  return null;
+}
+
+/**
  * Shared `toArgv` for Node-script executors (pi, openspec, npm).
  *
- * On Windows + `.js` resolved path → prepend node.exe to bypass the
- * `.cmd` shim entirely (no cmd.exe in the spawn chain → no console
- * flash). Elsewhere → direct invocation.
+ * When the resolved path is (or dereferences to) a `.js` entry, prepend a
+ * real `node` interpreter so the spawn becomes `[<node>, <script>.js]`.
+ * This runs on unix AND Windows:
  *
- * This is the heart of the "no cmd flash" story: every CLI that ships
- * as `.cmd` on Windows and is actually a Node script should be
- * registered with this `toArgv` so the spawn becomes
- * `node.exe <script.js>` (pure console-subsystem inherit, no new
- * window ever).
+ * - Windows: bypasses the `.cmd` shim entirely (no cmd.exe → no console
+ *   flash). See change: fix-windows-standalone-spawn.
+ * - Unix: removes the dependency on the `#!/usr/bin/env node` shebang
+ *   finding a binary named `node` on the child's PATH — the exact gap
+ *   that breaks a GUI-launched (Electron) server with a stripped PATH
+ *   (exit 127 / `env: node: No such file`). See change:
+ *   fix-openspec-config-read-bundled-node.
  *
- * Node resolution order on Windows (see change:
- * fix-windows-standalone-spawn):
- *   1. `registry.resolve("node")` when it returns ok with a non-null
- *      path (the strategy chain has already validated existence via
- *      its injected `exists` dep).
- *   2. `process.execPath` — the dashboard server's own Node — as a
- *      guaranteed-working fallback. Live repro: Windows 11 standalone
- *      install where the registry chain failed to find node and the
- *      spawn argv became `[cli.js]` → `spawn EFTYPE`. Falling back to
- *      execPath keeps the spawn argv well-formed because the dashboard
- *      server is itself running on a compatible Node.
+ * Node resolution order:
+ *   1. `registry.resolve("node")` when it returns ok with a non-null path
+ *      (the strategy chain has already validated existence via its
+ *      injected `exists` dep) — the deterministic, PATH-independent path.
+ *   2. `process.execPath` — the dashboard server's own interpreter — as a
+ *      guaranteed-well-formed fallback. Under Electron this is the
+ *      Electron binary; the runner sets `ELECTRON_RUN_AS_NODE=1` on that
+ *      child spawn so it still executes as node.
  */
 const nodeScriptToArgv: ToolDefinition["toArgv"] = (resolvedPath, { platform, registry }) => {
-  if (platform === "win32" && /\.js$/i.test(resolvedPath)) {
+  const scriptPath = resolveJsScript(resolvedPath, platform);
+  if (scriptPath) {
     const node = registry.resolve("node");
-    if (node.ok && node.path) return [node.path, resolvedPath];
-    return [process.execPath, resolvedPath];
+    if (node.ok && node.path) return [node.path, scriptPath];
+    return [process.execPath, scriptPath];
   }
   return [resolvedPath];
 };
