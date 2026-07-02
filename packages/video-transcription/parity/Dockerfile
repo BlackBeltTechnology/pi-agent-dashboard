@@ -10,8 +10,11 @@ RUN apt-get update \
 WORKDIR /app
 RUN npm install -g tsx@4
 
-# Only the pieces the parity check needs — no runtime npm deps in this package.
+# Install the runtime dependency (@blackbelt-technology/pi-dashboard-shared, the
+# safe-subprocess wrapper imported by src/ffmpeg.ts). Copy the manifest first for
+# layer caching; --omit=dev skips vitest and other dev-only packages.
 COPY package.json ./package.json
+RUN npm install --omit=dev
 COPY src ./src
 COPY parity ./parity
 

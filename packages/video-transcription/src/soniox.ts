@@ -78,9 +78,13 @@ export class SonioxClient {
     return data.id;
   }
 
-  /** Poll until the transcription completes; throw on failure/error status. */
-  async waitForCompletion(transcriptionId: string): Promise<void> {
-    for (;;) {
+  /**
+   * Poll until the transcription completes; throw on failure/error status.
+   * Bounded by `maxAttempts` (default ~60 min at the 2 s poll interval) so a
+   * stuck transcription surfaces a clear timeout instead of hanging forever.
+   */
+  async waitForCompletion(transcriptionId: string, maxAttempts = 1800): Promise<void> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const res = await this.fetchImpl(`${this.baseUrl}/transcriptions/${transcriptionId}`, {
         headers: this.authHeaders,
       });
@@ -97,6 +101,9 @@ export class SonioxClient {
       }
       await sleep(this.pollIntervalMs);
     }
+    throw new Error(
+      `Transcription ${transcriptionId} timed out after ${maxAttempts} poll attempts`,
+    );
   }
 
   /** Retrieve the completed transcript payload (tokens + speaker info). */

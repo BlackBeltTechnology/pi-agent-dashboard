@@ -46,6 +46,14 @@ describe("transcribeChunked", () => {
     expect(out).toBe(srt1);
   });
 
+  it("throws on non-positive chunkSeconds (guards against an infinite loop)", async () => {
+    const service: TranscribeService = { transcribeFile: vi.fn(async () => srt1) };
+    await expect(
+      transcribeChunked(service, "/in/clip.mp3", { chunkSeconds: 0 }),
+    ).rejects.toThrow(/positive/);
+    expect(service.transcribeFile).not.toHaveBeenCalled();
+  });
+
   it("zero duration falls back to a single request", async () => {
     const service: TranscribeService = { transcribeFile: vi.fn(async () => srt1) };
     const durationRunner: Runner = async () => ({ stdout: "N/A", stderr: "" });

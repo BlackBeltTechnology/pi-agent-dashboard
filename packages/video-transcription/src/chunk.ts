@@ -87,6 +87,9 @@ export async function transcribeChunked(
   opts: TranscribeChunkedOptions = {},
 ): Promise<string> {
   const chunkSeconds = opts.chunkSeconds ?? DEFAULT_CHUNK_SECONDS;
+  if (chunkSeconds <= 0) {
+    throw new Error(`chunkSeconds must be positive, got ${chunkSeconds}`);
+  }
   const duration = await getDurationSeconds(audioPath, opts.durationRunner);
 
   if (duration <= chunkSeconds || duration === 0) {

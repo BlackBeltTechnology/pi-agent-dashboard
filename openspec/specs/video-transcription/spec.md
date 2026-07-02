@@ -1,7 +1,7 @@
 # video-transcription Specification
 
 ## Purpose
-TBD - created by archiving change add-video-transcription-package. Update Purpose after archive.
+Transcribe local video/audio files in-place to speaker-diarized SRT via the Soniox async API, exposed as a pi skill and a `pi-transcribe` CLI, with long-recording chunking and idempotent re-runs.
 ## Requirements
 ### Requirement: Local media transcription to speaker-diarized SRT
 The package SHALL transcribe local video (`.mkv`, `.mp4`) and audio (`.m4a`, `.mp3`) files to SRT subtitles with speaker labels using the Soniox async transcription API. For video inputs it SHALL first extract audio to MP3 via `ffmpeg`. Output SRT SHALL be written as a sibling file with the same stem as the original input. Segmentation and timestamp formatting SHALL match the existing skill's behavior (speaker-change boundaries, a 5000 ms maximum segment span, and `HH:MM:SS,mmm` timestamps).

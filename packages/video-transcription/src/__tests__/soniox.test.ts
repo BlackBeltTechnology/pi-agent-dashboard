@@ -67,6 +67,13 @@ describe("SonioxClient", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("waitForCompletion throws a timeout after maxAttempts", async () => {
+    const fetchImpl = fetchMock(() => jsonResponse({ status: "processing" }));
+    const client = new SonioxClient({ apiKey: "k", fetchImpl, pollIntervalMs: 0 });
+    await expect(client.waitForCompletion("tr-1", 3)).rejects.toThrow(/timed out/);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
   it("waitForCompletion throws on failed status", async () => {
     const fetchImpl = fetchMock(() =>
       jsonResponse({ status: "failed", error_message: "bad audio" }),
