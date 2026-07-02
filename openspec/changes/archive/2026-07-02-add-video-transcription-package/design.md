@@ -6,7 +6,7 @@ Port of the standalone Python skill `~/.pi/agent/skills/video-transcription` int
 
 ## Goals
 
-- Full TypeScript, zero runtime npm deps (pi peers only).
+- Full TypeScript, no Python. One runtime npm dep: `@blackbelt-technology/pi-dashboard-shared` (repo-mandated safe-subprocess wrapper); otherwise pi peers only.
 - Behavior parity: same SRT output, same CLI contract, same chunking semantics.
 - Skill + `pi-transcribe` bin, mirroring `document-converter` / `dashboard-plugin-skill` conventions.
 - No committed secret.
@@ -51,6 +51,9 @@ The tool is I/O orchestration only. Keeping a Python engine (the `document-conve
 
 ### D2 — Native fetch/FormData, no Soniox SDK
 Five endpoints. A dependency-free client is smaller and avoids version churn. Node 20+ ships global `fetch`, `FormData`, `Blob`.
+
+### D7 — Subprocess via shared `platform/exec`, not raw `node:child_process`
+The repo enforces a CI invariant (`no-direct-child-process`): all subprocess execution goes through `@blackbelt-technology/pi-dashboard-shared/platform/exec` so `windowsHide: true` and other defaults stay uniform. `ffmpeg.ts` therefore imports `execFileAsync` from that wrapper instead of `node:child_process`. This adds one runtime dependency (`pi-dashboard-shared`, already a sibling published package used by `document-converter`) and supersedes the original "zero runtime deps" goal — the tradeoff is correct Windows console-hiding for spawned `ffmpeg`/`ffprobe` and consistency with the rest of the monorepo.
 
 ### D3 — Secret from env, optional gitignored `.env`
 `config.ts` resolves `SONIOX_API_KEY` from `process.env` first; if absent, parse a local `.env` (cwd, then skill dir) that is gitignored. No secret in the published tarball. Fail fast with a clear message if unresolved.

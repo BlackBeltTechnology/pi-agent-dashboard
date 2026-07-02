@@ -4,7 +4,7 @@
 
 A standalone pi skill at `~/.pi/agent/skills/video-transcription` transcribes local video/audio to speaker-diarized SRT via the Soniox cloud API. It is useful but lives outside the monorepo: it is Python (bundled venv + `.zip`), ships a committed `.env` secret, and is not published, versioned, or installable by the team.
 
-The skill has **no Python-only dependencies**. Soniox does the transcription in the cloud; the local code is a thin orchestrator over (1) a 5-call REST API and (2) `ffmpeg`/`ffprobe` subprocesses. Every concern maps 1:1 to Node stdlib (`fetch` + `FormData`, `node:child_process`, `fs.mkdtemp`, regex). This makes it a clean full TypeScript port with **zero runtime npm dependencies** beyond pi's bundled peers.
+The skill has **no Python-only dependencies**. Soniox does the transcription in the cloud; the local code is a thin orchestrator over (1) a 5-call REST API and (2) `ffmpeg`/`ffprobe` subprocesses. Every concern maps 1:1 to Node stdlib (`fetch` + `FormData`, `fs.mkdtemp`, regex). This makes it a clean full TypeScript port with **no Python and a single runtime npm dependency** — `@blackbelt-technology/pi-dashboard-shared` for the repo's mandated safe-subprocess wrapper (`platform/exec`, which enforces `windowsHide: true`); everything else rides pi's bundled peers.
 
 Bringing it into `packages/` as a published `@blackbelt-technology/pi-dashboard-*` package gives it versioning, npm distribution, tests, and the same skill+bin surface the team already uses (`document-converter`, `mockup-loop`, `dashboard-plugin-skill`).
 

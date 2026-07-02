@@ -309,6 +309,7 @@ jobs:
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
             "@blackbelt-technology/pi-dashboard-authoring-toolkit"
+            "@blackbelt-technology/pi-dashboard-video-transcription"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"

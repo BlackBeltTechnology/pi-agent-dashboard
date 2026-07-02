@@ -18,6 +18,7 @@ export default defineConfig({
       "packages/extension",
       "packages/image-fit-extension",
       "packages/mockup-loop",
+      "packages/video-transcription",
       "packages/client",
       "packages/client-utils",
       "packages/dashboard-plugin-runtime",
