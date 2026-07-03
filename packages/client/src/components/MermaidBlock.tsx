@@ -18,8 +18,12 @@ export const _svgCache = new Map<string, string>();
 // "Loading diagram…" → render → error, which flickers on every parent update.
 export const _errorCache = new Map<string, string>();
 
-function cacheKey(code: string, theme: string): string {
-  return `${code}\0${theme}`;
+// Cache identity is the composite theme id (`<themeName>:<resolved>`), not just
+// light/dark: accent palettes differ per named theme, so colorized output must
+// cache separately for e.g. dracula-dark vs nord-dark even though both resolve
+// to "dark". See change: colorize-mermaid-default-nodes.
+function cacheKey(code: string, themeId: string): string {
+  return `${code}\0${themeId}`;
 }
 
 // ── Mermaid code sanitisation ───────────────────────────────────────────────
@@ -71,6 +75,98 @@ function sanitizeMermaidSvg(svg: string): string {
     .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "");
 }
 
+// ── Default-node colorization ───────────────────────────────────────────────
+// Mermaid's stock themes give every un-authored node the same pale fill. We
+// tint each default node with a hue from the active theme's accent palette so
+// diagrams read as structured, on-brand color. Author-colored nodes (inline
+// style contains `fill:`) are left untouched — explicit color always wins.
+
+const ACCENT_VARS = [
+  "--accent-blue",
+  "--accent-green",
+  "--accent-yellow",
+  "--accent-red",
+  "--accent-purple",
+  "--accent-orange",
+] as const;
+
+// Fallback ramp for environments where getComputedStyle returns empty custom
+// properties (e.g. jsdom under test). In the browser the vars are always set.
+const FALLBACK_ACCENTS = ["#3b82f6", "#22c55e", "#eab308", "#ef4444", "#a855f7", "#f97316"];
+
+const TINT = 0.08; // soft accent wash over the node background
+const BORDER_ALPHA = 0.85; // full-ish accent border carries node identity
+
+function resolveVar(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return val || fallback;
+}
+
+/** Read the 6 accent hexes for the current theme, live via getComputedStyle. */
+function resolveAccents(): string[] {
+  return ACCENT_VARS.map((v, i) => resolveVar(v, FALLBACK_ACCENTS[i]));
+}
+
+/** Deterministic djb2 string hash → stable per-node palette index. */
+export function hashId(id: string): number {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) >>> 0;
+  return h >>> 0;
+}
+
+/** Convert #rgb / #rrggbb to an rgba() string at the given alpha. */
+export function rgba(hex: string, alpha: number): string {
+  let h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function setLabelColor(g: Element, color: string): void {
+  // Flowchart labels are HTML spans inside <foreignObject>; class-diagram labels
+  // are SVG <text>/<tspan>. Set the appropriate color property on each.
+  g.querySelectorAll(".nodeLabel").forEach((el) => {
+    (el as unknown as { style: CSSStyleDeclaration }).style.color = color;
+  });
+  g.querySelectorAll("text, tspan").forEach((el) => {
+    el.setAttribute("fill", color);
+  });
+}
+
+/**
+ * Post-process a rendered mermaid SVG: tint default (un-authored) flowchart and
+ * class-diagram nodes with the accent palette. A node is "authored" when its
+ * shape's inline `style` contains `fill:` — those are skipped.
+ */
+export function colorizeDefaultNodes(svg: string, accents: string[], textColor: string): string {
+  if (typeof DOMParser === "undefined" || accents.length === 0) return svg;
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = doc.documentElement;
+  if (!root || root.querySelector("parsererror")) return svg;
+
+  root.querySelectorAll("g.node, g.classGroup").forEach((g) => {
+    const shape = g.querySelector("rect.label-container, polygon, circle, path, rect");
+    if (!shape) return;
+    const style = shape.getAttribute("style") || "";
+    if (/fill\s*:/.test(style)) return; // authored → skip
+
+    const hue = accents[hashId(g.id) % accents.length];
+    const fill = rgba(hue, TINT);
+    const border = rgba(hue, BORDER_ALPHA);
+    const prefix = style && !style.trim().endsWith(";") ? `${style};` : style;
+    shape.setAttribute("style", `${prefix}fill:${fill};stroke:${border};stroke-width:1.5px`);
+    // Class-diagram shapes carry the color as a `fill` attribute too — override
+    // it so it doesn't fight the style wash.
+    if (shape.hasAttribute("fill")) shape.setAttribute("fill", fill);
+    setLabelColor(g, textColor);
+  });
+
+  return new XMLSerializer().serializeToString(root);
+}
+
 // ── Serialized render queue ─────────────────────────────────────────────────
 // Mermaid uses global state and cannot handle concurrent render() calls.
 // We serialize all renders through a single promise chain.
@@ -81,17 +177,17 @@ let lastInitTheme: string | null = null;
 async function renderMermaid(
   id: string,
   code: string,
-  theme: string,
+  resolved: string,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     renderQueue = renderQueue.then(async () => {
       try {
         const mermaid = (await import("mermaid")).default;
-        if (lastInitTheme !== theme) {
+        if (lastInitTheme !== resolved) {
           const fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
           mermaid.initialize({
             startOnLoad: false,
-            theme: theme === "dark" ? "dark" : "default",
+            theme: resolved === "dark" ? "dark" : "default",
             suppressErrorRendering: true,
             fontFamily,
             fontSize: 16,
@@ -107,11 +203,20 @@ async function renderMermaid(
           });
           _svgCache.clear();
           _errorCache.clear();
-          lastInitTheme = theme;
+          lastInitTheme = resolved;
         }
         const sanitized = sanitizeMermaidCode(code);
         const result = await mermaid.render(id, sanitized);
-        resolve(result.svg);
+        // Sanitize → colorize once, before caching, so the cached SVG is the
+        // final injected markup (no per-React-render DOMParser cost). Accents
+        // resolve live for the current theme.
+        const clean = sanitizeMermaidSvg(result.svg);
+        const colorized = colorizeDefaultNodes(
+          clean,
+          resolveAccents(),
+          resolveVar("--text-primary", resolved === "dark" ? "#e5e7eb" : "#111827"),
+        );
+        resolve(colorized);
         // Clean up any leftover error elements mermaid injects into the DOM
         const errorEl = document.getElementById("d" + id);
         if (errorEl) errorEl.remove();
@@ -145,9 +250,12 @@ interface Props {
 
 export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = true }: Props) {
   const reactId = useId();
-  const { resolved: theme } = useThemeContext();
-  const [svg, setSvg] = useState<string | null>(() => _svgCache.get(cacheKey(code, theme)) ?? null);
-  const [error, setError] = useState<string | null>(() => _errorCache.get(cacheKey(code, theme)) ?? null);
+  const { resolved, themeName } = useThemeContext();
+  // Composite identity: accent palettes differ per named theme, so cache and
+  // re-render must key on both the named theme and its light/dark resolution.
+  const themeId = `${themeName}:${resolved}`;
+  const [svg, setSvg] = useState<string | null>(() => _svgCache.get(cacheKey(code, themeId)) ?? null);
+  const [error, setError] = useState<string | null>(() => _errorCache.get(cacheKey(code, themeId)) ?? null);
   const [focused, setFocused] = useState(false);
   const cancelledRef = useRef(false);
   const prevCodeRef = useRef<string | null>(null);
@@ -163,17 +271,17 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
       return;
     }
     // Skip re-render if code and theme haven't changed
-    if (prevCodeRef.current === code && prevThemeRef.current === theme && svg) {
+    if (prevCodeRef.current === code && prevThemeRef.current === themeId && svg) {
       return;
     }
     prevCodeRef.current = code;
-    prevThemeRef.current = theme;
+    prevThemeRef.current = themeId;
 
     cancelledRef.current = false;
 
     // Check caches — a hit (success or deterministic error) skips render and
     // shows the result immediately, avoiding any loading flicker.
-    const key = cacheKey(code, theme);
+    const key = cacheKey(code, themeId);
     const cached = _svgCache.get(key);
     if (cached) {
       setError(null);
@@ -191,7 +299,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
 
     const id = `mermaid-${reactId.replace(/:/g, "")}-${mermaidIdCounter++}`;
 
-    renderMermaid(id, code, theme).then(
+    renderMermaid(id, code, resolved).then(
       (result) => {
         _svgCache.set(key, result);
         if (!cancelledRef.current) setSvg(result);
@@ -209,7 +317,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     return () => {
       cancelledRef.current = true;
     };
-  }, [code, theme, complete]);
+  }, [code, themeId, resolved, complete]);
 
   // Attach non-passive wheel listener only when focused
   useEffect(() => {
@@ -306,7 +414,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
             transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
             transformOrigin: "0 0",
           }}
-          dangerouslySetInnerHTML={{ __html: sanitizeMermaidSvg(svg) }}
+          dangerouslySetInnerHTML={{ __html: svg }}
         />
       </div>
     </div>

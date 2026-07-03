@@ -261,6 +261,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "src/example.ts" },
   },
 
+  // Assistant text carrying a fenced mermaid diagram mixing default
+  // (un-authored) and authored nodes. Exercises MermaidBlock default-node
+  // colorization end-to-end: default nodes (A, C) get a soft accent wash;
+  // the `style B fill:#ff0000` node keeps its author color untouched.
+  // See change: colorize-mermaid-default-nodes.
+  "mermaid-colorize": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "```mermaid\ngraph TD\n  A[Alpha] --> B[Bravo]\n  A --> C[Charlie]\n  style B fill:#ff0000\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Alpha" },
+  },
+
   "thinking-text": {
     script: [
       fauxAssistantMessage([
