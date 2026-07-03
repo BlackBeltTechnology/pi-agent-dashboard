@@ -1,0 +1,20 @@
+# DOX — packages/client/src/components/interactive-renderers
+
+Files in this directory. One row per source file.
+
+| File | Purpose |
+|------|---------|
+| `AnsweredOption.tsx` | `AnsweredOption` row component. Renders one option in resolved select/multiselect/confirm card. `picked` highlights chosen option (green), others dimmed. Shared by `ConfirmRenderer`, `SelectRenderer`, `MultiselectRenderer`. |
+| `BatchRenderer.tsx` | `BatchRenderer` — renders `batch` ask_user as wizard card. Stepper header, one sub-question per page (confirm/select/multiselect/input), Review page with per-row Edit, Submit sends single `{answers}` response. `SubQuestion` + `Answer` types, `initialAnswer`, `answerToText`, `ReviewRow`, `StepBody`, `MultiselectStep` helpers. |
+| `ConfirmRenderer.tsx` | `ConfirmRenderer` — renders ask_user `confirm`. Pending: Yes/No/Cancel buttons via `onRespond({confirmed})`/`onCancel`. Resolved: `AnsweredOption` Yes/No with `picked`. Cancelled/dismissed: compact row. Uses `InlineMarkdown`, `MarkdownContent`. |
+| `EditorRenderer.tsx` | `EditorRenderer` — renders ask_user `editor`. Pending: `<textarea>` prefilled from `params.prefill`, Submit sends `{value:text}`. Resolved: truncated (100 char) preview. Cancelled/dismissed: compact row. Stateful `text`. |
+| `GenericInteractiveRenderer.tsx` | `GenericInteractiveRenderer` — fallback for unregistered methods. Shows `method`, status text, first 100 chars of `JSON.stringify(params)`. No interaction. |
+| `InlineMarkdown.tsx` | `InlineMarkdown` — `ReactMarkdown` restricted to `strong`, `em`, `code`, `a` only. Block elements unwrapped to text. For single-line compact layouts (titles, option labels). |
+| `InputComposer.tsx` | `InputComposer` — shared controlled multiline textarea + clipboard-image-paste body. Used by `InputRenderer` and `BatchRenderer` input step. `Cmd/Ctrl+Enter`→`onSubmit`, `Esc`→`onCancel`. Auto-grow 32–160px. Uses `useImagePaste`, `ImagePreviewStrip`. |
+| `InputRenderer.tsx` | `InputRenderer` — renders ask_user `input`. Pending: `InputComposer` + Submit/Cancel, sends `{value,images}`. Resolved: shows entered value (or "(left blank)") + image count. Cancelled/dismissed: compact row. Uses `MarkdownContent` for message. |
+| `MultiselectRenderer.tsx` | `MultiselectRenderer` — renders ask_user `multiselect`. Pending: synthetic "Select all" row (`data-testid="select-all-row"`) + per-option checkboxes, Submit sends `{values}`. Resolved: `AnsweredOption` list with "N of M" count. Cancelled/dismissed: compact row. |
+| `NotifyRenderer.tsx` | `NotifyRenderer` — renders `ctx.ui.notify(...)` chat row. Reads `message`/`level` defensively from `params.message`, `params.title`, `params._promptBusComponent.props.*`. `levelColors` map (info/success/warning/error). Empty message returns null. Uses `MarkdownContent`. |
+| `parseOption.ts` | `parseOption(option)` — splits option string on first ` — ` or ` · ` into `{title, description?}`. `isCancelOption(option)` — true when option trims to `/^cancel$/i`. Used by `SelectRenderer`, `BatchRenderer`. |
+| `registry.ts` | Renderer registry. `renderers` Map: confirm→`ConfirmRenderer`, select→`SelectRenderer`, input→`InputRenderer`, editor→`EditorRenderer`, multiselect→`MultiselectRenderer`, notify→`NotifyRenderer`, batch→`BatchRenderer`. Exports `registerInteractiveRenderer(method,renderer)` and `getInteractiveRenderer(method)` (falls back to `GenericInteractiveRenderer`). |
+| `SelectRenderer.tsx` | `SelectRenderer` — renders ask_user `select`. Pending: option rows via `OptionRow` (parsed title/description), cancel option calls `onCancel`, sends `{value:option}`. Resolved: `AnsweredOption` list, picked = matches `selectedValue`. Auto-appends Cancel row if none. Cancelled/dismissed: compact row. |
+| `types.ts` | Shared types. `InteractiveRendererProps` — `{requestId, method, params, status, result, onRespond, onCancel}`. `status` union: pending/resolved/cancelled/dismissed. `InteractiveRenderer` — `React.ComponentType<InteractiveRendererProps>`. |

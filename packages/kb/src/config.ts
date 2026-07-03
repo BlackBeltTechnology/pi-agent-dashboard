@@ -97,7 +97,10 @@ export const DEFAULTS: KbConfig = {
   chunking: { minHeadingsForStructural: 1, minChunkChars: 120, maxChunkChars: 4000, breadcrumbInBody: true },
   dedup: { exactContentCollapse: true, preferHigherPriorityRoot: true },
   graph: { wikilinks: true, headingTree: true, frontmatter: true },
-  directoryLevelAgents: { enabled: false, claudeMd: true, mode: "pull", fallbackManifest: true },
+  // Pull mode: `kb agents <path>` walks root→nearest AGENTS.md on demand. Safe —
+  // no per-turn injection. Push mode stays gated behind the context-cost spike
+  // (see change migrate-file-index-to-agents-tree design §5).
+  directoryLevelAgents: { enabled: true, claudeMd: true, mode: "pull", fallbackManifest: true },
   doxEnforcement: false,
   ranking: { fieldWeights: { headingPath: 10, heading: 3, body: 1 }, proximityBoost: true, diversity: { enabled: true, lambda: 0.7 } },
   expand: { parent: true, graph: false },

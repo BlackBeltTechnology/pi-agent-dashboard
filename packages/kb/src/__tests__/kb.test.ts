@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { KbStore } from "../types.js";
 import { resolveAll, classifyRef, sourceIdentity, filesystemResolver, npmResolver, httpsResolver } from "../sources.js";
 import { isTrusted, recordTrust, canonicalSource } from "../trust.js";
-import { agentsChain, doxInit, doxLint, AREA_FILE_THRESHOLD } from "../dox.js";
+import { agentsChain, doxInit, doxLint } from "../dox.js";
 import { createServer, type Server } from "node:http";
 
 describe("chunker", () => {
@@ -406,41 +406,86 @@ describe("dox: kb agents chain", () => {
   });
 });
 
-describe("dox: kb dox init", () => {
+describe("dox: source-aware kb dox init (migrate-file-index deltas)", () => {
   let dir: string;
+  const w = (rel: string, body = "export const x = 1;\n") => {
+    const abs = join(dir, rel);
+    mkdirSync(join(abs, ".."), { recursive: true });
+    writeFileSync(abs, body);
+  };
   beforeAll(() => {
-    dir = mkdtempSync(join(tmpdir(), "kb-doxinit-"));
-    // root-level + an over-threshold area
-    writeFileSync(join(dir, "root1.md"), "# R1\nbody.\n");
-    mkdirSync(join(dir, "big"), { recursive: true });
-    for (let i = 0; i < AREA_FILE_THRESHOLD; i++) writeFileSync(join(dir, "big", `f${i}.md`), `# F${i}\nbody.\n`);
+    dir = mkdtempSync(join(tmpdir(), "kb-doxsrc-"));
+    // real source tree across nested dirs
+    w("src/client/App.tsx");
+    w("src/client/components/Foo.tsx");
+    w("src/client/components/Bar.tsx");
+    w("src/server/index.ts");
+    // delta ①: skipped source shapes
+    w("src/types.d.ts");
+    w("src/client/App.test.tsx");
+    w("src/__tests__/helper.ts");
+    // non-source ignored
+    w("src/notes.md", "# notes\n");
+    // delta ②: excluded noise trees
+    w(".worktrees/repo/src/z.ts");
+    w("openspec/changes/y.ts");
+    w("doc-example/e.ts");
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("scaffolds a root + area AGENTS.md with path-only rows", () => {
+  it("delta ③+A: every dir with ≥1 source file gets its own AGENTS.md (grouped by full parent dir)", () => {
     const plan = doxInit({ cwd: dir });
-    expect(plan.created).toContain(join(dir, "AGENTS.md"));
-    expect(plan.created).toContain(join(dir, "big", "AGENTS.md"));
-    const root = readFileSync(join(dir, "AGENTS.md"), "utf8");
-    expect(root).toContain("`root1.md`");
-    expect(root).toContain("`big/AGENTS.md`");
-    const big = readFileSync(join(dir, "big", "AGENTS.md"), "utf8");
-    expect(big).toContain("`big/f0.md`");
-    // purposes left empty
-    expect(root).toMatch(/`root1\.md`\s*\|\s*\|/);
+    expect(plan.created).toContain(join(dir, "src", "client", "AGENTS.md"));
+    expect(plan.created).toContain(join(dir, "src", "client", "components", "AGENTS.md"));
+    expect(plan.created).toContain(join(dir, "src", "server", "AGENTS.md"));
   });
 
-  it("is idempotent: rerun does not clobber existing files", () => {
-    const rootBefore = readFileSync(join(dir, "AGENTS.md"), "utf8");
+  it("delta ⑤: rows are relative to each AGENTS.md's own directory", () => {
+    const comp = readFileSync(join(dir, "src", "client", "components", "AGENTS.md"), "utf8");
+    expect(comp).toContain("`Foo.tsx`");
+    expect(comp).toContain("`Bar.tsx`");
+    expect(comp).not.toContain("src/client/components/Foo.tsx");
+    // purpose column left empty for the agent to author
+    expect(comp).toMatch(/`Foo\.tsx`\s*\|\s*\|/);
+  });
+
+  it("delta ①: skips .d.ts, *.test.*, __tests__ dirs, and non-source files", () => {
+    doxInit({ cwd: dir });
+    const client = readFileSync(join(dir, "src", "client", "AGENTS.md"), "utf8");
+    expect(client).toContain("`App.tsx`");
+    expect(client).not.toContain("App.test.tsx"); // *.test.* skipped
+    // skipped shapes never create their own AGENTS.md
+    expect(existsSync(join(dir, "src", "__tests__", "AGENTS.md"))).toBe(false); // __tests__ dir excluded
+    expect(existsSync(join(dir, "src", "AGENTS.md"))).toBe(false); // only types.d.ts + notes.md here, both skipped
+  });
+
+  it("delta ②: excludes .worktrees, openspec, doc-example", () => {
     const plan = doxInit({ cwd: dir });
-    expect(plan.created.length).toBe(0); // nothing new created
-    expect(readFileSync(join(dir, "AGENTS.md"), "utf8")).toBe(rootBefore);
+    const paths = [...plan.created, ...plan.appended.map((a) => a.file)];
+    expect(paths.some((p) => p.includes(".worktrees"))).toBe(false);
+    expect(paths.some((p) => p.includes(join(dir, "openspec")))).toBe(false);
+    expect(paths.some((p) => p.includes("doc-example"))).toBe(false);
+  });
+
+  it("delta ④: no part-N pseudo-directories", () => {
+    const plan = doxInit({ cwd: dir });
+    expect(plan.created.some((p) => /part-\d+/.test(p))).toBe(false);
+  });
+
+  it("is idempotent: rerun creates nothing new", () => {
+    doxInit({ cwd: dir });
+    const before = readFileSync(join(dir, "src", "client", "components", "AGENTS.md"), "utf8");
+    const plan = doxInit({ cwd: dir });
+    expect(plan.created.length).toBe(0);
+    expect(readFileSync(join(dir, "src", "client", "components", "AGENTS.md"), "utf8")).toBe(before);
   });
 
   it("--dry-run writes nothing", () => {
     const sub = mkdtempSync(join(tmpdir(), "kb-doxdry-"));
+    mkdirSync(join(sub, "src"), { recursive: true });
+    writeFileSync(join(sub, "src", "a.ts"), "export const a = 1;\n");
     doxInit({ cwd: sub, dryRun: true });
-    expect(existsSync(join(sub, "AGENTS.md"))).toBe(false);
+    expect(existsSync(join(sub, "src", "AGENTS.md"))).toBe(false);
     rmSync(sub, { recursive: true, force: true });
   });
 });

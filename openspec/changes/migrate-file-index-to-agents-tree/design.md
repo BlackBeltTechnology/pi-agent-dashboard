@@ -6,6 +6,30 @@ possible, searchability-positive, but the shipped `kb dox init` targets the wron
 file set and cannot author purposes. The migration is therefore an
 **LLM-authoring** job best run as **parallel `@fast` subagents**, one per directory.
 
+## 0. Decisions (clarified pre-apply)
+
+- **Deliverable = tooling + committed tree.** This change ships source-aware
+  `dox init` + the migration orchestrator AND runs it once, committing the
+  fully generated per-directory `AGENTS.md` tree. "Done" includes the tree on disk.
+- **Scope = big-bang.** Entire `src/` + `packages/` source tree migrated in one
+  change (no pilot area).
+- **Granularity = every dir (option A).** Every directory holding ≥1 source file
+  gets its own `AGENTS.md` (tightest BM25 chunk). `AREA_FILE_THRESHOLD` no longer
+  gates source-mode `dox init` — no roll-up to ancestors, no minimum file count.
+- **Tier-1 authored purposes route through a review pass.** Non-empty is not
+  enough for `miss` rows — see §4c review gate. Deterministic Tier-0 (hit) rows
+  skip review (byte-identical copy).
+- **file-index fate = (B) generated rollup** (§4d). Splits become generated, tree
+  is source of truth.
+- **`directoryLevelAgents` ships pull-only.** Push mode deferred behind the §5
+  context-cost spike; out of scope for this change.
+- **Root `AGENTS.md` is protected; walk anchored at source roots.** The migration
+  runs `dox init` per source root (`src/`, `packages/*/`) — NEVER repo root — so the
+  hand-authored top-level `AGENTS.md` never receives a per-file index (Rule 0). Repo-
+  root config files (`playwright.config.ts`, `vitest.config.ts`) are out of the tree.
+  Also: `DEFAULT_EXCLUDE` is matched relative to the walk root, so running inside
+  `.worktrees/<branch>/` does not self-exclude the whole tree.
+
 ## 1. Why searchability survives (and improves)
 
 `kb_search` = FTS5 + BM25 over markdown **chunks**, each tagged `doc_type`
@@ -121,8 +145,15 @@ string work, not an LLM task. So route by whether a directory has any miss:
 
 - **Tier 0 (deterministic, no subagent).** Every file in the dir is a file-index
   hit → the orchestrator emits rows verbatim itself. Zero token cost, zero
-  latency, byte-exact history preservation. Expected to cover the large majority
-  of directories (file-index is near-complete for shipped code).
+  latency, byte-exact history preservation.
+
+  > **MEASURED (preview run, packages/ only):** 911 source files, index covers
+  > 426 (**46.8%**). 92 dirs → 36 tier-0, **56 tier-1**; **485 miss files** need
+  > `@fast` authoring. The design's "file-index near-complete" assumption is FALSE
+  > for this repo — file-index tracks only "architecturally significant" files, not
+  > every component. Tier-1 is the BULK of the work (~25 subagent batches at
+  > ≥20 miss/batch), not a small fraction. Top tier-1 dirs: client/src/components
+  > (91 miss), server/src (79), client/src/lib (41), client/src/hooks (30).
 - **Tier 1 (`@fast` subagent).** The dir has ≥1 miss → spawn one `@fast`
   subagent for that dir. Hit rows are passed pre-filled (for ordering/context);
   the subagent authors **only** the miss rows from source.
@@ -156,6 +187,12 @@ typically a small fraction of the tree.
 - **Validation gate.** Orchestrator checks: exactly one row per input file; every
   purpose non-empty; hit purposes byte-identical to input. Mismatch → retry once
   → on second failure record the dir in `migration-gaps.json` and continue.
+- **Review gate (semantic, `miss` rows only).** After structural validation, each
+  authored `miss` purpose routes through a review pass (a second `@fast` reviewer
+  reads the source file + proposed row; flags wrong/vague/hallucinated purposes).
+  Flagged rows → one re-author attempt → still-flagged rows recorded in
+  `migration-gaps.json` for human follow-up (row kept, marked `<!-- review -->`).
+  Tier-0 hit rows skip review (verbatim copy of already-authored file-index prose).
 - **Resumable.** Orchestrator writes each `AGENTS.md` as its subagent returns via
   `dox init`'s idempotent `ensure()` (never clobber, append missing) and
   checkpoints completed dirs, so a crashed/aborted run resumes without re-spawning

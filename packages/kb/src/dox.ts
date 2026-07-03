@@ -7,8 +7,18 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { createHash } from "node:crypto";
 import type { KbStore } from "./types.js";
 
-const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb|\.pi)(\/|$)/;
+// delta ②: exclude worktree checkouts, archived openspec proposals, and doc-example noise
+const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb|\.pi|\.worktrees|openspec|doc-example)(\/|$)/;
 const AGENTS_FILES = ["AGENTS.md"];
+// delta ①: dox init now maps SOURCE, not docs. Source globs, minus type decls and tests.
+const SOURCE_EXT = /\.(ts|tsx|js|jsx)$/;
+const MD_EXT = /\.(md|mdx)$/i;
+function isSourceFile(name: string): boolean {
+  return SOURCE_EXT.test(name) && !/\.d\.ts$/.test(name) && !/\.(test|spec)\.[cm]?[jt]sx?$/.test(name);
+}
+function isMdFile(name: string): boolean {
+  return MD_EXT.test(name) && !AGENTS_FILES.includes(name);
+}
 export const AREA_FILE_THRESHOLD = 8; // ≥ this many md files in a subdir → own AGENTS.md
 export const ROW_CAP = 40;
 const COMPANION_LOC = 300;
@@ -85,16 +95,28 @@ export interface DoxInitPlan {
   appended: { file: string; rows: string[] }[]; // existing files getting new rows
 }
 
-function walkMd(dir: string, out: string[] = []): string[] {
+// delta ①: parameterized walker. `dox init` walks source (walkSource); fallbackManifest
+// + doxLint keep walking md (walkMd). __tests__ dirs are always skipped.
+// DEFAULT_EXCLUDE is tested against the path RELATIVE to the walk root, so an
+// ancestor dir named like an excluded token (e.g. running inside .worktrees)
+// does not nuke the whole walk.
+function walkFiles(dir: string, match: (name: string) => boolean, out: string[] = [], root: string = dir): string[] {
   if (!existsSync(dir)) return out;
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, e.name);
-    const rel = abs; // for DEFAULT_EXCLUDE we test the abs-ish path
-    if (DEFAULT_EXCLUDE.test(rel)) continue;
-    if (e.isDirectory()) walkMd(abs, out);
-    else if (/\.(md|mdx)$/i.test(e.name) && !AGENTS_FILES.includes(e.name)) out.push(abs);
+    if (DEFAULT_EXCLUDE.test(relative(root, abs))) continue;
+    if (e.isDirectory()) {
+      if (e.name === "__tests__") continue;
+      walkFiles(abs, match, out, root);
+    } else if (match(e.name)) out.push(abs);
   }
   return out;
+}
+function walkMd(dir: string, out: string[] = []): string[] {
+  return walkFiles(dir, isMdFile, out);
+}
+function walkSource(dir: string, out: string[] = []): string[] {
+  return walkFiles(dir, isSourceFile, out);
 }
 
 /** Parse existing row paths from an AGENTS.md file. */
@@ -109,13 +131,19 @@ export function parseRowPaths(agentsFile: string): string[] {
   return paths;
 }
 
-function areaFiles(cwd: string): Map<string, string[]> {
-  // group md files by immediate subdir
+/** Source-file walk (delta ①②), exported for the file-index migration. */
+export function sourceFiles(cwd: string): string[] {
+  return walkSource(cwd);
+}
+
+// delta ③: group source files by FULL parent dir (dirname), not the top-level
+// segment — this is what makes the tree directory-level.
+export function areaFiles(cwd: string): Map<string, string[]> {
   const groups = new Map<string, string[]>();
-  for (const f of walkMd(cwd)) {
+  for (const f of walkSource(cwd)) {
     const rel = relative(cwd, f);
-    const top = rel.includes("/") ? rel.slice(0, rel.indexOf("/")) : ".";
-    (groups.get(top) ?? groups.set(top, []).get(top)!).push(rel);
+    const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
+    (groups.get(dir) ?? groups.set(dir, []).get(dir)!).push(rel);
   }
   return groups;
 }
@@ -126,11 +154,6 @@ export function doxInit(opts: DoxInitOptions): DoxInitPlan {
   const cwd = opts.cwd;
   const plan: DoxInitPlan = { created: [], appended: [] };
   const groups = areaFiles(cwd);
-
-  const buildRows = (rels: string[], areaDir: string): string[] =>
-    rels
-      .filter((r) => !AGENTS_FILES.includes(basename(r)))
-      .map((r) => `| \`${r}\` |  |`);
 
   const ensure = (agentsFile: string, rows: string[]) => {
     if (existsSync(agentsFile)) {
@@ -150,23 +173,15 @@ export function doxInit(opts: DoxInitOptions): DoxInitPlan {
     }
   };
 
-  // root AGENTS.md: rows for root-level files + pointers to area AGENTS.md
-  const rootRels = groups.get(".") ?? [];
-  const areaDirs = [...groups.keys()].filter((k) => k !== "." && groups.get(k)!.length >= AREA_FILE_THRESHOLD);
-  const rootRows = buildRows(rootRels, cwd);
-  for (const a of areaDirs) rootRows.push(`| \`${a}/AGENTS.md\` |  |`);
-  ensure(join(cwd, "AGENTS.md"), rootRows);
-
-  // one AGENTS.md per over-threshold area
-  for (const a of areaDirs) {
-    const rels = groups.get(a)!;
-    const areaRows = buildRows(rels, join(cwd, a));
-    // split into chunks of ROW_CAP
-    for (let i = 0; i < areaRows.length; i += ROW_CAP) {
-      const chunk = areaRows.slice(i, i + ROW_CAP);
-      const subArea = i === 0 ? join(cwd, a) : join(cwd, a, `part-${Math.floor(i / ROW_CAP) + 1}`);
-      ensure(join(subArea, "AGENTS.md"), chunk);
-    }
+  // delta ④ + granularity A: every directory holding ≥1 source file gets its own
+  // AGENTS.md. No AREA_FILE_THRESHOLD gate, no part-N pseudo-dirs, no roll-up.
+  // delta ⑤: rows are relative to each AGENTS.md's own directory.
+  for (const [dir, rels] of groups) {
+    const areaDir = dir === "." ? cwd : join(cwd, dir);
+    const rows = rels
+      .filter((r) => !AGENTS_FILES.includes(basename(r)))
+      .map((r) => `| \`${basename(r)}\` |  |`);
+    if (rows.length) ensure(join(areaDir, "AGENTS.md"), rows);
   }
 
   return plan;
