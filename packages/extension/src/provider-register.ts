@@ -23,11 +23,11 @@
  *                              here.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getModelRole, loadRoleConfig } from "./role-manager.js";
 
 // -- Types ----------------------------------------------------------------

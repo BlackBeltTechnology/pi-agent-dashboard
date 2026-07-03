@@ -8,7 +8,7 @@
  *
  * See change: fix-thinking-level-supported-projection.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { toModelInfo } from "../provider-register.js";
 
 const ALL_SIX = ["off", "minimal", "low", "medium", "high", "xhigh"];
