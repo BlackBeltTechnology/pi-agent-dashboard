@@ -178,7 +178,7 @@ export function writeDir(cwd: string, plan: DirPlan, authoredMiss: Map<string, s
 // splits also carry package.json/.json/skill-dir rows that MUST survive);
 // overlay source-file rows from the tree (hits byte-identical, misses added);
 // inherit each new row's owning split from where its sibling files already live.
-const SPLIT_AREAS = ["shared", "extension", "server", "client", "electron", "plugins", "kb", "document-converter", "skills-misc"];
+const SPLIT_AREAS = ["shared", "extension", "server", "client", "electron", "plugins", "kb", "document-converter", "skills-misc", "docker"];
 
 interface SplitDoc {
   area: string;
@@ -223,6 +223,10 @@ function resolvePurpose(dir: string, purpose: string): string {
 
 /** Reconstruct full repo-relative source rows from the tree (dir + basename).
  *  Sidecar pointer rows are resolved back to full detail. */
+// Tree roots the rollup syncs from. `packages/` = source tree; the rest are
+// non-source areas migrated to per-dir AGENTS.md (change: migrate-file-index-to-agents-tree).
+export const TREE_ROOTS = ["packages", ".github", ".pi/skills", "docker", "public", "qa", "scripts", "tests"];
+
 export function treeRows(cwd: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (dir: string) => {
@@ -239,7 +243,10 @@ export function treeRows(cwd: string): Map<string, string> {
       }
     }
   };
-  walk(join(cwd, "packages"));
+  for (const root of TREE_ROOTS) {
+    const abs = join(cwd, root);
+    if (existsSync(abs)) walk(abs);
+  }
   return out;
 }
 

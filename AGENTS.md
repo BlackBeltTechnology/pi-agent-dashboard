@@ -10,8 +10,8 @@ Web-based dashboard for monitoring and interacting with pi agent sessions remote
 **For any project-specific factual / "where is X" / "how does Y work" question: call `kb_search` FIRST — before `ctx_search`, `memory_search`, `grep`, or any source read.** `kb_search` indexes the repo markdown (`docs/`, `openspec/`, `packages/`, `.pi/`). It is the fastest correct map of this codebase. Fall through to grep/source only when `kb_search` returns nothing relevant. (`ctx_search` = session capture, not repo docs; different corpus.)
 
 > **"What files relate to X" / per-file lookups:**
-> - `packages/**` source → the per-directory `AGENTS.md` tree is the per-file record. `kb agents <path>` returns the root→nearest chain (pull, on demand); `kb_search --doc-type agents` ranks tree rows by symbol/topic; or read the file's own directory `AGENTS.md` (small, ~1 row/file) for its siblings.
-> - Other areas (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`) still live in `docs/file-index-<area>.md` splits — `kb get docs/file-index-<area>.md` or delegate the harvest to an `Explore` subagent. See change: migrate-file-index-to-agents-tree (packages/ migrated to the tree; other areas pending).
+> - Any file that lives in a directory → the per-directory `AGENTS.md` tree is the per-file record. Covers `packages/**` source AND non-source areas (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`). `kb agents <path>` returns the root→nearest chain (pull, on demand); `kb_search --doc-type agents` ranks tree rows by symbol/topic; or read the file's own directory `AGENTS.md` (small) for its siblings.
+> - Only root-level config files (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) + `docs/` files have no directory owner — they stay hand-maintained in `docs/file-index-<area>.md`. The splits are otherwise generated rollups of the tree (`exportRollup`). See change: migrate-file-index-to-agents-tree.
 
 **Before any build / run / install / setup / release / "how do I X" question: `grep -i <keyword> docs/faq.md README.md docs/` FIRST. No source reads until that returns nothing.**
 
@@ -105,8 +105,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 | Kind of update | Goes in |
 |---|---|
-| New `packages/**` source file, or its per-file detail / change-history / contract / "See change: …" | Nearest directory `AGENTS.md` (the tree). Add a `| \`<basename>\` | <purpose> |` row, path-alphabetical. New dir → scaffold via `kb dox init`. |
-| New file in another area (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`) | Matching per-area split `docs/file-index-<area>.md` (see `docs/file-index.md`). Add row in path-alphabetical order. |
+| New file in ANY directory (`packages/**` source AND `docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`), or its per-file detail / change-history / contract / "See change: …" | Nearest directory `AGENTS.md` (the tree). Add a `| \`<basename>\` | <purpose> |` row, path-alphabetical. New dir → scaffold via `kb dox init`. |
+| New root-level config file (`biome.json`, `playwright.config.ts`) or `docs/` file — no directory owner | Matching per-area split `docs/file-index-<area>.md` (see `docs/file-index.md`). Add row in path-alphabetical order. Splits are otherwise generated rollups (`exportRollup`) — never hand-edit a tree-owned row there. |
 | New top-level area / new split file | New row in `docs/file-index.md` splits table. Pointer in AGENTS.md only if architectural backbone. |
 | Data flow, persistence, reconnection, protocol, config reference | `docs/architecture.md` |
 | End-user / developer setup, prerequisites, CI badges, project structure | `README.md` |
@@ -114,9 +114,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Rules:
 
-0. **The ROOT AGENTS.md MUST NOT contain a per-file index.** No `Key Files` table, no per-file rows, no path → purpose lists in THIS file. Per-file records live in the per-directory `AGENTS.md` tree (`packages/**`) or the `docs/file-index-<area>.md` splits (other areas). New files → a row there, never in this root file. (Directory `AGENTS.md` under `packages/` ARE per-file indexes — that is the tree, not this file.)
+0. **The ROOT AGENTS.md MUST NOT contain a per-file index.** No `Key Files` table, no per-file rows, no path → purpose lists in THIS file. Per-file records live in the per-directory `AGENTS.md` tree (any directory) or, for root-level config + `docs/` files only, the `docs/file-index-<area>.md` splits. New files → a row there, never in this root file. (Directory `AGENTS.md` files ARE per-file indexes — that is the tree, not this file.)
 
-1. **Per-file record = directory `AGENTS.md` tree (`packages/**`) OR `docs/file-index-<area>.md` split (other areas).** Tree schema `| \`<basename>\` | <purpose> |` (path relative to that `AGENTS.md`); split schema `| \`<repo-rel-path>\` | <purpose> |`. One row per file, path-alphabetical.
+1. **Per-file record = directory `AGENTS.md` tree (any file in a directory) OR `docs/file-index-<area>.md` split (root-level config + `docs/` files only).** Tree schema `| \`<basename>\` | <purpose> |` (path relative to that `AGENTS.md`); split schema `| \`<repo-rel-path>\` | <purpose> |`. One row per file, path-alphabetical.
    - Purpose carries everything per-file: one-line summary, key exported symbols, contracts/invariants, `See change: <change-id>` history.
    - Find the file's row first; if present, update its purpose in place; else add in alphabetical order.
    - Caveman style (Rule 6 below) applies to row purposes too.
@@ -226,7 +226,7 @@ make clean              # Destroy all cloned VMs
 
 ## Investigation Protocol — Index First
 
-**Before reading source, consult the per-file record.** For `packages/**` source that is the per-directory `AGENTS.md` tree — `kb agents <path>` returns the root→nearest chain. For other areas it is the matching `docs/file-index-<area>.md` split. Either way the record is the cheapest map — one-line purpose + key exports + `See change:` history per file. Reading source blind wastes tokens and risks hallucination.
+**Before reading source, consult the per-file record.** For any file in a directory that is the per-directory `AGENTS.md` tree — `kb agents <path>` returns the root→nearest chain. Only root-level config + `docs/` files use the matching `docs/file-index-<area>.md` split. Either way the record is the cheapest map — one-line purpose + key exports + `See change:` history per file. Reading source blind wastes tokens and risks hallucination.
 
 **For "how do I X" / build / run / setup questions: grep `README.md` + `docs/` first.** These already document every supported workflow (build, install, release, QA, troubleshooting). Reading source before checking docs wastes tokens and produces wrong answers (e.g. claiming a feature is missing when it ships). Check `docs/faq.md` for recurring questions.
 
@@ -234,15 +234,15 @@ make clean              # Destroy all cloned VMs
 
 Workflow for any non-trivial "where is X" / "how does Y work" question:
 
-1. **`packages/**` file/dir:** run `kb agents <path>` for the root→nearest `AGENTS.md` chain, or read the file's own directory `AGENTS.md` (small, ~1 row/file). `kb_search --doc-type agents` finds a row by symbol/topic. No subagent needed — tree files are tiny.
-2. **Other areas** (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`)**:** pick the split from `docs/file-index.md`, delegate harvesting to an `Explore` subagent (*"return only rows + paths relevant to the question — no source reads, no speculation"*). The splits are large (>20 KB); a subagent returns the 5–10 relevant rows and discards the rest.
+1. **Any file/dir in the tree** (`packages/**` + `docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/`, `.github/`)**:** run `kb agents <path>` for the root→nearest `AGENTS.md` chain, or read the file's own directory `AGENTS.md` (small). `kb_search --doc-type agents` finds a row by symbol/topic. No subagent needed — tree files are tiny.
+2. **Root-level config + `docs/` files:** pick the split from `docs/file-index.md`; these residual rows stay hand-maintained. Splits are otherwise generated rollups — for a large split delegate harvesting to an `Explore` subagent (*"return only rows + paths relevant to the question — no source reads, no speculation"*).
 3. **Receive a short list** of candidate files (≤ ~10). Only then open source for the ones that matter.
 4. If neither the tree nor a split covers it, fall back to `rg` / `Explore`, then add the missing row per the Documentation Update Protocol.
 
 Do **not**:
 - Grep source before checking the per-file record.
 - Read a whole `docs/file-index-<area>.md` split into the main context — delegate.
-- Hand-edit the `docs/file-index-<area>.md` splits for `packages/**` files — those rows live in the tree now.
+- Hand-edit the `docs/file-index-<area>.md` splits for tree-owned files — those rows live in the directory `AGENTS.md` now (splits are generated rollups).
 - Trust the AGENTS.md "Key Files" backbone as exhaustive; it is a subset.
 
 ## Subagent Routing
@@ -251,7 +251,7 @@ Delegate specialist work to the matching subagent instead of doing it inline. Su
 
 | Subagent | Use for |
 |---|---|
-| `Explore` | Read-only codebase search, `docs/file-index-<area>.md` split harvesting (non-`packages/` areas), "where is X" questions. Default for investigation. (`packages/**` per-file lookups use `kb agents <path>` directly — no subagent.) |
+| `Explore` | Read-only codebase search, large `docs/file-index-<area>.md` split harvesting, "where is X" questions. Default for investigation. (Per-file lookups in a directory use `kb agents <path>` directly — no subagent.) |
 | `react-expert` | React component refactors, hooks, state-management, render perf in `src/client/` and `packages/web/`. |
 | `typescript-expert` | Type-system work, generics, strict-mode fixes, async/Promise typing, `.d.ts` authoring. |
 | `nodejs-expert` | Server-side async, streams, perf, Node API usage in `src/server/`, `packages/server/`, Electron main process. |
@@ -269,12 +269,12 @@ Context inheritance (this repo ships `pi-dashboard-subagents` producer, NOT pi's
 
 ## Key Files
 
-The **architectural backbone** lived inline here; that 270-row table was an index, not an instruction. Per-file detail now lives in two places: the per-directory `AGENTS.md` tree (`packages/**`) and the `docs/file-index-<area>.md` splits (other areas).
+The **architectural backbone** lived inline here; that 270-row table was an index, not an instruction. Per-file detail now lives in the per-directory `AGENTS.md` tree (every file in a directory). The `docs/file-index-<area>.md` splits are generated rollups of the tree, plus a residual of hand-maintained root-level config + `docs/` rows.
 
-- **`packages/**` per-file record**: the directory `AGENTS.md` tree. Retrieve via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. See change: migrate-file-index-to-agents-tree.
-- **Other areas + split map**: [`docs/file-index.md`](docs/file-index.md).
+- **Per-file record**: the directory `AGENTS.md` tree. Retrieve via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. See change: migrate-file-index-to-agents-tree.
+- **Rollup / split map**: [`docs/file-index.md`](docs/file-index.md).
 - **Investigation protocol**: see "Investigation Protocol — Index First" above.
-- **Adding a file**: per "Documentation Update Protocol" — `packages/**` → nearest directory `AGENTS.md`; other areas → matching split. Never add per-file rows to this root file.
+- **Adding a file**: per "Documentation Update Protocol" — any file in a directory → nearest directory `AGENTS.md`; root-level config + `docs/` files → matching split. Never add per-file rows to this root file.
 
 ## Build & Restart Workflow
 

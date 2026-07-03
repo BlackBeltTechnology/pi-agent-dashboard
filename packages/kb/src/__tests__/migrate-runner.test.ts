@@ -61,6 +61,30 @@ describe("migrate-runner: exportRollup (add-only, preserve curated rows)", () =>
   });
 });
 
+describe("migrate-runner: treeRows non-source area roots", () => {
+  it("walks non-packages roots (docker) and routes rows to the docker split", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-area-"));
+    mkdirSync(join(cwd, "docs"), { recursive: true });
+    mkdirSync(join(cwd, "docker"), { recursive: true });
+    // pre-existing docker split with the same row the tree now owns
+    writeFileSync(
+      join(cwd, "docs", "file-index-docker.md"),
+      "# File Index — Docker\n\n| File | Purpose |\n|------|---------|\n| `docker/Dockerfile` | Curated dockerfile purpose. |\n",
+    );
+    writeFileSync(
+      join(cwd, "docker", "AGENTS.md"),
+      "# DOX — docker\n\n| File | Purpose |\n|------|---------|\n| `Dockerfile` | Curated dockerfile purpose. |\n",
+    );
+    const rows = treeRows(cwd);
+    expect(rows.get("docker/Dockerfile")).toBe("Curated dockerfile purpose.");
+    const r = exportRollup(cwd, { write: true });
+    expect(r.unassigned).not.toContain("docker/Dockerfile"); // routed to docker split, not orphaned
+    const out = readFileSync(join(cwd, "docs", "file-index-docker.md"), "utf8");
+    expect(out).toContain("| `docker/Dockerfile` | Curated dockerfile purpose. |");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
 describe("migrate-runner: treeRows sidecar reconstruction", () => {
   it("resolves a capped `→ see <File>.AGENTS.md` pointer row back to full detail", () => {
     const cwd = mkdtempSync(join(tmpdir(), "kb-sidecar-"));

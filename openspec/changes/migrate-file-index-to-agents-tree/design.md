@@ -231,6 +231,22 @@ loads every ancestor `AGENTS.md`. Needs a measurement spike before flipping
 > root) unaffected. Only deep-under-a-mega-dir sessions pay — rare. Optional future
 > mitigation: split the `components/` mega-file, or cap rows/dir. Not blocking.
 
+## 5b. Extension — non-source areas join the tree (task 9)
+
+Initial migration ran over `packages/**` source only; the `docs/file-index-<area>.md`
+rows for `docker/`, `scripts/`, `.pi/skills/`, `public/`, `qa/`, `tests/e2e/`,
+`.github/workflows/` stayed hand-maintained. Task 9 folds these into the tree too
+via **Option A (hand-author)**: per-directory `AGENTS.md` generated from the curated
+split rows verbatim (paths rewritten relative to each `AGENTS.md`) — no walker change,
+so the source-aware `dox init` deltas ①② stay intact. `treeRows` gains `TREE_ROOTS`
+(walks the non-source roots, `existsSync`-guarded); `SPLIT_AREAS` gains `"docker"` so
+`exportRollup` loads that split. Only files with **no directory owner** — root-level
+config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) + `docs/` files
+— remain hand-maintained in the splits; the splits are otherwise generated rollups.
+
+Rejected **Option B (broaden the walker to `.sh/.yml/.mjs/...` + un-exclude `.pi`)**:
+reverts deltas ①②, re-authors purposes from non-code files, larger blast radius.
+
 ## 6. Non-goals
 
 - The `doxEnforcement` per-edit write-hook (steady-state auto-scaffold) — separate
