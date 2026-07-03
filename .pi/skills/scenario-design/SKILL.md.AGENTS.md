@@ -1,0 +1,3 @@
+# scenario-design/SKILL.md — index
+
+Drafts adversarial real-life test scenarios from OpenSpec change spec. Core = (input · trigger · observable) Triple; unfillable slot → spec gap. Phase 1 classify requirements by shape → ISTQB technique (EP+BVA, decision table, state-transition, convergence, perf, fault injection). Phase 3 Gate: HARD (proposal/design) calls `ask_user` + STOP, SOFT (apply) annotates `[NEEDS CLARIFICATION]`. Phase 4 routes scenarios to L1 unit / L2 qa smoke / L3 Playwright e2e. Phase 5 writes `openspec/changes/<name>/test-plan.md`. Never invents missing values, never writes test code.

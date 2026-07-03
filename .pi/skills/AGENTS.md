@@ -4,21 +4,102 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
-| `code-quality/SKILL.md` | code-quality skill. Biome analyze→fix→test. changed-files (goal-loop) + whole-repo (cleanup) modes. oracle `npm run quality:changed`. safe/unsafe fix policy. grandfather rough edge. See change: add-code-quality-skill. |
+| `accessibility-a11y/SKILL.md` | A11y patterns: semantic HTML, skip links, focus traps (`useFocusTrap`), ARIA labels, keyboard nav, WCAG… → see `accessibility-a11y/SKILL.md.AGENTS.md` |
+| `autofix/github.md` | Reusable GitHub primitives companion to autofix SKILL. Resolve PR number (`gh pr list --head`), owner/repo… → see `autofix/github.md.AGENTS.md` |
+| `autofix/SKILL.md` | CodeRabbit autofix skill. Fetches unresolved review threads via GraphQL (cursor pagination), parses severity,… → see `autofix/SKILL.md.AGENTS.md` |
+| `ci-troubleshoot/references/common-failures.md` | Detailed CI failure catalog: repo-lint tests (`no-raw-node-import`, `no-direct-process-kill`,… → see `ci-troubleshoot/references/common-failures.md.AGENTS.md` |
+| `ci-troubleshoot/references/release-pipeline.md` | `publish.yml` deep dive. 4-job flow (prepare→publish→electron→github-release) with per-job steps, outputs,… → see `ci-troubleshoot/references/release-pipeline.md.AGENTS.md` |
+| `ci-troubleshoot/references/workflow-taxonomy.md` | All 6 `.github/workflows/` files: triggers, jobs, permissions, what each cannot do. → see `ci-troubleshoot/references/workflow-taxonomy.md.AGENTS.md` |
+| `ci-troubleshoot/scripts/list-recent-runs.ts` | Wrap `gh run list`. Flags `--failed`, `--workflow <name>`, `-L <n>`. Ensures `gh` installed + authenticated. Filters tabular output to failure rows when `--failed`. Cross-platform (`shell:false`). |
+| `ci-troubleshoot/scripts/retrigger-failed.ts` | Re-run failed jobs of a GitHub Actions run. `<run-id>` defaults to latest failed run (`findLatestFailedRun`). → see `ci-troubleshoot/scripts/retrigger-failed.ts.AGENTS.md` |
+| `ci-troubleshoot/scripts/show-failed-run.ts` | Show failed steps + log tails. `<run-id>` defaults to latest failed run. Flag `--full` switches `gh run view --log` (full) over `--log-failed` (default). Prints run summary then failed-step logs. |
+| `ci-troubleshoot/SKILL.md` | Diagnose failed GitHub Actions runs. Maps 6-workflow taxonomy (ci, ci-electron, _electron-build, publish,… → see `ci-troubleshoot/SKILL.md.AGENTS.md` |
+| `code-quality/SKILL.md` | code-quality skill. Biome analyze→fix→test. changed-files (goal-loop) + whole-repo (cleanup) modes. → see `code-quality/SKILL.md.AGENTS.md` |
 | `code-review/references/` | Language guides + architecture/performance/security review references |
 | `code-review/SKILL.md` | Skill: comprehensive code review with severity labels |
+| `component-architecture/SKILL.md` | Reusable component patterns: folder structure (`ui/layout/sections/cards/forms/shared/seo`),… → see `component-architecture/SKILL.md.AGENTS.md` |
+| `debug-dashboard/references/known-issues.md` | Known-issue catalogue distilled from `docs/faq.md`: server won't start (Electron Node bin fallback… → see `debug-dashboard/references/known-issues.md.AGENTS.md` |
+| `debug-dashboard/references/log-locations.md` | Persistent file map. `~/.pi/dashboard/`: `server.log` (append, timestamped banners, grep recipes),… → see `debug-dashboard/references/log-locations.md.AGENTS.md` |
+| `debug-dashboard/references/test-failure-triage.md` | Vitest failure triage. Golden rule tee→grep (`npm test 2>&1 | tee /tmp/pi-test.log`), standard greps,… → see `debug-dashboard/references/test-failure-triage.md.AGENTS.md` |
+| `debug-dashboard/references/ui-debug.md` | Pointer to `browser` skill for UI/visual debugging. Symptom routing table:… → see `debug-dashboard/references/ui-debug.md.AGENTS.md` |
+| `debug-dashboard/scripts/health-probe.ts` | Probe `GET /api/health`. Reads port from `~/.pi/dashboard/config.json` (default 8000). → see `debug-dashboard/scripts/health-probe.ts.AGENTS.md` |
+| `debug-dashboard/scripts/list-sessions.ts` | List pi sessions via `GET /api/sessions`. Default: active only (filters `status !== 'ended'`). → see `debug-dashboard/scripts/list-sessions.ts.AGENTS.md` |
+| `debug-dashboard/scripts/run-tests-triage.ts` | Runs `npm test` (or scoped variant), tees output to `${tmpdir}/pi-test.log`, prints FAIL-marker summary. → see `debug-dashboard/scripts/run-tests-triage.ts.AGENTS.md` |
+| `debug-dashboard/scripts/tail-server-log.ts` | Tail `~/.pi/dashboard/server.log`. Default: last 50 lines of current run (since last `=== [ts] ===` banner). → see `debug-dashboard/scripts/tail-server-log.ts.AGENTS.md` |
+| `debug-dashboard/SKILL.md` | System-level debugging for running dashboard. Three layers: server alive (`health-probe.ts`,… → see `debug-dashboard/SKILL.md.AGENTS.md` |
 | `distill-session-knowledge/SKILL.md` | Skill. Offline-mine pi session JSONL into verified reusable artifacts. Dry-run default. Routes to skill_manage / memory / docs+ctx_index. Wraps `packages/session-distiller` orchestrator. |
 | `document-converter/SKILL.md` | NL-triggered document conversion. Ingest PDF/DOCX/PPTX/XLSX→md for kb; produce md→DOCX/PDF templated. Routes to packages/document-converter facade. See change: document-converter. |
+| `edit-flow/SKILL.md` | Skill: create/edit pi-flows flows + agents via `flow_agents` + `flow_write`. → see `edit-flow/SKILL.md.AGENTS.md` |
+| `faq-mine/SKILL.md` | Skill: mine `docs/faq.md` from README.md + evergreen `docs/*.md`. → see `faq-mine/SKILL.md.AGENTS.md` |
+| `implement/references/code-discipline.md` | Reference: expands AGENTS.md "Code Instructions" 5 rules with worked examples. → see `implement/references/code-discipline.md.AGENTS.md` |
+| `implement/references/rebuild-matrix.md` | Reference: full 3-component rebuild matrix. Per-component recipes — extension `npm run… → see `implement/references/rebuild-matrix.md.AGENTS.md` |
+| `implement/scripts/check-mode.ts` | Print dashboard mode ("dev"/"production") via `GET /api/health`. → see `implement/scripts/check-mode.ts.AGENTS.md` |
+| `implement/scripts/full-rebuild.ts` | Deploy checked-out dev version to local running instance. → see `implement/scripts/full-rebuild.ts.AGENTS.md` |
+| `implement/scripts/parse-findings.ts` | Pure parsing helpers for CodeRabbit `--agent` NDJSON. Exports `parseFindings(stdout)` → `Finding[]` (filters… → see `implement/scripts/parse-findings.ts.AGENTS.md` |
+| `implement/scripts/restart-server.ts` | Restart server via `POST /api/restart`. Flags: none (keep mode), `--dev` (body `{"dev":true}`), `--prod`… → see `implement/scripts/restart-server.ts.AGENTS.md` |
+| `implement/scripts/review-changes.ts` | Implementation-phase advisory CodeRabbit review gate. Default `-t uncommitted`; passthrough passthrough flags… → see `implement/scripts/review-changes.ts.AGENTS.md` |
+| `implement/SKILL.md` | Skill: disciplined implementation. Pairs code-discipline rules (TDD, simplicity, surgical) with 3-component… → see `implement/SKILL.md.AGENTS.md` |
+| `manage-flows/SKILL.md` | Skill: create/edit pi-flows flows + agents (`disable-model-invocation: true`). → see `manage-flows/SKILL.md.AGENTS.md` |
 | `nano-banana-imagegen/references/` | Prompting guide, example prompts |
+| `nano-banana-imagegen/references/headers-and-heroes.md` | Prompt library for header/hero images. Categories: blog/article headers (tech blog, business case study,… → see `nano-banana-imagegen/references/headers-and-heroes.md.AGENTS.md` |
+| `nano-banana-imagegen/references/icons-and-logos.md` | Prompt library for icons + logos. Categories: app icons (meditation, fitness, notes, weather —… → see `nano-banana-imagegen/references/icons-and-logos.md.AGENTS.md` |
+| `nano-banana-imagegen/references/illustrations.md` | Prompt library for illustrations. Categories: editorial (concept, explainer), character (mascot, professional… → see `nano-banana-imagegen/references/illustrations.md.AGENTS.md` |
+| `nano-banana-imagegen/references/photography-and-editing.md` | Prompt library: photorealistic generation (product, food, portrait, landscape, architecture) + `npx… → see `nano-banana-imagegen/references/photography-and-editing.md.AGENTS.md` |
+| `nano-banana-imagegen/references/prompting-guide.md` | Prompting guide for Gemini image gen. Layered structure… → see `nano-banana-imagegen/references/prompting-guide.md.AGENTS.md` |
 | `nano-banana-imagegen/SKILL.md` | Skill: AI image generation/editing via Google Gemini (nano-banana CLI) |
-| `openspec-shared/scripts/effective-status.sh` | Bash wrapper around `openspec status --change <name> --json`; applies same R1/R2/R3 promotion as dashboard so OpenSpec workflow skills (`openspec-{continue,ff,apply,verify}-change`) + dashboard session-card buttons cannot disagree about change's next-ready artifact. Inlines rule logic via `find` + `grep -E`; `jq` for JSON mutation; falls back to raw CLI output if `jq` absent. **Repo-lint** `packages/shared/src/__tests__/no-raw-openspec-status-in-skills.test.ts` blocks raw `openspec status ... --json` calls in any of four governed skills (opt-out: `ban:openspec-status-ok`). Parity test: `packages/shared/src/__tests__/openspec-effective-status-script.test.ts`. See change: fix-openspec-design-detection. |
-| `pi-dashboard/commands/` | `/dashboard:*` slash-command templates (33 `dashboard-*.md`). 13 LLM-free (`executable: bash` → run as bash, no LLM, "ran locally" footer); 20 LLM-bound (expand to user message). Naming `/dashboard:<resource>-<verb>[-<modifier>]`. README.md documents frontmatter + convention. Reference: `references/slash-commands.md`. See change: add-dashboard-slash-commands. |
+| `openspec-shared/scripts/effective-status.sh` | Bash wrapper around `openspec status --change <name> --json`; applies same R1/R2/R3 promotion as dashboard so… → see `openspec-shared/scripts/effective-status.sh.AGENTS.md` |
+| `pi-dashboard/commands/` | `/dashboard:*` slash-command templates (33 `dashboard-*.md`). → see `pi-dashboard/commands/.AGENTS.md` |
+| `pi-dashboard/commands/dashboard-flow-abort.md` | LLM-bound command. Resolves `<id-prefix>` via GET /api/sessions, POST /api/session/<full-id>/flow-control body {"action":"abort"}. Reports result. Usage `/dashboard:flow-abort <id-prefix>`. |
+| `pi-dashboard/commands/dashboard-flow-auto.md` | LLM-bound command. POST /api/session/<full-id>/flow-control body {"action":"toggle_autonomous"}. Reports new autonomous state. Usage `/dashboard:flow-auto <id-prefix>`. |
+| `pi-dashboard/commands/dashboard-git-branches.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/git/branches?cwd=$PWD`, jq prints branches, current marked `*`. |
+| `pi-dashboard/commands/dashboard-git-init.md` | LLM-bound command. POST /api/git/init body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-init [cwd]`. |
+| `pi-dashboard/commands/dashboard-git-stash-pop.md` | LLM-bound command. POST /api/git/stash-pop body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-stash-pop [cwd]`. |
+| `pi-dashboard/commands/dashboard-peer-list.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/known-servers`, jq prints `label host:port`. |
+| `pi-dashboard/commands/dashboard-peer-scan.md` | LLM-free bash command. POST `$PI_DASHBOARD_BASE/api/discover-servers`, jq prints `host:port v<version> (local)`. |
+| `pi-dashboard/commands/dashboard-pin-list.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/pinned-dirs`, jq prints each pinned dir. |
+| `pi-dashboard/commands/dashboard-proposal-archive.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/openspec-archive?cwd=$PWD`, jq prints `date name` newest first. |
+| `pi-dashboard/commands/dashboard-proposal-attach.md` | LLM-bound command. Resolve `<id-prefix>`, POST /api/session/<full-id>/attach-proposal body {"changeName":"<change-name>"}. Usage `/dashboard:proposal-attach <id-prefix> <change-name>`. |
+| `pi-dashboard/commands/dashboard-proposal-detach.md` | LLM-bound command. Resolve `<id-prefix>`, POST /api/session/<full-id>/detach-proposal body {}. Usage `/dashboard:proposal-detach <id-prefix>`. |
+| `pi-dashboard/commands/dashboard-server-config.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/config`, jq pretty-prints (secrets redacted). |
+| `pi-dashboard/commands/dashboard-server-health.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/health`, jq prints `ok pid uptime`. |
+| `pi-dashboard/commands/dashboard-server-tunnel-off.md` | LLM-bound command. POST /api/tunnel-disconnect, then GET /api/tunnel-status confirms inactive. Usage `/dashboard:server-tunnel-off`. |
+| `pi-dashboard/commands/dashboard-server-tunnel-on.md` | LLM-bound command. POST /api/tunnel-connect, then GET /api/tunnel-status reports public URL. Usage `/dashboard:server-tunnel-on`. |
+| `pi-dashboard/commands/dashboard-server-tunnel-status.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/tunnel-status`, jq prints `status url serverOs`. |
+| `pi-dashboard/commands/dashboard-session-abort-all.md` | LLM-bound command. GET /api/sessions lists streaming/active; confirms scope with user (all / current cwd /… → see `pi-dashboard/commands/dashboard-session-abort-all.md.AGENTS.md` |
+| `pi-dashboard/commands/dashboard-session-abort.md` | LLM-bound slash command `/dashboard:session-abort <id-prefix>`. Resolves id-prefix via GET /api/sessions, POSTs /api/session/<full-id>/abort. |
+| `pi-dashboard/commands/dashboard-session-diff.md` | LLM-free bash slash command `/dashboard:session-diff <id-prefix>`. Resolves id then curls /api/session-diff?sessionId=, prints per-file gitDiff. |
+| `pi-dashboard/commands/dashboard-session-fork.md` | LLM-bound slash command `/dashboard:session-fork <id-prefix>`. POSTs /api/session/<full-id>/resume with body {"mode":"fork"}, reports new session id. |
+| `pi-dashboard/commands/dashboard-session-hide.md` | LLM-bound slash command `/dashboard:session-hide <id-prefix>`. POSTs /api/session/<full-id>/hide to hide session from dashboard list. |
+| `pi-dashboard/commands/dashboard-session-info.md` | LLM-free bash slash command `/dashboard:session-info <id-prefix>`. Fetches /api/sessions and prints every field of the matched session. |
+| `pi-dashboard/commands/dashboard-session-kill.md` | LLM-bound slash command `/dashboard:session-kill <id-prefix>`. DESTRUCTIVE: confirms with user then POSTs /api/session/<full-id>/shutdown to terminate session process. |
+| `pi-dashboard/commands/dashboard-session-list-active.md` | LLM-free bash slash command `/dashboard:session-list-active`. Filters /api/sessions for status streaming|active, prints 8-char id status name cwd. |
+| `pi-dashboard/commands/dashboard-session-list-here.md` | LLM-free bash slash command `/dashboard:session-list-here`. Filters /api/sessions for cwd==$PWD, prints 8-char id status name. |
+| `pi-dashboard/commands/dashboard-session-list.md` | LLM-free bash slash command `/dashboard:session-list`. Prints /api/sessions rows: 8-char id status name cwd. |
+| `pi-dashboard/commands/dashboard-session-model.md` | LLM-bound slash command `/dashboard:session-model <id-prefix> <provider/modelId>`. Splits arg on '/', POSTs /api/session/<full-id>/model {provider, modelId}. |
+| `pi-dashboard/commands/dashboard-session-rename.md` | LLM-bound slash command `/dashboard:session-rename <id-prefix> <name>`. POSTs /api/session/<full-id>/rename {name}. |
+| `pi-dashboard/commands/dashboard-session-resume.md` | LLM-bound slash command `/dashboard:session-resume <id-prefix>`. POSTs /api/session/<full-id>/resume {"mode":"continue"}. |
+| `pi-dashboard/commands/dashboard-session-spawn.md` | LLM-bound slash command `/dashboard:session-spawn [cwd]`. POSTs /api/session/spawn {cwd}; defaults cwd to current working directory. Reports new session id. |
+| `pi-dashboard/commands/dashboard-session-tell.md` | LLM-bound slash command `/dashboard:session-tell <id-prefix> <text>`. POSTs /api/session/<full-id>/prompt {text}; reports 404 not found / 502 no bridge on failure. |
+| `pi-dashboard/commands/dashboard-session-thinking.md` | LLM-bound slash command `/dashboard:session-thinking <id-prefix> <level>`. POSTs /api/session/<full-id>/thinking-level {level} (off|low|medium|high). |
+| `pi-dashboard/commands/dashboard-session-unhide.md` | LLM-bound slash command `/dashboard:session-unhide <id-prefix>`. POSTs /api/session/<full-id>/unhide to restore a hidden session to the list. |
+| `pi-dashboard/commands/README.md` | Documents `/dashboard:*` slash commands. Naming `/dashboard:<resource>-<verb>[-<modifier>]`; files… → see `pi-dashboard/commands/README.md.AGENTS.md` |
 | `pi-dashboard/references/api-reference.md` | Complete REST API reference for skill |
 | `pi-dashboard/references/recipes.md` | Multi-step orchestration recipes |
+| `pi-dashboard/references/slash-commands.md` | Reference catalog of every `/dashboard:*` slash command with args and LLM-free vs LLM-bound classification. Naming grammar `/dashboard:<resource>-<verb>[-<modifier>]`. |
 | `pi-dashboard/scripts/dashboard-api.sh` | Helper script with port auto-detection + auth |
-| `pi-dashboard/SKILL.md` | Bundled skill: monitor + control dashboard from any pi session. `commands/` subdir ships `/dashboard:*` slash templates; `references/slash-commands.md` documents them. See change: add-dashboard-slash-commands. |
-| `release-cut/SKILL.md` | Cuts new release: promotes `## [Unreleased]` in CHANGELOG → dated section, bumps every workspace package.json, commits, tags, pushes (fires `publish.yml`). Skill's `Next steps (human)` block enumerates **7 platform artifacts** releaser expects on draft GitHub Release: `PI-Dashboard-darwin-arm64-<ver>.dmg` (Apple Silicon), `PI-Dashboard-darwin-x64-<ver>.dmg` (Intel), Linux `.deb` × 2 (x64+arm64), Linux `.AppImage` (x64 only — appimagetool no arm64 build), Windows NSIS+ZIP+portable (x64), Windows ZIP+portable (arm64, no NSIS cross-compile). Missing artifacts in draft = CI failure; do NOT click Publish. (change: add-darwin-x64-build updated count 6 → 7, split macOS DMG into two arches.) |
+| `pi-dashboard/SKILL.md` | Bundled skill: monitor + control dashboard from any pi session. → see `pi-dashboard/SKILL.md.AGENTS.md` |
+| `release-cut/SKILL.md` | Cuts new release: promotes `## [Unreleased]` in CHANGELOG → dated section, bumps every workspace… → see `release-cut/SKILL.md.AGENTS.md` |
+| `release-revoke/SKILL.md` | `release-revoke` skill. Reverts a release: deletes GitHub Release, removes git tag (local + origin), `npm… → see `release-revoke/SKILL.md.AGENTS.md` |
+| `responsive-mobile-first/SKILL.md` | Mobile-first responsive patterns: sticky headers, mobile drawer, floating CTA, responsive grids, touch… → see `responsive-mobile-first/SKILL.md.AGENTS.md` |
+| `scenario-design/references/technique-cheatsheet.md` | How-to per design/resilience technique with repo examples. EP: split input classes (invalid too). → see `scenario-design/references/technique-cheatsheet.md.AGENTS.md` |
+| `scenario-design/references/test-plan-schema.md` | Exact `test-plan.md` layout. Header: stage + generated date. Soft-gate clarification banner. → see `scenario-design/references/test-plan-schema.md.AGENTS.md` |
+| `scenario-design/SKILL.md` | Drafts adversarial real-life test scenarios from OpenSpec change spec. → see `scenario-design/SKILL.md.AGENTS.md` |
+| `ship-change/SKILL.md` | End-to-end "land it" pipeline after openspec-apply. Base branch `develop`, worktree `.worktrees/os-<change>`… → see `ship-change/SKILL.md.AGENTS.md` |
 | `spec-coherence-check/references/proposal-queue-schema.md` | JSON schema for `.pi/proposal-queue.json` |
 | `spec-coherence-check/SKILL.md` | Skill: sweep proposals for staleness, conflicts, obsolescence against codebase |
-| `switch-extension-source/scripts/switch-source.ts` | Toggle script. Commands: status \| local <pkg> [--overlay] \| npm <pkg>. <pkg> = monorepo dir or npm name. Purges all other representations, backs up `*.bak-switch-*`, validates JSON. Skips dashboard-managed bridge plugins. |
-| `switch-extension-source/SKILL.md` | Skill. Switch monorepo extension/skill package between published npm source and local working-tree source. Guarantees one source per package. Two config layers: global `~/.pi/agent/settings.json` packages[], project `.pi/settings.json` overlay. Takes effect next session start. |
+| `switch-extension-source/scripts/switch-source.ts` | Toggle script. Commands: status \| local <pkg> [--overlay] \| npm <pkg>. <pkg> = monorepo dir or npm name. → see `switch-extension-source/scripts/switch-source.ts.AGENTS.md` |
+| `switch-extension-source/SKILL.md` | Skill. Switch monorepo extension/skill package between published npm source and local working-tree source. → see `switch-extension-source/SKILL.md.AGENTS.md` |
+| `tailwind-shadcn/SKILL.md` | Tailwind + shadcn/ui patterns. Install via `npx shadcn@latest init` / `add <component>`. → see `tailwind-shadcn/SKILL.md.AGENTS.md` |
+| `theme-system/SKILL.md` | CSS custom properties theme architecture for 4 themes (studio default, earth, athlete, gradient) switched via… → see `theme-system/SKILL.md.AGENTS.md` |
+| `typescript-strict/SKILL.md` | TypeScript strict patterns. Config: `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. → see `typescript-strict/SKILL.md.AGENTS.md` |
+| `zod-react-hook-form/SKILL.md` | Form validation = Zod schemas + React Hook Form. Schemas in `lib/validations.ts` (`contactFormSchema`,… → see `zod-react-hook-form/SKILL.md.AGENTS.md` |

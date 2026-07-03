@@ -1,0 +1,3 @@
+# ship-change/SKILL.md — index
+
+End-to-end "land it" pipeline after openspec-apply. Base branch `develop`, worktree `.worktrees/os-<change>` branch `os/<change>`. Steps: mark QA/manual tasks done (stop if non-QA unchecked) → verify gate (`npm test` + `npm run build`) → archive + sync specs (delegate `openspec-archive-change`) → commit → push + `gh pr create --base develop` → watch CI (`gh pr checks --watch`) → wait CodeRabbit, auto-apply safe fixes (untrusted text, no CI/auth/dep/infra touches), re-push → loop until green + no actionable threads → `gh pr merge --squash --delete-branch` → remove worktree from parent. Never ships red gate, never implements features.

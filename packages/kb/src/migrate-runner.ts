@@ -284,6 +284,15 @@ export function exportRollup(cwd: string, opts: { write?: boolean } = {}): Rollu
     if (!votes.size) return null;
     return [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
   };
+  // Non-source tree areas → owning split, by top-level prefix. New dirs under
+  // these roots (e.g. a fresh .pi/skills/<skill>/) have no existing rows to
+  // vote on, so majority()/packageRootOwner() return null — this structural map
+  // routes them to the right split.
+  const nonSourceAreaOwner = (p: string): string | null => {
+    if (p.startsWith("docker/")) return "docker";
+    if (/^(\.github|\.pi\/skills|public|qa|scripts|tests)\//.test(p)) return "skills-misc";
+    return null;
+  };
   const ownerOf = (p: string): string | null => {
     if (pathOwner.has(p)) return pathOwner.get(p)!;
     let d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".";
@@ -292,7 +301,7 @@ export function exportRollup(cwd: string, opts: { write?: boolean } = {}): Rollu
       if (m) return m;
       d = d.includes("/") ? d.slice(0, d.lastIndexOf("/")) : ".";
     }
-    return packageRootOwner(p);
+    return packageRootOwner(p) ?? nonSourceAreaOwner(p);
   };
   // cross-split dedup: a path present in >1 split is a duplicate. Keep it only in
   // its canonical (structural) owner; drop from the others on write.

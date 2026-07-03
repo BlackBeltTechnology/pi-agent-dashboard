@@ -1,0 +1,3 @@
+# release-cut/SKILL.md — index
+
+Cuts new release: promotes `## [Unreleased]` in CHANGELOG → dated section, bumps every workspace package.json, commits, tags, pushes (fires `publish.yml`). Skill's `Next steps (human)` block enumerates **7 platform artifacts** releaser expects on draft GitHub Release: `PI-Dashboard-darwin-arm64-<ver>.dmg` (Apple Silicon), `PI-Dashboard-darwin-x64-<ver>.dmg` (Intel), Linux `.deb` × 2 (x64+arm64), Linux `.AppImage` (x64 only — appimagetool no arm64 build), Windows NSIS+ZIP+portable (x64), Windows ZIP+portable (arm64, no NSIS cross-compile). Missing artifacts in draft = CI failure; do NOT click Publish. (change: add-darwin-x64-build updated count 6 → 7, split macOS DMG into two arches.)

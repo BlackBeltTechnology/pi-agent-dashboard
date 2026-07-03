@@ -83,6 +83,19 @@ describe("migrate-runner: treeRows non-source area roots", () => {
     expect(out).toContain("| `docker/Dockerfile` | Curated dockerfile purpose. |");
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  it("routes a brand-new non-source dir (no existing split rows) via structural area map", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-newarea-"));
+    mkdirSync(join(cwd, "docs"), { recursive: true });
+    mkdirSync(join(cwd, ".pi", "skills", "brand-new"), { recursive: true });
+    // skills-misc split exists but has NO row under .pi/skills/brand-new/ (nothing to vote on)
+    writeFileSync(join(cwd, "docs", "file-index-skills-misc.md"), "# Skills\n\n| File | Purpose |\n|------|---------|\n| `scripts/x.sh` | existing. |\n");
+    writeFileSync(join(cwd, ".pi", "skills", "AGENTS.md"), "# DOX\n\n| File | Purpose |\n|------|---------|\n| `brand-new/SKILL.md` | Fresh skill. |\n");
+    const r = exportRollup(cwd, { write: true });
+    expect(r.unassigned).not.toContain(".pi/skills/brand-new/SKILL.md"); // structural map → skills-misc
+    expect(readFileSync(join(cwd, "docs", "file-index-skills-misc.md"), "utf8")).toContain("| `.pi/skills/brand-new/SKILL.md` | Fresh skill. |");
+    rmSync(cwd, { recursive: true, force: true });
+  });
 });
 
 describe("migrate-runner: treeRows sidecar reconstruction", () => {
