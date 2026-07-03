@@ -67,6 +67,19 @@ The folder group SHALL render a `KB` row via a `sidebar-folder-section` claim, a
 - **THEN** the client calls `POST /api/kb/reindex?cwd=C`
 - **AND** the row reflects the updated count when the job completes
 
+### Requirement: KB row on worktree session cards
+
+A worktree session groups under its `gitWorktree.mainPath` in the sidebar and therefore never renders its own folder card. To keep a worktree's KB reachable, the session card SHALL render the KB row for worktree sessions via a `worktree-card-section` claim, scoped to the worktree's OWN `cwd` (not the parent repo it collapses under). The KB plugin SHALL claim `worktree-card-section` with the same `FolderKbSection` component used by `sidebar-folder-section`.
+
+#### Scenario: Worktree session card shows its own KB row
+- **WHEN** a session card renders for a session whose `gitWorktree` is set, with cwd `W`
+- **THEN** the card renders the KB row scoped to `W`
+- **AND** the row reflects `W`'s KB stats (not the parent repo's), e.g. `KB · not indexed` + `Index now` for an unindexed worktree
+
+#### Scenario: Non-worktree session card omits the KB row
+- **WHEN** a session card renders for a session whose `gitWorktree` is unset
+- **THEN** the card does NOT render the `worktree-card-section` KB row (the folder-scoped row lives on the sidebar folder card instead)
+
 ### Requirement: KB row reflects index state
 
 The KB folder row SHALL derive its presentation from the folder's KB stats, distinguishing not-indexed, indexing, populated, stale, and error states.
