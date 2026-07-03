@@ -1,4 +1,4 @@
-import { expect, type Page, type Locator } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 // Central testid → locator map. Specs select on existing app data-testids
 // (693 already shipped) — NOT CSS classes, text copy, or DOM structure.
@@ -34,6 +34,9 @@ export const TESTIDS = {
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",
   gitInitBtn: "git-init-btn",
+  // Polymorphic Initialize on a no-hook folder row → spawns the interactive
+  // project-init scaffolder. See change: project-init-skill-and-profiles.
+  projectInitBtn: "project-init-btn",
   // Git branch indicator on a session card — renders once the bridge reports
   // session.gitBranch (proves git status read from the repo). Scenario 5.2.
   gitBranchBtn: "git-branch-btn",

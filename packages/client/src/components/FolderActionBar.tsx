@@ -34,6 +34,12 @@ interface Props {
   brokenSessionCount?: number;
   /** Called when the user confirms cleaning up. Fires hide for each broken session. */
   onCleanUpBroken?: () => void;
+  /**
+   * Called when a no-hook directory's Initialize button is clicked. Routed
+   * to spawning an interactive project-init session in `cwd`.
+   * See change: project-init-skill-and-profiles.
+   */
+  onInitializeProject?: (cwd: string) => void;
   onOpenTerminals: () => void;
   onOpenEditor: () => void;
   onOpenNativeEditor: (editorId: string) => void;
@@ -53,6 +59,7 @@ export function FolderActionBar({
   nativeEditors,
   brokenSessionCount,
   onCleanUpBroken,
+  onInitializeProject,
   onOpenTerminals,
   onOpenEditor,
   onOpenNativeEditor,
@@ -65,8 +72,9 @@ export function FolderActionBar({
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      {/* Initialize (shown iff this checkout declares a hook + gate says needsInit) */}
-      <WorktreeInitButton cwd={cwd} />
+      {/* Initialize — polymorphic: runs the declared hook when one exists,
+          else spawns the interactive project-init scaffolder. */}
+      <WorktreeInitButton cwd={cwd} onInitializeProject={onInitializeProject} />
 
       {/* Terminals(N) */}
       <button

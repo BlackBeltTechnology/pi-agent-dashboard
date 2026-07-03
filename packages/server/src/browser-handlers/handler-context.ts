@@ -16,6 +16,7 @@ import type { HeadlessPidRegistry } from "../headless-pid-registry.js";
 import type { MetaPersistence } from "../meta-persistence.js";
 import type { PendingResumeRegistry } from "../pending-resume-registry.js";
 import type { PendingAttachRegistry } from "../pending-attach-registry.js";
+import type { PendingInitialPromptRegistry } from "../pending-initial-prompt-registry.js";
 import type { PendingWorktreeBaseRegistry } from "../pending-worktree-base-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending-resume-intent-registry.js";
 import type { PendingClientCorrelations } from "../pending-client-correlations.js";
@@ -46,6 +47,13 @@ export interface BrowserHandlerContext {
    * See change: add-folder-task-checker-and-spawn-attach.
    */
   pendingAttachRegistry?: PendingAttachRegistry;
+  /**
+   * Optional pending-initial-prompt registry. Populated by the no-hook
+   * Initialize button's spawn flow; consumed on `session_register` to
+   * dispatch the first prompt (`/skill:project-init`) into the session.
+   * See change: project-init-skill-and-profiles.
+   */
+  pendingInitialPromptRegistry?: PendingInitialPromptRegistry;
   /**
    * Optional pending-worktree-base registry. Populated by the
    * worktree dialog's spawn flow; consumed on `session_register` to

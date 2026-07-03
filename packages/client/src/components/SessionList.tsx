@@ -103,7 +103,7 @@ interface Props {
   onResumeKeepPosition?: (sessionId: string) => void;
   onHideSession?: (sessionId: string) => void;
   onUnhideSession?: (sessionId: string) => void;
-  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string }) => void;
+  onSpawnSession?: (cwd: string, attachProposal?: string, opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string }) => void;
   spawningCwds?: Set<string>;
   /**
    * Add/remove a cwd from the spawning set (placeholder + disabled-button).
@@ -729,6 +729,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               onOpenEditor={() => onOpenEditor?.(group.cwd)}
               onOpenNativeEditor={(editorId) => handleOpenEditor(group.cwd, editorId)}
               onOpenPiResources={() => onOpenPiResources?.(group.cwd)}
+              onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
               brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
               onCleanUpBroken={onHideSession ? () => {
                 for (const s of group.sessions) {

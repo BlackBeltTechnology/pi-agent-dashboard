@@ -395,7 +395,7 @@ export async function handleSpawnSession(
   msg: Extract<BrowserToServerMessage, { type: "spawn_session" }>,
   ctx: BrowserHandlerContext,
 ): Promise<void> {
-  const { ws, headlessPidRegistry, pendingDashboardSpawns, pendingAttachRegistry, pendingWorktreeBaseRegistry, pendingClientCorrelations, sendTo } = ctx;
+  const { ws, headlessPidRegistry, pendingDashboardSpawns, pendingAttachRegistry, pendingInitialPromptRegistry, pendingWorktreeBaseRegistry, pendingClientCorrelations, sendTo } = ctx;
   const config = loadConfig();
   const strategy = config.spawnStrategy ?? "tmux";
 
@@ -416,6 +416,14 @@ export async function handleSpawnSession(
   // See change: add-worktree-spawn-dialog.
   if (typeof msg.gitWorktreeBase === "string" && msg.gitWorktreeBase.length > 0) {
     pendingWorktreeBaseRegistry?.enqueue(msg.cwd, msg.gitWorktreeBase);
+  }
+
+  // Initial-prompt intent — same race-safe FIFO enqueue pattern. Consumed by
+  // event-wiring's session_register hook to dispatch the first prompt (e.g.
+  // `/skill:project-init` from the no-hook Initialize button).
+  // See change: project-init-skill-and-profiles.
+  if (typeof msg.initialPrompt === "string" && msg.initialPrompt.length > 0) {
+    pendingInitialPromptRegistry?.enqueue(msg.cwd, msg.initialPrompt);
   }
 
   // ── Preflight: fast synchronous checks before spawning. See change: spawn-failure-diagnostics.

@@ -83,6 +83,13 @@ export interface EventWiringDeps {
    */
   pendingAttachRegistry?: import("./pending-attach-registry.js").PendingAttachRegistry;
   /**
+   * Optional pending-initial-prompt registry. When provided, the wiring
+   * consumes a pending prompt on each `session_register` and dispatches it as
+   * the session's first `send_prompt` (e.g. `/skill:project-init` from the
+   * no-hook Initialize button). See change: project-init-skill-and-profiles.
+   */
+  pendingInitialPromptRegistry?: import("./pending-initial-prompt-registry.js").PendingInitialPromptRegistry;
+  /**
    * Optional pending-worktree-base registry. When provided, the wiring
    * consumes a pending base ref on each `session_register` and persists
    * it to the session's `.meta.json` sidecar + stamps the in-memory
@@ -167,6 +174,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     knownSessionIds,
     pendingDashboardSpawns,
     pendingAttachRegistry,
+    pendingInitialPromptRegistry,
     pendingWorktreeBaseRegistry,
     pendingAutomationRunRegistry,
     pendingGoalLinkRegistry,
@@ -296,6 +304,17 @@ export function wireEvents(deps: EventWiringDeps): void {
         // separately in git_info_update), but stamping gitWorktreeBase on
         // the wire is harmless — clients ignore it (see composeWorktreePayload).
         browserGateway.broadcastSessionUpdated(sessionId, { gitWorktreeBase: base });
+      }
+    }
+
+    // ── initial-prompt arm ────────────────────────────────────────────
+    // Consume any pending initial-prompt intent queued by the no-hook
+    // Initialize button's spawn and dispatch it as the session's first
+    // prompt (e.g. `/skill:project-init`). See change: project-init-skill-and-profiles.
+    if (pendingInitialPromptRegistry) {
+      const prompt = pendingInitialPromptRegistry.consume(cwd);
+      if (prompt) {
+        piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text: prompt });
       }
     }
 

@@ -1078,6 +1078,17 @@ export interface SpawnSessionBrowserMessage {
    */
   gitWorktreeBase?: string;
   /**
+   * Optional first prompt dispatched into the spawned session once it
+   * registers. The server queues it in `pendingInitialPromptByCwd` and
+   * consumes it on the next matching `session_register` (mirrors
+   * `attachProposal`). Used by the no-hook Initialize button to pre-inject
+   * `/skill:project-init` so the interactive scaffolder starts on its own.
+   * Old servers ignore unknown fields — degraded fallback: the session
+   * spawns idle and the user invokes the skill manually.
+   * See change: project-init-skill-and-profiles.
+   */
+  initialPrompt?: string;
+  /**
    * Client-minted UUIDv4 used to correlate `spawn_result` and the eventual
    * `session_added` (which echoes it as `spawnRequestId`). Optional for
    * back-compat with older clients.

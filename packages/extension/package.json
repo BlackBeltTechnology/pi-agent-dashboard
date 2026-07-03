@@ -17,13 +17,15 @@
     ],
     "skills": [
       ".pi/skills/pi-dashboard",
-      ".pi/skills/browser"
+      ".pi/skills/browser",
+      ".pi/skills/project-init"
     ]
   },
   "files": [
     "src/",
     ".pi/skills/pi-dashboard/",
-    ".pi/skills/browser/"
+    ".pi/skills/browser/",
+    ".pi/skills/project-init/"
   ],
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",

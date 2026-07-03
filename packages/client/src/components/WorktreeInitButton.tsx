@@ -41,9 +41,16 @@ function describeRun(hook: WorktreeInitHook): string {
 
 interface Props {
   cwd: string;
+  /**
+   * Called when the row declares NO hook (`hasHook: false`) and the user
+   * clicks Initialize. Routes to spawning an interactive project-init session
+   * in `cwd`. When omitted, the no-hook branch renders nothing (back-compat).
+   * See change: project-init-skill-and-profiles.
+   */
+  onInitializeProject?: (cwd: string) => void;
 }
 
-export function WorktreeInitButton({ cwd }: Props) {
+export function WorktreeInitButton({ cwd, onInitializeProject }: Props) {
   const [status, setStatus] = useState<WorktreeInitStatus | null>(null);
   const [phase, setPhase] = useState<"idle" | "running" | "failed">("idle");
   const [tail, setTail] = useState("");
@@ -110,6 +117,27 @@ export function WorktreeInitButton({ cwd }: Props) {
   // gate hasn't run server-side, so `needsInit` is unknown until the user
   // confirms trust). See change: generalize-worktree-init-hook (#10).
   const showButton = !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
+
+  // Polymorphic no-hook branch: an unconfigured directory (no worktreeInit
+  // hook) shows an Initialize button that spawns the interactive project-init
+  // scaffolder instead of running a hook. See change: project-init-skill-and-profiles.
+  const showProjectInit = !!status && status.hasHook === false && !!onInitializeProject;
+  if (showProjectInit) {
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); onInitializeProject?.(cwd); }}
+        data-testid="project-init-btn"
+        className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
+        title={i18nT("auto.initialize_this_directory_scaffold_a", undefined, "Initialize this directory (scaffold a pi project)")}
+      >
+        <span className="inline-flex items-center gap-0.5">
+          <Icon path={mdiCogPlayOutline} size={0.5} />
+          Initialize
+        </span>
+      </button>
+    );
+  }
+
   if (!showButton && phase !== "failed" && phase !== "running") return null;
 
   return (

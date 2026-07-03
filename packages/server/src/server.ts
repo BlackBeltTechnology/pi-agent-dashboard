@@ -23,6 +23,7 @@ import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-f
 import { createPendingClientCorrelations } from "./pending-client-correlations.js";
 import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
 import { createPendingAttachRegistry } from "./pending-attach-registry.js";
+import { createPendingInitialPromptRegistry } from "./pending-initial-prompt-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
 import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
 import { spawnPiSession } from "./process-manager.js";
@@ -444,6 +445,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Consumed in event-wiring.ts on session_register. See change:
   // add-folder-task-checker-and-spawn-attach.
   const pendingAttachRegistry = createPendingAttachRegistry();
+  // Pending initial-prompt intents (cwd → prompt). Populated by the no-hook
+  // Initialize button spawn, consumed by event-wiring's session_register hook
+  // to dispatch `/skill:project-init` as the session's first prompt.
+  // See change: project-init-skill-and-profiles.
+  const pendingInitialPromptRegistry = createPendingInitialPromptRegistry();
   // Pending worktree-base intents (cwd → base). Populated by the
   // worktree spawn dialog flow, consumed by event-wiring's session_register
   // hook to write .meta.json#gitWorktreeBase.
@@ -580,7 +586,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   const editorPidRegistry = createEditorPidRegistry({ editorManager });
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -760,6 +766,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingGoalLinkRegistry,
     goalStore,
     primeGoalSession: primeGoalSessionImpl,
+    pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
     dispatchPluginPiMessage,

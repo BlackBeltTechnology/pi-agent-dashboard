@@ -1,0 +1,12 @@
+# DOX — packages/extension/src/project-init
+
+Testable core of the `project-init` skill (shipped at `.pi/skills/project-init/`).
+One row per source file.
+
+| File | Purpose |
+|------|---------|
+| `profiles.ts` | Profile resolver. Exports `Profile`, `ResolveProfilesOptions`, `resolveProfiles`, `readProfile`, `shippedProfilesDir`, `userProfilesDir`. Enumerates `<skill>/profiles/*` ∪ `~/.pi/project-profiles/*`; user wins by name. Profile = dir with `AGENTS.md.tmpl` + `settings.json.tmpl` (required) + optional `profile.json` (`description`, `dox` + `stackAware` default false) + `prompts/*.md`. `stackAware` → templates carry `{{INSTALL_CMD}}`/`{{INIT_GATE}}` filled from `detect-stack.ts`. See change: project-init-skill-and-profiles. |
+| `seed-doctrine.ts` | DOX doctrine seed. Exports `DOX_MARKER` (`<!-- dox-doctrine -->`), `doctrinePath`, `buildDoctrineOptions`, `buildDoctrineBlock`, `seedDoctrine`. Reads shipped `dox-doctrine.md`; extracts WRITE + one READ variant (kb-wired vs manual) by comment delimiters; appends block to target AGENTS.md only when marker absent (idempotent). See change: project-init-skill-and-profiles. |
+| `detect-stack.ts` | Technology-stack detection for the `coding` (stack-aware) profile. Exports `Stack`, `STACKS` (npm/pnpm/yarn/bun/cargo/go/poetry/pip/maven/gradle), `detectStack(dir)` (marker-file best guess, JS lockfile beats plain package.json, pyproject `[tool.poetry]`→poetry else pip; bare→null), `stackSubstitutions(stack)` → `{INSTALL_CMD,TEST_CMD,BUILD_CMD,INIT_GATE,INIT_COMMAND}`. See change: project-init-skill-and-profiles. |
+| `dox-kb-config.ts` | kb-config fragment for DOX-opted scaffold. Exports `DOX_KB_CONFIG` (`indexAgentsFiles:true` + `directoryLevelAgents.enabled:true` + `.` source), `kbConfigPath`, `writeDoxKbConfig` (writes `.pi/dashboard/knowledge_base.json` when absent). Validates against kb config schema. See change: project-init-skill-and-profiles. |
+| `scaffold.ts` | Full scaffold. Exports `ScaffoldOptions`, `ScaffoldPlan`, `ScaffoldResult`, `planScaffold`, `scaffoldProfile`, `isValidWorktreeInit`. Renders `{{KEY}}` from `{PROJECT_NAME, ...substitutions}` (stack subs for stack-aware profiles); writes AGENTS.md + `.pi/settings.json` + `.pi/prompts/*.md`; DOX profile seeds doctrine + kb config. `ScaffoldResult.leftover` = unfilled placeholders (must be empty). `planScaffold` reports conflicts; `scaffoldProfile` throws on conflict unless `overwrite`. `isValidWorktreeInit` mirrors change-A `normalizeHook`. See change: project-init-skill-and-profiles. |

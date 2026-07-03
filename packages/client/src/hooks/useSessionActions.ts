@@ -312,7 +312,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   const handleSpawnSession = useCallback((
     cwd: string,
     attachProposal?: string,
-    opts?: { gitWorktreeBase?: string; placeholderCwd?: string },
+    opts?: { gitWorktreeBase?: string; placeholderCwd?: string; initialPrompt?: string },
   ) => {
     // The placeholder/disabled-button group cwd. For a normal spawn this is
     // the spawn cwd; for a worktree spawn the host passes the PARENT repo
@@ -354,6 +354,9 @@ export function useSessionActions(deps: SessionActionDeps) {
       requestId,
       ...(attachProposal ? { attachProposal } : {}),
       ...(opts?.gitWorktreeBase ? { gitWorktreeBase: opts.gitWorktreeBase } : {}),
+      // Pre-injected first prompt (e.g. `/skill:project-init` from the no-hook
+      // Initialize button). See change: project-init-skill-and-profiles.
+      ...(opts?.initialPrompt ? { initialPrompt: opts.initialPrompt } : {}),
     });
   }, [send, clearSpawningCwd, setSpawningCwds, spawnTimeoutsRef, pendingSpawnsRef]);
 
