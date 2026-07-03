@@ -53,6 +53,10 @@ export interface SlotPropsMap {
     folder: FolderDescriptor;
     pluginContext: AnyPluginContext;
   };
+  "worktree-card-section": {
+    folder: FolderDescriptor;
+    pluginContext: AnyPluginContext;
+  };
   "session-card-badge": {
     session: DashboardSession;
     pluginContext: AnyPluginContext;

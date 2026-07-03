@@ -32,16 +32,21 @@ describe("kb-plugin manifest", () => {
     expect(v.client).toBeTruthy();
   });
 
-  it("declares the folder-section + KB settings overlay claims", () => {
+  it("declares the folder-section + worktree-card-section + KB settings overlay claims", () => {
     const v = validateManifest(manifest, "kb");
     expect(v.claims.map((c) => c.slot).sort()).toEqual([
       "shell-overlay-route",
       "sidebar-folder-section",
+      "worktree-card-section",
     ]);
     const overlay = v.claims.find((c) => c.slot === "shell-overlay-route") as { path?: string; component: string };
     expect(overlay.path).toBe("/folder/:encodedCwd/kb");
     expect(overlay.component).toBe("KbSettingsClaim");
     const section = v.claims.find((c) => c.slot === "sidebar-folder-section");
     expect(section?.component).toBe("FolderKbSection");
+    // Worktree cards reuse FolderKbSection, scoped to the worktree's own cwd.
+    // See change: kb-row-on-worktree-session-card.
+    const worktreeSection = v.claims.find((c) => c.slot === "worktree-card-section");
+    expect(worktreeSection?.component).toBe("FolderKbSection");
   });
 });

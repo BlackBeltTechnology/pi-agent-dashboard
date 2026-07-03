@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, renderHook } from "@testing-library/react";
-import React from "react";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { render, renderHook, screen } from "@testing-library/react";
+import type React from "react";
+import { describe, expect, it, vi } from "vitest";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
   SessionCardBadgeSlot,
@@ -8,9 +9,9 @@ import {
   SettingsSectionSlot,
   ToolRendererSlot,
   useSlotHasClaimsForSession,
+  WorktreeCardSectionSlot,
 } from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeSession(id = "s1"): DashboardSession {
   return { id, cwd: "/repo", source: "tui", status: "active", startedAt: 0 };
@@ -184,6 +185,45 @@ describe("ToolRendererSlot", () => {
     );
 
     expect(screen.getByTestId("fallback")).toBeDefined();
+  });
+});
+
+// ── WorktreeCardSectionSlot (folder-scoped, on worktree session cards) ───────
+
+describe("WorktreeCardSectionSlot", () => {
+  it("renders folder-scoped claims with the worktree's cwd", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "kb",
+      priority: 100,
+      slot: "worktree-card-section",
+      Component: ({ folder }: { folder: { cwd: string } }) => (
+        <span data-testid="wt-kb">{folder.cwd}</span>
+      ),
+    });
+    render(
+      <PluginContextProvider registry={registry}>
+        <WorktreeCardSectionSlot folder={{ cwd: "/repo/.worktrees/feat" }} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("wt-kb").textContent).toBe("/repo/.worktrees/feat");
+  });
+
+  it("renders nothing when no claims target the slot", () => {
+    const registry = createSlotRegistry();
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <WorktreeCardSectionSlot folder={{ cwd: "/repo/.worktrees/feat" }} />
+      </PluginContextProvider>,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing (no throw) outside a PluginContextProvider", () => {
+    const { container } = render(
+      <WorktreeCardSectionSlot folder={{ cwd: "/repo/.worktrees/feat" }} />,
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
 

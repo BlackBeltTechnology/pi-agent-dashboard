@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useCallback, type ReactNode } from "react";
-import { getApiBase } from "../lib/api-context.js";
+import { mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiOpenInNew, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiFlash, mdiOpenInNew, mdiPencil, mdiPencilOutline, mdiSourceBranch, mdiClose, mdiEyeOffOutline, mdiEyeOutline, mdiCommentQuestion, mdiPlayCircleOutline, mdiSourceFork, mdiPaperclip, mdiConsoleLine, mdiPlus, mdiSourceBranchPlus, mdiLoading } from "@mdi/js";
+import React, { type ReactNode, useCallback, useEffect, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
 import {
-  statusColors as statusColorsExt,
-  sourceBadgeColors as sourceBadgeColorsExt,
-  sourceIcons,
-  sourceLabels,
   deriveDotColorWithFlags,
   deriveIconStatusColor,
   deriveRailBgColor,
   deriveStatusShape,
-  statusShapeIcon,
-  type StatusShape,
   getCardPulseClass,
   getCardStripeFxClass,
+  type StatusShape,
+  sourceBadgeColors as sourceBadgeColorsExt,
+  sourceIcons,
+  sourceLabels,
+  statusColors as statusColorsExt,
+  statusShapeIcon,
 } from "../lib/session-status-visuals.js";
 
 // Re-export the relocated card-state helpers so existing test imports that
@@ -26,33 +26,32 @@ export { getCardPulseClass, getCardStripeFxClass } from "../lib/session-status-v
 // from SessionCard. See change: add-session-status-to-folder-proposal-rows.
 export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
-import type { DashboardSession, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { getSessionDisplayName } from "../lib/session-display-name.js";
-import { formatRelativeTime, formatTokens } from "../lib/format.js";
-import { selectBadgeTimestamp } from "../lib/session-card-time.js";
+
+import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
+import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
+import { useMobile } from "../hooks/useMobile.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
-import { ContextUsageBar } from "./ContextUsageBar.js";
-import type { ContextUsageInfo } from "./SessionList.js";
-import type { OpenSpecData, OpenSpecChange, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { formatRelativeTime, formatTokens } from "../lib/format.js";
+import { t as i18nT } from "../lib/i18n";
 import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
-import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
-import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
+import { selectBadgeTimestamp } from "../lib/session-card-time.js";
+import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { ContextUsageBar } from "./ContextUsageBar.js";
+import { CwdGonePill } from "./CwdGonePill.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
+import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
-import { ProcessList, type ProcessEntry } from "./ProcessList.js";
+import { type ProcessEntry, ProcessList } from "./ProcessList.js";
 import { SessionActivityBar } from "./SessionActivityBar.js";
-import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
-import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useMobile } from "../hooks/useMobile.js";
-import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
-import { SessionCardBadgeSlot, SessionCardActionBarSlot, SessionCardMemorySlot, SessionCardFlowsSlot, useSlotHasClaimsForSession, useHasWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { ContextUsageInfo } from "./SessionList.js";
+import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
-import { CwdGonePill } from "./CwdGonePill.js";
-import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
-import { t as i18nT } from "../lib/i18n";
+import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 
 export function ActivityIndicator({ session }: { session: DashboardSession }) {
   // Suppress chat-routed indicators when a widget-bar slot owns the prompt.
@@ -902,6 +901,15 @@ export function SessionCard({
             /* See change: redesign-session-card-and-composer (config-driven-workflow). */
           />
         </SessionSubcard>
+      )}
+
+      {/* WORKTREE folder-scoped sections (KB row) — only for worktree
+          sessions, scoped to the worktree's OWN cwd. A worktree groups under
+          its `gitWorktree.mainPath` and never gets its own sidebar folder
+          card, so this is the only surface that reaches the worktree's KB.
+          See change: kb-row-on-worktree-session-card. */}
+      {session.gitWorktree && (
+        <WorktreeCardSectionSlot folder={{ cwd: session.cwd }} />
       )}
 
       {/* GIT subcard. See change: redesign-session-card-and-composer (5.1–5.3). */}

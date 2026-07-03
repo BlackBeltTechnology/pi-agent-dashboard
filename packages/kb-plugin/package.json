@@ -41,6 +41,10 @@
         "component": "FolderKbSection"
       },
       {
+        "slot": "worktree-card-section",
+        "component": "FolderKbSection"
+      },
+      {
         "slot": "shell-overlay-route",
         "component": "KbSettingsClaim",
         "path": "/folder/:encodedCwd/kb"

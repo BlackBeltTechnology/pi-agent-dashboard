@@ -13,6 +13,7 @@ import type { FolderDescriptor } from "./slot-props.js";
 export type SlotId =
   // React-only slots
   | "sidebar-folder-section"
+  | "worktree-card-section"
   | "session-card-action-bar"
   | "workspace-action-bar"
   | "shell-overlay-route"
@@ -55,6 +56,11 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     multiplicity: "many",
     payloadTier: "react-only",
     description: "Collapsible block above session list per workspace folder",
+  },
+  "worktree-card-section": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description: "Folder-scoped block inside a worktree session card, scoped to the worktree's own cwd (e.g. the KB row). See change: kb-row-on-worktree-session-card.",
   },
   "shell-overlay-route": {
     multiplicity: "many",
@@ -208,7 +214,7 @@ type SessionScopedSlot =
   | "shell-overlay-route";
 
 /** Slot ids whose predicates receive a folder descriptor. */
-type FolderScopedSlot = "sidebar-folder-section";
+type FolderScopedSlot = "sidebar-folder-section" | "worktree-card-section";
 
 /**
  * Map of slot id → predicate input shape. Resolves to `never` for slots that

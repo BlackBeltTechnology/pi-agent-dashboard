@@ -181,6 +181,10 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "FolderKbSection"
             },
             {
+                "slot": "worktree-card-section",
+                "component": "FolderKbSection"
+            },
+            {
                 "slot": "shell-overlay-route",
                 "component": "KbSettingsClaim",
                 "path": "/folder/:encodedCwd/kb"
@@ -191,6 +195,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "kb", priority: 100, slot: "sidebar-folder-section", Component: FolderKbSection },
+      { pluginId: "kb", priority: 100, slot: "worktree-card-section", Component: FolderKbSection },
       { pluginId: "kb", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/kb", Component: KbSettingsClaim },
     ],
   },
@@ -292,4 +297,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "ea5f5edcd97a3b288fe856c2472e4d0dcc8042d9f7196aa6c2ed988a94987dca";
+export const PLUGIN_REGISTRY_HASH = "39504856fb3fb2a736be60fe4a965b6bc207fc28a21c9ce3e6daa334ad1b4d37";

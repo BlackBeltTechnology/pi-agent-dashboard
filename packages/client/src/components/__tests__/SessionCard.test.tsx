@@ -3,6 +3,7 @@ import { render, screen, fireEvent, cleanup, renderHook } from "@testing-library
 import React from "react";
 import { SessionCard, GroupGitInfo, branchCache } from "../SessionCard.js";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
+import { PluginContextProvider, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
@@ -34,6 +35,46 @@ const defaultProps = {
   onHide: () => {},
   onUnhide: () => {},
 };
+
+// worktree-card-section slot: KB row is rendered ONLY for worktree sessions,
+// scoped to the worktree's own cwd. See change: kb-row-on-worktree-session-card.
+describe("SessionCard worktree-card-section slot", () => {
+  function registryWithWorktreeClaim() {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "kb",
+      priority: 100,
+      slot: "worktree-card-section",
+      Component: ({ folder }: { folder: { cwd: string } }) => (
+        <span data-testid="wt-section">{folder.cwd}</span>
+      ),
+    });
+    return registry;
+  }
+
+  it("renders the folder-scoped section for a worktree session, scoped to its cwd", () => {
+    const session = makeSession({
+      cwd: "/repo/.worktrees/feat",
+      gitWorktree: { mainPath: "/repo", name: "feat" },
+    });
+    render(
+      <PluginContextProvider registry={registryWithWorktreeClaim()}>
+        <SessionCard session={session} {...defaultProps} />
+      </PluginContextProvider>,
+    );
+    expect(screen.getByTestId("wt-section").textContent).toBe("/repo/.worktrees/feat");
+  });
+
+  it("does NOT render the section for a non-worktree session", () => {
+    const session = makeSession({ cwd: "/repo" }); // no gitWorktree
+    render(
+      <PluginContextProvider registry={registryWithWorktreeClaim()}>
+        <SessionCard session={session} {...defaultProps} />
+      </PluginContextProvider>,
+    );
+    expect(screen.queryByTestId("wt-section")).toBeNull();
+  });
+});
 
 describe("SessionCard", () => {
   it("should render session name or fallback to cwd", () => {
