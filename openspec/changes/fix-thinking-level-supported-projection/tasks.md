@@ -2,14 +2,17 @@
 
 ## 1. Correct the bridge projection
 
-- [ ] 1.1 In `packages/extension/src/provider-register.ts`, import
-      `getSupportedThinkingLevels` from `@earendil-works/pi-ai/compat`.
-- [ ] 1.2 In `toModelInfo`, replace the `Object.entries(map).filter(v !== null)`
-      block with `getSupportedThinkingLevels(m)`. Keep the field optional: emit
-      `supportedThinkingLevels` only when the model carries enough metadata for a
-      meaningful result (reasoning flag present or a `thinkingLevelMap`); omit
-      otherwise so the client fallback (all six levels) still applies for
-      pre-0.72 models. → verify: unit test below.
+- [x] 1.1 In `packages/extension/src/provider-register.ts`, add a local
+      `deriveSupportedThinkingLevels(reasoning, thinkingLevelMap)` helper that
+      mirrors pi's `getSupportedThinkingLevels` rule verbatim. (Inlined, not
+      imported: pi-ai's shipped `.d.ts` re-exports via `.ts` extensions the repo
+      tsconfig cannot follow — no import path resolves the symbol at type-check.)
+- [x] 1.2 In `toModelInfo`, replace the `Object.entries(map).filter(v !== null)`
+      block with `deriveSupportedThinkingLevels(...)`. Keep the field optional:
+      emit `supportedThinkingLevels` only when the model carries enough metadata
+      for a meaningful result (reasoning flag present or a `thinkingLevelMap`);
+      omit otherwise so the client fallback (all six levels) still applies for
+      pre-0.72 models. → verify: unit test below. [x]
 
 ## 2. Tests
 
@@ -19,8 +22,9 @@
   - dense map `{ reasoning: true, thinkingLevelMap: { medium: "medium", high: "high", xhigh: null } }`
     → `["off","minimal","low","medium","high"]` (xhigh disabled).
   - non-reasoning `{ reasoning: false }` → `["off"]`.
-  - no map + reasoning true `{ reasoning: true }` → all six (or documented fallback).
-  - `→ verify: npm test` for the file passes.
+  - no map + reasoning true `{ reasoning: true }` → `["off","minimal","low","medium","high"]`
+    (xhigh excluded — pi requires an explicit `thinkingLevelMap` entry for xhigh).
+  - `→ verify: npm test` for the file passes. [x]
 
 ## 3. Spec + gates
 

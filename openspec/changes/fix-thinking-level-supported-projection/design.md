@@ -1,20 +1,44 @@
 # Design
 
-## Decision: reuse pi's `getSupportedThinkingLevels` instead of a local projection
+## Decision: inline pi's `getSupportedThinkingLevels` rule instead of the old projection
 
 The bridge must produce the same "supported levels" set that pi core uses to
 clamp thinking level (`clampThinkingLevel` → `getSupportedThinkingLevels`).
-Re-deriving it locally is what caused the divergence. The bridge already depends
-on `@earendil-works/pi-ai/compat` (pi core imports the same symbol there), so the
-fix is to call the canonical function rather than reimplement its contract.
+Re-deriving it with a *different* rule (the old allowlist filter) is what caused
+the divergence. The fix reproduces pi's exact rule as a local pure helper.
+
+Why not import pi's function directly? No pi-ai import path type-checks under the
+repo's tsconfig:
+
+- pi-ai ships `.d.ts` files that re-export via explicit `.ts` extensions
+  (`export * from "./models.ts"`, and `/compat` uses `export * from "./index.ts"`).
+  Following a `.ts` extension requires `allowImportingTsExtensions`, which the
+  base tsconfig does not set (and cannot set globally without breaking the
+  declaration emit for package builds). So the project `tsc` sees **none** of
+  pi-ai's main-entry exports (`TS2305` for `getSupportedThinkingLevels`, and even
+  for `getProviders`/`Type`).
+- The `/compat` subpath only exists in 0.80+, not the pinned devDep 0.75.5
+  (`TS2307`), and its `.d.ts` hits the same `.ts`-barrel trap anyway.
+
+The rule is a tiny, stable pure function; inlining it (with the contract pinned
+in this spec) is lower-risk than a global tsconfig change or a dependency bump.
 
 ```ts
 // packages/extension/src/provider-register.ts
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
+const EXTENDED_THINKING_LEVELS = ["off","minimal","low","medium","high","xhigh"] as const;
 
-// in toModelInfo(m):
-const supportedThinkingLevels =
-  hasThinkingMetadata(m) ? getSupportedThinkingLevels(m) : undefined;
+function deriveSupportedThinkingLevels(
+  reasoning: boolean,
+  thinkingLevelMap: Record<string, unknown> | null | undefined,
+): string[] {
+  if (!reasoning) return ["off"];
+  return EXTENDED_THINKING_LEVELS.filter((level) => {
+    const mapped = thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === "xhigh") return mapped !== undefined;
+    return true;
+  });
+}
 ```
 
 ## `thinkingLevelMap` contract (why the old projection was wrong)
@@ -65,5 +89,5 @@ fallback is the safer default there.
 | `reasoning:true, map:{ xhigh:"xhigh" }` (Opus) | `[off, minimal, low, medium, high, xhigh]` |
 | `reasoning:true, map:{ medium, high, xhigh:null }` | `[off, minimal, low, medium, high]` |
 | `reasoning:false` | `[off]` |
-| `reasoning:true`, no map | all six (via `getSupportedThinkingLevels`) |
+| `reasoning:true`, no map | `[off, minimal, low, medium, high]` (xhigh excluded — needs an explicit map entry) |
 | no reasoning flag, no map (pre-0.72) | `undefined` → client shows all six |

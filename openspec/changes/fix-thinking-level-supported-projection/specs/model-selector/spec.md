@@ -5,9 +5,12 @@
 ### Requirement: Thinking-level selector filters per model
 
 `ModelInfo` SHALL carry an optional `supportedThinkingLevels?: string[]` field
-populated by the bridge using pi's canonical `getSupportedThinkingLevels(model)`
-(from `@earendil-works/pi-ai/compat`) — the same function pi core uses to clamp
-thinking level — so the dashboard and pi share one source of truth.
+populated by the bridge using a projection that reproduces pi's canonical
+`getSupportedThinkingLevels` rule verbatim — the same rule pi core uses to clamp
+thinking level — so the dashboard and pi agree. (The rule is inlined in the
+bridge rather than imported from `@earendil-works/pi-ai`, whose shipped `.d.ts`
+re-exports via `.ts` extensions that the repo tsconfig cannot resolve; the
+contract is pinned below.)
 
 `thinkingLevelMap` is a **sparse override table**, NOT an allowlist. The bridge
 SHALL derive supported levels by pi's rule, not by enumerating declared keys:
@@ -52,11 +55,13 @@ empty, the selector SHALL render all six levels as a fallback.
 - **WHEN** a model has `reasoning: false`
 - **THEN** `ModelInfo.supportedThinkingLevels` SHALL be `["off"]`
 
-#### Scenario: Reasoning model with no map supports all levels
+#### Scenario: Reasoning model with no map supports all levels except xhigh
 
 - **WHEN** a model has `reasoning: true` and no `thinkingLevelMap`
 - **THEN** `ModelInfo.supportedThinkingLevels` SHALL be
-  `["off", "minimal", "low", "medium", "high", "xhigh"]`
+  `["off", "minimal", "low", "medium", "high"]` (`xhigh` excluded because it is
+  supported only when declared with an explicit non-null `thinkingLevelMap`
+  entry)
 
 #### Scenario: Model without thinking metadata falls back to all six
 

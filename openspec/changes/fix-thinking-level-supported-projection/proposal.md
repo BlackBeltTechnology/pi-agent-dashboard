@@ -43,9 +43,15 @@ surface. This is a dashboard bug, not a pi bug and not a stale-persist bug.
 
 - **Bridge `toModelInfo` (`packages/extension/src/provider-register.ts`)**:
   replace the hand-rolled `Object.entries(map).filter(v !== null)` projection
-  with pi's canonical `getSupportedThinkingLevels(model)` from
-  `@earendil-works/pi-ai/compat`, so `supportedThinkingLevels` is derived from a
-  single source of truth shared with pi core.
+  with a local `deriveSupportedThinkingLevels` helper that mirrors pi's canonical
+  `getSupportedThinkingLevels` rule verbatim, so `supportedThinkingLevels` is
+  derived by the same sparse-override contract pi core uses to clamp.
+  The rule is inlined rather than imported: pi-ai ships `.d.ts` files that
+  re-export via explicit `.ts` extensions (`export * from "./models.ts"`), which
+  the repo's base tsconfig (no `allowImportingTsExtensions`) cannot follow — so no
+  pi-ai import path (main entry or `/compat`, 0.75.5 or 0.80.x) resolves the
+  symbol at type-check. The spec pins the contract; the helper is a tiny stable
+  pure function.
 - **Spec `model-selector` — "Thinking-level selector filters per model"**:
   restate the projection rule to match pi's sparse-override semantics, and fix
   the scenarios (sparse reasoning map → all-but-disabled; non-reasoning → `off`).
@@ -61,6 +67,7 @@ keeps its shape.
 - Affected code: `packages/extension/src/provider-register.ts` (`toModelInfo`).
 - Behavior: Opus dropdown shows `off, minimal, low, medium, high, xhigh`; the
   live `high` becomes selectable; non-reasoning models correctly show only `off`.
-- Risk: low. Falls back to pi's own function; bridge already imports from
-  `@earendil-works/pi-ai/compat` elsewhere. Requires reload of connected pi
-  sessions to re-emit `models_list` with the corrected projection.
+- Risk: low. Local pure helper, no new dependency, no pi-ai import (avoids the
+  `.ts`-extension-barrel resolution trap in pi-ai's shipped `.d.ts`). Requires
+  reload of connected pi sessions to re-emit `models_list` with the corrected
+  projection.
