@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Content Editor — redesign mockup</title>
+<style>
+  /* ---- dashboard theme tokens (from packages/client/src/lib/themes.ts) ---- */
+  :root{
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-hover:rgba(255,255,255,.06);
+    --bg-selected:#1e1e1e; --text-primary:#e5e5e5; --text-secondary:#b0b0b0;
+    --text-tertiary:#808080; --border-primary:#252525;
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+    --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+    --link:#60a5fa; --link-hover:#93bbfd;
+  }
+  html[data-mode="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-hover:rgba(0,0,0,.04);
+    --bg-selected:#e8e8e8; --text-primary:#1a1a1a; --text-secondary:#444;
+    --text-tertiary:#777; --border-primary:#e0e0e0; --link:#2563eb; --link-hover:#1d4ed8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-primary)}
+  .pane{display:flex;flex-direction:column;height:100vh}
+  /* header */
+  header{display:flex;align-items:center;gap:8px;padding:8px 12px;
+    border-bottom:1px solid var(--border-primary);flex:0 0 auto}
+  .icon-btn{display:inline-flex;align-items:center;gap:6px;background:none;border:1px solid transparent;
+    border-radius:6px;color:var(--text-tertiary);cursor:pointer;padding:4px 8px;font-size:12px}
+  .icon-btn:hover{color:var(--text-primary);background:var(--bg-hover)}
+  .icon-btn.active{color:var(--accent-blue);border-color:var(--border-primary)}
+  /* #6 prominent tree toggle — labelled pill anchored at rail boundary */
+  .tree-toggle{border:1px solid var(--border-primary);color:var(--text-secondary)}
+  .tree-toggle.on{color:var(--accent-blue);background:var(--bg-hover)}
+  .title{font-weight:600;font-size:13px}
+  .spacer{flex:1}
+  /* icon sizing scoped to chrome only — media/diagram SVGs keep natural size */
+  header svg, .tabs svg, .rail svg{width:16px;height:16px;fill:currentColor;flex:0 0 auto}
+  .rail svg.sm, .tabs svg.sm{width:13px;height:13px}
+  /* tabs */
+  .tabs{display:flex;gap:1px;border-bottom:1px solid var(--border-primary);
+    background:var(--bg-secondary);overflow-x:auto;flex:0 0 auto}
+  .tab{display:flex;align-items:center;gap:6px;padding:6px 10px;cursor:pointer;
+    color:var(--text-secondary);border-right:1px solid var(--border-primary);white-space:nowrap}
+  .tab.active{background:var(--bg-primary);color:var(--text-primary)}
+  .tab .x{opacity:.5;font-size:14px;line-height:1}
+  .tab .x:hover{opacity:1}
+  /* body: rail + viewer */
+  .row{display:flex;flex:1;min-height:0}
+  .rail{width:240px;flex:0 0 auto;overflow:auto;border-right:1px solid var(--border-primary);
+    background:var(--bg-secondary)}
+  .rail.hidden{display:none}
+  .node{display:flex;align-items:center;gap:5px;padding:3px 8px;cursor:pointer;
+    color:var(--text-secondary);white-space:nowrap;user-select:none}
+  .node:hover{background:var(--bg-hover)}
+  .node.active{background:var(--bg-selected);color:var(--text-primary)}
+  .node .chev{width:12px;height:12px;transition:transform .12s;opacity:.7}
+  .node.open .chev{transform:rotate(90deg)}
+  .node .leaf-pad{width:12px;flex:0 0 auto}
+  .viewer{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-primary)}
+  .vbody{flex:1;min-height:0;overflow:auto}
+  /* footer */
+  footer{display:flex;gap:14px;padding:4px 12px;border-top:1px solid var(--border-primary);
+    color:var(--text-tertiary);font-size:11px;flex:0 0 auto}
+  /* mime icon colors (#2) */
+  .i-ts{color:#3178c6}.i-js{color:#f7df1e}.i-json{color:var(--accent-orange)}
+  .i-md{color:var(--accent-blue)}.i-pdf{color:var(--accent-red)}.i-img{color:var(--accent-green)}
+  .i-video{color:var(--accent-purple)}.i-audio{color:#ec4899}.i-mermaid{color:#ff6b9d}
+  .i-html{color:#e34c26}.i-live{color:var(--accent-green)}
+  .i-folder{color:var(--accent-yellow)}.i-hidden{color:var(--text-tertiary)}.i-file{color:var(--text-tertiary)}
+  /* html + live-server url/toolbar */
+  .url-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border-primary);
+    background:var(--bg-secondary);font-size:12px;color:var(--text-secondary)}
+  .url-bar .addr{flex:1;display:flex;align-items:center;gap:6px;background:var(--bg-primary);
+    border:1px solid var(--border-primary);border-radius:6px;padding:3px 10px;font-family:monospace}
+  .chip{font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid var(--border-primary);color:var(--text-tertiary)}
+  .chip.ok{color:var(--accent-green);border-color:var(--accent-green)}
+  .frame{width:100%;height:100%;border:0;background:#fff}
+  /* code viewer */
+  pre.code{margin:0;padding:12px 0;font:12px/1.6 "SF Mono",Menlo,monospace}
+  pre.code .ln{display:inline-block;width:40px;text-align:right;padding-right:14px;color:var(--text-tertiary);user-select:none}
+  .kw{color:var(--accent-purple)}.str{color:var(--accent-green)}.cm{color:var(--text-tertiary)}.fn{color:var(--accent-blue)}
+  /* markdown */
+  .md-toolbar{display:flex;gap:4px;padding:6px 12px;border-bottom:1px solid var(--border-primary);background:var(--bg-secondary)}
+  .seg{display:inline-flex;border:1px solid var(--border-primary);border-radius:6px;overflow:hidden}
+  .seg button{background:none;border:none;color:var(--text-secondary);padding:3px 12px;cursor:pointer;font-size:12px}
+  .seg button.on{background:var(--accent-blue);color:#fff}
+  .md-render{padding:20px 28px;max-width:760px}
+  .md-render h1{font-size:24px;border-bottom:1px solid var(--border-primary);padding-bottom:6px}
+  .md-render code{background:var(--bg-hover);padding:1px 5px;border-radius:4px;font-family:monospace}
+  .md-edit{width:100%;height:100%;min-height:340px;border:none;resize:none;padding:16px;
+    background:var(--bg-primary);color:var(--text-primary);font:12px/1.6 "SF Mono",Menlo,monospace}
+  .md-edit:focus{outline:none}
+  .save-row{display:flex;gap:8px;align-items:center;margin-left:auto}
+  .btn{background:var(--accent-blue);color:#fff;border:none;border-radius:6px;padding:3px 14px;cursor:pointer;font-size:12px}
+  .dirty{color:var(--accent-yellow);font-size:11px}
+  /* media */
+  .center{display:flex;align-items:center;justify-content:center;height:100%;padding:20px}
+  .pdf-page{width:520px;max-width:90%;aspect-ratio:8.5/11;background:#fff;color:#111;border-radius:2px;
+    box-shadow:0 4px 24px rgba(0,0,0,.4);padding:44px 48px;font-size:11px;line-height:1.7}
+  .pdf-page h3{margin:0 0 12px;color:#111}
+  .badge{position:absolute;top:10px;left:14px;font-size:10px;color:var(--text-tertiary);
+    background:var(--bg-secondary);padding:2px 8px;border-radius:10px;border:1px solid var(--border-primary)}
+  .stage{position:relative;height:100%}
+  .img-demo{max-width:80%;max-height:80%;border-radius:8px;box-shadow:0 6px 30px rgba(0,0,0,.35)}
+  video,audio{border-radius:8px}
+  .mermaid{display:flex;justify-content:center;padding:24px}
+  .empty{display:flex;height:100%;align-items:center;justify-content:center;color:var(--text-tertiary)}
+</style>
+</head>
+<body>
+<div class="pane">
+  <!-- ================= HEADER ================= -->
+  <header>
+    <!-- #6: prominent, labelled tree toggle at the rail boundary -->
+    <button class="icon-btn tree-toggle on" id="treeToggle" title="Toggle file tree">
+      <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3m2 2v4h4V5H5m8-2h8v8h-8V3m2 2v4h4V5h-4M3 13h8v8H3v-8m2 2v4h4v-4H5m8-2h8v8h-8v-8m2 2v4h4v-4h-4Z"/></svg>
+      <span>Files</span>
+    </button>
+    <span class="title" id="activeTitle">README.md</span>
+    <span class="spacer"></span>
+    <button class="icon-btn" title="Search (⌘P)"><svg viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.6-.58 3.07-1.53 4.2l.27.3h.76l5 5-1.5 1.5-5-5v-.79l-.3-.27A6.5 6.5 0 1 1 9.5 3m0 2A4.5 4.5 0 1 0 14 9.5 4.5 4.5 0 0 0 9.5 5Z"/></svg></button>
+    <button class="icon-btn" title="Reload file"><svg viewBox="0 0 24 24"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6a5.9 5.9 0 0 1 4.2 1.8L13 11h7V4l-2.35 2.35Z"/></svg></button>
+    <!-- live-server viewer: preview a running dev server / mockup inside the pane -->
+    <button class="icon-btn tree-toggle" id="liveBtn" title="Preview a running local server">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.9 6h-3a15.7 15.7 0 0 0-1.3-3.4A8 8 0 0 1 18.9 8M12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4M4.3 14a7.8 7.8 0 0 1 0-4h3.4a16.6 16.6 0 0 0 0 4H4.3m.8 2h3a15.7 15.7 0 0 0 1.3 3.4A8 8 0 0 1 5.1 16m3-8h-3a8 8 0 0 1 4.3-3.4A15.7 15.7 0 0 0 8.1 8M12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4m2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4m.4 5.4c.5-1 1-2.2 1.3-3.4h3a8 8 0 0 1-4.3 3.4m1.7-5.4a16.6 16.6 0 0 0 0-4h3.4a7.8 7.8 0 0 1 0 4h-3.4Z"/></svg>
+      <span>Live</span>
+    </button>
+    <!-- #7: theme toggle proves editor recolors live -->
+    <button class="icon-btn" id="themeBtn" title="Toggle light/dark"><svg viewBox="0 0 24 24"><path id="themeIcon" d="M12 7a5 5 0 1 0 5 5 5 5 0 0 0-5-5m0-5v3m0 14v3M4 12H1m22 0h-3M5.6 5.6 3.5 3.5m17 17-2.1-2.1M5.6 18.4 3.5 20.5m17-17-2.1 2.1"/></svg></button>
+    <button class="icon-btn" title="Close editor"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12Z"/></svg></button>
+  </header>
+
+  <!-- ================= TABS ================= -->
+  <div class="tabs" id="tabs"></div>
+
+  <!-- ================= BODY ================= -->
+  <div class="row">
+    <div class="rail" id="rail"></div>
+    <div class="viewer">
+      <div class="vbody" id="vbody"></div>
+    </div>
+  </div>
+
+  <!-- ================= FOOTER ================= -->
+  <footer>
+    <span id="fKind">markdown</span><span id="fLang">md</span><span id="fPath">README.md</span>
+  </footer>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Mock file system. `hidden:true` folders (#1) render as real, expandable
+   folders — not as files. Each file carries a `kind` that drives BOTH its
+   mime icon (#2) and its viewer.
+--------------------------------------------------------------------------- */
+const FS = {
+  name:"my-project", type:"dir", open:true, children:[
+    { name:".git", type:"dir", hidden:true, children:[
+        { name:"config", kind:"file" }, { name:"HEAD", kind:"file" } ] },
+    { name:".pi", type:"dir", hidden:true, children:[
+        { name:"skills", type:"dir", children:[ {name:"browser.md", kind:"md"} ] } ] },
+    { name:"src", type:"dir", open:true, children:[
+        { name:"components", type:"dir", children:[
+            { name:"EditorPane.tsx", kind:"ts" }, { name:"FileTree.tsx", kind:"ts" } ] },
+        { name:"index.ts", kind:"ts" },
+        { name:"config.json", kind:"json" } ] },
+    { name:"assets", type:"dir", children:[
+        { name:"logo.png", kind:"img" },
+        { name:"demo.mp4", kind:"video" },
+        { name:"chime.mp3", kind:"audio" },
+        { name:"architecture.mmd", kind:"mermaid" } ] },
+    { name:"docs", type:"dir", children:[ { name:"spec.pdf", kind:"pdf" } ] },
+    { name:"index.html", kind:"html" },
+    { name:"README.md", kind:"md" },
+    { name:"app.js", kind:"js" },
+  ]
+};
+
+/* mime icons (#2) — path + color class per kind */
+const ICONS = {
+  dir:      ["M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z","i-folder"],
+  hidden:   ["M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2Z","i-hidden"],
+  ts:       ["M3 3h18v18H3V3m10.7 14.5v-2.1c0 .6.9 1 1.7 1 .6 0 1-.2 1-.6 0-1.2-3.7-.5-3.7-3 0-1.3 1-2 2.4-2 1 0 1.8.3 2.3.8v2c-.4-.6-1.1-1-1.9-1-.5 0-.9.2-.9.6 0 1.1 3.8.4 3.8 3 0 1.4-1.1 2.1-2.6 2.1-1 0-1.7-.3-2.3-.8M11 10.9H9.2V17H7.4v-6.1H5.6V9.5H11v1.4Z","i-ts"],
+  js:       ["M3 3h18v18H3V3m4.7 15.2c.5.9 1.2 1.6 2.5 1.6 1.1 0 1.8-.6 1.8-1.4V12h1.8v6.4c0 1.9-1.1 2.8-2.7 2.8-1.5 0-2.3-.8-2.8-1.7l1.4-.9m6.9-.2c.4.7 1 1.2 1.9 1.2.8 0 1.2-.4 1.2-.9 0-.6-.5-.8-1.4-1.2l-.5-.2c-1.4-.6-2.3-1.3-2.3-2.8 0-1.4 1-2.4 2.7-2.4 1.1 0 2 .4 2.6 1.5l-1.4.9c-.3-.6-.7-.8-1.2-.8s-.9.3-.9.8c0 .5.3.7 1.2 1.1l.5.2c1.6.7 2.5 1.4 2.5 3 0 1.6-1.3 2.5-3 2.5-1.7 0-2.8-.8-3.3-1.9l1.4-.7Z","i-js"],
+  json:     ["M5 3h2v2H5v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5h2v2H5c-1.07-.27-2-.9-2-2v-4a2 2 0 0 0-2-2H0v-2h1a2 2 0 0 0 2-2V5a2 2 0 0 1 2-2m14 0a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1v2h-1a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-2v-2h2v-5a2 2 0 0 1 2-2 2 2 0 0 1-2-2V5h-2V3h2Z","i-json"],
+  md:       ["M20.6 5H3.4A1.4 1.4 0 0 0 2 6.4v11.2A1.4 1.4 0 0 0 3.4 19h17.2a1.4 1.4 0 0 0 1.4-1.4V6.4A1.4 1.4 0 0 0 20.6 5M6 15.5H4.3V11l2 2 2-2v4.5H8.6v-3l-1.3 1.3L6 12.5v3m10.8-.5-2.5-2.6h1.6V9.9h1.8v2.5H19L16.8 15Z","i-md"],
+  pdf:      ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6m4 18H6V4h7v5h5v11M8 12v6h2v-2h1a2 2 0 0 0 0-4H8m2 2h1v0h-1m5-2v6h1v-2h1v-1h-1v-1h1v-1h-2Z","i-pdf"],
+  img:      ["M8.5 13.5 11 16.5l3.5-4.5 4.5 6H5l3.5-4.5M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2Z","i-img"],
+  video:    ["M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4Z","i-video"],
+  audio:    ["M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z","i-audio"],
+  mermaid:  ["M12 2 2 7l10 5 10-5-10-5m0 7.5L4.2 6 12 2.6 19.8 6 12 9.5M2 17l10 5 10-5V9l-10 5L2 9v8Z","i-mermaid"],
+  html:     ["M4 3h16l-1.5 16.5L12 22l-6.5-2.5L4 3m14 3H8l.2 2H17.8l-.5 6-3.3 1-3.3-1-.2-2.2h1.9l.1 1 1.5.4 1.5-.4.2-1.9H6.7L6 6.8 5.9 5H18l-.1 1Z","i-html"],
+  live:     ["M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m6.9 6h-3a15.7 15.7 0 0 0-1.3-3.4A8 8 0 0 1 18.9 8M12 4c.8 1.2 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.8 1.9-4M4.3 14a7.8 7.8 0 0 1 0-4h3.4a16.6 16.6 0 0 0 0 4H4.3m.8 2h3a15.7 15.7 0 0 0 1.3 3.4A8 8 0 0 1 5.1 16m3-8h-3a8 8 0 0 1 4.3-3.4A15.7 15.7 0 0 0 8.1 8M12 20c-.8-1.2-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.8-1.9 4m2.3-6H9.7a14.7 14.7 0 0 1 0-4h4.6a14.7 14.7 0 0 1 0 4m.4 5.4c.5-1 1-2.2 1.3-3.4h3a8 8 0 0 1-4.3 3.4m1.7-5.4a16.6 16.6 0 0 0 0-4h3.4a7.8 7.8 0 0 1 0 4h-3.4Z","i-live"],
+  file:     ["M13 9V3.5L18.5 9H13M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z","i-file"],
+};
+function iconFor(kind){ return ICONS[kind] || ICONS.file; }
+function svg([d,cls]){ return `<svg class="sm ${cls}" viewBox="0 0 24 24"><path d="${d}"/></svg>`; }
+
+/* ---- open tabs state ---- */
+let tabs = [{path:"README.md", kind:"md"}];
+let active = "README.md";
+const openTabs = new Set(["README.md"]);
+
+/* index nodes by full path so tree↔tab sync (#5) can find ancestors */
+function walk(node, parent, cb){
+  const path = parent ? parent+"/"+node.name : node.name;
+  if(node.name!=="my-project") cb(node, path, parent);
+  (node.children||[]).forEach(c=>walk(c, node.name==="my-project"?"":path, cb));
+}
+function ancestorsOf(path){ // returns dir paths to expand
+  const parts = path.split("/"); const acc=[]; let cur="";
+  for(let i=0;i<parts.length-1;i++){ cur = cur?cur+"/"+parts[i]:parts[i]; acc.push(cur); }
+  return acc;
+}
+function findNode(path){ let found=null; walk(FS,"", (n,p)=>{ if(p===path) found=n; }); return found; }
+
+/* ---------------- RENDER TREE ---------------- */
+function renderTree(){
+  const rail = document.getElementById("rail");
+  const rows=[];
+  function rec(node, parentPath, depth){
+    (node.children||[]).forEach(child=>{
+      const path = parentPath ? parentPath+"/"+child.name : child.name;
+      const isDir = child.type==="dir";
+      const pad = depth*12+8;
+      if(isDir){
+        const open = !!child.open;
+        const ic = child.hidden ? ICONS.hidden : ICONS.dir;
+        rows.push(`<div class="node ${open?'open':''}" style="padding-left:${pad}px" data-dir="${path}">
+          <svg class="chev" viewBox="0 0 24 24"><path d="M8.6 5.6 15 12l-6.4 6.4L7.2 17l5-5-5-5 1.4-1.4Z"/></svg>
+          ${svg(ic)}<span>${child.name}</span></div>`);
+        if(open) rec(child, path, depth+1);
+      } else {
+        const ic = iconFor(child.kind);
+        rows.push(`<div class="node ${path===active?'active':''}" style="padding-left:${pad}px" data-file="${path}" data-kind="${child.kind}">
+          <span class="leaf-pad"></span>${svg(ic)}<span>${child.name}</span></div>`);
+      }
+    });
+  }
+  rec(FS,"",0);
+  rail.innerHTML = rows.join("");
+  rail.querySelectorAll("[data-dir]").forEach(el=>el.onclick=()=>{
+    const n=findNode(el.dataset.dir); n.open=!n.open; renderTree();
+  });
+  rail.querySelectorAll("[data-file]").forEach(el=>el.onclick=()=>openFile(el.dataset.file, el.dataset.kind));
+  // #5: reveal active file
+  const act = rail.querySelector(".node.active");
+  if(act) act.scrollIntoView({block:"nearest"});
+}
+
+/* ---------------- TABS ---------------- */
+function renderTabs(){
+  const el=document.getElementById("tabs");
+  el.innerHTML = tabs.map(t=>{
+    const ic=iconFor(t.kind);
+    return `<div class="tab ${t.path===active?'active':''}" data-file="${t.path}" data-kind="${t.kind}">
+      ${svg(ic)}<span>${t.path.split("/").pop()}</span><span class="x" data-close="${t.path}">×</span></div>`;
+  }).join("");
+  el.querySelectorAll(".tab").forEach(t=>t.onclick=e=>{
+    if(e.target.dataset.close){ closeTab(e.target.dataset.close); return; }
+    openFile(t.dataset.file, t.dataset.kind);
+  });
+}
+function closeTab(path){
+  tabs=tabs.filter(t=>t.path!==path); openTabs.delete(path);
+  if(active===path) active = tabs.length?tabs[tabs.length-1].path:null;
+  renderAll();
+}
+
+/* ---------------- OPEN FILE (#5 two-way sync) ---------------- */
+function openFile(path, kind){
+  if(!openTabs.has(path)){ tabs.push({path,kind}); openTabs.add(path); }
+  active=path;
+  // #5: auto-expand every ancestor dir so the file is revealed in the tree
+  ancestorsOf(path).forEach(dp=>{ const n=findNode(dp); if(n) n.open=true; });
+  renderAll();
+}
+
+/* ---------------- VIEWERS ---------------- */
+function renderViewer(){
+  const body=document.getElementById("vbody");
+  if(!active){ body.innerHTML=`<div class="empty">No files open — pick one from the tree.</div>`; return; }
+  const kind = tabs.find(t=>t.path===active).kind;
+  document.getElementById("activeTitle").textContent=active;
+  document.getElementById("fPath").textContent=active;
+  document.getElementById("fLang").textContent=active.split(".").pop();
+  document.getElementById("fKind").textContent=({ts:"code",js:"code",json:"code",md:"markdown",pdf:"pdf",img:"image",video:"video",audio:"audio",mermaid:"mermaid",html:"html",live:"live-server"})[kind]||"text";
+
+  if(kind==="md")      return renderMarkdown(body);
+  if(kind==="pdf")     return renderPdf(body);
+  if(kind==="img")     return renderImage(body);
+  if(kind==="video")   return renderVideo(body);
+  if(kind==="audio")   return renderAudio(body);
+  if(kind==="mermaid") return renderMermaid(body);
+  if(kind==="html")    return renderHtml(body);
+  if(kind==="live")    return renderLive(body);
+  return renderCode(body, kind);
+}
+
+function renderCode(body, kind){
+  const lines = [
+    ['<span class="kw">export</span> <span class="kw">function</span> <span class="fn">openFile</span>(path, kind) {'],
+    ['  <span class="kw">if</span> (!openTabs.has(path)) tabs.push({ path, kind });'],
+    ['  active = path;'],
+    ['  <span class="cm">// #5 reveal in tree</span>'],
+    ['  ancestorsOf(path).forEach(expand);'],
+    ['  render();'],
+    ['}'],
+  ];
+  body.innerHTML=`<pre class="code">${lines.map((l,i)=>`<span class="ln">${i+1}</span>${l}`).join("\n")}</pre>`;
+}
+
+/* #4: markdown view/edit toggle + dirty + save */
+let mdMode="view", mdDirty=false;
+const MD_SRC = `# my-project\n\nRedesigned **content editor** with a proper file tree and rich viewers.\n\n- Mime icons per file type\n- Hidden dirs (\`.git\`, \`.pi\`) expand like folders\n- Markdown \`view / edit\` toggle (you're looking at it)\n- Live theme follow\n\n> Try the **Edit** button, then flip the theme.`;
+function mdToHtml(s){
+  return s.replace(/^# (.*)$/gm,'<h1>$1</h1>').replace(/^> (.*)$/gm,'<blockquote style="border-left:3px solid var(--accent-blue);padding-left:12px;color:var(--text-secondary)">$1</blockquote>')
+    .replace(/^- (.*)$/gm,'<li>$1</li>').replace(/\*\*(.*?)\*\*/g,'<b>$1</b>').replace(/`(.*?)`/g,'<code>$1</code>')
+    .replace(/\n\n/g,'<br><br>');
+}
+function renderMarkdown(body){
+  body.innerHTML=`
+    <div class="md-toolbar">
+      <span class="seg">
+        <button id="mdView" class="${mdMode==='view'?'on':''}">Preview</button>
+        <button id="mdEdit" class="${mdMode==='edit'?'on':''}">Edit</button>
+      </span>
+      <span class="save-row">
+        ${mdDirty?'<span class="dirty">● unsaved</span>':''}
+        <button class="btn" id="mdSave" ${mdDirty?'':'disabled style=opacity:.4'}>Save</button>
+      </span>
+    </div>
+    <div id="mdArea" style="height:calc(100% - 42px)"></div>`;
+  const area=body.querySelector("#mdArea");
+  if(mdMode==="view") area.innerHTML=`<div class="md-render">${mdToHtml(MD_SRC)}</div>`;
+  else area.innerHTML=`<textarea class="md-edit" id="mdText">${MD_SRC}</textarea>`;
+  body.querySelector("#mdView").onclick=()=>{mdMode="view";renderMarkdown(body);};
+  body.querySelector("#mdEdit").onclick=()=>{mdMode="edit";renderMarkdown(body);};
+  const ta=body.querySelector("#mdText"); if(ta) ta.oninput=()=>{ if(!mdDirty){mdDirty=true;renderMarkdown(body);} };
+  body.querySelector("#mdSave").onclick=()=>{ mdDirty=false; renderMarkdown(body); };
+}
+
+/* #3: PDF rendered on a canvas (pdf.js style) — no reliance on a native plugin */
+function renderPdf(body){
+  body.innerHTML=`<div class="stage"><span class="badge">rendered via pdf.js canvas — works in Electron (no native plugin)</span>
+    <div class="center"><div class="pdf-page">
+      <h3>Design Specification</h3>
+      <p><b>1. Overview.</b> The content editor exposes a kind-based viewer registry. Each file
+      is classified once and dispatched to the matching renderer.</p>
+      <p><b>2. Viewers.</b> code · markdown · pdf · image · video · audio · mermaid.</p>
+      <p style="color:#666">Page 1 / 12</p>
+    </div></div></div>`;
+}
+function renderImage(body){
+  body.innerHTML=`<div class="stage"><span class="badge">image · pan / zoom</span><div class="center">
+    <svg class="img-demo" viewBox="0 0 320 200" xmlns="http://www.w3.org/2000/svg">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
+      <rect width="320" height="200" rx="10" fill="url(#g)"/>
+      <circle cx="230" cy="60" r="34" fill="#fff" opacity=".85"/>
+      <path d="M0 170 L110 90 L180 140 L250 100 L320 150 L320 200 L0 200 Z" fill="#0f172a" opacity=".55"/>
+      <text x="24" y="180" fill="#fff" font-size="15" font-family="monospace">logo.png</text>
+    </svg></div></div>`;
+}
+function renderVideo(body){
+  body.innerHTML=`<div class="stage"><span class="badge">video · &lt;video&gt; with native controls</span><div class="center">
+    <video controls width="480" poster="data:image/svg+xml,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#111"/><polygon points="205,105 205,165 265,135" fill="#fff"/><text x="24" y="250" fill="#888" font-family="monospace" font-size="14">demo.mp4 · 00:42</text></svg>')}">
+    </video></div></div>`;
+}
+function renderAudio(body){
+  const bars=Array.from({length:64},(_,i)=>`<rect x="${i*7}" y="${30-Math.abs(Math.sin(i*.5))*26}" width="4" height="${Math.abs(Math.sin(i*.5))*52+4}" rx="2" fill="var(--accent-blue)" opacity="${.4+Math.abs(Math.sin(i*.5))*.6}"/>`).join("");
+  body.innerHTML=`<div class="stage"><span class="badge">audio · waveform + &lt;audio&gt; controls</span><div class="center" style="flex-direction:column;gap:20px">
+    <svg width="460" height="70" viewBox="0 0 460 70">${bars}</svg>
+    <audio controls style="width:460px"></audio>
+    <div style="color:var(--text-tertiary);font-family:monospace">chime.mp3 · 00:03 · 128kbps</div>
+  </div></div>`;
+}
+const MM_SRC = [
+  "graph TD",
+  "  A[openFile] --> B{kind?}",
+  "  B -->|md| C[Markdown view/edit]",
+  "  B -->|pdf| D[pdf.js canvas]",
+  "  B -->|img/video/audio| E[Media viewer]",
+  "  B -->|mermaid| F[Mermaid render]",
+  "  B -->|code| G[Monaco]"
+].join("\n");
+function mermaidFallbackSvg(){
+  // Static diagram shown when the mermaid runtime is unavailable (offline / CSP).
+  const box=(x,y,w,label,fill)=>`<rect x="${x}" y="${y}" width="${w}" height="34" rx="6" fill="${fill}" opacity=".18" stroke="${fill}"/><text x="${x+w/2}" y="${y+22}" text-anchor="middle" fill="var(--text-primary)" font-size="12" font-family="monospace">${label}</text>`;
+  const line=(x1,y1,x2,y2)=>`<path d="M${x1} ${y1} L${x2} ${y2}" stroke="var(--text-tertiary)" stroke-width="1.5" marker-end="url(#ar)"/>`;
+  return `<svg width="620" height="330" viewBox="0 0 620 330">
+    <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6Z" fill="var(--text-tertiary)"/></marker></defs>
+    ${box(250,10,120,"openFile","var(--accent-blue)")}
+    ${box(250,80,120,"kind?","var(--accent-yellow)")}
+    ${line(310,44,310,80)}
+    ${box(10,170,150,"Markdown view/edit","var(--accent-green)")}
+    ${box(180,170,120,"pdf.js canvas","var(--accent-red)")}
+    ${box(320,170,130,"Media viewer","var(--accent-purple)")}
+    ${box(470,170,130,"Mermaid render","#ff6b9d")}
+    ${box(250,250,120,"Monaco","var(--accent-orange)")}
+    ${line(300,114,110,170)}${line(310,114,250,170)}${line(320,114,385,170)}${line(340,114,520,170)}${line(310,114,310,250)}
+  </svg>`;
+}
+/* #gap: HTML file viewer — sandboxed, scripts DISABLED (reuses HtmlPreview idiom).
+   The embedded page below tries to run a script that turns it red + rewrites the
+   title; because the iframe has sandbox="allow-same-origin" WITHOUT allow-scripts,
+   nothing runs — proving a hostile .html can't touch the dashboard origin. */
+const HTML_SRC = `<!doctype html><html><head><title>index.html</title>
+<style>body{font-family:system-ui;margin:0;padding:40px;color:#111}
+.card{max-width:520px;border:1px solid #e2e2e2;border-radius:12px;padding:28px;box-shadow:0 6px 24px rgba(0,0,0,.08)}
+h1{margin:0 0 8px}button{background:#3b82f6;color:#fff;border:0;border-radius:8px;padding:8px 18px;font-size:14px}</style></head>
+<body><div class="card"><h1>Acme Landing</h1>
+<p>Static <code>index.html</code> rendered inside the editor.</p>
+<button>Get started</button>
+<p id="p" style="color:#16a34a;margin-top:20px">✓ scripts are disabled — this page stayed white &amp; the title stayed “index.html”</p>
+</div>
+<script>document.body.style.background="crimson";document.title="PWNED";document.getElementById("p").textContent="✗ script ran — UNSAFE";<\/script>
+</body></html>`;
+function renderHtml(body){
+  body.innerHTML=`<div class="stage" style="display:flex;flex-direction:column">
+    <div class="url-bar"><span class="chip">html file</span>
+      <span class="addr">index.html</span>
+      <span class="chip ok">sandbox · scripts OFF</span></div>
+    <iframe class="frame" style="flex:1" sandbox="allow-same-origin" srcdoc='${HTML_SRC.replace(/'/g,"&#39;")}'></iframe>
+  </div>`;
+}
+
+/* live-server viewer — preview a RUNNING local dev server / mockup inside the pane.
+   Reverse-proxied + loopback-only + allowlisted (SSRF guard). Unlike the HTML file
+   viewer, a live app DOES run scripts (it's a real app) but is origin-isolated so it
+   can't read the dashboard's token or call its APIs. The demo app below is scripted
+   (the counter works) to show that difference. */
+const LIVE_SRC = `<!doctype html><html><head><title>Vite dev</title>
+<style>body{font-family:system-ui;margin:0;display:flex;height:100vh;align-items:center;justify-content:center;
+background:linear-gradient(135deg,#1e293b,#0f172a);color:#e2e8f0}
+.app{text-align:center}h1{font-size:34px;margin:0 0 6px}.tag{color:#64748b;margin-bottom:24px}
+button{background:#22c55e;color:#052e16;border:0;border-radius:10px;padding:12px 26px;font-size:18px;cursor:pointer}
+.count{font-size:52px;font-weight:700;margin:18px 0}</style></head>
+<body><div class="app"><h1>🚀 My Mockup</h1><div class="tag">served at 127.0.0.1:5173 (HMR live)</div>
+<div class="count" id="c">0</div><button id="b">count up</button></div>
+<script>let n=0;document.getElementById("b").onclick=()=>document.getElementById("c").textContent=++n;<\/script>
+</body></html>`;
+function renderLive(body){
+  body.innerHTML=`<div class="stage" style="display:flex;flex-direction:column">
+    <div class="url-bar">
+      <span class="chip ok">● running</span>
+      <span class="addr">🔒 127.0.0.1:5173  →  /proxy/live/5173/</span>
+      <span class="chip ok">loopback · allowlisted</span>
+      <span class="chip">origin-isolated</span>
+    </div>
+    <iframe class="frame" style="flex:1" sandbox="allow-scripts" srcdoc='${LIVE_SRC.replace(/'/g,"&#39;")}'></iframe>
+  </div>`;
+}
+
+function renderMermaid(body){
+  // Production renders real mermaid via MarkdownContent's ```mermaid fences.
+  // The mockup draws the equivalent diagram as static SVG (theme-aware tokens).
+  body.innerHTML=`<div class="stage"><span class="badge">mermaid · rendered inline (like MarkdownContent fences)</span>
+    <div class="mermaid">${mermaidFallbackSvg()}</div></div>`;
+}
+
+/* ---------------- THEME (#7) ---------------- */
+document.getElementById("themeBtn").onclick=()=>{
+  const html=document.documentElement;
+  html.dataset.mode = html.dataset.mode==="dark"?"light":"dark";
+  // re-render current viewer so mermaid theme + canvases recolor immediately
+  renderViewer();
+};
+
+/* ---------------- LIVE SERVER (open a preview tab) ---------------- */
+document.getElementById("liveBtn").onclick=()=>{
+  const path="live://127.0.0.1:5173";
+  if(!openTabs.has(path)){ tabs.push({path,kind:"live"}); openTabs.add(path); }
+  active=path; renderAll();
+};
+
+/* ---------------- TREE TOGGLE (#6) ---------------- */
+document.getElementById("treeToggle").onclick=function(){
+  const rail=document.getElementById("rail");
+  rail.classList.toggle("hidden"); this.classList.toggle("on");
+};
+
+function renderAll(){ renderTree(); renderTabs(); renderViewer(); }
+renderAll();
+</script>
+</body>
+</html>
