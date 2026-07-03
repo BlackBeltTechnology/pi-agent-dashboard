@@ -64,6 +64,15 @@ describe("GET /api/file/tree", () => {
     expect(byName[".gitignore"]).toBe(false);
   });
 
+  it("follows a symlink to a directory (renders as a folder)", async () => {
+    await fsp.symlink(path.join(cwd, "src"), path.join(cwd, "src-link"));
+    const res = await tree(app, cwd, ".");
+    const byName = Object.fromEntries(
+      (res.json().data.entries as { name: string; isDir: boolean }[]).map((e) => [e.name, e.isDir]),
+    );
+    expect(byName["src-link"]).toBe(true);
+  });
+
   it("rejects path traversal with 403", async () => {
     const res = await tree(app, cwd, "../..");
     expect(res.statusCode).toBe(403);

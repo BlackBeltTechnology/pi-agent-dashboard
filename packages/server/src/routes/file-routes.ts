@@ -323,11 +323,26 @@ export function registerFileRoutes(
 
       try {
         const dirents = await fs.readdir(resolved, { withFileTypes: true });
-        const entries = dirents
-          .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
-          .sort((a, b) =>
-            a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
-          );
+        // `Dirent.isDirectory()` reflects the entry itself, so a symlink → dir
+        // reports `false` (isSymbolicLink true). Follow symlinks with a bounded
+        // `stat` so symlinked directories still render + expand as folders. Only
+        // symlink entries pay the extra stat; normal entries stay single-readdir.
+        const entries = await Promise.all(
+          dirents.map(async (d) => {
+            let isDir = d.isDirectory();
+            if (!isDir && d.isSymbolicLink()) {
+              try {
+                isDir = (await fs.stat(path.join(resolved, d.name))).isDirectory();
+              } catch {
+                isDir = false; // dangling symlink → treat as a (broken) file
+              }
+            }
+            return { name: d.name, isDir };
+          }),
+        );
+        entries.sort((a, b) =>
+          a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+        );
         return { success: true, data: { entries } } satisfies ApiResponse;
       } catch {
         reply.code(404);

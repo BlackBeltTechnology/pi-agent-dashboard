@@ -84,6 +84,8 @@ describe("live-server allowlist persistence (§6.4)", () => {
       { id: "good", label: "vite", host: "127.0.0.1", port: 5173 },
       { id: "evil", label: "x", host: "169.254.169.254", port: 80 },
       { id: "", label: "noid", host: "localhost", port: 3000 },
+      null, // hand-edited garbage — must not crash construction
+      "not-an-object",
     ];
     const prefs = {
       getLiveServers: () => store,

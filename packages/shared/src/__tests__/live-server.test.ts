@@ -30,6 +30,12 @@ describe("validateLiveTarget — SSRF boundary", () => {
     expect(r.ok && r.label).toBe("localhost:5173");
   });
 
+  it("rejects non-object input without throwing (hand-edited allowlist)", () => {
+    for (const bad of [null, undefined, 42, "x", []]) {
+      expect(validateLiveTarget(bad as unknown).ok, String(bad)).toBe(false);
+    }
+  });
+
   it("liveServerPath builds the proxied path", () => {
     expect(liveServerPath("abc")).toBe("/live/abc/");
   });
