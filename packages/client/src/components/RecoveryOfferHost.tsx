@@ -35,7 +35,12 @@ export function RecoveryOfferHost({ onReopen }: {
       className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
       data-testid="recovery-offer-host"
     >
-      <div className="pointer-events-auto flex items-center gap-3 px-3 py-2 bg-[var(--bg-elevated)] text-[var(--text-primary)] text-sm rounded-xl shadow-lg border border-[var(--border-primary)] max-w-sm">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="pointer-events-auto flex items-center gap-3 px-3 py-2 bg-[var(--bg-elevated)] text-[var(--text-primary)] text-sm rounded-xl shadow-lg border border-[var(--border-primary)] max-w-sm"
+      >
         <span className="flex-none w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
         <span className="flex-1 whitespace-nowrap font-medium">
           {i18nT("auto.reopen_n_sessions", { count }, `Reopen ${count} session${count === 1 ? "" : "s"}?`)}

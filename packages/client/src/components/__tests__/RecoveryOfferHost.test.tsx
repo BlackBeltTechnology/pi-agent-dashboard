@@ -41,6 +41,11 @@ describe("RecoveryOfferHost", () => {
     push();
     expect(queryByTestId("recovery-offer-host")).not.toBeNull();
     expect(getByTestId("recovery-offer-host").textContent).toContain("Reopen 3 sessions");
+    // a11y: the async offer must live in a polite live region so screen
+    // readers announce it. See change: reopen-sessions-after-shutdown.
+    const live = getByTestId("recovery-offer-host").querySelector('[role="status"]');
+    expect(live).not.toBeNull();
+    expect(live?.getAttribute("aria-live")).toBe("polite");
   });
 
   it("reopen routes all candidate ids and clears the offer", () => {

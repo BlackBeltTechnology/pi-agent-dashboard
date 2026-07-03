@@ -45,3 +45,20 @@
 - [x] 8.6 Docs lint: escape `\|` in `docs/file-index-shared.md` union type; add `text` language tags to archived `design.md` fences; correct classifier formula in both.
 - [ ] 8.7 SKIPPED — CodeRabbit "move change bundle out of `archive/`": false positive. This repo's `openspec-archive-change` skill archives to `openspec/changes/archive/<date>-<name>/` by design; location is correct.
 - [ ] 8.8 DEFERRED — 6 CodeRabbit Major comments target the unrelated `register-plugin-automation-events` change bundled into this PR. Recommend splitting that change into its own PR rather than fixing here.
+
+## 9. CodeRabbit re-review fixes (PR #210, round 2)
+
+- [x] 9.1 Auto-resume loop stability: wrap the per-candidate `spawnPiSession` in try/catch (`server.ts`) so one failure logs + continues instead of aborting startup after `fastify.listen()` succeeded.
+- [x] 9.2 Stale-offer replay: rebuild `pendingRecoveryOffer` from live session state in `onConnect` — drop candidates already resumed (`dataUnavailable` false), ended, or removed; clear when none remain, so a late-joining tab never sees a stale candidate list. → verify: test asserts a resumed candidate is dropped from the replay to a later client.
+- [x] 9.3 Off-mode spec wording: reworded `off` to "keep interrupted sessions on the normal restore path → normalize to `ended`; no offer, no auto-resume" to remove the contradiction with the exemption requirement (`openspec/specs/shutdown-session-recovery/spec.md`).
+- [x] 9.4 Filled the archived-spec `Purpose` (was `TBD`).
+- [x] 9.5 `types.ts` comment accuracy: liveness fields ARE broadcast via `session_added`/`session_updated` (session broadcast as-is); comment corrected + classifier formula updated to include `status`.
+- [x] 9.6 Resolved merge conflict with `develop` in the three `docs/file-index-*.md` splits (prefix/suffix union merge — both develop's and this change's annotations retained).
+- [ ] 9.7 DEFERRED — 2 new CodeRabbit minors on the bundled `register-plugin-automation-events` mocks (`flows.list`); belongs with the recommended PR split.
+
+## 10. CodeRabbit round-3 (validated before fixing)
+
+- [x] 10.1 a11y (VALID, in-scope): `RecoveryOfferHost` had no live region — added `role="status"` / `aria-live="polite"` / `aria-atomic="true"` so screen readers announce the async offer. Test asserts the live region.
+- [ ] 10.2 SKIP (pre-existing on develop): duplicated block in the `App.tsx` file-index row — `render-file-previews` appears 2× on develop's row too, NOT introduced by this PR. De-duping here would diverge from develop; fix separately on develop.
+- [ ] 10.3 SKIP (pre-existing on develop): `SettingsPanel.tsx` row keyed `src/client/…` — same on develop; the file already mixes `packages/` and `src/` prefixes. Not introduced here.
+- [ ] 10.4 SKIP (false positive): recovery-e2e writing `~/.pi/dashboard/config.json` cannot hit real home — global `setup-home.ts` overrides HOME to a tmp dir and hard-throws if HOME==real home; `os.homedir()` follows `$HOME` on POSIX. Identical pattern already used by recovery-offer.test.ts.
