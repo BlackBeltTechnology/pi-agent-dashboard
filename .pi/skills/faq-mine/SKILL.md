@@ -36,7 +36,7 @@ Orchestrate FAQ extraction from project knowledge docs into `docs/faq.md`.
    ```
    Exclude:
    - `docs/faq.md` itself
-   - `docs/file-index*.md` (index, not narrative)
+   - `docs/AGENTS.md` and any `AGENTS.md` (index, not narrative)
    - `docs/session-knowledge-*.md` (point-in-time notes)
    - `docs/spec-gap-analysis.md` and any `*-resolved.md` (transient analyses)
    - Anything matching `docs/.faq-draft-*.md` (in-flight draft)
@@ -120,7 +120,7 @@ This skill writes under `docs/`. Per AGENTS.md:
 ## Anti-patterns (do not)
 
 - Do NOT have multiple subagents write to the same file in parallel — race condition.
-- Do NOT mine `file-index*.md` — it is an index, not narrative knowledge; FAQ entries from it would just restate file paths.
+- Do NOT mine `AGENTS.md` (incl. `docs/AGENTS.md`) — index, not narrative knowledge; FAQ entries from it would just restate file paths.
 - Do NOT mine `session-knowledge-*.md` or `spec-gap-analysis.md` — point-in-time notes; entries would rot fast.
 - Do NOT skip Phase 0 dedupe — re-running the skill must not double-add the same questions.
 - Do NOT drop the per-entry `Cross-refs:` block — agents lose the source trail otherwise.

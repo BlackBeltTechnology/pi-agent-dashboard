@@ -1,6 +1,6 @@
 # Common CI Failures
 
-Synthesized from recent changes in `docs/file-index-*.md`, repo-lint tests, and observed failure modes.
+Synthesized from recent changes in the per-directory `AGENTS.md` tree, repo-lint tests, and observed failure modes.
 
 ## Repo-lint failures (fail the `ci` job's test step)
 

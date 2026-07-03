@@ -25,7 +25,7 @@
 ## 4. Enable searchability + retrieval
 - [x] 4.1 Flip `indexAgentsFiles: true`; reindex; confirm `kb search --doc-type agents` returns tree rows. → verify: a query that was buried in a monolith now returns the per-dir `AGENTS.md` chunk with higher rank
 - [x] 4.2 Enable `directoryLevelAgents` pull mode; `kb agents <path>` returns the root→nearest chain for a deep source path. → verify: `kb agents src/client/components/<X>.tsx` returns root + nearest AGENTS.md
-- [x] 4.3 Decide file-index fate (design §4a): implement **(B)** generated rollup — `kb dox export` concatenates tree rows into `docs/file-index-<area>.md` (marked generated). → verify: rollup equals union of tree rows; a `kb get` of the rollup still works
+- [x] 4.3 Decide file-index fate (design §4d): SUPERSEDED — first implemented **(B)** generated rollup, then RETIRED to **(A)**. Deleted all 11 `docs/file-index*.md`; removed `exportRollup`/`treeRows`/`SPLIT_AREAS`/`TREE_ROOTS` from `migrate-runner.ts` (+ tests); re-homed `docs/` topic docs + 3 root-config files to new `docs/AGENTS.md` tree node. → verify: no `docs/file-index*.md` remain; kb suite green; `docs/AGENTS.md` has 20 rows
 
 ## 5. Docs + protocol update (delegate every docs/ write to a subagent, caveman style)
 - [x] 5.1 Update AGENTS.md Investigation Protocol + Documentation Update Protocol: point at `kb agents <path>` / directory `AGENTS.md` as the per-file record; file-index splits become generated rollups, not the source of truth. → verify: protocol text names the tree, no stale "add a row to the split" as primary path

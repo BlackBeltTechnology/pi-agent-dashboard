@@ -86,7 +86,7 @@ Some tests are not behaviour tests — they're repo-wide lints. They fail if the
 | `no-bash-on-windows.test.ts` | `shell: bash` on steps reachable on Windows runners |
 | `publish-workflow-contract.test.ts` | Removing electron job's `needs:` array or `fail-fast: false` |
 
-If one of these fails, the message will tell you which file violated the rule. **Fix the file, don't loosen the lint.** These exist because a previous regression caused real pain (every lint has an associated change in `docs/file-index*.md`).
+If one of these fails, the message will tell you which file violated the rule. **Fix the file, don't loosen the lint.** These exist because a previous regression caused real pain (every lint has an associated change recorded in the per-directory `AGENTS.md` tree).
 
 ## Test-isolation guard aborts the run
 

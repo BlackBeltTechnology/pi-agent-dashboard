@@ -19,8 +19,9 @@ file set and cannot author purposes. The migration is therefore an
 - **Tier-1 authored purposes route through a review pass.** Non-empty is not
   enough for `miss` rows — see §4c review gate. Deterministic Tier-0 (hit) rows
   skip review (byte-identical copy).
-- **file-index fate = (B) generated rollup** (§4d). Splits become generated, tree
-  is source of truth.
+- **file-index fate = (A) RETIRE** (§4d). Splits deleted; per-directory `AGENTS.md`
+  tree is the sole per-file record. `docs/` topic docs + root-level config live in
+  `docs/AGENTS.md`.
 - **`directoryLevelAgents` ships pull-only.** Push mode deferred behind the §5
   context-cost spike; out of scope for this change.
 - **Root `AGENTS.md` is protected; walk anchored at source roots.** The migration
@@ -209,6 +210,14 @@ Two options (decide during apply):
   and the whole-area read exist, tree being the source of truth.
 
 Recommend **(B)** for the transition, revisit retirement after the tree proves out.
+
+**RESOLVED → (A) Retire.** After the tree proved out, the generated rollup was
+dropped: all `docs/file-index*.md` deleted; `exportRollup` / `treeRows` /
+`SPLIT_AREAS` / `TREE_ROOTS` removed from `migrate-runner.ts` (+ their tests). The
+3 root-level config files (`biome.json`, `playwright.config.ts`,
+`.pi-test-harness.json`) and every `docs/` topic doc re-home to `docs/AGENTS.md`
+(a docs tree node; pull-only, `doc_type: agents`, `kb agents docs/<file>`). Tree is
+the sole per-file map.
 
 ## 5. Open question — context-injection cost
 

@@ -58,7 +58,7 @@ Cross-refs:
 - docs/release-process.md:155
 - docs/electron-session.md:288
 - docs/electron-session.md:553
-- docs/file-index-electron.md
+- packages/electron/src/AGENTS.md
 
 ## What are the three ways to install the dashboard?
 
@@ -972,9 +972,9 @@ Mirror MEMORY/FLOWS pattern. Five edits.
 See change: add-flows-subcard for worked example.
 
 Cross-refs:
-- docs/file-index-plugins.md
-- docs/file-index-shared.md
-- docs/file-index-client.md
+- packages/dashboard-plugin-runtime/src/AGENTS.md
+- packages/shared/src/AGENTS.md
+- packages/client/src/AGENTS.md
 - docs/plugin-claim-gates.md
 
 ## How does the dashboard detect and spawn different session types?

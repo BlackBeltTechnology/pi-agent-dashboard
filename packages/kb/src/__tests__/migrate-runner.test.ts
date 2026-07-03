@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { exportRollup, groundingCheck, makeBatches, treeRows } from "../migrate-runner.js";
 import type { DirPlan } from "../migrate-file-index.js";
+import { groundingCheck, makeBatches } from "../migrate-runner.js";
 
 describe("migrate-runner: groundingCheck", () => {
   const src = `
@@ -28,116 +25,6 @@ class StateStore { __resetForTests() {} setFlows() {} }
     const known = new Set(["MermaidBlock", "FlowGraph"]);
     const r = groundingCheck("Used by `MermaidBlock`, `FlowGraph`.", src, known);
     expect(r.ok).toBe(true); // consumers, not local symbols → not flagged
-  });
-});
-
-describe("migrate-runner: exportRollup (add-only, preserve curated rows)", () => {
-  it("adds new source rows, preserves non-source + divergent rows byte-for-byte, inserts one banner", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kb-rollup-"));
-    mkdirSync(join(cwd, "docs"), { recursive: true });
-    mkdirSync(join(cwd, "packages", "kb", "src"), { recursive: true });
-    // existing split: one source hit, one non-source row (package.json) that the tree never has
-    writeFileSync(
-      join(cwd, "docs", "file-index-kb.md"),
-      "# File Index — KB\n\n> note\n\n| File | Purpose |\n|------|---------|\n| `packages/kb/package.json` | npm manifest. |\n| `packages/kb/src/hit.ts` | Curated hit purpose. |\n",
-    );
-    // tree: hit.ts (same purpose = hit) + miss.ts (new source row)
-    writeFileSync(
-      join(cwd, "packages", "kb", "src", "AGENTS.md"),
-      "# DOX\n\n| File | Purpose |\n|------|---------|\n| `hit.ts` | Curated hit purpose. |\n| `miss.ts` | Authored miss purpose. |\n",
-    );
-    const r = exportRollup(cwd, { write: true });
-    expect(r.perArea.kb.added).toBe(1); // only miss.ts
-    const out = readFileSync(join(cwd, "docs", "file-index-kb.md"), "utf8");
-    expect(out).toContain("| `packages/kb/package.json` | npm manifest. |"); // non-source preserved
-    expect(out).toContain("| `packages/kb/src/hit.ts` | Curated hit purpose. |"); // hit unchanged
-    expect(out).toContain("| `packages/kb/src/miss.ts` | Authored miss purpose. |"); // miss added
-    expect(out.match(/Source-file rows synced/g)?.length).toBe(1); // exactly one banner
-    // idempotent: second run adds nothing, still one banner
-    const r2 = exportRollup(cwd, { write: true });
-    expect(r2.perArea.kb.added).toBe(0);
-    expect(readFileSync(join(cwd, "docs", "file-index-kb.md"), "utf8").match(/Source-file rows synced/g)?.length).toBe(1);
-    rmSync(cwd, { recursive: true, force: true });
-  });
-});
-
-describe("migrate-runner: treeRows non-source area roots", () => {
-  it("walks non-packages roots (docker) and routes rows to the docker split", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kb-area-"));
-    mkdirSync(join(cwd, "docs"), { recursive: true });
-    mkdirSync(join(cwd, "docker"), { recursive: true });
-    // pre-existing docker split with the same row the tree now owns
-    writeFileSync(
-      join(cwd, "docs", "file-index-docker.md"),
-      "# File Index — Docker\n\n| File | Purpose |\n|------|---------|\n| `docker/Dockerfile` | Curated dockerfile purpose. |\n",
-    );
-    writeFileSync(
-      join(cwd, "docker", "AGENTS.md"),
-      "# DOX — docker\n\n| File | Purpose |\n|------|---------|\n| `Dockerfile` | Curated dockerfile purpose. |\n",
-    );
-    const rows = treeRows(cwd);
-    expect(rows.get("docker/Dockerfile")).toBe("Curated dockerfile purpose.");
-    const r = exportRollup(cwd, { write: true });
-    expect(r.unassigned).not.toContain("docker/Dockerfile"); // routed to docker split, not orphaned
-    const out = readFileSync(join(cwd, "docs", "file-index-docker.md"), "utf8");
-    expect(out).toContain("| `docker/Dockerfile` | Curated dockerfile purpose. |");
-    rmSync(cwd, { recursive: true, force: true });
-  });
-
-  it("routes a brand-new non-source dir (no existing split rows) via structural area map", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kb-newarea-"));
-    mkdirSync(join(cwd, "docs"), { recursive: true });
-    mkdirSync(join(cwd, ".pi", "skills", "brand-new"), { recursive: true });
-    // skills-misc split exists but has NO row under .pi/skills/brand-new/ (nothing to vote on)
-    writeFileSync(join(cwd, "docs", "file-index-skills-misc.md"), "# Skills\n\n| File | Purpose |\n|------|---------|\n| `scripts/x.sh` | existing. |\n");
-    writeFileSync(join(cwd, ".pi", "skills", "AGENTS.md"), "# DOX\n\n| File | Purpose |\n|------|---------|\n| `brand-new/SKILL.md` | Fresh skill. |\n");
-    const r = exportRollup(cwd, { write: true });
-    expect(r.unassigned).not.toContain(".pi/skills/brand-new/SKILL.md"); // structural map → skills-misc
-    expect(readFileSync(join(cwd, "docs", "file-index-skills-misc.md"), "utf8")).toContain("| `.pi/skills/brand-new/SKILL.md` | Fresh skill. |");
-    rmSync(cwd, { recursive: true, force: true });
-  });
-});
-
-describe("migrate-runner: treeRows sidecar reconstruction", () => {
-  it("resolves a capped `→ see <File>.AGENTS.md` pointer row back to full detail", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kb-sidecar-"));
-    const d = join(cwd, "packages", "client", "src", "components");
-    mkdirSync(d, { recursive: true });
-    // dir AGENTS.md: one lossless inline row + one capped pointer row
-    writeFileSync(join(d, "AGENTS.md"), "# DOX\n\n| File | Purpose |\n|------|---------|\n| `Small.tsx` | Short purpose. |\n| `Big.tsx` | Summary only. → see `Big.tsx.AGENTS.md` |\n");
-    // sidecar: full detail across two fragments
-    writeFileSync(join(d, "Big.tsx.AGENTS.md"), "# Big.tsx — index\n\nFirst fragment detail. See change: alpha.\n\nSecond fragment detail. See change: beta.\n");
-    const rows = treeRows(cwd);
-    expect(rows.get("packages/client/src/components/Small.tsx")).toBe("Short purpose.");
-    const big = rows.get("packages/client/src/components/Big.tsx");
-    expect(big).toBe("First fragment detail. See change: alpha.<br>Second fragment detail. See change: beta.");
-    expect(big).not.toContain("→ see"); // pointer never leaks into the rollup
-    rmSync(cwd, { recursive: true, force: true });
-  });
-});
-
-describe("migrate-runner: exportRollup cross-split dedup", () => {
-  it("keeps a path present in >1 split only in its canonical owner, drops it elsewhere", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kb-dedup-"));
-    mkdirSync(join(cwd, "docs"), { recursive: true });
-    mkdirSync(join(cwd, "packages", "kb", "src"), { recursive: true });
-    // same source path duplicated across two splits (kb + extension)
-    const dupRow = "| `packages/kb/src/dup.ts` | Curated purpose. |";
-    writeFileSync(join(cwd, "docs", "file-index-kb.md"), `# KB\n\n| File | Purpose |\n|------|---------|\n${dupRow}\n| \`packages/kb/src/only.ts\` | Kb only. |\n`);
-    writeFileSync(join(cwd, "docs", "file-index-extension.md"), `# EXT\n\n| File | Purpose |\n|------|---------|\n${dupRow}\n`);
-    writeFileSync(join(cwd, "packages", "kb", "src", "AGENTS.md"), "# DOX\n\n| File | Purpose |\n|------|---------|\n| `dup.ts` | Curated purpose. |\n| `only.ts` | Kb only. |\n");
-    const r = exportRollup(cwd, { write: true });
-    const kb = readFileSync(join(cwd, "docs", "file-index-kb.md"), "utf8");
-    const ext = readFileSync(join(cwd, "docs", "file-index-extension.md"), "utf8");
-    // packages/kb/* → canonical owner = kb; kept in kb, dropped from extension
-    expect(kb).toContain("| `packages/kb/src/dup.ts` |");
-    expect(ext).not.toContain("packages/kb/src/dup.ts");
-    expect(r.perArea.extension.removed).toBe(1);
-    expect(r.perArea.kb.removed).toBe(0);
-    // idempotent: re-run drops nothing more
-    const r2 = exportRollup(cwd, { write: true });
-    expect(r2.perArea.extension.removed).toBe(0);
-    rmSync(cwd, { recursive: true, force: true });
   });
 });
 

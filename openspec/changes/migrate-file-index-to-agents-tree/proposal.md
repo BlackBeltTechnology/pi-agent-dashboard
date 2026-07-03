@@ -24,7 +24,7 @@ Exploring a move to the real recursive `AGENTS.md` structure surfaced three find
   - **Concurrency:** bounded pool (default 6 concurrent), work unit = one directory (atomic, no shared state), tiny sibling dirs coalesced (~8 dirs / ~20 miss files per call), ~20-miss cap per subagent.
   - **Contract:** subagents are read-only over source (orchestrator owns all writes); output is table rows only (hits byte-identical, misses non-empty, no invented `See change:`); orchestrator validates one-row-per-file + retries once + records residual gaps; writes are idempotent (`ensure()`) and checkpointed for resumability.
 - **Flip the opt-in flags** once the tree exists: `indexAgentsFiles: true` (make the tree searchable, `doc_type: agents`), `directoryLevelAgents` pull mode (enable `kb agents <path>`).
-- **Retire / thin the `docs/file-index-<area>.md` splits** — superseded by the tree (or keep as a generated rollup; decided in design.md §4).
+- **Retire the `docs/file-index-<area>.md` splits** — DELETED; the per-directory `AGENTS.md` tree is the sole per-file record (design.md §4d, resolved to decision **A**). `docs/` topic docs + the 3 root-level config files re-home to `docs/AGENTS.md`. No generated rollup kept.
 
 ## Capabilities
 
@@ -35,7 +35,7 @@ Exploring a move to the real recursive `AGENTS.md` structure surfaced three find
 
 - **Delta on `2026-06-23-add-markdown-knowledge-base` §6d** — extends its DOX tooling; does not reverse it. §6d assumed dox maps docs and never reconciled that with a source-file file-index; this change closes that gap.
 - **Code**: `packages/kb/src/dox.ts` (`walkMd`, `DEFAULT_EXCLUDE`, `areaFiles`, `doxInit` — deltas ①–⑤), plus a migration script/orchestrator (one-off) that spawns `@fast` subagents per directory.
-- **Docs**: `docs/file-index-<area>.md` splits superseded by the per-directory tree; AGENTS.md Investigation + Documentation Update Protocols updated to point at `kb agents <path>` / directory `AGENTS.md` instead of the splits.
+- **Docs**: `docs/file-index-<area>.md` splits DELETED, replaced by the per-directory tree (+ `docs/AGENTS.md` for `docs/` topic docs + root-level config); AGENTS.md Investigation + Documentation Update Protocols updated to point at `kb agents <path>` / directory `AGENTS.md` instead of the splits.
 - **Context cost**: pi auto-loads `AGENTS.md` walking **up** from cwd only; directory files stay pull-only (`kb agents`), so per-turn injection stays cheap (root only, unless cwd is deep). Verified as a design open question in design.md §5.
 - **Out of scope (v1)**: the `doxEnforcement` write-hook (steady-state new-file scaffolding) — separate follow-up; this change delivers the migration + source-aware `init`, not the per-edit nudge.
-- **Reversibility**: one-way-ish. Once rows scatter, the "read the whole area map in one `kb get`" convenience is gone (mitigated by an optional generated rollup, design.md §4).
+- **Reversibility**: one-way. Rows scatter into the tree; the "read the whole area map in one `kb get`" convenience is gone (design.md §4d resolved to **A / retire** — no rollup kept).
