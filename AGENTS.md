@@ -9,7 +9,9 @@ Web-based dashboard for monitoring and interacting with pi agent sessions remote
 
 **For any project-specific factual / "where is X" / "how does Y work" question: call `kb_search` FIRST — before `ctx_search`, `memory_search`, `grep`, or any source read.** `kb_search` indexes the repo markdown (`docs/`, `openspec/`, `packages/`, `.pi/`). It is the fastest correct map of this codebase. Fall through to grep/source only when `kb_search` returns nothing relevant. (`ctx_search` = session capture, not repo docs; different corpus.)
 
-> **"What files relate to X" / per-file lookups:** do NOT rely on `kb_search` ranking — the `file-index-<area>.md` rows are huge dense single-line table rows that BM25 buries under tighter spec chunks. Instead `kb get docs/file-index-<area>.md` (pick the area split from `docs/file-index.md`) and read the rows directly, or delegate the harvest to an `Explore` subagent per the Investigation Protocol.
+> **"What files relate to X" / per-file lookups:**
+> - `packages/**` source → the per-directory `AGENTS.md` tree is the per-file record. `kb agents <path>` returns the root→nearest chain (pull, on demand); `kb_search --doc-type agents` ranks tree rows by symbol/topic; or read the file's own directory `AGENTS.md` (small, ~1 row/file) for its siblings.
+> - Other areas (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`) still live in `docs/file-index-<area>.md` splits — `kb get docs/file-index-<area>.md` or delegate the harvest to an `Explore` subagent. See change: migrate-file-index-to-agents-tree (packages/ migrated to the tree; other areas pending).
 
 **Before any build / run / install / setup / release / "how do I X" question: `grep -i <keyword> docs/faq.md README.md docs/` FIRST. No source reads until that returns nothing.**
 
@@ -103,7 +105,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 | Kind of update | Goes in |
 |---|---|
-| New file, or per-file detail / change-history / contract / "See change: …" annotation | Matching per-area split `docs/file-index-<area>.md` (see `docs/file-index.md`). Add row in path-alphabetical order. |
+| New `packages/**` source file, or its per-file detail / change-history / contract / "See change: …" | Nearest directory `AGENTS.md` (the tree). Add a `| \`<basename>\` | <purpose> |` row, path-alphabetical. New dir → scaffold via `kb dox init`. |
+| New file in another area (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`) | Matching per-area split `docs/file-index-<area>.md` (see `docs/file-index.md`). Add row in path-alphabetical order. |
 | New top-level area / new split file | New row in `docs/file-index.md` splits table. Pointer in AGENTS.md only if architectural backbone. |
 | Data flow, persistence, reconnection, protocol, config reference | `docs/architecture.md` |
 | End-user / developer setup, prerequisites, CI badges, project structure | `README.md` |
@@ -111,16 +114,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 Rules:
 
-0. **AGENTS.md MUST NOT contain a per-file index.** No `Key Files` table, no per-file rows, no path → purpose lists. When you need a module's key files, read the matching `docs/file-index-<area>.md` split (delegate to a subagent per the Investigation Protocol). New files → row in the split, never here.
+0. **The ROOT AGENTS.md MUST NOT contain a per-file index.** No `Key Files` table, no per-file rows, no path → purpose lists in THIS file. Per-file records live in the per-directory `AGENTS.md` tree (`packages/**`) or the `docs/file-index-<area>.md` splits (other areas). New files → a row there, never in this root file. (Directory `AGENTS.md` under `packages/` ARE per-file indexes — that is the tree, not this file.)
 
-1. **Split rows are the canonical per-file record.** Schema = `| \`<path>\` | <purpose> |`, one row per file, path-alphabetical.
-   - Purpose field carries everything per-file: one-sentence summary, key exported symbols, contracts/invariants, and `See change: <change-id>` annotations for non-trivial history.
-   - Search the matching split for the path first; if a row exists, append/update its purpose in place; else add a new row in alphabetical order.
+1. **Per-file record = directory `AGENTS.md` tree (`packages/**`) OR `docs/file-index-<area>.md` split (other areas).** Tree schema `| \`<basename>\` | <purpose> |` (path relative to that `AGENTS.md`); split schema `| \`<repo-rel-path>\` | <purpose> |`. One row per file, path-alphabetical.
+   - Purpose carries everything per-file: one-line summary, key exported symbols, contracts/invariants, `See change: <change-id>` history.
+   - Find the file's row first; if present, update its purpose in place; else add in alphabetical order.
    - Caveman style (Rule 6 below) applies to row purposes too.
 
 2. **AGENTS.md content beyond per-file rows** — anything that DOES belong here (architecture pointers, build commands, rules every agent needs) stays ≤ 200 chars per line where possible; never enumerate files inline.
 
-3. **If a split grows past ~50 KB**, sub-split it (e.g. `file-index-server-routes.md`) and update `docs/file-index.md`.
+3. **Tree files stay small** (one dir = one `AGENTS.md`, ~1 row/file — no size problem). A `docs/file-index-<area>.md` split that grows past ~50 KB sub-splits (e.g. `file-index-server-routes.md`) + update `docs/file-index.md`.
 
 4. **Long-form docs** (architecture decisions, rationale, protocol details) belong in `docs/architecture.md` or `docs/<topic>.md`. Reference from AGENTS.md with a one-line pointer, never inline.
 
@@ -128,7 +131,7 @@ Rules:
 
 6. **Every write under `docs/` MUST be delegated to a general-purpose subagent with the caveman-style rule passed verbatim in its prompt.** Main agent orchestrates, never edits `docs/` directly.
 
-   **Caveman style** (all `docs/` prose — file-index rows, architecture notes, topic docs):
+   **Caveman style** (all `docs/` prose AND directory `AGENTS.md` tree rows — file-index rows, architecture notes, topic docs). Note: tree rows live under `packages/`, not `docs/`, so the main agent edits them directly (Rule 6 delegation applies only to `docs/`):
    - Short declarative fragments. Drop articles (a/an/the) and most copulas (is/are/was) when meaning survives.
    - Subject → verb → object, present tense. No hedging, no marketing voice, no "we", no "you".
    - One fact per line/row. No restating context the file already establishes.
@@ -223,7 +226,7 @@ make clean              # Destroy all cloned VMs
 
 ## Investigation Protocol — Index First
 
-**Before reading source, consult `docs/file-index.md` and the relevant `docs/file-index-<area>.md` split.** The index is the cheapest map of the codebase — every architecturally significant file has a one-line purpose plus change-history pointers. Reading source blind wastes tokens and risks hallucination.
+**Before reading source, consult the per-file record.** For `packages/**` source that is the per-directory `AGENTS.md` tree — `kb agents <path>` returns the root→nearest chain. For other areas it is the matching `docs/file-index-<area>.md` split. Either way the record is the cheapest map — one-line purpose + key exports + `See change:` history per file. Reading source blind wastes tokens and risks hallucination.
 
 **For "how do I X" / build / run / setup questions: grep `README.md` + `docs/` first.** These already document every supported workflow (build, install, release, QA, troubleshooting). Reading source before checking docs wastes tokens and produces wrong answers (e.g. claiming a feature is missing when it ships). Check `docs/faq.md` for recurring questions.
 
@@ -231,19 +234,15 @@ make clean              # Destroy all cloned VMs
 
 Workflow for any non-trivial "where is X" / "how does Y work" question:
 
-1. **Pick the split** from `docs/file-index.md` table (shared / extension / server / client / electron / plugins / skills-misc) by path prefix or topic.
-2. **Delegate harvesting to a subagent** (`Explore` preferred). Give it:
-   - the user's question,
-   - the split file(s) to read,
-   - explicit instruction: *"return only rows + file paths relevant to the question — no source reads, no speculation."*
-3. **Receive a short list** of candidate files (≤ ~10 rows). Only then open source for the ones that matter.
-4. If the split lacks coverage, fall back to `rg` / `Explore` over the source tree — and add the missing row per the Documentation Update Protocol.
-
-Why subagents: the splits are large (`file-index-server.md`, `file-index-client.md` each > 20 KB). Loading them into the main context on every question pollutes the budget. A subagent reads the split, returns the 5–10 relevant rows, and discards the rest.
+1. **`packages/**` file/dir:** run `kb agents <path>` for the root→nearest `AGENTS.md` chain, or read the file's own directory `AGENTS.md` (small, ~1 row/file). `kb_search --doc-type agents` finds a row by symbol/topic. No subagent needed — tree files are tiny.
+2. **Other areas** (`docker/`, `scripts/`, `.pi/skills/`, `public/`, `.github/`)**:** pick the split from `docs/file-index.md`, delegate harvesting to an `Explore` subagent (*"return only rows + paths relevant to the question — no source reads, no speculation"*). The splits are large (>20 KB); a subagent returns the 5–10 relevant rows and discards the rest.
+3. **Receive a short list** of candidate files (≤ ~10). Only then open source for the ones that matter.
+4. If neither the tree nor a split covers it, fall back to `rg` / `Explore`, then add the missing row per the Documentation Update Protocol.
 
 Do **not**:
-- Grep source before checking the index.
-- Read a whole split file into the main agent's context — delegate.
+- Grep source before checking the per-file record.
+- Read a whole `docs/file-index-<area>.md` split into the main context — delegate.
+- Hand-edit the `docs/file-index-<area>.md` splits for `packages/**` files — those rows live in the tree now.
 - Trust the AGENTS.md "Key Files" backbone as exhaustive; it is a subset.
 
 ## Subagent Routing
@@ -252,7 +251,7 @@ Delegate specialist work to the matching subagent instead of doing it inline. Su
 
 | Subagent | Use for |
 |---|---|
-| `Explore` | Read-only codebase search, file-index harvesting, "where is X" questions. Default for investigation. |
+| `Explore` | Read-only codebase search, `docs/file-index-<area>.md` split harvesting (non-`packages/` areas), "where is X" questions. Default for investigation. (`packages/**` per-file lookups use `kb agents <path>` directly — no subagent.) |
 | `react-expert` | React component refactors, hooks, state-management, render perf in `src/client/` and `packages/web/`. |
 | `typescript-expert` | Type-system work, generics, strict-mode fixes, async/Promise typing, `.d.ts` authoring. |
 | `nodejs-expert` | Server-side async, streams, perf, Node API usage in `src/server/`, `packages/server/`, Electron main process. |
@@ -270,11 +269,12 @@ Context inheritance (this repo ships `pi-dashboard-subagents` producer, NOT pi's
 
 ## Key Files
 
-The **architectural backbone** lived inline here; that 270-row table was an index, not an instruction. Per-file detail (including change-history annotations) now lives in the split files under `docs/file-index-<area>.md`.
+The **architectural backbone** lived inline here; that 270-row table was an index, not an instruction. Per-file detail now lives in two places: the per-directory `AGENTS.md` tree (`packages/**`) and the `docs/file-index-<area>.md` splits (other areas).
 
-- **Full file map**: [`docs/file-index.md`](docs/file-index.md) — area splits table.
-- **Investigation protocol**: see "Investigation Protocol — Index First" above. Delegate harvesting to a subagent; do not load whole splits into the main context.
-- **Adding a file**: per "Documentation Update Protocol" above, add a row to the matching `docs/file-index-<area>.md` in path-alphabetical order; do NOT add rows here.
+- **`packages/**` per-file record**: the directory `AGENTS.md` tree. Retrieve via `kb agents <path>` (root→nearest chain) or `kb_search --doc-type agents`. See change: migrate-file-index-to-agents-tree.
+- **Other areas + split map**: [`docs/file-index.md`](docs/file-index.md).
+- **Investigation protocol**: see "Investigation Protocol — Index First" above.
+- **Adding a file**: per "Documentation Update Protocol" — `packages/**` → nearest directory `AGENTS.md`; other areas → matching split. Never add per-file rows to this root file.
 
 ## Build & Restart Workflow
 

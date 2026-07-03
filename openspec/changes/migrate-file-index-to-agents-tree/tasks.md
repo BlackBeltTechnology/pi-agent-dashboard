@@ -28,7 +28,7 @@
 - [ ] 4.3 Decide file-index fate (design §4a): implement **(B)** generated rollup — `kb dox export` concatenates tree rows into `docs/file-index-<area>.md` (marked generated). → verify: rollup equals union of tree rows; a `kb get` of the rollup still works
 
 ## 5. Docs + protocol update (delegate every docs/ write to a subagent, caveman style)
-- [ ] 5.1 Update AGENTS.md Investigation Protocol + Documentation Update Protocol: point at `kb agents <path>` / directory `AGENTS.md` as the per-file record; file-index splits become generated rollups, not the source of truth. → verify: protocol text names the tree, no stale "add a row to the split" as primary path
+- [x] 5.1 Update AGENTS.md Investigation Protocol + Documentation Update Protocol: point at `kb agents <path>` / directory `AGENTS.md` as the per-file record; file-index splits become generated rollups, not the source of truth. → verify: protocol text names the tree, no stale "add a row to the split" as primary path
 - [x] 5.2 Add `docs/file-index-<area>.md` rows (or tree rows) for the new migration script + `dox.ts` deltas. → verify: new files have a purpose row
 
 ## 6. Context-cost spike (design §5) — gate before push mode
