@@ -23,6 +23,7 @@ function deps(abortSession: ServerContextDeps["abortSession"]): ServerContextDep
     consumeAll: () => [],
     spawnSession: async () => ({ success: true }),
     abortSession,
+    abortAutomationRun: async () => false,
     provide: () => {},
     consume: () => undefined,
     getPluginConfig: () => ({}),
@@ -41,5 +42,16 @@ describe("createServerPluginContext abortSession", () => {
   it("forwards an untrusted no-op hook that returns false", () => {
     const ctx = createServerPluginContext(deps(() => false), "untrusted");
     expect(ctx.abortSession("sess-1")).toBe(false);
+  });
+});
+
+describe("createServerPluginContext abortAutomationRun", () => {
+  it("forwards the host-supplied termination hook verbatim", async () => {
+    const hook = vi.fn(async () => true);
+    const d = deps(() => true);
+    d.abortAutomationRun = hook;
+    const ctx = createServerPluginContext(d, "automation");
+    await expect(ctx.abortAutomationRun({ sessionId: "s1", spawnToken: "tok", graceful: true })).resolves.toBe(true);
+    expect(hook).toHaveBeenCalledWith({ sessionId: "s1", spawnToken: "tok", graceful: true });
   });
 });

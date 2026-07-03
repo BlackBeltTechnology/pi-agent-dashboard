@@ -1479,6 +1479,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) return false;
                 return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
               },
+              // Terminate an automation run's spawned session. Same trust
+              // gate as spawnSession/abortSession. `graceful` sends a clean-
+              // exit {type:"shutdown"} hint AND escalates via the kill
+              // ladder (mirroring handleShutdown — the hint is dropped when
+              // the bridge WS is not OPEN, so the kill is the guarantee).
+              // Hard path kills by sessionId, falling back to spawnToken for
+              // a run spawned but not yet registered.
+              // See change: fix-automation-stop-zombie-runs.
+              abortAutomationRun: async ({ sessionId, spawnToken, graceful }) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                const reg = browserGateway.headlessPidRegistry;
+                if (graceful && sessionId) {
+                  piGateway.sendToSession(sessionId, { type: "shutdown", sessionId });
+                  return reg.killBySessionId(sessionId);
+                }
+                if (sessionId) {
+                  const killed = await reg.killBySessionId(sessionId);
+                  if (killed) return true;
+                  if (spawnToken) return reg.killByToken(spawnToken);
+                  return false;
+                }
+                if (spawnToken) return reg.killByToken(spawnToken);
+                return false;
+              },
               // Emit a configured pi event into a session (relayed as a
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.

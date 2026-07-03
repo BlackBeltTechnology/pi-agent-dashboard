@@ -59,17 +59,19 @@ Expose one hook on `ServerPluginContext`, gated `priority <= 100` like `spawnSes
 
 ```
 abortAutomationRun({ sessionId?, spawnToken?, graceful? }): Promise<boolean>
-  if graceful && sessionId → sendToSession(sessionId, {type:"shutdown"})   // clean exit
-                             (optionally escalate to kill if it survives)
+  if graceful && sessionId → sendToSession(sessionId, {type:"shutdown"})   // clean-exit hint
+                             then killBySessionId(sessionId)              // MANDATORY escalation
   else if sessionId linked → killBySessionId(sessionId)                    // hard
   else if spawnToken       → killByToken(spawnToken)                       // pre-register hard
   else                     → false
 ```
 
+The `graceful` branch mirrors the host's proven manual-close path `handleShutdown` (`session-action-handler.ts`), which never trusts the `{type:"shutdown"}` hint alone: `sendToSession` returns `false` when the bridge WS is not `OPEN` (reconnect/pre-register window), so the hint is silently dropped and a `--mode rpc` session keeps idling. The `killBySessionId` ladder (SIGTERM→2 s→SIGKILL) is the guarantee; the shutdown hint just lets a live bridge exit cleanly first (its own `process.exit(0)` safety net fires at 500 ms). Escalation is **not optional**.
+
 One hook, two callers: normal completion calls it `graceful: true`; Stop calls it hard. Keeps all pid-registry access inside the host (untrusted plugins can't kill arbitrary pids). `killByToken` is a thin mirror of `killBySessionId` resolving the entry via the stored token.
 
 ### D3b — Terminate on normal completion
-`engine.onSessionEnded` currently does `finishAndRelease` and stops. Add a termination call **after** result capture: `abortAutomationRun({ sessionId, spawnToken, graceful: true })`. Graceful (not hard) because the work finished cleanly and there is no urgency; the persistent rpc session simply needs to be told to exit. Termination runs after `removePending`, so any self-triggered end signal is a no-op (idempotency preserved).
+`engine.onSessionEnded` currently does `finishAndRelease` and stops. Add a termination call **after** result capture: `abortAutomationRun({ sessionId, spawnToken, graceful: true })`. `graceful` sends the clean-exit `{type:"shutdown"}` hint AND escalates via `killBySessionId` (mandatory, per D3) — the graceful hint alone is undeliverable during a bridge reconnect window and would leave the persistent rpc session idling. Termination runs after `removePending`, so any self-triggered end signal is a no-op (idempotency preserved).
 
 ### D4 — Finalize after kill, keep idempotency
 `stopRun` awaits/attempts the kill, then `finishAndRelease` (removePending → later `agent_end` is a no-op via `findBySession` miss, exactly as today). Because `stopRun` becomes async, the route handler already `await`s the hook; `engine.stopRun` returns a `Promise<boolean>` — false only when the run is unknown/already finalized (unchanged contract for the "not running" 400).
@@ -90,4 +92,7 @@ Pure server-side behaviour change; no schema or protocol version bump. Existing 
 
 ## Open Questions
 
-- Should the soft `{type:"abort"}` precede the kill with a short grace delay, or is immediate hard-kill acceptable for automations (no human at the keyboard)? Leaning immediate hard-kill for reliability; revisit if graceful capture of partial results matters.
+_(resolved)_
+
+- **Soft `{type:"abort"}` before the Stop kill?** No. Stop uses immediate hard-kill — automations have no human at the keyboard, and partial-result capture on Stop is out of scope. The `abortSession` dep is consequently dropped from the engine's stop path (see tasks 3.5).
+- **Graceful completion — shutdown hint alone or with escalation?** With escalation, mandatory. Verified: `{type:"shutdown"}` reliably exits an rpc session (bridge `shutdown()` → `cachedCtx.shutdown()` + `process.exit(0)` 500 ms safety net) **only when the bridge WS is connected**; it is dropped during reconnect/pre-register. The host's own `handleShutdown` always pairs the hint with `killBySessionId`, so completion does the same.

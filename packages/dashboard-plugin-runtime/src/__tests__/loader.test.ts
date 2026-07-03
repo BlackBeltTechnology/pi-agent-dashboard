@@ -25,6 +25,7 @@ function makeFakeContext(): ServerPluginContext {
     consumeAll: () => [],
     spawnSession: async () => ({ success: false }),
     abortSession: () => false,
+    abortAutomationRun: async () => false,
     provide: () => {},
     consume: () => undefined,
     registerBrowserHandler: () => {},

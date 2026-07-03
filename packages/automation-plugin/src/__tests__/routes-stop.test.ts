@@ -43,6 +43,19 @@ describe("POST /api/plugins/automation/stop", () => {
     await app.close();
   });
 
+  it("awaits an async stop hook (pre-register run) and returns ok", async () => {
+    const stopRun = vi.fn(async () => ({ ok: true as const }));
+    const app = await appWith({ stopRun });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins/automation/stop",
+      payload: { runId: "r-prereg" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    await app.close();
+  });
+
   it("400 when the hook reports the run is not running", async () => {
     const app = await appWith({ stopRun: () => ({ ok: false, error: "not running" }) });
     const res = await app.inject({ method: "POST", url: "/api/plugins/automation/stop", payload: { runId: "r1" } });

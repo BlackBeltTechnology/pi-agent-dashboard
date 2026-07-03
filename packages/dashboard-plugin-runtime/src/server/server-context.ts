@@ -129,6 +129,25 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
 export type AbortSessionFn = (sessionId: string) => boolean;
 
 /**
+ * Terminate an automation run's spawned session. Gated to first-party /
+ * trusted plugins (same trust gate as `spawnSession`/`abortSession`):
+ * untrusted plugins receive a hook that resolves `false` without touching
+ * the process registry.
+ *
+ * `graceful: true` sends a clean-exit `{type:"shutdown"}` hint to a live
+ * session AND escalates via the host kill ladder (the hint is dropped when
+ * the bridge WS is not OPEN, so the kill is the guarantee). Otherwise it
+ * hard-kills: by `sessionId` when linked, falling back to `spawnToken` for a
+ * run spawned but not yet registered. Returns `true` when a live process was
+ * targeted. See change: fix-automation-stop-zombie-runs.
+ */
+export type AbortAutomationRunFn = (args: {
+  sessionId?: string;
+  spawnToken?: string;
+  graceful?: boolean;
+}) => Promise<boolean>;
+
+/**
  * Publish a value under `name` into the host-owned cross-plugin service
  * registry (last write wins). In-process only — values never cross the
  * bridge. See change: register-plugin-automation-events.
@@ -184,6 +203,12 @@ export interface ServerPluginContext {
    */
   abortSession: AbortSessionFn;
   /**
+   * Terminate an automation run's spawned session (Stop + completion).
+   * Gated to first-party/trusted plugins; untrusted plugins get a hook that
+   * resolves `false`. See change: fix-automation-stop-zombie-runs.
+   */
+  abortAutomationRun: AbortAutomationRunFn;
+  /**
    * Publish a value other plugins can consume. See change:
    * register-plugin-automation-events.
    */
@@ -216,6 +241,7 @@ export interface ServerContextDeps {
   emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
+  abortAutomationRun: AbortAutomationRunFn;
   provide: ProvideFn;
   consume: ConsumeFn;
   consumeAll: ConsumeAllFn;
@@ -244,6 +270,7 @@ export function createServerPluginContext(
     emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
+    abortAutomationRun: deps.abortAutomationRun,
     provide: deps.provide,
     consume: deps.consume,
     consumeAll: deps.consumeAll,

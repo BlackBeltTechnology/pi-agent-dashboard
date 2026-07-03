@@ -167,6 +167,16 @@ export interface HeadlessPidRegistry {
    * added in change: fix-keeper-kill-escalation.
    */
   killBySessionId(sessionId: string): Promise<boolean>;
+  /**
+   * Terminate the process for the entry whose stored `spawnToken` matches,
+   * using the same SIGTERM → 2 s → SIGKILL ladder as `killBySessionId`
+   * (keeper-aware: kills pi first). Enables killing a spawned-but-not-yet-
+   * registered run — one with no `sessionId` linked — by process handle.
+   * Returns true if at least one kill targeted a live PID; false for an
+   * unknown token or an already-dead pid. See change:
+   * fix-automation-stop-zombie-runs.
+   */
+  killByToken(spawnToken: string): Promise<boolean>;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -222,6 +232,75 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       if (entry.sessionId === sessionId) return entry;
     }
     return undefined;
+  }
+
+  /** Internal: locate entry by stored spawnToken. */
+  function findByToken(spawnToken: string): HeadlessEntry | undefined {
+    for (const entry of entries.values()) {
+      if (entry.spawnToken === spawnToken) return entry;
+    }
+    return undefined;
+  }
+
+  /**
+   * Internal: run the SIGTERM → 2 s → SIGKILL kill ladder for one entry.
+   * Keeper-aware — kills pi first so the keeper's auto-exit fires, with a
+   * fallback SIGTERM to the keeper. Shared by `killBySessionId` /
+   * `killByToken`. Returns true if a live PID was targeted.
+   */
+  async function killEntry(entry: HeadlessEntry): Promise<boolean> {
+    // Keeper-mediated entry: kill pi first (with SIGTERM → 2 s →
+    // SIGKILL escalation) so the keeper's auto-exit-on-pi-exit handler
+    // fires; schedule a fallback SIGTERM to the keeper if it survives
+    // the brief grace window.
+    // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 6.4);
+    // SIGKILL escalation added in change: fix-keeper-kill-escalation.
+    if (entry.keeperPid !== undefined) {
+      const piPid = entry.piPid;
+      const keeperPid = entry.keeperPid;
+      let killedSomething = false;
+      if (piPid !== undefined) {
+        try {
+          await killProcess(piPid, { timeoutMs: 2000 });
+          killedSomething = true;
+        } catch { /* pi may already be dead */ }
+      }
+      // Fallback: 200 ms grace for the keeper's auto-exit; SIGTERM if it
+      // survives. Fire-and-forget — the keeper's own SIGTERM handler is
+      // reliable on the happy path, and Decision 3 of
+      // fix-keeper-kill-escalation has the keeper SIGKILL its piChild on
+      // shutdown, so registry-level SIGKILL escalation here is unneeded.
+      setTimeout(() => {
+        if (isProcessAlive(keeperPid)) {
+          try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
+        }
+      }, 200).unref?.();
+      // If pi was unknown (bridge never connected), fall through to
+      // killing the keeper directly with SIGKILL escalation so the
+      // spawn cleanup completes — we have no cleaner shutdown signal.
+      if (!killedSomething) {
+        try {
+          await killProcess(keeperPid, { timeoutMs: 2000 });
+          killedSomething = true;
+        } catch { /* ignore */ }
+      }
+      entries.delete(entry.pid);
+      persist();
+      return killedSomething;
+    }
+
+    // Non-keeper path (legacy): kill the spawn-time PID directly with
+    // SIGTERM → 2 s → SIGKILL escalation (uniform with keeper path).
+    try {
+      await killProcess(entry.pid, { timeoutMs: 2000 });
+      entries.delete(entry.pid);
+      persist();
+      return true;
+    } catch {
+      entries.delete(entry.pid);
+      persist();
+      return false;
+    }
   }
 
   function persist() {
@@ -348,59 +427,14 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
     async killBySessionId(sessionId: string): Promise<boolean> {
       const entry = findBySessionId(sessionId);
       if (!entry) return false;
+      return killEntry(entry);
+    },
 
-      // Keeper-mediated entry: kill pi first (with SIGTERM → 2 s →
-      // SIGKILL escalation) so the keeper's auto-exit-on-pi-exit handler
-      // fires; schedule a fallback SIGTERM to the keeper if it survives
-      // the brief grace window.
-      // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (task 6.4);
-      // SIGKILL escalation added in change: fix-keeper-kill-escalation.
-      if (entry.keeperPid !== undefined) {
-        const piPid = entry.piPid;
-        const keeperPid = entry.keeperPid;
-        let killedSomething = false;
-        if (piPid !== undefined) {
-          try {
-            await killProcess(piPid, { timeoutMs: 2000 });
-            killedSomething = true;
-          } catch { /* pi may already be dead */ }
-        }
-        // Fallback: 200 ms grace for the keeper's auto-exit; SIGTERM if it
-        // survives. Fire-and-forget — the keeper's own SIGTERM handler is
-        // reliable on the happy path, and Decision 3 of
-        // fix-keeper-kill-escalation has the keeper SIGKILL its piChild on
-        // shutdown, so registry-level SIGKILL escalation here is unneeded.
-        setTimeout(() => {
-          if (isProcessAlive(keeperPid)) {
-            try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
-          }
-        }, 200).unref?.();
-        // If pi was unknown (bridge never connected), fall through to
-        // killing the keeper directly with SIGKILL escalation so the
-        // spawn cleanup completes — we have no cleaner shutdown signal.
-        if (!killedSomething) {
-          try {
-            await killProcess(keeperPid, { timeoutMs: 2000 });
-            killedSomething = true;
-          } catch { /* ignore */ }
-        }
-        entries.delete(entry.pid);
-        persist();
-        return killedSomething;
-      }
-
-      // Non-keeper path (legacy): kill the spawn-time PID directly with
-      // SIGTERM → 2 s → SIGKILL escalation (uniform with keeper path).
-      try {
-        await killProcess(entry.pid, { timeoutMs: 2000 });
-        entries.delete(entry.pid);
-        persist();
-        return true;
-      } catch {
-        entries.delete(entry.pid);
-        persist();
-        return false;
-      }
+    async killByToken(spawnToken: string): Promise<boolean> {
+      if (!spawnToken) return false;
+      const entry = findByToken(spawnToken);
+      if (!entry) return false;
+      return killEntry(entry);
     },
 
     remove(pid: number) {

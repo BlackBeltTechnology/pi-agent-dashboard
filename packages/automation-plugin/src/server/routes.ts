@@ -58,12 +58,12 @@ export interface AutomationRouteHooks {
     cwd?: string;
     name: string;
   }) => Promise<{ ok: boolean; runId?: string; error?: string }>;
-  /** Stop a `running` run (abort its session + finalize the record). */
+  /** Stop a `running` run (terminate its process + finalize the record). */
   stopRun?: (args: {
     scope: AutomationScope;
     cwd?: string;
     runId: string;
-  }) => { ok: boolean; error?: string };
+  }) => Promise<{ ok: boolean; error?: string }> | { ok: boolean; error?: string };
   /**
    * Registered automation actions resolved for a cwd (availability +
    * enum options). Reads the live action registry shared with the engine.
@@ -114,7 +114,7 @@ export function mountAutomationRoutes(
       reply.code(503);
       return { error: "automation engine not ready" };
     }
-    const res = hooks.stopRun({
+    const res = await hooks.stopRun({
       scope: body.scope ?? "folder",
       ...(body.cwd ? { cwd: body.cwd } : {}),
       runId: body.runId,

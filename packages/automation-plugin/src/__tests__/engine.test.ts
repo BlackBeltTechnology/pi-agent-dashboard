@@ -333,16 +333,16 @@ describe("engine run lifecycle", () => {
     expect(engine.pendingForRunId(runId)).toBeUndefined();
   });
 
-  it("stopRun aborts the session and finalizes once; later end is a no-op", () => {
+  // Engine with an injected termination hook (records its call args).
+  function makeStoppableEngine(terminations: any[], token = "tok-1") {
     const calls: any[] = [];
-    const aborts: string[] = [];
     const engine = createEngine({
       spawnSession: async (opts) => {
         calls.push(opts);
-        return { success: true };
+        return { success: true, spawnToken: token };
       },
-      abortSession: (id) => {
-        aborts.push(id);
+      abortAutomationRun: async (args) => {
+        terminations.push(args);
         return true;
       },
       listScopes: () => [{ base: repo, scope: "folder" }],
@@ -350,11 +350,21 @@ describe("engine run lifecycle", () => {
       readRoles: () => ({ fast: "m" }),
       warn: () => {},
     });
+    return { engine, calls };
+  }
+
+  // Let the async spawn `.then` run so ctx.spawnToken is captured.
+  const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  it("stopRun terminates the session by sessionId and finalizes once; later end is a no-op", async () => {
+    const terminations: any[] = [];
+    const { engine } = makeStoppableEngine(terminations);
     const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
+    await flushSpawn();
     engine.onSessionRegisteredForRun("sess-1", runId);
 
-    expect(engine.stopRun(runId)).toBe(true);
-    expect(aborts).toEqual(["sess-1"]);
+    expect(await engine.stopRun(runId)).toBe(true);
+    expect(terminations).toEqual([{ sessionId: "sess-1", spawnToken: "tok-1" }]);
     const runs = listRuns(repo, "nightly");
     const rec = runs.find((r) => r.runId === runId)!;
     expect(rec.status).toBe("error");
@@ -366,11 +376,51 @@ describe("engine run lifecycle", () => {
     const after = listRuns(repo, "nightly");
     expect(after).toHaveLength(1);
     expect(after[0]!.status).toBe("error");
+    expect(terminations).toHaveLength(1);
   });
 
-  it("stopRun on an unknown/finalized run is a no-op returning false", () => {
+  it("stop during the spawn→register window terminates by spawnToken and leaves no zombie", async () => {
+    const terminations: any[] = [];
+    const { engine } = makeStoppableEngine(terminations, "tok-prereg");
+    const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
+    await flushSpawn(); // spawn resolved + token captured, but NO session_register yet
+
+    // Stop before register: no sessionId bound, only the spawnToken handle.
+    expect(await engine.stopRun(runId)).toBe(true);
+    expect(terminations).toEqual([{ spawnToken: "tok-prereg" }]);
+
+    // The late register must find no pending ctx → no prompt delivery, no zombie.
+    engine.onSessionRegisteredForRun("late-sess", runId);
+    expect(engine.pendingForRunId(runId)).toBeUndefined();
+    engine.onSessionEnded("late-sess", "orphan output");
+    const runs = listRuns(repo, "nightly");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.status).toBe("error"); // stopped, not overwritten by the orphan
+    expect(terminations).toHaveLength(1);
+  });
+
+  it("a completed run terminates its persistent session gracefully exactly once", async () => {
+    const terminations: any[] = [];
+    const { engine } = makeStoppableEngine(terminations, "tok-done");
+    const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
+    await flushSpawn();
+    engine.onSessionRegisteredForRun("sess-done", runId);
+    engine.onSessionEnded("sess-done", "Found regressions.");
+
+    expect(terminations).toEqual([{ sessionId: "sess-done", spawnToken: "tok-done", graceful: true }]);
+    const runs = listRuns(repo, "nightly");
+    expect(runs).toHaveLength(1);
+    expect(runs.find((r) => r.runId === runId)!.status).toBe("done");
+
+    // A subsequent end signal must not re-finalize or re-terminate.
+    engine.onSessionEnded("sess-done", "duplicate");
+    expect(terminations).toHaveLength(1);
+    expect(listRuns(repo, "nightly")).toHaveLength(1);
+  });
+
+  it("stopRun on an unknown/finalized run is a no-op returning false", async () => {
     const engine = makeEngine([]);
-    expect(engine.stopRun("does-not-exist")).toBe(false);
+    expect(await engine.stopRun("does-not-exist")).toBe(false);
   });
 
   it("arms valid automations via start()", () => {

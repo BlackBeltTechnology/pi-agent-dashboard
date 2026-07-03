@@ -135,8 +135,18 @@ export interface EngineConfig {
 
 export interface EngineDeps {
   spawnSession: SpawnLike;
-  /** Host-provided session abort. Returns false when not connected/untrusted. */
-  abortSession?: (sessionId: string) => boolean;
+  /**
+   * Host-provided run termination (Stop + normal completion). Kills the
+   * spawned process by `sessionId` (linked) or `spawnToken` (pre-register);
+   * `graceful: true` sends a clean-exit hint before the kill ladder. Returns
+   * false when untrusted/nothing targeted. See change:
+   * fix-automation-stop-zombie-runs.
+   */
+  abortAutomationRun?: (args: {
+    sessionId?: string;
+    spawnToken?: string;
+    graceful?: boolean;
+  }) => Promise<boolean>;
   /**
    * Shared action registry (built-ins + plugin-registered). When omitted the
    * engine creates one with only the built-ins. See change:
@@ -168,6 +178,12 @@ export interface RunContext {
   emitEvent?: { eventType: string; data?: Record<string, unknown> };
   modelError?: string;
   sessionId?: string;
+  /**
+   * Spawn correlation token captured from the `spawnSession` result. Gives
+   * Stop a process handle BEFORE any sessionId is bound (the fix for the
+   * spawn→register zombie window). See change: fix-automation-stop-zombie-runs.
+   */
+  spawnToken?: string;
   delivered: boolean;
 }
 
@@ -179,12 +195,14 @@ export interface Engine {
   /** Spawn-side of a fire — exposed for tests. Returns the run id or null. */
   startRunFor(automation: DiscoveredAutomation): { runId: string } | null;
   /**
-   * Stop a `running` run: abort its session via the host hook and finalize the
-   * run record once. Idempotent vs `onSessionEnded` — a subsequent end event
-   * for that session is a no-op. Returns false when the run is unknown/already
-   * finalized. See change: automation-ui-mockup-parity.
+   * Stop a `running` run: terminate its spawned process via the host hook
+   * (hard-kill by sessionId, or by spawnToken during the spawn→register
+   * window) and finalize the run record once, AFTER termination is attempted.
+   * Idempotent vs `onSessionEnded` — a subsequent end event for that session
+   * is a no-op. Returns false when the run is unknown/already finalized.
+   * See change: automation-ui-mockup-parity, fix-automation-stop-zombie-runs.
    */
-  stopRun(runId: string): boolean;
+  stopRun(runId: string): Promise<boolean>;
   /** Run-context lookup by cwd (used by the register correlation). */
   pendingForCwd(cwd: string): RunContext | undefined;
   /** Run-context lookup by runId (exact, race-free correlation). */
@@ -340,7 +358,11 @@ export function createEngine(deps: EngineDeps): Engine {
         if (!res.success) {
           warn(`[engine] spawn failed for ${ctx.key}: ${res.message ?? "unknown"}`);
           finishAndRelease(ctx, { status: "error", error: res.message ?? "spawn failed" });
+          return;
         }
+        // Capture the process handle so Stop can kill the run even before its
+        // session registers. See change: fix-automation-stop-zombie-runs.
+        if (res.spawnToken) ctx.spawnToken = res.spawnToken;
       })
       .catch((e) => {
         // A rejected spawn promise MUST still finish the run + release the
@@ -409,7 +431,7 @@ export function createEngine(deps: EngineDeps): Engine {
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
-    stopRun(runId: string): boolean {
+    async stopRun(runId: string): Promise<boolean> {
       // Find the live pending context for this run (any state). A run already
       // finalized has been removed from `pending`, so this returns false and
       // the call is a no-op — idempotent against a prior stop or agent_end.
@@ -422,7 +444,16 @@ export function createEngine(deps: EngineDeps): Engine {
         }
       }
       if (!ctx) return false;
-      if (ctx.sessionId && deps.abortSession) deps.abortSession(ctx.sessionId);
+      // Terminate the actual process (immediate hard-kill — the failure mode
+      // is a surviving pi, not a stuck turn). Kills by sessionId when linked,
+      // else by spawnToken (the spawn→register window). Attempt the kill
+      // BEFORE finalizing so we never finalize a still-running process.
+      if (deps.abortAutomationRun) {
+        await deps.abortAutomationRun({
+          ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+          ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+        });
+      }
       // Finalize once. A non-empty result marker keeps the stopped run out of
       // the auto-archive (empty) bucket so it stays visible in Triage.
       // removePending makes the later onSessionEnded a no-op (findBySession
@@ -435,11 +466,24 @@ export function createEngine(deps: EngineDeps): Engine {
     onSessionEnded(sessionId: string, result: string): void {
       const found = findBySession(sessionId);
       if (!found) return;
+      const spawnToken = found.spawnToken;
       finishAndRelease(found, {
         status: found.modelError ? "error" : "done",
         result,
         ...(found.modelError ? { error: found.modelError } : {}),
       });
+      // Terminate the now-idle persistent `--mode rpc` session (it does not
+      // self-exit on agent_end). Graceful: send a clean-exit hint + escalate
+      // via the kill ladder in the host hook. Runs AFTER removePending so any
+      // self-triggered end signal is a no-op (idempotent). Fire-and-forget —
+      // finalization already happened. See change: fix-automation-stop-zombie-runs.
+      if (deps.abortAutomationRun) {
+        void deps.abortAutomationRun({
+          sessionId,
+          ...(spawnToken ? { spawnToken } : {}),
+          graceful: true,
+        });
+      }
       log(`[engine] run ${found.runId} ended (${found.key})`);
     },
 

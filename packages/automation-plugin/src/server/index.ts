@@ -140,7 +140,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 
   const engine = createEngine({
     spawnSession: (opts) => ctx.spawnSession(opts),
-    abortSession: (id) => ctx.abortSession(id),
+    abortAutomationRun: (args) => ctx.abortAutomationRun(args),
     resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
     listScopes,
     config: pluginConfig,
@@ -313,11 +313,11 @@ async function runNowViaEngine(
   return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
 }
 
-/** Stop a running run via the engine (abort session + finalize idempotently). */
-function stopRunViaEngine(runId: string): { ok: boolean; error?: string } {
+/** Stop a running run via the engine (terminate process + finalize idempotently). */
+async function stopRunViaEngine(runId: string): Promise<{ ok: boolean; error?: string }> {
   const eng = engineRef;
   if (!eng) return { ok: false, error: "engine not ready" };
-  return eng.stopRun(runId)
+  return (await eng.stopRun(runId))
     ? { ok: true }
     : { ok: false, error: `run "${runId}" not running or already finished` };
 }
