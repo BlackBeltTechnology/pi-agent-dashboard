@@ -8,6 +8,8 @@
 
 > Wired into project via `.pi/settings.json` extensions list as `+packages/kb-extension/src/index.ts`.
 
+> **Source-file rows synced from the per-directory `AGENTS.md` tree** (change: migrate-file-index-to-agents-tree). Edit `packages/**` source rows in the directory `AGENTS.md`, not here; non-source rows (package.json, *.json, skill dirs) stay hand-maintained.
+
 | File | Purpose |
 |------|---------|
 | `packages/kb-extension/package.json` | npm manifest. name @blackbelt-technology/pi-dashboard-kb-extension. peer deps pi-coding-agent. |

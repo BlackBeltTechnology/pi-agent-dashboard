@@ -3,7 +3,7 @@
 // spawning @fast subagents; this module owns everything else: plan, batch,
 // grounding gate, idempotent per-dir write, checkpoint/gaps persistence.
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { areaFiles } from "./dox.js";
 import { type DirPlan, type AuthoredRow, finalRows, mergeIndex, planDirs, renderAgentsMd, tier0Rows, validateAuthored } from "./migrate-file-index.js";
 
@@ -170,6 +170,140 @@ export function writeDir(cwd: string, plan: DirPlan, authoredMiss: Map<string, s
     writeFileSync(file, md, "utf8");
   }
   return { ok: v.ok, errors: v.errors, ungrounded };
+}
+
+// --- rollup export (task 4.3, design §4d option B) ---
+// Regenerate the packages-covering docs/file-index-<area>.md splits from the
+// tree. SAFETY: preserve every existing row (tree holds only SOURCE files;
+// splits also carry package.json/.json/skill-dir rows that MUST survive);
+// overlay source-file rows from the tree (hits byte-identical, misses added);
+// inherit each new row's owning split from where its sibling files already live.
+const SPLIT_AREAS = ["shared", "extension", "server", "client", "electron", "plugins", "kb", "document-converter", "skills-misc"];
+
+interface SplitDoc {
+  area: string;
+  file: string;
+  header: string[]; // lines up to and including the |---|---| separator
+  rows: Map<string, string>; // path → purpose (insertion order irrelevant; re-sorted on write)
+}
+
+function parseSplit(file: string): SplitDoc | null {
+  if (!existsSync(file)) return null;
+  const lines = readFileSync(file, "utf8").split("\n");
+  const sep = lines.findIndex((l) => /^\|\s*-+\s*\|\s*-+\s*\|/.test(l));
+  const header = sep >= 0 ? lines.slice(0, sep + 1) : lines;
+  const rows = new Map<string, string>();
+  for (const l of lines.slice(sep + 1)) {
+    const m = l.match(/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/);
+    if (m) rows.set(m[1].trim(), m[2].trim());
+  }
+  const area = basename(file).replace(/^file-index-/, "").replace(/\.md$/, "");
+  return { area, file, header, rows };
+}
+
+/** Reconstruct full repo-relative source rows from the tree (dir + basename). */
+export function treeRows(cwd: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, e.name);
+      if (e.name === "node_modules" || e.name === "dist") continue;
+      if (e.isDirectory()) walk(abs);
+      else if (e.name === "AGENTS.md") {
+        const relDir = relative(cwd, dir);
+        for (const l of readFileSync(abs, "utf8").split("\n")) {
+          const m = l.match(/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/);
+          if (m && m[1] !== "File") out.set(join(relDir, m[1].trim()), m[2].trim());
+        }
+      }
+    }
+  };
+  walk(join(cwd, "packages"));
+  return out;
+}
+
+export interface RollupResult {
+  perArea: Record<string, { added: number; changed: number; total: number }>;
+  unassigned: string[];
+}
+/** Merge tree source rows into the packages-covering splits. Idempotent. */
+export function exportRollup(cwd: string, opts: { write?: boolean } = {}): RollupResult {
+  const docs = join(cwd, "docs");
+  const splits = SPLIT_AREAS.map((a) => parseSplit(join(docs, `file-index-${a}.md`))).filter((s): s is SplitDoc => !!s);
+  // ownership: existing path → area; dir → area vote
+  const pathOwner = new Map<string, string>();
+  const dirVotes = new Map<string, Map<string, number>>();
+  for (const s of splits)
+    for (const p of s.rows.keys()) {
+      pathOwner.set(p, s.area);
+      const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".";
+      const v = dirVotes.get(d) ?? new Map();
+      v.set(s.area, (v.get(s.area) ?? 0) + 1);
+      dirVotes.set(d, v);
+    }
+  const majority = (d: string): string | null => {
+    const v = dirVotes.get(d);
+    if (!v) return null;
+    return [...v.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  };
+  // package-root vote: split owning the most existing paths under packages/<pkg>/
+  const packageRootOwner = (p: string): string | null => {
+    const parts = p.split("/");
+    if (parts[0] !== "packages" || parts.length < 2) return null;
+    const prefix = `packages/${parts[1]}/`;
+    const votes = new Map<string, number>();
+    for (const [ep, area] of pathOwner) if (ep.startsWith(prefix)) votes.set(area, (votes.get(area) ?? 0) + 1);
+    if (!votes.size) return null;
+    return [...votes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  };
+  const ownerOf = (p: string): string | null => {
+    if (pathOwner.has(p)) return pathOwner.get(p)!;
+    let d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".";
+    while (d && d !== ".") {
+      const m = majority(d);
+      if (m) return m;
+      d = d.includes("/") ? d.slice(0, d.lastIndexOf("/")) : ".";
+    }
+    return packageRootOwner(p);
+  };
+  const byArea = new Map(splits.map((s) => [s.area, s]));
+  const result: RollupResult = { perArea: {}, unassigned: [] };
+  const adds = new Map<string, Map<string, string>>(); // area → path → purpose
+  for (const [p, purpose] of treeRows(cwd)) {
+    const area = ownerOf(p);
+    if (!area || !byArea.has(area)) {
+      result.unassigned.push(p);
+      continue;
+    }
+    (adds.get(area) ?? adds.set(area, new Map()).get(area)!).set(p, purpose);
+  }
+  for (const s of splits) {
+    const treeForArea = adds.get(s.area) ?? new Map();
+    let added = 0;
+    let changed = 0; // divergent existing rows: KEPT (never overwritten), counted only
+    const merged = new Map(s.rows);
+    for (const [p, purpose] of treeForArea) {
+      if (!merged.has(p)) {
+        merged.set(p, purpose); // add-only: new source rows
+        added++;
+      } else if (merged.get(p) !== purpose) {
+        changed++; // existing curated row differs (cross-split dup) — keep existing, do NOT overwrite
+      }
+    }
+    result.perArea[s.area] = { added, changed, total: merged.size };
+    if (opts.write) {
+      const sorted = [...merged.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+      const banner = "> **Source-file rows synced from the per-directory `AGENTS.md` tree** (change: migrate-file-index-to-agents-tree). Edit `packages/**` source rows in the directory `AGENTS.md`, not here; non-source rows (package.json, *.json, skill dirs) stay hand-maintained.";
+      const head = [...s.header];
+      if (!head.some((l) => l.includes("Source-file rows synced"))) {
+        const sepIdx = head.findIndex((l) => /^\|\s*-+\s*\|/.test(l));
+        head.splice(sepIdx - 1, 0, banner, ""); // insert banner just before the table header row
+      }
+      const body = sorted.map(([p, purpose]) => `| \`${p}\` | ${purpose} |`);
+      writeFileSync(s.file, head.join("\n") + "\n" + body.join("\n") + "\n", "utf8");
+    }
+  }
+  return result;
 }
 
 // --- checkpoint / gaps persistence (resumability) ---

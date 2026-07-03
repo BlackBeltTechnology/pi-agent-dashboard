@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { groundingCheck, makeBatches } from "../migrate-runner.js";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { exportRollup, groundingCheck, makeBatches } from "../migrate-runner.js";
 import type { DirPlan } from "../migrate-file-index.js";
 
 describe("migrate-runner: groundingCheck", () => {
@@ -25,6 +28,36 @@ class StateStore { __resetForTests() {} setFlows() {} }
     const known = new Set(["MermaidBlock", "FlowGraph"]);
     const r = groundingCheck("Used by `MermaidBlock`, `FlowGraph`.", src, known);
     expect(r.ok).toBe(true); // consumers, not local symbols → not flagged
+  });
+});
+
+describe("migrate-runner: exportRollup (add-only, preserve curated rows)", () => {
+  it("adds new source rows, preserves non-source + divergent rows byte-for-byte, inserts one banner", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "kb-rollup-"));
+    mkdirSync(join(cwd, "docs"), { recursive: true });
+    mkdirSync(join(cwd, "packages", "kb", "src"), { recursive: true });
+    // existing split: one source hit, one non-source row (package.json) that the tree never has
+    writeFileSync(
+      join(cwd, "docs", "file-index-kb.md"),
+      "# File Index — KB\n\n> note\n\n| File | Purpose |\n|------|---------|\n| `packages/kb/package.json` | npm manifest. |\n| `packages/kb/src/hit.ts` | Curated hit purpose. |\n",
+    );
+    // tree: hit.ts (same purpose = hit) + miss.ts (new source row)
+    writeFileSync(
+      join(cwd, "packages", "kb", "src", "AGENTS.md"),
+      "# DOX\n\n| File | Purpose |\n|------|---------|\n| `hit.ts` | Curated hit purpose. |\n| `miss.ts` | Authored miss purpose. |\n",
+    );
+    const r = exportRollup(cwd, { write: true });
+    expect(r.perArea.kb.added).toBe(1); // only miss.ts
+    const out = readFileSync(join(cwd, "docs", "file-index-kb.md"), "utf8");
+    expect(out).toContain("| `packages/kb/package.json` | npm manifest. |"); // non-source preserved
+    expect(out).toContain("| `packages/kb/src/hit.ts` | Curated hit purpose. |"); // hit unchanged
+    expect(out).toContain("| `packages/kb/src/miss.ts` | Authored miss purpose. |"); // miss added
+    expect(out.match(/Source-file rows synced/g)?.length).toBe(1); // exactly one banner
+    // idempotent: second run adds nothing, still one banner
+    const r2 = exportRollup(cwd, { write: true });
+    expect(r2.perArea.kb.added).toBe(0);
+    expect(readFileSync(join(cwd, "docs", "file-index-kb.md"), "utf8").match(/Source-file rows synced/g)?.length).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
   });
 });
 
