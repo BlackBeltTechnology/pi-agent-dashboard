@@ -10,14 +10,16 @@
  *
  * Replaces `state-store.ts` (hidden state moved to per-session `.meta.json`).
  */
-import path from "node:path";
+
 import { randomUUID } from "node:crypto";
-import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import path from "node:path";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { safeRealpathSync } from "./resolve-path.js";
-import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 
 export const PREFERENCES_FILE = path.join(CONFIG_DIR, "preferences.json");
 
@@ -60,6 +62,11 @@ interface PreferencesData {
    * See change: docker-packaging.
    */
   pinSeeded?: boolean;
+  /**
+   * User-curated live-server-preview allowlist (loopback dev-server targets).
+   * Absent in legacy files → `[]`. See change: improve-content-editor (§6).
+   */
+  liveServers?: LiveServerTarget[];
 }
 
 export interface PreferencesStore {
@@ -123,6 +130,11 @@ export interface PreferencesStore {
   getAutoInitWorktreeOnSpawn(): boolean;
   /** Persists the opt-in auto-init-on-spawn flag. */
   setAutoInitWorktreeOnSpawn(value: boolean): void;
+  // ── live-server-preview (improve-content-editor §6) ────────
+  /** Returns the persisted live-server allowlist. Absent → `[]`. */
+  getLiveServers(): LiveServerTarget[];
+  /** Replaces the live-server allowlist. */
+  setLiveServers(targets: LiveServerTarget[]): void;
   flush(): void;
   dispose(): void;
 }
@@ -208,6 +220,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
   let openspecUpdateSignatures: Record<string, string> = data.openspecUpdateSignatures ?? {};
   // Opt-in auto-init flag. Absent/non-boolean → false (today's behavior).
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
+  let liveServers: LiveServerTarget[] = Array.isArray(data.liveServers) ? data.liveServers : [];
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
   let favoriteModels: string[] = dedupePreserveOrder(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
@@ -232,7 +245,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded, liveServers } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -244,7 +257,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, pinSeeded, liveServers } satisfies PreferencesData);
     }
   }
 
@@ -261,6 +274,15 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
 
     setSessionOrder(order: Record<string, string[]>): void {
       sessionOrder = order;
+      scheduleSave();
+    },
+
+    getLiveServers(): LiveServerTarget[] {
+      return [...liveServers];
+    },
+
+    setLiveServers(targets: LiveServerTarget[]): void {
+      liveServers = [...targets];
       scheduleSave();
     },
 

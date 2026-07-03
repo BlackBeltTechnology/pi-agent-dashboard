@@ -5,30 +5,33 @@
  * renderer chosen by `dispatchPreview`. Inline size policy per design D2.
  * See change: render-file-previews.
  */
-import React, { Suspense, lazy } from "react";
-import { Icon } from "@mdi/react";
+
+import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiFileDocumentOutline,
+  mdiFileMusicOutline,
   mdiFilePdfBox,
   mdiImageOutline,
+  mdiLanguageHtml5,
+  mdiOpenInNew,
   mdiVideoOutline,
   mdiWeb,
   mdiYoutube,
-  mdiLanguageHtml5,
-  mdiOpenInNew,
 } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { lazy, Suspense } from "react";
 import { useLocation } from "wouter";
-import type { ViewTarget } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { dispatchPreview, type RendererKind } from "../lib/preview-dispatch.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
-import { MarkdownPreview } from "./preview/MarkdownPreview.js";
-import { AsciiDocPreview } from "./preview/AsciiDocPreview.js";
-import { HtmlPreview } from "./preview/HtmlPreview.js";
-import { VideoPreview } from "./preview/VideoPreview.js";
-import { ImagePreview } from "./preview/ImagePreview.js";
-import { YouTubePreview } from "./preview/YouTubePreview.js";
-import { FallbackPreview } from "./preview/FallbackPreview.js";
 import { t as i18nT } from "../lib/i18n";
+import { dispatchPreview, type RendererKind } from "../lib/preview-dispatch.js";
+import { AsciiDocPreview } from "./preview/AsciiDocPreview.js";
+import { AudioPreview } from "./preview/AudioPreview.js";
+import { FallbackPreview } from "./preview/FallbackPreview.js";
+import { HtmlPreview } from "./preview/HtmlPreview.js";
+import { ImagePreview } from "./preview/ImagePreview.js";
+import { MarkdownPreview } from "./preview/MarkdownPreview.js";
+import { VideoPreview } from "./preview/VideoPreview.js";
+import { YouTubePreview } from "./preview/YouTubePreview.js";
 
 // Lazy-load pdfjs only when a PDF preview actually mounts. Keeps pdfjs
 // out of the main bundle. See change: render-file-previews (D6).
@@ -49,6 +52,8 @@ function iconFor(kind: RendererKind): string {
       return mdiImageOutline;
     case "video":
       return mdiVideoOutline;
+    case "audio":
+      return mdiFileMusicOutline;
     case "youtube":
       return mdiYoutube;
     case "html":
@@ -114,6 +119,8 @@ export function PreviewBody({
       );
     case "video":
       return <VideoPreview target={target} />;
+    case "audio":
+      return <AudioPreview target={target} />;
     case "image":
       return <ImagePreview target={target} />;
     default:

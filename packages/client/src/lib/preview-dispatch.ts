@@ -12,6 +12,7 @@ export type RendererKind =
   | "html"
   | "pdf"
   | "video"
+  | "audio"
   | "image"
   | "youtube"
   | "fallback";
@@ -28,6 +29,11 @@ export const RENDERER_BY_EXT: Record<string, RendererKind> = {
   ".mp4": "video",
   ".webm": "video",
   ".mov": "video",
+  ".mp3": "audio",
+  ".wav": "audio",
+  ".ogg": "audio",
+  ".m4a": "audio",
+  ".flac": "audio",
   ".png": "image",
   ".jpg": "image",
   ".jpeg": "image",

@@ -27,6 +27,39 @@ describe("fileKind", () => {
     expect(r).toMatchObject({ kind: "pdf", viewer: "pdf", mimeType: "application/pdf" });
   });
 
+  it("routes .html/.htm to the html viewer (not monaco source)", () => {
+    for (const ext of [".html", ".htm"]) {
+      const r = fileKind(abs(`page${ext}`));
+      expect(r.viewer, ext).toBe("html");
+      expect(r.kind, ext).toBe("html");
+      expect(r.mimeType, ext).toBe("text/html");
+    }
+  });
+
+  it("routes .mmd/.mermaid to the mermaid viewer", () => {
+    for (const ext of [".mmd", ".mermaid"]) {
+      const r = fileKind(abs(`chart${ext}`));
+      expect(r.viewer, ext).toBe("mermaid");
+      expect(r.kind, ext).toBe("mermaid");
+    }
+  });
+
+  it("routes audio extensions to the audio viewer", () => {
+    for (const ext of [".mp3", ".wav", ".ogg", ".m4a", ".flac"]) {
+      const r = fileKind(abs(`sound${ext}`));
+      expect(r.viewer, ext).toBe("audio");
+      expect(r.kind, ext).toBe("audio");
+    }
+  });
+
+  it("routes video extensions to the video viewer", () => {
+    for (const ext of [".mp4", ".webm", ".mov"]) {
+      const r = fileKind(abs(`clip${ext}`));
+      expect(r.viewer, ext).toBe("video");
+      expect(r.kind, ext).toBe("video");
+    }
+  });
+
   it("overrides monaco with markdown for .md / .mdx", () => {
     expect(fileKind(abs("README.md")).viewer).toBe("markdown");
     expect(fileKind(abs("doc.mdx")).viewer).toBe("markdown");

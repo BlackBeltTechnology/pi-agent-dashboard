@@ -1,112 +1,114 @@
 /**
  * Dashboard HTTP + WebSocket server.
  */
-import Fastify from "fastify";
-import fastifyStatic from "@fastify/static";
-import cors from "@fastify/cors";
-import compress from "@fastify/compress";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import os from "node:os";
-import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
-import { createMemoryEventStore, type EventStore } from "./memory-event-store.js";
-import { createMemorySessionManager, type SessionManager } from "./memory-session-manager.js";
-import { createPiGateway, type PiGateway } from "./pi-gateway.js";
-import { createBrowserGateway, type BrowserGateway } from "./browser-gateway.js";
-import { createFileWatchManager } from "./file-watch-manager.js";
-import { pluginIntentCache } from "./plugin-intent-cache.js";
-import { createPreferencesStore, type PreferencesStore } from "./preferences-store.js";
-import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
-import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
-import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
-import { createPendingClientCorrelations } from "./pending-client-correlations.js";
-import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
-import { createPendingAttachRegistry } from "./pending-attach-registry.js";
-import { createPendingInitialPromptRegistry } from "./pending-initial-prompt-registry.js";
-import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
-import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
-import { spawnPiSession } from "./process-manager.js";
-import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
-import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
-import { applyReattachPolicy } from "./reattach-placement.js";
-import { resolveOrderKey } from "./resolve-order-key.js";
-import { reconcileSessionOrder } from "./reconcile-session-order.js";
 
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
+import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import {
+  reconcilePluginBridgePackages,
+  registerAllPluginBridges,
+} from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import compress from "@fastify/compress";
+import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
+import Fastify from "fastify";
+import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
+import { type BrowserGateway, createBrowserGateway } from "./browser-gateway.js";
+import { writeConfigPartial } from "./config-api.js";
+import { registerCsp, resolveCspMode } from "./csp.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
-import { createHydrationMetrics } from "./hydration-metrics.js";
-import { monitorEventLoopDelay } from "node:perf_hooks";
-import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
-import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
-import { writePid, removePid } from "./server-pid.js";
-import { advertiseDashboard, stopAdvertising, createBrowser, type DashboardBrowser, type DiscoveredServer } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import { wireEvents } from "./event-wiring.js";
-import { createIdleTimer } from "./idle-timer.js";
-import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
-import { scanAllSessions } from "./session-scanner.js";
-import { needsMigration, runMigration } from "./migrate-persistence.js";
-import { detectZrokBinary, cleanupStaleZrok, createTunnel, deleteTunnel, scavengeOrphanZrokProcesses, getTunnelUrl } from "./tunnel.js";
-import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel-watchdog.js";
-import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
-import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
-import { createNetworkGuard, isLoopback, isBypassedHost } from "./localhost-guard.js";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { loadConfig, CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
-import { registerSessionApi } from "./session-api.js";
-import { registerManifestRoute } from "./routes/manifest-route.js";
-import { registerSessionRoutes } from "./routes/session-routes.js";
-import { registerGitRoutes } from "./routes/git-routes.js";
-import { registerFileRoutes } from "./routes/file-routes.js";
-import { registerGrepRoutes } from "./routes/grep-routes.js";
-import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
-import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
-import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
-import { registerGoalRoutes } from "./routes/goal-routes.js";
-import { createGoalStore } from "./goal-store.js";
-import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
-import { decideBudgetHalt } from "./goal-budget-guard.js";
-import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
-import { primeGoalSession } from "./goal-session-primer.js";
-import { mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { registerSystemRoutes } from "./routes/system-routes.js";
-import { registerDoctorRoutes } from "./routes/doctor-routes.js";
-import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
-import { registerPackageRoutes } from "./routes/package-routes.js";
-import { registerRecommendedRoutes, invalidateRecommendedCache } from "./routes/recommended-routes.js";
-import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
-import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
-import { PiCoreChecker } from "./pi-core-checker.js";
-import { PiCoreUpdater } from "./pi-core-updater.js";
-import { registerToolRoutes } from "./routes/tool-routes.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { registerProviderRoutes } from "./routes/provider-routes.js";
-import { PackageManagerWrapper } from "./package-manager-wrapper.js";
+import { detectCodeServerBinary } from "./editor-detection.js";
 import { createEditorManager, type EditorManager } from "./editor-manager.js";
 import { createEditorPidRegistry } from "./editor-pid-registry.js";
+import { handleEditorUpgrade, registerEditorProxy } from "./editor-proxy.js";
+import { wireEvents } from "./event-wiring.js";
+import { createFileWatchManager } from "./file-watch-manager.js";
+import { decideBudgetHalt } from "./goal-budget-guard.js";
+import { primeGoalSession } from "./goal-session-primer.js";
+import { createGoalStore } from "./goal-store.js";
+import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
+import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
+import { createHydrationMetrics } from "./hydration-metrics.js";
+import { createIdleTimer } from "./idle-timer.js";
+import { createLiveServerManager } from "./live-server-manager.js";
+import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server-proxy.js";
+import { createNetworkGuard, isBypassedHost, isLoopback } from "./localhost-guard.js";
+import { createMemoryEventStore, type EventStore } from "./memory-event-store.js";
+import { createMemorySessionManager, type SessionManager } from "./memory-session-manager.js";
+import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
+import { needsMigration, runMigration } from "./migrate-persistence.js";
+import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
+import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
+import { PackageManagerWrapper } from "./package-manager-wrapper.js";
+import { createPendingAttachRegistry } from "./pending-attach-registry.js";
+import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
+import { createPendingClientCorrelations } from "./pending-client-correlations.js";
+import { createPendingForkRegistry, type PendingForkRegistry } from "./pending-fork-registry.js";
+import { createPendingGoalLinkRegistry } from "./pending-goal-link-registry.js";
+import { createPendingInitialPromptRegistry } from "./pending-initial-prompt-registry.js";
+import { createPendingResumeIntentRegistry } from "./pending-resume-intent-registry.js";
+import { createPendingWorktreeBaseRegistry } from "./pending-worktree-base-registry.js";
+import { PiCoreChecker } from "./pi-core-checker.js";
+import { PiCoreUpdater } from "./pi-core-updater.js";
+import { createPiGateway, type PiGateway } from "./pi-gateway.js";
+import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { createPreferencesStore, type PreferencesStore } from "./preferences-store.js";
+import { spawnPiSession } from "./process-manager.js";
+import { applyReattachPolicy } from "./reattach-placement.js";
+import { reconcileSessionOrder } from "./reconcile-session-order.js";
+import { resolveOrderKey } from "./resolve-order-key.js";
+import { registerDoctorRoutes } from "./routes/doctor-routes.js";
 import { registerEditorRoutes } from "./routes/editor-routes.js";
+import { registerFileRoutes } from "./routes/file-routes.js";
+import { registerGitRoutes } from "./routes/git-routes.js";
+import { registerGoalRoutes } from "./routes/goal-routes.js";
+import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
+import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
+import { registerManifestRoute } from "./routes/manifest-route.js";
+import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
+import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
+import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
+import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
+import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
+import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
+import { registerPackageRoutes } from "./routes/package-routes.js";
+import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
+import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
-import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
-import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
-import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
-import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
-import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
-import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
-import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
-import { writeConfigPartial } from "./config-api.js";
-import { loadServerEntries, discoverPlugins, getPluginStatusStore, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { createServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { getPluginConfig as getPluginConfigFromFile } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import {
-  registerAllPluginBridges,
-  reconcilePluginBridgePackages,
-} from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { registerEditorProxy, handleEditorUpgrade } from "./editor-proxy.js";
-import { detectCodeServerBinary } from "./editor-detection.js";
+import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
+import { registerProviderRoutes } from "./routes/provider-routes.js";
+import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
+import { registerSessionRoutes } from "./routes/session-routes.js";
+import { registerSystemRoutes } from "./routes/system-routes.js";
+import { registerToolRoutes } from "./routes/tool-routes.js";
+import { removePid, writePid } from "./server-pid.js";
+import { registerSessionApi } from "./session-api.js";
+import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
+import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
+import { scanAllSessions } from "./session-scanner.js";
+import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
+import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
+import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel.js";
+import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel-watchdog.js";
+import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
 
 export interface ServerConfig {
   port: number;
@@ -585,6 +587,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   const editorPidRegistry = createEditorPidRegistry({ editorManager });
+  // Live-server-preview manager (loopback dev-server allowlist + proxy).
+  const liveServerManager = createLiveServerManager(preferencesStore);
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence);
 
@@ -819,6 +823,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     origin: (origin, cb) => {
       // Same-origin navigation (no Origin header) — always allow.
       if (!origin) return cb(null, true);
+      // Opaque-origin documents (sandboxed live-server iframe WITHOUT
+      // allow-same-origin, D7) send the literal `Origin: null`. Never echo an
+      // ACAO for it, so the embedded untrusted app cannot call dashboard APIs
+      // even cross-origin. See change: improve-content-editor (§6.5).
+      if (origin === "null") return cb(null, false);
       try {
         const u = new URL(origin);
         const host = u.hostname;
@@ -843,6 +852,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
     credentials: true,
   });
+
+  // Baseline CSP (defense in depth). Report-only by default (non-breaking);
+  // `PI_DASHBOARD_CSP=enforce` flips to enforcing once report-only is clean.
+  // Skips proxied prefixes (/editor, /live) so their own policies stand.
+  // See change: improve-content-editor (§7).
+  registerCsp(fastify, resolveCspMode(process.env.PI_DASHBOARD_CSP));
 
   // Register auth plugin if configured (must be before routes)
   if (config.authConfig) {
@@ -1119,6 +1134,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // POST /api/editor/start call is guaranteed to see a post-sweep clean state.
   registerEditorRoutes(fastify, editorManager, { networkGuard });
   registerEditorProxy(fastify, editorManager);
+  // Live-server-preview routes + reverse proxy (main-origin /live/:id/*).
+  registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
+  registerLiveServerProxy(fastify, liveServerManager);
 
   registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
@@ -1570,6 +1588,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           terminalGateway.handleUpgrade(request, socket, head);
         } else if (request.url?.startsWith("/editor/")) {
           handleEditorUpgrade(editorManager, request, socket, head);
+        } else if (request.url?.startsWith("/live/")) {
+          handleLiveServerUpgrade(liveServerManager, request, socket, head);
         } else {
           socket.destroy();
         }

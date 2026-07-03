@@ -72,6 +72,30 @@ scroll target SHALL be passed only to the `monaco` viewer.
 - **WHEN** the user opens `.mp4`, `.mp3`, or `.mmd` tabs
 - **THEN** they render `VideoPreview`, `AudioPreview`, and `MermaidBlock` respectively
 
+### Requirement: Pane SHALL be read-only in v1
+
+The Monaco editor SHALL be configured with `readOnly: true`. The pane SHALL display no save button, no dirty indicator, and no "+" affordance for creating new files in v1.
+
+The shared `fileKind` classifier SHALL return `editable: false` for every file EXCEPT the writable markdown subset (`.md`/`.mdx`), which returns `editable: true`. Only the markdown viewer's Edit mode (see "Markdown tabs SHALL offer a Preview/Edit toggle") exposes a save path; all other viewers (Monaco text/code, media, pdf, html) remain read-only.
+
+When the agent edits a file that the user has open, the pane SHALL NOT auto-refresh. A manual refresh button in the pane header SHALL re-fetch the active file's content from `/api/file`. (Auto-refresh on agent edits is deferred to v4.)
+
+#### Scenario: Read-only editor rejects keystrokes
+- **GIVEN** the pane has `foo.ts` open in a Monaco tab
+- **WHEN** the user types into the editor area
+- **THEN** the buffer content is unchanged
+- **AND** no `POST /api/file/write` request is issued
+
+#### Scenario: Manual refresh re-fetches active file
+- **GIVEN** `foo.ts` is open in the pane
+- **AND** the agent has just written new content to `foo.ts` via the Edit tool
+- **WHEN** the user clicks the refresh button in the pane header
+- **THEN** the pane issues `GET /api/file?cwd=<cwd>&path=foo.ts`
+- **AND** the Monaco buffer updates to the new content
+- **AND** the refresh is performed without closing or reopening the tab
+
+## ADDED Requirements
+
 ### Requirement: Pane viewers SHALL follow the dashboard theme live
 
 Pane viewers with their own colour theme SHALL consume the shared theme via
@@ -84,8 +108,6 @@ without remount.
 - **GIVEN** a `.ts` file open in a Monaco tab in dark mode
 - **WHEN** the dashboard is switched to light mode
 - **THEN** the Monaco editor recolours to the light theme without reopening the tab
-
-## ADDED Requirements
 
 ### Requirement: Tree and tabs SHALL stay in sync both directions
 

@@ -1,7 +1,7 @@
 ---
 name: manage-flows
 description: Create and edit pi-flows flows and agents from the main session. Use when the user wants to create a new flow, add or change an agent, or edit an existing flow/agent. Covers agent frontmatter, flow YAML, step types (agent, fork, agent-decision, code, code-decision, flow-ref), model references, the flow_agents/flow_write tools, code-handler generation, write locations, editing an existing flow vs creating one, and fixing validation errors.
-disable-model-invocation: false
+disable-model-invocation: true
 ---
 
 # Manage Flows

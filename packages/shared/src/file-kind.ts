@@ -10,10 +10,30 @@
  */
 
 /** Component-registry key selecting the tab renderer. */
-export type ViewerKind = "monaco" | "image" | "pdf" | "markdown" | "binary-warn";
+export type ViewerKind =
+  | "monaco"
+  | "image"
+  | "pdf"
+  | "markdown"
+  | "html"
+  | "mermaid"
+  | "video"
+  | "audio"
+  | "live-server"
+  | "binary-warn";
 
 /** Coarse semantic file class. */
-export type FileKind = "text" | "image" | "pdf" | "markdown" | "binary" | "unknown";
+export type FileKind =
+  | "text"
+  | "image"
+  | "pdf"
+  | "markdown"
+  | "html"
+  | "mermaid"
+  | "video"
+  | "audio"
+  | "binary"
+  | "unknown";
 
 export interface FileKindResult {
   kind: FileKind;
@@ -49,7 +69,7 @@ export const TEXT_EXTENSIONS = new Set([
   ".json", ".jsonc",
   ".py", ".go", ".rs",
   ".yaml", ".yml",
-  ".html", ".htm", ".css", ".scss", ".less",
+  ".css", ".scss", ".less",
   ".sql",
   ".sh", ".bash", ".zsh",
   ".txt", ".xml", ".toml", ".ini", ".conf", ".log", ".csv",
@@ -62,6 +82,18 @@ export const TEXT_EXTENSIONS = new Set([
 export const IMAGE_EXTENSIONS = new Set([
   ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif",
 ]);
+
+/** HTML → sandboxed `HtmlPreview` iframe (rendered, not source). */
+export const HTML_EXTENSIONS = new Set([".html", ".htm"]);
+
+/** Mermaid diagram source → `MermaidBlock`. */
+export const MERMAID_EXTENSIONS = new Set([".mmd", ".mermaid"]);
+
+/** Audio → `<audio controls>` viewer (Range-driven). */
+export const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".m4a", ".flac"]);
+
+/** Video → `<video controls>` viewer. Aligns with `file-and-url-preview`. */
+export const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mov"]);
 
 /** Specific MIME overrides; everything else derives from `kind`. */
 const MIME_BY_EXT: Record<string, string> = {
@@ -97,6 +129,16 @@ const MIME_BY_EXT: Record<string, string> = {
   ".bmp": "image/bmp",
   ".avif": "image/avif",
   ".pdf": "application/pdf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".flac": "audio/flac",
+  ".mmd": "text/vnd.mermaid",
+  ".mermaid": "text/vnd.mermaid",
   ".md": "text/markdown",
   ".mdx": "text/markdown",
   ".markdown": "text/markdown",
@@ -152,6 +194,18 @@ export function fileKind(absPath: string, sniff?: Buffer | string): FileKindResu
   }
   if (ext === ".pdf") {
     return { kind: "pdf", mimeType: mimeOf("application/pdf"), viewer: "pdf", editable: false };
+  }
+  if (HTML_EXTENSIONS.has(ext)) {
+    return { kind: "html", mimeType: mimeOf("text/html"), viewer: "html", editable: false };
+  }
+  if (MERMAID_EXTENSIONS.has(ext)) {
+    return { kind: "mermaid", mimeType: mimeOf("text/vnd.mermaid"), viewer: "mermaid", editable: false };
+  }
+  if (AUDIO_EXTENSIONS.has(ext)) {
+    return { kind: "audio", mimeType: mimeOf("application/octet-stream"), viewer: "audio", editable: false };
+  }
+  if (VIDEO_EXTENSIONS.has(ext)) {
+    return { kind: "video", mimeType: mimeOf("application/octet-stream"), viewer: "video", editable: false };
   }
   if (IMAGE_EXTENSIONS.has(ext)) {
     return { kind: "image", mimeType: mimeOf("application/octet-stream"), viewer: "image", editable: false };

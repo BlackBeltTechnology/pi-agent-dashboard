@@ -13,8 +13,8 @@
  */
 import Editor, { type Monaco } from "@monaco-editor/react";
 import { useEffect, useRef } from "react";
-import { useTheme } from "../../hooks/useTheme.js";
 import { buildMonacoTheme } from "../../lib/monaco-theme.js";
+import { useThemeContext } from "../ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MonacoBuffer).
 import "./monaco-setup.js";
 
@@ -25,7 +25,7 @@ interface Props {
 }
 
 export function MarkdownEditor({ value, onChange, readOnly = false }: Props) {
-  const { resolved, themeName } = useTheme();
+  const { resolved, themeName } = useThemeContext();
   const monacoRef = useRef<Monaco | null>(null);
 
   // Re-apply the derived Monaco theme whenever the dashboard theme/mode changes.

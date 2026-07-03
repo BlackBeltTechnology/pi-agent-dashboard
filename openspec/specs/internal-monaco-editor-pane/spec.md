@@ -70,88 +70,78 @@ Closing the last tab SHALL leave the pane in an empty state with a "no files ope
 ### Requirement: Pane SHALL host a collapsible file-tree rail
 
 The pane SHALL render a file-tree browse rail on the left, rooted at the session's
-`cwd`. The rail SHALL be collapsible via a toggle button in the pane header. When
-collapsed, the rail SHALL hide entirely and the viewer SHALL expand to fill the freed
-width.
+`cwd`, collapsible via a **labelled, discoverable toggle at the rail↔viewer boundary**
+(not a bare unlabelled icon buried among header actions). Rail visibility SHALL persist
+per session.
 
-The boundary between the browse rail and the viewer SHALL be a draggable divider that
-resizes the rail width **independently of the outer chat/editor split divider**. The
-rail width SHALL be clamped so neither the rail nor the viewer collapses below a usable
-minimum, and SHALL persist per session in `localStorage` alongside the existing pane
-state. Re-expanding a collapsed rail SHALL restore the persisted width.
+The rail SHALL list a directory's entries from a **single tree-listing source of truth**
+returning `{ name: string; isDir: boolean }` per entry, so **hidden directories
+(`.`-prefixed, e.g. `.git`, `.pi`) render and expand as folders** — never as files. The
+rail SHALL NOT infer directory-ness by intersecting a full name list with a
+hidden-stripped directory list.
 
-Directories in the tree SHALL be lazily expanded — clicking a folder SHALL issue a
-`GET /api/browse` request for that folder's contents and render the children inline.
-Expanded directories SHALL persist across reloads via `treeOpenRoots` in `localStorage`.
+Each row SHALL show a **per-kind mime icon** derived from the shared `fileKind`
+classifier (distinct icon/colour for code, json, markdown, pdf, image, video, audio,
+mermaid, folder, hidden-folder). Clicking a file SHALL invoke the file-open path with
+the classifier's viewer kind; clicking a directory SHALL expand/collapse it.
 
-Clicking a file in the tree SHALL invoke `openFile(relPath, viewer)` where `viewer` is
-determined by the shared file-kind classifier.
+#### Scenario: Hidden directory renders and expands as a folder
+- **GIVEN** a session cwd containing `.git/` and `.pi/`
+- **WHEN** the rail lists the cwd
+- **THEN** `.git` and `.pi` render as folders with an expand chevron
+- **AND** clicking one expands to show its child entries
+- **AND** neither is treated as a file / passed to `openFile`
 
-#### Scenario: Dragging the inner divider resizes the browse rail
-- **GIVEN** the pane is split with the browse rail at its default width
-- **WHEN** the user drags the divider between the rail and the viewer to the right
-- **THEN** the browse rail widens and the viewer narrows by the same amount
-- **AND** the outer chat/editor split ratio is unchanged
-- **AND** the drag stops at the clamp boundary before either side collapses
+#### Scenario: Rows show per-kind icons
+- **WHEN** the rail lists `index.ts`, `config.json`, `logo.png`, `demo.mp4`, `chime.mp3`, `arch.mmd`, `spec.pdf`
+- **THEN** each row shows a distinct mime icon derived from `fileKind`
 
-#### Scenario: Rail width persists across reload
-- **GIVEN** the user resized the browse rail to 260px
-- **WHEN** the page reloads and the pane re-opens
-- **THEN** the browse rail renders at 260px
-
-#### Scenario: Lazy expansion fetches children on first click
-- **GIVEN** the tree shows the root cwd with directories `src/`, `docs/`, `tests/` collapsed
-- **WHEN** the user clicks `src/`
-- **THEN** a `GET /api/browse` request is issued for `<cwd>/src`
-- **AND** the children of `src` render inline beneath the folder
-- **AND** `src` is added to `treeOpenRoots` in `localStorage`
-
-#### Scenario: Collapsed rail hides tree and expands viewer
-- **GIVEN** the rail is open and the viewer occupies part of the pane width
-- **WHEN** the user clicks the tree-toggle button
-- **THEN** the rail hides entirely
-- **AND** the viewer occupies the full pane width
-- **AND** the toggle button remains visible to re-open the rail
+#### Scenario: Rail toggle is labelled and persistent
+- **WHEN** the user collapses the rail via the labelled toggle
+- **THEN** the rail hides and the viewer fills the freed width
+- **AND** the collapsed state persists across reload
 
 ### Requirement: Pane SHALL dispatch viewers via a kind-based registry
 
-The pane SHALL select the tab's content component via a registry keyed by `ViewerKind`. The v1 registry SHALL include entries for:
+The pane SHALL dispatch the active tab to a viewer via a kind-based registry. The
+registry SHALL cover: `monaco` (text/code), `markdown`, `image`, `pdf`, `html`,
+`video`, `audio`, `mermaid`, and `binary-warn`. Where a shared `preview/*` renderer
+exists for a kind, the registry entry SHALL delegate to it rather than a pane-local
+duplicate:
 
-- `monaco` — text/code via lazy-loaded Monaco editor,
-- `image` — raster/SVG images via `<img>` with pan/zoom,
-- `pdf` — PDF documents via the browser's native PDF rendering,
-- `markdown` — markdown documents via the dashboard's existing `MarkdownContent` renderer with `pi-asset:` resolution,
-- `binary-warn` — non-displayable binary files with a "open externally" hint.
+- `pdf` → `PdfPreview` (pdfjs canvas render), NOT `<object type="application/pdf">`,
+  so PDFs render in the Electron shell without a native PDF plugin.
+- `html` → `HtmlPreview` (`<iframe sandbox="allow-same-origin" srcDoc={text}>`, scripts
+  disabled), NOT `<iframe src="/api/file/raw">` (which would execute in the dashboard
+  origin).
+- `image` → `ImagePreview`, `video` → `VideoPreview`, `audio` → `AudioPreview`,
+  `mermaid` → `MermaidBlock`.
 
-The viewer selection SHALL be performed by the shared `fileKind(absPath, sniff?)` classifier with the discrimination order:
+`fileKind` SHALL classify `.html`/`.htm` → html, `.mmd`/`.mermaid` → mermaid,
+`.mp3`/`.wav`/`.ogg`/`.m4a`/`.flac` → audio, and `.webm`/`.mov` → video. The `line`
+scroll target SHALL be passed only to the `monaco` viewer.
 
-1. Extension on the text/code allowlist → `monaco`,
-2. Extension on the image allowlist → `image`,
-3. `.pdf` extension → `pdf`,
-4. `.md` / `.mdx` extension → `markdown` (overrides #1),
-5. Sniff (server-side only) detects NUL byte in first 1024 bytes → `binary-warn`,
-6. Default → `monaco` (assume text).
+#### Scenario: PDF renders via pdfjs, not a native plugin
+- **GIVEN** the pane runs inside the Electron shell (no PDF plugin)
+- **WHEN** the user opens a `.pdf` tab
+- **THEN** the tab renders `PdfPreview` (canvas) with page navigation
+- **AND** no download-only fallback is shown
 
-#### Scenario: TypeScript file routes to Monaco
-- **WHEN** the pane opens `src/foo.ts`
-- **THEN** the active tab renders `MonacoBuffer`
-- **AND** the Monaco editor is configured with the `typescript` language
+#### Scenario: HTML file renders sandboxed with scripts disabled
+- **WHEN** the user opens a local `.html` tab
+- **THEN** the tab renders `HtmlPreview` via `<iframe sandbox="allow-same-origin" srcDoc>`
+- **AND** the iframe has no `allow-scripts` (embedded JS does not execute)
+- **AND** the HTML is not loaded via `<iframe src="/api/file/raw">`
 
-#### Scenario: Markdown file overrides Monaco for MarkdownViewer
-- **WHEN** the pane opens `README.md`
-- **THEN** the active tab renders `MarkdownViewer`, NOT `MonacoBuffer`
-- **AND** `pi-asset:` references inside the markdown resolve via `SessionAssetsContext`
-
-#### Scenario: Binary file shows BinaryWarn
-- **GIVEN** the server's classifier detects NUL bytes in `data.bin` first 1024 bytes
-- **WHEN** the pane opens `data.bin`
-- **THEN** the active tab renders `BinaryWarn`
-- **AND** no file content is rendered in the tab
-- **AND** the warn component offers an "Open in <native editor>" button when a native editor is detected
+#### Scenario: Media and mermaid kinds dispatch to shared renderers
+- **WHEN** the user opens `.mp4`, `.mp3`, or `.mmd` tabs
+- **THEN** they render `VideoPreview`, `AudioPreview`, and `MermaidBlock` respectively
 
 ### Requirement: Pane SHALL be read-only in v1
 
-The Monaco editor SHALL be configured with `readOnly: true`. The pane SHALL display no save button, no dirty indicator, and no "+" affordance for creating new files in v1. The shared `fileKind` classifier SHALL return `editable: false` for every file in v1.
+The Monaco editor SHALL be configured with `readOnly: true`. The pane SHALL display no save button, no dirty indicator, and no "+" affordance for creating new files in v1.
+
+The shared `fileKind` classifier SHALL return `editable: false` for every file EXCEPT the writable markdown subset (`.md`/`.mdx`), which returns `editable: true`. Only the markdown viewer's Edit mode (see "Markdown tabs SHALL offer a Preview/Edit toggle") exposes a save path; all other viewers (Monaco text/code, media, pdf, html) remain read-only.
 
 When the agent edits a file that the user has open, the pane SHALL NOT auto-refresh. A manual refresh button in the pane header SHALL re-fetch the active file's content from `/api/file`. (Auto-refresh on agent edits is deferred to v4.)
 
@@ -303,4 +293,59 @@ client disconnect, so no file descriptors leak.
 - **GIVEN** only `foo.ts` is open in the pane
 - **WHEN** an unrelated file `baz.ts` (not open) changes on disk
 - **THEN** no changed-on-disk banner is shown
+
+### Requirement: Pane viewers SHALL follow the dashboard theme live
+
+Pane viewers with their own colour theme SHALL consume the shared theme via
+`useThemeContext()` (the `ThemeProvider` value), NOT the raw per-instance `useTheme()`
+hook — this applies to the `monaco` text/code viewer and the markdown editor. When the
+dashboard named theme or light/dark mode changes, open editor viewers SHALL recolour
+without remount.
+
+#### Scenario: Monaco recolours on theme switch
+- **GIVEN** a `.ts` file open in a Monaco tab in dark mode
+- **WHEN** the dashboard is switched to light mode
+- **THEN** the Monaco editor recolours to the light theme without reopening the tab
+
+### Requirement: Tree and tabs SHALL stay in sync both directions
+
+Opening a file (from tree click, chat file-link, or search result) SHALL auto-expand
+every ancestor directory of the file in the rail and reveal + highlight its row.
+Changing the active tab SHALL likewise reveal + highlight the corresponding tree row.
+The highlight SHALL track the active tab's path.
+
+#### Scenario: Opening a deep file reveals it in the tree
+- **GIVEN** the rail is collapsed at the root
+- **WHEN** the user opens `src/components/EditorPane.tsx` via a chat file-link
+- **THEN** `src/` and `src/components/` expand
+- **AND** the `EditorPane.tsx` row is highlighted and scrolled into view
+
+#### Scenario: Switching tabs syncs the tree highlight
+- **GIVEN** three tabs open from different directories
+- **WHEN** the user activates a different tab
+- **THEN** the tree highlight moves to that file's row and scrolls it into view
+
+### Requirement: Markdown tabs SHALL offer a Preview/Edit toggle
+
+The markdown tab SHALL offer a per-tab **Preview / Edit** toggle for files whose
+`fileKind` reports `editable` (`.md`/`.mdx`). Edit mode SHALL mount the controlled
+`MarkdownEditor`. Saving SHALL `POST /api/file/write` with the buffer's loaded `mtime`;
+a `409` (changed on disk) SHALL surface the existing changed-on-disk banner and leave
+the file untouched. Non-editable markdown (`.markdown`) SHALL remain preview-only.
+
+#### Scenario: Edit and save a markdown file
+- **GIVEN** a `.md` file open in Preview mode
+- **WHEN** the user switches to Edit, changes text, and clicks Save
+- **THEN** the client POSTs `/api/file/write` with the loaded `mtime`
+- **AND** on success the dirty indicator clears
+
+#### Scenario: Non-editable markdown has no Edit affordance
+- **WHEN** the user opens a `.markdown` file
+- **THEN** only Preview is available (no Edit toggle)
+
+#### Scenario: Stale write is rejected
+- **GIVEN** a `.md` file edited in the pane while the agent rewrote it on disk
+- **WHEN** the user clicks Save
+- **THEN** the write returns 409 and the changed-on-disk banner appears
+- **AND** the on-disk file is unchanged
 

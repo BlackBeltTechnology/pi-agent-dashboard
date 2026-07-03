@@ -12,11 +12,12 @@
  */
 
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiClose, mdiFileTreeOutline, mdiMagnify, mdiRefresh } from "@mdi/js";
+import { mdiClose, mdiFileTreeOutline, mdiMagnify, mdiRefresh, mdiWeb } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { grepContents } from "../../lib/grep-api.js";
 import { useRailWidth } from "../../lib/rail-width.js";
+import { useTreeVisible } from "../../lib/tree-visible.js";
 import { SplitDivider } from "../SplitDivider.js";
 import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
@@ -42,7 +43,7 @@ export function EditorPane() {
     changedFiles,
     clearChanged,
   } = useSplitWorkspace();
-  const [treeVisible, setTreeVisible] = useState(true);
+  const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [railWidth, setRailWidth] = useRailWidth(sessionId);
@@ -117,14 +118,32 @@ export function EditorPane() {
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-primary)] px-3 py-2">
         <button
           type="button"
-          onClick={() => setTreeVisible((v) => !v)}
-          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          onClick={() => setTreeVisible(!treeVisible)}
+          aria-pressed={treeVisible}
+          aria-label="Toggle file tree"
+          data-testid="tree-toggle"
+          className={[
+            "flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium",
+            treeVisible
+              ? "bg-[var(--bg-selected)] text-[var(--text-primary)]"
+              : "text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+          ].join(" ")}
           title={treeVisible ? "Hide file tree" : "Show file tree"}
         >
           <Icon path={mdiFileTreeOutline} size={0.7} />
+          <span>Files</span>
         </button>
         <span className="truncate text-sm font-medium">{activePath ?? "Editor"}</span>
         <span className="flex-1" />
+        <button
+          type="button"
+          onClick={() => dispatch({ type: "openFile", path: "live:preview", viewer: "live-server" })}
+          data-testid="live-preview-launch"
+          className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          title="Preview a local dev server"
+        >
+          <Icon path={mdiWeb} size={0.7} />
+        </button>
         <button
           type="button"
           onClick={() => setSearchOpen((v) => !v)}

@@ -79,6 +79,8 @@ function makePrefs(pinnedDirs: string[] = []): PreferencesStore {
     getDisplayPrefs: vi.fn(() => undefined),
     getOpenSpecUpdateSignature: vi.fn(() => undefined),
     getAutoInitWorktreeOnSpawn: vi.fn(() => false),
+    getLiveServers: vi.fn(() => []),
+    setLiveServers: vi.fn(),
     setAutoInitWorktreeOnSpawn: vi.fn(),
     setOpenSpecUpdateSignature: vi.fn(),
     setDisplayPrefs: vi.fn((p) => p as any),

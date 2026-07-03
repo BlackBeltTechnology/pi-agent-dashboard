@@ -45,6 +45,25 @@ export const EMPTY_PANE_STATE: EditorPaneState = {
   treeOpenRoots: [],
 };
 
+/**
+ * Ancestor directory rel-paths of a file, root→leaf. `a/b/c.ts` → `[a, a/b]`.
+ * Used to auto-expand the tree so an opened/activated file's row is revealed
+ * (#5). Handles both `/` and `\` separators.
+ */
+export function ancestorDirs(relPath: string): string[] {
+  const parts = relPath.split(/[/\\]/).filter(Boolean);
+  const dirs: string[] = [];
+  for (let i = 1; i < parts.length; i++) dirs.push(parts.slice(0, i).join("/"));
+  return dirs;
+}
+
+/** Merge new dir rel-paths into the open-roots set, preserving order, deduped. */
+function mergeRoots(existing: string[], add: string[]): string[] {
+  const merged = [...existing];
+  for (const dir of add) if (!merged.includes(dir)) merged.push(dir);
+  return merged;
+}
+
 /** Pure reducer — the single mutation point for pane state. */
 export function editorPaneReducer(state: EditorPaneState, action: EditorPaneAction): EditorPaneState {
   switch (action.type) {
@@ -52,13 +71,15 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
       return action.state;
 
     case "openFile": {
+      // Reveal the file's row: expand its ancestor dir chain (#5).
+      const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(action.path));
       const existing = state.openFiles.findIndex((f) => f.path === action.path);
       if (existing >= 0) {
         // Idempotent: activate the existing tab, never duplicate.
-        return existing === state.activeIndex ? state : { ...state, activeIndex: existing };
+        return { ...state, activeIndex: existing, treeOpenRoots };
       }
       const openFiles = [...state.openFiles, { path: action.path, viewer: action.viewer, addedAt: Date.now() }];
-      return { ...state, openFiles, activeIndex: openFiles.length - 1 };
+      return { ...state, openFiles, activeIndex: openFiles.length - 1, treeOpenRoots };
     }
 
     case "closeTab": {
@@ -81,7 +102,9 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
 
     case "setActive": {
       if (action.index < 0 || action.index >= state.openFiles.length) return state;
-      return { ...state, activeIndex: action.index };
+      // Reveal the newly-active tab's row: expand its ancestor dir chain (#5).
+      const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(state.openFiles[action.index].path));
+      return { ...state, activeIndex: action.index, treeOpenRoots };
     }
 
     case "toggleTreeRoot": {
@@ -113,7 +136,9 @@ function keyFor(sessionId: string): string {
   return EDITOR_PANE_KEY_PREFIX + sessionId;
 }
 
-const VALID_VIEWERS: ReadonlySet<string> = new Set(["monaco", "image", "pdf", "markdown", "binary-warn"]);
+const VALID_VIEWERS: ReadonlySet<string> = new Set([
+  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "binary-warn",
+]);
 
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */
 function isValidState(v: unknown): v is EditorPaneState {

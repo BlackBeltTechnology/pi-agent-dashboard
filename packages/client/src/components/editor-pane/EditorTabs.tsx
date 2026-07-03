@@ -4,12 +4,14 @@
  * the tooltip shows the rel path.
  *
  * See change: add-internal-monaco-editor-pane.
+ * See change: improve-content-editor (per-kind tab icon #2).
  */
 
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../../lib/editor-pane-state.js";
+import { fileIcon } from "../../lib/file-icon.js";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
@@ -106,6 +108,7 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
             dragOver === i ? "border-l-2 border-l-[var(--accent-blue)]" : "",
           ].join(" ")}
         >
+          <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
           <span className="truncate">{basename(file.path)}</span>
           <button
             type="button"

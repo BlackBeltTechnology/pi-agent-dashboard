@@ -13,6 +13,8 @@ function isAllowedOrigin(
   getTunnelUrl: () => string | null = () => null,
 ): boolean {
   if (!origin) return true;
+  // Opaque-origin sandboxed iframe (live-server, D7) → reject.
+  if (origin === "null") return false;
   try {
     const u = new URL(origin);
     const host = u.hostname;
@@ -44,6 +46,12 @@ describe("CORS origin validation", () => {
   it("allows configured origins", () => {
     const configured = ["https://dashboard.example.com"];
     expect(isAllowedOrigin("https://dashboard.example.com", configured)).toBe(true);
+  });
+
+  it("rejects the opaque `Origin: null` (sandboxed live-server iframe, D7)", () => {
+    expect(isAllowedOrigin("null", [])).toBe(false);
+    // Even if someone mis-configured it, the explicit guard wins.
+    expect(isAllowedOrigin("null", ["null"])).toBe(false);
   });
 
   it("rejects unknown origins", () => {

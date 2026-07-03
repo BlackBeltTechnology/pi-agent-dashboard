@@ -31,6 +31,12 @@ describe("dispatchPreview — file targets", () => {
     expect(dispatchPreview(f("c.mov"))).toBe("video");
   });
 
+  it("maps audio extensions", () => {
+    for (const e of [".mp3", ".wav", ".ogg", ".m4a", ".flac"]) {
+      expect(dispatchPreview(f(`a${e}`)), e).toBe("audio");
+    }
+  });
+
   it("maps image extensions", () => {
     for (const e of [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"]) {
       expect(dispatchPreview(f(`img${e}`))).toBe("image");

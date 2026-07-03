@@ -30,6 +30,32 @@ describe("editorPaneReducer", () => {
     expect(s.activeIndex).toBe(0);
   });
 
+  it("openFile expands the ancestor dir chain (#5)", () => {
+    const s = editorPaneReducer(EMPTY_PANE_STATE, {
+      type: "openFile",
+      path: "src/components/deep/Widget.tsx",
+      viewer: "monaco",
+    });
+    expect(s.treeOpenRoots).toEqual(["src", "src/components", "src/components/deep"]);
+  });
+
+  it("openFile merges ancestors without duplicating already-open roots", () => {
+    const base: EditorPaneState = { openFiles: [], activeIndex: -1, treeOpenRoots: ["src"] };
+    const s = editorPaneReducer(base, { type: "openFile", path: "src/a/b.ts", viewer: "monaco" });
+    expect(s.treeOpenRoots).toEqual(["src", "src/a"]);
+  });
+
+  it("setActive expands the ancestors of the newly active tab (#5)", () => {
+    const base: EditorPaneState = {
+      openFiles: [tab("a.ts"), tab("x/y/z.md")],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    const s = editorPaneReducer(base, { type: "setActive", index: 1 });
+    expect(s.activeIndex).toBe(1);
+    expect(s.treeOpenRoots).toEqual(["x", "x/y"]);
+  });
+
   it("closeTab on active middle tab activates the adjacent (next) tab", () => {
     const base: EditorPaneState = {
       openFiles: [tab("a.ts"), tab("b.ts"), tab("c.ts")],

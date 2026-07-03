@@ -12,9 +12,9 @@
 
 import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
-import { useTheme } from "../../hooks/useTheme.js";
 import { getApiBase } from "../../lib/api-context.js";
 import { buildMonacoTheme } from "../../lib/monaco-theme.js";
+import { useThemeContext } from "../ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MarkdownEditor).
 import "./monaco-setup.js";
 import type { ViewerProps } from "./types.js";
@@ -39,7 +39,7 @@ function languageFor(path: string): string {
 }
 
 export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
-  const { resolved, themeName } = useTheme();
+  const { resolved, themeName } = useThemeContext();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Server omits `content` for binary/image/pdf kinds (e.g. an extension-less

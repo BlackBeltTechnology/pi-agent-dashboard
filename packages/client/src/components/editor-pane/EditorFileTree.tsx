@@ -2,19 +2,21 @@
  * Lazy file-tree rail rooted at the session cwd. Directories expand one level
  * at a time; clicking a file opens it via the shared file-kind classifier.
  *
- * `/api/browse` lists directories only, so each expansion fetches the full
- * entry-name set from `/api/file` and intersects with `/api/browse` to mark
- * which entries are directories.
+ * Entries come from a single `GET /api/file/tree` call
+ * (`readdir(withFileTypes)`, hidden INCLUDED) — the single source of truth for
+ * `{ name, isDir }`. Replaces the old `/api/file`(names)+`/api/browse`(dirs,
+ * hidden-stripped) merge that mislabelled `.git`/`.pi` as files (#1).
  *
  * See change: add-internal-monaco-editor-pane.
+ * See change: improve-content-editor (tree correctness #1, mime icons #2).
  */
 
 import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
-import { mdiChevronDown, mdiChevronRight, mdiFileOutline, mdiFolderOutline } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
-import { browseDirectory } from "../../lib/browse-api.js";
+import { fileIcon } from "../../lib/file-icon.js";
 
 interface EditorFileTreeProps {
   cwd: string;
@@ -32,21 +34,14 @@ interface DirEntry {
 const joinRel = (dir: string, name: string): string => (dir ? `${dir}/${name}` : name);
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
-/** List a directory's entries, marking which are directories. */
+/** List a directory's entries (name + isDir) from the single tree endpoint. */
 async function listDir(cwd: string, relDir: string): Promise<DirEntry[]> {
-  const absDir = absOf(cwd, relDir);
-  const [allNames, dirResult] = await Promise.all([
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(relDir || ".")}`)
-      .then((r) => r.json())
-      .then((b) => (b.success && b.data?.type === "directory" ? (b.data.entries as string[]) : []))
-      .catch(() => [] as string[]),
-    browseDirectory(absDir)
-      .then((res) => new Set(res.entries.map((e) => e.name)))
-      .catch(() => new Set<string>()),
-  ]);
-  return allNames
-    .map((name) => ({ name, isDir: dirResult.has(name) }))
-    .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+  return fetch(
+    `${getApiBase()}/api/file/tree?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(relDir || ".")}`,
+  )
+    .then((r) => r.json())
+    .then((b) => (b.success ? (b.data.entries as DirEntry[]) : []))
+    .catch(() => [] as DirEntry[]);
 }
 
 function TreeNode({
@@ -63,6 +58,9 @@ function TreeNode({
   depth: number;
 } & Omit<EditorFileTreeProps, "cwd">) {
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
+  // Ref on the active row so it can be scrolled into view when it (re)mounts
+  // or when the active tab changes (#5).
+  const activeRowRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -71,6 +69,11 @@ function TreeNode({
       active = false;
     };
   }, [cwd, relDir]);
+
+  // Reveal the active row once entries render (or activePath changes).
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [entries, activePath]);
 
   if (entries === null) {
     return <div className="px-2 py-1 text-xs text-[var(--text-tertiary)]" style={{ paddingLeft: depth * 12 + 8 }}>Loading…</div>;
@@ -110,10 +113,13 @@ function TreeNode({
           );
         }
         const viewer = fileKind(absOf(cwd, rel)).viewer;
+        const icon = fileIcon(entry.name);
+        const isActive = rel === activePath;
         return (
           <button
             key={rel}
             type="button"
+            ref={isActive ? activeRowRef : undefined}
             onClick={() => onOpenFile(rel, viewer)}
             className={[
               "flex w-full items-center gap-1 py-1 pr-2 text-left text-xs hover:bg-[var(--bg-hover)]",
@@ -121,7 +127,7 @@ function TreeNode({
             ].join(" ")}
             style={{ paddingLeft: pad + 10 }}
           >
-            <Icon path={mdiFileOutline} size={0.55} />
+            <Icon path={icon.iconPath} size={0.55} className={icon.colorClass} />
             <span className="truncate">{entry.name}</span>
           </button>
         );

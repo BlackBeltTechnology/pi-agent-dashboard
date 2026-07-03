@@ -128,9 +128,14 @@ with an allowlist for the existing proxied paths.
 1. ~~Origin isolation mechanism for D5~~ **RESOLVED (D7):** same-origin path proxy +
    `sandbox` without `allow-same-origin` (opaque origin). Separate-port/subdomain rejected
    because zrok tunnels a single port. CORS must reject `Origin: null`.
-2. **CSP rollout** — ship CSP in this change, or split to its own change given the blast
-   radius? Leaning: land the `HtmlPreview` reuse here (already safe via sandbox) and
-   split enforce-mode CSP to a dedicated hardening change.
-3. **`file-and-url-preview` convergence** — should the editor-pane fully delegate to
-   `dispatchPreview` (retire its `ViewerKind` enum), or keep the adapter? Adapter chosen
-   for now to avoid churning tab/scroll/theme plumbing; revisit if the enums fully align.
+2. ~~**CSP rollout**~~ **RESOLVED:** shipped in this change (`csp.ts`). Report-only is the
+   DEFAULT (`PI_DASHBOARD_CSP=report`); `enforce` + `off` are env-selectable. The hook
+   skips proxied prefixes (`/editor/`, `/live/`). `tests/e2e/csp.spec.ts` verifies the
+   header is present and the shell renders with zero CSP violations in the Docker
+   harness. Flipping the production DEFAULT to enforce is deferred until code-server /
+   OAuth-window e2e coverage lands (user decision) — enforce stays opt-in for now.
+3. ~~**`file-and-url-preview` convergence**~~ **RESOLVED:** kept the editor-pane
+   `ViewerKind` registry as a thin adapter that delegates to `preview/*` renderers (no
+   third copy); the `dispatchPreview` enum was NOT retired. Both systems now share
+   `AudioPreview` (wired into `dispatchPreview`+`PreviewCard` AND the editor-pane
+   registry). Revisit full delegation later if the enums fully align.
