@@ -632,6 +632,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // before a dependent's consume. In-process only.
   // See change: register-plugin-automation-events.
   const pluginServiceRegistry = new Map<string, unknown>();
+  // Host-provided known-folder set for plugin cwd validation: session cwds ∪
+  // pinned directories, as a LIVE getter (not a boot-time snapshot) so plugins
+  // see folders added later. kb-plugin consumes this to guard its /api/kb/*
+  // routes against arbitrary-path indexing — a session-less worktree appears
+  // only via pinned dirs, unreachable from the plugin sessionManager surface.
+  // See change: add-kb-folder-slot.
+  pluginServiceRegistry.set("host.knownFolderCwds", (): string[] => {
+    const set = new Set<string>();
+    for (const s of sessionManager.listAll()) if (s.cwd) set.add(s.cwd);
+    for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
+    return [...set];
+  });
   function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
     const arr = pluginPiHandlers.get(messageType);
     if (!arr) return;

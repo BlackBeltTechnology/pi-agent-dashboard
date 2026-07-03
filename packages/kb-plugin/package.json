@@ -1,0 +1,70 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-kb-plugin",
+  "version": "0.5.4",
+  "description": "Dashboard plugin surfacing the per-folder markdown knowledge base: a sidebar KB row (chunk count + reindex, five-state) and a per-folder KB settings page (manage indexed sources/globs). Server-owned reindex + config write so session-less worktrees are indexable.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/kb-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "kb",
+    "displayName": "Knowledge Base",
+    "priority": 100,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "claims": [
+      {
+        "slot": "sidebar-folder-section",
+        "component": "FolderKbSection"
+      },
+      {
+        "slot": "shell-overlay-route",
+        "component": "KbSettingsClaim",
+        "path": "/folder/:encodedCwd/kb"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
+    "wouter": ">=3.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.5.4",
+    "@blackbelt-technology/pi-dashboard-kb": "^0.5.4",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.5.4",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "fastify": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "wouter": "^3.9.0"
+  }
+}

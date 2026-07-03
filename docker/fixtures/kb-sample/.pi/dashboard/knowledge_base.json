@@ -1,0 +1,3 @@
+{
+  "sources": [{ "kind": "filesystem", "ref": "." }]
+}

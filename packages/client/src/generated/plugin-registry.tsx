@@ -3,9 +3,11 @@
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings } from "@blackbelt-technology/pi-dashboard-goal-plugin";
+import { FolderKbSection, KbSettingsClaim } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
+import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -170,6 +172,30 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "kb",
+        "displayName": "Knowledge Base",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "sidebar-folder-section",
+                "component": "FolderKbSection"
+            },
+            {
+                "slot": "shell-overlay-route",
+                "component": "KbSettingsClaim",
+                "path": "/folder/:encodedCwd/kb"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts"
+    },
+    claims: [
+      { pluginId: "kb", priority: 100, slot: "sidebar-folder-section", Component: FolderKbSection },
+      { pluginId: "kb", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/kb", Component: KbSettingsClaim },
+    ],
+  },
+  {
+    manifest: {
         "id": "roles",
         "displayName": "Roles",
         "priority": 100,
@@ -239,6 +265,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "flows-anthropic-bridge", priority: 500, slot: "settings-section", tab: "general", Component: FlowsAnthropicBridgeSettings },
     ],
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "5982201313c022c6d0506727aa638ac3906f2c6c90e2cf9937932f7d1b135b8c";
+export const PLUGIN_REGISTRY_HASH = "ea5f5edcd97a3b288fe856c2472e4d0dcc8042d9f7196aa6c2ed988a94987dca";

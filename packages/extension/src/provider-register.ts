@@ -23,11 +23,11 @@
  *                              here.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getModelRole, loadRoleConfig } from "./role-manager.js";
 
 // -- Types ----------------------------------------------------------------
@@ -199,6 +199,36 @@ const lastRegistered = new Map<string, ProviderEntry>();
 // See change: enrich-model-selector-capabilities-favorites.
 const enrichmentSource = new Map<string, "catalog" | "fallback">();
 
+// Canonical thinking-level order pi uses (EXTENDED_THINKING_LEVELS).
+const EXTENDED_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+
+/**
+ * Mirror of pi's `getSupportedThinkingLevels` (from @earendil-works/pi-ai) —
+ * the same rule pi core uses to clamp thinking level. Inlined rather than
+ * imported: pi-ai ships `.d.ts` files that re-export via explicit `.ts`
+ * extensions (`export * from "./models.ts"`), which the base tsconfig (no
+ * `allowImportingTsExtensions`) cannot follow — so no import path (main entry or
+ * `/compat`, 0.75.5 or 0.80.x) resolves the symbol at type-check time. The rule
+ * is a tiny stable pure function; the spec pins the contract.
+ *
+ * `thinkingLevelMap` is a SPARSE override table, NOT an allowlist: an
+ * unmentioned level stays supported, a `null` entry disables that level, and
+ * `xhigh` is supported only when declared with a non-null entry.
+ * See change: fix-thinking-level-supported-projection.
+ */
+function deriveSupportedThinkingLevels(
+  reasoning: boolean,
+  thinkingLevelMap: Record<string, unknown> | null | undefined,
+): string[] {
+  if (!reasoning) return ["off"];
+  return EXTENDED_THINKING_LEVELS.filter((level) => {
+    const mapped = thinkingLevelMap?.[level];
+    if (mapped === null) return false;
+    if (level === "xhigh") return mapped !== undefined;
+    return true;
+  });
+}
+
 /**
  * Build a `ModelInfo` wire object from a pi registry `Model`, deriving the
  * `vision` flag from `input` and resolving `metadataSource` from the
@@ -220,17 +250,16 @@ export function toModelInfo(m: any): {
   const provider = m?.provider ?? "";
   const id = m?.id ?? "";
   const source = enrichmentSource.get(`${provider}/${id}`) ?? "catalog";
-  // Pi 0.72+ per-model thinking levels: project map keys whose value is
-  // non-null (string | true) — null means "pi level not supported by this
-  // model". Pre-0.72 (no map) → undefined. See change:
-  // adopt-pi-071-072-073-features.
-  const map = m?.thinkingLevelMap;
-  const supportedThinkingLevels =
-    map && typeof map === "object"
-      ? Object.entries(map)
-          .filter(([, v]) => v !== null)
-          .map(([k]) => k)
-      : undefined;
+  // Pi 0.72+ per-model thinking levels. Emit only when the model carries thinking
+  // metadata; pre-0.72 models (no reasoning flag, no map) → undefined so the
+  // client falls back to all six levels. See change:
+  // fix-thinking-level-supported-projection.
+  const hasThinkingMetadata =
+    typeof m?.reasoning === "boolean" ||
+    (m?.thinkingLevelMap != null && typeof m.thinkingLevelMap === "object");
+  const supportedThinkingLevels = hasThinkingMetadata
+    ? deriveSupportedThinkingLevels(m?.reasoning === true, m?.thinkingLevelMap)
+    : undefined;
   return {
     provider,
     id,

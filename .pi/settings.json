@@ -8,10 +8,10 @@
     }
   ],
   "worktreeInit": {
-    "gate": "test ! -d node_modules",
+    "gate": "test ! -d node_modules || test ! -d .pi/skills/openspec-explore || test ! -f .pi/dashboard/kb/index.db",
     "run": {
       "type": "script",
-      "command": "npm ci && npx openspec init --tools pi --force"
+      "command": "npm ci && npx openspec init --tools pi --force && npm run build --workspace=@blackbelt-technology/pi-dashboard-kb && NODE_OPTIONS=--experimental-sqlite npx kb index"
     }
   }
 }

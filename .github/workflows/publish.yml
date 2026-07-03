@@ -305,6 +305,7 @@ jobs:
             "@blackbelt-technology/frontend-mockup-loop"
             "@blackbelt-technology/pi-dashboard-kb"
             "@blackbelt-technology/pi-dashboard-kb-extension"
+            "@blackbelt-technology/pi-dashboard-kb-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
