@@ -34,7 +34,7 @@ prose headings. Scope the parser: track the current heading while scanning; only
 treat `| \`x\` | … |` rows as DOX rows when the nearest preceding heading text
 starts with `DOX —` (or the file is a pure DOX file whose H1 is `DOX —`).
 
-```
+```text
 for each line:
   if line matches /^#{1,6}\s+DOX —/  -> inDox = true
   else if line matches /^#{1,6}\s/   -> inDox = false   (any other heading)

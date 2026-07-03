@@ -5,7 +5,7 @@
 `kb dox lint` over-reports drift, and its `--fix` path would **delete valid
 documentation rows**. Running it on this repo today:
 
-```
+```text
 total issues: 1226
   orphan            1069   ← 991 verified FALSE (files exist)
   missing (.md)      119   ← docs under other conventions, 0 real .ts/.tsx gaps
