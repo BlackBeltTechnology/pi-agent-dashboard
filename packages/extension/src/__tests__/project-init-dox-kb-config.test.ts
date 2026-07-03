@@ -40,5 +40,14 @@ describe("project-init dox kb config", () => {
       expect(res.written).toBe(false);
       expect(fs.readFileSync(kbConfigPath(tmp), "utf8")).toBe('{"sources":[]}\n');
     });
+
+    it("overwrite:true rewrites an existing config", () => {
+      fs.mkdirSync(path.dirname(kbConfigPath(tmp)), { recursive: true });
+      fs.writeFileSync(kbConfigPath(tmp), '{"sources":[]}\n');
+      const res = writeDoxKbConfig(tmp, { overwrite: true });
+      expect(res.written).toBe(true);
+      const written = JSON.parse(fs.readFileSync(kbConfigPath(tmp), "utf8"));
+      expect(written.indexAgentsFiles).toBe(true);
+    });
   });
 });

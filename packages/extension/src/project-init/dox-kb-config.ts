@@ -30,13 +30,17 @@ export function kbConfigPath(dir: string): string {
 }
 
 /**
- * Write the DOX kb config into `<dir>/.pi/dashboard/knowledge_base.json` when
- * absent. Idempotent: an existing config is left untouched (the user/project
- * owns it).
+ * Write the DOX kb config into `<dir>/.pi/dashboard/knowledge_base.json`.
+ * Idempotent by default: an existing config is left untouched (the user/project
+ * owns it). Pass `overwrite: true` to rewrite it — the scaffold does so when the
+ * caller confirmed overwriting, so the plan/conflict UX matches actual writes.
  */
-export function writeDoxKbConfig(dir: string): { written: boolean } {
+export function writeDoxKbConfig(
+  dir: string,
+  opts: { overwrite?: boolean } = {},
+): { written: boolean } {
   const target = kbConfigPath(dir);
-  if (fs.existsSync(target)) return { written: false };
+  if (!opts.overwrite && fs.existsSync(target)) return { written: false };
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, `${JSON.stringify(DOX_KB_CONFIG, null, 2)}\n`, "utf8");
   return { written: true };

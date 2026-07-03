@@ -20,7 +20,7 @@ doctrine + architecture pointers only — never a per-file index.
 
 | Kind of update | Goes in |
 |---|---|
-| New file in a directory, or its per-file detail / change history | Nearest directory `AGENTS.md`. Add a `` | `<basename>` | <purpose> | `` row, path-alphabetical. |
+| New file in a directory, or its per-file detail / change history | Nearest directory `AGENTS.md`. Add a `` \| `<basename>` \| <purpose> \| `` row, path-alphabetical. |
 | Data flow, protocol, architecture rationale | `docs/architecture.md` or a `docs/<topic>.md` |
 | End-user / developer setup | `README.md` |
 | Cross-cutting rule every agent needs every turn (rare) | ROOT `AGENTS.md` |

@@ -50,12 +50,24 @@ export interface ScaffoldPlan {
   dox: boolean;
 }
 
-/** Substitute every `{{KEY}}` for which a value is supplied. Unknown keys are left as-is. */
-function render(tmpl: string, subs: Record<string, string>): string {
+/**
+ * Substitute every `{{KEY}}` for which a value is supplied. Unknown keys are
+ * left as-is. `escape` transforms each substituted value — used to JSON-escape
+ * values rendered into a JSON template so a command/name containing `"` or `\`
+ * cannot corrupt the output.
+ */
+function render(
+  tmpl: string,
+  subs: Record<string, string>,
+  escape: (v: string) => string = (v) => v,
+): string {
   return tmpl.replace(/\{\{([A-Z_]+)\}\}/g, (whole, key: string) =>
-    Object.hasOwn(subs, key) ? subs[key]! : whole,
+    Object.hasOwn(subs, key) ? escape(subs[key]!) : whole,
   );
 }
+
+/** Escape a value for safe interpolation inside a JSON string literal. */
+const jsonEscape = (v: string): string => JSON.stringify(v).slice(1, -1);
 
 /** Unresolved `{{KEY}}` placeholders remaining in rendered text. */
 function leftoverPlaceholders(text: string): string[] {
@@ -137,20 +149,25 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   fs.mkdirSync(targetDir, { recursive: true });
   fs.writeFileSync(agentsMd, agentsText, "utf8");
 
-  // .pi/settings.json
+  // .pi/settings.json. Substitutions are JSON-escaped so a stack command or
+  // project name containing `"`/`\` cannot corrupt the file; the rendered text
+  // is validated as JSON BEFORE writing so corruption surfaces as a thrown
+  // error rather than a silently-broken settings file.
   const settingsRaw = fs.readFileSync(path.join(profile.dir, "settings.json.tmpl"), "utf8");
-  const settingsText = render(settingsRaw, subs);
+  const settingsText = render(settingsRaw, subs, jsonEscape);
   leftover.push(...leftoverPlaceholders(settingsText));
+  let parsedSettings: { worktreeInit?: unknown };
+  try {
+    parsedSettings = JSON.parse(settingsText) as { worktreeInit?: unknown };
+  } catch (err) {
+    throw new Error(
+      `rendered .pi/settings.json is not valid JSON (check the profile template + substitutions): ${(err as Error).message}`,
+    );
+  }
   const settingsDir = path.join(targetDir, ".pi");
   fs.mkdirSync(settingsDir, { recursive: true });
   fs.writeFileSync(path.join(settingsDir, "settings.json"), settingsText, "utf8");
-
-  let hookValid = false;
-  try {
-    hookValid = isValidWorktreeInit((JSON.parse(settingsText) as { worktreeInit?: unknown }).worktreeInit);
-  } catch {
-    hookValid = false;
-  }
+  const hookValid = isValidWorktreeInit(parsedSettings.worktreeInit);
 
   // prompts/*.md
   const prompts = listPrompts(profile.dir);
@@ -166,7 +183,9 @@ export function scaffoldProfile(opts: ScaffoldOptions): ScaffoldResult {
   let doctrineSeeded = false;
   if (profile.dox) {
     doctrineSeeded = seedDoctrine(agentsMd, { kbWired }).seeded;
-    writeDoxKbConfig(targetDir);
+    // Honor overwrite for the kb config too, so the plan/conflict UX (which
+    // lists knowledge_base.json as a conflict) matches actual write behavior.
+    writeDoxKbConfig(targetDir, { overwrite });
   }
 
   return { ...plan, doctrineSeeded, hookValid, leftover };

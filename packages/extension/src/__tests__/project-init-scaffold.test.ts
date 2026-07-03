@@ -95,6 +95,27 @@ describe("project-init scaffold", () => {
     expect(res.hookValid).toBe(true);
   });
 
+  it("JSON-escapes substitutions so a quote/backslash cannot corrupt settings.json", () => {
+    const profile = makeStackProfile(profilesRoot, "coding");
+    const subs = { ...stackSubstitutions(STACKS.npm!), INIT_COMMAND: 'echo "hi" && npm ci' };
+    const res = scaffoldProfile({ profile, targetDir: target, substitutions: subs });
+    // Must still be valid JSON on disk, with the value preserved verbatim.
+    const settings = JSON.parse(fs.readFileSync(path.join(target, ".pi", "settings.json"), "utf8"));
+    expect(settings.worktreeInit.run.command).toBe('echo "hi" && npm ci');
+    expect(res.hookValid).toBe(true);
+  });
+
+  it("overwrite:true rewrites a pre-existing knowledge_base.json (DOX)", () => {
+    const profile = makeProfileDir(profilesRoot, "coding", { dox: true });
+    const kbPath = path.join(target, ".pi", "dashboard", "knowledge_base.json");
+    fs.mkdirSync(path.dirname(kbPath), { recursive: true });
+    fs.writeFileSync(kbPath, '{"sources":[]}\n');
+    scaffoldProfile({ profile, targetDir: target, overwrite: true });
+    const kb = JSON.parse(fs.readFileSync(kbPath, "utf8"));
+    expect(kb.indexAgentsFiles).toBe(true);
+    expect(kb.directoryLevelAgents.enabled).toBe(true);
+  });
+
   it("reports leftover placeholders when no stack substitutions are supplied", () => {
     const profile = makeStackProfile(profilesRoot, "coding");
     const res = scaffoldProfile({ profile, targetDir: target });
