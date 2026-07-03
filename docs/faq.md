@@ -2285,6 +2285,14 @@ Untrusted hook → no auto-run. Use manual Initialize button (grants TOFU trust 
 
 Pref stored in `preferences.json` key `autoInitWorktreeOnSpawn`.
 
+Project `worktreeInit` run.command pre-warms kb index: `npm ci` → `npx openspec init --tools pi --force` → build `@blackbelt-technology/pi-dashboard-kb` → `NODE_OPTIONS=--experimental-sqlite npx kb index`.
+
+kb build step mandatory. `packages/kb/dist/` gitignored, no prepare script → `npm ci` never builds `dist/cli.js`.
+
+Gate covers all restored assets: `node_modules` + `.pi/skills/openspec-explore` + `.pi/dashboard/kb/index.db`. Gate must test every asset run restores, else run silently skipped.
+
+Editing `worktreeInit` rehashes hook → next run re-prompts TOFU trust.
+
 Cross-refs:
 - packages/client/src/lib/auto-init-worktree.ts
 - packages/client/src/components/SettingsPanel.tsx

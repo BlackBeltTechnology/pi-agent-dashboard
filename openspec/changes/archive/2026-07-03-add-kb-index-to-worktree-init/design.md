@@ -27,9 +27,11 @@ generated    →  only worktreeInit restores →  ABSENT until the hook runs
 - **Alternative rejected**: keep the single `node_modules` sentinel and rely on the run always doing everything. Rejected — it only works when `node_modules` itself is missing; a half-initialized worktree stays broken forever.
 
 ### D2 — Append `kb index` to the run, not a separate hook
-The engine supports exactly one hook per project. Chaining in `run.command` (`&& NODE_OPTIONS=--experimental-sqlite npx kb index`) keeps one atomic init. Order matters: `npm ci` first (kb bin + `--experimental-sqlite` runtime), then openspec init, then kb index.
+The engine supports exactly one hook per project. Chaining in `run.command` keeps one atomic init. Final command:
+`npm ci && npx openspec init --tools pi --force && npm run build --workspace=@blackbelt-technology/pi-dashboard-kb && NODE_OPTIONS=--experimental-sqlite npx kb index`. Order matters: `npm ci` first (links kb bin), then openspec init, then build kb `dist/`, then kb index.
 
-- **kb invocation nuance**: `node_modules/.bin/kb` links to the package's `dist/cli.js`; the CLI needs `NODE_OPTIONS=--experimental-sqlite` (node:sqlite). If a fresh install lacks `dist/`, front with a build or the `tsx src/cli.ts` dev path (task 1.3 verifies).
+- **kb build is mandatory, not conditional.** `node_modules/.bin/kb` links to `packages/kb/dist/cli.js`, but `packages/kb/dist/` is gitignored and `packages/kb/package.json` has no `prepare` script — so `npm ci` never builds it. On a fresh worktree `dist/cli.js` is ALWAYS absent, so the build step precedes `kb index` unconditionally. Verified empirically (task 1.3). The CLI needs `NODE_OPTIONS=--experimental-sqlite` (node:sqlite, Node ≥ 22.5).
+- **kb sources**: config at `.pi/dashboard/knowledge_base.json` is git-tracked (restored by `git worktree add`), so `kb index` finds `sources[]` with no seeding. `dbPath` there = `.pi/dashboard/kb/index.db`, matching the gate sentinel.
 
 ### D3 — Do NOT fix "auto-init doesn't fire" here
 `autoInitWorktreeOnSpawn` defaults off and the hook needs a one-time TOFU trust grant (via `WorktreeInitButton`). That is the specified behavior (`worktree-auto-init` spec: "Preference defaults off", "Auto-trigger cannot bypass trust"). Changing defaults or the trust model is a separate policy decision, deliberately out of scope. This change only makes the hook *do the right thing when it runs*.
