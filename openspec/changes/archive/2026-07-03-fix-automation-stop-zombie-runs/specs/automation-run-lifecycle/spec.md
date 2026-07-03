@@ -36,7 +36,7 @@ A user SHALL be able to stop a `running` automation run from the board. Stopping
 
 ### Requirement: A completed run SHALL terminate its spawned session
 
-Automation runs are spawned as persistent `--mode rpc` pi sessions that do not self-exit when a turn ends. When a run completes normally (its session emits `agent_end`) and the result has been captured, the run's spawned session SHALL be terminated so no idle pi process is left running. Termination on completion SHOULD be graceful (a clean session shutdown) and MAY escalate to a hard process kill if the session does not exit. This SHALL reuse the same host-provided, trust-gated termination capability used by user-initiated Stop.
+Automation runs are spawned as persistent `--mode rpc` pi sessions that do not self-exit when a turn ends. When a run completes normally (its session emits `agent_end`) and the result has been captured, the run's spawned session SHALL be terminated so no idle pi process is left running. Termination on completion SHALL send a graceful clean-exit hint (session shutdown) AND SHALL always escalate to a hard process kill, unconditionally — not gated on whether the hint succeeds, because the hint is undeliverable when the bridge WebSocket is not open. This SHALL reuse the same host-provided, trust-gated termination capability used by user-initiated Stop.
 
 #### Scenario: Completed run's session is ended
 

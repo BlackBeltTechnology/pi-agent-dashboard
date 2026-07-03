@@ -291,6 +291,9 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
 
     // Non-keeper path (legacy): kill the spawn-time PID directly with
     // SIGTERM → 2 s → SIGKILL escalation (uniform with keeper path).
+    // Returns true once the kill is ISSUED for a known entry (matches the
+    // established killBySessionId contract; a non-throwing killProcess —
+    // even {ok:false} for an already-dead PID — counts as issued).
     try {
       await killProcess(entry.pid, { timeoutMs: 2000 });
       entries.delete(entry.pid);

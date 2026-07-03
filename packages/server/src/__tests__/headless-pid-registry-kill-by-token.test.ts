@@ -90,14 +90,18 @@ describe("headlessPidRegistry.killByToken", () => {
     expect(killProcessMock).not.toHaveBeenCalled();
   });
 
-  it("returns false when the process is already dead (killProcess rejects)", async () => {
-    killProcessMock.mockRejectedValueOnce(new Error("ESRCH"));
+  it("already-dead PID (killProcess resolves ok:false) still counts as issued → true, entry removed", async () => {
+    // killProcess RESOLVES {ok:false} for a dead PID (it does not reject).
+    // killByToken mirrors killBySessionId's established contract: a
+    // non-throwing kill of a KNOWN entry is "issued" → true, and the entry
+    // is removed either way. (Only an unknown token returns false.)
+    killProcessMock.mockResolvedValueOnce({ ok: false, forced: false });
     const reg = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     reg.register(LEGACY_PID, "/proj", mockProcess(), "tok-dead");
 
     const result = await reg.killByToken("tok-dead");
 
-    expect(result).toBe(false);
+    expect(result).toBe(true);
     expect(reg.size()).toBe(0);
   });
 });
