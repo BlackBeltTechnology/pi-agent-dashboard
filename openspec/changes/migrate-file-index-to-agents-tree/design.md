@@ -219,6 +219,18 @@ reached pull-only via `kb agents`. Risk: a session with cwd deep in `src/`
 loads every ancestor `AGENTS.md`. Needs a measurement spike before flipping
 `directoryLevelAgents` to push mode. Pull mode is safe.
 
+> **MEASURED (6.1 spike, tree present):**
+> - root cwd → root `AGENTS.md` only, ~6k tokens (unchanged, fine).
+> - package-root cwd (`packages/client`) → root + 812 B, ~6k tokens (fine).
+> - deep cwd (`packages/client/src/components`) → root + 812 B + 8 KB +
+>   **60 KB** = ~23k tokens/turn. The `components/` dir holds ~90 rows → 60 KB
+>   `AGENTS.md`; pi's native up-walk injects it when cwd sits at/below it.
+> - tree overall: 92 files, avg 4 KB, max 60 KB (components outlier), 383 KB total.
+>
+> **Verdict:** pull mode correct; push stays deferred. Common cwds (root, package
+> root) unaffected. Only deep-under-a-mega-dir sessions pay — rare. Optional future
+> mitigation: split the `components/` mega-file, or cap rows/dir. Not blocking.
+
 ## 6. Non-goals
 
 - The `doxEnforcement` per-edit write-hook (steady-state auto-scaffold) — separate

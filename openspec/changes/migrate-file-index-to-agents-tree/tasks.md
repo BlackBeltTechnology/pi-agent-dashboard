@@ -32,9 +32,9 @@
 - [x] 5.2 Add `docs/file-index-<area>.md` rows (or tree rows) for the new migration script + `dox.ts` deltas. → verify: new files have a purpose row
 
 ## 6. Context-cost spike (design §5) — gate before push mode
-- [ ] 6.1 Measure per-turn `AGENTS.md` injection with the tree present: cwd=root vs cwd deep in `src/`. → verify: root-cwd load stays ~root-only; document the deep-cwd cost
+- [x] 6.1 Measure per-turn `AGENTS.md` injection with the tree present: cwd=root vs cwd deep in `src/`. → verify: root-cwd load stays ~root-only; document the deep-cwd cost
 - [x] 6.2 Keep `directoryLevelAgents` in **pull** mode until the spike clears push. → verify: default config ships pull, not push
 
 ## 7. Validate
 - [x] 7.1 `openspec validate migrate-file-index-to-agents-tree --strict` passes. → verify: exit 0
-- [ ] 7.2 `npm test` green (dox unit tests updated for deltas ①–⑤). → verify: kb suite passes
+- [x] 7.2 `npm test` green (dox unit tests updated for deltas ①–⑤). → verify: kb suite passes
