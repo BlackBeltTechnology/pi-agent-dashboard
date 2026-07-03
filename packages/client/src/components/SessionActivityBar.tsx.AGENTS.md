@@ -1,0 +1,3 @@
+# SessionActivityBar.tsx — index
+
+Pure component. Renders one row per unresolved `bash` toolCall: `⏵ <command> <elapsed> [⏹]`. Driven by `useInflightBashTools` over event-reducer state. Cap `MAX_VISIBLE=2`, overflow chip `+N more`. Container `role="status"` + `aria-live="polite"`. Stop button tooltip `Stop this tool (lets the agent continue)` exported as `STOP_TOOLTIP`. Stop click → `onAbort(toolCallId)`. Phase 1 maps `onAbort` to session-level abort (`browser-protocol.ts` `AbortToBrowserMessage`, no per-toolCall abort yet). `compact` prop for mobile. Exports: `SessionActivityBar`, `MAX_VISIBLE`, `STOP_TOOLTIP`. See change: redesign-process-list-activity-bar.

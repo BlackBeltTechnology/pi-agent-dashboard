@@ -38,3 +38,11 @@
 ## 7. Validate
 - [x] 7.1 `openspec validate migrate-file-index-to-agents-tree --strict` passes. → verify: exit 0
 - [x] 7.2 `npm test` green (dox unit tests updated for deltas ①–⑤). → verify: kb suite passes
+
+## 8. Mega-file mitigation (design §5 residual) + rollup dedup
+- [x] 8.1 Support `<File>.AGENTS.md` per-file index sidecars: `indexer.ts docTypeOf` classifies `*.AGENTS.md` as `agents` doc_type (searchable) while pi's native up-walk (name = `AGENTS.md` only) never auto-injects them; `dox.ts isMdFile` excludes sidecars from the md walk. → verify: kb suite green; sidecar returns from `kb search --doc-type agents`
+- [x] 8.2 `dox.ts` over-threshold lint gains a byte trigger (`AGENTS_BYTE_CAP` 30 KB) alongside the row-count cap; detail names the fix (promote heaviest rows to `<File>.AGENTS.md`). → verify: a > 30 KB dir AGENTS.md reports `over-threshold`
+- [x] 8.3 Split the 60 KB `packages/client/src/components/AGENTS.md` file-based via `scripts/split-large-agents.mjs` — rows > 200 chars → per-file sidecar (full detail + `See change:`), ≤ 200 stay verbatim; dir → ~26 KB, 111 sidecars. → verify: dir shrunk, every source file still has one row, no history lost
+- [x] 8.4 De-dupe cross-split paths in the rollup: `exportRollup` drops each path from every non-canonical-owner split (was add-only) — 27 stale rows across 3 overlap clusters (kb↔extension, plugin-runtime↔server, roles-plugin↔client/plugins/server) removed. → verify: zero paths in > 1 `docs/file-index-*.md`
+- [x] 8.5 `treeRows` resolves `→ see <File>.AGENTS.md` pointer rows back to full detail from the sidecar so `kb dox export` re-runs keep the rollup complete. → verify: rollup ChatView.tsx row = full reconstructed detail, no `→ see` leak
+- [x] 8.6 Docs: root `AGENTS.md` Documentation Update Protocol Rule 3 gains the "large AGENTS.md not supported → split file-based" rule; project-init `project-profiles` spec's DOX doctrine requirement carries the same size rule (WRITE discipline + scenario). → verify: rule present in both, `openspec validate` green

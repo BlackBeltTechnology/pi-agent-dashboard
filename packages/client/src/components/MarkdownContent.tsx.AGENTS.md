@@ -1,0 +1,3 @@
+# MarkdownContent.tsx — index
+
+ReactMarkdown renderer (chat/thinking/flow agent detail/READMEs/previews); KaTeX math + `pi-asset:` image scheme. External-link hardening (change: harden-external-link-handling, #13): exports pure `isExternalHref(href)` + overrides `a` component so external URLs render `target="_blank" rel="noopener noreferrer"`, fragment-only + same-origin hrefs stay in-document. Optional `context?: ToolContext` prop enables prose + inline-`code` linkification via `tokenize` → `FileLink`/`UrlLink`; fenced code blocks excluded; markdown anchors not double-wrapped. See change: unify-file-link-openability.

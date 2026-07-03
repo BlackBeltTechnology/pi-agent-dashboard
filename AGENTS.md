@@ -123,7 +123,7 @@ Rules:
 
 2. **AGENTS.md content beyond per-file rows** — anything that DOES belong here (architecture pointers, build commands, rules every agent needs) stays ≤ 200 chars per line where possible; never enumerate files inline.
 
-3. **Tree files stay small** (one dir = one `AGENTS.md`, ~1 row/file — no size problem). A `docs/file-index-<area>.md` split that grows past ~50 KB sub-splits (e.g. `file-index-server-routes.md`) + update `docs/file-index.md`.
+3. **Tree files stay small; large `AGENTS.md` not supported.** One dir = one `AGENTS.md`, ~1 row/file. pi auto-injects a dir `AGENTS.md` every turn when cwd sits at/below it, so a flat dir with many files (e.g. `components/`, 154 files) bloats it past `AGENTS_BYTE_CAP` (30 KB, `packages/kb/src/dox.ts`) → **split file-based**: rows > 200 chars promote to a per-file `<File>.AGENTS.md` sidecar (full detail + every `See change:`; pull-only — name ≠ `AGENTS.md` so no auto-inject; `agents` doc_type, `kb search`-able); the dir row keeps a one-line summary + `→ see \`<File>.AGENTS.md\``. Rows ≤ 200 chars stay verbatim (lossless). Run `node scripts/split-large-agents.mjs <path/to/AGENTS.md> --write`. `kb dox lint` flags `over-threshold` (row count > 40 OR bytes > cap). A `docs/file-index-<area>.md` split past ~50 KB sub-splits (e.g. `file-index-server-routes.md`) + update `docs/file-index.md`.
 
 4. **Long-form docs** (architecture decisions, rationale, protocol details) belong in `docs/architecture.md` or `docs/<topic>.md`. Reference from AGENTS.md with a one-line pointer, never inline.
 

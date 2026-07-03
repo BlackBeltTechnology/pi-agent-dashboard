@@ -17,10 +17,16 @@ function isSourceFile(name: string): boolean {
   return SOURCE_EXT.test(name) && !/\.d\.ts$/.test(name) && !/\.(test|spec)\.[cm]?[jt]sx?$/.test(name);
 }
 function isMdFile(name: string): boolean {
-  return MD_EXT.test(name) && !AGENTS_FILES.includes(name);
+  // `*.AGENTS.md` sidecars are per-file index promotions, not doc md needing
+  // their own dir row/companion — exclude from the md walk.
+  return MD_EXT.test(name) && !AGENTS_FILES.includes(name) && !name.endsWith(".AGENTS.md");
 }
 export const AREA_FILE_THRESHOLD = 8; // ≥ this many md files in a subdir → own AGENTS.md
 export const ROW_CAP = 40;
+// pi auto-injects a dir AGENTS.md on every turn when cwd sits at/below it. Past
+// this byte cap it is "too large" → split file-based: promote the heaviest rows
+// to `<File>.AGENTS.md` sidecars (pull-only) + cap remaining rows to one line.
+export const AGENTS_BYTE_CAP = 30000;
 const COMPANION_LOC = 300;
 const COMPANION_BYTES = 15000;
 
@@ -242,8 +248,11 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   for (const af of agentsFiles) {
     const rows = parseRowPaths(af);
     const afRel = relative(cwd, af);
-    // over-threshold
-    if (rows.length > ROW_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, detail: `${rows.length} rows > cap ${ROW_CAP}` });
+    // over-threshold: row count OR byte size. Fix = split file-based (promote
+    // heaviest rows to `<File>.AGENTS.md` sidecars + cap remaining rows).
+    if (rows.length > ROW_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, detail: `${rows.length} rows > cap ${ROW_CAP}; promote heaviest rows to <File>.AGENTS.md sidecars` });
+    const afBytes = statSync(af).size;
+    if (afBytes > AGENTS_BYTE_CAP) issues.push({ kind: "over-threshold", agentsFile: afRel, detail: `${afBytes} bytes > cap ${AGENTS_BYTE_CAP}; auto-injected per turn — promote heaviest rows to <File>.AGENTS.md sidecars` });
     const survivingRows: string[] = [];
     const text = readFileSync(af, "utf8").split("\n");
     for (const line of text) {

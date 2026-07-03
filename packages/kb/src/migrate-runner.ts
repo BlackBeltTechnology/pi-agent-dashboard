@@ -201,7 +201,28 @@ function parseSplit(file: string): SplitDoc | null {
   return { area, file, header, rows };
 }
 
-/** Reconstruct full repo-relative source rows from the tree (dir + basename). */
+/** A capped dir row points to a per-file sidecar: `<summary> → see \`<name>.AGENTS.md\``.
+ *  Reconstruct the full purpose from the sidecar so the rollup stays complete
+ *  across re-runs (tree source of truth = dir row + sidecar). */
+const SIDECAR_PTR = /\s*→\s*see\s*`([^`]+\.AGENTS\.md)`\s*$/;
+function resolvePurpose(dir: string, purpose: string): string {
+  const m = purpose.match(SIDECAR_PTR);
+  if (!m) return purpose;
+  const sc = join(dir, m[1]);
+  if (!existsSync(sc)) return purpose.replace(SIDECAR_PTR, "").trim();
+  // sidecar body = `# <name> — index` header + blank-line-separated fragments
+  const body = readFileSync(sc, "utf8").split("\n");
+  const frags = body
+    .slice(body.findIndex((l) => l.startsWith("# ")) + 1)
+    .join("\n")
+    .split(/\n\s*\n/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return frags.join("<br>");
+}
+
+/** Reconstruct full repo-relative source rows from the tree (dir + basename).
+ *  Sidecar pointer rows are resolved back to full detail. */
 export function treeRows(cwd: string): Map<string, string> {
   const out = new Map<string, string>();
   const walk = (dir: string) => {
@@ -213,7 +234,7 @@ export function treeRows(cwd: string): Map<string, string> {
         const relDir = relative(cwd, dir);
         for (const l of readFileSync(abs, "utf8").split("\n")) {
           const m = l.match(/^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/);
-          if (m && m[1] !== "File") out.set(join(relDir, m[1].trim()), m[2].trim());
+          if (m && m[1] !== "File") out.set(join(relDir, m[1].trim()), resolvePurpose(dir, m[2].trim()));
         }
       }
     }
@@ -223,7 +244,7 @@ export function treeRows(cwd: string): Map<string, string> {
 }
 
 export interface RollupResult {
-  perArea: Record<string, { added: number; changed: number; total: number }>;
+  perArea: Record<string, { added: number; changed: number; removed: number; total: number }>;
   unassigned: string[];
 }
 /** Merge tree source rows into the packages-covering splits. Idempotent. */
@@ -266,11 +287,25 @@ export function exportRollup(cwd: string, opts: { write?: boolean } = {}): Rollu
     }
     return packageRootOwner(p);
   };
+  // cross-split dedup: a path present in >1 split is a duplicate. Keep it only in
+  // its canonical (structural) owner; drop from the others on write.
+  const pathAreas = new Map<string, string[]>();
+  for (const s of splits) for (const p of s.rows.keys()) (pathAreas.get(p) ?? pathAreas.set(p, []).get(p)!).push(s.area);
+  const canonicalArea = (p: string): string => {
+    const areas = pathAreas.get(p) ?? [];
+    if (areas.length <= 1) return areas[0];
+    const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : ".";
+    const pref = packageRootOwner(p) ?? majority(d);
+    if (pref && areas.includes(pref)) return pref;
+    return [...areas].sort()[0];
+  };
+  const isCrossSplitDup = (p: string, area: string) => (pathAreas.get(p)?.length ?? 0) > 1 && canonicalArea(p) !== area;
   const byArea = new Map(splits.map((s) => [s.area, s]));
   const result: RollupResult = { perArea: {}, unassigned: [] };
   const adds = new Map<string, Map<string, string>>(); // area → path → purpose
   for (const [p, purpose] of treeRows(cwd)) {
-    const area = ownerOf(p);
+    // dup source paths route to their canonical owner so dedup is not undone by a re-add
+    const area = (pathAreas.get(p)?.length ?? 0) > 1 ? canonicalArea(p) : ownerOf(p);
     if (!area || !byArea.has(area)) {
       result.unassigned.push(p);
       continue;
@@ -281,7 +316,12 @@ export function exportRollup(cwd: string, opts: { write?: boolean } = {}): Rollu
     const treeForArea = adds.get(s.area) ?? new Map();
     let added = 0;
     let changed = 0; // divergent existing rows: KEPT (never overwritten), counted only
-    const merged = new Map(s.rows);
+    let removed = 0; // cross-split duplicate rows dropped from this non-owner split
+    const merged = new Map<string, string>();
+    for (const [p, purpose] of s.rows) {
+      if (isCrossSplitDup(p, s.area)) { removed++; continue; }
+      merged.set(p, purpose);
+    }
     for (const [p, purpose] of treeForArea) {
       if (!merged.has(p)) {
         merged.set(p, purpose); // add-only: new source rows
@@ -290,7 +330,7 @@ export function exportRollup(cwd: string, opts: { write?: boolean } = {}): Rollu
         changed++; // existing curated row differs (cross-split dup) — keep existing, do NOT overwrite
       }
     }
-    result.perArea[s.area] = { added, changed, total: merged.size };
+    result.perArea[s.area] = { added, changed, removed, total: merged.size };
     if (opts.write) {
       const sorted = [...merged.entries()].sort((a, b) => a[0].localeCompare(b[0]));
       const banner = "> **Source-file rows synced from the per-directory `AGENTS.md` tree** (change: migrate-file-index-to-agents-tree). Edit `packages/**` source rows in the directory `AGENTS.md`, not here; non-source rows (package.json, *.json, skill dirs) stay hand-maintained.";

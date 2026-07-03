@@ -1,0 +1,3 @@
+# WorktreeInitButton.tsx — index
+
+Self-contained Initialize button per directory/worktree row. Probes `GET /api/git/worktree/init-status` lazily for cwd; renders button iff hasHook && needsInit, fail-open hides on error. Click → `POST /api/git/worktree/init`; untrusted → ConfirmDialog naming gate + run; on confirm re-issues with confirmHash. Streams `worktree_init_progress` to live tail via worktree-init-bus; `worktree_init_failed` → spawn-error-style failure card; success re-fetches init-status → button disappears. See change: generalize-worktree-init-hook. Migrated to client-utils Dialog/Confirm shell. See change: unify-dialog-system.
