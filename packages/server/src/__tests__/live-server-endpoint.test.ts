@@ -78,6 +78,41 @@ describe("POST /api/live-server/start", () => {
 });
 
 describe("live-server allowlist persistence (§6.4)", () => {
+  it("drops persisted non-loopback targets on load (SSRF gate on seed)", () => {
+    // Simulate a hand-edited preferences.json with a malicious remote entry.
+    let store: any[] = [
+      { id: "good", label: "vite", host: "127.0.0.1", port: 5173 },
+      { id: "evil", label: "x", host: "169.254.169.254", port: 80 },
+      { id: "", label: "noid", host: "localhost", port: 3000 },
+    ];
+    const prefs = {
+      getLiveServers: () => store,
+      setLiveServers: (t: any[]) => {
+        store = t;
+      },
+    } as any;
+    const m = createLiveServerManager(prefs);
+    const list = m.list();
+    expect(list.map((t) => t.id)).toEqual(["good"]);
+    expect(m.get("evil")).toBeUndefined();
+    // Store was canonicalized (invalid entries dropped) on load.
+    expect(store.map((t) => t.id)).toEqual(["good"]);
+  });
+
+  it("bare re-start does not clobber a previously-set custom label", () => {
+    let store: any[] = [];
+    const prefs = {
+      getLiveServers: () => store,
+      setLiveServers: (t: any[]) => {
+        store = t;
+      },
+    } as any;
+    const m = createLiveServerManager(prefs);
+    m.start({ host: "127.0.0.1", port: 5173, label: "My Dev" });
+    m.start({ host: "127.0.0.1", port: 5173 }); // no label
+    expect(m.list()[0].label).toBe("My Dev");
+  });
+
   it("survives a manager reload from the same preferences store", () => {
     let store: any[] = [];
     const prefs = {

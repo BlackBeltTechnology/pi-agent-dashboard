@@ -53,6 +53,20 @@ export function registerLiveServerProxy(fastify: FastifyInstance, manager: LiveS
         if (typeof location === "string") {
           if (location.startsWith("./")) headers.location = `${prefix}/${location.slice(2)}`;
           else if (location.startsWith("/")) headers.location = `${prefix}${location}`;
+          else {
+            // Rewrite an absolute redirect back to the SAME upstream
+            // (`http://127.0.0.1:<port>/…`) into the proxied prefix so the
+            // browser stays on the dashboard origin and the single-port tunnel
+            // keeps working. Foreign absolute redirects are left untouched.
+            try {
+              const u = new URL(location);
+              if (u.hostname === host && u.port === String(target.port)) {
+                headers.location = `${prefix}${u.pathname}${u.search}`;
+              }
+            } catch {
+              /* not an absolute URL — leave as-is */
+            }
+          }
         }
         return headers;
       },
@@ -85,6 +99,9 @@ export function handleLiveServerUpgrade(
   const host = upstreamHost(target.host);
 
   const upstream = net.connect(target.port, host, () => {
+    // Clear the connect-phase timeout once the socket is established; the pipe
+    // below owns the socket lifetime thereafter.
+    upstream.setTimeout(0);
     const headers = Object.entries(request.headers)
       .filter(([k]) => !["host", "origin"].includes(k.toLowerCase()))
       .map(([k, v]) => `${k}: ${v}`)
@@ -98,6 +115,9 @@ export function handleLiveServerUpgrade(
     upstream.pipe(socket);
     socket.pipe(upstream);
   });
+  // Bound the connect/upgrade handshake: a target that accepts TCP but never
+  // completes the upgrade must not leak an idle socket pair forever.
+  upstream.setTimeout(10_000, () => upstream.destroy());
   upstream.on("error", () => socket.destroy());
   socket.on("error", () => upstream.destroy());
   socket.on("close", () => upstream.destroy());

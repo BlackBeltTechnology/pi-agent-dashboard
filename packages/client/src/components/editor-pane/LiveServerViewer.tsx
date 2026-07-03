@@ -40,20 +40,26 @@ export default function LiveServerViewer() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    listLiveServers().then(setServers).catch(() => {});
+    listLiveServers()
+      .then(setServers)
+      .catch(() => setError("Couldn't load saved targets."));
   }, []);
 
   const launch = async (input: { host: string; port: number; label?: string }) => {
     setBusy(true);
     setError(null);
-    const res = await startLiveServer(input);
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      const res = await startLiveServer(input);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setPath(res.target.path);
+      setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
+    } finally {
+      // Always clear busy — an unexpected throw must not leave Preview disabled.
+      setBusy(false);
     }
-    setPath(res.target.path);
-    setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
   };
 
   const onConfirm = () => {

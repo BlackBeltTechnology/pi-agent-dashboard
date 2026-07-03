@@ -30,14 +30,21 @@ export async function startLiveServer(input: {
 }): Promise<StartResult> {
   const v = validateLiveTarget(input);
   if (!v.ok) return { ok: false, error: v.error };
-  const res = await fetch(`${getApiBase()}/api/live-server/start`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const body = await res.json();
-  if (!res.ok || !body.success) {
-    return { ok: false, error: body.error ?? `start failed (${res.status})` };
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBase()}/api/live-server/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" };
+  }
+  // Guard `res.json()`: a non-JSON error body (proxy/gateway HTML) would
+  // otherwise throw and propagate as an unhandled rejection.
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body?.success) {
+    return { ok: false, error: body?.error ?? `start failed (${res.status})` };
   }
   return { ok: true, target: body.data };
 }

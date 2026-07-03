@@ -31,11 +31,24 @@ export interface LiveServerManager {
 
 export function createLiveServerManager(preferencesStore: PreferencesStore): LiveServerManager {
   // Seed from the persisted allowlist so previously-added targets survive
-  // restart.
+  // restart. Re-validate every entry through the SSRF gate: a hand-edited /
+  // legacy `preferences.json` could otherwise reintroduce a non-loopback
+  // target that never passed `start()`. Drop anything invalid, and canonicalize
+  // the persisted store if we dropped or normalized entries.
   const targets = new Map<string, LiveServerTarget>();
-  for (const t of preferencesStore.getLiveServers()) targets.set(t.id, t);
+  let seededDirty = false;
+  const persisted = preferencesStore.getLiveServers();
+  for (const t of persisted) {
+    const v = validateLiveTarget(t);
+    if (!v.ok || typeof t.id !== "string" || !t.id) {
+      seededDirty = true; // dropping an invalid persisted entry
+      continue;
+    }
+    targets.set(t.id, { id: t.id, label: v.label, host: v.host, port: v.port });
+  }
 
   const persist = () => preferencesStore.setLiveServers([...targets.values()]);
+  if (seededDirty) persist();
 
   return {
     start(input) {
@@ -45,10 +58,14 @@ export function createLiveServerManager(preferencesStore: PreferencesStore): Liv
       const existing = [...targets.values()].find((t) => t.host === v.host && t.port === v.port);
       const target: LiveServerTarget =
         existing ?? { id: randomUUID().slice(0, 8), label: v.label, host: v.host, port: v.port };
+      // Only overwrite the stored label when the caller EXPLICITLY supplied a
+      // non-empty one; otherwise a bare re-`start()` (no label) would clobber a
+      // previously-set custom label with the `host:port` default.
+      const explicitLabel = typeof input.label === "string" && input.label.trim().length > 0;
       if (!existing) {
         targets.set(target.id, target);
         persist();
-      } else if (existing.label !== v.label) {
+      } else if (explicitLabel && existing.label !== v.label) {
         existing.label = v.label;
         persist();
       }
