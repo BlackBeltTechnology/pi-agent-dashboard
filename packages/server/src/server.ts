@@ -35,6 +35,8 @@ import { createEditorManager, type EditorManager } from "./editor-manager.js";
 import { createEditorPidRegistry } from "./editor-pid-registry.js";
 import { handleEditorUpgrade, registerEditorProxy } from "./editor-proxy.js";
 import { wireEvents } from "./event-wiring.js";
+import { startEventLoopSampler } from "./eventloop-sampler.js";
+import { createEventLoopSpikeMetrics } from "./eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { decideBudgetHalt } from "./goal-budget-guard.js";
 import { primeGoalSession } from "./goal-session-primer.js";
@@ -510,6 +512,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     return snapshot;
   };
 
+  // Sub-threshold event-loop stall retention. A bounded, process-local ring
+  // buffer fed by two independent feeds: the OpenSpec poll path self-records
+  // per-turn synchronous stalls (`directory-service.ts`), and the dedicated
+  // sampler below records `turn: null` for stalls no instrumented turn owns
+  // (GC, hydration deserialize, WS on-connect). `/api/health` reads its
+  // snapshot. See change: attribute-openspec-poll-eventloop-stalls.
+  const EVENTLOOP_SPIKE_FLOOR_MS = 100;
+  const EVENTLOOP_SAMPLE_INTERVAL_MS = 1000;
+  const eventLoopSpikes = createEventLoopSpikeMetrics(50);
+  // Dedicated `monitorEventLoopDelay` instance — NEVER the boot histogram
+  // above (which `/api/health` reads-and-resets). Owning a separate histogram
+  // avoids a reset race: `/api/health`'s mean/p99/max stay unaffected.
+  const eventLoopSampler = startEventLoopSampler({
+    floorMs: EVENTLOOP_SPIKE_FLOOR_MS,
+    intervalMs: EVENTLOOP_SAMPLE_INTERVAL_MS,
+    onSpike: (ms) => {
+      try { eventLoopSpikes.record({ at: Date.now(), ms, turn: null }); }
+      catch { /* measurement must never break the loop */ }
+    },
+  });
+
   const directoryService = createDirectoryService(
     preferencesStore,
     sessionManager,
@@ -536,6 +559,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         }
       },
       hydrationMetrics,
+      // Per-turn self-record feed into the shared spike buffer + the per-turn
+      // slow-tick alarm. See change: attribute-openspec-poll-eventloop-stalls.
+      eventLoopSpikes,
+      eventLoopSpikeFloorMs: EVENTLOOP_SPIKE_FLOOR_MS,
       useLoadWorker: config.sessions?.useLoadWorker !== false,
     },
   );
@@ -992,7 +1019,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
   });
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -1783,6 +1810,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Stop the event-loop-delay monitor so the libuv timer doesn't linger
       // after teardown. See change: instrument-session-hydration-timing.
       try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }
+      // Stop the dedicated ELD safety-net sampler + its histogram.
+      // See change: attribute-openspec-poll-eventloop-stalls.
+      try { eventLoopSampler.stop(); } catch { /* ignore */ }
       // Stop mDNS before closing
       try {
         if (mdnsBrowser) { mdnsBrowser.stop(); mdnsBrowser = null; }

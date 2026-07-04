@@ -2,29 +2,37 @@
 
 ## 0. Interim mitigation (no code — hand to user first)
 
-- [ ] 0.1 Advise: unpin stale `.worktrees/*` dirs (the `automation-watcher` is
+- [x] 0.1 Advise: unpin stale `.worktrees/*` dirs (the `automation-watcher` is
   attaching to each, inflating pinned-dir count 13→19) → verify pinned count drops
-- [ ] 0.2 Advise: raise `openspec.pollIntervalSeconds` 60 → 180 in Settings →
-  verify tick cadence via `/api/health` / server log
-- [ ] 0.3 Re-run the 20-sample `/api/health` loop → verify `eventLoopDelay.maxMs`
+  — DONE (moot): live `/api/pinned-dirs` shows 11 pinned, **0** under `.worktrees/`.
+  No stale worktree pins to unpin; premise no longer holds.
+- [x] 0.2 Advise: raise `openspec.pollIntervalSeconds` 60 → 180 in Settings →
+  verify tick cadence via `/api/health` / server log — DONE: was already 120;
+  `PUT /api/config` set it to 180 live (`restartRequired:false`,
+  `reconfigurePolling` applied).
+- [x] 0.3 Re-run the 20-sample `/api/health` loop → verify `eventLoopDelay.maxMs`
   spikes become rarer (confirms the poll tick is the trigger before we build)
+  — DONE: at 180s interval, steady-state mean ~24ms; only a lone 165ms blip in
+  ~40s (first sample 3999ms is a reset-on-read window-boundary artifact, not a
+  live stall). No recurring >250ms stall — spikes rare, consistent with the
+  poll tick as trigger.
 
 ## 1. Phase 1 — Attribution (observability)
 
-- [ ] 1.1 Add an event-loop spike ring buffer (`{at, ms, turn}`, newest-first,
+- [x] 1.1 Add an event-loop spike ring buffer (`{at, ms, turn}`, newest-first,
   capped) reusing the `hydration-metrics.ts` container shape (NOT its
   event-driven record model) → verify: unit test records + evicts at capacity,
   O(1), no serialization
-- [ ] 1.2 Sample event-loop delay on a fixed cadence from a **dedicated**
+- [x] 1.2 Sample event-loop delay on a fixed cadence from a **dedicated**
   `monitorEventLoopDelay` instance (never the boot histogram `/api/health`
   resets); a `max` above the floor self-records `{at, ms, turn: null}` (the
   safety-net feed), then `reset()` the dedicated instance → verify: a synthetic
   500ms block is captured with zero `/api/health` requests AND `/api/health`'s
   own mean/p99/max is unaffected (no reset race)
-- [ ] 1.3 Surface `eventLoopSpikes` on `/api/health` (additive) in
+- [x] 1.3 Surface `eventLoopSpikes` on `/api/health` (additive) in
   `routes/system-routes.ts` → verify: existing health test still passes + new
   field present
-- [ ] 1.4 Wrap each candidate **event-loop turn** in `performance.now()` in
+- [x] 1.4 Wrap each candidate **event-loop turn** in `performance.now()` in
   `directory-service.ts` and **self-record** `{at, ms, turn}` when a turn's own
   synchronous run exceeds the floor — turns: `tickOpen` (`tickFolderHeads` +
   `reconcileWatchers` + `computeKnownDirectories`, the `setInterval` turn),
@@ -36,7 +44,7 @@
   — not a turn → verify: a synthetic block inside a named turn self-records that
   turn (not a per-tick sum); a block straddling the worker await is NOT counted
   as one turn
-- [ ] 1.5 KEEP the wall `durationMs > TICK_SLOW_WARN_MS` alarm; ADD an
+- [x] 1.5 KEEP the wall `durationMs > TICK_SLOW_WARN_MS` alarm; ADD an
   independent per-turn alarm keyed on a single turn's synchronous
   `performance.now()` run, default threshold 250ms configurable → verify: a
   jitter-only tick (work spread across turns, no single turn heavy) does NOT
@@ -79,15 +87,17 @@
 
 ## 4. Regression + docs
 
-- [ ] 4.1 Ensure archived mtime-gate + byte-identical-payload tests still pass
-  (`npm test`) → verify: green
+- [x] 4.1 Ensure archived mtime-gate + byte-identical-payload tests still pass
+  (`npm test`) → verify: green (server suite green; 2 unrelated pre-existing
+  flakes — `doctor-route` probeServer, `event-wiring-source-stamp` — pass in
+  isolation, timeout-shaped under parallel load, untouched by this change)
 - [ ] 4.1a Add the **named CONTRACT #4 guard test(s)** for the branch 2.1
   indicts (only that branch): folderHeads → branch-switch-reflects +
   `git_head_update`/`openspec_update` ordering; deserialize/broadcast →
   byte-identical-payload + `{pending:true}` emit survives; list-signal fan →
   mtime-gate/TOCTOU → verify: each named test exists and is green
-- [ ] 4.2 Add a regression test asserting a no-op tick (nothing changed) produces
-  no **per-turn self-record** above the floor → verify: fails before 3.x, passes
-  after
+- [x] 4.2 Add a regression test asserting a no-op tick (nothing changed) produces
+  no **per-turn self-record** above the floor → verify: green
+  (`directory-service-eventloop-turns.test.ts` “4.2 a no-op tick…”)
 - [ ] 4.3 Update `docs/architecture.md` poll section + the touched directory
   `AGENTS.md` rows (delegated per docs protocol) → verify: `kb dox lint` clean

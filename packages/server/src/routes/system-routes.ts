@@ -1,50 +1,52 @@
 /**
  * System REST API routes: config, health, shutdown, tunnel, editors.
  */
-import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "../memory-session-manager.js";
-import type { PreferencesStore } from "../preferences-store.js";
-import type { MetaPersistence } from "../meta-persistence.js";
-import type { DirectoryService } from "../directory-service.js";
-import type { HydrationMetrics } from "../hydration-metrics.js";
-import type { PiGateway } from "../pi-gateway.js";
-import type { ServerConfig } from "../server.js";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { NetworkGuard } from "./route-deps.js";
-import { detectEditors, EDITORS } from "../editor-registry.js";
-import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
-import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel.js";
-import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
-import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
-import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel-watchdog.js";
-import { spawnRestart } from "../restart-helper.js";
-import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import path from "node:path";
-import os from "node:os";
-import { isAllowed } from "../lib/path-containment.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
-import { readSpawnFailures } from "../spawn-failure-log.js";
-import {
-  getPluginStatusStore,
-  discoverPlugins,
-  pluginRegistryHash,
-} from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+
 import fs from "node:fs";
-import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
-import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
-import { decodeFileUri } from "../lib/decode-file-uri.js";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  readPiCompatibility,
-  readCurrentPiVersion,
-  computeCompatibility,
+  discoverPlugins,
+  getPluginStatusStore,
+  pluginRegistryHash,
+} from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { BridgeLoadSource, PluginStatus } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/plugin-status.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
+import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
+import { readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import type { DirectoryService } from "../directory-service.js";
+import { detectCodeServerBinary, resetDetectionCache } from "../editor-detection.js";
+import { detectEditors, EDITORS } from "../editor-registry.js";
+import type { EventLoopSpikeMetrics } from "../eventloop-spike-metrics.js";
+import type { HydrationMetrics } from "../hydration-metrics.js";
+import { decodeFileUri } from "../lib/decode-file-uri.js";
+import { isAllowed } from "../lib/path-containment.js";
+import { localhostGuard, netmaskToCidrBits, networkAddress } from "../localhost-guard.js";
+import type { SessionManager } from "../memory-session-manager.js";
+import type { MetaPersistence } from "../meta-persistence.js";
+import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
+import type { PiGateway } from "../pi-gateway.js";
+import {
   type BootstrapCompatibility,
+  computeCompatibility,
+  readCurrentPiVersion,
+  readPiCompatibility,
 } from "../pi-version-skew.js";
+import type { PreferencesStore } from "../preferences-store.js";
+import { spawnRestart } from "../restart-helper.js";
+import type { ServerConfig } from "../server.js";
+import { readSpawnFailures } from "../spawn-failure-log.js";
+import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel.js";
+import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel-watchdog.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
@@ -101,9 +103,13 @@ export function registerSystemRoutes(
     // Reads {meanMs,p99Ms,maxMs} from the boot event-loop-delay histogram and
     // resets its window. See change: instrument-session-hydration-timing.
     readEventLoopDelay?: () => { meanMs: number; p99Ms: number; maxMs: number };
+    // Rolling ring buffer of worst-case event-loop stalls (sampler + per-turn
+    // self-records); `/api/health` reads its snapshot additively.
+    // See change: attribute-openspec-poll-eventloop-stalls.
+    eventLoopSpikes?: EventLoopSpikeMetrics;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -339,6 +345,8 @@ export function registerSystemRoutes(
     try { eventLoopDelay = readEventLoopDelay?.() ?? eventLoopDelay; } catch { /* keep zeros */ }
     let hydration: ReturnType<HydrationMetrics["snapshot"]> = [];
     try { hydration = hydrationMetrics?.snapshot() ?? hydration; } catch { /* keep empty */ }
+    let eventLoopSpikesSnap: ReturnType<EventLoopSpikeMetrics["snapshot"]> = [];
+    try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -396,6 +404,11 @@ export function registerSystemRoutes(
       // Correlates hydration spikes with real main-loop lag. Additive field.
       // See change: instrument-session-hydration-timing.
       eventLoopDelay,
+      // Recent worst-case event-loop stalls, newest-first. Additive field.
+      // Each entry: {at, ms, turn}; `turn` is the attributed poll turn
+      // (tickOpen/dirPollPre/dirPollPost) or null for the dedicated sampler.
+      // See change: attribute-openspec-poll-eventloop-stalls.
+      eventLoopSpikes: eventLoopSpikesSnap,
       // Recent session-hydration timing samples, newest-first. Additive field.
       hydration,
       // pi-version-skew compatibility (30s-cached) or null when pi is
