@@ -119,9 +119,25 @@ A single-model reviewer shares blind spots with the original author — a colder
 
 After the single-model review in Step 3 above, but before RECONCILE, pause and ask:
 
-> *"Single-model review complete. Want a cross-model second opinion? Options: Gemini CLI, Codex CLI, manual external review (you paste it elsewhere), or skip."*
+> *"Single-model review complete. Want a cross-model second opinion? Options: subagent on a different-architecture model, an external review CLI, manual external review (you paste it elsewhere), or skip."*
 
 This question is mandatory in every interactive doubt cycle — even on artifacts that feel low-stakes. The user — not the agent — decides whether the cost is worth it. The agent's job is to surface the choice.
+
+**Preferred path in Pi: spawn a subagent with a cross-model override.** Pi's `Agent` tool takes a `model` param (`"@role"`, `"provider/model-id"`, or a bare id). Spawn a fresh-context reviewer on a *different-architecture* model than the author (a colder model, or `"@role"` if a role alias points at one). This is cleaner than a CLI: no shell-escaping hazard (ARTIFACT passes as a prompt string, never through a shell), isolated context by construction, and the subagent can open repo files to verify the author's code claims.
+
+```
+Agent(
+  subagent_type: "Explore",           # or any read-capable label
+  model: "<provider/model-id>",        # the cross-model override
+  description: "Cross-model adversarial review",
+  prompt: "<adversarial prompt> + ARTIFACT + CONTRACT"   # NO CLAIM, NO reasoning
+)
+```
+
+Prerequisite + fallback (verify, do not assume):
+1. The target provider/model must be reachable by the Agent SDK, not merely present as a role alias. A model listed only under `~/.pi/agent/providers.json#roles` may NOT be SDK-invocable — a subagent spawned on it can return **empty output**. The correct provider prefix also matters (a cloud-hosted variant of a model often needs a different prefix than the direct-API one). Probe first with a trivial prompt ("Reply with exactly: OK"); empty return = wrong id or provider not SDK-configured — try the alternate prefix before giving up.
+2. If the subagent path returns empty, surface it explicitly (per Step 3 below) and fall back to an external review CLI or manual review. Do NOT silently proceed single-model.
+3. Pass ARTIFACT + CONTRACT + adversarial prompt only — same rule as every cross-model path. No CLAIM.
 
 **Step 2: If the user picks a CLI — verify, then invoke**
 
@@ -150,9 +166,9 @@ gemini --approval-mode plan -p "" < /tmp/doubt-prompt.md
 
 A read-only sandbox is the load-bearing detail: a doubt artifact may itself contain instructions (intentional or accidental prompt injection) that the cross-model CLI would otherwise execute against your workspace.
 
-**Step 3: If the CLI is unavailable or fails**
+**Step 3: If the subagent-model path or CLI is unavailable or fails**
 
-Surface the failure explicitly. Offer: run it manually, try a different tool, or skip. Do not silently fall back to single-model — the user should know cross-model didn't happen.
+Surface the failure explicitly. Offer: try the other path (subagent ↔ CLI), run it manually, or skip. A subagent spawned on a role-only model returning **empty output**, or a CLI failing to load (`dyld`/missing lib), both count as failures — announce them. Do not silently fall back to single-model — the user should know cross-model didn't happen.
 
 **Step 4: If the user skips**
 
@@ -238,6 +254,6 @@ After applying doubt-driven development:
 - [ ] The reviewer's prompt was adversarial ("find issues"), not validating ("is it good")
 - [ ] Findings were classified against the artifact text (not rubber-stamped) using the precedence: contract misread / actionable / trade-off / noise
 - [ ] A stop condition was met (trivial findings, 3 cycles, or user override)
-- [ ] In interactive mode, cross-model was **explicitly offered** to the user (regardless of artifact stakes) and the response was acknowledged in the output
+- [ ] In interactive mode, cross-model was **explicitly offered** to the user (regardless of artifact stakes) and the response was acknowledged in the output. When run, the preferred Pi path (subagent with a `model` override on a different-architecture model) was tried first; an empty return from a role-only or wrong-prefix model id was surfaced as a failure, not silently swallowed
 - [ ] In non-interactive mode, cross-model was skipped and the skip was announced
 - [ ] Any external CLI invocation was preceded by a PATH check, a working-binary test, syntax confirmation with the user, and explicit authorization to run
