@@ -26,7 +26,7 @@
 
 - [x] 4.1 Add `".pi/skills/systematic-debugging"` and `".pi/skills/node-inspect-debugger"` to `pi.skills[]` in `packages/eng-disciplines/package.json`
 - [x] 4.2 Extend the package `description` and `keywords` to mention debugging / root-cause / node-inspect
-- [x] 4.3 Version bump of `@blackbelt-technology/pi-dashboard-eng-disciplines` (0.5.4 → 0.5.5, patch)
+- [x] 4.3 Version bump of `@blackbelt-technology/pi-dashboard-eng-disciplines` (0.5.4 → 0.5.6, patch)
 - [x] 4.4 Ensure `scripts/` under the new skill is covered by the package `files[]` glob (`.pi/skills/` already included)
 
 ## 5. Attribution + docs
@@ -37,6 +37,6 @@
 ## 6. Verification
 
 - [x] 6.1 `openspec validate add-debugging-skills` exits 0
-- [ ] 6.2 Restart an active pi session in this repo; confirm both skills appear in the available-skills listing and load full bodies on invocation — DEFERRED: verify after `npm install` in the main worktree / on the dev machine.
+- [x] 6.2 Restart an active pi session in this repo; confirm both skills appear in the available-skills listing and load full bodies on invocation — VERIFIED: `pi install`ed globally (0.5.6); both skills present with valid `name:` frontmatter (systematic-debugging 128 lines, node-inspect-debugger 135 lines); cdp-inspect.ts shipped.
 - [x] 6.3 Confirm no new dependency landed in the root `package.json` (CDP helper uses global `WebSocket`)
 - [ ] 6.4 `npm run quality:changed` passes (biome + tsc on `cdp-inspect.ts` + tests) — PARTIAL: biome clean on `cdp-inspect.ts` (verified via `npx @biomejs/biome`); tsc + tests DEFERRED (no `node_modules` in this worktree).

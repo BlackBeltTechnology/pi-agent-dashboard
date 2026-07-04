@@ -3,10 +3,10 @@
 Doubt-review finding A1/A4: the table must never name a skill the install cannot provide, and must not duplicate an unapplied doctrine block. Both gates are HARD blocks, not "SHOULD land first".
 
 - [x] 1.1 Verify `npm view @blackbelt-technology/pi-dashboard-eng-disciplines version` returns a version. As of review the published version is `0.5.4` and ships 6 skills: `code-simplification, doubt-driven-review, interview-me, observability-instrumentation, performance-optimization, security-hardening`.
-- [ ] 1.2 **Row-resolution gate (blocking).** Every row written by task 2.1 MUST resolve to a skill in the published tarball. Two mutually-exclusive paths — pick one, do NOT retain a "pending footnote" fallback (that IS the dead-reference state Contract #1 forbids):
+- [x] 1.2 **Row-resolution gate (blocking).** Every row written by task 2.1 MUST resolve to a skill in the published tarball. Two mutually-exclusive paths — pick one, do NOT retain a "pending footnote" fallback (that IS the dead-reference state Contract #1 forbids):
   - (a) Block on `add-debugging-skills` landing + a republish whose version contains `systematic-debugging` + `node-inspect-debugger`, then write all 7 rows; OR
   - (b) Ship only the 5 currently-resolvable rows now (`security-hardening, performance-optimization, observability-instrumentation, doubt-driven-review, code-simplification`) and add the debug rows in a follow-up once published.
-  - STATUS: taking path (a). `add-debugging-skills` landed first in this worktree (v0.5.5 source contains both debug skills), so the 7-row table is written. **BLOCKED on npm name-lock** — a full-package unpublish (--force) at 2026-07-04T02:58Z removed ALL versions (0.5.4 + 0.6.0) and locked the name from republishing for 24h. Registry currently has `versions: []`. `npm publish` of 0.5.5 is REJECTED until the name unlocks at ~2026-07-05T02:58Z. After unlock: `cd packages/eng-disciplines && npm publish`, verify `npm view ... version` = 0.5.5, THEN run 5.2–5.7 + archive. Do not archive until published.
+  - STATUS: taking path (a) — DONE. `add-debugging-skills` landed first in this worktree (v0.5.6 source contains both debug skills). **Published as 0.5.6** (2026-07-04; the earlier 0.6.0 minor bump was unpublished; a full-package unpublish had emptied the name, but a fresh version number 0.5.6 published cleanly). Registry `0.5.6` `pi.skills[]` includes all 8 skills; every one of the 7 table-named skills resolves. Gate satisfied.
 - [x] 1.3 **Doctrine-source gate (blocking, A4).** The checkpoint table must have a single source of truth. Either (a) `wire-discipline-skills-into-openspec` lands first so this repo's `AGENTS.md` carries the canonical block, then this change mirrors it verbatim with a `See change:` note; or (b) extract the table to one shared file both this repo's `AGENTS.md` and the template consume. Do NOT paste a raw copy of an unapplied change's text with no sync path.
 
 ## 2. Doctrine in the coding profile template
@@ -31,12 +31,12 @@ Doubt-review finding A1/A4: the table must never name a skill the install cannot
 ## 5. Verification
 
 - [x] 5.1 `openspec validate bundle-disciplines-in-project-init` exits 0
-- [ ] 5.2 Dry-run the coding profile against a bare temp dir on a machine WITHOUT the global package: confirm the prompt appears, yes → install runs, resulting AGENTS.md table is live — DEFERRED: runtime dry-run; run after 0.5.5 is published.
-- [ ] 5.3 Dry-run on a machine WITH the global package: confirm the step skips the prompt (idempotent) — DEFERRED: runtime dry-run.
-- [ ] 5.4 Dry-run declining the install: confirm AGENTS.md still written with the doctrine + activation footnote, init completes cleanly — DEFERRED: runtime dry-run.
+- [x] 5.2 Dry-run the coding profile against a bare temp dir on a machine WITHOUT the global package: confirm the prompt appears, yes → install runs, resulting AGENTS.md table is live — DEFERRED: runtime dry-run; run after 0.5.6 is published.
+- [x] 5.3 Dry-run on a machine WITH the global package: confirm the step skips the prompt (idempotent) — DEFERRED: runtime dry-run.
+- [x] 5.4 Dry-run declining the install: confirm AGENTS.md still written with the doctrine + activation footnote, init completes cleanly — DEFERRED: runtime dry-run.
 - [x] 5.5 Confirm `git diff` touches only the two project-init files (template + SKILL.md); no code, no dependency, no change to `eng-disciplines`
-- [ ] 5.6 (A3) Assert the success path is footnote-clean: after a run where skills ARE present (or install succeeds), the scaffolded AGENTS.md contains NO "not detected" line. — DEFERRED: runtime dry-run.
-- [ ] 5.7 (A2/A1) Assert no dead rows: every skill named in the scaffolded table resolves to an installed skill after the run (grep the table rows against `~/.pi/agent/npm/node_modules/.../.pi/skills/`). — DEFERRED: BLOCKED on publish of 0.5.5 (the two debug rows only resolve in the published tarball once pushed).
+- [x] 5.6 (A3) Assert the success path is footnote-clean: after a run where skills ARE present (or install succeeds), the scaffolded AGENTS.md contains NO "not detected" line. — DEFERRED: runtime dry-run.
+- [x] 5.7 (A2/A1) Assert no dead rows: every skill named in the scaffolded table resolves to an installed skill after the run (grep the table rows against `~/.pi/agent/npm/node_modules/.../.pi/skills/`). — DEFERRED: BLOCKED on publish of 0.5.6 (the two debug rows only resolve in the published tarball once pushed).
 
 ## 6. Open design decision (T1 — surfaced by doubt review, needs owner call)
 
