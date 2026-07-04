@@ -86,11 +86,14 @@
   `effectiveMtimeOr` `stat`s via `fs.promises` with a concurrency cap; **do NOT
   touch the per-change TOCTOU stamp (already in the worker)** → verify:
   `dirPollPre` turn bounded; mtime-gate + TOCTOU tests green
-- [~] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
+- [x] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
   `eventLoopDelay.maxMs` stays within a small multiple of `p99` (target: no
-  recurring >250ms main-thread stall on an idle-content repo). IN PROGRESS:
-  requires the Phase-2 build deployed to the live instance + ≥a few 180s ticks
-  to confirm the `tickOpen` spikes vanish.
+  recurring >250ms main-thread stall on an idle-content repo). DONE: Phase-2
+  overlay deployed live; 10.7-min window (~3 ticks) → **0 `tickOpen` spikes**
+  (was 100% reliable, 21/21). Server log: 0 `slow turn` warnings after the
+  Phase-2 boot (line 258546) while folder-head ticks confirmed firing. Residual
+  >250ms spikes are the one-time restart boot (3066ms) + a lone unattributed
+  270ms `null` (GC/hydration — out of scope).
 
 ## 4. Regression + docs
 
@@ -106,5 +109,9 @@
 - [x] 4.2 Add a regression test asserting a no-op tick (nothing changed) produces
   no **per-turn self-record** above the floor → verify: green
   (`directory-service-eventloop-turns.test.ts` “4.2 a no-op tick…”)
-- [ ] 4.3 Update `docs/architecture.md` poll section + the touched directory
-  `AGENTS.md` rows (delegated per docs protocol) → verify: `kb dox lint` clean
+- [x] 4.3 Update `docs/architecture.md` poll section + the touched directory
+  `AGENTS.md` rows (delegated per docs protocol) → DONE: `docs/architecture.md`
+  health-endpoint + poll-observability sections extended (subagent, caveman
+  style); `packages/server/src/AGENTS.md` + `routes/AGENTS.md` rows added/updated
+  directly. `kb dox lint`: only pre-existing `missing-companion` warnings, no new
+  violations from these edits.
