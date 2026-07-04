@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { addServer } from "../lib/keyring.js";
 import {
   challengeIdentity,
   decodePayloadString,
-  postJson,
   type PairingPayload,
+  postJson,
 } from "../lib/protocol.js";
-import { addServer } from "../lib/keyring.js";
 
 type Phase = "idle" | "verifying" | "confirm" | "polling" | "done" | "error";
 
@@ -28,6 +28,10 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
   const [confirmCode, setConfirmCode] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const cancelled = useRef(false);
+
+  // Stop any in-flight polling loop when the component unmounts (e.g. the user
+  // navigates to the keyring mid-pairing) so /api/pair/poll doesn't fire forever.
+  useEffect(() => () => { cancelled.current = true; }, []);
 
   const run = useCallback(async (payload: PairingPayload) => {
     cancelled.current = false;
@@ -85,14 +89,20 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         return;
       }
       if (poll.status === "approved" && poll.token) {
-        await addServer({
-          id: payload.id,
-          label: label.trim() || new URL(verifiedUrl).host,
-          urls: payload.urls,
-          pinnedPubkey,
-          pinnedFingerprint: payload.id,
-          bearerToken: poll.token,
-        });
+        try {
+          await addServer({
+            id: payload.id,
+            label: label.trim() || new URL(verifiedUrl).host,
+            urls: payload.urls,
+            pinnedPubkey,
+            pinnedFingerprint: payload.id,
+            bearerToken: poll.token,
+          });
+        } catch (err) {
+          setPhase("error");
+          setError(`Could not save to keyring: ${err instanceof Error ? err.message : String(err)}`);
+          return;
+        }
         setPhase("done");
         onPaired?.();
         return;
@@ -121,8 +131,9 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
       return;
     }
     setError(null);
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       const video = document.createElement("video");
       video.srcObject = stream;
       await video.play();
@@ -135,7 +146,6 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         if (codes.length > 0) found = codes[0].rawValue as string;
         else await new Promise((r) => setTimeout(r, 200));
       }
-      for (const track of stream.getTracks()) track.stop();
       if (!found) {
         setError("No QR code detected. Try again or paste the code.");
         return;
@@ -144,6 +154,9 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
       run(decodePayloadString(found));
     } catch (err) {
       setError(`Camera/scan error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      // Always release the camera, even if detect() throws mid-loop.
+      if (stream) for (const track of stream.getTracks()) track.stop();
     }
   }, [run]);
 

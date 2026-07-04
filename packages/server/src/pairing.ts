@@ -104,10 +104,11 @@ export class PairingManager {
   private sweep(): void {
     const t = this.now();
     for (const [code, entry] of this.codes) {
-      // Keep an approved pending device around briefly so the device can poll
-      // its token even after the pairing code expires.
-      const approved = entry.pending?.issuedToken;
-      if (entry.expiresAt < t && !approved) this.codes.delete(code);
+      // Delete once past expiry. approve() extends expiresAt by 30s so an
+      // approved device still has a window to poll its token; after that the
+      // entry is swept whether or not it was ever polled (no unbounded growth
+      // for approved-but-unpolled devices).
+      if (entry.expiresAt < t) this.codes.delete(code);
     }
   }
 

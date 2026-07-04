@@ -21,6 +21,7 @@ export function PairedDevicesSection() {
   const [devices, setDevices] = useState<PairedDeviceView[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -36,6 +37,8 @@ export function PairedDevicesSection() {
   useEffect(() => { reload(); }, [reload]);
 
   const handleRevoke = async (id: string) => {
+    if (revoking) return; // guard against double-submit
+    setRevoking(id);
     try {
       await revokePairedDevice(id);
       setConfirmId(null);
@@ -43,6 +46,8 @@ export function PairedDevicesSection() {
       await reload();
     } catch (e: any) {
       setError(e?.message ?? "failed to revoke");
+    } finally {
+      setRevoking(null);
     }
   };
 
@@ -75,7 +80,8 @@ export function PairedDevicesSection() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="text-xs text-[var(--danger,#ef4444)] hover:underline"
+                    className="text-xs text-[var(--danger,#ef4444)] hover:underline disabled:opacity-50"
+                    disabled={revoking === d.id}
                     onClick={() => handleRevoke(d.id)}
                   >
                     {i18nT("auto.confirm_revoke", undefined, "Confirm revoke")}

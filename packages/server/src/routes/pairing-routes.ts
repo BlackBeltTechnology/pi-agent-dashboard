@@ -44,9 +44,10 @@ export function registerPairingRoutes(
   // pinned public key and detect an impostor on a reused URL.
   fastify.post<{ Body: { nonce?: string } }>(
     "/api/pair/challenge",
-    async (request): Promise<ApiResponse<{ fingerprint: string; publicKey: string; signature: string; v: number }>> => {
+    async (request, reply): Promise<ApiResponse<{ fingerprint: string; publicKey: string; signature: string; v: number }>> => {
       const nonce = request.body?.nonce;
       if (typeof nonce !== "string" || nonce.length < 8 || nonce.length > 512) {
+        reply.code(400);
         return { success: false, error: "nonce must be an 8..512 char string" };
       }
       return {

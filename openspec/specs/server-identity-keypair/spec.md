@@ -1,7 +1,8 @@
 # server-identity-keypair Specification
 
 ## Purpose
-TBD - created by archiving change add-server-keypair-pairing. Update Purpose after archive.
+Give each server a persistent Ed25519 identity whose public-key fingerprint is stable across changing URLs, and prove key possession via a nonce challenge so a client can pin the identity and detect an impostor.
+
 ## Requirements
 ### Requirement: Persistent server identity keypair
 Each server SHALL ensure a persistent Ed25519 keypair on startup, stored at

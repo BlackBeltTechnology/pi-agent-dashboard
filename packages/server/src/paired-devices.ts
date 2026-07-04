@@ -15,6 +15,9 @@ import { readJsonFile, writeJsonFile } from "./json-store.js";
 
 const REGISTRY_FILENAME = "paired-devices.json";
 const TOKEN_BYTES = 32; // 256-bit opaque bearer.
+// Throttle last-seen persistence: every authenticated request would otherwise
+// rewrite the registry file (write amplification). Coarse last-seen is fine.
+const LAST_SEEN_PERSIST_INTERVAL_MS = 60_000;
 
 export interface PairedDevice {
   /** Stable per-device id. */
@@ -99,10 +102,16 @@ export class PairedDeviceRegistry {
   verify(token: string | undefined | null): string | null {
     if (!token) return null;
     const presented = hashToken(token);
+    const now = Date.now();
     for (const d of this.devices) {
       if (timingSafeEqualHex(presented, d.tokenHash)) {
-        d.lastSeen = new Date().toISOString();
-        this.persist();
+        // Update last-seen in memory always; persist to disk at most once per
+        // interval to avoid rewriting the file on every request.
+        const prev = d.lastSeen ? Date.parse(d.lastSeen) : 0;
+        d.lastSeen = new Date(now).toISOString();
+        if (!Number.isFinite(prev) || now - prev >= LAST_SEEN_PERSIST_INTERVAL_MS) {
+          this.persist();
+        }
         return d.id;
       }
     }

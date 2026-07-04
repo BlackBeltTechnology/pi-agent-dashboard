@@ -66,6 +66,20 @@ export function decodePayloadString(raw: string): PairingPayload {
 
 // ── HTTP ─────────────────────────────────────────────────────────────────
 
+/** Default per-request timeout so an unresponsive host can't hang URL racing. */
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/** fetch with an AbortController timeout. */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** POST JSON to `<base><path>` and unwrap the `{success,data,error}` envelope. */
 export async function postJson<T>(
   base: string,
@@ -75,7 +89,7 @@ export async function postJson<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(joinUrl(base, path), {
+  const res = await fetchWithTimeout(joinUrl(base, path), {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -87,7 +101,7 @@ export async function postJson<T>(
 
 /** GET `<base><path>` with a bearer token and unwrap the envelope. */
 export async function getJson<T>(base: string, path: string, token: string): Promise<T> {
-  const res = await fetch(joinUrl(base, path), {
+  const res = await fetchWithTimeout(joinUrl(base, path), {
     headers: { Authorization: `Bearer ${token}` },
   });
   const json = (await res.json()) as ApiResponse<T>;

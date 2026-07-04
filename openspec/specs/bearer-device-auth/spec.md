@@ -1,7 +1,8 @@
 # bearer-device-auth Specification
 
 ## Purpose
-TBD - created by archiving change add-server-keypair-pairing. Update Purpose after archive.
+Authenticate paired devices with long-lived opaque bearer tokens held in a server-side revocable registry, feeding the existing authentication decision for REST and WebSocket without altering the loopback, trusted-network, or cookie paths.
+
 ## Requirements
 ### Requirement: Long-lived opaque bearer tokens in a revocable registry
 Redeeming a pairing code SHALL create a long-lived opaque bearer token recorded in

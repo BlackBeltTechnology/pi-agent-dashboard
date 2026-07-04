@@ -55,7 +55,12 @@ function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBReque
         const request = fn(transaction.objectStore(STORE));
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
+        // Close the connection on every terminal transaction state, not just
+        // oncomplete — a failed request fires onabort/onerror and would
+        // otherwise leak the IDBDatabase handle (blocks future upgrades).
         transaction.oncomplete = () => db.close();
+        transaction.onabort = () => db.close();
+        transaction.onerror = () => db.close();
       }),
   );
 }

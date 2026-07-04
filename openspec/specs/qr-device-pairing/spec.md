@@ -1,7 +1,8 @@
 # qr-device-pairing Specification
 
 ## Purpose
-TBD - created by archiving change add-server-keypair-pairing. Update Purpose after archive.
+Pair a device to a server via a QR / copy-string payload carrying a short-lived one-time code, with compare-code operator approval and a versioned handshake, exchanging the code for a durable credential over a proven-identity channel.
+
 ## Requirements
 ### Requirement: Pairing payload rendered as QR and copy-string
 The server SHALL produce a pairing payload `{ v, id, code, urls[] }` — protocol

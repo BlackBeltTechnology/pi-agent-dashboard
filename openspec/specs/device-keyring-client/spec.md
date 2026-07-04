@@ -1,7 +1,8 @@
 # device-keyring-client Specification
 
 ## Purpose
-TBD - created by archiving change add-server-keypair-pairing. Update Purpose after archive.
+Hold a per-device keyring of paired servers in a neutral, origin-independent client, pinning each server's public key and racing its endpoints so a network change needs no re-pairing.
+
 ## Requirements
 ### Requirement: Neutral shell holds a per-device server keyring
 A stateless static PWA shell (published to a stable HTTPS origin) SHALL store a
