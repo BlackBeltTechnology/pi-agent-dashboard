@@ -8,6 +8,12 @@ The Settings panel SHALL include a unified packages section that contains three 
 
 The "Pi Ecosystem" header (with `Last checked` timestamp and `Check Now` button) SHALL apply to the unified section as a whole.
 
+A package row is a **source override** when it has a canonical npm identity (`isRecommended === true`, i.e. its `source` matched a `RECOMMENDED_EXTENSIONS` entry whose declared source is `npm:<name>`) BUT its actual installed `source` is not an npm spec (`classifySource(source) !== "npm"`) — "declared as npm, installed from a local/git checkout". This predicate is derived client-side via `isSourceOverride(pkg)` from existing `InstalledPackage` fields; it requires no server payload change. The override remark SHALL be driven by this boolean. This change adds a verbal remark only; it does NOT gate, disable, or otherwise alter the Update affordance on any row.
+
+`classifySource` SHALL bucket a `git:<host>/<owner>/<repo>` source as `git` (consistent with `parseSourceKey`/`sourcesMatch`), so a git-prefixed override renders a `git` badge — not `global` — and is gated identically to other git installs.
+
+Detection reads `InstalledPackage.isRecommended`, which is optional on the wire type; the `=== true` test makes an un-enriched row resolve to non-override (Update remains enabled). All current list paths enrich rows before render.
+
 #### Scenario: Three sub-groups rendered
 - **WHEN** the user opens the Packages tab in Settings
 - **THEN** the panel SHALL display sub-groups labeled "Core", "Recommended Extensions", and "Other Packages" in that vertical order
@@ -36,13 +42,31 @@ The "Pi Ecosystem" header (with `Last checked` timestamp and `Check Now` button)
 - **THEN** it SHALL display: a display name (friendly), a source caption (the raw `source` string), a source-type badge (`npm` / `git` / `local` / `global`), and a current version pill
 - **AND** when `latestVersion` is known and differs from `currentVersion`, the row SHALL show "current → latest" with an Update affordance
 
+#### Scenario: Source-override remark rendered
+- **WHEN** a row satisfies `isSourceOverride(pkg)` (recommended npm identity, actual source `git` or `local`)
+- **THEN** the row SHALL render a compact `override` pill adjacent to the source-type badge
+- **AND** the `override` pill SHALL expose a tooltip / `aria-label` of the form "Declared as npm:`<name>` but installed from a `<local|git>` source"
+- **AND** the row SHALL NOT reuse the `dev` marker for this remark (that marker renders the literal word `dev` and would mislead)
+
 #### Scenario: Bundled badge
 - **WHEN** a recommended-extension row has `isBundled: true`
 - **THEN** an additional `[bundled]` badge SHALL appear next to the source-type badge
 
 #### Scenario: Update available shown
 - **WHEN** a package has `updateAvailable: true`
-- **THEN** the row SHALL show "current → latest" version text and an "Update" button
+- **THEN** the row SHALL show "current → latest" version text and an active "Update" button
+- **AND** this behavior SHALL be identical for source-override and non-override rows (this change does not gate Update)
+
+#### Scenario: Git-prefixed override badges as git
+- **GIVEN** a recommended extension whose installed `source` is `git:github.com/Owner/repo` (matched to its `npm:` identity via `sourcesMatch`, so `isRecommended === true`)
+- **THEN** `classifySource(source)` SHALL return `git` and the row SHALL render a `git` badge (NOT `global`)
+- **AND** `isSourceOverride(pkg)` SHALL be `true`, so the row SHALL render the `override` pill
+
+#### Scenario: Non-recommended local/git rows are unchanged
+- **WHEN** a row is installed from a local path or git source AND `isRecommended` is not `true`
+- **THEN** `isSourceOverride(pkg)` SHALL be `false`
+- **AND** the row SHALL NOT render the `override` pill
+- **AND** the row's existing Update behavior SHALL be unchanged
 
 #### Scenario: Package up to date
 - **WHEN** a package has `updateAvailable: false` (or `latestVersion` matches `currentVersion`)
