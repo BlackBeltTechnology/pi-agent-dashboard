@@ -18,19 +18,21 @@ revocable per device by deleting its registry entry.
 - **WHEN** a user revokes a device from Settings
 - **THEN** its registry entry is deleted and subsequent requests bearing that token are rejected
 
-### Requirement: Bearer auth branch for REST and WebSocket
-The server SHALL accept a valid bearer token as an authentication source feeding
-the existing `request.isAuthenticated` decision, via `Authorization: Bearer` for
-REST and a token-bearing `Sec-WebSocket-Protocol` for WebSocket upgrades, WITHOUT
-altering the loopback, trusted-network, or cookie paths.
+### Requirement: Bearer auth branch for REST
+The server SHALL accept a valid bearer token via `Authorization: Bearer` as an
+authentication source feeding the existing `request.isAuthenticated` decision,
+WITHOUT altering the loopback, trusted-network, or cookie paths. The durable
+bearer token authenticates REST only; WebSocket upgrades authenticate via a
+short-lived single-use ticket (see "WebSocket auth via single-use ticket before
+upgrade") and the durable bearer SHALL NOT ride the socket.
 
 #### Scenario: REST request authorized by bearer
 - **WHEN** a cross-origin REST request presents a valid bearer token
 - **THEN** the request is marked authenticated and served
 
-#### Scenario: WebSocket upgrade authorized by bearer
-- **WHEN** a WebSocket upgrade presents a valid token via subprotocol
-- **THEN** the upgrade is accepted
+#### Scenario: WebSocket authorized via ticket, not durable bearer
+- **WHEN** a client needs a WebSocket to a paired server
+- **THEN** it mints a single-use ticket from an authenticated REST call and presents that ticket on the upgrade, never the durable bearer token
 
 #### Scenario: Existing paths unaffected
 - **WHEN** a user relies only on loopback or the OAuth cookie

@@ -61,6 +61,8 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 export class PairedDeviceRegistry {
   private readonly filePath: string;
   private devices: PairedDevice[];
+  /** Per-device epoch ms of the last last-seen DISK write (in-memory only). */
+  private lastPersistedAt = new Map<string, number>();
 
   constructor(filePath = defaultRegistryPath()) {
     this.filePath = filePath;
@@ -106,10 +108,12 @@ export class PairedDeviceRegistry {
     for (const d of this.devices) {
       if (timingSafeEqualHex(presented, d.tokenHash)) {
         // Update last-seen in memory always; persist to disk at most once per
-        // interval to avoid rewriting the file on every request.
-        const prev = d.lastSeen ? Date.parse(d.lastSeen) : 0;
+        // interval. Compare against the last DISK-WRITE time (not the previous
+        // request time), else an always-active device would never re-persist.
         d.lastSeen = new Date(now).toISOString();
-        if (!Number.isFinite(prev) || now - prev >= LAST_SEEN_PERSIST_INTERVAL_MS) {
+        const lastWrite = this.lastPersistedAt.get(d.id) ?? 0;
+        if (now - lastWrite >= LAST_SEEN_PERSIST_INTERVAL_MS) {
+          this.lastPersistedAt.set(d.id, now);
           this.persist();
         }
         return d.id;

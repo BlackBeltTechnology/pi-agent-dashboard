@@ -8,7 +8,7 @@ Neutral static PWA shell. Published to GitHub Pages (pi-dashboard.dev). NOT serv
 | `package.json` | Private pkg `@blackbelt-technology/pi-dashboard-shell`. Deps react, react-dom, wouter. Dev deps vite, @vitejs/plugin-react, @tailwindcss/vite, tailwindcss, fake-indexeddb. Scripts dev/build/preview. |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`. jsx react-jsx, noEmit, DOM libs. include `src`. |
 | `vite.config.ts` | base `./` for GitHub Pages subpath. react + tailwind plugins. root `src`, outDir `../dist`. `spa404Fallback` plugin copies index.html → 404.html post-build. |
-| `vitest.config.ts` | jsdom env, include `src/**/*.test.{ts,tsx}`. Standalone — NOT registered in root vitest projects. |
+| `vitest.config.ts` | jsdom env, include `src/**/*.test.{ts,tsx}`. Registered in root `vitest.config.ts` `test.projects` so `npm test` covers the shell. |
 | `src/App.tsx` | Root component. Hash-routed tabs: `/` KeyringView, `/pair` PairView. `refreshKey` bumps keyring reload after pairing. |
 | `src/main.tsx` | Entry. Mounts App in `Router hook={useHashLocation}` + StrictMode. Imports index.css. |
 | `src/index.html` | HTML shell. `<meta http-equiv=CSP>` connect-src self https: wss: (talks to arbitrary paired servers). `class="dark"`. |

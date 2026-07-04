@@ -7,7 +7,9 @@ Hold a per-device keyring of paired servers in a neutral, origin-independent cli
 ### Requirement: Neutral shell holds a per-device server keyring
 A stateless static PWA shell (published to a stable HTTPS origin) SHALL store a
 per-device keyring in IndexedDB, each entry being
-`{ urls[], pinnedPubkey, bearerToken, label }`, and SHALL NOT be bound to any
+`{ id, label, urls[], pinnedPubkey, pinnedFingerprint, bearerToken }` (where `id`
+and `pinnedFingerprint` are the pinned server identity checked at connect time),
+and SHALL NOT be bound to any
 server origin.
 
 #### Scenario: Paired server persisted

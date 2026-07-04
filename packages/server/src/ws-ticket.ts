@@ -79,6 +79,9 @@ export class WsTicketStore {
 
   /** Mint a single-use ticket bound to a route scope (authenticated caller). */
   mint(scope: WsRouteScope): string {
+    // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
+    // so the map can't grow unbounded without a background timer.
+    this.sweep();
     const ticket = crypto.randomBytes(TICKET_BYTES).toString("base64url");
     this.tickets.set(ticket, { scope, expiresAt: this.now() + TICKET_TTL_MS });
     return ticket;
