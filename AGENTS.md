@@ -330,6 +330,21 @@ Warn-and-continue, never blocks: CodeRabbit is cloud rate-limited (no local mode
 ### Code-quality gate (Biome ratchet)
 Static analysis via Biome. `npm run quality:changed` = oracle (biome `--changed` + `tsc --noEmit` + `npm test`, single exit code; goal-loop drivable). Tier A `error` (hard-gates CI), Tier B/C `warn`. Procedure: `code-quality` skill. Full ref: [`docs/code-quality.md`](docs/code-quality.md).
 
+### Discipline-skill checkpoints (implementation phase)
+During implementation, invoke the matching `eng-disciplines` skill when a task signal appears. Skills auto-trigger on NL, but the implement loop may never utter the phrase — this table makes the mapping explicit and mechanical (signals are observable in the diff / `tasks.md`, not vague intent):
+
+| Task signal (in diff / tasks.md) | Skill |
+|---|---|
+| touches auth, untrusted input, secrets, webhooks, PII | `security-hardening` |
+| spec has a latency/throughput budget, or a large-data / high-traffic path | `performance-optimization` |
+| new endpoint, job, external call, or "can't tell what happened in prod" | `observability-instrumentation` |
+| non-trivial/irreversible step (migration, public API, cross-boundary) BEFORE it stands | `doubt-driven-review` |
+| a bug surfaces mid-implementation | `systematic-debugging` |
+| runtime state opaque, `console.log` insufficient (jiti server, PTY workers, WS closures) | `node-inspect-debugger` |
+| feature works + tests pass but the implementation feels heavy | `code-simplification` |
+
+The end gates (`code-review`, `code-quality`) remain unchanged and run at completion before commit.
+
 ### Check current mode
 ```bash
 curl -s http://localhost:8000/api/health | jq .mode
@@ -350,6 +365,8 @@ In `--dev` mode, the server proxies to Vite for HMR. If Vite is not running, it 
 In a git worktree, use the worktree parent's `.pi/skills` (opsx/OpenSpec skills) — resolve OpenSpec skills from the main repo root, not the worktree checkout.
 
 When creating OpenSpec change artifacts, always place them at `openspec/changes/<name>/` — never nest under subdirectories like `active/` or `archive/`. Prefer using `openspec change new <name>` CLI to scaffold the directory structure correctly.
+
+When authoring a proposal, add a `## Discipline Skills` line to `proposal.md` naming the `eng-disciplines` skills its tasks will trigger (mapped via the checkpoint table under Build & Restart Workflow); omit only when none apply. This needs no edit to any `openspec-*` or `implement` skill — the implement loop reads the proposal artifact unchanged, so the named skills enter its context and get invoked.
 
 ## Diagram Style
 
