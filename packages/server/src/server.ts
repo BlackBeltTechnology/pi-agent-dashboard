@@ -47,7 +47,8 @@ import { createHydrationMetrics } from "./hydration-metrics.js";
 import { createIdleTimer } from "./idle-timer.js";
 import { createLiveServerManager } from "./live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server-proxy.js";
-import { createNetworkGuard, isBypassedHost, isLoopback } from "./localhost-guard.js";
+import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
+import { ensureLocalToken, verifyLocalToken } from "./local-token.js";
 import { createMemoryEventStore, type EventStore } from "./memory-event-store.js";
 import { createMemorySessionManager, type SessionManager } from "./memory-session-manager.js";
 import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
@@ -80,6 +81,12 @@ import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
+import { registerPairingRoutes } from "./routes/pairing-routes.js";
+import { ensureServerIdentity } from "./identity.js";
+import { PairedDeviceRegistry } from "./paired-devices.js";
+import { PairingManager } from "./pairing.js";
+import { registerBearerAuth } from "./bearer-auth.js";
+import { WsTicketStore, routeScopeForUrl, extractTicket, type WsRouteScope } from "./ws-ticket.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
@@ -227,6 +234,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   const preferencesStore = createPreferencesStore();
+  // Server identity + device pairing (D2/D5/D6). Additive; independent of OAuth.
+  const serverIdentity = ensureServerIdentity();
+  const pairedDeviceRegistry = new PairedDeviceRegistry();
+  const wsTicketStore = new WsTicketStore();
+  // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
+  // for same-host process callers, independent of the forgeable loopback IP.
+  const localToken = ensureLocalToken();
+  const pairingManager = new PairingManager({
+    registry: pairedDeviceRegistry,
+    getFingerprint: () => serverIdentity.fingerprint,
+    getReachableUrls: () => {
+      const urls: string[] = [];
+      const tunnelUrl = getTunnelUrl();
+      if (tunnelUrl) urls.push(tunnelUrl);
+      urls.push(...(loadConfig().pairing?.publicBaseUrls ?? []));
+      return urls;
+    },
+  });
   const sessionManager = createMemorySessionManager();
   const metaPersistence = createMetaPersistence();
   const sessionOrderManager = createSessionOrderManager(preferencesStore);
@@ -871,6 +896,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // reservation being created and the in-memory `activeTunnelUrl`
         // being populated, plus any other zrok share the user points at us.
         if (host.endsWith(".share.zrok.io")) return cb(null, true);
+        // Neutral static PWA shell (D1/D8): trusted by default so the shell
+        // works without per-server config. CORS (who may READ responses) is
+        // distinct from auth (bearer token), so this weakens nothing.
+        if (origin === "https://pi-dashboard.dev") return cb(null, true);
       } catch { /* ignore URL parse errors */ }
       // Explicitly configured origins.
       if (corsAllowedOrigins.includes(origin)) return cb(null, true);
@@ -888,16 +917,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerCsp(fastify, resolveCspMode(process.env.PI_DASHBOARD_CSP));
 
   // Register auth plugin if configured (must be before routes)
+  // Decorate isAuthenticated once, up front, so both the bearer branch and the
+  // OAuth plugin can read/set it without racing on the decorator.
+  fastify.decorateRequest("isAuthenticated", false);
+  // Bearer device-auth branch — registered BEFORE the OAuth plugin so its
+  // onRequest hook runs first and OAuth can early-return when already
+  // authenticated. Additive (D5/D7); independent of whether OAuth is on.
+  registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
   if (config.authConfig) {
     await registerAuthPlugin(fastify, {
       authConfig: config.authConfig,
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
+      localToken,
     });
   } else {
-    // Auth disabled — register isAuthenticated decorator so guard can always read it
-    fastify.decorateRequest("isAuthenticated", false);
-    // Still expose /auth/status so clients can detect this
+    // Auth disabled — still expose /auth/status so clients can detect this
     fastify.get("/auth/status", async () => ({ authenticated: true, authEnabled: false }));
   }
 
@@ -914,7 +949,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Register route modules
   // Create network guard from merged trusted networks
-  const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? []);
+  const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   registerGitRoutes(fastify, { networkGuard, sessionManager, browserGateway, worktreeInitRegistry });
@@ -1169,6 +1204,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerPairingRoutes(fastify, {
+    networkGuard,
+    identity: serverIdentity,
+    pairing: pairingManager,
+    registry: pairedDeviceRegistry,
+  });
+  // Mint a single-use WS ticket (D11). Authenticated (networkGuard: cookie,
+  // trusted network, or Authorization: Bearer). The ticket is bound to a WS
+  // route scope so it can't be replayed against a more-privileged route.
+  fastify.post<{ Body: { scope?: WsRouteScope } }>(
+    "/api/ws-ticket",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const scope = request.body?.scope;
+      if (scope !== "browser" && scope !== "terminal" && scope !== "editor" && scope !== "live") {
+        reply.code(400);
+        return { success: false as const, error: "invalid scope" };
+      }
+      return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
+    },
+  );
   registerPluginConfigRoutes(fastify, {
     networkGuard,
     broadcast: (msg) => browserGateway.broadcast(msg),
@@ -1621,14 +1677,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // Access check for WebSocket upgrades
         const remoteAddress = request.socket.remoteAddress || "";
         const trusted = config.resolvedTrustedNetworks ?? [];
+        const secWsProtocol = request.headers["sec-websocket-protocol"] as string | undefined;
+        // Ephemeral single-use ticket (D11) bound to the requested WS route
+        // scope. Origin check is defense-in-depth only (absent-Origin exists),
+        // never the sole gate.
+        const scope = routeScopeForUrl(request.url);
+        const ticket = extractTicket(request.url, secWsProtocol);
+        const consumeTicket = (t: string, s: WsRouteScope) => wsTicketStore.consume(t, s);
+        const wsHeaders = request.headers as unknown as Record<string, unknown>;
         if (config.authConfig?.secret) {
-          if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted)) {
+          if (!validateWsUpgrade(request.headers.cookie, remoteAddress, config.authConfig.secret, trusted, { ticket, scope, consumeTicket, headers: wsHeaders, localToken })) {
             socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
             socket.destroy();
             return;
           }
-        } else if (!isLoopback(remoteAddress) && (trusted.length === 0 || !isBypassedHost(remoteAddress, trusted))) {
-          // No auth configured — only allow loopback or trusted networks
+        } else if (
+          !isGenuinelyLocal(remoteAddress, wsHeaders) &&
+          !verifyLocalToken(wsHeaders, localToken) &&
+          (trusted.length === 0 || !isBypassedHost(remoteAddress, trusted)) &&
+          !(scope && ticket && consumeTicket(ticket, scope))
+        ) {
+          // No auth configured — allow genuine-local, local-IPC token, trusted
+          // networks, or a valid single-use ticket. A tunnel presenting as
+          // 127.0.0.1 (forwarding header) is NOT trusted (D10, narrowed).
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
           return;

@@ -21,7 +21,10 @@ import {
   fetchUserInfo,
   COOKIE_NAME,
 } from "./auth.js";
-import { isLoopback, isBypassedHost } from "./localhost-guard.js";
+import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
+import { verifyLocalToken } from "./local-token.js";
+import { PUBLIC_PAIRING_PREFIXES } from "./routes/pairing-routes.js";
+import type { WsRouteScope } from "./ws-ticket.js";
 
 /**
  * Returns true if the request URL matches any of the configured bypass prefixes.
@@ -48,6 +51,8 @@ export interface AuthPluginOptions {
   port: number;
   /** Merged trusted networks (top-level + auth.bypassHosts) */
   resolvedTrustedNetworks?: string[];
+  /** Local-IPC allowlist token granting genuine-local trust (D10). */
+  localToken?: string;
 }
 
 /**
@@ -107,7 +112,7 @@ export async function registerAuthPlugin(
   fastify: FastifyInstance,
   options: AuthPluginOptions,
 ): Promise<void> {
-  const { authConfig, port, resolvedTrustedNetworks } = options;
+  const { authConfig, port, resolvedTrustedNetworks, localToken } = options;
 
   // Mutable auth state — can be rebuilt at runtime via reloadAuth()
   const authState = {
@@ -134,8 +139,11 @@ export async function registerAuthPlugin(
     console.log(`🔐 Auth reloaded with providers: ${names.join(", ")}`);
   };
 
-  // Tag requests with authentication status (read by createNetworkGuard)
-  fastify.decorateRequest("isAuthenticated", false);
+  // Tag requests with authentication status (read by createNetworkGuard).
+  // May already be decorated by the bearer branch registered earlier.
+  if (!fastify.hasRequestDecorator?.("isAuthenticated")) {
+    fastify.decorateRequest("isAuthenticated", false);
+  }
 
   // Register cookie plugin
   await fastify.register(cookie);
@@ -244,11 +252,22 @@ export async function registerAuthPlugin(
   // ─── onRequest Hook ─────────────────────────────────────────────────────
 
   fastify.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
-    // Localhost bypass
-    if (isLoopback(request.ip)) return;
+    // Already authenticated by a prior branch (e.g. the bearer device-auth
+    // hook registered before this plugin). One OR branch — D7.
+    if ((request as any).isAuthenticated) return;
+
+    // Genuine same-host bypass: loopback AND no proxy-forwarding header, or a
+    // valid local-IPC token. A tunnel arriving as 127.0.0.1 (with a forwarding
+    // header) is NOT exempted (D10, narrowed).
+    if (isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)) return;
+    if (localToken && verifyLocalToken(request.headers as Record<string, unknown>, localToken)) return;
 
     // Skip auth routes
     if (request.url.startsWith("/auth/")) return;
+
+    // Skip PUBLIC device-facing pairing routes (a pairing device has no
+    // credential yet; these are gated by the one-time code + approval).
+    if (PUBLIC_PAIRING_PREFIXES.some((p) => request.url.startsWith(p))) return;
 
     // Skip health endpoint
     if (request.url === "/api/health") return;
@@ -296,9 +315,29 @@ export function validateWsUpgrade(
   remoteAddress: string,
   secret: string,
   trustedNetworks: string[] = [],
+  opts?: {
+    /** Ephemeral single-use ticket (D11); the durable bearer never rides WS. */
+    ticket?: string | null;
+    scope?: WsRouteScope | null;
+    consumeTicket?: (ticket: string, scope: WsRouteScope) => boolean;
+    /** Upgrade request headers (for proxy-hop detection + local token). */
+    headers?: Record<string, unknown>;
+    /** Local-IPC allowlist token. */
+    localToken?: string;
+  },
 ): boolean {
-  if (isLoopback(remoteAddress)) return true;
+  // Genuine same-host origin, or a valid local-IPC token. A tunnel presenting
+  // as loopback (with a forwarding header) is NOT trusted here (D10, narrowed).
+  if (isGenuinelyLocal(remoteAddress, opts?.headers)) return true;
+  if (opts?.localToken && verifyLocalToken(opts.headers, opts.localToken)) return true;
   if (trustedNetworks.length > 0 && isBypassedHost(remoteAddress, trustedNetworks)) return true;
+  // Cross-origin device auth: a valid single-use ticket minted from an
+  // authenticated REST call. The upgrade is refused unless it validates, so no
+  // authenticated socket exists before auth (no TOCTOU). F6: only the ephemeral
+  // ticket — never the durable bearer — may ride the WS.
+  if (opts?.consumeTicket && opts.scope) {
+    if (opts.ticket && opts.consumeTicket(opts.ticket, opts.scope)) return true;
+  }
   const token = parseAuthCookie(cookieHeader);
   if (!token) return false;
   return verifyToken(token, secret) !== null;

@@ -5,7 +5,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | File | Purpose |
 |------|---------|
 | `.pi-test-harness.json` | (repo root) Per-worktree test-harness state. Gitignored. Written by test-up.sh to HOST_CWD. `{ project, dashboardPort, gatewayPort }`. test-down.sh removes after down. See change: parallelize-test-harness. |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. WS ports 9999 (bridge) + 8000 (client). In-memory + JSON persistence. `/site` marketing app product-adjacent, separate build. |
+| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. WS ports 9999 (bridge) + 8000 (client). In-memory + JSON persistence. `/site` marketing app product-adjacent, separate build. "Server-Keypair Device Pairing" section: Topology 3 static PWA shell, Ed25519 TOFU identity, QR pairing, compare-code approval, bearer + WS-ticket auth, genuine-local trust. See change: add-server-keypair-pairing. |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. tier ladder (Tier A error, Tier B/C warn). a11y override client. test override noExplicitAny off. ignores css + dist + archive + fixtures. See change: add-code-quality-skill. |
 | `chat-display-preferences.md` | `DisplayPrefs` storage, merge rule, transport, migration, first-launch. See change: configurable-chat-display. |
 | `code-quality.md` | Biome ratchet system. tier ladder. graduation criterion. rollout phases. oracle. rough edge. See change: add-code-quality-skill. |

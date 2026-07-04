@@ -21,6 +21,7 @@ import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
 import { KnownServersSection } from "./KnownServersSection.js";
+import { PairedDevicesSection } from "./PairedDevicesSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NetworkDiscoverySection } from "./NetworkDiscoverySection.js";
@@ -1121,6 +1122,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     c.auth.bypassHosts = nets;
                   })}
                 />
+                <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
+                  <PairedDevicesSection />
+                </Section>
                 <SettingsSectionSlot tab="security" />
               </>
             )}

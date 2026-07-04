@@ -1,0 +1,134 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PairedDeviceRegistry } from "../paired-devices.js";
+import { PAIRING_PROTOCOL_VERSION, PairingManager } from "../pairing.js";
+
+let tmpDir: string;
+let clock: number;
+let urls: string[];
+
+function mkManager(): { mgr: PairingManager; reg: PairedDeviceRegistry } {
+  const reg = new PairedDeviceRegistry(path.join(tmpDir, "paired.json"));
+  const mgr = new PairingManager({
+    registry: reg,
+    getFingerprint: () => "sha256:test-fp",
+    getReachableUrls: () => urls,
+    now: () => clock,
+  });
+  return { mgr, reg };
+}
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pairing-"));
+  clock = 1_000_000;
+  urls = ["https://abc.share.zrok.io", "https://pi.example.com/"];
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe("payload + reachable URLs (D14)", () => {
+  it("emits only secure origins, deduped, trailing slash stripped", () => {
+    urls = ["https://a.io/", "http://insecure.lan:8000", "https://a.io", "wss://b.io"];
+    const { mgr } = mkManager();
+    const payload = mgr.createPayload();
+    expect(payload).not.toBeNull();
+    expect(payload!.urls).toEqual(["https://a.io", "wss://b.io"]);
+    expect(payload!.id).toBe("sha256:test-fp");
+    expect(payload!.v).toBe(PAIRING_PROTOCOL_VERSION);
+  });
+
+  it("returns null when no secure endpoint exists (empty-state)", () => {
+    urls = ["http://192.168.1.5:8000"];
+    const { mgr } = mkManager();
+    expect(mgr.createPayload()).toBeNull();
+  });
+});
+
+describe("one-time code TTL", () => {
+  it("rejects an expired code on redeem", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    clock += 61_000;
+    expect(mgr.redeem(p.code)).toEqual({ ok: false, error: "expired" });
+  });
+
+  it("rejects an unknown code", () => {
+    const { mgr } = mkManager();
+    expect(mgr.redeem("nope")).toEqual({ ok: false, error: "invalid_code" });
+  });
+});
+
+describe("D12 compare-code approval", () => {
+  it("premature redemption does NOT lock out the legitimate device", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    // Attacker redeems first.
+    const attacker = mgr.redeem(p.code);
+    expect(attacker.ok).toBe(true);
+    // Legitimate device redeems → overwrites the single pending slot, still ok.
+    const legit = mgr.redeem(p.code);
+    expect(legit.ok).toBe(true);
+    if (legit.ok && attacker.ok) {
+      expect(legit.pendingId).not.toBe(attacker.pendingId);
+    }
+  });
+
+  it("approves only on matching typed confirm code, then mints a token", () => {
+    const { mgr, reg } = mkManager();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    // Wrong code → mismatch, no token.
+    expect(mgr.approve(p.code, "00000000")).toEqual({ ok: false, error: "mismatch" });
+    // Right code → device recorded + token issued.
+    const ok = mgr.approve(p.code, r.confirmCode, "My iPhone");
+    expect(ok.ok).toBe(true);
+    expect(reg.list().some((d) => d.label === "My iPhone")).toBe(true);
+
+    // Device polls and collects its token exactly once.
+    const poll = mgr.poll(r.pendingId);
+    expect(poll.status).toBe("approved");
+    if (poll.status === "approved") {
+      expect(reg.verify(poll.token)).not.toBe(null);
+    }
+    // Second poll → code consumed, unknown.
+    expect(mgr.poll(r.pendingId).status).toBe("unknown");
+  });
+
+  it("locks out after repeated wrong confirm codes", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code);
+    if (!r.ok) throw new Error("redeem failed");
+    for (let i = 0; i < 5; i++) mgr.approve(p.code, "11111111");
+    expect(mgr.approve(p.code, r.confirmCode)).toEqual({ ok: false, error: "locked_out" });
+  });
+
+  it("code is consumed only on approval (redemption alone leaves it usable)", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    mgr.redeem(p.code);
+    // Still redeemable after a bare redemption.
+    expect(mgr.redeem(p.code).ok).toBe(true);
+    const r = mgr.redeem(p.code);
+    if (!r.ok) throw new Error("redeem failed");
+    mgr.approve(p.code, r.confirmCode);
+    // After approval the pairing code no longer starts a new pending flow.
+    const after = mgr.redeem(p.code);
+    expect(after.ok).toBe(false);
+  });
+
+  it("rate-limits redemption floods (bounded pending)", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    let lastOk = true;
+    for (let i = 0; i < 12; i++) lastOk = mgr.redeem(p.code).ok;
+    expect(lastOk).toBe(false); // hit MAX_REDEEM_ATTEMPTS
+  });
+});

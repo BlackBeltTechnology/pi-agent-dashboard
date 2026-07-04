@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Enable the web client to reach a dashboard server on a different origin — resolving the HTTP API base from the WebSocket URL, prefixing REST calls, and authenticating cross-origin with a bearer token independent of the origin-bound cookie.
+## Requirements
 ### Requirement: API base URL context
 The client SHALL provide a React context (`ApiContext`) and hook (`useApiBase()`) that returns the HTTP base URL of the connected dashboard server.
 
@@ -36,3 +38,18 @@ The client SHALL support a `VITE_API_URL` environment variable to set a default 
 #### Scenario: No env var uses page origin
 - **WHEN** `VITE_API_URL` is not set
 - **THEN** the client SHALL default to the page origin (same-origin behavior)
+
+### Requirement: Bearer auth mode independent of origin-bound cookie
+The client SHALL support authenticating to a cross-origin server with a bearer
+token — `Authorization: Bearer` for REST and a token-bearing
+`Sec-WebSocket-Protocol` for WebSocket — as an alternative to the origin-bound
+auth cookie, so a neutral-origin shell can reach a server on a different origin.
+
+#### Scenario: Cross-origin REST with bearer
+- **WHEN** the shell issues a REST call to a paired server on a different origin
+- **THEN** it attaches the server's bearer token in the `Authorization` header
+
+#### Scenario: Cross-origin WebSocket with bearer
+- **WHEN** the shell opens a WebSocket to a paired server on a different origin
+- **THEN** it passes the bearer token via the WebSocket subprotocol rather than relying on a cookie
+

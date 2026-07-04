@@ -1013,6 +1013,60 @@ Optional OAuth2 authentication protects the dashboard when accessed remotely.
 8. WebSocket upgrade requests are also validated — external connections without valid cookie or trusted network get 401
 9. Supported providers: GitHub (hardcoded endpoints), Google/Keycloak/OIDC (via OIDC discovery)
 
+### Server-Keypair Device Pairing
+
+Second auth path beside OAuth. Pairs a device to a server via QR/copy-string. Mints long-lived bearer token. Change: `add-server-keypair-pairing`.
+
+#### Topology 3 — neutral static PWA shell
+
+Shell published to `pi-dashboard.dev/app/`. GitHub Pages subpath — `site/` owns apex; shell shares same web origin, so CORS default covers it. Shell holds keyring in IndexedDB. Not bound to any server origin. Built from `packages/shell` (Vite, `base:"./"`, hash routing, `404.html` fallback, CSP via meta). Deployed by `.github/workflows/deploy-site.yml` (builds shell into `site/dist/app/`).
+
+#### Server identity — Model 1, TOFU pinning
+
+Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (0600). Reused across restarts. Fingerprint `sha256:<base64url>` over SPKI DER. Stable identity independent of URL. Module `packages/server/src/identity.ts`. Client pins fingerprint at first pairing. On connect client sends nonce; server signs with private key via `POST /api/pair/challenge`; client verifies vs pinned pubkey (WebCrypto Ed25519). Detects impostor on reused URL.
+
+#### QR / copy-string pairing
+
+Payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, secure reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; tunnel plus operator-configured `pairing.publicBaseUrls`. Rendered as QR plus copyable base64url string. Module `packages/server/src/pairing.ts`.
+
+#### Compare-code approval — D12
+
+```mermaid
+sequenceDiagram
+    participant Dev as Device (shell)
+    participant Srv as Server
+    participant Op as Operator (dashboard)
+    Dev->>Srv: redeem one-time code
+    Srv->>Srv: create ONE pending device + 8-digit confirmation code
+    Srv-->>Dev: show 8-digit code
+    Srv-->>Op: show 8-digit code
+    Op->>Srv: type device confirmation code (authenticated session)
+    Srv->>Srv: match → consume code → mint bearer token
+    Srv-->>Dev: bearer token
+```
+
+Code consumed on approval, not redemption. Premature redemption cannot lock out legit device. Operator types device confirmation code into dashboard — active compare-and-match, not one-click. Approval requires authenticated browser session. Rate-limit plus lockout. At most one pending device per code — bounds memory and prompt flood.
+
+#### Bearer device auth — D5/D7
+
+Approval mints long-lived opaque bearer token. Registry `~/.pi/dashboard/paired-devices.json` (0600). Stores only SHA-256 hash. Revoke = row delete (Settings → Security → Paired Devices). Auth branch: `Authorization: Bearer` (REST) feeds existing `request.isAuthenticated` — one OR branch, registered before OAuth plugin. Modules `paired-devices.ts`, `bearer-auth.ts`.
+
+#### WS single-use ticket — D11/F4/F6
+
+Durable bearer never rides WS. Client mints short-lived ~15s single-use ticket via `POST /api/ws-ticket {scope}` (authenticated). Opens `wss://host/ws?ticket=`. Ticket deleted on first upgrade attempt. Bound to route scope (browser/terminal/editor/live). Mismatched-scope refused. Module `ws-ticket.ts`.
+
+#### Genuine-local trust — D10, narrowed
+
+Loopback auth-exemption replaced by `isGenuinelyLocal(ip, headers)` = loopback AND no proxy-forwarding header (`x-forwarded-*`, `x-real-ip`, `forwarded`). Closes zrok-tunnel-as-127.0.0.1 bypass at all 3 sites: auth-plugin `onRequest`, `createNetworkGuard`, WS upgrade. Marker-less `ssh -R` not caught by header heuristic — accepted narrowing. Affirmative local-IPC token `~/.pi/dashboard/local/token` (dir 0700, file 0600), header `X-Pi-Local-Token`, for same-host process callers. Module `local-token.ts`. Same-desktop browser keeps loopback trust (genuine-local, no forwarding header).
+
+#### CORS default
+
+`https://pi-dashboard.dev` built-in allowed origin, beside `*.share.zrok.io`. CORS (origin-keyed) distinct from auth (bearer). Config `cors.allowedOrigins` extends.
+
+#### Versioned protocol — D9
+
+Payload plus handshake carry `v`. Server keeps backward-compatible pairing routes. `PAIRING_PROTOCOL_VERSION`, `SUPPORTED_PAIRING_VERSIONS`.
+
 ### Settings Panel
 The web client includes a Settings panel (gear icon in sidebar header → `/settings` route) that lets users view and edit all dashboard configuration. The panel:
 1. Loads config via `GET /api/config` (secrets redacted as `***`)

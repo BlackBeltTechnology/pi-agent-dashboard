@@ -21,6 +21,7 @@ export default defineConfig({
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",
+      "packages/shell",
       "packages/dashboard-plugin-runtime",
       "packages/automation-plugin",
       "packages/flows-plugin",

@@ -92,6 +92,7 @@ Files in this directory. One row per source file.
 | `PiUpdateBadge.tsx` | Header badge counting available pi-core updates. Exports `PiUpdateBadge`. → see `PiUpdateBadge.tsx.AGENTS.md` |
 | `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Reads `usePiCompatibility`. → see `PiVersionAdvisory.tsx.AGENTS.md` |
 | `PlaceholderSessionCard.tsx` | Skeleton card shown while a new session spawns. Exports `PlaceholderSessionCard`. Pulse-animated bars mimicking `SessionCard` layout; shows "Starting new session…" text. |
+| `PairedDevicesSection.tsx` | Settings → Security → Paired Devices. Lists bearer-paired devices (label, last-seen), per-device revoke-with-confirm (deletes registry row via `revokePairedDevice`). Exports `PairedDevicesSection`. See change: add-server-keypair-pairing. |
 | `PluginSettingsHost.tsx` | Wraps `SettingsSectionByPluginSlot` from dashboard-plugin-runtime so per-plugin settings sections mount inside Plugins tab below activation row. See change: add-plugin-activation-ui. |
 | `PluginsSection.tsx` | Settings ▸ Plugins activation list. Renders every plugin (enabled or not) with display name, description,… → see `PluginsSection.tsx.AGENTS.md` |
 | `PluginStalenessBanner.tsx` | Banner on stale plugin bundle. Fetches `/api/health.bundleHash` on mount. → see `PluginStalenessBanner.tsx.AGENTS.md` |

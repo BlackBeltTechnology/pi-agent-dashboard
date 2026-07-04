@@ -3,6 +3,7 @@
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
 import type { FastifyRequest, FastifyReply } from "fastify";
+import { verifyLocalToken } from "./local-token.js";
 
 const LOOPBACK_ADDRESSES = new Set([
   "127.0.0.1",
@@ -12,6 +13,43 @@ const LOOPBACK_ADDRESSES = new Set([
 
 export function isLoopback(ip: string): boolean {
   return LOOPBACK_ADDRESSES.has(ip);
+}
+
+/**
+ * Request headers a reverse proxy / tunnel injects. Their presence on a
+ * loopback-sourced request proves the connection traversed a proxy hop (e.g. a
+ * zrok public frontend) rather than originating on this host. (D10, narrowed:
+ * close the tunnel-as-127.0.0.1 bypass without forcing same-desktop browser
+ * auth.) This is a heuristic — a marker-less reverse tunnel (`ssh -R`) injects
+ * none of these; affirmative genuine-local trust for process callers is granted
+ * separately by the local-token allowlist (see `local-token.ts`).
+ */
+const PROXY_FORWARDING_HEADERS = [
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "x-real-ip",
+  "forwarded",
+] as const;
+
+type HeaderBag = Record<string, unknown> | undefined;
+
+/** True if the request carries any proxy/tunnel forwarding header. */
+export function hasProxyForwardingHeaders(headers: HeaderBag): boolean {
+  if (!headers) return false;
+  for (const h of PROXY_FORWARDING_HEADERS) {
+    if (headers[h] != null) return true;
+  }
+  return false;
+}
+
+/**
+ * True only for a request that is BOTH from a loopback address AND free of any
+ * proxy-forwarding header — i.e. genuinely originated on this host, not relayed
+ * through a tunnel that merely presents as `127.0.0.1`.
+ */
+export function isGenuinelyLocal(ip: string, headers: HeaderBag): boolean {
+  return isLoopback(ip) && !hasProxyForwardingHeaders(headers);
 }
 
 /**
@@ -61,12 +99,19 @@ export function ipToNum(ip: string): number | null {
  * Create a network guard that allows loopback, trusted networks, or authenticated requests.
  * Fastify lifecycle guarantees onRequest (auth) runs before preHandler (this guard).
  */
-export function createNetworkGuard(trustedNetworks: string[]) {
+export function createNetworkGuard(
+  trustedNetworks: string[],
+  opts?: { localToken?: string },
+) {
   return async function networkGuard(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    if (isLoopback(request.ip)) return;
+    // Genuine same-host origin (loopback AND no proxy-forwarding header) OR an
+    // affirmative local-IPC token. A tunnel presenting as 127.0.0.1 injects a
+    // forwarding header and is NOT exempted here (D10, narrowed).
+    if (isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)) return;
+    if (opts?.localToken && verifyLocalToken(request.headers as Record<string, unknown>, opts.localToken)) return;
     if (trustedNetworks.length > 0 && isBypassedHost(request.ip, trustedNetworks)) return;
     if ((request as any).isAuthenticated) return;
     // Self-describing denial so clients can branch on policy-denial vs

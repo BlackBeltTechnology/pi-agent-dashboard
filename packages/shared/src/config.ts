@@ -281,6 +281,8 @@ export interface DashboardConfig {
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
   cors: CorsConfig;
+  /** Device-pairing configuration (server keypair identity + QR pairing). */
+  pairing: PairingConfig;
   /** Last-used server address (host:port) for reconnection */
   lastServer?: string;
   /**
@@ -361,6 +363,19 @@ export interface CorsConfig {
   allowedOrigins: string[];
 }
 
+/** Device-pairing configuration (server keypair identity + QR pairing). */
+export interface PairingConfig {
+  /**
+   * Operator-designated, publicly-trusted TLS base URLs (e.g.
+   * `https://pi.example.com`) advertised in the pairing payload's `urls[]`.
+   * D14: only publicly-trusted TLS is reachable from the neutral HTTPS shell;
+   * self-signed LAN addresses MUST NOT be listed here. The active zrok tunnel
+   * (publicly trusted by construction) is added automatically and need not be
+   * configured. Empty by default.
+   */
+  publicBaseUrls: string[];
+}
+
 const VALID_SPAWN_STRATEGIES: SpawnStrategy[] = ["tmux", "headless"];
 
 /** Default ask_user prompt timeout: 300 seconds (5 minutes). */
@@ -402,6 +417,7 @@ const DEFAULTS: DashboardConfig = {
   trustedNetworks: [],
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
+  pairing: { publicBaseUrls: [] },
   electronMode: false,
   knownServers: [],
   askUserPromptTimeoutSeconds: DEFAULT_ASK_USER_PROMPT_TIMEOUT_SECONDS,
@@ -711,6 +727,11 @@ export function loadConfig(): DashboardConfig {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)
           ? parsed.cors.allowedOrigins.filter((o: unknown) => typeof o === "string")
           : defaults.cors.allowedOrigins,
+      },
+      pairing: {
+        publicBaseUrls: Array.isArray(parsed.pairing?.publicBaseUrls)
+          ? parsed.pairing.publicBaseUrls.filter((o: unknown) => typeof o === "string")
+          : defaults.pairing.publicBaseUrls,
       },
       ...(typeof parsed.lastServer === "string" ? { lastServer: parsed.lastServer } : {}),
       ...(typeof parsed.dashboardName === "string" && parsed.dashboardName.trim()

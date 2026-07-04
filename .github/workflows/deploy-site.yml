@@ -5,6 +5,7 @@ on:
     branches: [develop]
     paths:
       - "site/**"
+      - "packages/shell/**"
       - ".github/workflows/deploy-site.yml"
   # Rebuild and redeploy whenever a new release is published so the
   # Download section surfaces the latest version automatically.
@@ -74,6 +75,26 @@ jobs:
 
       - name: Enforce JS bundle budget
         run: npm run size
+
+      # Neutral device-pairing shell (packages/shell). GitHub Pages allows one
+      # site per repo and `site/` owns the pi-dashboard.dev apex, so the shell
+      # is published at the SUBPATH `/app/`. Same origin as the apex (path is
+      # excluded from the web origin), so the server's built-in
+      # `https://pi-dashboard.dev` CORS default covers it unchanged. The shell
+      # builds with `base:"./"`, so relative assets resolve under any subpath.
+      - name: Install workspace deps (for shell)
+        working-directory: .
+        run: npm ci
+
+      - name: Build neutral shell
+        working-directory: packages/shell
+        run: npx vite build
+
+      - name: Copy shell into site artifact under /app
+        working-directory: .
+        run: |
+          mkdir -p site/dist/app
+          cp -r packages/shell/dist/* site/dist/app/
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
