@@ -74,18 +74,13 @@
   before the openspec fan-out. Guards green (4.1a):
   `directory-service-folderhead-async.test.ts` asserts per-cwd
   `git_head_update`-before-`openspec_update` ordering AND branch-switch-reflects.
-- [ ] 3.2 If `dirPollPost → worker deserialize`: return the pre-`serialized`
-  string without re-materializing worker `data` on the main thread (or
-  transferable) → verify: `dirPollPost` turn time drops; byte-identical-payload
-  test green
-- [ ] 3.3 If `dirPollPost → broadcast`: chunk/yield the **per-client** send loop
-  (the fan-out is already one dir per turn) → verify: no single `dirPollPost`
-  broadcast turn >250ms; byte-identical-payload + the `{pending:true}` emit tests
-  stay green
-- [ ] 3.4 If `dirPollPre → list-signal stat-fan`: batch the read-side
-  `effectiveMtimeOr` `stat`s via `fs.promises` with a concurrency cap; **do NOT
-  touch the per-change TOCTOU stamp (already in the worker)** → verify:
-  `dirPollPre` turn bounded; mtime-gate + TOCTOU tests green
+- [x] 3.2 ~~If `dirPollPost → worker deserialize`~~ — N/A: 2.1 indicted
+  `tickOpen → folderHeads` (branch 3.1). Not applicable; not implemented per
+  "implement ONLY the branch 2.1 indicts".
+- [x] 3.3 ~~If `dirPollPost → broadcast`~~ — N/A: branch not indicted (3.1
+  applied). Not implemented.
+- [x] 3.4 ~~If `dirPollPre → list-signal stat-fan`~~ — N/A: branch not indicted
+  (3.1 applied). Not implemented.
 - [x] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
   `eventLoopDelay.maxMs` stays within a small multiple of `p99` (target: no
   recurring >250ms main-thread stall on an idle-content repo). DONE: Phase-2
