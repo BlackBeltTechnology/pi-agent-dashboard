@@ -1,5 +1,5 @@
 /**
- * Preload script for Electron renderer (wizard window + loading page).
+ * Preload script for Electron renderers (loading page, doctor, remote-connect).
  * Exposes IPC APIs to the renderer via contextBridge.
  */
 import { contextBridge, ipcRenderer } from "electron";
@@ -7,28 +7,9 @@ import { contextBridge, ipcRenderer } from "electron";
 // Side-effect import — `doctor-preload.ts` calls contextBridge.exposeInMainWorld.
 // See change: doctor-rich-output.
 import "./preload/doctor-preload.js";
-
-/**
- * Slim wizard API under the immutable-bundle architecture.
- * Pre-R3 install / detection / installable-list / recommended-extensions
- * methods are removed (see change: eliminate-electron-runtime-install).
- */
-export interface WizardApi {
-  /** Mark first run complete and persist the marker file. */
-  completeWizard: () => Promise<void>;
-  /** Persist the chosen wizard mode (remote requires a verified URL). */
-  persistMode: (mode: "standalone" | "power-user" | "remote", remoteUrl?: string) => Promise<void>;
-  /** Open the Doctor diagnostic window. */
-  openDoctor: () => void;
-}
-
-const api: WizardApi = {
-  completeWizard: () => ipcRenderer.invoke("wizard:complete"),
-  persistMode: (mode, remoteUrl) => ipcRenderer.invoke("wizard:persist-mode", { mode, remoteUrl }),
-  openDoctor: () => ipcRenderer.send("wizard:open-doctor"),
-};
-
-contextBridge.exposeInMainWorld("wizardApi", api);
+// Register the remote-connect bridge namespace (window.remoteConnect).
+// See change: auto-launch-first-run-skip-welcome.
+import "./preload/remote-connect-preload.js";
 
 // ── piDashboard API ───────────────────────────────────────────────────────────────────
 // User-initiated server-launch controls used by the loading page (and any

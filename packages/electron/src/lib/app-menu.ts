@@ -3,11 +3,13 @@
  * - macOS: App menu (About, Doctor), Edit, View, Window
  * - Windows/Linux: top-level About, Doctor, View (reload, devtools, zoom)
  */
-import { app, Menu, dialog, shell, BrowserWindow, type MenuItemConstructorOptions } from "electron";
+
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { openDoctorWindow } from "./doctor-window.js";
+import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { checkForUpdatesNow, getUpdateLogPath } from "./app-updater.js";
+import { openDoctorWindow } from "./doctor-window.js";
+import { openRemoteConnectWindow, useLocalDashboard } from "./remote-connect-window.js";
 
 /** True when running an unpackaged dev build; hides the update-check item. */
 function isDevMode(): boolean {
@@ -110,6 +112,8 @@ export function setupAppMenu(): void {
           { label: "View Update Log", click: () => handleViewUpdateLog() },
           { type: "separator" },
           { label: "Doctor...", click: () => showDoctorDialog() },
+          { label: "Connect to Remote Dashboard…", click: () => openRemoteConnectWindow() },
+          { label: "Use Local Dashboard", click: () => useLocalDashboard() },
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -187,6 +191,14 @@ export function setupAppMenu(): void {
     {
       label: "Doctor",
       click: () => showDoctorDialog(),
+    },
+    {
+      label: "Connect to Remote Dashboard…",
+      click: () => openRemoteConnectWindow(),
+    },
+    {
+      label: "Use Local Dashboard",
+      click: () => useLocalDashboard(),
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

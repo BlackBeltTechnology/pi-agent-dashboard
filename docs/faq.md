@@ -1634,7 +1634,7 @@ Two Electron installation modes with different tool resolution priorities.
 - pi, openspec: System PATH (nvm/volta) → Managed → Bundled
 - node: System PATH → Bundled
 
-User selects in wizard. Mode stored in `~/.pi-dashboard/mode.json`. Affects search order in `dependency-detector.ts::detectTool()`.
+User selects in wizard. Mode stored in `~/.pi-dashboard/dashboard-settings.json`. Affects search order in `dependency-detector.ts::detectTool()`.
 
 Use standalone when: Electron shipped with all dependencies, minimal setup.
 Use power-user when: Syncing with system nvm/volta, multiple Node versions, or custom pi builds.

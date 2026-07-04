@@ -5,10 +5,11 @@
  * returns the configured URL without discovery/spawn, and didWeStartServer()
  * stays false so quit never stops the remote server.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub the health check so non-remote ensureServer() short-circuits on the
 // already-running branch (no real spawn). Remote mode must NOT reach it — the
@@ -17,23 +18,26 @@ vi.mock("../health-check.js", () => ({
   isDashboardRunning: vi.fn(async () => ({ running: true, pid: 1 })),
 }));
 
-import { readModeFile, writeModeFile } from "../wizard-state.js";
-import { ensureServer, didWeStartServer } from "../server-lifecycle.js";
 import { isDashboardRunning } from "../health-check.js";
+import { didWeStartServer, ensureServer } from "../server-lifecycle.js";
+import { readModeFile, writeModeFile } from "../wizard-state.js";
 
 const mockHealth = isDashboardRunning as unknown as ReturnType<typeof vi.fn>;
-const modeFile = path.join(os.homedir(), ".pi-dashboard", "mode.json");
+const modeFile = path.join(os.homedir(), ".pi-dashboard", "dashboard-settings.json");
+const legacyModeFile = path.join(os.homedir(), ".pi-dashboard", "mode.json");
 
 describe("remote wizard mode", () => {
   beforeEach(() => {
     mockHealth.mockClear();
     fs.rmSync(modeFile, { force: true });
+    fs.rmSync(legacyModeFile, { force: true });
   });
   afterEach(() => {
     fs.rmSync(modeFile, { force: true });
+    fs.rmSync(legacyModeFile, { force: true });
   });
 
-  it("writeModeFile persists remote mode + url to mode.json", () => {
+  it("writeModeFile persists remote mode + url to dashboard-settings.json", () => {
     writeModeFile("remote", "http://docker-host:8000");
     const raw = JSON.parse(fs.readFileSync(modeFile, "utf-8"));
     expect(raw.mode).toBe("remote");

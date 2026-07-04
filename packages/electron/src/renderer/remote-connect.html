@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Connect to Remote Dashboard — PI Dashboard</title>
+  <style>
+    /* Dark-only palette (matches shipped renderers). See change:
+       auto-launch-first-run-skip-welcome. Primary #2563eb clears WCAG-AA for
+       white button text; --primary-text is the AA-safe blue for text/badges. */
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155; --separator: #1e293b;
+      --text: #e2e8f0; --heading: #f8fafc; --muted: #94a3b8; --dim: #64748b;
+      --primary: #2563eb; --primary-hover: #1d4ed8; --primary-disabled: #1e3a8a;
+      --primary-text: #60a5fa; --secondary: #334155; --secondary-hover: #475569;
+      --ok: #22c55e; --err: #ef4444; --busy: #f59e0b; --radius: 0.5rem;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; justify-content: center; align-items: flex-start;
+      min-height: 100vh; padding: 2rem;
+    }
+    .dialog { max-width: 460px; width: 100%; }
+    .mode-badge {
+      display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem;
+      color: var(--muted); background: var(--surface); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0.25rem 0.7rem; margin-bottom: 1rem;
+    }
+    .mode-badge .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--dim); }
+    .mode-badge.remote .dot { background: var(--ok); }
+    h1 { font-size: 1.4rem; margin-bottom: 0.4rem; color: var(--heading); }
+    p.lead { color: var(--muted); font-size: 0.925rem; margin-bottom: 1.5rem; line-height: 1.5; }
+    label.field-label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; font-weight: 500; }
+    .form-row { display: flex; gap: 0.5rem; align-items: stretch; }
+    .form-row input {
+      flex: 1; padding: 0.625rem 0.75rem; border: 1px solid var(--border);
+      border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 0.95rem;
+    }
+    .form-row input::placeholder { color: var(--muted); }
+    .form-row input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.25); }
+    .btn { border: none; border-radius: var(--radius); font-size: 0.95rem; cursor: pointer; font-weight: 500; }
+    .btn:focus-visible, a:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .btn-secondary { background: var(--secondary); color: var(--text); padding: 0.625rem 1rem; }
+    .btn-secondary:hover { background: var(--secondary-hover); }
+    .status { margin-top: 0.6rem; font-size: 0.825rem; min-height: 1.2em; display: flex; align-items: center; gap: 0.4rem; }
+    .status.ok { color: var(--ok); } .status.err { color: var(--err); } .status.busy { color: var(--busy); }
+    .status .spinner {
+      width: 12px; height: 12px; border: 2px solid rgba(245,158,11,0.35);
+      border-top-color: var(--busy); border-radius: 999px; animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .status .spinner { animation: none; } }
+    .prereq-note { margin-top: 0.7rem; font-size: 0.8rem; color: var(--muted); line-height: 1.45; display: flex; gap: 0.5rem; }
+    .prereq-note .icon { flex: none; margin-top: 0.05rem; }
+    .prereq-note code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 0.3rem;
+      padding: 0.05rem 0.3rem; color: var(--text);
+    }
+    .restart-note {
+      margin-top: 1.25rem; font-size: 0.8rem; color: var(--muted); line-height: 1.45;
+      border-left: 2px solid var(--border); padding-left: 0.75rem;
+    }
+    .actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--separator); }
+    .btn-primary { background: var(--primary); color: #fff; padding: 0.625rem 1.4rem; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-primary:disabled { background: var(--primary-disabled); cursor: not-allowed; opacity: 0.6; }
+    .btn-ghost { background: transparent; color: var(--muted); padding: 0.625rem 1rem; }
+    .btn-ghost:hover { color: var(--text); }
+    .hidden { display: none !important; }
+    .recent { margin-top: 1.6rem; padding-top: 1.25rem; border-top: 1px solid var(--separator); }
+    .recent h2 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 600; margin-bottom: 0.6rem; }
+    .server-list { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+    .server-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.7rem; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+    .server-row.current { border-color: var(--primary); }
+    .server-pick { flex: 1; display: flex; align-items: center; gap: 0.6rem; background: transparent; border: none; color: var(--text); font-size: 0.9rem; cursor: pointer; text-align: left; padding: 0; min-width: 0; }
+    .server-pick .dot { flex: none; width: 8px; height: 8px; border-radius: 999px; background: var(--dim); }
+    .server-pick.local .dot { background: var(--muted); }
+    .server-pick .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .server-pick .sub { color: var(--muted); font-size: 0.75rem; margin-left: auto; flex: none; padding-left: 0.5rem; }
+    .badge-current { flex: none; font-size: 0.68rem; color: var(--primary-text); border: 1px solid var(--primary); border-radius: 999px; padding: 0.05rem 0.5rem; }
+    .server-remove { flex: none; background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 0.15rem 0.35rem; border-radius: 0.3rem; }
+    .server-remove:hover { color: var(--err); background: rgba(239,68,68,0.12); }
+  </style>
+</head>
+<body>
+  <div class="dialog">
+    <span id="mode-badge" class="mode-badge">
+      <span class="dot"></span><span id="mode-text">Currently: Local server</span>
+    </span>
+    <h1>Connect to Remote Dashboard</h1>
+    <p class="lead">
+      Point this app at a dashboard running on another machine (for example a Docker
+      host or a server on your network) instead of starting a local one.
+    </p>
+    <label class="field-label" for="remote-url">Dashboard URL</label>
+    <div class="form-row">
+      <input id="remote-url" type="text" placeholder="http://hostname:8000" autocomplete="off" spellcheck="false" />
+      <button id="test-btn" class="btn btn-secondary">Test</button>
+    </div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <p class="prereq-note">
+      <span class="icon" aria-hidden="true">ⓘ</span>
+      <span>On the <b>server machine</b>, the dashboard must be started with network
+      access enabled (listening on the network, not just <code>localhost</code>), and
+      the OS firewall must allow the port. Otherwise it won&rsquo;t be reachable from here.</span>
+    </p>
+    <p class="restart-note">
+      Connecting restarts PI Dashboard so it can attach to the remote server.
+      Your local server (if running) keeps running.
+    </p>
+    <div class="actions">
+      <button id="cancel-btn" class="btn btn-ghost">Cancel</button>
+      <button id="connect-btn" class="btn btn-primary" disabled>Connect &amp; Restart</button>
+    </div>
+    <div class="recent">
+      <h2>Servers</h2>
+      <ul id="server-list" class="server-list" aria-label="Saved servers"></ul>
+    </div>
+  </div>
+
+  <script>
+    // Talks to the main process via window.remoteConnect (remote-connect-preload.ts):
+    //   probe(url)   → fetch(`${url}/api/health`) in main
+    //   connect(url) → writeModeFile("remote", url) + addRecentRemote + relaunch
+    //   useLocal()   → writeModeFile("standalone") + relaunch
+    //   forget(url)  → removeRecentRemote(url)
+    const api = window.remoteConnect;
+    const urlInput   = document.getElementById("remote-url");
+    const testBtn    = document.getElementById("test-btn");
+    const connectBtn = document.getElementById("connect-btn");
+    const cancelBtn  = document.getElementById("cancel-btn");
+    const status     = document.getElementById("status");
+    const modeBadge  = document.getElementById("mode-badge");
+    const modeText   = document.getElementById("mode-text");
+    const serverList = document.getElementById("server-list");
+
+    let state = { mode: "standalone", remoteUrl: undefined, recent: [] };
+    let verifiedUrl = null;
+
+    function normalize(v) {
+      v = (v || "").trim();
+      if (!v) return null;
+      if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, "");
+      return "http://" + v.replace(/\/+$/, "");
+    }
+    function relTime(iso) {
+      const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+      if (!isFinite(m) || m < 1) return "just now";
+      if (m < 60) return `${m}m ago`;
+      const h = Math.round(m / 60); if (h < 24) return `${h}h ago`;
+      return `${Math.round(h / 24)}d ago`;
+    }
+    function setStatus(kind, text, spinner) {
+      status.className = "status " + (kind || "");
+      status.innerHTML = (spinner ? '<span class="spinner"></span>' : "") + `<span></span>`;
+      status.querySelector("span:last-child").textContent = text || "";
+    }
+    function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+    function renderMode() {
+      const isRemote = state.mode === "remote";
+      modeBadge.classList.toggle("remote", isRemote);
+      modeText.textContent = isRemote ? `Currently: Remote — ${state.remoteUrl}` : "Currently: Local server";
+      if (isRemote && state.remoteUrl && !urlInput.value) urlInput.value = state.remoteUrl;
+    }
+    function renderServers() {
+      const isRemote = state.mode === "remote";
+      const rows = [];
+      rows.push(
+        `<li class="server-row ${!isRemote ? "current" : ""}">` +
+          `<button class="server-pick local" data-action="local"><span class="dot"></span><span class="label">Local dashboard</span></button>` +
+          (!isRemote ? '<span class="badge-current">Current</span>' : "") +
+        `</li>`,
+      );
+      for (const s of state.recent) {
+        const current = isRemote && s.url === state.remoteUrl;
+        const u = esc(s.url);
+        rows.push(
+          `<li class="server-row ${current ? "current" : ""}">` +
+            `<button class="server-pick" data-action="connect" data-url="${u}" title="${u}">` +
+              `<span class="dot"></span><span class="label">${u}</span><span class="sub">${relTime(s.lastUsed)}</span>` +
+            `</button>` +
+            (current
+              ? '<span class="badge-current">Current</span>'
+              : `<button class="server-remove" data-action="remove" data-url="${u}" aria-label="Remove ${u}" title="Remove">&times;</button>`) +
+          `</li>`,
+        );
+      }
+      serverList.innerHTML = rows.join("");
+    }
+    async function refresh() {
+      state = await api.getState();
+      renderMode();
+      renderServers();
+    }
+
+    serverList.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const { action, url } = btn.dataset;
+      if (action === "remove") { state.recent = await api.forget(url); renderServers(); return; }
+      if (action === "local") { setStatus("busy", "Switching to local dashboard — restarting…", true); await api.useLocal(); return; }
+      if (action === "connect") { setStatus("busy", `Connecting to ${url} — restarting…`, true); await api.connect(url); }
+    });
+
+    async function runTest() {
+      const url = normalize(urlInput.value);
+      verifiedUrl = null;
+      connectBtn.disabled = true;
+      if (!url) { setStatus("err", "Enter a URL (e.g. http://hostname:8000)"); return; }
+      setStatus("busy", `Testing ${url}…`, true);
+      const res = await api.probe(url);
+      if (res.ok) {
+        setStatus("ok", res.version ? `Reachable — server version ${res.version}.` : "Reachable.");
+        verifiedUrl = url;
+        connectBtn.disabled = false;
+      } else {
+        setStatus("err", `Not reachable: ${res.reason || "unknown error"}`);
+      }
+    }
+
+    testBtn.addEventListener("click", runTest);
+    urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runTest(); });
+    urlInput.addEventListener("input", () => {
+      verifiedUrl = null; connectBtn.disabled = true;
+      if (status.textContent) setStatus("", "");
+    });
+    connectBtn.addEventListener("click", async () => {
+      if (!verifiedUrl) return;
+      setStatus("busy", `Connecting to ${verifiedUrl} — restarting…`, true);
+      connectBtn.disabled = true; testBtn.disabled = true;
+      await api.connect(verifiedUrl);
+    });
+    cancelBtn.addEventListener("click", () => api.close());
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") api.close(); });
+
+    refresh();
+    urlInput.focus();
+  </script>
+</body>
+</html>

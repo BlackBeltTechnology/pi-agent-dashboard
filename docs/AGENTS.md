@@ -9,7 +9,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. tier ladder (Tier A error, Tier B/C warn). a11y override client. test override noExplicitAny off. ignores css + dist + archive + fixtures. See change: add-code-quality-skill. |
 | `chat-display-preferences.md` | `DisplayPrefs` storage, merge rule, transport, migration, first-launch. See change: configurable-chat-display. |
 | `code-quality.md` | Biome ratchet system. tier ladder. graduation criterion. rollout phases. oracle. rough edge. See change: add-code-quality-skill. |
-| `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. 6 states, 3 triggers, 3 end states (attach/done/loading-page-error). Health-probe `GET /api/health` port 8000. Electron launcher only. |
+| `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. 5 states, 3 triggers, 3 end states (attach/done/loading-page-error). Health-probe `GET /api/health` port 8000. Electron launcher only. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |
 | `electron-immutable-bundle.md` | Invariant: Electron bundle read-only at runtime. No post-install `npm install`. pi/openspec/tsx ship as deps under `<resourcesPath>/server/node_modules/`. electron-updater whole-app replacement. |
 | `electron-session.md` | Implementation session log. Branding/icons, packaging formats (NSIS/AppImage), dead ends, gotchas. Records what failed + lessons. |

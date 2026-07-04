@@ -56,7 +56,6 @@
     <button class="btn" id="btn-copy-plain">Copy as Plain</button>
     <button class="btn" id="btn-open-log">Open server log</button>
     <button class="btn" id="btn-open-doctor-log">Open doctor log</button>
-    <button class="btn" id="btn-run-setup">Run setup wizard</button>
     <button class="btn" id="btn-managed">Open ~/.pi-dashboard</button>
   </div>
 
@@ -276,10 +275,6 @@
     } catch (e) {
       showToast("Could not open doctor.log: " + (e && e.message ? e.message : String(e)), "err");
     }
-  });
-  document.getElementById("btn-run-setup").addEventListener("click", async () => {
-    try { await window.electron.doctor.runSetup(); }
-    catch (e) { showToast("Could not open setup: " + (e && e.message ? e.message : String(e)), "err"); }
   });
   document.getElementById("btn-managed").addEventListener("click", async () => {
     try { await window.electron.doctor.openManagedDir(); }

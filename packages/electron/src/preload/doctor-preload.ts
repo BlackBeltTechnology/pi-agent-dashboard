@@ -17,7 +17,6 @@ const doctor: DoctorBridge = {
   run: () => ipcRenderer.invoke("doctor:run"),
   openLog: () => ipcRenderer.invoke("doctor:open-log"),
   openDoctorLog: () => ipcRenderer.invoke("doctor:open-doctor-log"),
-  runSetup: () => ipcRenderer.invoke("doctor:run-setup"),
   copy: (text: string) => ipcRenderer.invoke("doctor:copy", text),
   openManagedDir: () => ipcRenderer.invoke("doctor:open-managed-dir"),
 };

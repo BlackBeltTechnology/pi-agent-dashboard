@@ -349,7 +349,7 @@ function buildTmuxCommand(cwd, sessionExists, options, resolvedPath) {
 
 1. **Phase 1**: Add `toolPaths` to config schema. Server reads if present, falls back to current detection. No breaking changes.
 2. **Phase 2**: Wizard writes `toolPaths` on setup. Server validates on start. Doctor displays.
-3. **Phase 3**: Settings panel allows editing. `mode.json` simplified to "wizard completed" flag only.
+3. **Phase 3**: Settings panel allows editing. `dashboard-settings.json` simplified to "wizard completed" flag only.
 4. **Phase 4**: Remove scattered detection logic from `resolvePiCommand()`, `resolveTsxCommand()`, `findServerCli()`, etc. All read from config with detect-on-miss fallback.
 
 ## Appendix: Detection Methods

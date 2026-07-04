@@ -19,8 +19,6 @@ export interface DoctorBridge {
   openLog(): Promise<{ ok: boolean; path?: string }>;
   /** Open ~/.pi-dashboard/doctor.log; resolves with `{exists:false}` when absent. */
   openDoctorLog(): Promise<{ ok: boolean; exists: boolean; path?: string }>;
-  /** Reset wizard state to step 1 then open the wizard window. */
-  runSetup(): Promise<void>;
   /** Copy text to the system clipboard (used by [Copy as Markdown] / [Copy as Plain]). */
   copy(text: string): Promise<{ ok: boolean }>;
   /** Open ~/.pi-dashboard/ in the OS file manager. */
@@ -32,7 +30,6 @@ export const DOCTOR_IPC_CHANNELS = [
   "doctor:run",
   "doctor:open-log",
   "doctor:open-doctor-log",
-  "doctor:run-setup",
   "doctor:copy",
   "doctor:open-managed-dir",
 ] as const;

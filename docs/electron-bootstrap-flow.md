@@ -4,15 +4,13 @@ Doc covers Electron startup state machine from `app.whenReady()` to dashboard wi
 
 Architecture: Electron is launcher only. Runtime install eliminated. Server resources read-only at `<resourcesPath>/server/node_modules/`. Updates ship via electron-updater whole-app replacement. See [electron-immutable-bundle.md](./electron-immutable-bundle.md).
 
-## State machine (6 states, 3 triggers, 3 end states)
+## State machine (5 states, 3 triggers, 3 end states)
 
 ```mermaid
 flowchart TD
     Start([app.whenReady]) --> Check[checking-server-health]
     Check -->|server up :8000| Attach((attach))
-    Check -->|server down, first run| Welcome[wizard-welcome]
-    Check -->|server down, not first run| Spawn[launch-server]
-    Welcome -->|user clicks Launch| Spawn
+    Check -->|server down| Spawn[launch-server]
     Spawn --> Wait[health-wait]
     Wait -->|health ok| Done((done))
     Wait -->|deadline / child exit| Err((loading-page-error))
@@ -23,7 +21,6 @@ flowchart TD
 | State | Purpose |
 |---|---|
 | `checking-server-health` | Probe `GET /api/health` on configured port. 3 s deadline. |
-| `wizard-welcome` | First-run only. Single welcome card + `[Launch dashboard]`. Marker `~/.pi/dashboard/first-run-done`. Invariant: splash and wizard mutually exclusive. `closeSplash()` runs before `showWelcomeStep()`; `showSplash()` re-opens after wizard closes, before `launch-server` status update. Wizard window uses `show: false` + `ready-to-show` focus to avoid occlusion by splash `alwaysOnTop`. See change: fix-wizard-occluded-by-splash. |
 | `launch-server` | `selectLaunchSource()` → `spawnFromSource()`. Stamps `DASHBOARD_STARTER=Electron`. `setSpawnedPid(pid)`. |
 | `health-wait` | Poll `/api/health` until 200. Deadline `SERVER_READY_DEADLINE_MS = 15000`. |
 | `attach` (end) | Server already running. Open main window, no spawn. |
@@ -73,5 +70,5 @@ Override: `DASHBOARD_PREFER_SOURCE=attach|bundled|devMonorepo`. Pre-R3 kinds (`p
 | No `npm install` runs after build | `bundle-server.mjs` Phase 1 GO/NO-GO guard |
 | Legacy `~/.pi-dashboard/` untouched | `detectLegacyManagedDir()` surfaces Doctor advisory only |
 | Electron stops server only when it owns it | `decideShutdownOnQuit` pure helper |
-| First-run wizard skipped after marker write | `~/.pi/dashboard/first-run-done` |
+| first-run-done marker written on first `done` | `~/.pi/dashboard/first-run-done` |
 | Bundled-server missing → `BundledServerMissingError` | corrupted-install signal |

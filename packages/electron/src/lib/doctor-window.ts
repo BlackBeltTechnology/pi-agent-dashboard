@@ -10,15 +10,15 @@
  *
  * See change: doctor-rich-output (task 3.5).
  */
-import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
+
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, rmSync } from "node:fs";
-import { runDoctor } from "./doctor.js";
 import type { DoctorReport } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
-import { MANAGED_DIR } from "./managed-paths.js";
-import { openWizardWindow } from "./wizard-window.js";
+import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
+import { runDoctor } from "./doctor.js";
 import { DOCTOR_IPC_CHANNELS } from "./doctor-bridge-contract.js";
+import { MANAGED_DIR } from "./managed-paths.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -89,21 +89,6 @@ function registerHandlersOnce(): void {
       return { ok: true, exists: true, path: logPath };
     } catch (err) {
       throw asStructuredError(err, "open-doctor-log");
-    }
-  });
-
-  ipcMain.handle("doctor:run-setup", async () => {
-    try {
-      // Reset wizard state to step 1: delete mode.json so isFirstRun() returns true.
-      const modeFile = path.join(MANAGED_DIR, "mode.json");
-      if (existsSync(modeFile)) {
-        try { rmSync(modeFile, { force: true }); } catch { /* best effort */ }
-      }
-      // Open wizard (does not block — fire and forget).
-      void openWizardWindow();
-      return;
-    } catch (err) {
-      throw asStructuredError(err, "run-setup");
     }
   });
 
