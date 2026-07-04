@@ -5,8 +5,5 @@
     "outDir": "dist",
     "lib": ["ES2023"]
   },
-  "references": [
-    { "path": "../shared" }
-  ],
   "include": ["src"]
 }

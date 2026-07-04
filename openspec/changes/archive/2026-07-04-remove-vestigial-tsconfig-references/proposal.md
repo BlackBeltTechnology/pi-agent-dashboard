@@ -32,7 +32,7 @@ This is what a contributor hits the moment they try to type-check one package in
 | Runtime | No | Server/extension run via jiti, client via Vite; neither reads tsconfig `references`. |
 | **Triggering TS6306 on `tsc -p <pkg>`** | **Yes** | This is the references' only observable effect. |
 
-The root flat compile is the source of truth and is green (`npx tsc --noEmit` → exit 0).
+The root flat compile is the source of truth. With dependencies installed it is green (`npx tsc --noEmit` → exit 0 in the main repo). Verification compares the error set before and after removal for **no new errors** rather than asserting a bare exit 0 — a fresh OpenSpec worktree without `npm install` resolves wrong transitive dependency versions and emits unrelated errors (e.g. `image-fit-extension`/jimp), so `npm install` is a precondition and the gate is no-new-errors-vs-baseline.
 
 ## What Changes
 
@@ -50,5 +50,5 @@ The root flat compile is the source of truth and is green (`npx tsc --noEmit` �
 
 - **Type-check behaviour**: unchanged. `npm run lint` / `tsc --noEmit` (root) already ignores per-package `references`; removing them is a no-op for the canonical check.
 - **Isolated per-package checks**: `tsc --noEmit -p packages/<name>` stops throwing TS6306. (It still won't cross-resolve `shared` via project references — it never did — but it no longer hard-errors, and the root flat check remains the recommended path.)
-- **Risk**: minimal. The refs are proven inert for build, resolution, and runtime. Verification is a single command (`npx tsc --noEmit` stays exit 0).
+- **Risk**: minimal. The refs are proven inert for build, resolution, and runtime. Verification: `npx tsc --noEmit` (root) emits no new errors vs. the pre-change baseline, and `tsc --noEmit -p packages/<name>` no longer raises TS6306 for any of the five edited packages. (Some packages still exit non-zero on pre-existing, unrelated isolated-compile errors — rootDir violations from test imports, missing jsx — that TS6306 previously masked; making packages independently compilable is out of scope. The root flat program stays the canonical green check.)
 - **Out of scope**: making project references *real* (adding `composite: true` everywhere + switching to `tsc -b` incremental builds). That is a larger, separately-justified architectural change — explicitly not pursued here.
