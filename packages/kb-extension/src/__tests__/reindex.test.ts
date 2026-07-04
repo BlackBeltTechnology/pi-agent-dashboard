@@ -41,6 +41,30 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
     expect(store.search("initial content padded", { limit: 3 }).length).toBe(0);
     closeKb(state);
   });
+
+  it("coalesces concurrent reindexes for one cwd (no interleaved transaction)", async () => {
+    // indexSource now yields mid-transaction; two overlapping walks on the same
+    // cached store would interleave BEGIN/COMMIT. Use a >YIELD_EVERY (100) fixture
+    // so the walk actually yields while holding a transaction — without the
+    // coalescing guard the second walk throws "transaction within a transaction".
+    // See change: fix-kb-index-feedback.
+    const big = mkdtempSync(join(tmpdir(), "kb-ext-conc-"));
+    mkdirSync(join(big, ".pi", "dashboard", "kb"), { recursive: true });
+    writeFileSync(join(big, ".pi", "dashboard", "knowledge_base.json"), JSON.stringify({
+      sources: [{ kind: "filesystem", ref: "docs" }], dbPath: ".pi/dashboard/kb/index.db",
+    }));
+    mkdirSync(join(big, "docs"), { recursive: true });
+    for (let i = 0; i < 150; i++) {
+      writeFileSync(join(big, "docs", `d${i}.md`), `# Doc ${i}\n\nBody ${i} padded enough to survive the tiny-chunk merge threshold here and there.\n`);
+    }
+    const state = createReindexState();
+    // Concurrent — must not throw, and both resolve to the same coalesced result.
+    const [a, b] = await Promise.all([reindexNow(state, big), reindexNow(state, big)]);
+    expect(a).toEqual(b);
+    expect(a.chunks).toBeGreaterThan(0);
+    closeKb(state);
+    rmSync(big, { recursive: true, force: true });
+  });
 });
 
 describe("DOX nudge Job 2: decideNudge + acknowledgeRows", () => {

@@ -70,7 +70,14 @@ export default function kbExtension(pi: ExtensionAPI): void {
       if (!query.trim()) return { content: [{ type: "text", text: "[]" }], details: { hits: 0 } };
       const limit = Number.isFinite(Number(params.limit)) ? Math.min(100, Math.max(1, Math.trunc(Number(params.limit)))) : 10;
       const docType = ["doc", "agents", "source-md"].includes(params.doc_type as string) ? params.doc_type : undefined;
-      await reindexNow(state, cwd); // freshness (awaited so search sees fresh data)
+      // Freshness reindex (awaited so search sees fresh data). Guarded: a failed
+      // walk must not break the search — fall back to the existing index, matching
+      // the debounce path's graceful `.catch`. See change: fix-kb-index-feedback.
+      try {
+        await reindexNow(state, cwd);
+      } catch (e) {
+        console.warn(`[kb] freshness reindex failed, searching existing index: ${(e as Error).message}`);
+      }
       const { store, cfg } = getKb(state, cwd);
       const hits = store.search(query, {
         limit,

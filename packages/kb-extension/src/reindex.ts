@@ -34,10 +34,15 @@ export interface ReindexState {
   // KB handles cached PER cwd — a dashboard session may switch project folders;
   // a single shared store would index the wrong DB after a switch.
   kb: Map<string, { store: SqliteFtsStore; cfg: ResolvedConfig }>;
+  // In-flight reindex per cwd. `indexSource` now yields mid-transaction, so two
+  // overlapping walks on the same cached store (debounce timer + kb_search
+  // freshness) would interleave BEGIN/COMMIT and corrupt the transaction.
+  // Coalesce them onto one walk. See change: fix-kb-index-feedback.
+  inflight: Map<string, Promise<{ changed: number; chunks: number }>>;
 }
 
 export function createReindexState(): ReindexState {
-  return { timers: new Map(), nudged: new Set(), kb: new Map() };
+  return { timers: new Map(), nudged: new Set(), kb: new Map(), inflight: new Map() };
 }
 
 function stalenessPath(cwd: string): string {
@@ -115,14 +120,25 @@ export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore
 
 /** Reindex filesystem sources now (called after debounce). Hash-gated via the
  *  indexer's mtime→sha256 incremental pass. */
-export async function reindexNow(state: ReindexState, cwd: string): Promise<{ changed: number; chunks: number }> {
-  const { store, cfg } = getKb(state, cwd);
-  let changed = 0, chunks = 0;
-  for (const s of cfg.resolvedSources) {
-    const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
-    changed += st.changed; chunks += st.chunks;
-  }
-  return { changed, chunks };
+export function reindexNow(state: ReindexState, cwd: string): Promise<{ changed: number; chunks: number }> {
+  // Coalesce concurrent reindexes for one cwd onto a single in-flight walk
+  // (they share a cached store; overlapping async walks would interleave the
+  // batched transaction). See change: fix-kb-index-feedback.
+  const existing = state.inflight.get(cwd);
+  if (existing) return existing;
+  const p = (async () => {
+    const { store, cfg } = getKb(state, cwd);
+    let changed = 0, chunks = 0;
+    for (const s of cfg.resolvedSources) {
+      const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+      changed += st.changed; chunks += st.chunks;
+    }
+    return { changed, chunks };
+  })().finally(() => {
+    if (state.inflight.get(cwd) === p) state.inflight.delete(cwd);
+  });
+  state.inflight.set(cwd, p);
+  return p;
 }
 
 /** Schedule a debounced reindex for an edited .md path. */
