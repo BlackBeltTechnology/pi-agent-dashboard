@@ -175,6 +175,9 @@ export function PackageBrowser({
           </h3>
           <div className="space-y-1">
             {installedNonRecommended.map((pkg) => {
+              // These rows are non-recommended by construction, so
+              // isSourceOverride(pkg) is always false — no `override` pill
+              // ever applies here. See change: flag-package-source-overrides.
               const tid = `installed-row-${sourceTestId(pkg.source)}`;
               const opSource = pkg.source;
               const busy = operations.runningSource === opSource;

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
 	classifySource,
 	groupInstalledPackages,
+	isSourceOverride,
 	npmNameFromSource,
 } from "../package-classifier.js";
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
@@ -17,6 +18,14 @@ describe("classifySource", () => {
 		expect(classifySource("https://github.com/x/y.git")).toBe("git");
 		expect(classifySource("git@github.com:x/y.git")).toBe("git");
 		expect(classifySource("ssh://git@host/x/y.git")).toBe("git");
+	});
+
+	it("identifies git:-prefixed sources (regression: not global)", () => {
+		// Divergence guard: parseSourceKey treats git: as git; classifySource
+		// must agree so a git-prefixed override badges `git`, not `global`.
+		expect(classifySource("git:github.com/o/r")).toBe("git");
+		expect(classifySource("git:github.com/o/r#main")).toBe("git");
+		expect(classifySource("git:github.com/o/r.git")).toBe("git");
 	});
 
 	it("identifies local sources by path shape", () => {
@@ -49,6 +58,32 @@ describe("npmNameFromSource", () => {
 		expect(npmNameFromSource("npm:@scope/name")).toBe("@scope/name");
 		expect(npmNameFromSource("npm:@scope/name@1.0.0")).toBe("@scope/name");
 		expect(npmNameFromSource("npm:@scope/example-pkg@^0.6.1")).toBe("@scope/example-pkg");
+	});
+});
+
+describe("isSourceOverride", () => {
+	function pkg(source: string, isRecommended?: boolean): InstalledPackage {
+		return { source, scope: "user", filtered: false, isRecommended };
+	}
+
+	it("is true for a recommended package installed from local/git", () => {
+		expect(isSourceOverride(pkg("/home/dev/pi-flows", true))).toBe(true);
+		expect(isSourceOverride(pkg("git@github.com:o/r.git", true))).toBe(true);
+		expect(isSourceOverride(pkg("git:github.com/o/r", true))).toBe(true);
+	});
+
+	it("is false for a recommended package installed from npm", () => {
+		expect(isSourceOverride(pkg("npm:pi-flows", true))).toBe(false);
+		expect(isSourceOverride(pkg("npm:@scope/name@1.0.0", true))).toBe(false);
+	});
+
+	it("is false for non-recommended local/git rows", () => {
+		expect(isSourceOverride(pkg("/home/dev/thing", false))).toBe(false);
+		expect(isSourceOverride(pkg("git:github.com/o/r", false))).toBe(false);
+	});
+
+	it("is false when isRecommended is undefined (un-enriched row)", () => {
+		expect(isSourceOverride(pkg("/home/dev/thing"))).toBe(false);
 	});
 });
 

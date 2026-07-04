@@ -25,6 +25,7 @@ import { PackageRow, type PackageRowProps } from "./PackageRow.js";
 import {
 	classifySource,
 	groupInstalledPackages,
+	isSourceOverride,
 } from "../lib/package-classifier.js";
 import type {
 	InstalledPackage,
@@ -299,6 +300,7 @@ export function UnifiedPackagesSection() {
 			busy: rowBusy,
 			progress: rowProgress,
 			error: rowError,
+			isOverride: isSourceOverride(pkg),
 			canUpdate: true,
 			canUninstall: true,
 			onUpdate: () => operations.update(pkg.source),

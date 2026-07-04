@@ -31,6 +31,14 @@ export interface PackageRowProps {
 	sourceType: SourceType;
 	isBundled?: boolean;
 	isDev?: boolean;
+	/**
+	 * True when the row is a source override: a recommended (npm-identity)
+	 * package actually installed from a local/git checkout. Renders a compact
+	 * `override` pill with an explanatory tooltip. Purely informational — does
+	 * NOT gate or alter the Update affordance.
+	 * See change: flag-package-source-overrides.
+	 */
+	isOverride?: boolean;
 	currentVersion?: string;
 	latestVersion?: string | null;
 	updateAvailable?: boolean;
@@ -103,6 +111,7 @@ export function PackageRow({
 	sourceType,
 	isBundled,
 	isDev,
+	isOverride,
 	currentVersion,
 	latestVersion,
 	updateAvailable,
@@ -159,6 +168,16 @@ export function PackageRow({
 						<Badge className={SOURCE_BADGE_STYLE[sourceType]}>{sourceType}</Badge>
 						{isBundled && (
 							<Badge className="border-amber-500/40 text-amber-400">bundled</Badge>
+						)}
+						{isOverride && (
+							<span
+								className="text-[10px] px-1.5 py-0.5 rounded border border-amber-500/50 text-amber-400 bg-amber-500/10"
+								title={`Declared as npm:${displayName} but installed from a ${sourceType} source`}
+								aria-label={`Declared as npm:${displayName} but installed from a ${sourceType} source`}
+								data-testid={testId ? `${testId}-override` : undefined}
+							>
+								override
+							</span>
 						)}
 						{isDev && (
 							<span className="text-[10px] italic text-[var(--text-muted)]">dev</span>

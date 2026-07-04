@@ -30,7 +30,7 @@ import {
 	mdiTextBoxOutline,
 } from "@mdi/js";
 import { PackageRow } from "./PackageRow.js";
-import { classifySource } from "../lib/package-classifier.js";
+import { classifySource, isSourceOverride } from "../lib/package-classifier.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import type {
@@ -192,6 +192,7 @@ export function InstalledPackagesList({
 									source={pkg.source}
 									sourceType={classifySource(pkg.source)}
 									isBundled={!!pkg.isBundled}
+									isOverride={isSourceOverride(pkg)}
 									currentVersion={pkg.version}
 									updateAvailable={!!pkg.updateAvailable}
 									busy={queueRunning || moveState?.phase === "running"}

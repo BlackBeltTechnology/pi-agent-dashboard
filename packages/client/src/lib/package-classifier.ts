@@ -2,11 +2,14 @@
  * Pure helpers for the unified packages settings UI.
  *
  *  - `classifySource`: derives a source-type badge from a raw source string.
+ *  - `isSourceOverride`: true when a recommended (npm-identity) package is
+ *    actually installed from a local/git checkout.
  *  - `groupInstalledPackages`: splits enriched installed rows into
  *    Recommended / Other, dropping any row that matches the Core whitelist
  *    so a Core row never duplicates into Other.
  *
  * See change: consolidate-packages-settings-ui.
+ * See change: flag-package-source-overrides.
  */
 import type { InstalledPackage } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
@@ -18,10 +21,29 @@ export function classifySource(source: string): SourceType {
 	if (source.startsWith("file://")) return "local";
 	if (source.startsWith("/") || source.startsWith("./") || source.startsWith("../")) return "local";
 	if (/^[a-zA-Z]:[\\/]/.test(source)) return "local"; // Windows drive path
-	if (source.startsWith("git@") || source.startsWith("ssh://") || /^https?:\/\//i.test(source) || source.endsWith(".git")) {
+	if (
+		source.startsWith("git@") ||
+		source.startsWith("ssh://") ||
+		source.startsWith("git:") ||
+		/^https?:\/\//i.test(source) ||
+		source.endsWith(".git")
+	) {
 		return "git";
 	}
 	return "global";
+}
+
+/**
+ * True when a row has a canonical npm identity (`isRecommended`, i.e. its
+ * `source` matched a `RECOMMENDED_EXTENSIONS` npm entry via `sourcesMatch`)
+ * BUT its actual installed `source` is not an npm spec — "declared as npm,
+ * installed from a local/git checkout". Pure; drives the `override` remark
+ * only (never the Update affordance). `isRecommended` is optional on the wire
+ * type, so `=== true` makes an un-enriched row resolve to non-override.
+ * See change: flag-package-source-overrides.
+ */
+export function isSourceOverride(pkg: InstalledPackage): boolean {
+	return pkg.isRecommended === true && classifySource(pkg.source) !== "npm";
 }
 
 /** Extract the npm package name from an `npm:<name>[@<version>]` source.
