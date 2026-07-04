@@ -37,11 +37,11 @@ Detection is cheap and read-only; the install is the only side effect and is alw
 
 ## Graceful degradation is the safety net
 
-Decline (or an install failure) must never leave a broken project. The AGENTS.md doctrine block is written **unconditionally**; when the skills are absent it carries a one-line footnote:
+Decline (or an install failure) must never leave a broken project. The AGENTS.md doctrine block is written **unconditionally**; the activation footnote, however, is **detection-conditional** — written only on the absent/declined branch, omitted (or retracted) when skills are present or the install succeeds:
 
 > Discipline skills not detected — run `pi install npm:@blackbelt-technology/pi-dashboard-eng-disciplines` to activate the checkpoints above.
 
-So the worst case is Option C (doctrine-only, aspirational), not dead references that look wired but aren't.
+So the worst case is Option C (doctrine-only, aspirational), not dead references that look wired but aren't — and the success path never carries a false "not detected" line (doubt-review A3). See tasks 2.3 / 3.3 / 3.4.
 
 ## Prerequisite: publication
 
@@ -56,6 +56,19 @@ So the worst case is Option C (doctrine-only, aspirational), not dead references
 - **Force-install without asking** — rejected: the skill's contract is "act only after the user agrees"; a global machine mutation must be opt-in.
 - **Project-local install (`pi install -l`)** — rejected as the default: writes the package into the scaffolded project's settings, reintroducing a per-project footprint (and, for Node repos, a settings entry the team must trust). Global is the cleaner default; a user who wants project-local can decline and install manually.
 - **Bake the install into the `worktreeInit` hook** — rejected: `worktreeInit` runs per worktree and is stack-install oriented (`npm ci` etc.); a one-time global skill install does not belong in a per-worktree dependency gate.
+
+## Doubt review (findings folded into tasks.md)
+
+Two fresh-context adversarial reviews (Claude + GLM, different architectures) cross-examined this design. Directional call (global-install over vendor-copy) stands; four contract defects were surfaced and are now gated in tasks.md:
+
+- **A1 (HIGH)** — 2 of 7 table rows (`systematic-debugging`, `node-inspect-debugger`) are not in published `0.5.4`; the old "pending footnote" fallback IS the dead-reference state Contract #1 forbids. Task 1.2 now HARD-blocks: ship 7 rows only after a republish that contains them, or ship 5 resolvable rows now.
+- **A2 (MED)** — idempotency skip predicate was "package present," not "rows resolve." On a `0.5.4` host the step skips while the table still names 2 missing skills. Valid only once A1 makes the table honest. Stat fallback also blind to `git:`/renamed installs.
+- **A3 (HIGH)** — template-baked footnote is false in the success path (AGENTS.md written before the detect step). Now detection-conditional.
+- **A4 (HIGH)** — the "mirror" duplicates `wire-discipline-skills-into-openspec`'s unapplied doctrine block with no sync. Task 1.3 now HARD-blocks on that change landing (or a shared-source extraction).
+- **T1** — profile gating by hard-coded `"coding"` string vs. a `disciplines: true` schema flag: open decision, task 6.1.
+- **T2/T3** — "cross-stack safe" overstated (npm needed for the install itself); preview must disclose machine-wide blast radius. Tasks 4.1/4.2.
+
+Verified during review: package published at `0.5.4` with **zero runtime dependencies** (repo-footprint claim holds); `interview-me` is published but intentionally excluded from the implementation-phase table (pre-spec skill).
 
 ## Risks
 
