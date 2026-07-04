@@ -119,8 +119,12 @@ export function registerResourceActivationRoutes(
       const ids = sessionsForScope(piGateway, sessionManager, scope, body.cwd);
       let reloaded = 0;
       for (const sid of ids) {
-        piGateway.sendToSession(sid, { type: "send_prompt", sessionId: sid, text: "/reload" });
-        reloaded++;
+        // Count only sessions the message actually reached: sendToSession
+        // returns false for a closed/absent socket, so a stale connection
+        // never inflates the reported count.
+        if (piGateway.sendToSession(sid, { type: "send_prompt", sessionId: sid, text: "/reload" })) {
+          reloaded++;
+        }
       }
       return { success: true, data: { reloaded } } satisfies ApiResponse;
     },

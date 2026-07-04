@@ -153,7 +153,13 @@ function togglePackage(
   enabled: boolean,
   packageSource?: string,
 ): ToggleResult | null {
-  const source = packageSource ?? item.metadata.source;
+  // Guard: a caller-supplied packageSource must match the resolved resource's
+  // own package source, else we could rewrite an unrelated package's filters
+  // using this resource's relative path.
+  if (packageSource !== undefined && packageSource !== item.metadata.source) {
+    return { ok: false, status: 400, error: "packageSource does not match the resolved resource" };
+  }
+  const source = item.metadata.source;
   const packages: PiPackageEntry[] = [...(settings.packages ?? [])];
   const idx = packages.findIndex((pkg) => (typeof pkg === "string" ? pkg : pkg.source) === source);
   if (idx === -1) {

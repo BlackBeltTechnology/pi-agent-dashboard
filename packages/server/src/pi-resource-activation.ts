@@ -111,8 +111,7 @@ export type ResolveActivationFn = (cwd: string, agentDir?: string) => Promise<Re
 
 export const resolveActivation: ResolveActivationFn = async (cwd, agentDir = AGENT_DIR) => {
   try {
-    const registry = getDefaultRegistry();
-    const { DefaultPackageManager, SettingsManager } = await loadPi(registry);
+    const { DefaultPackageManager, SettingsManager } = await getPiCore();
     const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
     const pm = new DefaultPackageManager({ cwd, agentDir, settingsManager });
     return (await pm.resolve(async () => "skip")) as ResolvedPaths;

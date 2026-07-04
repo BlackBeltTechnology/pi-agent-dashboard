@@ -31,6 +31,38 @@ export interface ResourceActivationController {
   clearPending: () => void;
 }
 
+/** Fire the toggle request and reconcile optimistic state. Extracted to keep the
+ *  `toggle` callback flat. `revert` restores the pre-toggle value on any failure. */
+async function runToggle(
+  args: { scope: ResourceScope; cwd?: string; r: PiResource; next: boolean; packageSource?: string },
+  revert: () => void,
+  setPending: (p: PendingReload | null) => void,
+): Promise<void> {
+  const scopeCwd = args.scope === "local" ? args.cwd : undefined;
+  try {
+    const res = await toggleResource({
+      scope: args.scope,
+      cwd: scopeCwd,
+      type: args.r.type,
+      filePath: args.r.filePath,
+      enabled: args.next,
+      packageSource: args.packageSource,
+    });
+    if (!res.ok) {
+      revert();
+      return;
+    }
+    setPending(
+      res.affectedSessions.length > 0
+        ? { scope: args.scope, cwd: scopeCwd, count: res.affectedSessions.length }
+        : null,
+    );
+  } catch {
+    // Network error (fetch threw): revert the optimistic flip.
+    revert();
+  }
+}
+
 export function useResourceActivation(cwd?: string): ResourceActivationController {
   const [overrides, setOverrides] = useState<Map<string, boolean>>(new Map());
   const [pending, setPending] = useState<PendingReload | null>(null);
@@ -46,26 +78,8 @@ export function useResourceActivation(cwd?: string): ResourceActivationControlle
       const next = !prev;
       // Optimistic flip.
       setOverrides((m) => new Map(m).set(r.filePath, next));
-      void (async () => {
-        const res = await toggleResource({
-          scope,
-          cwd: scope === "local" ? cwd : undefined,
-          type: r.type,
-          filePath: r.filePath,
-          enabled: next,
-          packageSource,
-        });
-        if (!res.ok) {
-          // Revert on failure.
-          setOverrides((m) => new Map(m).set(r.filePath, prev));
-          return;
-        }
-        setPending(
-          res.affectedSessions.length > 0
-            ? { scope, cwd: scope === "local" ? cwd : undefined, count: res.affectedSessions.length }
-            : null,
-        );
-      })();
+      const revert = () => setOverrides((m) => new Map(m).set(r.filePath, prev));
+      void runToggle({ scope, cwd, r, next, packageSource }, revert, setPending);
     },
     [cwd, overrides],
   );
@@ -73,8 +87,12 @@ export function useResourceActivation(cwd?: string): ResourceActivationControlle
   const reload = useCallback(() => {
     if (!pending) return;
     void (async () => {
-      const res = await reloadResourceSessions(pending.scope, pending.cwd);
-      if (res.ok) setPending(null);
+      try {
+        const res = await reloadResourceSessions(pending.scope, pending.cwd);
+        if (res.ok) setPending(null);
+      } catch {
+        // Network error: keep the pending banner so the user can retry.
+      }
     })();
   }, [pending]);
 

@@ -35,6 +35,12 @@ function ActivationToggle({ resource, enabled, onToggle }: { resource: PiResourc
         e.stopPropagation();
         onToggle();
       }}
+      onKeyDown={(e) => {
+        // Keep Enter/Space on the switch from bubbling to the row's
+        // onKeyDown (which opens the file view). The native button still
+        // fires onClick for these keys.
+        if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+      }}
       className={`shrink-0 relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${
         enabled ? "bg-[var(--accent-primary)]" : "bg-[var(--bg-hover)]"
       }`}

@@ -448,10 +448,13 @@ export function createPiGateway(
     },
 
     findSessionsByCwd(cwd: string): string[] {
-      // Plural of findSessionByCwd: every connected session governed by `cwd`.
-      // See change: folder-resource-activation-toggle.
+      // Plural of findSessionByCwd: every OPEN-socket session governed by `cwd`.
+      // Mirrors getConnectedSessionIds' readyState filter so stale sockets
+      // never inflate a folder-scoped reload. See change:
+      // folder-resource-activation-toggle.
       const ids: string[] = [];
       for (const sid of connections.keys()) {
+        if (connections.get(sid)?.readyState !== WebSocket.OPEN) continue;
         const session = sessionManager.get(sid);
         if (session && (session.cwd === cwd || session.cwd.startsWith(`${cwd}/`) || cwd.startsWith(`${session.cwd}/`))) {
           ids.push(sid);

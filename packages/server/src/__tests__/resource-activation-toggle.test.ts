@@ -130,4 +130,24 @@ describe("applyResourceToggle — package resource", () => {
     expect(entry.skills).toContain("-skills/brave-search/SKILL.md");
     expect(settings.packages.length).toBe(1);
   });
+
+  it("400s when packageSource does not match the resolved resource's own source", async () => {
+    const pkgDir = path.join(tmpDir, "mypkg");
+    fs.mkdirSync(path.join(pkgDir, "skills", "brave-search"), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "skills", "brave-search", "SKILL.md"), "---\nname: brave-search\n---\nb");
+    fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify({ name: "pi-skills", pi: { skills: ["skills"] } }));
+    fs.mkdirSync(path.join(tmpDir, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".pi", "settings.json"), JSON.stringify({ packages: [pkgDir] }));
+
+    const res = await applyResourceToggle({
+      scope: "local",
+      cwd: tmpDir,
+      type: "skill",
+      filePath: path.join(pkgDir, "skills", "brave-search", "SKILL.md"),
+      enabled: false,
+      packageSource: "npm:some-other-package",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.status).toBe(400);
+  });
 });
