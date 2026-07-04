@@ -4,13 +4,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFileAsync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
   parsePorcelainWorktrees,
-  slugifyBranch,
   resolveCheckoutLocalName,
+  slugifyBranch,
   type WorktreeEntry,
 } from "./git-worktree.js";
 
@@ -205,6 +205,44 @@ export interface HeadInfo {
    * wire to keep older clients happy.
    */
   hasSubmodules?: boolean;
+}
+
+/**
+ * Async git runner: trimmed stdout, or `undefined` on any failure. Uses async
+ * `execFile` so the git subprocess never blocks the main event loop (unlike the
+ * synchronous `run`/`tryRun` above). See change:
+ * attribute-openspec-poll-eventloop-stalls.
+ */
+async function tryRunFileAsync(args: string[], cwd: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      timeout: GIT_TIMEOUT,
+    });
+    return String(stdout).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Async, non-blocking HEAD read for the folder-head poll. Mirrors `readHead`'s
+ * branch/sha derivation (branch name on a branch; detached + short SHA
+ * otherwise) but via async `execFile`, so the per-folder git spawns never form
+ * one synchronous burst on the poll `setInterval` turn. Intentionally SKIPS the
+ * `.gitmodules` submodule probe `readHead` does — the folder-head poll consumes
+ * only `deriveDisplayBranch(head)` (branch/sha); the worktree dialog keeps using
+ * the sync `readHead` when it needs `hasSubmodules`. See change:
+ * attribute-openspec-poll-eventloop-stalls.
+ */
+export async function readHeadDisplayAsync(cwd: string): Promise<HeadInfo> {
+  const symbolic = await tryRunFileAsync(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd);
+  const sha = (await tryRunFileAsync(["rev-parse", "--short", "HEAD"], cwd)) ?? null;
+  if (symbolic) {
+    return { branch: symbolic, detached: false, sha };
+  }
+  return { branch: null, detached: sha !== null, sha };
 }
 
 /** Read HEAD state of a git repo. */
@@ -539,16 +577,16 @@ function shellEscape(arg: string): string {
 // See change: add-worktree-lifecycle-actions.
 
 import {
-  mapRemoveStderr,
+  type MergeCode,
   mapMergeStderr,
-  mapPushStderr,
   mapPrStderr,
+  mapPushStderr,
+  mapRemoveStderr,
+  type PrCode,
+  type PushCode,
   parsePrUrl,
   parseShortstat,
   type RemoveCode,
-  type MergeCode,
-  type PushCode,
-  type PrCode,
 } from "./git-worktree-lifecycle.js";
 
 export interface LifecycleSuccess<T = unknown> {

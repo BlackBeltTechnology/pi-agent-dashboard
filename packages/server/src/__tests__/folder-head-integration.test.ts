@@ -8,21 +8,22 @@
  *
  * See change: refresh-folder-header-branch.
  */
-import { describe, it, expect } from "vitest";
+
+import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { describe, expect, it } from "vitest";
 import {
   createFolderHeadPoll,
   type FolderGroupSession,
 } from "../folder-head-poll.js";
 import { createFolderHeadWatcher } from "../folder-head-watcher.js";
 import type { HeadInfo } from "../git-operations.js";
-import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 function active(cwd: string): FolderGroupSession {
   return { cwd, status: "active", gitWorktree: undefined } as FolderGroupSession;
 }
 
 describe("folder-head watcher trigger + poll fallback", () => {
-  it("watcher trigger broadcasts via the shared diff path without a poll tick", () => {
+  it("watcher trigger broadcasts via the shared diff path without a poll tick", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     let branch = "os/foo";
     const poll = createFolderHeadPoll({
@@ -39,13 +40,13 @@ describe("folder-head watcher trigger + poll fallback", () => {
     });
 
     // Seed the cache via one poll so the next change is a real diff.
-    poll.poll([active("/repo")], []);
+    await poll.poll([active("/repo")], []);
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/repo", branch: "os/foo" }]);
 
     // External checkout: HEAD now develop. Simulate the watcher firing
     // (no poll tick in between) → broadcast happens immediately.
     branch = "develop";
-    poll.refreshOne("/repo"); // what the watcher onChange invokes on a HEAD event
+    await poll.refreshOne("/repo"); // what the watcher onChange invokes on a HEAD event
     expect(calls).toEqual([
       { type: "git_head_update", cwd: "/repo", branch: "os/foo" },
       { type: "git_head_update", cwd: "/repo", branch: "develop" },
@@ -53,12 +54,12 @@ describe("folder-head watcher trigger + poll fallback", () => {
 
     // The watcher trigger did NOT bypass the diff cache: refreshing again with
     // an unchanged HEAD suppresses the broadcast.
-    poll.refreshOne("/repo");
+    await poll.refreshOne("/repo");
     expect(calls.length).toBe(2);
     watcher.detachAll();
   });
 
-  it("poll fallback converges when the watcher is unavailable", () => {
+  it("poll fallback converges when the watcher is unavailable", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     let branch = "os/foo";
     const poll = createFolderHeadPoll({
@@ -73,10 +74,10 @@ describe("folder-head watcher trigger + poll fallback", () => {
     });
     expect(watcher.attach("/repo")).toBe(false);
 
-    poll.poll([active("/repo")], []);
+    await poll.poll([active("/repo")], []);
     // External checkout — no watcher to fire it.
     branch = "develop";
-    poll.poll([active("/repo")], []); // next tick converges
+    await poll.poll([active("/repo")], []); // next tick converges
     expect(calls.map((c) => c.branch)).toEqual(["os/foo", "develop"]);
   });
 });

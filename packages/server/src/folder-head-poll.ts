@@ -17,16 +17,45 @@
  * SHA for detached HEAD, or `null` for a non-git folder) → diff against an
  * internal cache → broadcast `git_head_update` only on first-seen or change.
  *
- * See change: refresh-folder-header-branch.
+ * The per-folder HEAD reads run ASYNC + concurrency-bounded (default reader
+ * `readHeadDisplayAsync`, via `execFile`) so the reads never form one
+ * synchronous `execSync` burst on the poll `setInterval` turn (the attributed
+ * `tickOpen` ~700ms stall). See changes: refresh-folder-header-branch,
+ * attribute-openspec-poll-eventloop-stalls.
  */
+
+import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import {
   inferPlatform,
   pathKey,
   resolveSessionGroupPath,
 } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { readHead as defaultReadHead, type HeadInfo } from "./git-operations.js";
+import { readHeadDisplayAsync as defaultReadHead, type HeadInfo } from "./git-operations.js";
+
+/** Default max concurrent folder-head git reads per poll fan-out. */
+const DEFAULT_FOLDER_HEAD_CONCURRENCY = 4;
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight. Preserves per-item
+ * independence (results indexed by position); order of completion is not
+ * guaranteed, which is fine — `git_head_update` is keyed per cwd.
+ */
+async function mapBounded<T>(
+  items: ReadonlyArray<string>,
+  limit: number,
+  fn: (item: string) => Promise<T>,
+): Promise<void> {
+  const cap = Math.max(1, Math.min(limit, items.length));
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const idx = next++;
+      await fn(items[idx]);
+    }
+  };
+  await Promise.all(Array.from({ length: cap }, worker));
+}
 
 export type FolderGroupSession = Pick<
   DashboardSession,
@@ -79,23 +108,32 @@ export function deriveDisplayBranch(head: HeadInfo): string | null {
 export interface FolderHeadPollDeps {
   /** Broadcast a `git_head_update` to all browsers. */
   broadcast: (msg: BrowserGitHeadUpdateMessage) => void;
-  /** Override for tests; defaults to the real `readHead`. */
-  readHead?: (cwd: string) => HeadInfo;
+  /**
+   * Override for tests; defaults to the async `readHeadDisplayAsync`. May be
+   * sync or async — the poll always awaits it. See change:
+   * attribute-openspec-poll-eventloop-stalls.
+   */
+  readHead?: (cwd: string) => Promise<HeadInfo> | HeadInfo;
   /** Optional logger for read failures; defaults to `console.warn`. */
   logger?: (msg: string) => void;
+  /** Max concurrent HEAD reads per `poll` fan-out. Default 4. */
+  concurrency?: number;
 }
 
 export interface FolderHeadPoll {
   /**
    * Recompute the group-key set from current sessions + pinned dirs, refresh
-   * each, and return the set (so the caller can drive watcher attach/detach).
+   * each (async, concurrency-bounded), and resolve with the set (so the caller
+   * can drive watcher attach/detach). Resolves only after every HEAD read +
+   * broadcast for this fan-out has completed — callers `await` it to preserve
+   * `git_head_update`-before-`openspec_update` ordering.
    */
   poll(
     sessions: ReadonlyArray<FolderGroupSession>,
     pinnedDirectories: ReadonlyArray<string>,
-  ): string[];
+  ): Promise<string[]>;
   /** Refresh a single cwd (read → diff cache → broadcast). Watcher trigger. */
-  refreshOne(cwd: string): void;
+  refreshOne(cwd: string): Promise<void>;
   /** Test helper: number of cached cwds. */
   size(): number;
 }
@@ -103,13 +141,14 @@ export interface FolderHeadPoll {
 export function createFolderHeadPoll(deps: FolderHeadPollDeps): FolderHeadPoll {
   const read = deps.readHead ?? defaultReadHead;
   const log = deps.logger ?? ((msg: string) => console.warn(msg));
+  const concurrency = deps.concurrency ?? DEFAULT_FOLDER_HEAD_CONCURRENCY;
   // cwd → last broadcast display branch (`null` = confirmed non-git).
   const cache = new Map<string, string | null>();
 
-  function refreshOne(cwd: string): void {
+  async function refreshOne(cwd: string): Promise<void> {
     let branch: string | null;
     try {
-      branch = deriveDisplayBranch(read(cwd));
+      branch = deriveDisplayBranch(await read(cwd));
     } catch (err) {
       // readHead never throws today (tryRun swallows), but stay defensive:
       // a throw means "could not determine" → treat as non-git (null).
@@ -123,12 +162,12 @@ export function createFolderHeadPoll(deps: FolderHeadPollDeps): FolderHeadPoll {
     deps.broadcast({ type: "git_head_update", cwd, branch });
   }
 
-  function poll(
+  async function poll(
     sessions: ReadonlyArray<FolderGroupSession>,
     pinnedDirectories: ReadonlyArray<string>,
-  ): string[] {
+  ): Promise<string[]> {
     const keys = computeFolderGroupKeys(sessions, pinnedDirectories);
-    for (const cwd of keys) refreshOne(cwd);
+    await mapBounded(keys, concurrency, refreshOne);
     return keys;
   }
 

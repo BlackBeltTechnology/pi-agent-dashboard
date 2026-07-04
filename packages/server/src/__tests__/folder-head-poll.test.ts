@@ -2,7 +2,9 @@
  * Unit tests for the folder-HEAD poll: group-key resolution + diff/broadcast.
  * See change: refresh-folder-header-branch.
  */
-import { describe, it, expect, vi } from "vitest";
+
+import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { describe, expect, it, vi } from "vitest";
 import {
   computeFolderGroupKeys,
   createFolderHeadPoll,
@@ -10,7 +12,6 @@ import {
   type FolderGroupSession,
 } from "../folder-head-poll.js";
 import type { HeadInfo } from "../git-operations.js";
-import type { BrowserGitHeadUpdateMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 function session(over: Partial<FolderGroupSession> & { cwd: string }): FolderGroupSession {
   return { status: "active", gitWorktree: undefined, ...over } as FolderGroupSession;
@@ -82,45 +83,45 @@ describe("deriveDisplayBranch", () => {
 });
 
 describe("createFolderHeadPoll", () => {
-  it("broadcasts once on first observation, suppresses unchanged", () => {
+  it("broadcasts once on first observation, suppresses unchanged", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     const readHead = vi.fn(() => onBranch("develop"));
     const poll = createFolderHeadPoll({ broadcast: (m) => calls.push(m), readHead });
 
-    poll.poll([session({ cwd: "/repo" })], []);
-    poll.poll([session({ cwd: "/repo" })], []);
+    await poll.poll([session({ cwd: "/repo" })], []);
+    await poll.poll([session({ cwd: "/repo" })], []);
 
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/repo", branch: "develop" }]);
     expect(readHead).toHaveBeenCalledTimes(2);
   });
 
-  it("broadcasts again when HEAD changes", () => {
+  it("broadcasts again when HEAD changes (branch switch reflects on next tick)", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     let branch = "os/foo";
     const poll = createFolderHeadPoll({
       broadcast: (m) => calls.push(m),
       readHead: () => onBranch(branch),
     });
-    poll.poll([session({ cwd: "/repo" })], []);
+    await poll.poll([session({ cwd: "/repo" })], []);
     branch = "develop";
-    poll.poll([session({ cwd: "/repo" })], []);
+    await poll.poll([session({ cwd: "/repo" })], []);
 
     expect(calls.map((c) => c.branch)).toEqual(["os/foo", "develop"]);
   });
 
-  it("missing/non-git cwd broadcasts branch:null once", () => {
+  it("missing/non-git cwd broadcasts branch:null once", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     const poll = createFolderHeadPoll({
       broadcast: (m) => calls.push(m),
       readHead: () => ({ branch: null, detached: false, sha: null }),
     });
-    poll.poll([session({ cwd: "/not-git" })], []);
-    poll.poll([session({ cwd: "/not-git" })], []);
+    await poll.poll([session({ cwd: "/not-git" })], []);
+    await poll.poll([session({ cwd: "/not-git" })], []);
 
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/not-git", branch: null }]);
   });
 
-  it("treats a readHead throw as non-git (null), logged", () => {
+  it("treats a readHead throw as non-git (null), logged", async () => {
     const calls: BrowserGitHeadUpdateMessage[] = [];
     const logs: string[] = [];
     const poll = createFolderHeadPoll({
@@ -128,8 +129,39 @@ describe("createFolderHeadPoll", () => {
       readHead: () => { throw new Error("boom"); },
       logger: (m) => logs.push(m),
     });
-    poll.refreshOne("/x");
+    await poll.refreshOne("/x");
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/x", branch: null }]);
     expect(logs.length).toBe(1);
+  });
+
+  it("awaits an async readHead (default reader is async)", async () => {
+    const calls: BrowserGitHeadUpdateMessage[] = [];
+    const poll = createFolderHeadPoll({
+      broadcast: (m) => calls.push(m),
+      readHead: async (cwd) => (cwd === "/a" ? onBranch("main") : { branch: null, detached: false, sha: null }),
+    });
+    await poll.poll([session({ cwd: "/a" }), session({ cwd: "/b" })], []);
+    expect(calls).toContainEqual({ type: "git_head_update", cwd: "/a", branch: "main" });
+    expect(calls).toContainEqual({ type: "git_head_update", cwd: "/b", branch: null });
+  });
+
+  it("bounds concurrency of HEAD reads to the configured cap", async () => {
+    const calls: BrowserGitHeadUpdateMessage[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const poll = createFolderHeadPoll({
+      broadcast: (m) => calls.push(m),
+      concurrency: 2,
+      readHead: async (cwd) => {
+        inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 10));
+        inFlight--;
+        return onBranch(`b-${cwd}`);
+      },
+    });
+    const sessions = ["/1", "/2", "/3", "/4", "/5"].map((cwd) => session({ cwd }));
+    await poll.poll(sessions, []);
+    expect(calls).toHaveLength(5);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
   });
 });

@@ -146,6 +146,33 @@ Schema note: the spike record stores the single worst `turn` (1b); the per-turn
 alarm keys on that same per-turn synchronous value. No summed field is stored or
 alarmed on — the earlier draft's store-MAX-but-alarm-on-SUM mismatch is gone.
 
+## Attribution result (tasks 2.1 / 2.2)
+
+Phase 1 deployed to the live production instance; `eventLoopSpikes` collected
+over a 63-min window (poll interval 180s):
+
+- **21 named-turn spikes — 100% `tickOpen`**, 640–705ms, one per poll interval
+  (08:00:07, 08:03:07, 08:06:07 … exactly every 180s).
+- The dedicated ELD sampler's `turn: null` spikes land at the **same `:07`
+  timestamps** (e.g. 08:21:07 → `tickOpen` 705ms AND `null` 719ms) — two-feed
+  corroboration that the ~700ms burst IS the poll `tickOpen` turn (not GC /
+  hydration / WS-connect).
+
+**Finding: the stall is `tickOpen → tickFolderHeads`** — the ungated, every-tick
+synchronous `execSync` git-HEAD fan-out (`readHead` runs 3 `execSync` spawns per
+folder × ~11 folders ≈ 33 blocking subprocesses on one turn). This is the
+design's leading hypothesis, now proven. **Phase 2 branch taken: 3.1
+(`tickOpen → folderHeads`).**
+
+**Remedy applied (3.1):** async + concurrency-bounded git HEAD reads.
+`readHeadDisplayAsync` (git-operations.ts) reads HEAD via async `execFile` (never
+blocks the loop); `folder-head-poll.ts` fans out with a concurrency cap
+(`mapBounded`, default 4); `tickFolderHeads` is `await`ed before the openspec
+fan-out so per-cwd `git_head_update` still precedes `openspec_update`. Chosen
+over mtime-gating (which risks suppressing a same-mtime branch switch). Guards
+(4.1a): `directory-service-folderhead-async.test.ts` asserts the ordering AND
+that a branch switch still reflects on the next tick.
+
 ## Phase 2 — Elimination (branches on 1b result)
 
 Whichever turn/sub-cost 1b indicts. Each branch carries a **CONTRACT #4 guard**

@@ -53,22 +53,27 @@
 
 ## 2. Phase 1 — Confirm the culprit
 
-- [ ] 2.1 Run the instrumented server under normal load; collect `eventLoopSpikes`
+- [x] 2.1 Run the instrumented server under normal load; collect `eventLoopSpikes`
   across ≥30 min → verify: the dominant `turn` behind ~700ms spikes is
-  identified with evidence (not a guess). If spikes correlate with NO instrumented
-  turn, that is itself the finding (GC / hydration / WS on-connect) → re-scope
-- [ ] 2.2 Record the finding in `design.md` (which branch of Phase 2 applies)
+  identified with evidence (not a guess). DONE: 63-min live window — 21 named
+  spikes, **100% `tickOpen`** (640–705ms, one per 180s interval); dedicated
+  sampler `turn:null` spikes corroborate at the same timestamps. Attributed to
+  `tickOpen → tickFolderHeads` (ungated `execSync` git-HEAD fan-out).
+- [x] 2.2 Record the finding in `design.md` (which branch of Phase 2 applies)
+  — DONE: "Attribution result" section added; branch 3.1 selected.
 
 ## 3. Phase 2 — Eliminate the attributed turn
 
 > Implement ONLY the branch 2.1 indicts. Do not pre-build all branches. Each
 > branch is done only when its named CONTRACT #4 guard test is green.
 
-- [ ] 3.1 If `tickOpen → folderHeads`: `setImmediate`-chunk and/or async +
-  concurrency-bounded git HEAD reads (prefer over mtime-gating) → verify:
-  `tickOpen` turn time drops below threshold; branch-switch still reflects in the
-  UI on next tick (guard: `refresh-folder-header-branch`); if async, per-cwd
-  `git_head_update`/`openspec_update` ordering asserted or client-tolerant
+- [x] 3.1 If `tickOpen → folderHeads`: `setImmediate`-chunk and/or async +
+  concurrency-bounded git HEAD reads (prefer over mtime-gating) → DONE:
+  `readHeadDisplayAsync` (async `execFile`, non-blocking) + `mapBounded`
+  concurrency cap in `folder-head-poll.ts`; `tickFolderHeads` async, awaited
+  before the openspec fan-out. Guards green (4.1a):
+  `directory-service-folderhead-async.test.ts` asserts per-cwd
+  `git_head_update`-before-`openspec_update` ordering AND branch-switch-reflects.
 - [ ] 3.2 If `dirPollPost → worker deserialize`: return the pre-`serialized`
   string without re-materializing worker `data` on the main thread (or
   transferable) → verify: `dirPollPost` turn time drops; byte-identical-payload
@@ -81,9 +86,11 @@
   `effectiveMtimeOr` `stat`s via `fs.promises` with a concurrency cap; **do NOT
   touch the per-change TOCTOU stamp (already in the worker)** → verify:
   `dirPollPre` turn bounded; mtime-gate + TOCTOU tests green
-- [ ] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
+- [~] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
   `eventLoopDelay.maxMs` stays within a small multiple of `p99` (target: no
-  recurring >250ms main-thread stall on an idle-content repo)
+  recurring >250ms main-thread stall on an idle-content repo). IN PROGRESS:
+  requires the Phase-2 build deployed to the live instance + ≥a few 180s ticks
+  to confirm the `tickOpen` spikes vanish.
 
 ## 4. Regression + docs
 
@@ -91,11 +98,11 @@
   (`npm test`) → verify: green (server suite green; 2 unrelated pre-existing
   flakes — `doctor-route` probeServer, `event-wiring-source-stamp` — pass in
   isolation, timeout-shaped under parallel load, untouched by this change)
-- [ ] 4.1a Add the **named CONTRACT #4 guard test(s)** for the branch 2.1
+- [x] 4.1a Add the **named CONTRACT #4 guard test(s)** for the branch 2.1
   indicts (only that branch): folderHeads → branch-switch-reflects +
-  `git_head_update`/`openspec_update` ordering; deserialize/broadcast →
-  byte-identical-payload + `{pending:true}` emit survives; list-signal fan →
-  mtime-gate/TOCTOU → verify: each named test exists and is green
+  `git_head_update`/`openspec_update` ordering → DONE + green
+  (`directory-service-folderhead-async.test.ts`; folder-head-poll unit tests add
+  async/concurrency + branch-switch coverage).
 - [x] 4.2 Add a regression test asserting a no-op tick (nothing changed) produces
   no **per-turn self-record** above the floor → verify: green
   (`directory-service-eventloop-turns.test.ts` “4.2 a no-op tick…”)
