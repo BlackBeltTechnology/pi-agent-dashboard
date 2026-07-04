@@ -33,7 +33,7 @@ Each desktop and mobile session card SHALL render with a neutral panel bevel: an
 
 #### Scenario: Hover behavior preserved
 - **WHEN** an unselected card is hovered
-- **THEN** the existing hover lift/shadow behavior (`hover:-translate-y-0.5`, `hover:shadow-lg`) SHALL still apply on top of the bevel
+- **THEN** the hover lift (`hover:-translate-y-0.5`) SHALL still apply, and the hover shadow SHALL deepen the drop while preserving the inset elevation rim (a bevel-matching `hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)]`, not the generic `shadow-lg` which would override and drop the rim)
 
 ### Requirement: Folder and workspace header bevel
 
