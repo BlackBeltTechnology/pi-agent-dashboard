@@ -102,6 +102,16 @@ When the chosen profile has `dox: true`, ALSO name in the preview:
 - the DOX doctrine seed appended to `./AGENTS.md` (see Step 5)
 - the kb toolset flip written to `./.pi/dashboard/knowledge_base.json`
 
+When the chosen profile is `coding`, ALSO disclose the possible side effect (see
+Step 4b) — NOT a file write:
+
+- may offer to `pi install` the `eng-disciplines` skills **user-globally**
+  (writes `~/.pi/agent/settings.json`). This is machine-wide: the skills become
+  available in **all** projects on this machine, not just this one. Always
+  opt-in via a separate prompt; never forced. Needs Node/npm on the machine
+  (the install runs `pi install npm:…`); the scaffolded repo itself gains no
+  dependency.
+
 **Idempotency:** before writing, check whether `./AGENTS.md` or
 `./.pi/settings.json` already exist. If they do, ask before overwriting — never
 clobber silently.
@@ -118,6 +128,47 @@ that is either `{ type: "script", command: "<non-empty>" }` or
 `{ type: "agent", prompt: "<non-empty>" }`. If it is not valid, warn the user —
 an invalid hook fails open (change-A ignores it) and the Initialize button will
 loop back to this skill instead of running the hook.
+
+## Step 4b — Ensure discipline skills (only when the profile is `coding`)
+
+The `coding` template's `## Discipline Skills` checkpoint table references the
+`eng-disciplines` skills. This step makes those references live. **Gate: run
+only when the selected profile is `coding`** (skip for `docs` / any
+OpenSpec-off profile), mirroring how Step 5 gates on `dox: true`.
+
+**Detect** (read-only; both forms tolerate a missing `pi` binary):
+
+```bash
+pi list 2>/dev/null | grep -q pi-dashboard-eng-disciplines \
+  || stat ~/.pi/agent/npm/node_modules/@blackbelt-technology/pi-dashboard-eng-disciplines >/dev/null 2>&1
+```
+
+If `pi` is not on PATH and the stat misses, treat as ABSENT but do NOT error
+the init — fall through to the footnote. (Known limit: the stat form only sees
+the `npm:` global path; a `git:`/renamed install is invisible and would
+re-prompt.)
+
+**PRESENT** → skills already global. Skip the prompt (idempotent re-run) and
+write NO activation footnote into `./AGENTS.md`. Done.
+
+**ABSENT** → `ask_user` (confirm):
+
+> Install the discipline skills globally? They power the checkpoint table this
+> project's AGENTS.md references, and become available in ALL projects on this
+> machine. Writes `~/.pi/agent/settings.json` (user-global, not project-local).
+
+- **Yes** → run `pi install npm:@blackbelt-technology/pi-dashboard-eng-disciplines`
+  and verify exit 0. On success, write NO footnote. On non-zero exit (or a
+  missing `pi`), fall through to the footnote path.
+- **No / install failed** → append ONE line under the `## Discipline Skills`
+  table in `./AGENTS.md`:
+
+  > Discipline skills not detected — run `pi install npm:@blackbelt-technology/pi-dashboard-eng-disciplines` to activate the checkpoints above.
+
+The footnote is **detection-conditional**: written only on the absent/declined
+branch, never on the present/installed path (so a successfully-wired project
+never carries a false "not detected" line). The install is always user-global
+and never forced.
 
 ## Step 5 — DOX doctrine seed (only when the profile has `dox: true`)
 

@@ -1,3 +1,5 @@
+## Discipline Skills: doubt-driven-review
+
 ## Why
 
 `wire-discipline-skills-into-openspec` teaches *this* repo to invoke the `eng-disciplines` skills during openspec implementation. But every *new* project scaffolded by the `project-init` skill starts blank: its `coding` profile writes an `AGENTS.md` with a `## OpenSpec` section and TDD/simplicity doctrine, yet nothing about the discipline checkpoints, and the `eng-disciplines` skills are not present at all. So the wiring benefits one repo and no one else.

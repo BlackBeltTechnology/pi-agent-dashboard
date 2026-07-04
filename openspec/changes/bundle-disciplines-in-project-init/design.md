@@ -65,7 +65,7 @@ Two fresh-context adversarial reviews (Claude + GLM, different architectures) cr
 - **A2 (MED)** — idempotency skip predicate was "package present," not "rows resolve." On a `0.5.4` host the step skips while the table still names 2 missing skills. Valid only once A1 makes the table honest. Stat fallback also blind to `git:`/renamed installs.
 - **A3 (HIGH)** — template-baked footnote is false in the success path (AGENTS.md written before the detect step). Now detection-conditional.
 - **A4 (HIGH)** — the "mirror" duplicates `wire-discipline-skills-into-openspec`'s unapplied doctrine block with no sync. Task 1.3 now HARD-blocks on that change landing (or a shared-source extraction).
-- **T1** — profile gating by hard-coded `"coding"` string vs. a `disciplines: true` schema flag: open decision, task 6.1.
+- **T1** — profile gating by hard-coded `"coding"` string vs. a `disciplines: true` schema flag: **RESOLVED — keep name-gating.** A `disciplines` flag is a profile-schema addition, which the proposal explicitly scopes out ("no new capability added to the profile schema"). Name-gating mirrors the existing Step-5 `dox: true` precedent and keeps the change to the two project-init files. Accepted brittleness: a user profile that shadows `coding` by name inherits the step; a differently-named coding-ish profile does not. Revisit if user profiles proliferate.
 - **T2/T3** — "cross-stack safe" overstated (npm needed for the install itself); preview must disclose machine-wide blast radius. Tasks 4.1/4.2.
 
 Verified during review: package published at `0.5.4` with **zero runtime dependencies** (repo-footprint claim holds); `interview-me` is published but intentionally excluded from the implementation-phase table (pre-spec skill).
