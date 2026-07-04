@@ -12,17 +12,18 @@
  *
  * See change: folder-workspaces.
  */
-import React, { useState, useRef, useEffect } from "react";
-import Icon from "@mdi/react";
+
 import {
   mdiChevronDown,
   mdiChevronRight,
   mdiDotsVertical,
   mdiDrag,
 } from "@mdi/js";
+import Icon from "@mdi/react";
+import React, { useEffect, useRef, useState } from "react";
+import { t as i18nT } from "../lib/i18n";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { useWorkspaceDragHandle } from "./SortableWorkspace.js";
-import { t as i18nT } from "../lib/i18n";
 
 interface Props {
   id: string;
@@ -92,7 +93,7 @@ export function WorkspaceHeader({
 
   return (
     <div
-      className="flex items-center gap-1.5 px-2 py-1.5 bg-[var(--bg-tertiary)] rounded-t-lg select-none"
+      className="flex items-center gap-1.5 px-2 py-1.5 bg-[var(--bg-tertiary)] rounded-t-lg select-none shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]"
       data-testid={`workspace-header-${id}`}
     >
       {dragHandleProps && (

@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { THEMES, CSS_VAR_KEYS, getTheme } from "../themes.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { CSS_VAR_KEYS, getTheme, THEMES } from "../themes.js";
+
+// index.css lives two dirs up from this __tests__ folder (src/lib/__tests__ -> src).
+const css = readFileSync(join(import.meta.dirname, "..", "..", "index.css"), "utf8");
 
 describe("themes", () => {
   it("has 9 themes", () => {
@@ -61,5 +66,32 @@ describe("themes", () => {
       expect(theme.syntaxDark).toBeTruthy();
       expect(theme.syntaxLight).toBeTruthy();
     }
+  });
+});
+
+// --elevation-rim lives in index.css (per-mode, theme-agnostic) rather than in
+// the theme maps, so it survives applyThemeVars (which only touches
+// CSS_VAR_KEYS). See change: add-panel-elevation-system.
+describe("--elevation-rim panel-bevel token", () => {
+  it("declares the dark value (default / :root)", () => {
+    expect(css).toContain("--elevation-rim: rgba(255, 255, 255, 0.10);");
+  });
+
+  it("declares the light-mode override value", () => {
+    expect(css).toContain("--elevation-rim: rgba(255, 255, 255, 0.9);");
+  });
+
+  it("places the dark value before the [data-theme=\"light\"] override (per-mode cascade)", () => {
+    const darkIdx = css.indexOf("--elevation-rim: rgba(255, 255, 255, 0.10);");
+    const lightBlockIdx = css.indexOf('[data-theme="light"]');
+    const lightValIdx = css.indexOf("--elevation-rim: rgba(255, 255, 255, 0.9);");
+    expect(darkIdx).toBeGreaterThanOrEqual(0);
+    expect(lightBlockIdx).toBeGreaterThanOrEqual(0);
+    expect(darkIdx).toBeLessThan(lightBlockIdx);
+    expect(lightValIdx).toBeGreaterThan(lightBlockIdx);
+  });
+
+  it("is theme-independent (not in CSS_VAR_KEYS, so named themes never override it)", () => {
+    expect(CSS_VAR_KEYS).not.toContain("--elevation-rim");
   });
 });

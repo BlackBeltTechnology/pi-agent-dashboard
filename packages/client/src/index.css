@@ -76,6 +76,11 @@
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.4);
 
+  /* Panel-bevel inset top-highlight (dark mode). Theme-agnostic (white-based),
+     not in CSS_VAR_KEYS so it survives named-theme application.
+     See change: add-panel-elevation-system. */
+  --elevation-rim: rgba(255, 255, 255, 0.10);
+
   /* Selected-card iridescent ring alphas.
      See change: redesign-session-card-and-composer (1.1). */
   --neon-rim-alpha: 0.45;
@@ -116,6 +121,10 @@
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08);
+
+  /* Panel-bevel inset top-highlight (light mode).
+     See change: add-panel-elevation-system. */
+  --elevation-rim: rgba(255, 255, 255, 0.9);
 
   /* Light-theme override of the iridescent ring alphas.
      See change: redesign-session-card-and-composer (1.1). */

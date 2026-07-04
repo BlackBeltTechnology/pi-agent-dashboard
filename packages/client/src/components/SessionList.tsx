@@ -638,7 +638,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
     const isCollapsed = isFolderCollapsed(group.cwd);
 
     return (
-      <div key={group.cwd} className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5">
+      <div key={group.cwd} className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-[14px] p-1.5 shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]">
         <div className="flex gap-1.5 px-1 py-1 min-h-[44px] md:min-h-0 rounded">
           {/* Left gutter — chevron at top, drag-handle column extending below */}
           <FolderDragGutter
