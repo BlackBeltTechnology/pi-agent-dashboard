@@ -149,7 +149,10 @@ the `npm:` global path; a `git:`/renamed install is invisible and would
 re-prompt.)
 
 **PRESENT** → skills already global. Skip the prompt (idempotent re-run) and
-write NO activation footnote into `./AGENTS.md`. Done.
+write NO activation footnote into `./AGENTS.md`. If a prior run left the
+"not detected" footnote (e.g. the skills were installed after a decline),
+remove that line before exiting so the file never claims the skills are missing
+when they are present. Done.
 
 **ABSENT** → `ask_user` (confirm):
 

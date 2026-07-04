@@ -36,7 +36,7 @@ Doubt-review finding A1/A4: the table must never name a skill the install cannot
 - [x] 5.4 Dry-run declining the install: confirm AGENTS.md still written with the doctrine + activation footnote, init completes cleanly — DEFERRED: runtime dry-run.
 - [x] 5.5 Confirm `git diff` touches only the two project-init files (template + SKILL.md); no code, no dependency, no change to `eng-disciplines`
 - [x] 5.6 (A3) Assert the success path is footnote-clean: after a run where skills ARE present (or install succeeds), the scaffolded AGENTS.md contains NO "not detected" line. — DEFERRED: runtime dry-run.
-- [x] 5.7 (A2/A1) Assert no dead rows: every skill named in the scaffolded table resolves to an installed skill after the run (grep the table rows against `~/.pi/agent/npm/node_modules/.../.pi/skills/`). — DEFERRED: BLOCKED on publish of 0.5.6 (the two debug rows only resolve in the published tarball once pushed).
+- [x] 5.7 (A2/A1) Assert no dead rows: every skill named in the scaffolded table resolves to an installed skill after the run (grep the table rows against `~/.pi/agent/npm/node_modules/.../.pi/skills/`). — DONE: 0.5.6 published + pi-installed globally; all 7 checkpoint-table skills resolve to installed skill dirs (no dead references).
 
 ## 6. Open design decision (T1 — surfaced by doubt review, needs owner call)
 

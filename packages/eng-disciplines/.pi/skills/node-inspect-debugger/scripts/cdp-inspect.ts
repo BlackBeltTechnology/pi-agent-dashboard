@@ -51,7 +51,7 @@ const [portArg, tsUrl, lineArg] = process.argv.slice(2);
 if (!portArg || !tsUrl || !lineArg) usage();
 const port = Number(portArg);
 const line = Number(lineArg);
-if (!Number.isInteger(port) || !Number.isInteger(line)) usage();
+if (!Number.isInteger(port) || port <= 0 || !Number.isInteger(line) || line <= 0) usage();
 
 /** Fetch the first debuggable target's WebSocket URL from /json/list. */
 async function resolveWebSocketUrl(p: number): Promise<string> {
@@ -105,7 +105,7 @@ async function onPaused(send: Send, ws: WebSocket, msg: CdpMessage): Promise<voi
   // The first pause is the --inspect-brk entry halt (before our line); the
   // breakpoint hit is the pause whose top frame is at our target line.
   if (!top || (top.location?.lineNumber ?? -1) + 1 !== line) {
-    void send("Debugger.resume"); // entry halt / unrelated pause
+    await send("Debugger.resume").catch(fail); // entry halt / unrelated pause
     return;
   }
   await dumpFrame(send, top);

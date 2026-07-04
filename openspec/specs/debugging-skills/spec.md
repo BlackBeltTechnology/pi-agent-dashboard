@@ -1,7 +1,7 @@
 # debugging-skills Specification
 
 ## Purpose
-TBD - created by archiving change add-debugging-skills. Update Purpose after archive.
+Root-cause debugging and runtime-inspection skills for the eng-disciplines package: a phased `systematic-debugging` discipline and a jiti-aware `node-inspect-debugger` skill (with a dependency-free CDP helper), discoverable via the standard pi skill loader with no per-machine setup.
 ## Requirements
 ### Requirement: Root-cause debugging discipline is discoverable as a skill
 

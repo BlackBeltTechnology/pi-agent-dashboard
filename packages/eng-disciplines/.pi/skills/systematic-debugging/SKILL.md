@@ -30,7 +30,7 @@ The failure mode this skill prevents: reading a stack trace, forming an instant 
 
 Each phase has a **success criterion**. Do not advance until it is met. Skipping ahead is the whole antipattern.
 
-```
+```text
 Phase 1  ROOT CAUSE      gather evidence ─▶ criterion: you can state the cause in one sentence
    │                                        with evidence, not a guess
    ▼

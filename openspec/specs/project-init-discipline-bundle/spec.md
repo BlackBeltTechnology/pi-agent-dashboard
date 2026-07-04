@@ -64,7 +64,7 @@ Declining the install, an install failure, or a missing `pi` binary SHALL NOT br
 
 ### Requirement: Publication is a prerequisite
 
-The install command SHALL only be referenced once the package is installable from npm.
+The install command SHALL only be referenced once the package is installable from npm and the published tarball exposes every skill named by the checkpoint table.
 
 #### Scenario: Publication verified before referencing install
 
