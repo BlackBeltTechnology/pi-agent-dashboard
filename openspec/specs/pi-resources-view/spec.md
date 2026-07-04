@@ -276,20 +276,20 @@ Activating a control SHALL issue `POST /api/resources/toggle` with `{ scope, cwd
 #### Scenario: Loose resource toggled off at global scope writes the global settings file
 - **GIVEN** a global loose skill `~/.pi/agent/skills/my.md` with no exclusion
 - **WHEN** the user disables its row on the global settings Resources surface
-- **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "global", enabled: false }`
+- **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "global", type: "skill", filePath: "<abs>/.pi/agent/skills/my.md", enabled: false }` (no `cwd` for global scope)
 - **AND** `~/.pi/agent/settings.json#skills` gains a `-skills/my.md` force-exclude entry (relative to `~/.pi/agent`)
 - **AND** no folder `.pi/settings.json` is written
 
 #### Scenario: Re-enabling replaces the exclusion with a force-include
 - **GIVEN** a settings file whose `extensions` array force-excludes `-extensions/my-ext.ts`
 - **WHEN** the user enables that row
-- **THEN** the client POSTs `/api/resources/toggle` with `{ enabled: true }`
+- **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "local", type: "extension", filePath: "<abs>/.pi/extensions/my-ext.ts", enabled: true }`
 - **AND** the `-extensions/my-ext.ts` entry is stripped and a `+extensions/my-ext.ts` force-include entry is written to that scope's `extensions` array (matching pi's own config format)
 
 #### Scenario: Package-contributed resource toggled off never uninstalls the package
 - **GIVEN** a scope with `packages: ["npm:pi-skills"]` contributing a skill `brave-search`
 - **WHEN** the user disables the `brave-search` row
-- **THEN** the client POSTs `/api/resources/toggle` with `{ enabled: false, packageSource: "npm:pi-skills" }`
+- **THEN** the client POSTs `/api/resources/toggle` with `{ scope: "local", type: "skill", filePath: "<abs>/skills/brave-search/SKILL.md", enabled: false, packageSource: "npm:pi-skills" }`
 - **AND** the `pi-skills` package entry is rewritten to object-form excluding `brave-search` from its skills
 - **AND** the `pi-skills` package remains installed
 
