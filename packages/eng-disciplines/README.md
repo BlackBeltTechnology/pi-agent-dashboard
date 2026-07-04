@@ -3,8 +3,9 @@
 Cross-cutting **engineering-discipline** skills for pi sessions. These are
 *orthogonal* to the openspec pipeline — they slot into any stage without
 competing for its triggers. Adapted from
-[Addy Osmani's agent-skills](https://github.com/addyosmani/agent-skills) (MIT;
-see [`NOTICE`](./NOTICE)).
+[Addy Osmani's agent-skills](https://github.com/addyosmani/agent-skills) and
+[NousResearch's hermes-agent](https://github.com/NousResearch/hermes-agent)
+(both MIT; see [`NOTICE`](./NOTICE)).
 
 ## Why this package exists
 
@@ -29,6 +30,8 @@ cover**, with every `description` retargeted so it never fires on
 | `security-hardening` | security discipline (no prior equiv) | "security audit", "harden", "threat model" |
 | `performance-optimization` | measure-first perf (no prior equiv) | "it's slow", "profile", "optimize perf" |
 | `observability-instrumentation` | runtime visibility (no prior equiv) | "add metrics/tracing/logging", "instrument" |
+| `systematic-debugging` | post-failure root-cause discipline (no prior equiv) | "root cause this", "why is this failing", "debug systematically" |
+| `node-inspect-debugger` | runtime state a `console.log` can't reach; jiti-verified breakpoints | "set a breakpoint", "inspect runtime state", "console.log isn't enough" |
 
 ### Deliberately excluded
 
@@ -53,6 +56,10 @@ pi auto-discovers each `.pi/skills/<name>/SKILL.md` listed under `pi.skills` in
 
 ## Attribution
 
-Skill bodies are reproduced under MIT from Addy Osmani's `agent-skills`. Only the
-frontmatter `name`/`description` (trigger routing) was modified. Full attribution
-and license in [`NOTICE`](./NOTICE).
+Most skill bodies are reproduced under MIT from Addy Osmani's `agent-skills`,
+with only the frontmatter `name`/`description` (trigger routing) modified. The
+`systematic-debugging` and `node-inspect-debugger` skills are ported under MIT
+from NousResearch's `hermes-agent` and adapted to this repo's jiti-based
+TypeScript stack (the emitted-JS pitfall is corrected, and `cdp-inspect.ts` is a
+dependency-free TypeScript rewrite of the upstream CDP scope-walker). Full
+attribution and license in [`NOTICE`](./NOTICE).

@@ -7,6 +7,11 @@ This package adapts skill content from:
   Licensed under the MIT License
   https://github.com/addyosmani/agent-skills
 
+  hermes-agent
+  Copyright (c) 2025 NousResearch
+  Licensed under the MIT License
+  https://github.com/NousResearch/hermes-agent
+
 The following skills are derived works of the upstream `skills/` directory.
 Skill bodies are reproduced under the MIT License; only the YAML frontmatter
 `name`/`description` (trigger routing) has been modified to fit this project's
@@ -21,8 +26,18 @@ openspec-based pipeline and avoid trigger collisions.
   performance-optimization      skills/performance-optimization
   observability-instrumentation skills/observability-and-instrumentation
 
-The MIT License text from the upstream project applies to the adapted skill
-content and is reproduced here:
+The following skills are derived works of NousResearch/hermes-agent
+(`skills/software-development/`, MIT). Skill prose was ported and adapted to
+this repo's jiti-based TypeScript stack; the `cdp-inspect.ts` helper is a
+TypeScript rewrite of the upstream CDP scope-walker.
+
+  this package                  upstream source
+  ----------------------------  --------------------------------------
+  systematic-debugging          skills/software-development
+  node-inspect-debugger         skills/software-development
+
+The MIT License text from the upstream projects applies to the adapted skill
+content and is reproduced here (the same MIT terms cover both derivations):
 
 MIT License
 
