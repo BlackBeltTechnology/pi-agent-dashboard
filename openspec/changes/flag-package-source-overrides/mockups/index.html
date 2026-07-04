@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>flag-package-source-overrides — mockup</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-muted: #585858;
+    --border-secondary: #333333;
+    --accent-primary: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg-primary); color: var(--text-primary);
+    font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; font-size: 12px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+    border-radius: 10px; padding: 12px 12px 14px;
+  }
+  .panel h2 { font-size: 12px; margin: 2px 4px 10px; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .tag { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid; }
+  .tag.after { border-color: #10b98188; color: #34d399; }
+  .tag.before { border-color: var(--border-secondary); color: var(--text-muted); }
+  .group-label { font-size: 11px; color: var(--text-muted); margin: 10px 4px 4px;
+    text-transform: uppercase; letter-spacing: .05em; }
+
+  /* row */
+  .row { padding: 7px 8px; border-radius: 6px; }
+  .row:hover { background: var(--bg-hover); }
+  .row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row-left { min-width: 0; flex: 1; }
+  .name-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .name { color: var(--text-primary); font-weight: 600; }
+  .src { display: block; font-size: 10px; color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-top: 2px;
+    word-break: break-all; }
+  .right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 5px; border: 1px solid; }
+  .b-npm    { border-color: var(--border-secondary); color: var(--text-muted); }
+  .b-git    { border-color: #a855f766; color: #c084fc; }
+  .b-local  { border-color: #14b8a666; color: #2dd4bf; }
+  .b-global { border-color: #3b82f666; color: #60a5fa; }
+  .b-bundled{ border-color: #f59e0b66; color: #fbbf24; }
+  .b-override { border-color: #f59e0b88; color: #fbbf24; background: #f59e0b12; }
+  .dev { font-size: 10px; font-style: italic; color: var(--text-muted); }
+
+  .ver { font-size: 10px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; }
+  .ver .cur { color: var(--text-secondary); }
+  .ver .new { color: var(--accent-primary); }
+  .ver.muted .new { color: var(--text-muted); }
+  .ok { color: #22c55e; }
+  .btn-update {
+    font-size: 11px; padding: 2px 9px; border-radius: 5px; border: 0; cursor: pointer;
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    color: var(--accent-primary); display: inline-flex; align-items: center; gap: 4px;
+  }
+  .btn-update[disabled] {
+    background: transparent; color: var(--text-muted);
+    border: 1px solid var(--border-secondary); cursor: not-allowed; opacity: .8;
+  }
+  .kebab { color: var(--text-secondary); padding: 2px 4px; border-radius: 4px; cursor: pointer; }
+  .fyi { font-size: 10px; color: var(--text-muted); font-style: italic; }
+  .callout {
+    margin: 14px 4px 2px; font-size: 11px; color: var(--text-secondary);
+    border-left: 2px solid #f59e0b88; padding: 6px 10px; background: #f59e0b0a; border-radius: 0 6px 6px 0;
+  }
+  .callout b { color: var(--text-primary); }
+  .legend { margin-top: 22px; font-size: 11px; color: var(--text-muted); }
+  .legend span { margin-right: 14px; }
+</style>
+</head>
+<body>
+  <h1>Packages — source-override remark &amp; update gating</h1>
+  <p class="sub">change: <code>flag-package-source-overrides</code> · Settings → Pi Ecosystem → Recommended Extensions</p>
+
+  <div class="cols">
+    <!-- ============ BEFORE ============ -->
+    <section class="panel">
+      <h2>Before <span class="tag before">today</span></h2>
+
+      <div class="group-label">Recommended Extensions</div>
+
+      <!-- normal npm -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-web-access</span>
+              <span class="badge b-npm">npm</span></div>
+            <code class="src">npm:pi-web-access</code>
+          </div>
+          <div class="right">
+            <span class="ver"><span class="cur">0.5.2</span> → <span class="new">0.6.0</span></span>
+            <button class="btn-update">↑ Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- recommended, installed local — looks the same as a real install -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-flows</span>
+              <span class="badge b-local">local</span></div>
+            <code class="src">/home/dev/pi-flows</code>
+          </div>
+          <div class="right">
+            <span class="ver"><span class="cur">1.1.0</span> → <span class="new">1.3.0</span></span>
+            <button class="btn-update">↑ Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- recommended, installed git -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-dashboard-subagents</span>
+              <span class="badge b-git">git</span></div>
+            <code class="src">git@github.com:BlackBeltTechnology/pi-dashboard-subagents.git</code>
+          </div>
+          <div class="right">
+            <span class="ver"><span class="cur">0.9.0</span> → <span class="new">1.0.0</span></span>
+            <button class="btn-update">↑ Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        The <b>local</b>/<b>git</b> rows offer an active npm <b>Update</b>. Clicking it
+        reinstalls from npm <b>over the live checkout</b> — silent data loss. Nothing states
+        these are dev overrides of the npm packages.
+      </div>
+    </section>
+
+    <!-- ============ AFTER ============ -->
+    <section class="panel">
+      <h2>After <span class="tag after">this change</span></h2>
+
+      <div class="group-label">Recommended Extensions</div>
+
+      <!-- normal npm — unchanged -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-web-access</span>
+              <span class="badge b-npm">npm</span></div>
+            <code class="src">npm:pi-web-access</code>
+          </div>
+          <div class="right">
+            <span class="ver"><span class="cur">0.5.2</span> → <span class="new">0.6.0</span></span>
+            <button class="btn-update">↑ Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- override: local -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-flows</span>
+              <span class="badge b-local">local</span>
+              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-flows but installed from a local source">override</span>
+              <span class="dev">dev</span></div>
+            <code class="src">/home/dev/pi-flows</code>
+          </div>
+          <div class="right">
+            <span class="ver muted"><span class="cur">1.1.0</span> → <span class="new">1.3.0</span></span>
+            <button class="btn-update" disabled
+              title="Installed from a local source — update with git pull / re-link, not npm. The npm Update is disabled so it can't overwrite your checkout.">Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+        <div class="fyi" style="margin:2px 0 0 2px">npm has 1.3.0 · you're on a local checkout (informational)</div>
+      </div>
+
+      <!-- override: git -->
+      <div class="row">
+        <div class="row-top">
+          <div class="row-left">
+            <div class="name-line"><span class="name">pi-dashboard-subagents</span>
+              <span class="badge b-git">git</span>
+              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-dashboard-subagents but installed from a git source">override</span>
+              <span class="dev">dev</span></div>
+            <code class="src">git@github.com:BlackBeltTechnology/pi-dashboard-subagents.git</code>
+          </div>
+          <div class="right">
+            <span class="ver muted"><span class="cur">0.9.0</span> → <span class="new">1.0.0</span></span>
+            <button class="btn-update" disabled
+              title="Installed from a git source — update with git pull, not npm.">Update</button>
+            <span class="kebab">⋮</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        Override rows now say so — <b>override</b> pill + <b>dev</b> marker — and the
+        npm <b>Update</b> is <b>disabled</b> (tooltip explains git-pull / re-link).
+        The <span style="color:var(--text-muted)">muted</span> version still tells you
+        npm moved ahead, without offering a destructive one-click update.
+      </div>
+    </section>
+  </div>
+
+  <div class="legend">
+    <b style="color:var(--text-secondary)">Scope note:</b>
+    <span>Only <i>recommended</i> (npm-identity) packages installed from local/git are flagged as overrides.</span>
+    <span>Plain non-recommended git/local installs are unchanged.</span>
+  </div>
+
+  <div class="legend">
+    <span><span class="badge b-npm">npm</span> registry</span>
+    <span><span class="badge b-git">git</span> git URL</span>
+    <span><span class="badge b-local">local</span> path</span>
+    <span><span class="badge b-override">override</span> declared npm, installed elsewhere</span>
+    <span><span class="dev">dev</span> local/git override marker</span>
+  </div>
+</body>
+</html>
