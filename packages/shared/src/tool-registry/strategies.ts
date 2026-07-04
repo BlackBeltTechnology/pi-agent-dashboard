@@ -28,7 +28,7 @@ import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
  * - `resolveModule` — node-module resolution (id, from) → absolute path.
  *   Production uses `createRequire(from).resolve(id)`; tests walk fake
  *   node_modules trees.
- * - `execPath` — interpreter path used by `nodeScriptToArgv`'s fallback
+ * - `execPath` — interpreter path used by `makeNodeScriptToArgv`'s fallback
  *   when `registry.resolve("node")` misses. Default `process.execPath`;
  *   tests inject a fake so executor argv assembly stays deterministic
  *   and never leaks the host's managed node (`~/.pi-dashboard/node`).
