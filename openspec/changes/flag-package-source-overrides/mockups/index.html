@@ -56,24 +56,17 @@
   .b-global { border-color: #3b82f666; color: #60a5fa; }
   .b-bundled{ border-color: #f59e0b66; color: #fbbf24; }
   .b-override { border-color: #f59e0b88; color: #fbbf24; background: #f59e0b12; }
-  .dev { font-size: 10px; font-style: italic; color: var(--text-muted); }
 
   .ver { font-size: 10px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; }
   .ver .cur { color: var(--text-secondary); }
   .ver .new { color: var(--accent-primary); }
-  .ver.muted .new { color: var(--text-muted); }
   .ok { color: #22c55e; }
   .btn-update {
     font-size: 11px; padding: 2px 9px; border-radius: 5px; border: 0; cursor: pointer;
     background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
     color: var(--accent-primary); display: inline-flex; align-items: center; gap: 4px;
   }
-  .btn-update[disabled] {
-    background: transparent; color: var(--text-muted);
-    border: 1px solid var(--border-secondary); cursor: not-allowed; opacity: .8;
-  }
   .kebab { color: var(--text-secondary); padding: 2px 4px; border-radius: 4px; cursor: pointer; }
-  .fyi { font-size: 10px; color: var(--text-muted); font-style: italic; }
   .callout {
     margin: 14px 4px 2px; font-size: 11px; color: var(--text-secondary);
     border-left: 2px solid #f59e0b88; padding: 6px 10px; background: #f59e0b0a; border-radius: 0 6px 6px 0;
@@ -84,7 +77,7 @@
 </style>
 </head>
 <body>
-  <h1>Packages — source-override remark &amp; update gating</h1>
+  <h1>Packages — source-override remark</h1>
   <p class="sub">change: <code>flag-package-source-overrides</code> · Settings → Pi Ecosystem → Recommended Extensions</p>
 
   <div class="cols">
@@ -143,9 +136,9 @@
       </div>
 
       <div class="callout">
-        The <b>local</b>/<b>git</b> rows offer an active npm <b>Update</b>. Clicking it
-        reinstalls from npm <b>over the live checkout</b> — silent data loss. Nothing states
-        these are dev overrides of the npm packages.
+        The <b>local</b>/<b>git</b> rows render identically to a normal npm install — nothing
+        states they are dev overrides of the recommended npm packages. (Update behavior is fine:
+        pi updates each by its own source; this change does not touch it.)
       </div>
     </section>
 
@@ -177,18 +170,15 @@
           <div class="row-left">
             <div class="name-line"><span class="name">pi-flows</span>
               <span class="badge b-local">local</span>
-              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-flows but installed from a local source">override</span>
-              <span class="dev">dev</span></div>
+              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-flows but installed from a local source">override</span></div>
             <code class="src">/home/dev/pi-flows</code>
           </div>
           <div class="right">
-            <span class="ver muted"><span class="cur">1.1.0</span> → <span class="new">1.3.0</span></span>
-            <button class="btn-update" disabled
-              title="Installed from a local source — update with git pull / re-link, not npm. The npm Update is disabled so it can't overwrite your checkout.">Update</button>
+            <span class="ver"><span class="cur">1.1.0</span> → <span class="new">1.3.0</span></span>
+            <button class="btn-update">↑ Update</button>
             <span class="kebab">⋮</span>
           </div>
         </div>
-        <div class="fyi" style="margin:2px 0 0 2px">npm has 1.3.0 · you're on a local checkout (informational)</div>
       </div>
 
       <!-- override: git -->
@@ -197,24 +187,21 @@
           <div class="row-left">
             <div class="name-line"><span class="name">pi-dashboard-subagents</span>
               <span class="badge b-git">git</span>
-              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-dashboard-subagents but installed from a git source">override</span>
-              <span class="dev">dev</span></div>
+              <span class="badge b-override" title="Declared as npm:@blackbelt-technology/pi-dashboard-subagents but installed from a git source">override</span></div>
             <code class="src">git@github.com:BlackBeltTechnology/pi-dashboard-subagents.git</code>
           </div>
           <div class="right">
-            <span class="ver muted"><span class="cur">0.9.0</span> → <span class="new">1.0.0</span></span>
-            <button class="btn-update" disabled
-              title="Installed from a git source — update with git pull, not npm.">Update</button>
+            <span class="ver"><span class="cur">0.9.0</span> → <span class="new">1.0.0</span></span>
+            <button class="btn-update">↑ Update</button>
             <span class="kebab">⋮</span>
           </div>
         </div>
       </div>
 
       <div class="callout">
-        Override rows now say so — <b>override</b> pill + <b>dev</b> marker — and the
-        npm <b>Update</b> is <b>disabled</b> (tooltip explains git-pull / re-link).
-        The <span style="color:var(--text-muted)">muted</span> version still tells you
-        npm moved ahead, without offering a destructive one-click update.
+        Override rows now say so — a single <b>override</b> pill (with a tooltip naming the
+        declared npm identity and the actual source). Nothing else changes: the Update
+        affordance behaves exactly as before.
       </div>
     </section>
   </div>
@@ -230,7 +217,6 @@
     <span><span class="badge b-git">git</span> git URL</span>
     <span><span class="badge b-local">local</span> path</span>
     <span><span class="badge b-override">override</span> declared npm, installed elsewhere</span>
-    <span><span class="dev">dev</span> local/git override marker</span>
   </div>
 </body>
 </html>
