@@ -8,7 +8,7 @@
  *
  * See change: consolidate-tool-resolution (design §2).
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,12 +28,23 @@ import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
  * - `resolveModule` — node-module resolution (id, from) → absolute path.
  *   Production uses `createRequire(from).resolve(id)`; tests walk fake
  *   node_modules trees.
+ * - `execPath` — interpreter path used by `makeNodeScriptToArgv`'s fallback
+ *   when `registry.resolve("node")` misses. Default `process.execPath`;
+ *   tests inject a fake so executor argv assembly stays deterministic
+ *   and never leaks the host's managed node (`~/.pi-dashboard/node`).
+ * - `realpath` — JS-entry symlink deref used by `resolveJsScript`.
+ *   Default real `realpathSync`; tests inject a fake so a mocked
+ *   `BUNDLED_*` path cannot dereference to a real on-disk script
+ *   (`/Applications/PI-Dashboard.app/.../npm-cli.js`).
+ *   See change: fix-node-electron-resolution-test-isolation.
  */
 export interface StrategyDeps {
   exists?(p: string): boolean;
   which?(name: string): string | null;
   npmRootGlobal?(): string;
   resolveModule?(id: string, from: string): string | null;
+  execPath?: string;
+  realpath?(p: string): string;
 }
 
 /**
@@ -180,6 +191,8 @@ function defaults(): Required<StrategyDeps> {
     which: (name) => resolver.which(name),
     npmRootGlobal: () => npm.rootGlobalOr(""),
     resolveModule: defaultResolveModule,
+    execPath: process.execPath,
+    realpath: realpathSync,
   };
 }
 
@@ -192,6 +205,8 @@ function d(deps?: StrategyDeps): Required<StrategyDeps> {
     which: deps.which ?? base.which,
     npmRootGlobal: deps.npmRootGlobal ?? base.npmRootGlobal,
     resolveModule: deps.resolveModule ?? base.resolveModule,
+    execPath: deps.execPath ?? base.execPath,
+    realpath: deps.realpath ?? base.realpath,
   };
 }
 

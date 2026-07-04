@@ -34,6 +34,8 @@ function freshRegistry(opts: {
   resourcesPath?: string;
   exists?: (p: string) => boolean;
   which?: (name: string) => string | null;
+  execPath?: string;
+  realpath?: (p: string) => string;
 }) {
   const store = new OverridesStore({
     filePath: path.join(os.tmpdir(), `node-electron-${Math.random()}.json`),
@@ -52,6 +54,17 @@ function freshRegistry(opts: {
     exists: opts.exists ?? (() => false),
     which: opts.which ?? (() => null),
     npmRootGlobal: () => "",
+    // Inject the interpreter + realpath seams so `nodeScriptToArgv`
+    // argv assembly is deterministic under test. Without these, two
+    // machine-state leaks reach past the mocks (change:
+    // fix-node-electron-resolution-test-isolation):
+    //   leak A — `resolveJsScript` → real `realpathSync` derefs an
+    //     installed `/Applications/PI-Dashboard.app/.../npm` symlink to
+    //     a real `npm-cli.js`, firing the node-wrap branch.
+    //   leak B — `nodeScriptToArgv`'s `process.execPath` fallback yields
+    //     the host's managed node (`~/.pi-dashboard/node/bin/node`).
+    ...(opts.execPath ? { execPath: opts.execPath } : {}),
+    ...(opts.realpath ? { realpath: opts.realpath } : {}),
   });
   return r;
 }
@@ -83,12 +96,25 @@ describe("packaged Electron — bundled-node wins", () => {
       platform: "darwin",
       resourcesPath: RP,
       exists: (p) => p === BUNDLED_NPM,
+      // Inject a fake interpreter and an identity realpath so the
+      // executor case asserts against mocked state only — BUNDLED_NPM
+      // (not a `.js` path) does not deref, so `nodeScriptToArgv`
+      // returns `[BUNDLED_NPM]` without ever reading host machine state.
+      execPath: "/fake/interpreter/node",
+      realpath: (p) => p,
     });
     const res = r.resolveExecutor("npm");
     expect(res.ok).toBe(true);
     expect(res.path).toBe(BUNDLED_NPM);
     expect(res.source).toBe("bundled");
     expect(res.argv).toEqual([BUNDLED_NPM]);
+    // No-leak guard: the resolved argv must not carry any real-fs path
+    // sourced from `process.execPath` (managed node `~/.pi-dashboard`)
+    // or a `realpathSync` deref. Fails pre-fix (argv leaked
+    // `~/.pi-dashboard/node/bin/node` + a real `npm-cli.js`), passes post-fix.
+    expect(res.argv).not.toContain(process.execPath);
+    expect(res.argv.some((a) => a.includes(".pi-dashboard"))).toBe(false);
+    expect(res.argv.some((a) => a.includes("npm-cli.js"))).toBe(false);
   });
 
   it("npx resolves to bundled", () => {
