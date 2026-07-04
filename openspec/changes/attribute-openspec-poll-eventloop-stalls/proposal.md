@@ -35,9 +35,15 @@ The existing OpenSpec poll optimizations do **not** cover this:
   serialization already shipped (archived: `optimize-openspec-poll-burst`,
   `fix-openspec-mtime-gate-blind-spots`, `fix-openspec-mtime-gate-toctou`, and
   the `server-openspec-polling` "derivation runs off the main event loop" req).
-- But three things still run **on the main thread every tick**, by that spec's
-  own wording: `tickFolderHeads()` (git HEAD reads, **ungated, every tick**), the
-  broadcast fan-out, and the mtime/TOCTOU gate `stat` stamping.
+- But several things still run **on the main thread**, by that spec's own
+  wording — across many distinct event-loop turns: in the `setInterval` turn
+  (`tickOpen`), `tickFolderHeads()` (git HEAD reads, **ungated, every tick**),
+  `reconcileWatchers`, `computeKnownDirectories`. Then each dir's `setTimeout`
+  callback is itself **split by the `await` into two turns**: `dirPollPre`
+  (root + list-signal `stat`-fan, before the worker) and `dirPollPost`
+  (worker-response **deserialization** + broadcast, after it resolves). None of
+  these sum into one synchronous block — the per-change TOCTOU stamping is
+  already off-thread in the worker.
 - And the existing `TICK_SLOW_WARN_MS = 5000` threshold is effectively **dead**:
   `jitterSeconds` defaults to 5, so a tick's `durationMs` sits at ~4.6s by
   design (it waits out the jitter stagger). The 5s warning fires on benign jitter
@@ -57,28 +63,43 @@ V8 GC) produces the ~700ms burst, so the change is two-phase within one proposal
 **Phase 1 — Attribute (observability):**
 
 - Retain sub-threshold event-loop spikes: a rolling in-memory ring buffer of the
-  worst event-loop-delay samples (including sub-5s ones), surfaced on
-  `/api/health`, so a ~700ms stall is recorded even when nobody is polling at the
-  instant it happens. Extends the existing `server-session-hydration` eventLoop
-  measurement — no new subsystem.
-- Segment-time the periodic tick's **main-thread** work: wrap `tickFolderHeads`,
-  the broadcast, and the gate `stat` stamping in cheap `performance.now()` marks,
-  attribute each tick's synchronous cost to a named segment, and record the worst
-  offenders. This turns "something blocks 700ms" into "`tickFolderHeads` blocked
-  680ms across 14 folders."
-- Fix the misleading alarm: make the slow-tick warning fire on **synchronous
-  main-thread time**, not wall `durationMs` (which is dominated by jitter). Lower
-  the effective threshold so sub-second stalls surface.
+  worst event-loop-delay samples (including sub-5s ones), fed by a **dedicated**
+  `monitorEventLoopDelay` instance (not the boot histogram `/api/health`
+  reads-and-resets — avoids a reset race), surfaced additively on `/api/health`,
+  so a ~700ms stall is recorded even when nobody is polling at the instant it
+  happens. Reuses the `hydration-metrics.ts` ring **container** (the sampler
+  timer itself is new wiring, but a few lines on an existing surface, not a
+  subsystem). **This is the safety-net signal; the per-turn self-records below
+  are the authoritative attribution.**
+- Attribute the burst to a named **event-loop turn**, not a per-tick segment
+  sum. Each instrumented turn (`tickOpen`, per-dir `dirPollPre`, per-dir
+  `dirPollPost`) times its own synchronous run with `performance.now()` and,
+  when it exceeds a floor, **self-records** `{at, ms, turn}` — no correlating a
+  timer sampler to a turn. The dedicated ELD histogram sampler (below) is a
+  separate safety-net feed recording `turn: null` for stalls no instrumented
+  turn owns. This turns "something blocks 700ms" into "`dirPollPost` deserialize
+  blocked 700ms" — and a `turn: null` spike with no matching self-record proves
+  the burst is uninstrumented (GC / hydration), not a poll turn.
+- Fix the misleading alarm without losing coverage: **keep** the wall
+  `durationMs` warning (still catches a genuinely overdue tick) and **add** a
+  per-turn warning that fires when any single instrumented turn's synchronous
+  time exceeds a threshold (default 250ms). Jitter (spread across turns) does
+  not trip the per-turn alarm; a single-turn 700ms burst does.
 
-**Phase 2 — Eliminate (fix the attributed segment):**
+**Phase 2 — Eliminate (fix the attributed turn):**
 
-- Move the identified per-tick synchronous work off the main loop or yield it:
-  the leading candidate is `tickFolderHeads()` (ungated git HEAD reads every
-  tick across all pinned + session dirs). Options captured in `design.md`:
-  async/batched git reads, mtime-gating the folder-head poll like openspec, or
-  chunking with `setImmediate` between folders.
-- Bound the broadcast fan-out so a 14-dir tick cannot serialize+send in one
-  uninterrupted synchronous burst.
+- Move the identified synchronous turn off the main loop or yield it. Leading
+  candidates: `tickFolderHeads()` (ungated `execSync` git HEAD reads, `tickOpen`
+  turn) and the worker-response deserialization (`dirPollPost` turn). Options in
+  `design.md`: `setImmediate`-chunk / async-bounded git reads; return the
+  pre-serialized string instead of re-materializing worker `data` on the main
+  thread.
+- Each Phase-2 branch is gated by a named **CONTRACT #4 guard test** —
+  archived mtime-gate / TOCTOU, byte-identical-payload, and the `{pending:true}`
+  emit must not regress. Known risk vectors (mtime-gating suppressing a
+  same-mtime branch switch, async reordering `git_head_update` vs
+  `openspec_update`, `broadcast` coalescing breaking byte-identity) are
+  enumerated per-branch in `design.md`.
 
 Out of scope: client-side rendering, session-hydration internals (already
 covered), and re-litigating the shipped mtime-gate / jitter / worker design.
@@ -86,12 +107,16 @@ covered), and re-litigating the shipped mtime-gate / jitter / worker design.
 ## Impact
 
 - Affected specs: `server-session-hydration` (ADDED: sub-threshold stall
-  retention + segment attribution), `server-openspec-polling` (ADDED: ungated
-  per-tick main-thread work must not block the event loop; slow-tick alarm keys
-  on synchronous time).
-- Affected code: `packages/server/src/directory-service.ts` (tick segment
-  timing, `tickFolderHeads` offload, slow-tick threshold), `packages/server/src/
-  server.ts` + `packages/server/src/routes/system-routes.ts` (spike retention on
-  `/api/health`), `packages/server/src/hydration-metrics.ts` (or a sibling
-  ring-buffer for event-loop spikes).
+  retention buffer + dedicated ELD safety-net sampler, no `/api/health` reset
+  race), `server-openspec-polling` (ADDED: the poll path self-attributes its
+  per-turn synchronous cost; per-turn main-thread work must not block the event
+  loop; a per-turn synchronous-time alarm added alongside the retained wall
+  `durationMs` alarm).
+- Affected code: `packages/server/src/directory-service.ts` (per-turn timing,
+  `tickOpen`/`dirPollPre`/`dirPollPost` self-records, `tickFolderHeads` offload,
+  per-turn alarm),
+  `packages/server/src/server.ts` + `packages/server/src/routes/system-routes.ts`
+  (dedicated ELD sampler + spike retention on `/api/health`), a new sibling
+  ring-buffer for event-loop spikes reusing the `hydration-metrics.ts` container
+  shape.
 - No protocol break; `/api/health` additions are additive.

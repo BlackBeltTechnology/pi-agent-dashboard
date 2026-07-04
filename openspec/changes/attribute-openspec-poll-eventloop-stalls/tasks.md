@@ -11,43 +11,69 @@
 
 ## 1. Phase 1 — Attribution (observability)
 
-- [ ] 1.1 Add an event-loop spike ring buffer (`{at, ms, segment}`, newest-first,
-  capped) modeled on `hydration-metrics.ts` → verify: unit test records + evicts
-  at capacity, O(1), no serialization
-- [ ] 1.2 Sample event-loop delay on a fixed cadence independent of `/api/health`
-  reads, pushing worst observations into the buffer → verify: a synthetic 500ms
-  block is captured even with zero `/api/health` requests
+- [ ] 1.1 Add an event-loop spike ring buffer (`{at, ms, turn}`, newest-first,
+  capped) reusing the `hydration-metrics.ts` container shape (NOT its
+  event-driven record model) → verify: unit test records + evicts at capacity,
+  O(1), no serialization
+- [ ] 1.2 Sample event-loop delay on a fixed cadence from a **dedicated**
+  `monitorEventLoopDelay` instance (never the boot histogram `/api/health`
+  resets); a `max` above the floor self-records `{at, ms, turn: null}` (the
+  safety-net feed), then `reset()` the dedicated instance → verify: a synthetic
+  500ms block is captured with zero `/api/health` requests AND `/api/health`'s
+  own mean/p99/max is unaffected (no reset race)
 - [ ] 1.3 Surface `eventLoopSpikes` on `/api/health` (additive) in
   `routes/system-routes.ts` → verify: existing health test still passes + new
   field present
-- [ ] 1.4 Wrap `tickFolderHeads`, gate `stat` stamping, and broadcast in
-  `performance.now()` segment marks in `directory-service.ts`; record the max
-  segment per tick into the spike buffer's `segment` field → verify: unit test
-  asserts the slowest segment is attributed
-- [ ] 1.5 Replace the slow-tick warn signal: key on summed **synchronous** segment
-  time (not wall `durationMs`); default threshold 250ms, configurable → verify:
-  a jitter-only tick (no work) does NOT warn; a 300ms synthetic segment DOES
+- [ ] 1.4 Wrap each candidate **event-loop turn** in `performance.now()` in
+  `directory-service.ts` and **self-record** `{at, ms, turn}` when a turn's own
+  synchronous run exceeds the floor — turns: `tickOpen` (`tickFolderHeads` +
+  `reconcileWatchers` + `computeKnownDirectories`, the `setInterval` turn),
+  `dirPollPre` (one dir's `pollOne` prefix *before* the worker await: root
+  `statMtimeOr` + list-signal `effectiveMtimeOr` stat-fan), `dirPollPost` (one
+  dir's continuation *after* the worker resolves: deserialize + broadcast). NOTE
+  the per-dir callback is split by `await pollDirectoryGated` into two turns; do
+  NOT time across the await. Per-change TOCTOU stamping is already in the worker
+  — not a turn → verify: a synthetic block inside a named turn self-records that
+  turn (not a per-tick sum); a block straddling the worker await is NOT counted
+  as one turn
+- [ ] 1.5 KEEP the wall `durationMs > TICK_SLOW_WARN_MS` alarm; ADD an
+  independent per-turn alarm keyed on a single turn's synchronous
+  `performance.now()` run, default threshold 250ms configurable → verify: a
+  jitter-only tick (work spread across turns, no single turn heavy) does NOT
+  trip the per-turn alarm; a 300ms synthetic single-turn block DOES; the wall
+  alarm still fires on a genuinely overdue tick
 
 ## 2. Phase 1 — Confirm the culprit
 
 - [ ] 2.1 Run the instrumented server under normal load; collect `eventLoopSpikes`
-  across ≥30 min → verify: the dominant `segment` behind ~700ms spikes is
-  identified with evidence (not a guess)
+  across ≥30 min → verify: the dominant `turn` behind ~700ms spikes is
+  identified with evidence (not a guess). If spikes correlate with NO instrumented
+  turn, that is itself the finding (GC / hydration / WS on-connect) → re-scope
 - [ ] 2.2 Record the finding in `design.md` (which branch of Phase 2 applies)
 
-## 3. Phase 2 — Eliminate the attributed segment
+## 3. Phase 2 — Eliminate the attributed turn
 
-> Implement ONLY the branch 2.1 indicts. Do not pre-build all branches.
+> Implement ONLY the branch 2.1 indicts. Do not pre-build all branches. Each
+> branch is done only when its named CONTRACT #4 guard test is green.
 
-- [ ] 3.1 If `folderHeads`: mtime-gate the folder-head poll (re-read git HEAD only
-  when `.git/HEAD`/`refs` mtime advanced) and/or make reads async + concurrency-
-  bounded → verify: segment time for `folderHeads` drops below threshold with
-  unchanged branches; branch-switch still reflects in the UI on next tick
-- [ ] 3.2 If `broadcast`: chunk/yield the fan-out or batch per-dir frames →
-  verify: `broadcast` segment no longer forms one >250ms burst
-- [ ] 3.3 If `gateStat`: batch `stat`s via `fs.promises` with a concurrency cap →
-  verify: `gateStat` segment bounded
-- [ ] 3.4 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
+- [ ] 3.1 If `tickOpen → folderHeads`: `setImmediate`-chunk and/or async +
+  concurrency-bounded git HEAD reads (prefer over mtime-gating) → verify:
+  `tickOpen` turn time drops below threshold; branch-switch still reflects in the
+  UI on next tick (guard: `refresh-folder-header-branch`); if async, per-cwd
+  `git_head_update`/`openspec_update` ordering asserted or client-tolerant
+- [ ] 3.2 If `dirPollPost → worker deserialize`: return the pre-`serialized`
+  string without re-materializing worker `data` on the main thread (or
+  transferable) → verify: `dirPollPost` turn time drops; byte-identical-payload
+  test green
+- [ ] 3.3 If `dirPollPost → broadcast`: chunk/yield the **per-client** send loop
+  (the fan-out is already one dir per turn) → verify: no single `dirPollPost`
+  broadcast turn >250ms; byte-identical-payload + the `{pending:true}` emit tests
+  stay green
+- [ ] 3.4 If `dirPollPre → list-signal stat-fan`: batch the read-side
+  `effectiveMtimeOr` `stat`s via `fs.promises` with a concurrency cap; **do NOT
+  touch the per-change TOCTOU stamp (already in the worker)** → verify:
+  `dirPollPre` turn bounded; mtime-gate + TOCTOU tests green
+- [ ] 3.5 (Any branch) Re-run the 20-sample `/api/health` loop → verify:
   `eventLoopDelay.maxMs` stays within a small multiple of `p99` (target: no
   recurring >250ms main-thread stall on an idle-content repo)
 
@@ -55,7 +81,13 @@
 
 - [ ] 4.1 Ensure archived mtime-gate + byte-identical-payload tests still pass
   (`npm test`) → verify: green
+- [ ] 4.1a Add the **named CONTRACT #4 guard test(s)** for the branch 2.1
+  indicts (only that branch): folderHeads → branch-switch-reflects +
+  `git_head_update`/`openspec_update` ordering; deserialize/broadcast →
+  byte-identical-payload + `{pending:true}` emit survives; list-signal fan →
+  mtime-gate/TOCTOU → verify: each named test exists and is green
 - [ ] 4.2 Add a regression test asserting a no-op tick (nothing changed) produces
-  no event-loop spike above threshold → verify: fails before 3.x, passes after
+  no **per-turn self-record** above the floor → verify: fails before 3.x, passes
+  after
 - [ ] 4.3 Update `docs/architecture.md` poll section + the touched directory
   `AGENTS.md` rows (delegated per docs protocol) → verify: `kb dox lint` clean
