@@ -26,7 +26,7 @@
 
 - [x] 4.1 Add `".pi/skills/systematic-debugging"` and `".pi/skills/node-inspect-debugger"` to `pi.skills[]` in `packages/eng-disciplines/package.json`
 - [x] 4.2 Extend the package `description` and `keywords` to mention debugging / root-cause / node-inspect
-- [x] 4.3 Minor version bump of `@blackbelt-technology/pi-dashboard-eng-disciplines`
+- [x] 4.3 Version bump of `@blackbelt-technology/pi-dashboard-eng-disciplines` (0.5.4 → 0.5.5, patch)
 - [x] 4.4 Ensure `scripts/` under the new skill is covered by the package `files[]` glob (`.pi/skills/` already included)
 
 ## 5. Attribution + docs
