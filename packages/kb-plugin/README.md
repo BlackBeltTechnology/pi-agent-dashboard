@@ -10,7 +10,7 @@ Server routes (`src/server/kb-routes.ts`), mounted on the shared Fastify instanc
 | Route | Purpose |
 |---|---|
 | `GET /api/kb/stats?cwd=` | `{ files, chunks, indexed, staleCount, indexing, jobStatus, lastError? }` via `store.counts()` |
-| `POST /api/kb/reindex?cwd=` | `indexSource` over resolved sources — `200 { changed, chunks }` or `202 { status:"running" }` |
+| `POST /api/kb/reindex?cwd=` | Non-blocking: registers the walk, returns `202 { status:"running", jobId }`; the row polls `/stats` for completion + `jobStatus:"error"`. See change: `fix-kb-index-feedback`. |
 | `GET /api/kb/config?cwd=` | `{ config, origin, projectPath }` via `loadConfig` |
 | `PUT /api/kb/config?cwd=` | validate + atomic write of the path fields; preserves other config |
 

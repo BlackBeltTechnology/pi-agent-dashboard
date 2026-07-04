@@ -70,7 +70,7 @@ export default function kbExtension(pi: ExtensionAPI): void {
       if (!query.trim()) return { content: [{ type: "text", text: "[]" }], details: { hits: 0 } };
       const limit = Number.isFinite(Number(params.limit)) ? Math.min(100, Math.max(1, Math.trunc(Number(params.limit)))) : 10;
       const docType = ["doc", "agents", "source-md"].includes(params.doc_type as string) ? params.doc_type : undefined;
-      reindexNow(state, cwd); // freshness
+      await reindexNow(state, cwd); // freshness (awaited so search sees fresh data)
       const { store, cfg } = getKb(state, cwd);
       const hits = store.search(query, {
         limit,

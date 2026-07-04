@@ -28,13 +28,17 @@ export interface KbStats {
   lastError?: string;
 }
 
-/** Response shape of `POST /api/kb/reindex?cwd=` — sync completion. */
+/** Result of a completed reindex walk — the registry's `done` record (from
+ *  `reindexAll`), NOT the POST wire shape. `POST /api/kb/reindex` is now
+ *  non-blocking and always returns {@link KbReindexRunning}; completion is read
+ *  back via `GET /stats`. See change: fix-kb-index-feedback. */
 export interface KbReindexResult {
   changed: number;
   chunks: number;
 }
 
-/** Response shape of `POST /api/kb/reindex?cwd=` — coalesced onto a running job. */
+/** Response shape of `POST /api/kb/reindex?cwd=` — the job was registered
+ *  (fresh start) or coalesced onto a running one; poll `/stats` for completion. */
 export interface KbReindexRunning {
   status: "running";
   jobId: string;

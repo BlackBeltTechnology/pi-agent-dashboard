@@ -42,6 +42,22 @@ function buildApp(knownCwds: string[]): { app: FastifyInstance; registry: KbJobR
   return { app, registry };
 }
 
+/** Poll GET /stats until `pred` holds (reindex is now non-blocking / 202). */
+async function pollStats(
+  app: FastifyInstance,
+  cwd: string,
+  pred: (b: { indexing: boolean; chunks: number; jobStatus: string; lastError?: string }) => boolean,
+  tries = 60,
+): Promise<{ indexing: boolean; chunks: number; jobStatus: string; lastError?: string }> {
+  for (let i = 0; i < tries; i++) {
+    const s = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+    const body = s.json();
+    if (pred(body)) return body;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error("stats never settled");
+}
+
 describe("GET /api/kb/stats", () => {
   it("reports empty (indexed:false) for an un-indexed folder", async () => {
     const cwd = makeFolder();
@@ -55,14 +71,13 @@ describe("GET /api/kb/stats", () => {
     await app.close();
   });
 
-  it("returns counts after a reindex (indexed:true)", async () => {
+  it("returns counts after a reindex settles (indexed:true)", async () => {
     const cwd = makeFolder();
     const { app } = buildApp([cwd]);
     await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
-    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
-    const body = res.json();
-    expect(body.chunks).toBeGreaterThan(0);
-    expect(body.indexed).toBe(true);
+    // Reindex is non-blocking (202) — poll until the walk settles.
+    const settled = await pollStats(app, cwd, (b) => b.indexing === false && b.chunks > 0);
+    expect(settled.chunks).toBeGreaterThan(0);
     await app.close();
   });
 
@@ -110,21 +125,46 @@ describe("GET /api/kb/stats", () => {
 });
 
 describe("POST /api/kb/reindex", () => {
-  it("indexes a session-less folder → chunks > 0", async () => {
+  it("starts non-blocking (202 status:running) and indexes → chunks > 0", async () => {
+    // task 1.1: fresh POST returns 202 immediately; poll /stats until settled.
     const cwd = makeFolder();
     const { app } = buildApp([cwd]);
     const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().chunks).toBeGreaterThan(0);
+    expect(res.statusCode).toBe(202);
+    expect(res.json().status).toBe("running");
+    expect(res.json().jobId).toBeTruthy();
+    const settled = await pollStats(app, cwd, (b) => b.indexing === false && b.chunks > 0);
+    expect(settled.jobStatus).toBe("idle");
     await app.close();
   });
 
-  it("is incremental — a second reindex reports changed:0", async () => {
+  it("is incremental — a second reindex adds no new chunks (asserted via /stats)", async () => {
+    // task 1.4: incremental checked via /stats, not the (now absent) body `changed`.
     const cwd = makeFolder();
     const { app } = buildApp([cwd]);
     await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
+    const first = await pollStats(app, cwd, (b) => b.indexing === false && b.chunks > 0);
+    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
+    const second = await pollStats(app, cwd, (b) => b.indexing === false);
+    expect(second.chunks).toBe(first.chunks);
+    await app.close();
+  });
+
+  it("a failing walk still responds 202; /stats then reports jobStatus:error", async () => {
+    // task 1.2: a source ref pointing at a FILE makes indexSource's walk throw.
+    const cwd = makeFolder({ withConfig: false });
+    writeFileSync(join(cwd, "notadir.md"), "# x\n");
+    mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi", "dashboard", "knowledge_base.json"),
+      JSON.stringify({ sources: [{ kind: "filesystem", ref: "notadir.md" }] }),
+    );
+    const { app } = buildApp([cwd]);
     const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
-    expect(res.json().changed).toBe(0);
+    expect(res.statusCode).toBe(202);
+    const settled = await pollStats(app, cwd, (b) => b.indexing === false && b.jobStatus === "error");
+    expect(settled.jobStatus).toBe("error");
+    expect(settled.lastError).toBeTruthy();
     await app.close();
   });
 
@@ -134,6 +174,42 @@ describe("POST /api/kb/reindex", () => {
     const { app } = buildApp([known]);
     const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(other)}` });
     expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("does not block the event loop: /stats observes indexing:true during a large walk", async () => {
+    // Regression for the synchronous-walk bug: indexSource now yields + commits
+    // per batch, so a concurrent /stats read is served (never 500/locked) AND
+    // observes indexing:true before the walk settles. See change: fix-kb-index-feedback.
+    const cwd = makeFolder({ withConfig: false });
+    mkdirSync(join(cwd, "big"), { recursive: true });
+    for (let i = 0; i < 300; i++) {
+      writeFileSync(join(cwd, "big", `f${i}.md`), `# Doc ${i}\n\nBody text number ${i} with enough words to survive the tiny-chunk merge threshold here and there.\n`);
+    }
+    mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });
+    writeFileSync(
+      join(cwd, ".pi", "dashboard", "knowledge_base.json"),
+      JSON.stringify({ sources: [{ kind: "filesystem", ref: "big" }] }),
+    );
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.statusCode).toBe(202);
+
+    let sawIndexing = false;
+    let settledChunks = 0;
+    for (let i = 0; i < 400; i++) {
+      const s = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+      expect(s.statusCode).toBe(200); // served mid-walk, never SQLITE_BUSY/500
+      const b = s.json();
+      if (b.indexing) sawIndexing = true;
+      if (!b.indexing && b.chunks > 0) { settledChunks = b.chunks; break; }
+      // Yield a macrotask so the walk's setImmediate batch-continuation runs
+      // (a tight await-inject loop is all microtasks and would starve it — real
+      // /stats polls are 1000ms timers, which never starve it).
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    expect(sawIndexing).toBe(true);
+    expect(settledChunks).toBeGreaterThan(0);
     await app.close();
   });
 });

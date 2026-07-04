@@ -41,11 +41,16 @@ export function deriveKbRowState(stats: KbStats | null): RowState | "loading" {
 export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
-  const { stats, reindex } = useKbStats(cwd);
+  const { stats, reindex, reindexError, error } = useKbStats(cwd);
 
   if (!cwd) return null;
 
-  const state = deriveKbRowState(stats);
+  // A rejected trigger (no job started) or a persistent stats-poll outage forces
+  // the failed state — but a live `indexing` walk keeps its spinner because a
+  // transient poll blip never sets `error` (bounded in useKbStats). See change:
+  // fix-kb-index-feedback.
+  const clientError = reindexError ?? error ?? null;
+  const state = clientError != null ? "error" : deriveKbRowState(stats);
   const chunks = stats?.chunks ?? 0;
   const files = stats?.files ?? 0;
   const countTip = `${files} files · ${chunks} chunks`;
@@ -64,7 +69,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
     : state === "indexing" || state === "not-indexed" ? "text-teal-400"
     : "text-[var(--text-tertiary)]";
   const labelTitle =
-    state === "error" ? (stats?.lastError ?? "Reindex failed — open KB settings")
+    state === "error" ? (clientError ?? stats?.lastError ?? "Reindex failed — open KB settings")
     : state === "not-indexed" ? "Not indexed — open KB settings to define sources"
     : `${countTip} — open KB settings`;
 

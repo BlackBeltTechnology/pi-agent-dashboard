@@ -19,8 +19,16 @@ function base(over: Partial<KbStats> = {}): KbStats {
 }
 
 function Probe({ cwd }: { cwd: string }): React.ReactElement {
-  const { stats, error } = useKbStats(cwd);
-  return <div data-testid="probe" data-chunks={stats?.chunks ?? ""} data-error={error ?? ""} data-indexing={String(stats?.indexing ?? "")} />;
+  const { stats, error, reindexError } = useKbStats(cwd);
+  return (
+    <div
+      data-testid="probe"
+      data-chunks={stats?.chunks ?? ""}
+      data-error={error ?? ""}
+      data-reindex-error={reindexError ?? ""}
+      data-indexing={String(stats?.indexing ?? "")}
+    />
+  );
 }
 
 describe("useKbStats", () => {
@@ -43,11 +51,28 @@ describe("useKbStats", () => {
     expect(fetchMock.mock.calls.length).toBe(callsAtSettle);
   });
 
-  it("surfaces a typed error on a non-JSON (HTML) response", async () => {
+  it("surfaces a typed error only after a bounded run of consecutive poll failures", async () => {
+    // Resilient poll: MAX_POLL_MISSES=3 consecutive misses before giving up.
     (globalThis as { fetch?: unknown }).fetch = vi.fn(async () =>
       new Response("<html>oops</html>", { status: 500, headers: { "content-type": "text/html" } }),
     );
     const { getByTestId } = render(<Probe cwd="/repo" />);
-    await waitFor(() => expect(getByTestId("probe").getAttribute("data-error")).toMatch(/HTTP 500/));
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-error")).toMatch(/HTTP 500/), { timeout: 5000 });
+  });
+
+  it("tolerates a lone transient poll miss during indexing without dropping the spinner (task 2.3)", async () => {
+    let call = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async () => {
+      call += 1;
+      if (call === 2) throw new Error("network blip"); // one transient miss mid-walk
+      if (call >= 4) return json(base({ indexing: false, chunks: 7, indexed: true }));
+      return json(base({ indexing: true, jobStatus: "running" }));
+    });
+    const { getByTestId } = render(<Probe cwd="/repo" />);
+    // The spinner (indexing:true) shows and survives the blip.
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-indexing")).toBe("true"));
+    // Polling continues to the terminal state; error never surfaces.
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-chunks")).toBe("7"), { timeout: 5000 });
+    expect(getByTestId("probe").getAttribute("data-error")).toBe("");
   });
 });

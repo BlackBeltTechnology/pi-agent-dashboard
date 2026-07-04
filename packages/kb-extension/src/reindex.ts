@@ -115,11 +115,11 @@ export function getKb(state: ReindexState, cwd: string): { store: SqliteFtsStore
 
 /** Reindex filesystem sources now (called after debounce). Hash-gated via the
  *  indexer's mtime→sha256 incremental pass. */
-export function reindexNow(state: ReindexState, cwd: string): { changed: number; chunks: number } {
+export async function reindexNow(state: ReindexState, cwd: string): Promise<{ changed: number; chunks: number }> {
   const { store, cfg } = getKb(state, cwd);
   let changed = 0, chunks = 0;
   for (const s of cfg.resolvedSources) {
-    const st = indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, { indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
     changed += st.changed; chunks += st.chunks;
   }
   return { changed, chunks };
@@ -132,7 +132,7 @@ export function scheduleReindex(state: ReindexState, cwd: string, _path: string,
   if (existing) clearTimeout(existing);
   state.timers.set(key, setTimeout(() => {
     state.timers.delete(key);
-    try { reindexNow(state, cwd); } catch (e) { console.warn(`[kb] reindex failed: ${(e as Error).message}`); }
+    reindexNow(state, cwd).catch((e) => console.warn(`[kb] reindex failed: ${(e as Error).message}`));
   }, debounceMs));
 }
 

@@ -13,7 +13,7 @@ const store = new SqliteFtsStore(DB);
 store.init();
 
 const t0 = performance.now();
-const stats = indexSource(store, { root: "doc-example", dir: ROOT });
+const stats = await indexSource(store, { root: "doc-example", dir: ROOT });
 const idxMs = performance.now() - t0;
 const counts = store.counts();
 console.log(`# index: ${stats.scanned} files, ${stats.changed} changed, ${stats.chunks} chunks in ${idxMs.toFixed(0)}ms`);
@@ -21,7 +21,7 @@ console.log(`# store: ${JSON.stringify(counts)}`);
 
 // incremental no-op
 const t1 = performance.now();
-const again = indexSource(store, { root: "doc-example", dir: ROOT });
+const again = await indexSource(store, { root: "doc-example", dir: ROOT });
 console.log(`# reindex (no changes): ${again.changed} changed, ${again.deleted} deleted in ${(performance.now() - t1).toFixed(0)}ms (expect 0/0)`);
 
 // golden set (subset of research §2.5)

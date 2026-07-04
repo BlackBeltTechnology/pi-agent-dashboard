@@ -17,10 +17,14 @@ function stats(over: Partial<KbStats> = {}): KbStats {
   return { files: 10, chunks: 100, indexed: true, staleCount: 0, indexing: false, jobStatus: "idle", ...over };
 }
 
+function jsonResp(body: unknown, ok = true, status = 200): Response {
+  return { ok, status, headers: new Headers({ "content-type": "application/json" }), json: async () => body } as unknown as Response;
+}
 function mockStats(s: KbStats) {
   return vi.fn(async (_url: string, init?: RequestInit) => {
-    if (init?.method === "POST") return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => ({ changed: 1, chunks: s.chunks }) } as unknown as Response;
-    return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => s } as unknown as Response;
+    // Reindex is non-blocking: POST returns 202 { status:"running" }.
+    if (init?.method === "POST") return jsonResp({ status: "running", jobId: "kb-1" });
+    return jsonResp(s);
   });
 }
 
@@ -100,6 +104,46 @@ describe("FolderKbSection render", () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/kb/reindex") && (c[1] as RequestInit)?.method === "POST")).toBe(true),
     );
+  });
+
+  it("Index now → spinner while indexing, then the populated count (task 2.1)", async () => {
+    // 202 on POST; GET returns not-indexed → indexing → settled, so the poll
+    // observes indexing:true (unreachable under the old blocking route).
+    const seq: KbStats[] = [
+      stats({ chunks: 0, indexed: false }),
+      stats({ chunks: 0, indexed: false, indexing: true, jobStatus: "running" }),
+      stats({ chunks: 0, indexed: false, indexing: true, jobStatus: "running" }),
+      stats({ chunks: 512, indexed: true }),
+    ];
+    let gi = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return jsonResp({ status: "running", jobId: "kb-1" });
+      return jsonResp(seq[Math.min(gi++, seq.length - 1)]);
+    });
+    const { getByTestId, findByTestId } = renderSlot();
+    await findByTestId("folder-kb-index-now");
+    fireEvent.click(getByTestId("folder-kb-index-now"));
+    await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("indexing"), { timeout: 3000 });
+    await waitFor(() => expect(getByTestId("folder-kb-count").textContent).toContain("512"), { timeout: 5000 });
+  });
+
+  it("rejected trigger (403) → failed + Retry, and Retry re-fires (task 2.2)", async () => {
+    let posts = 0;
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts++;
+        return jsonResp({ error: "cwd not allowed" }, false, 403);
+      }
+      return jsonResp(stats({ chunks: 0, indexed: false }));
+    });
+    const { getByTestId, findByTestId, queryByTestId } = renderSlot();
+    await findByTestId("folder-kb-index-now");
+    fireEvent.click(getByTestId("folder-kb-index-now"));
+    // Trigger reject surfaces the failed state (was silently swallowed before).
+    await findByTestId("folder-kb-retry");
+    expect(queryByTestId("folder-kb-index-now")).toBeNull();
+    fireEvent.click(getByTestId("folder-kb-retry"));
+    await waitFor(() => expect(posts).toBeGreaterThanOrEqual(2));
   });
 
   it("count opens the KB settings overlay on click", async () => {

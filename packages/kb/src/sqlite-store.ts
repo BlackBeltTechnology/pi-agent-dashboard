@@ -42,6 +42,10 @@ export class SqliteFtsStore implements KbStore {
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode=WAL");
+    // Let a concurrent reader (e.g. `/stats` during a reindex) wait briefly for a
+    // batch's write lock instead of failing with SQLITE_BUSY. See change:
+    // fix-kb-index-feedback.
+    this.db.exec("PRAGMA busy_timeout=5000");
   }
   init() {
     this.db.exec(DDL);

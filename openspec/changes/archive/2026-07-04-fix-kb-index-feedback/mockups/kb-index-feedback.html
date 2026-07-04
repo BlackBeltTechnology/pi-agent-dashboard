@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KB index feedback — mockup (fix-kb-index-feedback)</title>
+<style>
+  :root{
+    --bg:#0d0f14; --panel:#12151c; --panel-2:#161a22; --panel-3:#1b202a; --border:#232936;
+    --text:#e6e9ef; --text-secondary:#aab2c0; --text-tertiary:#7c8698; --text-muted:#596172;
+    --indigo:#818cf8; --indigo-dim:#818cf833; --indigo-bg:#818cf80d;
+    --green:#4ade80; --amber:#fbbf24; --red:#f87171; --red-dim:#f8717155; --red-bg:#f871710d;
+    --teal:#2dd4bf; --teal-dim:#2dd4bf55; --teal-bg:#2dd4bf0d; --teal-text:#5eead4;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:30px 28px 60px}
+  h1{font-size:17px;letter-spacing:.01em;margin:0 0 4px}
+  .sub{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;max-width:720px}
+  .legendline{color:var(--text-secondary);font-size:12px;margin:0 0 26px}
+  .legendline b{color:var(--teal-text)}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-tertiary);margin:30px 0 10px;font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px}
+  code{background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px;color:var(--teal-text)}
+
+  .grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .case{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:center;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
+  .case.fix{border-color:var(--teal-dim);background:linear-gradient(180deg,#0f1518,var(--panel))}
+
+  /* ── the worktree folder card (mirrors sidebar/worktree-card) ── */
+  .folder{border-radius:8px;padding:7px 8px 9px;background:var(--panel-2);border:1px solid var(--border)}
+  .folder.worktree{border-color:var(--teal-dim);background:#0f1518}
+  .fhead{display:flex;align-items:center;gap:6px;padding:1px 3px 3px;font-weight:600}
+  .chev{color:var(--text-tertiary);font-size:10px}
+  .fname{flex:1;font-size:12.5px;color:var(--text)}
+  .wt-badge{font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--teal-text);border:1px solid var(--teal-dim);border-radius:999px;padding:1px 6px}
+
+  /* KB section row */
+  .kb{display:flex;align-items:center;gap:7px;padding:4px 4px 2px;margin-top:3px}
+  .klabel{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;color:var(--text-tertiary)}
+  .klabel:hover{color:var(--indigo)}
+  .klabel.teal{color:var(--teal-text)}
+  .klabel.red{color:var(--red)}
+  .arrow{font-size:11px;opacity:.85}
+  .num{color:var(--text-secondary);font-variant-numeric:tabular-nums}
+  .stale{color:var(--amber);font-weight:800}
+  .spacer{flex:1}
+
+  .btn{font-size:10px;padding:2px 7px;border-radius:5px;border:1px solid;cursor:pointer;background:none;display:inline-flex;align-items:center;gap:3px;line-height:1.3}
+  .btn.teal{color:var(--teal-text);border-color:var(--teal-dim);background:var(--teal-bg)}
+  .btn.teal:hover{border-color:var(--teal)}
+  .btn.red{color:var(--red);border-color:var(--red-dim);background:var(--red-bg)}
+  .btn.red:hover{border-color:var(--red)}
+  .icon-btn{color:var(--text-muted);cursor:pointer;font-size:13px;background:none;border:none;padding:2px}
+  .icon-btn:hover{color:var(--text-secondary)}
+
+  .spin{display:inline-block;color:var(--teal);animation:spin 1s linear infinite;font-size:12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* error detail line under the row */
+  .errline{margin:3px 4px 0;font-size:10.5px;color:var(--red);opacity:.9}
+  .errline code{color:var(--red);border-color:var(--red-dim);background:var(--red-bg)}
+
+  .desc h3{margin:0 0 4px;font-size:12.5px;color:var(--text)}
+  .desc h3 .tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:1px 6px;border-radius:999px;margin-left:8px;vertical-align:middle}
+  .tag.new{color:var(--teal-text);border:1px solid var(--teal-dim);background:var(--teal-bg)}
+  .tag.was{color:var(--red);border:1px solid var(--red-dim);background:var(--red-bg)}
+  .desc p{margin:0;color:var(--text-secondary);font-size:11.8px}
+  .desc .before{color:var(--text-tertiary);font-size:11px;margin-top:5px}
+  .desc .before b{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>KB folder row — index feedback states</h1>
+  <p class="sub">Change <code>fix-kb-index-feedback</code>. The row that shows <code>KB · … →</code> inside a folder / worktree card. Same five-state model as shipped; this change makes three previously-unreachable or silent states actually surface.</p>
+  <p class="legendline"><b>What the fix changes:</b> the <code>indexing</code> spinner becomes reachable from <em>Index now</em> (route returns <code>202</code>, client polls), a rejected trigger shows a real error instead of a dead button, and a transient poll blip no longer kills the spinner.</p>
+
+  <h2>States the fix makes correct</h2>
+  <div class="grid">
+
+    <!-- INDEXING (now reachable) -->
+    <div class="case fix">
+      <div class="folder worktree">
+        <div class="fhead"><span class="chev">▸</span><span class="fname">os-attribute-openspec-poll-eventloop-stalls</span><span class="wt-badge">worktree</span></div>
+        <div class="kb">
+          <span class="klabel teal">KB · INDEXING… <span class="num">312</span> FILES <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <span class="spin">↻</span>
+        </div>
+      </div>
+      <div class="desc">
+        <h3>Indexing <span class="tag new">now reachable</span></h3>
+        <p>After <em>Index now</em>, the route replies <code>202 {status:"running"}</code> and the client polls <code>/stats</code>; the animated <code>↻</code> + live file count render for the whole walk.</p>
+        <p class="before"><b>Before:</b> POST blocked until the walk finished, so the poll never saw <code>indexing:true</code> — the card sat frozen on <em>NOT INDEXED</em>, then jumped to populated. No spinner ever.</p>
+      </div>
+    </div>
+
+    <!-- TRIGGER ERROR (was silent) -->
+    <div class="case fix">
+      <div class="folder worktree">
+        <div class="fhead"><span class="chev">▸</span><span class="fname">os-attribute-openspec-poll-eventloop-stalls</span><span class="wt-badge">worktree</span></div>
+        <div class="kb">
+          <span class="klabel red">KB · INDEX FAILED <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <button class="btn red"><span>↻</span>Retry</button>
+        </div>
+        <div class="errline"><code>403 cwd not allowed</code> — folder left the known set (session ended / unpinned)</div>
+      </div>
+      <div class="desc">
+        <h3>Trigger rejected <span class="tag was">was silent</span></h3>
+        <p>The <code>POST /reindex</code> itself is rejected (403 / 500 / transport) so no job starts. A distinct <code>reindexError</code> surfaces a red failed state + reason + <em>Retry</em>.</p>
+        <p class="before"><b>Before:</b> <code>FolderKbSection</code> discarded the hook's <code>error</code> — the click did nothing visible, indistinguishable from a dead button.</p>
+      </div>
+    </div>
+
+    <!-- TRANSIENT POLL BLIP keeps spinner -->
+    <div class="case fix">
+      <div class="folder worktree">
+        <div class="fhead"><span class="chev">▸</span><span class="fname">os-attribute-openspec-poll-eventloop-stalls</span><span class="wt-badge">worktree</span></div>
+        <div class="kb">
+          <span class="klabel teal">KB · INDEXING… <span class="num">640</span> FILES <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <span class="spin">↻</span>
+        </div>
+        <div class="errline" style="color:var(--text-muted)">one <code style="color:var(--text-tertiary);border-color:var(--border);background:var(--panel-2)">/stats</code> poll hiccuped — tolerated, still polling</div>
+      </div>
+      <div class="desc">
+        <h3>Transient poll blip <span class="tag new">spinner survives</span></h3>
+        <p>A single failed <code>/stats</code> poll while the walk runs no longer flips the row to failed. Polling is resilient (tolerates a bounded run of misses), so it recovers to the true terminal state.</p>
+        <p class="before"><b>Naive fix danger:</b> an unconditional <code>error</code> render would show <em>index failed</em> here while the server is still happily walking — the doubt review caught this.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Unchanged states (for reference)</h2>
+  <div class="grid">
+
+    <!-- NOT INDEXED -->
+    <div class="case">
+      <div class="folder worktree">
+        <div class="fhead"><span class="chev">▸</span><span class="fname">os-attribute-openspec-poll-eventloop-stalls</span><span class="wt-badge">worktree</span></div>
+        <div class="kb">
+          <span class="klabel teal">KB · NOT INDEXED <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <button class="btn teal">Index now</button>
+        </div>
+      </div>
+      <div class="desc">
+        <h3>Not indexed</h3>
+        <p>Cold folder, <code>chunks:0</code>. <em>Index now</em> starts the walk; the row moves to the reachable <em>indexing</em> state above. The <code>→</code> still opens KB settings to define <code>sources[]</code>.</p>
+      </div>
+    </div>
+
+    <!-- POPULATED -->
+    <div class="case">
+      <div class="folder">
+        <div class="fhead"><span class="chev">▾</span><span class="fname">pi-agent-dashboard</span></div>
+        <div class="kb">
+          <span class="klabel">KB · <span class="num">13,757</span> CHUNKS <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <button class="icon-btn" title="Reindex now">↻</button>
+        </div>
+      </div>
+      <div class="desc">
+        <h3>Populated</h3>
+        <p>Fresh index, <code>chunks &gt; 0</code>. Quiet <code>↻</code> reindex icon; tooltip shows <code>974 files · 13,757 chunks</code>.</p>
+      </div>
+    </div>
+
+    <!-- STALE -->
+    <div class="case">
+      <div class="folder">
+        <div class="fhead"><span class="chev">▾</span><span class="fname">pi-agent-dashboard</span></div>
+        <div class="kb">
+          <span class="klabel">KB · <span class="num">13,757</span> CHUNKS · <span class="stale">6 stale</span> <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <button class="icon-btn" title="Reindex 6 changed files">↻</button>
+        </div>
+      </div>
+      <div class="desc">
+        <h3>Stale</h3>
+        <p><code>staleCount &gt; 0</code> from <code>dox-staleness.json</code> (drifted source files only). Amber flag + reindex.</p>
+      </div>
+    </div>
+
+    <!-- SERVER JOB ERROR -->
+    <div class="case">
+      <div class="folder">
+        <div class="fhead"><span class="chev">▾</span><span class="fname">pi-agent-dashboard</span></div>
+        <div class="kb">
+          <span class="klabel red">KB · INDEX FAILED <span class="arrow">→</span></span>
+          <span class="spacer"></span>
+          <button class="btn red"><span>↻</span>Retry</button>
+        </div>
+        <div class="errline">walk threw — <code>ENOSPC: no space left on device</code></div>
+      </div>
+      <div class="desc">
+        <h3>Server job error</h3>
+        <p>The walk <em>started</em> then threw; <code>/stats</code> reports <code>jobStatus:"error"</code> + <code>lastError</code>. Distinct from the trigger-reject case above but renders the same <em>Retry</em>.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

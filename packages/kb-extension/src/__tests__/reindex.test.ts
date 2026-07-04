@@ -26,15 +26,15 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
   beforeAll(() => (dir = setupProject()));
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("reindexNow picks up an edited file without manual kb index", () => {
+  it("reindexNow picks up an edited file without manual kb index", async () => {
     const state = createReindexState();
-    reindexNow(state, dir); // cold index
+    await reindexNow(state, dir); // cold index
     const { store } = getKb(state, dir);
     expect(store.search("initial content padded", { limit: 3 }).length).toBeGreaterThan(0);
 
     // edit the file
     writeFileSync(join(dir, "docs", "guide.md"), "# Guide\nrewritten totally different zebras are exotic animals here.\n");
-    reindexNow(state, dir); // incremental
+    await reindexNow(state, dir); // incremental
     const hits = store.search("rewritten totally different zebras", { limit: 3 });
     expect(hits[0]?.path).toMatch(/guide\.md$/);
     // old content gone

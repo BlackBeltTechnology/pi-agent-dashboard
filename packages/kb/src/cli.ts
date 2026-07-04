@@ -68,10 +68,10 @@ function openStore(cfg: ResolvedConfig): SqliteFtsStore {
   store.init();
   return store;
 }
-function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
+async function runIndex(cfg: ResolvedConfig, store: SqliteFtsStore, sources: RResolvedSource[], force = false) {
   let scanned = 0, changed = 0, deleted = 0, chunks = 0;
   for (const s of sources) {
-    const st = indexSource(store, { root: s.id, dir: s.dir }, { force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
+    const st = await indexSource(store, { root: s.id, dir: s.dir }, { force, indexAgentsFiles: cfg.indexAgentsFiles, includeSourceMarkdown: cfg.includeSourceMarkdown, include: cfg.include, exclude: cfg.exclude, extensions: cfg.extensions });
     scanned += st.scanned; changed += st.changed; deleted += st.deleted; chunks += st.chunks;
   }
   return { scanned, changed, deleted, chunks };
@@ -180,7 +180,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
   try {
     if (cmd === "index") {
       const t = performance.now();
-      const s = runIndex(cfg, store, sources, !!flags.force);
+      const s = await runIndex(cfg, store, sources, !!flags.force);
       console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);
       console.log(JSON.stringify(store.counts()));
     } else if (cmd === "search") {
@@ -188,7 +188,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       if (!q) { console.error("search needs a query"); process.exit(2); }
       const limit = posInt(flags.limit, "--limit");
       const docType = enumFlag(flags["doc-type"], ["doc", "agents", "source-md"], "--doc-type");
-      if (!flags["no-reindex"]) runIndex(cfg, store, sources); // auto incremental freshness
+      if (!flags["no-reindex"]) await runIndex(cfg, store, sources); // auto incremental freshness
       const so: SearchOpts = {
         limit: limit ?? 10,
         root: flags.root as string | undefined,
@@ -224,7 +224,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
     } else if (cmd === "eval") {
       const gf = flags.golden as string | undefined;
       if (!gf) { console.error("eval needs --golden <file.json>"); process.exit(2); }
-      if (!flags["no-reindex"]) runIndex(cfg, store, sources);
+      if (!flags["no-reindex"]) await runIndex(cfg, store, sources);
       const golden = JSON.parse(readFileSync(resolve(cfg.cwd, gf), "utf8")) as GoldenItem[];
       const m = evaluate(store, golden, { k: flags.limit ? Number(flags.limit) : 10, docType: flags["doc-type"] as DocType | undefined });
       console.log(JSON.stringify(m, null, flags.json ? 2 : 0));

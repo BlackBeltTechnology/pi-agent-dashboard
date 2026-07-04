@@ -70,8 +70,8 @@ describe("indexer + store (integration)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("indexes and searches", () => {
-    const s = indexSource(store, { root: "t", dir });
+  it("indexes and searches", async () => {
+    const s = await indexSource(store, { root: "t", dir });
     expect(s.changed).toBe(3);
     const hits = store.search("extract claims from token", { limit: 5 });
     expect(hits[0].path).toMatch(/auth\.md$/);
@@ -84,26 +84,26 @@ describe("indexer + store (integration)", () => {
     expect(top?.akaPaths?.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("incremental: re-index is a no-op when nothing changed", () => {
-    const s = indexSource(store, { root: "t", dir });
+  it("incremental: re-index is a no-op when nothing changed", async () => {
+    const s = await indexSource(store, { root: "t", dir });
     expect(s.changed).toBe(0);
     expect(s.deleted).toBe(0);
   });
 
-  it("incremental: editing one file reindexes only that file", () => {
+  it("incremental: editing one file reindexes only that file", async () => {
     writeFileSync(
       join(dir, "theme.md"),
       "# Theming\nThe theming system controls palette and typography across light and dark variants with enough descriptive text to exceed the tiny-chunk merge threshold here.\n" +
         "## Dark Mode\nUpdated: tweak the dark palette and add a high-contrast variant for accessibility; verbose enough to remain a distinct chunk after the edit reindex.",
     );
-    const s = indexSource(store, { root: "t", dir });
+    const s = await indexSource(store, { root: "t", dir });
     expect(s.changed).toBe(1);
     expect(store.search("high-contrast variant accessibility", { limit: 3 })[0].path).toMatch(/theme\.md$/);
   });
 
-  it("incremental: deleting a file purges its rows", () => {
+  it("incremental: deleting a file purges its rows", async () => {
     rmSync(join(dir, "theme.md"));
-    const s = indexSource(store, { root: "t", dir });
+    const s = await indexSource(store, { root: "t", dir });
     expect(s.deleted).toBe(1);
     const hits = store.search("dark palette night appearance", { limit: 5 });
     expect(hits.every((h) => !h.path.endsWith("theme.md"))).toBe(true);
@@ -114,7 +114,7 @@ describe("indexer + store (integration)", () => {
     expect(nbrs.some((n) => n.name.includes("Auth Guide"))).toBe(true);
   });
 
-  it("doc_type: AGENTS.md tagged 'agents', source-dir md tagged 'source-md'", () => {
+  it("doc_type: AGENTS.md tagged 'agents', source-dir md tagged 'source-md'", async () => {
     const sub = mkdtempSync(join(tmpdir(), "kb-dt-"));
     try {
       writeFileSync(join(sub, "AGENTS.md"), "# Agents\nRules for the agent working in this repo, padded to survive the merge threshold cleanly.\n");
@@ -123,7 +123,7 @@ describe("indexer + store (integration)", () => {
       writeFileSync(join(sub, "guide.md"), "# Guide\nA regular doc-root markdown guide long enough to remain its own chunk after merge thresholds apply here.\n");
       const db2 = join(sub, ".kb.db");
       const st2 = new SqliteFtsStore(db2); st2.init();
-      indexSource(st2, { root: "t", dir: sub }, { includeSourceMarkdown: true });
+      await indexSource(st2, { root: "t", dir: sub }, { includeSourceMarkdown: true });
       const agents = st2.search("rules", { limit: 5, docType: "agents" });
       expect(agents.every((h) => h.docType === "agents")).toBe(true);
       expect(agents.some((h) => h.path.endsWith("AGENTS.md"))).toBe(true);
@@ -230,7 +230,7 @@ describe("kb init", () => {
 
 describe("retrieval pipeline (Tier A/B/C)", () => {
   let dir: string, dbPath: string, store: SqliteFtsStore;
-  beforeAll(() => {
+  beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "kb-rank-"));
     writeFileSync(
       join(dir, "rank.md"),
@@ -244,7 +244,7 @@ describe("retrieval pipeline (Tier A/B/C)", () => {
     dbPath = join(dir, ".kb.db");
     store = new SqliteFtsStore(dbPath);
     store.init();
-    indexSource(store, { root: "t", dir });
+    await indexSource(store, { root: "t", dir });
   });
   afterAll(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
 
@@ -293,11 +293,11 @@ describe("doc-example integration", () => {
   // corpus lives at repo root `doc-example/` (gitignored; absent in worktrees)
   const docExample = join(fileDir, "../../../..", "doc-example");
   const hasCorpus = existsSync(docExample);
-  (hasCorpus ? it : it.skip)("indexes the real corpus and answers the golden queries", () => {
+  (hasCorpus ? it : it.skip)("indexes the real corpus and answers the golden queries", async () => {
     const db = join(tmpdir(), `kb-docex-${Date.now()}.db`);
     const store = new SqliteFtsStore(db);
     store.init();
-    const s = indexSource(store, { root: "doc-example", dir: docExample });
+    const s = await indexSource(store, { root: "doc-example", dir: docExample });
     expect(s.scanned).toBeGreaterThan(100);
     const hit = store.search("decoupled service creation CQRS pattern", { limit: 5, expandParent: true })[0];
     expect(hit?.path).toMatch(/interceptors\.md$/);

@@ -29,6 +29,14 @@ export interface IndexStats {
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const DEFAULT_EXCLUDE = /(^|\/)(node_modules|\.git|dist|build|\.next|coverage|\.kb)(\/|$)/;
 
+/** Files processed between event-loop yields + batch commits. A long synchronous
+ *  walk would otherwise pin the single Node thread for its whole duration, so a
+ *  concurrent `/stats` reader could never observe `indexing:true` (no spinner)
+ *  and would see no live progress. Committing per batch also releases the WAL
+ *  write lock so the reader is served. See change: fix-kb-index-feedback. */
+const YIELD_EVERY = 100;
+const yieldToEventLoop = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+
 /** Minimal glob → RegExp (supports **, *, ?). Good enough for include/exclude. */
 function globToRe(g: string): RegExp {
   const body = g
@@ -66,7 +74,7 @@ function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
   return "doc";
 }
 
-export function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions = {}): IndexStats {
+export async function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions = {}): Promise<IndexStats> {
   const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : /\.(md|mdx|markdown)$/i;
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
@@ -83,9 +91,22 @@ export function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions
   const stats: IndexStats = { scanned: files.length, changed: 0, deleted: 0, chunks: 0 };
   const live = new Set<string>();
 
+  // Batched transaction: commit + yield every YIELD_EVERY files so the walk does
+  // not block the event loop and a concurrent `/stats` read sees live progress.
+  // NOTE: this trades whole-walk atomicity for responsiveness — a mid-walk throw
+  // leaves earlier batches committed; a reindex is idempotent so a re-run
+  // completes it. See change: fix-kb-index-feedback.
+  let sinceYield = 0;
   store.begin();
   try {
     for (const abs of files) {
+      if (sinceYield >= YIELD_EVERY) {
+        store.commit();
+        await yieldToEventLoop();
+        store.begin();
+        sinceYield = 0;
+      }
+      sinceYield++;
       const rel = relative(src.dir, abs);
       live.add(rel);
       const st = statSync(abs);

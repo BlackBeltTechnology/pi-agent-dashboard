@@ -5,7 +5,7 @@
  * configurable (design §2).
  *
  *   GET  /api/kb/stats?cwd=<abs>    → { files, chunks, indexed, staleCount, indexing, jobStatus, lastError? }
- *   POST /api/kb/reindex?cwd=<abs>  → 200 { changed, chunks } | 202 { status:"running", jobId } | 500 { error }
+ *   POST /api/kb/reindex?cwd=<abs>  → 202 { status:"running", jobId }  (non-blocking; poll /stats for completion + jobStatus:error). See change: fix-kb-index-feedback.
  *   GET  /api/kb/config?cwd=<abs>   → { config, origin, projectPath }
  *   PUT  /api/kb/config?cwd=<abs>   → 200 { config, origin, projectPath } | 400 { error }
  *
@@ -92,12 +92,12 @@ function countStale(cwd: string): number {
 }
 
 /** Run `indexSource` over the folder's resolved (filesystem) sources. */
-function reindexAll(cwd: string): KbReindexResult {
+async function reindexAll(cwd: string): Promise<KbReindexResult> {
   const { store, cfg } = openStore(cwd);
   try {
     let changed = 0;
     for (const src of cfg.resolvedSources) {
-      const stats = indexSource(
+      const stats = await indexSource(
         store,
         { root: src.id, dir: src.dir },
         {
@@ -188,21 +188,27 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   });
 
   // ── POST reindex ───────────────────────────────────────────────
+  // NON-BLOCKING: register the job and respond `202 { status:"running" }`
+  // immediately. The walk runs to completion in-process; the row polls `/stats`
+  // for `indexing` + completion. A blocking `await` here hid the entire walk
+  // behind one request, so the client never observed `indexing:true` → no
+  // spinner. A failed walk is retained by the registry and surfaces via `/stats`
+  // (`jobStatus:"error"`, `lastError`), never a `500` body. See change:
+  // fix-kb-index-feedback.
   fastify.post<{ Querystring: { cwd?: string } }>("/api/kb/reindex", async (req, reply) => {
     const { cwd } = req.query;
     if (rejectCwd(reply, cwd, knownCwds)) return;
-    if (registry.isRunning(cwd)) {
-      reply.code(202);
-      return { status: "running" as const, jobId: registry.jobId(cwd) ?? "kb" };
+    if (!registry.isRunning(cwd)) {
+      const { promise } = registry.start(cwd, async () => reindexAll(cwd));
+      // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
+      // unhandled rejection. Use `fastify.log` (not `req.log`): the request is
+      // already finalized by the time the walk settles.
+      promise.catch((err) =>
+        fastify.log.error(`[kb-plugin] reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
+      );
     }
-    const { promise } = registry.start(cwd, async () => reindexAll(cwd));
-    try {
-      return await promise;
-    } catch (err) {
-      req.log?.error?.(`[kb-plugin] reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`);
-      reply.code(500);
-      return { error: "reindex failed" };
-    }
+    reply.code(202);
+    return { status: "running" as const, jobId: registry.jobId(cwd) ?? "kb" };
   });
 
   // ── GET config ─────────────────────────────────────────────────
