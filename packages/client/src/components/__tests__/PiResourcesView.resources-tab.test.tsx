@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { PiResourcesView } from "../PiResourcesView.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PiResourcesView } from "../PiResourcesView.js";
 
 afterEach(() => cleanup());
 
@@ -10,7 +10,7 @@ const mockData: PiResourcesResult = {
   local: {
     extensions: [],
     skills: [
-      { name: "code-review", description: "Review code", filePath: "/p/.pi/skills/code-review/SKILL.md", type: "skill" },
+      { name: "code-review", description: "Review code", filePath: "/p/.pi/skills/code-review/SKILL.md", type: "skill", enabled: true },
     ],
     prompts: [],
   },
@@ -22,10 +22,10 @@ const mockData: PiResourcesResult = {
       source: "npm:pi-flows",
       scope: "local",
       resources: {
-        extensions: [{ name: "flow-runner", filePath: "/p/.pi/extensions/flow-runner.ts", type: "extension" }],
+        extensions: [{ name: "flow-runner", filePath: "/p/.pi/extensions/flow-runner.ts", type: "extension", enabled: true }],
         skills: [
-          { name: "skill-a", filePath: "/p/skills/a/SKILL.md", type: "skill" },
-          { name: "skill-b", filePath: "/p/skills/b/SKILL.md", type: "skill" },
+          { name: "skill-a", filePath: "/p/skills/a/SKILL.md", type: "skill", enabled: true },
+          { name: "skill-b", filePath: "/p/skills/b/SKILL.md", type: "skill", enabled: true },
         ],
         prompts: [],
       },

@@ -3,10 +3,16 @@
  * from local (.pi/), global (~/.pi/agent/), and installed packages.
  */
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
 import * as npm from "@blackbelt-technology/pi-dashboard-shared/platform/npm.js";
-import type { PiResource, PiResourceScope, PiPackageInfo, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { PiPackageInfo, PiResource, PiResourceScope, PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import {
+  buildEnabledMap,
+  resolveActivation as defaultResolveActivation,
+  lookupEnabled,
+  type ResolveActivationFn,
+} from "./pi-resource-activation.js";
 
 // ── Frontmatter Parsing ─────────────────────────────────────────────
 
@@ -87,6 +93,7 @@ function discoverSkills(skillsDir: string): PiResource[] {
           description: fm.description,
           filePath: skillFile,
           type: "skill",
+          enabled: true,
         });
       }
     } else if (entry.endsWith(".md")) {
@@ -98,6 +105,7 @@ function discoverSkills(skillsDir: string): PiResource[] {
         description: fm.description,
         filePath: entryPath,
         type: "skill",
+        enabled: true,
       });
     }
   }
@@ -113,6 +121,7 @@ function discoverExtensions(extDir: string): PiResource[] {
         name: entry.replace(/\.(ts|js)$/, ""),
         filePath: entryPath,
         type: "extension",
+        enabled: true,
       });
     } else if (safeIsDirectory(entryPath)) {
       const indexTs = path.join(entryPath, "index.ts");
@@ -123,6 +132,7 @@ function discoverExtensions(extDir: string): PiResource[] {
           name: entry,
           filePath: indexFile,
           type: "extension",
+          enabled: true,
         });
       }
     }
@@ -143,6 +153,7 @@ function discoverPrompts(promptsDir: string): PiResource[] {
       description: fm.description,
       filePath: entryPath,
       type: "prompt",
+      enabled: true,
     });
   }
   return prompts;
@@ -245,7 +256,7 @@ function scanPackageDir(pkgDir: string): PiResourceScope {
                 scope.extensions.push(...discoverExtensions(resolved));
               } else {
                 const name = path.basename(resolved).replace(/\.(ts|js)$/, "");
-                scope.extensions.push({ name, filePath: resolved, type: "extension" });
+                scope.extensions.push({ name, filePath: resolved, type: "extension", enabled: true });
               }
             }
           }
@@ -335,6 +346,15 @@ export function resolvePackages(
 
 export interface ScanOptions {
   globalDir?: string;
+  /** Injectable for tests. Defaults to pi's real `PackageManager.resolve()`. */
+  resolveActivation?: ResolveActivationFn;
+}
+
+/** Set `enabled` on every resource in a scope from pi's resolver output. */
+function applyActivationToScope(scope: PiResourceScope, map: Map<string, boolean>): void {
+  for (const r of scope.extensions) r.enabled = lookupEnabled(map, r.filePath);
+  for (const r of scope.skills) r.enabled = lookupEnabled(map, r.filePath);
+  for (const r of scope.prompts) r.enabled = lookupEnabled(map, r.filePath);
 }
 
 export async function scanPiResources(cwd: string, options?: ScanOptions): Promise<PiResourcesResult> {
@@ -358,9 +378,24 @@ export async function scanPiResources(cwd: string, options?: ScanOptions): Promi
   const localNames = new Set(localPackages.map((p) => p.name));
   const dedupedGlobal = globalPackages.filter((p) => !localNames.has(p.name));
 
+  const allPackages = [...localPackages, ...dedupedGlobal];
+
+  // Consume pi's own resolver to stamp `enabled` on every scanned resource.
+  // One `resolve()` for the cwd covers local, global, and package resources.
+  // On failure the map is empty → every resource keeps its `enabled: true`
+  // default. See change: folder-resource-activation-toggle.
+  const resolveFn = options?.resolveActivation ?? defaultResolveActivation;
+  const resolved = await resolveFn(cwd, globalDir);
+  if (resolved) {
+    const map = buildEnabledMap(resolved);
+    applyActivationToScope(local, map);
+    applyActivationToScope(global, map);
+    for (const pkg of allPackages) applyActivationToScope(pkg.resources, map);
+  }
+
   return {
     local,
     global,
-    packages: [...localPackages, ...dedupedGlobal],
+    packages: allPackages,
   };
 }

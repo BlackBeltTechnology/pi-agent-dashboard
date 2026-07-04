@@ -1,9 +1,10 @@
 /**
  * Pi Gateway - WebSocket server for bridge extension connections.
  */
-import { WebSocketServer, WebSocket } from "ws";
+
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { WebSocket, WebSocketServer } from "ws";
 import type { SessionManager } from "./memory-session-manager.js";
 import { getSpawnRegisterWatchdog } from "./spawn-register-watchdog.js";
 
@@ -24,6 +25,8 @@ export interface PiGateway {
   broadcast(msg: ServerToExtensionMessage): void;
   connectionCount(): number;
   findSessionByCwd(cwd: string): string | undefined;
+  /** All connected sessions whose cwd prefix-matches `cwd` (folder-scoped reload). */
+  findSessionsByCwd(cwd: string): string[];
   getConnectedSessionIds(): string[];
   isSessionConnected(sessionId: string): boolean;
   /** Force-close the WebSocket connection for a session */
@@ -442,6 +445,19 @@ export function createPiGateway(
         }
       }
       return undefined;
+    },
+
+    findSessionsByCwd(cwd: string): string[] {
+      // Plural of findSessionByCwd: every connected session governed by `cwd`.
+      // See change: folder-resource-activation-toggle.
+      const ids: string[] = [];
+      for (const sid of connections.keys()) {
+        const session = sessionManager.get(sid);
+        if (session && (session.cwd === cwd || session.cwd.startsWith(`${cwd}/`) || cwd.startsWith(`${session.cwd}/`))) {
+          ids.push(sid);
+        }
+      }
+      return ids;
     },
 
     getConnectedSessionIds(): string[] {

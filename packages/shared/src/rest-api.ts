@@ -283,7 +283,13 @@ export interface PiResource {
   name: string;
   description?: string;
   filePath: string;
-  type: "extension" | "skill" | "prompt";
+  type: "extension" | "skill" | "prompt" | "theme";
+  /**
+   * Scope-derived activation state, sourced from pi's own resolver
+   * (`PackageManager.resolve()` → `ResolvedResource.enabled`). A resource pi
+   * does not report defaults to `true`. See change: folder-resource-activation-toggle.
+   */
+  enabled: boolean;
 }
 
 export interface PiResourceScope {

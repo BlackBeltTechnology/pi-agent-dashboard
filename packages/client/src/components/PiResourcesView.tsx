@@ -5,12 +5,13 @@ import React, { useMemo, useState } from "react";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { usePiResources } from "../hooks/usePiResources.js";
+import { useResourceActivation } from "../hooks/useResourceActivation.js";
 import { t as i18nT } from "../lib/i18n";
 import { InstalledPackagesList } from "./InstalledPackagesList.js";
 import { PackageBrowser } from "./PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
-import { MergedScopeSection } from "./resource-tree.js";
+import { MergedScopeSection, ResourceReloadBanner } from "./resource-tree.js";
 
 interface Props {
   cwd: string;
@@ -21,6 +22,7 @@ interface Props {
 export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
   const [activeTab, setActiveTab] = useState<"installed" | "packages">("installed");
   const { data, isLoading, error, refresh } = usePiResources(cwd);
+  const activation = useResourceActivation(cwd);
   const installed = useInstalledPackages("local", cwd);
   const installedGlobal = useInstalledPackages("global");
   const operations = usePackageOperations("local", cwd, installed.refresh);
@@ -129,11 +131,14 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
 
             {data && (
               <>
+                <ResourceReloadBanner activation={activation} />
                 <MergedScopeSection
                   title={i18nT("auto.local", undefined, "Local")}
                   scope={data.local}
                   packages={data.packages.filter((p) => p.scope === "local" || !p.scope)}
                   onView={handleView}
+                  activation={activation}
+                  activationScope="local"
                 />
                 <div className="mb-4" data-testid="installed-packages-local-section">
                   <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide px-2 mb-1">
@@ -154,6 +159,8 @@ export function PiResourcesView({ cwd, onBack, onViewFile }: Props) {
                   scope={data.global}
                   packages={data.packages.filter((p) => p.scope === "global")}
                   onView={handleView}
+                  activation={activation}
+                  activationScope="global"
                 />
                 <div className="mb-4" data-testid="installed-packages-global-section">
                   <h4 className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide px-2 mb-1">

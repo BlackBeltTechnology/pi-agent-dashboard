@@ -16,8 +16,9 @@ import type { PiResource } from "@blackbelt-technology/pi-dashboard-shared/rest-
 import { mdiLoading, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { t as i18nT } from "../../lib/i18n";
-import { MergedScopeSection } from "../resource-tree.js";
+import { MergedScopeSection, ResourceReloadBanner } from "../resource-tree.js";
 
 interface Props {
   cwd: string;
@@ -26,6 +27,7 @@ interface Props {
 
 export function ResourcesPage({ cwd, onViewFile }: Props) {
   const { data, isLoading, error, refresh } = usePiResources(cwd);
+  const activation = useResourceActivation(cwd);
 
   const handleView = (resource: PiResource) => {
     onViewFile(resource.filePath, resource.name);
@@ -63,17 +65,22 @@ export function ResourcesPage({ cwd, onViewFile }: Props) {
 
       {data && (
         <>
+          <ResourceReloadBanner activation={activation} />
           <MergedScopeSection
             title={i18nT("auto.local", undefined, "Local")}
             scope={data.local}
             packages={data.packages.filter((p) => p.scope === "local" || !p.scope)}
             onView={handleView}
+            activation={activation}
+            activationScope="local"
           />
           <MergedScopeSection
             title={i18nT("auto.global", undefined, "Global")}
             scope={data.global}
             packages={data.packages.filter((p) => p.scope === "global")}
             onView={handleView}
+            activation={activation}
+            activationScope="global"
           />
         </>
       )}

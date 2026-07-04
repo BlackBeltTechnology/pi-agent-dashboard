@@ -10,10 +10,69 @@
  */
 
 import type { PiPackageInfo, PiResource, PiResourceScope } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiBookOpenPageVariant, mdiChevronDown, mdiChevronRight, mdiPuzzleOutline, mdiTextBoxOutline } from "@mdi/js";
+import { mdiBookOpenPageVariant, mdiChevronDown, mdiChevronRight, mdiPuzzleOutline, mdiRefresh, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useState } from "react";
+import type { ResourceActivationController } from "../hooks/useResourceActivation.js";
 import { t as i18nT } from "../lib/i18n";
+import type { ResourceScope } from "../lib/resources-api.js";
+
+/**
+ * Per-resource enable/disable switch, bound to `PiResource.enabled` (via the
+ * activation controller's optimistic override). Flips activation only — never
+ * installs/uninstalls. See change: folder-resource-activation-toggle.
+ */
+function ActivationToggle({ resource, enabled, onToggle }: { resource: PiResource; enabled: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      data-testid="resource-activation-toggle"
+      title={enabled ? i18nT("auto.disable", undefined, "Disable") : i18nT("auto.enable", undefined, "Enable")}
+      aria-label={`${enabled ? "Disable" : "Enable"} ${resource.name}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className={`shrink-0 relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${
+        enabled ? "bg-[var(--accent-primary)]" : "bg-[var(--bg-hover)]"
+      }`}
+    >
+      <span
+        className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+          enabled ? "translate-x-2.5" : "translate-x-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+/** One-click "Reload N sessions" banner shown after a toggle. Hidden when N=0. */
+export function ResourceReloadBanner({ activation }: { activation: ResourceActivationController }) {
+  const pending = activation.pending;
+  if (!pending || pending.count <= 0) return null;
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5 mb-2 rounded bg-[var(--bg-surface)] border border-[var(--border-secondary)]" data-testid="resource-reload-banner">
+      <button
+        type="button"
+        onClick={activation.reload}
+        data-testid="resource-reload-button"
+        className="flex items-center gap-1 text-xs font-medium text-[var(--accent-primary)] hover:underline"
+      >
+        <Icon path={mdiRefresh} size={0.5} />
+        {i18nT("auto.reload_n_sessions", { n: String(pending.count) }, `Reload ${pending.count} session${pending.count === 1 ? "" : "s"}`)}
+      </button>
+      <button
+        type="button"
+        onClick={activation.clearPending}
+        className="ml-auto text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+      >
+        {i18nT("auto.dismiss", undefined, "Dismiss")}
+      </button>
+    </div>
+  );
+}
 
 function ResourceIcon({ type }: { type: PiResource["type"] }) {
   const iconPath =
@@ -23,10 +82,11 @@ function ResourceIcon({ type }: { type: PiResource["type"] }) {
   return <Icon path={iconPath} size={0.5} className="shrink-0 text-[var(--text-muted)]" />;
 }
 
-function ResourceItem({ resource, onView, depth = 0 }: { resource: PiResource; onView: () => void; depth?: number }) {
+function ResourceItem({ resource, onView, depth = 0, activation, scope, packageSource }: { resource: PiResource; onView: () => void; depth?: number; activation?: ResourceActivationController; scope?: ResourceScope; packageSource?: string }) {
+  const enabled = activation ? activation.isEnabled(resource) : resource.enabled;
   return (
     <div
-      className="flex items-start gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] group cursor-pointer"
+      className={`flex items-start gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] group cursor-pointer ${activation && !enabled ? "opacity-50" : ""}`}
       style={{ paddingLeft: `${(depth + 1) * 16}px` }}
       data-testid="resource-item"
       onClick={onView}
@@ -41,11 +101,18 @@ function ResourceItem({ resource, onView, depth = 0 }: { resource: PiResource; o
         )}
       </div>
       <ResourceIcon type={resource.type} />
+      {activation && scope && (
+        <ActivationToggle
+          resource={resource}
+          enabled={enabled}
+          onToggle={() => activation.toggle(resource, scope, packageSource)}
+        />
+      )}
     </div>
   );
 }
 
-function ResourceGroup({ kind, label, resources, onView, depth = 1 }: { kind: PiResource["type"]; label: string; resources: PiResource[]; onView: (r: PiResource) => void; depth?: number }) {
+function ResourceGroup({ kind, label, resources, onView, depth = 1, activation, scope, packageSource }: { kind: PiResource["type"]; label: string; resources: PiResource[]; onView: (r: PiResource) => void; depth?: number; activation?: ResourceActivationController; scope?: ResourceScope; packageSource?: string }) {
   const [collapsed, setCollapsed] = useState(true);
   if (resources.length === 0) return null;
   // Icon derives from the stable resource type, not the localized label.
@@ -71,7 +138,7 @@ function ResourceGroup({ kind, label, resources, onView, depth = 1 }: { kind: Pi
       {!collapsed && (
         <div>
           {resources.map((r) => (
-            <ResourceItem key={r.filePath} resource={r} onView={() => onView(r)} depth={depth} />
+            <ResourceItem key={r.filePath} resource={r} onView={() => onView(r)} depth={depth} activation={activation} scope={scope} packageSource={packageSource} />
           ))}
         </div>
       )}
@@ -79,7 +146,7 @@ function ResourceGroup({ kind, label, resources, onView, depth = 1 }: { kind: Pi
   );
 }
 
-function PackageItem({ pkg, onView }: { pkg: PiPackageInfo; onView: (r: PiResource) => void }) {
+function PackageItem({ pkg, onView, activation, scope }: { pkg: PiPackageInfo; onView: (r: PiResource) => void; activation?: ResourceActivationController; scope?: ResourceScope }) {
   const [collapsed, setCollapsed] = useState(true);
   const hasResources =
     pkg.resources.extensions.length > 0 ||
@@ -108,9 +175,9 @@ function PackageItem({ pkg, onView }: { pkg: PiPackageInfo; onView: (r: PiResour
           )}
           {hasResources ? (
             <>
-              <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={pkg.resources.skills} onView={onView} depth={2} />
-              <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={pkg.resources.extensions} onView={onView} depth={2} />
-              <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={pkg.resources.prompts} onView={onView} depth={2} />
+              <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={pkg.resources.skills} onView={onView} depth={2} activation={activation} scope={scope} packageSource={pkg.source} />
+              <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={pkg.resources.extensions} onView={onView} depth={2} activation={activation} scope={scope} packageSource={pkg.source} />
+              <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={pkg.resources.prompts} onView={onView} depth={2} activation={activation} scope={scope} packageSource={pkg.source} />
             </>
           ) : (
             <p className="text-[10px] text-[var(--text-muted)] italic" style={{ paddingLeft: "40px" }}>{i18nT("auto.no_resources", undefined, "(no resources)")}</p>
@@ -121,11 +188,14 @@ function PackageItem({ pkg, onView }: { pkg: PiPackageInfo; onView: (r: PiResour
   );
 }
 
-export function MergedScopeSection({ title, scope, packages, onView }: {
+export function MergedScopeSection({ title, scope, packages, onView, activation, activationScope }: {
   title: string;
   scope: PiResourceScope;
   packages: PiPackageInfo[];
   onView: (r: PiResource) => void;
+  activation?: ResourceActivationController;
+  /** Which pi scope this section writes to when a row is toggled. */
+  activationScope?: ResourceScope;
 }) {
   const [collapsed, setCollapsed] = useState(true);
   const looseCount = scope.extensions.length + scope.skills.length + scope.prompts.length;
@@ -165,13 +235,13 @@ export function MergedScopeSection({ title, scope, packages, onView }: {
           <>
             {hasLoose && (
               <>
-                <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={scope.skills} onView={onView} depth={1} />
-                <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={scope.extensions} onView={onView} depth={1} />
-                <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={scope.prompts} onView={onView} depth={1} />
+                <ResourceGroup kind="skill" label={i18nT("auto.skills", undefined, "Skills")} resources={scope.skills} onView={onView} depth={1} activation={activation} scope={activationScope} />
+                <ResourceGroup kind="extension" label={i18nT("auto.extensions", undefined, "Extensions")} resources={scope.extensions} onView={onView} depth={1} activation={activation} scope={activationScope} />
+                <ResourceGroup kind="prompt" label={i18nT("auto.prompts", undefined, "Prompts")} resources={scope.prompts} onView={onView} depth={1} activation={activation} scope={activationScope} />
               </>
             )}
             {contributingPackages.map((pkg) => (
-              <PackageItem key={pkg.source} pkg={pkg} onView={onView} />
+              <PackageItem key={pkg.source} pkg={pkg} onView={onView} activation={activation} scope={activationScope} />
             ))}
           </>
         )

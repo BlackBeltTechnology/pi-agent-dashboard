@@ -98,6 +98,7 @@ import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-work
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
+import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
@@ -1098,6 +1099,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
 
   registerPackageRoutes(fastify, { packageManagerWrapper });
+  registerResourceActivationRoutes(fastify, { networkGuard, piGateway, sessionManager });
   registerRecommendedRoutes(fastify, { packageManagerWrapper });
 
   // Pi core version check + update (complements the extension package manager).

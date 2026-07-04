@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import React from "react";
-import { PiResourcesView } from "../PiResourcesView.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PiResourcesView } from "../PiResourcesView.js";
 
 /**
  * The "Local" and "Global" scope sections render collapsed by default.
@@ -39,10 +39,10 @@ const mockData: PiResourcesResult = {
   local: {
     extensions: [],
     skills: [
-      { name: "code-review", description: "Review code quality.", filePath: "/project/.pi/skills/code-review/SKILL.md", type: "skill" },
+      { name: "code-review", description: "Review code quality.", filePath: "/project/.pi/skills/code-review/SKILL.md", type: "skill", enabled: true },
     ],
     prompts: [
-      { name: "opsx-apply", description: "Apply changes.", filePath: "/project/.pi/prompts/opsx-apply.md", type: "prompt" },
+      { name: "opsx-apply", description: "Apply changes.", filePath: "/project/.pi/prompts/opsx-apply.md", type: "prompt", enabled: true },
     ],
   },
   global: {
@@ -56,7 +56,7 @@ const mockData: PiResourcesResult = {
       description: "Web search and fetch",
       source: "npm:pi-web-access",
       resources: {
-        extensions: [{ name: "index", filePath: "/global/node_modules/pi-web-access/index.ts", type: "extension" }],
+        extensions: [{ name: "index", filePath: "/global/node_modules/pi-web-access/index.ts", type: "extension", enabled: true }],
         skills: [],
         prompts: [],
       },

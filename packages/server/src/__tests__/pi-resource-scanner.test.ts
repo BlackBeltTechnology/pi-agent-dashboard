@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
-import { scanLocalResources, scanGlobalResources, parseFrontmatter, resolvePackages, scanPiResources } from "../pi-resource-scanner.js";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parseFrontmatter, resolvePackages, scanGlobalResources, scanLocalResources, scanPiResources } from "../pi-resource-scanner.js";
 
 let tmpDir: string;
 
@@ -231,5 +231,60 @@ Body`);
     expect(result.local.prompts).toHaveLength(1);
     expect(result.global.skills).toEqual([]);
     expect(result.packages).toEqual([]);
+  });
+});
+
+describe("scanPiResources activation state", () => {
+  it("marks a resolver-disabled resource enabled:false and an unmatched one enabled:true", async () => {
+    writeFile(".pi/skills/notes.md", "---\nname: notes\n---\nBody");
+    writeFile(".pi/skills/keep.md", "---\nname: keep\n---\nBody");
+    const notesPath = path.join(tmpDir, ".pi", "skills", "notes.md");
+
+    // Fake resolver reports only `notes` (disabled). `keep` is unreported.
+    const resolveActivation = async () => ({
+      extensions: [],
+      skills: [
+        { path: notesPath, enabled: false, metadata: { source: "auto", scope: "project", origin: "top-level" as const } },
+      ],
+      prompts: [],
+      themes: [],
+    });
+
+    const result = await scanPiResources(tmpDir, {
+      globalDir: path.join(tmpDir, "nonexistent-global"),
+      resolveActivation,
+    });
+    const notes = result.local.skills.find((s) => s.name === "notes");
+    const keep = result.local.skills.find((s) => s.name === "keep");
+    expect(notes?.enabled).toBe(false);
+    expect(keep?.enabled).toBe(true);
+  });
+
+  it("applies activation to both local and global scopes", async () => {
+    const globalDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-res-global-"));
+    try {
+      writeFile(".pi/skills/local-skill.md", "---\nname: local-skill\n---\nBody");
+      fs.mkdirSync(path.join(globalDir, "skills"), { recursive: true });
+      fs.writeFileSync(path.join(globalDir, "skills", "global-skill.md"), "---\nname: global-skill\n---\nBody");
+      const globalSkillPath = path.join(globalDir, "skills", "global-skill.md");
+
+      // Resolver disables the global skill; local defaults to enabled.
+      const resolveActivation = async () => ({
+        extensions: [],
+        skills: [
+          { path: globalSkillPath, enabled: false, metadata: { source: "auto", scope: "user", origin: "top-level" as const } },
+        ],
+        prompts: [],
+        themes: [],
+      });
+
+      const result = await scanPiResources(tmpDir, { globalDir, resolveActivation });
+      const localSkill = result.local.skills.find((s) => s.name === "local-skill");
+      const globalSkill = result.global.skills.find((s) => s.name === "global-skill");
+      expect(localSkill?.enabled).toBe(true);
+      expect(globalSkill?.enabled).toBe(false);
+    } finally {
+      fs.rmSync(globalDir, { recursive: true, force: true });
+    }
   });
 });
