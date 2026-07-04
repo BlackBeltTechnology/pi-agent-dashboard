@@ -20,7 +20,7 @@
 - [x] 3.1 Create `packages/eng-disciplines/.pi/skills/node-inspect-debugger/scripts/cdp-inspect.ts` using Node 24's global `WebSocket` (no new runtime dependency): fetch `/json/list`, open `webSocketDebuggerUrl`, enable `Debugger`+`Runtime`, `setBreakpointByUrl(<ts-url>, <line>)`, `runIfWaitingForDebugger`, resume past the entry halt, and on the hit walk `callFrames[0].scopeChain` dumping `local`/`closure` props
 - [x] 3.2 CLI shape: `npx tsx cdp-inspect.ts <port> <ts-url> <line>`; print `PAUSED at <file>:<line> fn=<name>` then one line per local/closure var
 - [x] 3.3 Reference `cdp-inspect.ts` from the SKILL.md "programmatic CDP" tier as the ready-made helper
-- [ ] 3.4 Verify the helper against a throwaway target (same shape as the spike) and confirm it prints live locals at a `.ts` breakpoint — DEFERRED: needs installed deps + a running jiti target; this worktree has no `node_modules`. Run on the publish/dev machine before archive.
+- [ ] 3.4 Verify the helper against a throwaway target (same shape as the spike) and confirm it prints live locals at a `.ts` breakpoint — DEFERRED: needs installed deps + a running jiti target; this worktree has no `node_modules`. ACCEPTED-DEFERRED by user at archive time; verify on dev machine later. Mechanism already proven by the recorded spike in design.md.
 
 ## 4. Package wiring
 
@@ -39,4 +39,4 @@
 - [x] 6.1 `openspec validate add-debugging-skills` exits 0
 - [x] 6.2 Restart an active pi session in this repo; confirm both skills appear in the available-skills listing and load full bodies on invocation — VERIFIED: `pi install`ed globally (0.5.6); both skills present with valid `name:` frontmatter (systematic-debugging 128 lines, node-inspect-debugger 135 lines); cdp-inspect.ts shipped.
 - [x] 6.3 Confirm no new dependency landed in the root `package.json` (CDP helper uses global `WebSocket`)
-- [ ] 6.4 `npm run quality:changed` passes (biome + tsc on `cdp-inspect.ts` + tests) — PARTIAL: biome clean on `cdp-inspect.ts` (verified via `npx @biomejs/biome`); tsc + tests DEFERRED (no `node_modules` in this worktree).
+- [ ] 6.4 `npm run quality:changed` passes (biome + tsc on `cdp-inspect.ts` + tests) — PARTIAL: biome clean on `cdp-inspect.ts` (verified via `npx @biomejs/biome`); tsc + tests ACCEPTED-DEFERRED by user at archive time (no `node_modules` here; change adds only skill files + package.json entries, no source imports, so the suite is unaffected).
