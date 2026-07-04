@@ -385,12 +385,20 @@ function packageDirModuleDef(
  *   real `.js` and stop depending on the shebang finding `node` on PATH.
  *   Windows managed-bin resolves a `.cmd` shim (not a symlink), so the
  *   deref is skipped there — preserving the Windows branch byte-for-byte.
+ *
+ * The `realpath` seam defaults to real `realpathSync`; tests inject a fake
+ * so a mocked `BUNDLED_*` path cannot dereference to a real on-disk script.
+ * See change: fix-node-electron-resolution-test-isolation.
  */
-function resolveJsScript(resolvedPath: string, platform: NodeJS.Platform): string | null {
+function resolveJsScript(
+  resolvedPath: string,
+  platform: NodeJS.Platform,
+  realpath: (p: string) => string = realpathSync,
+): string | null {
   if (/\.js$/i.test(resolvedPath)) return resolvedPath;
   if (platform !== "win32") {
     try {
-      const real = realpathSync(resolvedPath);
+      const real = realpath(resolvedPath);
       if (/\.js$/i.test(real)) return real;
     } catch {
       // Not a symlink / missing on disk — fall through to shebang path.
@@ -418,20 +426,28 @@ function resolveJsScript(resolvedPath: string, platform: NodeJS.Platform): strin
  *   1. `registry.resolve("node")` when it returns ok with a non-null path
  *      (the strategy chain has already validated existence via its
  *      injected `exists` dep) — the deterministic, PATH-independent path.
- *   2. `process.execPath` — the dashboard server's own interpreter — as a
- *      guaranteed-well-formed fallback. Under Electron this is the
- *      Electron binary; the runner sets `ELECTRON_RUN_AS_NODE=1` on that
- *      child spawn so it still executes as node.
+ *   2. `execPath` (default `process.execPath`) — the dashboard server's
+ *      own interpreter — as a guaranteed-well-formed fallback. Under
+ *      Electron this is the Electron binary; the runner sets
+ *      `ELECTRON_RUN_AS_NODE=1` on that child spawn so it still executes
+ *      as node. The `execPath`/`realpath` seams come from injected
+ *      `StrategyDeps` (default = live process/fs), so executor argv
+ *      assembly is deterministic under test and never leaks host machine
+ *      state. See change: fix-node-electron-resolution-test-isolation.
  */
-const nodeScriptToArgv: ToolDefinition["toArgv"] = (resolvedPath, { platform, registry }) => {
-  const scriptPath = resolveJsScript(resolvedPath, platform);
-  if (scriptPath) {
-    const node = registry.resolve("node");
-    if (node.ok && node.path) return [node.path, scriptPath];
-    return [process.execPath, scriptPath];
-  }
-  return [resolvedPath];
-};
+function makeNodeScriptToArgv(deps?: StrategyDeps): ToolDefinition["toArgv"] {
+  const execPath = deps?.execPath ?? process.execPath;
+  const realpath = deps?.realpath ?? realpathSync;
+  return (resolvedPath, { platform, registry }) => {
+    const scriptPath = resolveJsScript(resolvedPath, platform, realpath);
+    if (scriptPath) {
+      const node = registry.resolve("node");
+      if (node.ok && node.path) return [node.path, scriptPath];
+      return [execPath, scriptPath];
+    }
+    return [resolvedPath];
+  };
+}
 
 /**
  * Executor definition for `pi` — ONE tool, OS dispatch inside.
@@ -478,7 +494,7 @@ function piExecutorDef(deps?: StrategyDeps): ToolDefinition {
     kind: "executor",
     strategies: unixStrategies,
     platformStrategies: { win32: winStrategies },
-    toArgv: nodeScriptToArgv,
+    toArgv: makeNodeScriptToArgv(deps),
     classify,
   };
 }
@@ -518,7 +534,7 @@ function openspecExecutorDef(deps?: StrategyDeps): ToolDefinition {
     kind: "executor",
     strategies: unixStrategies,
     platformStrategies: { win32: winStrategies },
-    toArgv: nodeScriptToArgv,
+    toArgv: makeNodeScriptToArgv(deps),
     classify,
   };
 }
@@ -592,7 +608,7 @@ function npmExecutorDef(deps?: StrategyDeps): ToolDefinition {
     kind: "executor",
     strategies: unixStrategies,
     platformStrategies: { win32: winStrategies },
-    toArgv: nodeScriptToArgv,
+    toArgv: makeNodeScriptToArgv(deps),
     classify,
   };
 }
