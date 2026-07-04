@@ -72,6 +72,22 @@ When an override row has `updateAvailable` + `latestVersion`, keep the `current 
 1. **Show version FYI on override rows** — YES, muted. (Alternative: hide entirely — rejected, loses signal.)
 2. **Badge shape** — compact separate `override` pill (not merged `npm ⟶ local` text). Fits existing badge row; less horizontal churn.
 
+## Doubt review (2026-07-04) — problem #2 threat model contested
+
+A fresh-context adversarial review, cross-checked against pi's `package-manager.js`, found the **update-gating half of this change defends a bug that cannot occur today**. The verbal-remark half (problem #1) is unaffected and remains valid. Findings, grounded in source:
+
+- **`update()` routes by the row's own source, never npm.** `onUpdate: () => operations.update(pkg.source)` → pi `update(source)` (`package-manager.js:769`) matches by `getPackageIdentity(source)` and updates the *configured source string* — local stays local, git stays git. No npm-over-checkout path exists. The proposal's "reinstalls from npm over a live local checkout" is false.
+- **Local override → button never renders.** `checkForAvailableUpdates()` (`:882`) does `if (parsed.type === "local" || parsed.pinned) return undefined` → `updateAvailable` always false → PackageRow's `updateAvailable && canUpdate && onUpdate` guard (`PackageRow.tsx:211`) draws nothing. And `installParsedSource` (`:1017`) has no `local` branch → `update()` on a local source is a no-op. Nothing to clobber.
+- **Git override → button can render, but `update()` does `installGit` (git fetch/pull into the git install path)** — not an npm clobber.
+- **Inert edit site.** `InstalledPackagesList` is used only in `PiResourcesView`, not Settings; its `updateAvailable` comes from `pkg.updateAvailable`, which the server enricher never sets → always false. Gating `canUpdate` there (`InstalledPackagesList.tsx:212`) has no effect.
+- **Miscounted sites.** Four `canUpdate={true}` sites exist (`PackageBrowser.tsx:195`, `UnifiedPackagesSection.tsx:302` + `:396`, `InstalledPackagesList.tsx:212`), not two; `PackageBrowser` rows are non-recommended (out of scope) but the design never says why.
+- **Classifier rationale overstated.** `classifySource` already returns `"git"` for `.git`-suffixed sources; only `git:host/o/r#ref` (no `.git`) falls to `"global"`. Fix still valid.
+- **`isDev` marker renders the literal word `dev`** (`PackageRow.tsx:163`) — feeding `isDev = isOverride` would show `dev` on override rows, misleading. Use the dedicated `override` pill only.
+- **Prop plumbing gap.** `isOverride` must be added to `PackageRowProps` and forwarded through `WhatsNewPackageRow` — not in tasks.
+- **Predicate fragility (latent).** `isSourceOverride` misfires if a future `RECOMMENDED_EXTENSIONS` entry declares a git/local source (all 18 are `npm:` today).
+
+**Recommendation:** re-scope — drop the update-gating half (problem #2, tasks §2.3 + §3) or reproduce a real clobber first; keep only the `override` verbal remark (problem #1). Not yet reconciled into the requirements below; proposal/tasks still describe the original scope.
+
 ## Risks
 - **Classifier divergence (addressed).** The `git:`-prefix mismatch between `classifySource` and `parseSourceKey` is the one real hazard; fixed by gating off the boolean + aligning `classifySource`. Regression-guarded by a unit test asserting `classifySource("git:github.com/o/r") === "git"` and `isSourceOverride` true for that row.
 - **`sourcesMatch` basename false-positive:** a recommended package “matched” to an unrelated local path whose basename collides is the accepted `sourcesMatch` tradeoff; the override remark inherits it. Low blast radius — a label + a *disabled* button; both harmless and reversible.
