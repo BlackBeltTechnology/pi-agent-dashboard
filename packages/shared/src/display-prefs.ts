@@ -26,6 +26,14 @@ export interface DisplayPrefs {
   turnMetadata: boolean;
   debugTools: boolean;
   toolCalls: ToolCallPrefs;
+  /**
+   * Milliseconds a live-streamed reasoning block stays open after it finishes
+   * before auto-collapsing. `0` = never auto-collapse (stay open until clicked).
+   * Only applies to reasoning streamed live in the current view; replayed /
+   * cold-loaded blocks are unaffected. Default `30000`.
+   * See change: reasoning-auto-collapse-timer.
+   */
+  reasoningAutoCollapseMs: number;
 }
 
 /**
@@ -47,6 +55,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     turnMetadata: false,
     debugTools: false,
     toolCalls: { read: false, bash: false, edit: true, agent: true, generic: false },
+    reasoningAutoCollapseMs: 30000,
   },
   standard: {
     tokenStatsBar: true,
@@ -56,6 +65,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     turnMetadata: true,
     debugTools: false,
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+    reasoningAutoCollapseMs: 30000,
   },
   everything: {
     tokenStatsBar: true,
@@ -65,6 +75,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     turnMetadata: true,
     debugTools: true,
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+    reasoningAutoCollapseMs: 30000,
   },
 };
 
@@ -90,6 +101,8 @@ export function mergeDisplayPrefs(
     turnMetadata: override.turnMetadata ?? global.turnMetadata,
     debugTools: override.debugTools ?? global.debugTools,
     toolCalls: { ...global.toolCalls, ...(override.toolCalls ?? {}) },
+    reasoningAutoCollapseMs:
+      override.reasoningAutoCollapseMs ?? global.reasoningAutoCollapseMs,
   };
 }
 

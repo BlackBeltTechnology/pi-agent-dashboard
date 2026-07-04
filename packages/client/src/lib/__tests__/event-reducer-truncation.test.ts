@@ -21,7 +21,7 @@ function lines(n: number, prefix = "L"): string {
   return Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`).join("\n");
 }
 function applyEvents(events: DashboardEvent[]): SessionState {
-  return events.reduce(reduceEvent, createInitialState());
+  return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
 }
 
 describe("truncateOutputForDisplay (pure helper)", () => {

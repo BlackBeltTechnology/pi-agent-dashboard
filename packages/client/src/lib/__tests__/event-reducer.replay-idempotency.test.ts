@@ -138,8 +138,8 @@ describe("event-reducer replay idempotency", () => {
   it("reducing the same sequence twice from initial state produces equal messages[]", () => {
     const events = buildSessionEvents();
 
-    const run1 = events.reduce(reduceEvent, createInitialState());
-    const run2 = events.reduce(reduceEvent, createInitialState());
+    const run1 = events.reduce((s, e) => reduceEvent(s, e), createInitialState());
+    const run2 = events.reduce((s, e) => reduceEvent(s, e), createInitialState());
 
     expect(run2.messages.length).toBe(run1.messages.length);
     for (let i = 0; i < run1.messages.length; i++) {
@@ -163,7 +163,7 @@ describe("event-reducer replay idempotency", () => {
     // local guarantees: tool rows and flush rows are key-stable across replay.
     const events = buildSessionEvents();
 
-    let s = events.reduce(reduceEvent, createInitialState());
+    let s = events.reduce((s, e) => reduceEvent(s, e), createInitialState());
     const toolRowsAfterFirstRun = s.messages.filter((m) => m.role === "toolResult").length;
     const flushRowsAfterFirstRun = s.messages.filter(
       (m) => m.role === "assistant" && typeof m.id === "string" && m.id.startsWith("flush-"),

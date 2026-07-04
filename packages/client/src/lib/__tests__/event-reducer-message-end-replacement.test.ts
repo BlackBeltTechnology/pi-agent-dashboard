@@ -18,7 +18,7 @@ import {
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
-  return events.reduce(reduceEvent, createInitialState());
+  return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
 }
 function asstStart(t: number): DashboardEvent {
   return { eventType: "message_start", timestamp: t, data: { message: { role: "assistant", content: [] } } };

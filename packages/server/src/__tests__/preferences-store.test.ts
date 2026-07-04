@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPreferencesStore } from "../preferences-store.js";
 
 // Mock resolve-path to be a no-op (no symlink resolution in tests)
@@ -493,6 +493,33 @@ describe("preferences-store", () => {
       const store2 = createPreferencesStore(filePath);
       expect(store2.getDisplayPrefs()?.debugTools).toBe(true);
       store2.dispose();
+    });
+
+    // See change: reasoning-auto-collapse-timer.
+    it("PATCH omitting reasoningAutoCollapseMs preserves the stored value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setDisplayPrefs({ reasoningAutoCollapseMs: 5000 });
+      // An unrelated PATCH (toggle reasoning) must not reset the numeric field.
+      const merged = store.setDisplayPrefs({ reasoning: true });
+      expect(merged.reasoningAutoCollapseMs).toBe(5000);
+      store.dispose();
+    });
+
+    it("backfills reasoningAutoCollapseMs to 30000 for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: {
+          tokenStatsBar: true,
+          contextUsageBar: true,
+          reasoning: false,
+          toolResults: true,
+          turnMetadata: true,
+          debugTools: false,
+          toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+        },
+      }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.reasoningAutoCollapseMs).toBe(30000);
+      store.dispose();
     });
   });
 

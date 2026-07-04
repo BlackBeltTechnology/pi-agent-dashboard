@@ -166,6 +166,17 @@ function sanitizeName(input: unknown): string | null {
   return trimmed;
 }
 
+/**
+ * Legacy backfill: files predating `reasoningAutoCollapseMs` load with the
+ * field absent. Single chokepoint guaranteeing the client always receives a
+ * number (default 30000). See change: reasoning-auto-collapse-timer.
+ */
+function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | undefined {
+  if (!prefs) return prefs;
+  if (typeof prefs.reasoningAutoCollapseMs === "number") return prefs;
+  return { ...prefs, reasoningAutoCollapseMs: 30000 };
+}
+
 function normalizeWorkspaceOnLoad(ws: Workspace): Workspace {
   const folders = dedupePreserveOrder((ws.folders ?? []).map((p) => canonicalize(p)));
   return {
@@ -216,7 +227,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
 
   const rawWorkspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
   let workspaces: Workspace[] = rawWorkspaces.map(normalizeWorkspaceOnLoad);
-  let displayPrefs: DisplayPrefs | undefined = data.displayPrefs;
+  let displayPrefs: DisplayPrefs | undefined = backfillDisplayPrefs(data.displayPrefs);
   let openspecUpdateSignatures: Record<string, string> = data.openspecUpdateSignatures ?? {};
   // Opt-in auto-init flag. Absent/non-boolean → false (today's behavior).
   let autoInitWorktreeOnSpawn: boolean = data.autoInitWorktreeOnSpawn === true;
@@ -461,6 +472,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         turnMetadata: false,
         debugTools: false,
         toolCalls: { read: false, bash: false, edit: false, agent: false, generic: false },
+        reasoningAutoCollapseMs: 30000,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -470,6 +482,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         turnMetadata: partial.turnMetadata ?? base.turnMetadata,
         debugTools: partial.debugTools ?? base.debugTools,
         toolCalls: { ...base.toolCalls, ...(partial.toolCalls ?? {}) },
+        reasoningAutoCollapseMs: partial.reasoningAutoCollapseMs ?? base.reasoningAutoCollapseMs,
       };
       displayPrefs = merged;
       scheduleSave();

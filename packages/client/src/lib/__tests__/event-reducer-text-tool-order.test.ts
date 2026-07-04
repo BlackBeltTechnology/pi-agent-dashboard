@@ -16,7 +16,7 @@ import { createInitialState, reduceEvent, type SessionState } from "../event-red
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
-  return events.reduce(reduceEvent, createInitialState());
+  return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
 }
 
 /** Build a `message_start` event with role:"assistant" (no-op in reducer but

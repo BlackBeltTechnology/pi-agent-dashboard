@@ -815,6 +815,7 @@ const zhCN: Record<string, string> = {
   "settings.worktreeButtons": "在文件夹和 OpenSpec 行里显示 worktree 启动按钮",
   "settings.tokenStatsBar": "Token 统计栏",
   "settings.reasoningBlocks": "推理块",
+  "settings.reasoningAutoCollapse": "推理自动折叠（秒，0 = 永不）",
   "settings.toolResultBodies": "工具结果正文",
   "settings.turnMetadata": "轮次元数据分隔符",
   "settings.toolCallsHeader": "工具调用 - 显示这些类型",

@@ -12,8 +12,6 @@ import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
 import { EditorView } from "./components/EditorView.js";
-import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
-import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { FileDiffView } from "./components/FileDiffView.js";
 import { InstallBanner } from "./components/InstallBanner.js";
 import { LandingPage } from "./components/LandingPage.js";
@@ -35,9 +33,11 @@ import { ServerSelector } from "./components/ServerSelector.js";
 import { SessionBanner } from "./components/SessionBanner.js";
 import { SessionHeader } from "./components/SessionHeader.js";
 import { SessionList } from "./components/SessionList.js";
+import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
+import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
@@ -65,10 +65,6 @@ import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent,
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory } from "./lib/loading-history.js";
-// Strategy A (reduce-session-replay-traffic): durable replay cursor.
-import { replayCache } from "./lib/replay-cache.js";
-import { createReplayPersister } from "./lib/replay-persist.js";
-import { rehydrateSession } from "./lib/rehydrate-session.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import {
@@ -80,6 +76,10 @@ import {
 } from "./lib/nav-tracker.js";
 import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/plugins-api.js";
+import { rehydrateSession } from "./lib/rehydrate-session.js";
+// Strategy A (reduce-session-replay-traffic): durable replay cursor.
+import { replayCache } from "./lib/replay-cache.js";
+import { createReplayPersister } from "./lib/replay-persist.js";
 import {
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
@@ -141,9 +141,9 @@ import {
   useShellOverlayRouteMatched
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
-import { registerPluginRouteDescriptors } from "./lib/back-target.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
 import { usePluginEnabledSet } from "./hooks/usePluginEnabledSet.js";
+import { registerPluginRouteDescriptors } from "./lib/back-target.js";
 
 // Populate the slot registry from the build-time generated plugin manifest.
 // PLUGIN_REGISTRY is `[]` on a fresh checkout (committed stub) — slot consumers
@@ -1525,7 +1525,13 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? (entryId) => handleResumeSession(selectedId, "fork", entryId) : undefined} onCloseInlineTerminal={selectedId ? (tid) => handleCloseInlineTerminal(selectedId, tid) : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? []} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} onCollapseStreamingThinking={selectedId ? () => setSessionStates((prev) => {
+              const cur = prev.get(selectedId);
+              if (!cur || cur.streamingThinkingCollapsed) return prev;
+              const next = new Map(prev);
+              next.set(selectedId, { ...cur, streamingThinkingCollapsed: true });
+              return next;
+            }) : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — ONE

@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  mergeDisplayPrefs,
   DISPLAY_PRESETS,
-  toolCallPrefKey,
   type DisplayPrefs,
+  mergeDisplayPrefs,
+  toolCallPrefKey,
 } from "../display-prefs.js";
 
 const global: DisplayPrefs = DISPLAY_PRESETS.standard;
@@ -44,6 +44,22 @@ describe("mergeDisplayPrefs", () => {
       { reasoning: false },
     );
     expect(merged.reasoning).toBe(false);
+  });
+
+  it("defaults reasoningAutoCollapseMs to 30000 in all presets", () => {
+    expect(DISPLAY_PRESETS.simple.reasoningAutoCollapseMs).toBe(30000);
+    expect(DISPLAY_PRESETS.standard.reasoningAutoCollapseMs).toBe(30000);
+    expect(DISPLAY_PRESETS.everything.reasoningAutoCollapseMs).toBe(30000);
+  });
+
+  it("applies reasoningAutoCollapseMs override precedence", () => {
+    const merged = mergeDisplayPrefs(global, { reasoningAutoCollapseMs: 5000 });
+    expect(merged.reasoningAutoCollapseMs).toBe(5000);
+  });
+
+  it("preserves an explicit 0 override (not coerced to global default)", () => {
+    const merged = mergeDisplayPrefs(global, { reasoningAutoCollapseMs: 0 });
+    expect(merged.reasoningAutoCollapseMs).toBe(0);
   });
 });
 

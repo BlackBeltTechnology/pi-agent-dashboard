@@ -2,25 +2,26 @@
  * Hook that handles ServerToBrowserMessage dispatch.
  * Extracted from App.tsx — maps each message type to the correct state setter.
  */
-import { useCallback } from "react";
-import { createInitialState, reduceEvent, applyPromptReceived, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
-import type { DashboardSession, CommandInfo, FileEntry, OpenSpecData, OpenSpecGroup, ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { encodeFolderPath } from "../lib/folder-encoding.js";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
-import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
-import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
-import { dispatchInitEvent } from "../lib/worktree-init-bus.js";
-import { isVisibleCwd } from "../lib/cwd-visibility.js";
-import { pathKey, inferPlatform } from "../lib/session-grouping.js";
-import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
-import { clearLoadingHistory } from "../lib/loading-history.js";
-import type { ReplayPersister } from "../lib/replay-persist.js";
+
 import type {
+  PreflightReason,
   ServerToBrowserMessage,
   SpawnFailureCode,
-  PreflightReason,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { EditorInstanceStatus } from "@blackbelt-technology/pi-dashboard-shared/editor-types.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useCallback } from "react";
+import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
+import { isVisibleCwd } from "../lib/cwd-visibility.js";
+import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
+import { encodeFolderPath } from "../lib/folder-encoding.js";
+import { clearLoadingHistory } from "../lib/loading-history.js";
+import type { ReplayPersister } from "../lib/replay-persist.js";
+import { inferPlatform, pathKey } from "../lib/session-grouping.js";
+import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
+import { dispatchInitEvent } from "../lib/worktree-init-bus.js";
 
 /**
  * Rich spawn error detail stored per cwd.
@@ -39,14 +40,15 @@ export interface SpawnErrorDetail {
   /** Effective watchdog timeout in ms, for rendering "30s" in the timeout banner. */
   timeoutMs?: number;
 }
-import { applyPluginConfigUpdate, getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+
 import {
+  clearSessionEvents,
+  intentStore,
+  publishSessionData,
   publishSessionEvent,
   publishSessionEvents,
-  clearSessionEvents,
-  publishSessionData,
-  intentStore,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { applyPluginConfigUpdate, getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 
 export interface MessageHandlerSetters {
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
@@ -295,7 +297,7 @@ export function useMessageHandler(
         setSessionStates((prev) => {
           const next = new Map(prev);
           const current = next.get(msg.sessionId) ?? createInitialState();
-          next.set(msg.sessionId, reduceEvent(current, msg.event));
+          next.set(msg.sessionId, reduceEvent(current, msg.event, { isLive: true }));
           return next;
         });
         if (msg.seq > (maxSeqMapRef.current.get(msg.sessionId) ?? 0)) {

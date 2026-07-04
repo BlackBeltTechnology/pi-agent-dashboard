@@ -10,63 +10,49 @@ opt-out so non-technical users can hide noise without learning what
 "thinking" or "tool result" means first. `ask_user` is non-hidable.
 
 See change: configurable-chat-display.
-
 ## Requirements
-
 ### Requirement: Global display preferences SHALL gate chat-view elements
+The dashboard MUST persist a `DisplayPrefs` object in `preferences.json` controlling which chat-view elements render. The schema SHALL include boolean flags for `tokenStatsBar`, `contextUsageBar`, `reasoning`, `toolResults`, `turnMetadata`, `debugTools`, plus a `toolCalls` sub-object with booleans `read`, `bash`, `edit`, `agent`, `generic`. The schema SHALL also include a numeric `reasoningAutoCollapseMs` controlling how long a live-streamed reasoning block stays expanded after it completes before auto-collapsing.
 
-The dashboard MUST persist a `DisplayPrefs` object in `preferences.json` controlling which chat-view elements render. The schema SHALL include boolean flags for `tokenStatsBar`, `contextUsageBar`, `reasoning`, `toolResults`, `turnMetadata`, `debugTools`, plus a `toolCalls` sub-object with booleans `read`, `bash`, `edit`, `agent`, `generic`.
+`reasoningAutoCollapseMs` SHALL default to `30000` (30 seconds). A value of `0` SHALL mean "never auto-collapse" — a live-streamed reasoning block stays expanded until the user collapses it. The value SHALL only affect live-streamed reasoning blocks; replayed blocks are unaffected.
 
-When a flag is `false`, the corresponding element MUST NOT render in any session view. Headers and status indicators on tool calls SHALL remain visible even when `toolResults: false` — only the result body is gated.
-
-The `ask_user` tool SHALL render unconditionally. No preference flag controls its visibility. Both inline ask-user dialogs and ask-user tool result blocks are non-hidable.
-
-#### Scenario: Reasoning toggle hides ThinkingBlock
+#### Scenario: Reasoning hidden when disabled
 - **GIVEN** global `displayPrefs.reasoning = false`
 - **WHEN** the chat view renders a turn containing reasoning content
-- **THEN** no `ThinkingBlock` component mounts for that turn
+- **THEN** no reasoning block SHALL render
+- **AND** `reasoningAutoCollapseMs` SHALL have no effect
 
-#### Scenario: Tool-result toggle preserves headers
-- **GIVEN** global `displayPrefs.toolResults = false`
-- **WHEN** a turn contains a `Bash` tool call with a result body
-- **THEN** the `ToolCallStep` renders with name + status visible but the result body section is omitted
+#### Scenario: Default auto-collapse delay
+- **GIVEN** a `DisplayPrefs` object with no explicit `reasoningAutoCollapseMs`
+- **WHEN** it is loaded or merged from a preset
+- **THEN** the effective value SHALL be `30000`
 
-#### Scenario: ask_user is non-hidable
-- **GIVEN** global `displayPrefs.toolCalls.generic = false` and `toolResults = false`
-- **WHEN** the assistant invokes the `ask_user` tool
-- **THEN** the ask-user UI renders in full regardless of preferences
+#### Scenario: Legacy preferences file is backfilled
+- **GIVEN** a persisted `preferences.json` whose `displayPrefs` predates the field and has no `reasoningAutoCollapseMs`
+- **WHEN** the preferences store loads it
+- **THEN** `reasoningAutoCollapseMs` SHALL be set to `30000` before it reaches any client
+- **AND** the client SHALL never observe `reasoningAutoCollapseMs` as `undefined`
 
-#### Scenario: Tool-type granularity
-- **GIVEN** global `displayPrefs.toolCalls.read = false` and `bash = true`
-- **WHEN** a turn contains one `Read` call and one `Bash` call
-- **THEN** only the `Bash` call renders; the `Read` call is omitted
+#### Scenario: Partial PATCH preserves the field
+- **GIVEN** a stored `reasoningAutoCollapseMs` value
+- **WHEN** a `PATCH /api/preferences/display` updates a different display field and omits `reasoningAutoCollapseMs`
+- **THEN** the stored and broadcast `reasoningAutoCollapseMs` SHALL retain its prior value
+- **AND** SHALL NOT be reset to `undefined`
 
 ### Requirement: Per-session overrides SHALL deep-merge over global prefs
+Per-session `displayPrefsOverride` SHALL deep-merge over the global `DisplayPrefs` via `mergeDisplayPrefs`. Scalar and numeric fields present in the override SHALL win over the global value; absent fields SHALL fall through to global. `reasoningAutoCollapseMs` SHALL follow the same rule, and an override value of `0` SHALL be preserved (not coerced to the default).
 
-Each session's `.meta.json` MAY contain a `displayPrefsOverride: Partial<DisplayPrefs>` field. The effective prefs for a session SHALL be computed as a shallow merge of global over override for top-level keys, and a shallow merge for the nested `toolCalls` sub-object.
-
-Clearing an override (setting it to `null` via the WS message) SHALL remove the field from `.meta.json` entirely so the session falls back to pure global prefs.
-
-The WS broadcast SHALL carry `displayPrefsOverride: null` (not `undefined`) so `JSON.stringify` preserves the field for all connected browsers. On the client, the `getSessionOverride` function SHALL map `null` to `undefined` before returning.
-
-#### Scenario: Sparse override inherits unset fields
+#### Scenario: Boolean override wins
 - **GIVEN** global `displayPrefs.reasoning = true`, `tokenStatsBar = true`
 - **AND** session override `{ reasoning: false }`
-- **WHEN** the effective prefs are computed for that session
+- **WHEN** effective prefs are computed
 - **THEN** the result has `reasoning: false` and `tokenStatsBar: true`
 
-#### Scenario: toolCalls deep-merges
-- **GIVEN** global `toolCalls = { read:true, bash:true, edit:true, agent:true, generic:true }`
-- **AND** session override `{ toolCalls: { bash: false } }`
-- **WHEN** the effective prefs are computed
-- **THEN** the result has `toolCalls.bash = false` and every other `toolCalls.*` field equals the global value
-
-#### Scenario: Clearing an override restores global behavior on all clients
-- **GIVEN** a session with `displayPrefsOverride = { reasoning: false }` while global `reasoning = true`
-- **AND** two browser tabs A and B both showing the same session
-- **WHEN** tab A sends `setSessionDisplayPrefs { sessionId, override: null }`
-- **THEN** the WS broadcast includes `displayPrefsOverride: null` (not omitted)
-- **AND** both tabs clear the override and render reasoning blocks again
+#### Scenario: Numeric override precedence
+- **GIVEN** global `reasoningAutoCollapseMs = 30000`
+- **AND** session override `{ reasoningAutoCollapseMs: 0 }`
+- **WHEN** effective prefs are computed
+- **THEN** the result has `reasoningAutoCollapseMs: 0`
 
 ### Requirement: Display prefs SHALL be controllable via REST and broadcast over WS
 
@@ -197,3 +183,4 @@ The per-session display-preferences popover (the "⚙ View" `ChatViewMenu`) SHAL
 - **WHEN** the user toggles a global display-preference axis in the Settings panel
 - **THEN** no `PATCH /api/preferences/display` SHALL be sent until the user saves
 - **AND** the global prefs SHALL persist via the unified Save fan-out
+

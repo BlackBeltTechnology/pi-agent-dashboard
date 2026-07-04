@@ -27,7 +27,7 @@ import { findActiveInteractiveToolResultIds } from "../collapse-retried-errors.j
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
-  return events.reduce(reduceEvent, createInitialState());
+  return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
 }
 
 function asstStart(t: number): DashboardEvent {
@@ -847,7 +847,7 @@ describe("Task 4.1c: R6 — interleaved free-floating row does not break orderin
     ];
 
     // First pass: build the flushed row.
-    let s = events.reduce(reduceEvent, createInitialState());
+    let s = events.reduce((s, e) => reduceEvent(s, e), createInitialState());
     const flushRowsRun1 = s.messages.filter(
       (m) => m.role === "assistant" && typeof m.id === "string" && m.id.startsWith("flush-"),
     );
@@ -898,7 +898,7 @@ describe("Task 4.1c: R6 — interleaved free-floating row does not break orderin
       ),
     ];
 
-    const s = events.reduce(reduceEvent, createInitialState());
+    const s = events.reduce((s, e) => reduceEvent(s, e), createInitialState());
     const flushRows = s.messages.filter(
       (m) => m.role === "assistant" && typeof m.id === "string" && m.id.startsWith("flush-"),
     );

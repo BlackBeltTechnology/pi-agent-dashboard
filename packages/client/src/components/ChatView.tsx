@@ -67,6 +67,14 @@ interface Props {
    * session. See change: show-chat-history-loading-indicator.
    */
   loadingHistory?: boolean;
+  /**
+   * Client-only signal: the user manually collapsed the LIVE streaming
+   * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
+   * the collapse survives the streaming→committed swap (committed block stays
+   * collapsed, no hold-open timer). No server round-trip.
+   * See change: reasoning-auto-collapse-timer.
+   */
+  onCollapseStreamingThinking?: () => void;
   // onCancelSteering / onCancelPending omitted: pi exposes no queue-mutation
   // API. Steering bubbles render display-only; cancellation requires upstream
   // pi support (tracked separately). See change: honest-mid-turn-queue-surface.
@@ -189,7 +197,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory }, ref) {
+export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -400,6 +408,8 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               content={msg.content}
               startedAt={msg.startedAt}
               duration={msg.duration}
+              streamedLive={msg.streamedLive}
+              autoCollapseMs={prefs.reasoningAutoCollapseMs}
             />
           );
         }
@@ -557,6 +567,7 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
           isStreaming
           defaultExpanded
           startedAt={state.thinkingStartedAt}
+          onUserCollapse={onCollapseStreamingThinking}
         />
       )}
 
