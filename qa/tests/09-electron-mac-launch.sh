@@ -128,6 +128,56 @@ rm -f "$SERVER_LOG"
 # blocking welcome-wizard window is skipped (no interactive user on CI).
 touch "$HOME/.pi/dashboard/first-run-done"
 
+# ── OpenSpec config-read regression seed (fix-openspec-config-read-bundled-node) ─
+# Reproduce the affected managed-bin topology: a `.bin/openspec` symlink → a real
+# `bin/openspec.js` `#!/usr/bin/env node` shebang script. Pre-fix the GUI server's
+# stripped PATH cannot run the shebang (env: node → exit 127), so the CLI read
+# fails and GET /api/openspec/config returns 502. Post-fix the argv is node-wrapped
+# by absolute node path, so it resolves regardless of PATH. Also seed the global
+# config the CLI reads (~/.config/openspec/config.json). Strong-assert when the
+# seed lands; SKIP the openspec assertion only if it cannot be created.
+seed_openspec() {
+  local managed="$HOME/.pi-dashboard/node_modules"
+  local pkgdir="$managed/@fission-ai/openspec/bin"
+  local bindir="$managed/.bin"
+  OS_CONFIG="$HOME/.config/openspec/config.json"
+  OPENSPEC_SEEDED=false
+  mkdir -p "$pkgdir" "$bindir" "$(dirname "$OS_CONFIG")" 2>/dev/null || return 0
+  cat > "$pkgdir/openspec.js" <<'OSJS'
+#!/usr/bin/env node
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const a = process.argv.slice(2);
+if (a[0] === "config" && a[1] === "list") {
+  const f = path.join(os.homedir(), ".config", "openspec", "config.json");
+  let c = {};
+  try { c = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+  process.stdout.write(JSON.stringify({
+    profile: c.profile ?? "custom",
+    delivery: c.delivery ?? "both",
+    workflows: Array.isArray(c.workflows) ? c.workflows : [],
+  }));
+  process.exit(0);
+}
+process.exit(0);
+OSJS
+  chmod +x "$pkgdir/openspec.js"
+  ln -sf "../@fission-ai/openspec/bin/openspec.js" "$bindir/openspec"
+  cat > "$OS_CONFIG" <<'OSCFG'
+{
+  "profile": "core",
+  "delivery": "both",
+  "workflows": ["propose", "explore", "apply", "archive"]
+}
+OSCFG
+  if [ -L "$bindir/openspec" ] && [ -f "$OS_CONFIG" ]; then
+    OPENSPEC_SEEDED=true
+    echo "  ✓ seeded managed-bin openspec symlink + global config"
+  fi
+}
+seed_openspec
+
 # Direct exec of the inner Mach-O — NEVER `open` (open drops env/args and
 # yields an unobservable process). No --no-sandbox: real GUI session.
 # --disable-gpu: no usable GPU on the runner (macOS analog of xvfb).
@@ -204,6 +254,30 @@ if grep -q "FATAL" "$ELECTRON_LOG"; then
   exit 1
 fi
 echo "  ✓ no FATAL in Electron parent stdout"
+
+# ── OpenSpec config-read assertion (fix-openspec-config-read-bundled-node) ──
+# curl -sf returns non-zero on the 502 the stripped-PATH bug produces, so an
+# empty body IS the pre-fix failure signal. Post-fix: 200 + the seeded profile.
+if [ "${OPENSPEC_SEEDED:-false}" = true ]; then
+  OS_BODY=$(curl -sf "http://localhost:$PORT/api/openspec/config" 2>/dev/null || true)
+  if [ -z "$OS_BODY" ]; then
+    echo "FAIL: GET /api/openspec/config did not return 200"
+    echo "  Bundled-node stripped-PATH regression: the openspec shebang died"
+    echo "  (exit 127) so the CLI read failed and the route returned 502."
+    exit 1
+  fi
+  OS_PROFILE=$(node -e \
+    "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);process.stdout.write((j.data&&j.data.profile)||'?')}catch{process.stdout.write('?')}})" \
+    <<< "$OS_BODY")
+  if [ "$OS_PROFILE" != "core" ]; then
+    echo "FAIL: expected openspec profile=core from seeded config, got '$OS_PROFILE'"
+    echo "  Body: $OS_BODY"
+    exit 1
+  fi
+  echo "  ✓ GET /api/openspec/config → 200, profile=core (seeded)"
+else
+  echo "  SKIP: openspec seed unavailable — skipping config-read assertion"
+fi
 
 echo "PASS: Electron macOS real-launch smoke succeeded"
 exit 0
