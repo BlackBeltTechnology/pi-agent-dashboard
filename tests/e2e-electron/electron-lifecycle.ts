@@ -167,12 +167,19 @@ export function resolvePackagedBinary(): string {
     if (!exe) throw new Error(`[electron-e2e] No .exe under ${appDir}.`);
     return path.join(appDir, exe);
   }
-  // linux: the binary is the lowercased product name (no extension).
+  // linux: the app binary is forge's executableName ("pi-dashboard"). Prefer it
+  // by name — the app dir also contains OTHER extensionless executables
+  // (notably `chrome-sandbox`), so a "first executable without a dot" heuristic
+  // can grab the wrong file and yield "Process failed to launch".
+  const named = path.join(appDir, "pi-dashboard");
+  if (fs.existsSync(named)) return named;
+  const NON_APP = new Set(["chrome-sandbox", "chrome_crashpad_handler"]);
   const bin = fs.readdirSync(appDir).find((d) => {
+    if (NON_APP.has(d)) return false;
     const p = path.join(appDir, d);
     return fs.statSync(p).isFile() && (fs.statSync(p).mode & 0o111) !== 0 && !d.includes(".");
   });
-  if (!bin) throw new Error(`[electron-e2e] No executable under ${appDir}.`);
+  if (!bin) throw new Error(`[electron-e2e] No app executable under ${appDir}.`);
   return path.join(appDir, bin);
 }
 
