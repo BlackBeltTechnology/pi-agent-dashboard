@@ -1,16 +1,27 @@
 name: CI Electron E2E
 
-# On-demand Playwright-Electron suite (native-surface flows the web-client E2E
-# and unit tests cannot reach): zombie-adoption modal + Doctor version-skew row.
-# Packages the app (electron-forge package) then runs the specs.
+# Playwright-Electron suite (native-surface flows the web-client E2E and unit
+# tests cannot reach): zombie-adoption modal, Doctor version-skew row, tray
+# foreign row. Packages the app (electron-forge package) then runs the specs.
 # Matrix: ubuntu-latest (POSIX zombie branch, under xvfb) + windows-latest (the
 # win32 `decideIsZombie` branch — bootParentAlive-only — in the REAL app; task
-# 7.4b detection safety net). workflow_dispatch only — packaging is slow, so
-# this is not on the PR path.
-# See change: electron-attach-ownership-fixes (Electron-E2E harness).
+# 7.4b detection safety net).
+#
+# Cadence (change: run-electron-e2e-native-surface): workflow_dispatch (on
+# demand) + a pull_request path-filter so only electron-touching PRs pay the
+# ~5–8 min cost. ADVISORY — not a required check (no branch-protection gate);
+# the job-object-windows job is `continue-on-error`.
+# See change: electron-attach-ownership-fixes (harness), run-electron-e2e-native-surface (cadence).
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "packages/electron/**"
+      - "tests/e2e-electron/**"
+      - "playwright.electron.config.ts"
+      - ".github/workflows/ci-e2e-electron.yml"
 
 concurrency:
   group: ci-e2e-electron-${{ github.ref }}

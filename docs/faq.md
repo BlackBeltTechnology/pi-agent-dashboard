@@ -281,6 +281,27 @@ Prevents tray Restart nuking a terminal/bridge server on port 8000.
 
 To manage that server: stop it from its owner (terminal `pi-dashboard stop`, or quit the pi session / other Electron), then Electron can start its own.
 
+## How are the Electron native-surface flows (tray, zombie modal, Doctor row) tested?
+
+Playwright-Electron suite in `tests/e2e-electron/` launches REAL packaged app via `_electron`.
+
+Covers surfaces unit tests + web-client Docker E2E cannot reach:
+- zombie-adoption modal (native `dialog`)
+- Doctor version-skew row (doctor window DOM)
+- tray "Server managed externally" row (native menu)
+
+Native modals/menus cannot be clicked or read back. Suite stubs `dialog.showMessageBox` / `Menu.buildFromTemplate` in main process. Asserts flow reaches them with correct args + each choice's outcome.
+
+Config `playwright.electron.config.ts`. Run local: `npm run test:e2e:electron`.
+
+CI workflow `.github/workflows/ci-e2e-electron.yml`. Matrix ubuntu-latest (xvfb) + windows-latest.
+
+Cadence: `workflow_dispatch` + `pull_request` path-filter on `packages/electron/**` + `tests/e2e-electron/**`. ADVISORY — not required check.
+
+`job-object-windows` job (`taskkill /F` Job Object cascade, task 7.4a) `continue-on-error`. Needs app full spawn path. Deep validation lives in qa VM smoke (`qa/tests`).
+
+See change: run-electron-e2e-native-surface.
+
 ## How do I configure the dashboard?
 
 Edit `~/.pi/dashboard/config.json` or click gear icon in sidebar header.
