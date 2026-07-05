@@ -31,7 +31,8 @@
  * See change: electron-attach-ownership-fixes.
  */
 
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
@@ -115,7 +116,9 @@ const readLivePpidImpl: () => number = (() => {
   if (process.platform === "linux") {
     return () => {
       try {
-        const stat = execSync("cat /proc/self/stat", { encoding: "utf-8" });
+        // Direct file read — no subprocess. /api/health is polled frequently
+        // (tray 3s, Doctor, zombie detection), so avoid a per-request fork.
+        const stat = readFileSync("/proc/self/stat", "utf-8");
         // Format: pid (comm) state ppid ... — comm may contain spaces/parens,
         // so slice after the LAST ')' then split on whitespace.
         const rparen = stat.lastIndexOf(")");
@@ -131,7 +134,13 @@ const readLivePpidImpl: () => number = (() => {
   if (process.platform === "darwin") {
     return () => {
       try {
-        const out = execSync(`ps -o ppid= -p ${process.pid}`, { encoding: "utf-8" });
+        // macOS has no /proc; `ps` is the live-ppid source. execFileSync (no
+        // shell) + a hard timeout so a stalled `ps` can never block the
+        // single-threaded Fastify event loop on the health hot path.
+        const out = execFileSync("ps", ["-o", "ppid=", "-p", String(process.pid)], {
+          encoding: "utf-8",
+          timeout: 1000,
+        });
         const ppid = Number.parseInt(out.trim(), 10);
         return Number.isFinite(ppid) ? ppid : process.ppid;
       } catch {

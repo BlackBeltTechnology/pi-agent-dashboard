@@ -695,9 +695,14 @@ export async function checkAttachedServerVersion(
   } else if (ls === "bridge" || ls === "bridge-orphaned") {
     suggestion =
       "Stop the pi session that started this server (or run `pi-dashboard stop`) and relaunch the app.";
-  } else {
+  } else if (ls === "electron") {
     suggestion =
       "Quit the other Electron instance or use the zombie-adoption prompt to take ownership.";
+  } else {
+    // Unknown / missing launchSource (older server, unenumerated launch mode):
+    // don't misattribute it to the electron case — give a source-agnostic hint.
+    suggestion =
+      "The attached server's version differs from this app bundle. Determine how that server was started (npm, a pi session, or another app) and update it from there.";
   }
   return {
     name: "Attached server version",

@@ -204,6 +204,17 @@ describe("checkAttachedServerVersion", () => {
     expect(c.suggestion?.toLowerCase()).toContain("electron");
   });
 
+  it("mismatch + unknown/missing launchSource → warning, source-agnostic suggestion (not electron)", async () => {
+    const c = await checkAttachedServerVersion({
+      appVersion: "0.5.3",
+      healthFetcher: fetcher({ version: "0.5.1" }), // no launchSource
+    });
+    expect(c.status).toBe("warning");
+    // Must NOT misattribute an unknown source to the other-Electron remedy.
+    expect(c.suggestion?.toLowerCase()).not.toContain("quit the other electron");
+    expect((c.suggestion ?? "").length).toBeGreaterThan(0);
+  });
+
   it("healthFetcher returns null → error with non-empty message", async () => {
     const c = await checkAttachedServerVersion({
       appVersion: "0.5.3",

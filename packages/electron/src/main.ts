@@ -219,13 +219,19 @@ async function maybePromptZombieAdoption(): Promise<void> {
       log(`[zombie] respawned server pid=${spawnResult.pid}`);
     }
     // Reload the window only after the fresh server passes a health probe.
+    // Gate on an explicit success flag: a bare deadline break would reload the
+    // window against a not-yet-ready server, reproducing the connection-refused
+    // page this path exists to avoid.
     const deadline = Date.now() + 15_000;
+    let healthy = false;
     while (Date.now() < deadline) {
-      if ((await isDashboardRunning(config.port)).running) break;
+      if ((await isDashboardRunning(config.port)).running) { healthy = true; break; }
       await new Promise((r) => setTimeout(r, 200));
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (healthy && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadURL(`http://localhost:${config.port}`);
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      log("[zombie] respawned server did not become healthy within 15s; leaving current page");
     }
   } catch (err: any) {
     log(`[zombie] respawn failed: ${err?.message || err}`);
