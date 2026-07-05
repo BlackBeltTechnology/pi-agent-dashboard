@@ -59,7 +59,10 @@ test("foreign server → tray builds disabled 'Server managed externally', never
       activeBridgeCount: 0,
       mode: "production",
     },
-    { healthDelayMs: 1200 },
+    // < the 1 s getServerOwnership fetch timeout, so the probe resolves to
+    // "foreign" instead of timing out to "unknown"; still ample time to install
+    // the Menu-capture before the tray's first foreign rebuild.
+    { healthDelayMs: 600 },
   );
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: false });

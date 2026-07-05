@@ -185,7 +185,10 @@ export async function launchElectron(opts: {
   home: string;
   zombiePrompt?: boolean;
 }): Promise<ElectronApplication> {
-  const args: string[] = [];
+  // --no-sandbox is required for Electron to launch on CI Linux (no SUID
+  // chrome-sandbox helper under xvfb); harmless on macOS/Windows. Mirrors the
+  // repo's qa `08-electron-real-launch.sh`.
+  const args: string[] = ["--no-sandbox"];
   if (opts.zombiePrompt === false) args.push("--no-zombie-prompt");
   const env: Record<string, string> = {
     ...process.env,
@@ -254,4 +257,16 @@ export async function captureMenuTemplates(app: ElectronApplication): Promise<vo
 /** Read the recorded menu templates (array of item arrays) from the main process. */
 export async function readMenuTemplates(app: ElectronApplication): Promise<CapturedMenuItem[][]> {
   return await app.evaluate(() => (globalThis as any).__menuTemplates ?? []);
+}
+
+/**
+ * Open the Doctor window by emitting the `dashboard:open-doctor` IPC in the main
+ * process (the handler is registered by `registerPiDashboardIpc`). Robust
+ * against the loading page redirecting to the (healthy) fake server's URL,
+ * which discards the transient `#doctor-btn` control.
+ */
+export async function openDoctorViaIpc(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.emit("dashboard:open-doctor");
+  });
 }

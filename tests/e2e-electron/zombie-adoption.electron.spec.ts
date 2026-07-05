@@ -15,6 +15,7 @@ import fs from "node:fs";
 import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import {
+  captureMenuTemplates,
   FAKE_PORT,
   type FakeHealth,
   type FakeHealthServer,
@@ -22,6 +23,7 @@ import {
   launchElectron,
   makeThrowawayHome,
   readDialogCalls,
+  readMenuTemplates,
   startFakeHealthServer,
   stubDialog,
 } from "./electron-lifecycle.js";
@@ -88,23 +90,30 @@ test("--no-zombie-prompt suppresses the modal", async () => {
   expect(calls.length).toBe(0);
 });
 
-test("Take ownership → app quit stops the adopted server", async () => {
+test("Take ownership → tray flips to electron-owned (Restart server)", async () => {
   server = await startFakeHealthServer(zombieHealth);
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: true });
   await stubDialog(app, /* "Take ownership" */ 0);
+  await captureMenuTemplates(app);
   await app.firstWindow();
 
+  // Modal fires → "adopt" → setSpawnedPid(health.pid).
   await expect
     .poll(async () => (await readDialogCalls(app!)).length, { timeout: 30_000 })
     .toBeGreaterThan(0);
 
-  // Quit → stopServerIfNeeded → decideShutdownOnQuit(Electron + pid match) →
-  // POST /api/shutdown to the (now-adopted) fake server.
-  await app.close();
-  app = undefined;
-
+  // Observable outcome (app.close() does NOT run the graceful-quit shutdown
+  // path, so we assert the adoption took effect via ownership instead): the
+  // next tray poll classifies the server "electron" (storedSpawnedPid now
+  // matches health.pid) and rebuilds the menu with "Restart server".
   await expect
-    .poll(() => server!.requests.some((r) => r.method === "POST" && r.url.startsWith("/api/shutdown")), { timeout: 10_000 })
+    .poll(
+      async () => {
+        const templates = await readMenuTemplates(app!);
+        return templates.some((t) => t.some((i) => i.label === "Restart server"));
+      },
+      { timeout: 15_000 },
+    )
     .toBe(true);
 });

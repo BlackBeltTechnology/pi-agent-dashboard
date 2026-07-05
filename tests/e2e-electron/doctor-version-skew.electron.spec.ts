@@ -10,13 +10,14 @@
  */
 
 import fs from "node:fs";
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 import {
   FAKE_PORT,
   type FakeHealthServer,
   isPortInUse,
   launchElectron,
   makeThrowawayHome,
+  openDoctorViaIpc,
   startFakeHealthServer,
 } from "./electron-lifecycle.js";
 
@@ -34,20 +35,6 @@ test.afterEach(async () => {
   if (home) { fs.rmSync(home, { recursive: true, force: true }); home = undefined; }
 });
 
-/** Poll the app's windows for the loading page (the one carrying #doctor-btn). */
-async function findLoadingWindow(a: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    for (const w of a.windows()) {
-      try {
-        if (await w.locator("#doctor-btn").count()) return w;
-      } catch { /* window may be navigating */ }
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error("[electron-e2e] loading window (#doctor-btn) never appeared");
-}
-
 test("Doctor shows a WARN version-skew row for a standalone mismatch", async () => {
   // Standalone server one patch behind the bundled app → npm-upgrade suggestion.
   server = await startFakeHealthServer({
@@ -64,11 +51,14 @@ test("Doctor shows a WARN version-skew row for a standalone mismatch", async () 
   });
   home = makeThrowawayHome(server.port);
   app = await launchElectron({ home, zombiePrompt: false });
+  await app.firstWindow();
 
-  const loading = await findLoadingWindow(app);
+  // Open Doctor via the registered IPC rather than the loading-page button:
+  // once the fake server is healthy the loading page redirects to its URL,
+  // discarding the transient #doctor-btn.
   const [doctorWin] = await Promise.all([
     app.waitForEvent("window"),
-    loading.click("#doctor-btn"),
+    openDoctorViaIpc(app),
   ]);
 
   // Doctor auto-runs on load. Wait for the version-skew row.
