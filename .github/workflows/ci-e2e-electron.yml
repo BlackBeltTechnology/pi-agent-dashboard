@@ -53,6 +53,13 @@ jobs:
       - name: Package Electron app
         run: npm run -w packages/electron package
 
+      # Electron needs Chromium's system libraries; ubuntu-latest images no
+      # longer ship them all. install-deps pulls libnss3/libgbm/libatk/etc.
+      # without downloading a browser binary (Electron uses its own).
+      - name: Install Electron system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: npx playwright install-deps chromium
+
       # Linux needs a virtual display (xvfb); Windows runners have a desktop
       # session, so Electron launches directly. Playwright uses the packaged
       # app's own Electron binary (no chromium download needed).
@@ -96,6 +103,24 @@ jobs:
             Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
             npm install
           }
+      # Bundle Node so the packaged app can actually SPAWN a server (the attach
+      # E2E jobs don't need this, but the Job Object cascade requires a real
+      # server boot, not the execpath fallback). Mirrors _electron-build.yml.
+      - name: Download Node.js binary (Windows)
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path packages/electron/scripts/_node-version.sh -Pattern 'BUNDLED_NODE_VERSION="([^"]+)"').Matches[0].Groups[1].Value
+          $arch = "x64"
+          $url = "https://nodejs.org/dist/$version/node-$version-win-$arch.zip"
+          $outDir = "packages/electron/resources/node"
+          New-Item -ItemType Directory -Force -Path $outDir
+          Invoke-WebRequest -Uri $url -OutFile node.zip
+          Expand-Archive -Path node.zip -DestinationPath temp-node
+          Copy-Item "temp-node/node-$version-win-$arch/node.exe" "$outDir/"
+          Copy-Item -Recurse "temp-node/node-$version-win-$arch/node_modules" "$outDir/"
+          Remove-Item -Recurse -Force temp-node, node.zip
+      - name: Build client
+        run: npm run build
       - name: Package Electron app
         run: npm run -w packages/electron package
       - name: Job Object kill-on-close smoke (taskkill /F cascade)
