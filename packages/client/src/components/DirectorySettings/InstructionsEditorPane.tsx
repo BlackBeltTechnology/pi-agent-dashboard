@@ -6,7 +6,7 @@
  * directory-settings-page-and-scoped-md-editing.
  */
 import type { MdCandidate } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiContentSave } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiArrowLeft, mdiCheckCircleOutline, mdiContentSave } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense } from "react";
 import { t as i18nT } from "../../lib/i18n";
@@ -44,6 +44,9 @@ interface Props {
   onOverwrite: () => void;
   onDiscard: () => void;
   onSave: () => void;
+  /** Mobile master/detail back control; when set, renders a back arrow that
+   * returns to the tree. Desktop passes `undefined` (split, no back). */
+  onBack?: () => void;
 }
 
 export function InstructionsEditorPane({
@@ -62,6 +65,7 @@ export function InstructionsEditorPane({
   onOverwrite,
   onDiscard,
   onSave,
+  onBack,
 }: Props) {
   return (
     <>
@@ -70,6 +74,17 @@ export function InstructionsEditorPane({
         data-testid="instructions-file-tab"
         className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-primary)] shrink-0 text-sm"
       >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            data-testid="instructions-mobile-back"
+            title={i18nT("auto.back", undefined, "Back")}
+            className="shrink-0 -ml-1 p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+          >
+            <Icon path={mdiArrowLeft} size={0.8} />
+          </button>
+        )}
         <span className="font-mono text-[var(--text-primary)] truncate" title={selected.relPath}>
           {selected.relPath}
         </span>

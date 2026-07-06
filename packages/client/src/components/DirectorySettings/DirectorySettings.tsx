@@ -96,7 +96,13 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
         </nav>
 
         {/* Page content */}
-        <div data-testid="directory-settings-content" className="flex-1 overflow-y-auto min-w-0">
+        {/* flex flex-col min-h-0 gives the Instructions tree/editor split a
+            resolvable height (parity with global `settings-content`); overflow-y-auto
+            preserves Packages/Resources scroll. See change: directory-settings-tree-and-resize. */}
+        <div
+          data-testid="directory-settings-content"
+          className="flex-1 flex flex-col min-h-0 overflow-y-auto min-w-0"
+        >
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
           {page === "packages" && <PackagesPage cwd={cwd} />}
           {page === "resources" && <ResourcesPage cwd={cwd} onViewFile={onViewFile} />}
