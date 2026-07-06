@@ -25,6 +25,7 @@ import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
+import { registerBearerAuth } from "./bearer-auth.js";
 import { type BrowserGateway, createBrowserGateway } from "./browser-gateway.js";
 import { writeConfigPartial } from "./config-api.js";
 import { registerCsp, resolveCspMode } from "./csp.js";
@@ -44,11 +45,12 @@ import { createGoalStore } from "./goal-store.js";
 import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
 import { createHydrationMetrics } from "./hydration-metrics.js";
+import { ensureServerIdentity } from "./identity.js";
 import { createIdleTimer } from "./idle-timer.js";
 import { createLiveServerManager } from "./live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server-proxy.js";
-import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
 import { ensureLocalToken, verifyLocalToken } from "./local-token.js";
+import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
 import { createMemoryEventStore, type EventStore } from "./memory-event-store.js";
 import { createMemorySessionManager, type SessionManager } from "./memory-session-manager.js";
 import { createMetaPersistence, type MetaPersistence } from "./meta-persistence.js";
@@ -57,6 +59,8 @@ import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec-group-store.js";
 import { PackageManagerWrapper } from "./package-manager-wrapper.js";
+import { PairedDeviceRegistry } from "./paired-devices.js";
+import { PairingManager } from "./pairing.js";
 import { createPendingAttachRegistry } from "./pending-attach-registry.js";
 import { createPendingAutomationRunRegistry } from "./pending-automation-run-registry.js";
 import { createPendingClientCorrelations } from "./pending-client-correlations.js";
@@ -81,21 +85,17 @@ import { registerGitRoutes } from "./routes/git-routes.js";
 import { registerGoalRoutes } from "./routes/goal-routes.js";
 import { registerGrepRoutes } from "./routes/grep-routes.js";
 import { registerKnownServersRoutes } from "./routes/known-servers-routes.js";
-import { registerPairingRoutes } from "./routes/pairing-routes.js";
-import { ensureServerIdentity } from "./identity.js";
-import { PairedDeviceRegistry } from "./paired-devices.js";
-import { PairingManager } from "./pairing.js";
-import { registerBearerAuth } from "./bearer-auth.js";
-import { WsTicketStore, routeScopeForUrl, extractTicket, type WsRouteScope } from "./ws-ticket.js";
 import { registerLiveServerRoutes } from "./routes/live-server-routes.js";
 import { registerManifestRoute } from "./routes/manifest-route.js";
 import { registerModelProxyApiKeyRoutes } from "./routes/model-proxy-api-key-routes.js";
 import { registerModelProxyDiagnosticsRoutes } from "./routes/model-proxy-diagnostics-routes.js";
 import { registerModelProxyRefreshRoutes } from "./routes/model-proxy-refresh-routes.js";
 import { registerModelProxyRoutes } from "./routes/model-proxy-routes.js";
+import { registerModelsIntrospectionRoute } from "./routes/models-introspection-routes.js";
 import { registerOpenSpecGroupRoutes } from "./routes/openspec-group-routes.js";
 import { registerOpenSpecRoutes } from "./routes/openspec-routes.js";
 import { registerPackageRoutes } from "./routes/package-routes.js";
+import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
@@ -119,6 +119,7 @@ import { createTerminalManager, type TerminalManager } from "./terminal-manager.
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel-watchdog.js";
 import { createWorktreeInitRegistry } from "./worktree-init-registry.js";
+import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./ws-ticket.js";
 
 export interface ServerConfig {
   port: number;
@@ -1203,6 +1204,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerProxy(fastify, liveServerManager);
 
   registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
+  // Ungated model-introspection surface for in-session agents (GET /api/models).
+  // Registered unconditionally (not behind modelProxy.enabled), subject only to
+  // the dashboard's own auth gate — same posture as /api/provider-auth/status.
+  // See change: surface-model-introspection-to-agents.
+  registerModelsIntrospectionRoute(fastify, {
+    getRegistry: async () => {
+      try {
+        return await getModelRegistry();
+      } catch {
+        return null;
+      }
+    },
+  });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
   registerPairingRoutes(fastify, {
     networkGuard,

@@ -45,6 +45,7 @@ singular. Files are `dashboard-<resource>-<verb>[-<modifier>].md`.
 | `/dashboard:session-spawn` | `[cwd]` | Spawn a new session (default cwd = current dir). |
 | `/dashboard:session-resume` | `<id-prefix>` | Resume a session (continue mode). |
 | `/dashboard:session-fork` | `<id-prefix>` | Fork a session into a new one. |
+| `/dashboard:list-models` | `[annotated]` | List reachable models via `GET /api/models`; `annotated` adds `excludedReason`. Never file-parse. |
 | `/dashboard:session-model` | `<id-prefix> <provider/modelId>` | Switch a session's model. |
 | `/dashboard:session-thinking` | `<id-prefix> <level>` | Set a session's thinking level. |
 | `/dashboard:proposal-attach` | `<id-prefix> <change-name>` | Attach an OpenSpec change to a session. |

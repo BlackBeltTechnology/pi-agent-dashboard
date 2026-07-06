@@ -198,6 +198,16 @@ Control a running flow.
 
 ## Model Configuration
 
+### `GET /api/models`
+List the dashboard's reachable model catalogue (model-introspection surface). Ungated beyond the dashboard's own auth gate — no `pi-proxy-...` Bearer key required (same posture as `GET /api/provider-auth/status`). To inspect available/reachable models, call this endpoint; do NOT parse `~/.pi/agent/providers.json` or `~/.pi/agent/models.json` — that path is wrong and fails silently (those files hold roles/presets, not the catalogue).
+
+**Query:**
+- `annotated=1`: return every model plus `excludedReason` (`no-credential` | `oauth-incompatible`); default returns only reachable models.
+
+**Responses:**
+- `200`: `{ "object": "list", "data": [{ "id": "provider/modelId", "provider", "reasoning?", "input?", "contextWindow?", "maxTokens?", "cost?", "excludedReason?" }] }` (capability/cost metadata only — never credentials)
+- `503`: model runtime (pi-ai) unavailable
+
 ### `POST /api/session/:id/model`
 Set the model for a session.
 
