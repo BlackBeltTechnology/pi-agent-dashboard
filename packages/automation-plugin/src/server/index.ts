@@ -167,6 +167,16 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   // action prompt per session so capture can defensively exclude it.
   const runText = new Map<string, string[]>();
   const runPrompt = new Map<string, string>();
+  // Event-dispatched runs declare how they finish via `emitEvent.completion`
+  // (the ACTION owns the completion event name/shape — the automation plugin
+  // knows none). Recorded at delivery so `onEvent` can finalize generically:
+  // an event run emits no `agent_end`, so without this it would stay `running`
+  // forever and starve `concurrency: skip`.
+  // See change: finalize-event-dispatched-automation-runs.
+  const runCompletion = new Map<
+    string,
+    { eventType: string; summarize?: (d: Record<string, unknown> | undefined) => string }
+  >();
   let rescanTimer: ReturnType<typeof setTimeout> | null = null;
 
   ctx.onEvent((sessionId, rawEvent) => {
@@ -196,8 +206,12 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
         try {
           if (pendingRun.emitEvent) {
             // Event-dispatch action: emit the configured event into the run
-            // session instead of seeding a prompt.
+            // session instead of seeding a prompt. Record the action-declared
+            // completion (if any) so this run finalizes on it, not agent_end.
             ctx.emitEventToSession(sessionId, pendingRun.emitEvent.eventType, pendingRun.emitEvent.data);
+            if (pendingRun.emitEvent.completion) {
+              runCompletion.set(sessionId, pendingRun.emitEvent.completion);
+            }
           } else if (pendingRun.promptText) {
             runPrompt.set(sessionId, pendingRun.promptText);
             ctx.sendToSession(sessionId, pendingRun.promptText);
@@ -207,6 +221,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
         } catch (err) {
           runPrompt.delete(sessionId);
           runText.delete(sessionId);
+          runCompletion.delete(sessionId);
           logger.warn(
             `automation action delivery failed for runId=${stampedRunId}: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -218,10 +233,23 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     if (runText.has(sessionId)) {
       const text = extractAssistantText(event, runPrompt.get(sessionId));
       if (text) runText.get(sessionId)!.push(text);
-      if (event?.eventType === "agent_end") {
+      // Generic finalize. An event-dispatched run with an action-declared
+      // completion finalizes on THAT event (it emits no agent_end); every other
+      // tracked run (prompt-dispatch, or an event action that declared no
+      // completion) finalizes on agent_end. Finalization is idempotent
+      // (engine.onSessionEnded via removePending), so a later agent_end after a
+      // completion finalize is a no-op.
+      const completion = runCompletion.get(sessionId);
+      if (completion && event?.eventType === completion.eventType) {
+        const buffered = (runText.get(sessionId) ?? []).join("\n\n").trim();
+        runText.delete(sessionId);
+        runCompletion.delete(sessionId);
+        engine.onSessionEnded(sessionId, buffered || (completion.summarize?.(event?.data) ?? ""));
+      } else if (event?.eventType === "agent_end") {
         const result = (runText.get(sessionId) ?? []).join("\n\n").trim();
         runText.delete(sessionId);
         runPrompt.delete(sessionId);
+        runCompletion.delete(sessionId);
         engine.onSessionEnded(sessionId, result);
       }
     }

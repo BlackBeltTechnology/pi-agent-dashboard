@@ -31,6 +31,7 @@ RUN apt-get update \
       ca-certificates \
       ripgrep \
       fd-find \
+      poppler-utils \
       build-essential \
       python3 \
  && rm -rf /var/lib/apt/lists/*

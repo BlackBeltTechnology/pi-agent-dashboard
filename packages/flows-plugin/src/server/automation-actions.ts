@@ -34,9 +34,22 @@ export interface ActionContributionLike {
   available?: (cwd: string) => boolean;
   unavailableReason?: string;
   payloadSchema?: ActionFieldSpecLike[];
-  /** Event-dispatch: emit a configured event into the run session. */
+  /**
+   * Event-dispatch: emit a configured event into the run session. May also
+   * declare `completion` — how a run of this action FINISHES — so the
+   * automation engine can finalize an event-dispatched run (which emits no
+   * `agent_end`) without knowing anything action-specific.
+   * See change: finalize-event-dispatched-automation-runs.
+   */
   buildEvent?: (args: { payload: Record<string, unknown>; automation: unknown }) =>
-    | { eventType: string; data?: Record<string, unknown> }
+    | {
+        eventType: string;
+        data?: Record<string, unknown>;
+        completion?: {
+          eventType: string;
+          summarize?: (data: Record<string, unknown> | undefined) => string;
+        };
+      }
     | null;
 }
 
@@ -78,6 +91,23 @@ export function discoverFlows(cwd: string): string[] {
  */
 const FLOW_ID_RE = /^[\w.-]+:[\w.-]+$/;
 
+/**
+ * Derive an automation run-result line from a pi-flows `flow_complete` payload
+ * (the forwarded `FlowResult`: `status`, `flowName`, `lastResult.result.summary`).
+ * An event-dispatched flows.run has no assistant turn to capture, so this line
+ * IS the run result. Owns the FlowResult shape so the automation plugin does
+ * not. See change: finalize-event-dispatched-automation-runs.
+ */
+export function summarizeFlowResult(data: Record<string, unknown> | undefined): string {
+  const d = data as
+    | { status?: string; flowName?: string; lastResult?: { result?: { summary?: string } } }
+    | undefined;
+  const summary = d?.lastResult?.result?.summary;
+  return `flow ${d?.flowName ?? ""} ${d?.status ?? "finished"}${summary ? `: ${summary}` : ""}`
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Build the flows action contribution(s): flows.run only. */
 export function flowsActionContributions(): ActionContributionLike[] {
   const hasFlows = (cwd: string) => discoverFlows(cwd).length > 0;
@@ -94,12 +124,23 @@ export function flowsActionContributions(): ActionContributionLike[] {
         { key: "task", label: "Task", type: "multiline", help: "Passed as the flow's initial task." },
       ],
       // Emit flow:run into the run session (the event pi-flows listens for),
-      // not a slash-command prompt. Runs finalize on agent_end.
+      // not a slash-command prompt. A flows.run run produces NO agent turn in
+      // the host session (pi-flows consumes flow:run headlessly), so it emits
+      // no `agent_end`. Declare `completion` so the automation engine finalizes
+      // it on the forwarded `flow_complete` event instead (the extension's
+      // FLOW_EVENT_MAP forwards pi-flows' `flow:complete` → `flow_complete`).
+      // All flows knowledge — the event name and the FlowResult shape — stays
+      // here; the automation plugin stays generic.
+      // See change: finalize-event-dispatched-automation-runs.
       buildEvent: ({ payload }) => {
         const flow = String(payload.flow ?? "").trim();
         if (!FLOW_ID_RE.test(flow)) return null;
         const task = String(payload.task ?? "").trim();
-        return { eventType: "flow:run", data: { flowName: flow, ...(task ? { task } : {}) } };
+        return {
+          eventType: "flow:run",
+          data: { flowName: flow, ...(task ? { task } : {}) },
+          completion: { eventType: "flow_complete", summarize: summarizeFlowResult },
+        };
       },
     },
   ];

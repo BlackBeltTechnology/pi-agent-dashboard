@@ -29,6 +29,7 @@ import { TriggerRegistry } from "./trigger-registry.js";
 import { scheduleTrigger } from "./schedule-trigger.js";
 import {
   ActionRegistry,
+  type ActionCompletion,
   createActionRegistryWithBuiltins,
   normalizeActionKind,
 } from "./action-registry.js";
@@ -80,7 +81,7 @@ export function buildRunPrompt(
  */
 export type RunDispatch =
   | { kind: "prompt"; text: string }
-  | { kind: "event"; eventType: string; data?: Record<string, unknown> };
+  | { kind: "event"; eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion };
 
 /** Resolve the dispatch for an automation's action against the registry. */
 export function buildRunDispatch(
@@ -92,7 +93,12 @@ export function buildRunDispatch(
   if (reg?.buildEvent) {
     const ev = reg.buildEvent({ payload: action.payload ?? {}, automation });
     if (ev && typeof ev.eventType === "string" && ev.eventType.length > 0) {
-      return { kind: "event", eventType: ev.eventType, ...(ev.data ? { data: ev.data } : {}) };
+      return {
+        kind: "event",
+        eventType: ev.eventType,
+        ...(ev.data ? { data: ev.data } : {}),
+        ...(ev.completion ? { completion: ev.completion } : {}),
+      };
     }
     return { kind: "prompt", text: "" };
   }
@@ -174,8 +180,13 @@ export interface RunContext {
   automation: DiscoveredAutomation;
   cwd: string;
   promptText: string;
-  /** When set, dispatch emits this event into the session instead of a prompt. */
-  emitEvent?: { eventType: string; data?: Record<string, unknown> };
+  /**
+   * When set, dispatch emits this event into the session instead of a prompt.
+   * `completion` (when present) is how the run finishes — an event-dispatched
+   * run produces no `agent_end`, so the engine finalizes on the declared
+   * completion event. See change: finalize-event-dispatched-automation-runs.
+   */
+  emitEvent?: { eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion };
   modelError?: string;
   sessionId?: string;
   /**
@@ -339,7 +350,13 @@ export function createEngine(deps: EngineDeps): Engine {
       cwd: normalize(runCwd),
       promptText,
       ...(dispatch.kind === "event"
-        ? { emitEvent: { eventType: dispatch.eventType, ...(dispatch.data ? { data: dispatch.data } : {}) } }
+        ? {
+            emitEvent: {
+              eventType: dispatch.eventType,
+              ...(dispatch.data ? { data: dispatch.data } : {}),
+              ...(dispatch.completion ? { completion: dispatch.completion } : {}),
+            },
+          }
         : {}),
       ...(resolved.error ? { modelError: resolved.error } : {}),
       delivered: false,

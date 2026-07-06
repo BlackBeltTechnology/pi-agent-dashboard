@@ -30,22 +30,25 @@ item for inspection. The image should ship the tool.
 
 ## What Changes
 
-- **Finalize event-dispatched runs on `flow_complete`.** In the automation
-  plugin's `onEvent` buffer, for a tracked run session with no seeded prompt
-  (i.e. an event-dispatch run), treat the forwarded `flow_complete` event as the
-  finalize signal: capture the flow's outcome as the run result and call
-  `engine.onSessionEnded`, which (per zombie-runs) terminates the now-idle rpc
-  session. Prompt-dispatch runs keep the `agent_end` anchor unchanged. A later
-  `agent_end` after this finalize is a no-op (finalization is idempotent via
-  `removePending`).
-- **Result line for event runs.** Event runs have no assistant turn to capture,
-  so the run result is derived from the `flow_complete` payload (`FlowResult`:
-  `status` + `flowName` + `lastResult.result.summary`).
+- **The action contribution declares its own completion signal (decoupled).**
+  Extend the `buildEvent` return with an optional `completion { eventType,
+  summarize? }`. The automation plugin stays generic — it finalizes an
+  event-dispatched run when it observes the run's *declared* completion event,
+  and derives the result via the *declared* summarizer. No flows-specific event
+  name lives in the automation plugin (preserves `decouple-automation-action-registry`).
+- **`flows.run` declares `completion: { eventType: "flow_complete", summarize }`.**
+  The `flow_complete` name and `FlowResult` shape stay entirely in flows-plugin.
+- **Generic finalize in the engine/onEvent.** Thread `completion` through the
+  event-dispatch plumbing (`RunDispatch` → `RunContext.emitEvent`); finalize on
+  the declared event via `engine.onSessionEnded` (which, per zombie-runs,
+  terminates the idle rpc session). Prompt-dispatch runs (no declared
+  completion) keep the `agent_end` anchor. Idempotent via `removePending`.
 - **Ship `poppler-utils` in the docker image** so PDF-parsing flows work in the
   container.
 
 Non-goals: changing the concurrency/queue policy, the board UI, the prompt-path
-capture, or pi-flows itself. Confined to making event-dispatched runs end.
+capture, or pi-flows itself. Confined to giving event-dispatched runs a
+contribution-declared end.
 
 ## Capabilities
 
@@ -57,13 +60,18 @@ capture, or pi-flows itself. Confined to making event-dispatched runs end.
 
 ## Impact
 
-- **Automation plugin:** `packages/automation-plugin/src/server/index.ts`
-  (`onEvent`: finalize on `flow_complete` for prompt-less tracked runs; new
-  exported `flowCompleteSummaryLine` helper).
+- **Flows plugin:** `packages/flows-plugin/src/server/automation-actions.ts`
+  (`ActionContributionLike.buildEvent` return gains `completion`; `flows.run`
+  declares it with the `FlowResult` summarizer).
+- **Automation plugin:** `packages/automation-plugin/src/server/action-registry.ts`
+  (`ActionEvent`/`ActionRegistration` mirror the `completion` field),
+  `engine.ts` (`RunDispatch`/`RunContext` carry `completion`; `buildRunDispatch`
+  propagates it), `index.ts` (`onEvent`: record `completion` at delivery,
+  finalize generically on the declared event).
 - **Docker:** `docker/Dockerfile` (add `poppler-utils` to the base apt install),
   `docker/AGENTS.md` (per-file row).
-- **Tests:** `packages/automation-plugin/src/__tests__/` — a completed
-  event-dispatched run finalizes on `flow_complete` and captures the flow
-  summary; a prompt run is unaffected by `flow_complete`.
-- **Backward compatible:** prompt-dispatch runs unchanged; runs that still emit
-  `agent_end` still finalize there (idempotent).
+- **Tests:** flows contribution `summarize`; generic `onEvent` finalize on a
+  declared completion event vs. an unrelated event; prompt run still finalizes
+  on `agent_end`.
+- **Backward compatible:** prompt-dispatch runs unchanged; event actions that
+  declare no completion still finalize on `agent_end` (idempotent).

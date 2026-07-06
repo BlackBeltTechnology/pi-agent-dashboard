@@ -1,37 +1,45 @@
 ## ADDED Requirements
 
-### Requirement: Event-dispatched runs finalize on flow completion
+### Requirement: Event-dispatch actions declare their completion signal
 
-An event-dispatched run (an action that emits a configured event into the
-spawned session instead of seeding a prompt, e.g. `flows.run` → `flow:run`)
-produces no agent turn in the host session and therefore emits no `agent_end`.
-Such a run SHALL be finalized when the forwarded `flow_complete` event is
-observed for its tracked session: the engine SHALL capture the run result and
-call `onSessionEnded` (which terminates the now-idle spawned session and frees
-the concurrency slot), exactly once. A prompt-dispatched run (one that seeded
-prompt text) SHALL NOT finalize on `flow_complete`; it continues to finalize on
-`agent_end`. Finalization SHALL remain idempotent: a later `agent_end` after a
-`flow_complete` finalize is a no-op.
+An event-dispatch action contribution (one providing `buildEvent`) MAY declare,
+in its `buildEvent` return, a `completion` object naming the forwarded event type
+that signals a run of that action has finished, plus an optional summarizer that
+derives the run result from that event's payload. The completion declaration
+travels across the action publish/collect bus with the rest of the contribution;
+the automation plugin SHALL NOT hardcode any action-specific completion event.
 
-The captured result for an event-dispatched run SHALL be derived from the
-`flow_complete` payload (the flow's status, name, and summary), since there is
-no assistant turn to capture.
+#### Scenario: Action declares completion alongside its start event
 
-#### Scenario: Event-dispatched flow run finalizes on flow_complete
+- **WHEN** an action's `buildEvent` returns `{ eventType, data, completion: { eventType, summarize } }`
+- **THEN** the collected registry carries the `completion` declaration for that run's dispatch.
 
-- **WHEN** a tracked run session that was NOT seeded a prompt observes a
-  `flow_complete` event
-- **THEN** the run is finalized once, its result is the flow's outcome summary,
-  and its spawned session is terminated so the next scheduled fire can start.
+### Requirement: Event-dispatched runs finalize on their declared completion event
 
-#### Scenario: Prompt-dispatched run ignores flow_complete
+An event-dispatched run produces no agent turn in the host session and therefore
+emits no `agent_end`. When such a run declared a `completion` event, the engine
+SHALL finalize the run the first time it observes that declared event for the
+run's session: it captures the run result (buffered assistant text if any, else
+the declared summarizer applied to the event payload) and calls `onSessionEnded`,
+which terminates the now-idle spawned session and frees the concurrency slot.
+Finalization SHALL occur exactly once; a later `agent_end` is a no-op. A run that
+did not declare a completion event (including every prompt-dispatch run) SHALL
+continue to finalize on `agent_end`.
 
-- **WHEN** a tracked run session that WAS seeded a prompt observes a
-  `flow_complete` event
-- **THEN** the run is not finalized by it and still finalizes on `agent_end`.
+#### Scenario: Event-dispatched run finalizes on its declared completion event
 
-#### Scenario: agent_end after flow_complete is a no-op
+- **WHEN** a tracked run that declared `completion.eventType` observes that event
+- **THEN** the run finalizes once with the summarized result and its spawned
+  session is terminated so the next scheduled fire can start.
 
-- **WHEN** an event-dispatched run already finalized on `flow_complete` later
-  observes an `agent_end`
+#### Scenario: Prompt-dispatched run is unaffected by the completion event
+
+- **WHEN** a prompt-dispatch run (no declared completion) observes an unrelated
+  forwarded event
+- **THEN** it is not finalized by it and still finalizes on `agent_end`.
+
+#### Scenario: agent_end after completion is a no-op
+
+- **WHEN** an event-dispatched run already finalized on its declared completion
+  event later observes an `agent_end`
 - **THEN** no second finalization occurs.

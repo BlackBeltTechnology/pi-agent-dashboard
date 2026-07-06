@@ -35,17 +35,38 @@ export interface ActionFieldSpec {
   options?: (cwd: string) => string[];
 }
 
+/**
+ * How an event-dispatched run finishes. Declared BY THE ACTION (not the
+ * automation engine), so the automation plugin stays generic and knows no
+ * action-specific event names. See change: finalize-event-dispatched-automation-runs.
+ */
+export interface ActionCompletion {
+  /** Forwarded event type that signals a run of this action has finished. */
+  eventType: string;
+  /** Derive the run result text from the completion event's payload. */
+  summarize?: (data: Record<string, unknown> | undefined) => string;
+}
+
 /** Event an action emits into the run session (via emitEventToSession). */
 export interface ActionEvent {
   eventType: string;
   data?: Record<string, unknown>;
+  /**
+   * Optional completion declaration. Event-dispatched runs produce no
+   * `agent_end`; when set, the engine finalizes the run on this declared
+   * event. Absent → the run finalizes on `agent_end` (prompt-dispatch default).
+   */
+  completion?: ActionCompletion;
 }
 
 /**
  * A registered action (server-side, carries functions). An action dispatches
  * either by seeding a prompt (`buildPrompt`) OR by emitting a configured event
- * (`buildEvent`) into the spawned run session — exactly one. Runs finalize on
- * `agent_end`. See change: automation-emit-configured-event.
+ * (`buildEvent`) into the spawned run session — exactly one. Prompt runs
+ * finalize on `agent_end`; an event run finalizes on its declared
+ * `ActionEvent.completion` event when present, else on `agent_end`.
+ * See change: automation-emit-configured-event.
+ * See change: finalize-event-dispatched-automation-runs.
  */
 export interface ActionRegistration {
   /** Namespaced id `<source>.<verb>`. */
