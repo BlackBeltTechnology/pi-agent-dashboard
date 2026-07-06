@@ -7,7 +7,8 @@ import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } f
 import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
-const openLiveTarget = vi.fn();
+// vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
+const { openLiveTarget } = vi.hoisted(() => ({ openLiveTarget: vi.fn() }));
 vi.mock("../SplitWorkspaceContext.js", () => ({
   useOptionalSplitWorkspace: () => ({ openLiveTarget }),
 }));

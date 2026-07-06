@@ -8,11 +8,18 @@ import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useLoopbackLinkOpen } from "../use-loopback-link-open.js";
 
-const openLiveTarget = vi.fn();
-let mockCtx: { openLiveTarget: typeof openLiveTarget } | null = { openLiveTarget };
+// vi.hoisted so the mock (also hoisted) can reference the spy without a TDZ.
+// `box.ctx` is mutable so a test can flip the context to null.
+const { openLiveTarget, box } = vi.hoisted(() => {
+  const openLiveTarget = vi.fn();
+  return {
+    openLiveTarget,
+    box: { ctx: { openLiveTarget } as { openLiveTarget: typeof openLiveTarget } | null },
+  };
+});
 
 vi.mock("../../components/SplitWorkspaceContext.js", () => ({
-  useOptionalSplitWorkspace: () => mockCtx,
+  useOptionalSplitWorkspace: () => box.ctx,
 }));
 
 function evt(over: Partial<React.MouseEvent> = {}): React.MouseEvent {
@@ -29,7 +36,7 @@ function evt(over: Partial<React.MouseEvent> = {}): React.MouseEvent {
 
 afterEach(() => {
   openLiveTarget.mockClear();
-  mockCtx = { openLiveTarget };
+  box.ctx = { openLiveTarget };
 });
 
 describe("useLoopbackLinkOpen", () => {
@@ -66,7 +73,7 @@ describe("useLoopbackLinkOpen", () => {
   });
 
   it("null context no-ops without throwing", () => {
-    mockCtx = null;
+    box.ctx = null;
     const { result } = renderHook(() => useLoopbackLinkOpen());
     const e = evt();
     expect(() => result.current(e, "http://localhost:50452/x")).not.toThrow();

@@ -64,6 +64,19 @@ describe("LiveServerViewer", () => {
     expect(JSON.parse((startCall as any[])[1].body)).toMatchObject({ host: "localhost", port: 5173 });
   });
 
+  it("resets the deep segment when a non-preset target is launched after a preset", async () => {
+    // Open a preset (deep = report.html?x=1), go back to the picker, then launch
+    // a plain target via the URL input; the stale deep must NOT leak into the src.
+    render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
+    await screen.findByTestId("live-iframe");
+    fireEvent.click(screen.getByTestId("live-back"));
+    fireEvent.change(screen.getByTestId("live-url"), { target: { value: "http://localhost:5173" } });
+    fireEvent.click(screen.getByTestId("live-confirm"));
+    const iframe = await screen.findByTestId("live-iframe");
+    expect(iframe.getAttribute("src")).toBe("/live/abc12345/");
+    expect(iframe.getAttribute("src")).not.toContain("report.html");
+  });
+
   it("header Open ↗ anchor targets the system browser with the deep proxied path", async () => {
     render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
     await screen.findByTestId("live-iframe");

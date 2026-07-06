@@ -75,11 +75,13 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
   useEffect(() => {
     const preset = parsePreset(viewerPath);
     if (!preset) return;
-    setDeep(preset.deep);
-    void launch({ host: preset.host, port: preset.port });
+    void launch({ host: preset.host, port: preset.port, deep: preset.deep });
   }, [viewerPath]);
 
-  const launch = async (input: { host: string; port: number; label?: string }) => {
+  // `deep` is threaded through `launch` so it is set ATOMICALLY with `path`;
+  // a manual/saved-target launch (no `deep`) resets it, never reusing a prior
+  // preset's deep segment.
+  const launch = async (input: { host: string; port: number; label?: string; deep?: string }) => {
     setBusy(true);
     setError(null);
     try {
@@ -89,6 +91,7 @@ export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerPro
         return;
       }
       setPath(res.target.path);
+      setDeep(input.deep ?? "");
       setServers((prev) => (prev.some((s) => s.id === res.target.id) ? prev : [...prev, res.target]));
     } finally {
       // Always clear busy — an unexpected throw must not leave Preview disabled.
