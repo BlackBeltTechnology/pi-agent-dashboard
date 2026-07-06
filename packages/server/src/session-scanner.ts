@@ -100,6 +100,10 @@ function sessionFromMeta(
     // Restore goal ownership from meta so the session-card goal chip resolves
     // its owning goal after a server restart. See change: add-goals-folder-page.
     goalId: meta.goalId,
+    // Restore session classification so cold-start recovery can exempt
+    // automation run sessions (isRecoveryCandidate reads kind).
+    // See change: reopen-sessions-after-shutdown.
+    kind: meta.kind,
     // Reconstruct worktree parentage from the persisted grouping subset so
     // cold-start grouping (no live bridge) collapses this session under its
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.

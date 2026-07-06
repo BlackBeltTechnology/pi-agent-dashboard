@@ -23,7 +23,14 @@ While a session is running, the server SHALL eagerly persist a liveness marker `
 
 ### Requirement: Intentional close SHALL clear the liveness marker with a reason
 
-When a session is closed intentionally — manual close (`handleShutdown`), force-kill (`handleForceKill`), or a clean server `stop()` tearing the session down — the server SHALL persist `{ live: false }` to the session's `.meta.json`. Manual close and force-kill SHALL additionally persist `closedReason: "manual"`.
+When a session is closed intentionally — manual close (`handleShutdown`), force-kill (`handleForceKill`), a clean server `stop()` tearing the session down, or ANY session unregister (explicit `session_unregister`, heartbeat expiry, run termination) — the server SHALL persist `{ live: false }` to the session's `.meta.json`. The unregister-path write SHALL be eager (atomic, not debounced): `unregister()` persists `status: "ended"` through the 1s-debounced save, and without an eager `live: false` a host death inside that window leaves `live: true` + a non-`ended` status on disk — the next cold start would offer (or in `auto` mode, silently respawn) a session that ended cleanly. Manual close and force-kill SHALL additionally persist `closedReason: "manual"`.
+
+#### Scenario: Explicit unregister eagerly clears liveness
+
+- **GIVEN** a running session with `live: true`
+- **WHEN** the session unregisters cleanly (pi TUI quit sending `session_unregister`)
+- **THEN** the session's `.meta.json` SHALL be updated to `live: false` immediately, without waiting for the debounced stats write
+- **AND** SHALL NOT set `closedReason: "manual"`
 
 #### Scenario: Manual close stamps closedReason
 
@@ -41,9 +48,18 @@ When a session is closed intentionally — manual close (`handleShutdown`), forc
 
 ### Requirement: Cold start SHALL classify interrupted sessions as recovery candidates
 
-On server cold start, for each rediscovered session, the server SHALL classify it as a recovery candidate WHEN its `.meta.json` carries `live: true` AND its persisted `status` is NOT `"ended"` AND it does NOT carry `closedReason: "manual"`. All other sessions SHALL NOT be candidates.
+On server cold start, for each rediscovered session, the server SHALL classify it as a recovery candidate WHEN its `.meta.json` carries `live: true` AND its persisted `status` is NOT `"ended"` AND it does NOT carry `closedReason: "manual"` AND it is NOT an automation run session (`kind: "automation"`). All other sessions SHALL NOT be candidates.
+
+Automation run sessions are fully exempt: respawning a headless rpc run detached from its automation (no per-fire context, no run finalization) would recreate the zombie-session class that `fix-automation-stop-zombie-runs` terminates. They normalize to `ended` like any non-candidate.
 
 Both durable signals are required because neither alone is sufficient. A clean close runs `unregister()`, which sets and persists `status: "ended"` — this covers BOTH a dashboard close and a pi TUI quit, so the `status !== "ended"` condition excludes every clean unregister. A crash never reaches `unregister()`, so the sidecar keeps its last running status. A clean server `stop()` (idle timer / app quit) clears `live: false` WITHOUT unregistering each session, leaving a non-`ended` status; the `live === true` condition excludes that case. Together they match EXACTLY the crash scenario.
+
+#### Scenario: Automation run session is never a candidate
+
+- **GIVEN** a session whose `.meta.json` carries `live: true`, a non-`ended` status, and `kind: "automation"`
+- **WHEN** the server cold-starts
+- **THEN** the session SHALL NOT be a recovery candidate
+- **AND** its status SHALL be normalized to `ended` like any non-candidate
 
 #### Scenario: Interrupted (crashed) session is a candidate
 

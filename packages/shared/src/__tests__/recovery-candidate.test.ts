@@ -41,4 +41,11 @@ describe("isRecoveryCandidate", () => {
   it("fallback: live:true + non-ended status with absent liveEpoch still classifies", () => {
     expect(isRecoveryCandidate({ live: true, status: "idle" } as SessionMeta)).toBe(true);
   });
+
+  it("automation run sessions are NEVER candidates (fully exempt)", () => {
+    // A crash mid-automation-run must not respawn the headless rpc session
+    // detached from its automation (no per-fire context, no run finalization).
+    expect(isRecoveryCandidate({ live: true, status: "streaming", kind: "automation" } as SessionMeta)).toBe(false);
+    expect(isRecoveryCandidate({ live: true, status: "idle", kind: "automation", liveEpoch: 5 } as SessionMeta)).toBe(false);
+  });
 });

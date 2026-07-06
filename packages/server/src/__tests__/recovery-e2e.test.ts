@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { WebSocket } from "ws";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { readSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
@@ -25,10 +25,23 @@ function seedSidecar(sessionsDir: string, id: string, meta: Record<string, unkno
   }));
 }
 
+// NOTE: HOME is an ephemeral tmp dir under `npm test` (root-script override +
+// setup-home tripwire), so this never touches a real ~/.pi. The snapshot/
+// restore below additionally makes the suite self-cleaning within that HOME
+// so sibling tests see the config they expect.
+const CONFIG_PATH = path.join(os.homedir(), ".pi", "dashboard", "config.json");
+let configSnapshot: string | null = null;
+
 function writeAskConfig(): void {
-  const dir = path.join(os.homedir(), ".pi", "dashboard");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "config.json"), JSON.stringify({ reopenSessionsAfterShutdown: "ask" }));
+  mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  configSnapshot = existsSync(CONFIG_PATH) ? readFileSync(CONFIG_PATH, "utf-8") : null;
+  writeFileSync(CONFIG_PATH, JSON.stringify({ reopenSessionsAfterShutdown: "ask" }));
+}
+
+function restoreConfig(): void {
+  if (configSnapshot !== null) writeFileSync(CONFIG_PATH, configSnapshot);
+  else if (existsSync(CONFIG_PATH)) rmSync(CONFIG_PATH);
+  configSnapshot = null;
 }
 
 describe("recovery end-to-end", () => {
@@ -40,6 +53,7 @@ describe("recovery end-to-end", () => {
     sessionsDir = mkdtempSync(path.join(os.tmpdir(), "pi-e2e-"));
   });
   afterEach(async () => {
+    restoreConfig();
     try { await serverA?.stop(); } catch {}
     try { await serverB?.stop(); } catch {}
     vi.unstubAllEnvs();

@@ -411,6 +411,16 @@ export function wireEvents(deps: EventWiringDeps): void {
   sessionManager.onUnregister = (sessionId) => {
     const session = sessionManager.get(sessionId);
     if (session) {
+      // Durably clear the liveness marker EAGERLY (atomic, not debounced).
+      // Every unregister path (TUI quit, heartbeat expiry, run termination)
+      // is a non-crash end: without this, `status:"ended"` rides the
+      // 1s-debounced save while `live:true` stays on disk — a host death
+      // inside that window makes the next cold start offer (or in `auto`
+      // mode, silently respawn) a session that ended cleanly.
+      // See change: reopen-sessions-after-shutdown.
+      if (metaPersistence && session.sessionFile) {
+        metaPersistence.setLiveness(session.sessionFile, { live: false });
+      }
       browserGateway.broadcastSessionUpdated(sessionId, {
         status: "ended",
         endedAt: session.endedAt,

@@ -100,6 +100,35 @@ describe("liveness-stamp wiring", () => {
     expect(meta?.closedReason).toBeUndefined();
   });
 
+  it("explicit unregister eagerly clears live:false; same-boot re-register re-stamps live:true", async () => {
+    const SID = "live-requick";
+    const sessionFile = path.join(tmpDir, `${SID}.jsonl`);
+    writeFileSync(sessionFile, "");
+
+    // 1. Run → stamped live.
+    const ws = await register(SID, sessionFile);
+    activity(ws, SID, "message_start");
+    await wait(120);
+    expect(readSessionMeta(sessionFile)?.live).toBe(true);
+
+    // 2. Clean quit (explicit unregister). The liveness clear must be EAGER —
+    //    durable well within the 1000ms debounce window of the stats path.
+    ws.send(JSON.stringify({ type: "session_unregister", sessionId: SID }));
+    await wait(150);
+    const afterQuit = readSessionMeta(sessionFile);
+    expect(afterQuit?.live).toBe(false);
+    expect(afterQuit?.closedReason).toBeUndefined();
+
+    // 3. Same-boot resume of the SAME session id: the register-side guard
+    //    reset means activity re-stamps live:true (otherwise a later crash
+    //    misses recovery).
+    const ws2 = await register(SID, sessionFile);
+    activity(ws2, SID, "message_start");
+    await wait(150);
+    expect(readSessionMeta(sessionFile)?.live).toBe(true);
+    ws2.close();
+  });
+
   it("does not stamp liveness for non-activity events alone", async () => {
     const SID = "live-noop";
     const sessionFile = path.join(tmpDir, `${SID}.jsonl`);

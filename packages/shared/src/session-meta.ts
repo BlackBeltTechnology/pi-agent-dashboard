@@ -146,7 +146,16 @@ export interface SessionMeta {
  * See change: reopen-sessions-after-shutdown.
  */
 export function isRecoveryCandidate(meta: SessionMeta | undefined): boolean {
-  return meta?.live === true && meta.status !== "ended" && meta.closedReason !== "manual";
+  return (
+    meta?.live === true &&
+    meta.status !== "ended" &&
+    meta.closedReason !== "manual" &&
+    // Automation run sessions are FULLY exempt: respawning a headless rpc
+    // run detached from its automation (no per-fire context, no run
+    // finalization) recreates the zombie class fix-automation-stop-zombie-runs
+    // exists to kill. They normalize to `ended` like any non-candidate.
+    meta.kind !== "automation"
+  );
 }
 
 /**

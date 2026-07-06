@@ -298,6 +298,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       live: session.live,
       status: session.status,
       closedReason: session.closedReason,
+      kind: session.kind,
     });
     if (candidate) {
       restored.recoveryCandidate = true;
