@@ -80,6 +80,13 @@ export function useTreeColumnWidth(): TreeColumnWidth {
     return () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      // Unmounting mid-drag (e.g. breakpoint flip) would otherwise leave
+      // `document.body` stuck with `col-resize` / `user-select: none`.
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
     };
     // `setWidth` is a stable useState setter — no deps needed.
   }, []);

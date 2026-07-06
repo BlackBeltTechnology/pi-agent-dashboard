@@ -223,6 +223,23 @@ describe("InstructionsPage mobile master/detail", () => {
     expect(window.location.search).toBe("");
     expect(screen.queryByTestId("monaco")).toBeNull();
   });
+
+  it("prompts a discard confirm when mobile back is tapped with unsaved edits", async () => {
+    stubViewport(false);
+    window.history.replaceState(null, "", "/folder/Zm9v/settings/instructions?file=AGENTS.md");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const ta = (await screen.findByTestId("monaco")) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "# changed" } });
+    // Tapping back while dirty must NOT navigate immediately — it confirms first.
+    fireEvent.click(screen.getByTestId("instructions-mobile-back"));
+    await screen.findByTestId("instructions-back-confirm");
+    expect(window.location.search).toContain("file=AGENTS.md");
+    // Confirming discard clears the buffer and returns to the tree.
+    fireEvent.click(screen.getByTestId("instructions-back-confirm-action"));
+    await screen.findByTestId("file-picker");
+    expect(window.location.search).toBe("");
+  });
 });
 
 describe("InstructionsPage default selection (desktop regression)", () => {

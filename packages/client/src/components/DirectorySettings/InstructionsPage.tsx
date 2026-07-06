@@ -41,6 +41,38 @@ interface Message {
   text: string;
 }
 
+/** Discard-unsaved-changes confirm, shared by the file-switch and mobile-back guards. */
+function DiscardConfirm({
+  open,
+  testId,
+  fileLabel,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  testId: string;
+  fileLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Confirm
+      open={open}
+      testId={testId}
+      intent="danger"
+      title={i18nT("auto.discard_unsaved_changes", undefined, "Discard unsaved changes?")}
+      message={i18nT(
+        "auto.discard_unsaved_to_file",
+        undefined,
+        `Discard unsaved changes to ${fileLabel}?`,
+      )}
+      confirmLabel={i18nT("auto.discard", undefined, "Discard")}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
+  );
+}
+
 /** Build the scoped markdown read URL; global scope omits `cwd`. */
 function fileReadUrl(cwd: string | undefined, absPath: string): string {
   const base = `${getApiBase()}/api/file/md-read?path=${encodeURIComponent(absPath)}`;
@@ -99,6 +131,8 @@ export function InstructionsPage({ cwd }: Props) {
   const [message, setMessage] = useState<Message | null>(null);
   // Pending file switch awaiting discard confirmation (dirty guard).
   const [pendingSwitch, setPendingSwitch] = useState<MdCandidate | null>(null);
+  // Mobile back-to-tree awaiting discard confirmation (dirty guard).
+  const [confirmBack, setConfirmBack] = useState(false);
 
   const dirty = buffer !== loadedContent;
   const dirtyRef = useRef(dirty);
@@ -301,7 +335,21 @@ export function InstructionsPage({ cwd }: Props) {
 
   // Mobile back control: clear `?file=` (navigate to the page route) so the
   // master/detail returns to the tree WITHOUT relying on the depth-aware back.
-  const backToTree = useCallback(() => navigate(location), [navigate, location]);
+  // Back-navigation is a switch-away-from-dirty case, so it routes through the
+  // same discard confirm as a file switch. See change: directory-settings-tree-and-resize.
+  const backToTree = useCallback(() => {
+    if (dirtyRef.current) {
+      setConfirmBack(true);
+      return;
+    }
+    navigate(location);
+  }, [navigate, location]);
+
+  const confirmBackDiscard = useCallback(() => {
+    setConfirmBack(false);
+    setBuffer(loadedContent); // clear dirty so a later reselect won't re-confirm
+    navigate(location);
+  }, [loadedContent, navigate, location]);
 
   // Master/detail visibility. Desktop always shows both panes (split). Mobile
   // shows the editor once a file is selected, else the tree.
@@ -365,22 +413,22 @@ export function InstructionsPage({ cwd }: Props) {
       )}
 
       {/* Unsaved-changes guard on file switch */}
-      {pendingSwitch && (
-        <Confirm
-          open
-          testId="instructions-switch-confirm"
-          intent="danger"
-          title={i18nT("auto.discard_unsaved_changes", undefined, "Discard unsaved changes?")}
-          message={i18nT(
-            "auto.discard_unsaved_to_file",
-            undefined,
-            `Discard unsaved changes to ${selected?.relPath ?? "this file"}?`,
-          )}
-          confirmLabel={i18nT("auto.discard", undefined, "Discard")}
-          onConfirm={confirmSwitch}
-          onClose={() => setPendingSwitch(null)}
-        />
-      )}
+      <DiscardConfirm
+        open={pendingSwitch !== null}
+        testId="instructions-switch-confirm"
+        fileLabel={selected?.relPath ?? "this file"}
+        onConfirm={confirmSwitch}
+        onClose={() => setPendingSwitch(null)}
+      />
+
+      {/* Unsaved-changes guard on mobile back-to-tree */}
+      <DiscardConfirm
+        open={confirmBack}
+        testId="instructions-back-confirm"
+        fileLabel={selected?.relPath ?? "this file"}
+        onConfirm={confirmBackDiscard}
+        onClose={() => setConfirmBack(false)}
+      />
     </div>
   );
 }
