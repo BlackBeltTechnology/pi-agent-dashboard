@@ -17,7 +17,7 @@ import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, resolveInteractiveRequest, type SessionState } from "../lib/event-reducer.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
-import { clearLoadingHistory } from "../lib/loading-history.js";
+import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/loading-history.js";
 import type { ReplayPersister } from "../lib/replay-persist.js";
 import { inferPlatform, pathKey } from "../lib/session-grouping.js";
 import { pushSpawnErrorToast } from "../lib/spawn-error-toast-bus.js";
@@ -548,9 +548,17 @@ export function useMessageHandler(
         // Exit LOADING: first content (clear immediately so partial history
         // paints) OR terminal marker for a genuinely-empty session
         // (`events:[], isLast:true` → falls through to "No messages yet").
-        // See change: show-chat-history-loading-indicator.
+        // Else — the empty non-terminal marker (`events:[], isLast:false`) is the
+        // cold-hydration start marker AND every server heartbeat: re-arm the
+        // short subscribe window to the longer hydration ceiling so a slow disk
+        // parse never flashes "No messages yet". `rearmLoadingHistory` no-ops
+        // unless a timer is armed (flag set), so warm/painted sessions are
+        // unaffected. See change: show-chat-history-loading-indicator,
+        // fix-history-loading-false-empty-flash.
         if (msg.events.length > 0 || msg.isLast === true) {
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
+        } else {
+          rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
         }
         break;
       }

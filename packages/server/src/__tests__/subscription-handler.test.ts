@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
+import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleSubscribe, replaySessionAssets } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../memory-event-store.js";
 import { createMemorySessionManager } from "../memory-session-manager.js";
-import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };
@@ -261,6 +261,115 @@ describe("replaySessionAssets — emits one asset_register per Session.assets en
     const assetMsgs = calls.filter(([, m]) => m.type === "asset_register");
     expect(assetMsgs).toHaveLength(1);
     expect((assetMsgs[0][1] as any).hash).toBe("good");
+  });
+});
+
+// fix-history-loading-false-empty-flash
+describe("handleSubscribe — cold-hydration heartbeat", () => {
+  // Fake only timers, NOT setImmediate — sendEventBatches yields via real
+  // setImmediate so batches still flush under `flush()`.
+  const TO_FAKE = ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] as const;
+  const HEARTBEAT_MS = 10000;
+
+  async function flush() {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
+  }
+
+  function restoreEnded(ctx: BrowserHandlerContext, id: string) {
+    ctx.sessionManager.restore({
+      id, cwd: "/test", source: "tui", status: "ended",
+      startedAt: 1000, endedAt: 2000, tokensIn: 0, tokensOut: 0, cost: 0,
+      contextWindow: 200000, sessionFile: `/sessions/${id}.jsonl`,
+      sessionDir: "/sessions", hidden: false,
+    } as any);
+  }
+
+  function emptyNonTerminal(ctx: BrowserHandlerContext) {
+    return ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>).filter(
+      ([, m]) => m.type === "event_replay" && (m as any).events.length === 0 && (m as any).isLast === false,
+    );
+  }
+
+  it("4.7 emits >=1 heartbeat before a delayed loadSessionEvents resolves", () => {
+    vi.useFakeTimers({ toFake: [...TO_FAKE] });
+    try {
+      const loadSessionEvents = vi.fn(() => new Promise(() => {})); // never resolves
+      const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+      ctx.getSubscribers = () => [ctx.ws];
+      restoreEnded(ctx, "s-cold");
+
+      handleSubscribe({ type: "subscribe", sessionId: "s-cold" }, new Set(), ctx);
+      // priming marker sent synchronously; one interval tick adds a heartbeat.
+      vi.advanceTimersByTime(HEARTBEAT_MS + 1);
+      expect(emptyNonTerminal(ctx).length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("4.8 heartbeat stops once the first content batch flows; none after", async () => {
+    vi.useFakeTimers({ toFake: [...TO_FAKE] });
+    try {
+      const events = [makeEvent("message_update")];
+      const loadSessionEvents = vi.fn(async () => ({ success: true, events }));
+      const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+      ctx.getSubscribers = () => [ctx.ws];
+      restoreEnded(ctx, "s-content");
+
+      handleSubscribe({ type: "subscribe", sessionId: "s-content" }, new Set(), ctx);
+      await flush(); // load resolves + content batch sends; stopHeartbeat runs
+
+      const before = emptyNonTerminal(ctx).length; // priming only
+      vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+      expect(emptyNonTerminal(ctx).length).toBe(before);
+
+      const content = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+        .filter(([, m]) => m.type === "event_replay" && (m as any).events.length > 0);
+      expect(content.length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("4.9 heartbeat stops on failure and on cancelled", async () => {
+    for (const err of ["boom", "cancelled"]) {
+      vi.useFakeTimers({ toFake: [...TO_FAKE] });
+      try {
+        const loadSessionEvents = vi.fn(async () => ({ success: false, error: err }));
+        const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+        ctx.getSubscribers = () => [ctx.ws];
+        restoreEnded(ctx, `s-${err}`);
+
+        handleSubscribe({ type: "subscribe", sessionId: `s-${err}` }, new Set(), ctx);
+        await flush();
+
+        const before = emptyNonTerminal(ctx).length;
+        vi.advanceTimersByTime(HEARTBEAT_MS * 3);
+        expect(emptyNonTerminal(ctx).length).toBe(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  });
+
+  it("4.9 heartbeat never sends to a closed subscriber socket", () => {
+    vi.useFakeTimers({ toFake: [...TO_FAKE] });
+    try {
+      const closedSub = { readyState: 3, OPEN: 1 } as any;
+      const loadSessionEvents = vi.fn(() => new Promise(() => {}));
+      const ctx = createMockContext({ directoryService: { loadSessionEvents } as any });
+      ctx.getSubscribers = () => [closedSub];
+      restoreEnded(ctx, "s-closed");
+
+      handleSubscribe({ type: "subscribe", sessionId: "s-closed" }, new Set(), ctx);
+      vi.advanceTimersByTime(HEARTBEAT_MS * 2);
+
+      const sentToClosed = ((ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>)
+        .some(([w]) => w === closedSub);
+      expect(sentToClosed).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

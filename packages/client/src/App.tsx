@@ -64,7 +64,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
-import { clearLoadingHistory } from "./lib/loading-history.js";
+import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/loading-history.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
 import { getMobileDepth } from "./lib/mobile-depth.js";
 import {
@@ -634,10 +634,13 @@ export default function App() {
     sessions: Array.from(sessions.values()).map((s) => ({ cwd: s.cwd })),
   };
 
-  // Enter LOADING for a session: set the flag and arm a 15s safety-net
-  // timer (clearing any prior timer). Called from every `subscribe` send
-  // site so cleared / refreshed chats show the spinner during replay, not
-  // the empty placeholder. See change: show-chat-history-loading-indicator.
+  // Enter LOADING for a session: set the flag and arm the short
+  // `SUBSCRIBE_ACK_MS` safety-net timer (clearing any prior timer). Called from
+  // every `subscribe` send site so cleared / refreshed chats show the spinner
+  // during replay, not the empty placeholder. On the cold path the server's
+  // hydration start marker re-arms this to the longer `HYDRATE_CEILING_MS`.
+  // See change: show-chat-history-loading-indicator,
+  // fix-history-loading-false-empty-flash.
   const beginLoadingHistory = useCallback((id: string) => {
     const existingTimer = loadingHistoryTimersRef.current.get(id);
     if (existingTimer) clearTimeout(existingTimer);
@@ -648,7 +651,7 @@ export default function App() {
     });
     loadingHistoryTimersRef.current.set(
       id,
-      setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, id), 15000),
+      setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, id), SUBSCRIBE_ACK_MS),
     );
   }, []);
 

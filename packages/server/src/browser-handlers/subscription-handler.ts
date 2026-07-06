@@ -1,19 +1,28 @@
 /**
  * Subscription message handlers: subscribe, unsubscribe.
  */
+
+import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
-import type { ServerToBrowserMessage, BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { BrowserHandlerContext } from "./handler-context.js";
 import { extractStatsFromEvents } from "../event-status-extraction.js";
-import { pluginIntentCache } from "../plugin-intent-cache.js";
 import type { StoredEvent } from "../memory-event-store.js";
+import { pluginIntentCache } from "../plugin-intent-cache.js";
 import { truncateToolResultForReplay } from "../replay-truncate.js";
+import type { BrowserHandlerContext } from "./handler-context.js";
 
 const REPLAY_BATCH_SIZE = 50;
 /** Max events to replay per session subscription (0 = unlimited) */
 const MAX_REPLAY_EVENTS = 0;
 /** Max buffered bytes before pausing replay sends (1MB) */
 const BACKPRESSURE_THRESHOLD = 1_024 * 1_024;
+/**
+ * Interval between cold-hydration keepalive markers. While `loadSessionEvents`
+ * parses a large on-disk session, re-emit the empty non-terminal
+ * `event_replay { events: [], isLast: false }` so the client's hydration ceiling
+ * never lapses and flashes "No messages yet". ≪ the client's HYDRATE_CEILING_MS.
+ * See change: fix-history-loading-false-empty-flash.
+ */
+const HYDRATE_HEARTBEAT_MS = 10000;
 
 /**
  * Send stored events to a WebSocket in batches with backpressure handling.
@@ -241,7 +250,26 @@ export function handleSubscribe(
         events: [],
         isLast: false,
       });
+      // Hydration heartbeat: re-emit the empty non-terminal marker to every live
+      // subscriber while the disk parse is in flight, so a parse longer than the
+      // client's hydration ceiling does not surface a false empty state. Stopped
+      // in every exit path of the load promise via `stopHeartbeat`.
+      // See change: fix-history-loading-false-empty-flash.
+      let heartbeat: ReturnType<typeof setInterval> | null = setInterval(() => {
+        for (const sub of getSubscribers(msg.sessionId)) {
+          if (sub.readyState === sub.OPEN) {
+            sendTo(sub, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: false });
+          }
+        }
+      }, HYDRATE_HEARTBEAT_MS);
+      const stopHeartbeat = () => {
+        if (heartbeat !== null) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+      };
       directoryService.loadSessionEvents(msg.sessionId, session.sessionFile, session.contextWindow).then(async (result) => {
+        stopHeartbeat();
         if (result.success) {
           for (const evt of result.events) {
             eventStore.insertEvent(msg.sessionId, evt);
@@ -273,6 +301,7 @@ export function handleSubscribe(
           broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { dataUnavailable: true } });
         }
       }).catch(() => {
+        stopHeartbeat();
         sendTo(ws, { type: "event_replay", sessionId: msg.sessionId, events: [], isLast: true });
         sessionManager.update(msg.sessionId, { dataUnavailable: true });
         broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { dataUnavailable: true } });
