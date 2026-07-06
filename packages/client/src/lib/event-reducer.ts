@@ -1216,12 +1216,30 @@ export function reduceEvent(
         // cold-load path (state-replay.ts) emits NO thinking_* events — the
         // reasoning lives inline in the finalized message's content as
         // `{ type: "thinking", thinking: "…" }` blocks. Rebuild the rows here so
-        // reopened sessions show reasoning. Guarded to `!isLive` so the live
-        // path (which already created them) does not double-create. Appended
-        // before the assistant text row below → correct [thinking, text] order;
-        // for tool-bearing messages the reorder pass repositions by content
-        // order. See change: reconstruct-reasoning-on-replay.
-        if (!isLive && Array.isArray(msg.content)) {
+        // reopened sessions show reasoning. Appended before the assistant text
+        // row below → correct [thinking, text] order; for tool-bearing messages
+        // the reorder pass repositions by content order.
+        // See change: reconstruct-reasoning-on-replay.
+        //
+        // Dedupe guard: `!isLive` is the WRONG signal — a streamed turn can
+        // reach a message_end whose opts.isLive is not true (the default), so
+        // `!isLive` alone double-creates the row. The real condition is "does a
+        // thinking row for the current assistant turn already exist?". Walk
+        // back to the turn boundary and skip reconstruction when one does.
+        // Real cold replay has no streamed thinking_* rows → none exists →
+        // reconstruction still fires.
+        // See change: fix-double-thinking-row-on-replay-reconstruction.
+        let turnStart = 0;
+        for (let i = next.messages.length - 1; i >= 0; i--) {
+          if (TURN_BOUNDARY_ROLES.has(next.messages[i].role)) {
+            turnStart = i + 1;
+            break;
+          }
+        }
+        const turnHasThinkingRow = next.messages
+          .slice(turnStart)
+          .some((m) => m.role === "thinking");
+        if (!turnHasThinkingRow && Array.isArray(msg.content)) {
           const thinkingRows: ChatMessage[] = [];
           for (const block of msg.content as any[]) {
             if (block?.type !== "thinking") continue;

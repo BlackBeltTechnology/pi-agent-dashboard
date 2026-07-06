@@ -858,6 +858,29 @@ describe("thinking events", () => {
       expect(thinking).toHaveLength(1);
       expect(thinking[0].content).toBe("streamed reasoning");
     });
+
+    it("does NOT double-create when streamed thinking is followed by a non-live message_end (default isLive)", () => {
+      // Regression: a turn can stream thinking_* (pushing one thinking row)
+      // and then reach a message_end whose opts.isLive is not true (the
+      // default). `!isLive` alone let reconstruction fire again → duplicate.
+      // The dedupe guard keys on "does a thinking row for this turn already
+      // exist?", so exactly one row survives.
+      // See change: fix-double-thinking-row-on-replay-reconstruction.
+      const content = [
+        { type: "thinking", thinking: "streamed reasoning" },
+        { type: "text", text: "answer" },
+      ];
+      const state = applyEvents([
+        { eventType: "message_update", timestamp: 1, data: { message: { role: "assistant", content: [] }, assistantMessageEvent: { type: "thinking_start", contentIndex: 0 } } },
+        { eventType: "message_update", timestamp: 1, data: { message: { role: "assistant", content: [] }, assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "streamed reasoning" } } },
+        { eventType: "message_update", timestamp: 1, data: { message: { role: "assistant", content: [] }, assistantMessageEvent: { type: "thinking_end", contentIndex: 0, content: "streamed reasoning" } } },
+        { eventType: "message_end", timestamp: 1, data: { message: { role: "assistant", content } } },
+      ]);
+      const thinking = state.messages.filter((m) => m.role === "thinking");
+      expect(thinking).toHaveLength(1);
+      expect(thinking[0].content).toBe("streamed reasoning");
+      expect(state.messages.map((m) => m.role)).toEqual(["thinking", "assistant"]);
+    });
   });
 
   it("should store full reasoning text without truncation", () => {
