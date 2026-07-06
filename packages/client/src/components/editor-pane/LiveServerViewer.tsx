@@ -10,12 +10,36 @@
  *
  * See change: improve-content-editor (live-server-preview §6.3).
  */
-import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
+import { isLoopbackUrl, type LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { mdiOpenInNew, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
 import { listLiveServers, startLiveServer } from "../../lib/live-server-api.js";
+import type { ViewerProps } from "./types.js";
+
+/**
+ * Parse a `live:<url>` preset sentinel into a launch target + deep path.
+ * `live:preview` / empty / non-loopback payloads return null (→ picker).
+ */
+function parsePreset(
+  viewerPath: string | undefined,
+): { host: string; port: number; deep: string } | null {
+  if (!viewerPath?.startsWith("live:")) return null;
+  const target = viewerPath.slice("live:".length);
+  if (!isLoopbackUrl(target)) return null;
+  try {
+    const u = new URL(target);
+    const port = u.port ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+    // Strip IPv6 brackets so the host matches the server allowlist.
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    // Deep link (path + query) to append onto the `/live/<id>/` mount.
+    const deep = `${u.pathname}${u.search}`.replace(/^\//, "");
+    return { host, port, deep };
+  } catch {
+    return null;
+  }
+}
 
 /** Parse a user-entered URL into `{ host, port }`; null when unparseable. */
 function parseTarget(input: string): { host: string; port: number } | null {
@@ -31,9 +55,10 @@ function parseTarget(input: string): { host: string; port: number } | null {
   }
 }
 
-export default function LiveServerViewer() {
+export default function LiveServerViewer({ path: viewerPath }: Partial<ViewerProps> = {}) {
   const [servers, setServers] = useState<LiveServerTarget[]>([]);
   const [path, setPath] = useState<string | null>(null);
+  const [deep, setDeep] = useState("");
   const [url, setUrl] = useState("http://localhost:5173");
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +69,15 @@ export default function LiveServerViewer() {
       .then(setServers)
       .catch(() => setError("Couldn't load saved targets."));
   }, []);
+
+  // Auto-launch a preset `live:<url>` target instead of showing the picker.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: launch closes over stable setters; launch once per preset path.
+  useEffect(() => {
+    const preset = parsePreset(viewerPath);
+    if (!preset) return;
+    setDeep(preset.deep);
+    void launch({ host: preset.host, port: preset.port });
+  }, [viewerPath]);
 
   const launch = async (input: { host: string; port: number; label?: string }) => {
     setBusy(true);
@@ -86,7 +120,7 @@ export default function LiveServerViewer() {
           <span className="truncate font-mono text-[var(--text-secondary)]">{path}</span>
           <span className="flex-1" />
           <a
-            href={`${getApiBase()}${path}`}
+            href={`${getApiBase()}${path}${deep}`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1 rounded px-2 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)]"
@@ -100,7 +134,7 @@ export default function LiveServerViewer() {
           // D7: opaque origin — scripts run, but NO allow-same-origin, so the
           // embedded app cannot read the dashboard token or call /api/*.
           sandbox="allow-scripts allow-forms allow-popups"
-          src={`${getApiBase()}${path}`}
+          src={`${getApiBase()}${path}${deep}`}
           title="Live server preview"
           className="min-h-0 flex-1 border-0 bg-white"
         />

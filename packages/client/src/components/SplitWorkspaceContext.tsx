@@ -42,6 +42,8 @@ export interface SplitWorkspaceContextValue {
   dispatch: React.Dispatch<EditorPaneAction>;
   /** Open a file in the split, auto-opening the split when closed; scroll to `line`. */
   openInSplit: (relPath: string, line?: number) => void;
+  /** Open a loopback dev-server URL in the `live-server` split viewer (auto-launched). */
+  openLiveTarget: (url: string) => void;
   /** Pending scroll target for the pane, or `null`. */
   pendingScroll: PendingScroll | null;
   /** Clear the pending scroll once the pane has honoured it. */
@@ -112,6 +114,17 @@ export function SplitWorkspaceProvider({
     [cwd, dispatch, updateSplit],
   );
 
+  const openLiveTarget = useCallback(
+    (url: string) => {
+      // NOT via openInSplit — that derives the viewer from fileKind and can
+      // never yield `live-server`. The `openFile` reducer is idempotent by
+      // path, so the same URL reuses its tab.
+      dispatch({ type: "openFile", path: `live:${url}`, viewer: "live-server" });
+      updateSplit({ open: true });
+    },
+    [dispatch, updateSplit],
+  );
+
   const toggleSplit = useCallback(() => updateSplit({ open: !split.open }), [split.open, updateSplit]);
   const consumePendingScroll = useCallback(() => setPendingScroll(null), []);
 
@@ -151,6 +164,7 @@ export function SplitWorkspaceProvider({
       paneState,
       dispatch,
       openInSplit,
+      openLiveTarget,
       pendingScroll,
       consumePendingScroll,
       fileResults,
@@ -158,7 +172,7 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
     }),
-    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
+    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

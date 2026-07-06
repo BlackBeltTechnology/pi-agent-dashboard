@@ -2,9 +2,10 @@
  * LiveServerViewer — opaque-origin sandbox (D7) + SSRF refusal (#6.3).
  * See change: improve-content-editor (tasks §6.3).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api-context.js", () => ({ getApiBase: () => "" }));
 
@@ -45,6 +46,57 @@ describe("LiveServerViewer", () => {
     expect(sandbox).toContain("allow-scripts");
     expect(sandbox).not.toContain("allow-same-origin");
     expect(iframe.getAttribute("src")).toBe("/live/abc12345/");
+  });
+
+  it("auto-launches a preset live:<url> target, skipping the picker, deep path preserved", async () => {
+    const fetchSpy = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
+    const iframe = await screen.findByTestId("live-iframe");
+    // No picker: the URL input is gone once the preview mounts.
+    expect(screen.queryByTestId("live-url")).toBeNull();
+    // Deep path + query survive into the iframe src.
+    expect(iframe.getAttribute("src")).toBe("/live/abc12345/report.html?x=1");
+    // startLiveServer was POSTed with the parsed host/port.
+    const startCall = fetchSpy.mock.calls.find(
+      (c: any[]) => typeof c[0] === "string" && c[0].includes("/start"),
+    );
+    expect(startCall).toBeTruthy();
+    expect(JSON.parse((startCall as any[])[1].body)).toMatchObject({ host: "localhost", port: 5173 });
+  });
+
+  it("header Open ↗ anchor targets the system browser with the deep proxied path", async () => {
+    render(<LiveServerViewer path="live:http://localhost:5173/report.html?x=1" />);
+    await screen.findByTestId("live-iframe");
+    const open = screen.getByText("Open").closest("a");
+    expect(open?.getAttribute("target")).toBe("_blank");
+    expect(open?.getAttribute("href")).toBe("/live/abc12345/report.html?x=1");
+  });
+
+  it("live:preview preset still shows the picker", () => {
+    render(<LiveServerViewer path="live:preview" />);
+    expect(screen.getByTestId("live-url")).toBeTruthy();
+    expect(screen.queryByTestId("live-iframe")).toBeNull();
+  });
+
+  it("a non-loopback preset surfaces the error state (server-side refusal)", async () => {
+    // Force the server to reject a non-loopback target so the viewer error shows.
+    const fetchSpy = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchSpy.mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/live-server/list")) {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true, data: { servers: [] } }) });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ success: false, error: "only loopback hosts are allowed" }),
+      });
+    });
+    // A non-loopback preset never parses (isLoopbackUrl false), so it falls to
+    // the picker; enter a remote host manually to exercise the error path.
+    render(<LiveServerViewer path="live:http://evil.com/" />);
+    fireEvent.change(screen.getByTestId("live-url"), { target: { value: "http://localhost:5173" } });
+    fireEvent.click(screen.getByTestId("live-confirm"));
+    expect(await screen.findByTestId("live-error")).toBeTruthy();
   });
 
   it("refuses a free-form remote host before any request (SSRF)", async () => {

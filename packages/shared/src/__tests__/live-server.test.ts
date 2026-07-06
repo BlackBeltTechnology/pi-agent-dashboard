@@ -1,8 +1,41 @@
 /**
  * Live-server SSRF-guard validation. See change: improve-content-editor (§6).
  */
-import { describe, it, expect } from "vitest";
-import { validateLiveTarget, liveServerPath } from "../live-server.js";
+import { describe, expect, it } from "vitest";
+import { isLoopbackUrl, liveServerPath, validateLiveTarget } from "../live-server.js";
+
+describe("isLoopbackUrl — UX router classifier", () => {
+  it("returns true for http(s) loopback URLs", () => {
+    for (const href of [
+      "http://localhost:5173/x",
+      "http://127.0.0.1:80",
+      "https://localhost/x",
+      "http://[::1]:3000",
+      "http://LOCALHOST:5173/",
+    ]) {
+      expect(isLoopbackUrl(href), href).toBe(true);
+    }
+  });
+
+  it("returns false for spoofing vectors, non-http(s), and non-loopback", () => {
+    for (const href of [
+      "http://localhost@evil.com/",
+      "http://evil.com/localhost",
+      "http://0.0.0.0:3000",
+      "ftp://localhost/",
+      "javascript:alert(1)",
+      "",
+      "http://192.168.1.5/",
+      "http://localhost.evil.com/",
+      "http://localhost./", // trailing-dot host
+      "http://[::ffff:127.0.0.1]/", // IPv4-mapped IPv6
+      "http://127.0.0.1.evil.com/", // suffix trick
+      "http://l\u041ecalhost/", // cyrillic-O unicode spoof → punycode
+    ]) {
+      expect(isLoopbackUrl(href), href).toBe(false);
+    }
+  });
+});
 
 describe("validateLiveTarget — SSRF boundary", () => {
   it("accepts loopback hosts", () => {

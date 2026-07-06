@@ -16,6 +16,27 @@ export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set([
   "::1",
 ]);
 
+/**
+ * True only for an `http(s)://{localhost,127.0.0.1,::1}[:port]/…` URL.
+ *
+ * A UX router, NOT a trust boundary — it decides whether a click opens the
+ * internal live-server split viewer vs. a system-browser tab. The server
+ * `validateLiveTarget` remains the real SSRF gate. Credential-in-host
+ * (`http://localhost@evil.com/`) parses to `hostname = "evil.com"` → false;
+ * `0.0.0.0` / IPv4-mapped IPv6 are absent from `LOOPBACK_HOSTS` → false.
+ */
+export function isLoopbackUrl(href: string): boolean {
+  try {
+    const u = new URL(href);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    // IPv6 hostnames carry brackets (`[::1]`); strip so they match LOOPBACK_HOSTS.
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return LOOPBACK_HOSTS.has(host);
+  } catch {
+    return false;
+  }
+}
+
 export interface LiveServerTargetInput {
   host: string;
   port: number;

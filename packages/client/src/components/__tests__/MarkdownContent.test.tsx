@@ -7,6 +7,11 @@ import { isFencedBlockComplete, MarkdownContent, tableToMarkdown, tableToTsv } f
 import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/types.js";
 
+const openLiveTarget = vi.fn();
+vi.mock("../SplitWorkspaceContext.js", () => ({
+  useOptionalSplitWorkspace: () => ({ openLiveTarget }),
+}));
+
 // Each test renders a MarkdownContent into the document; the lightbox
 // portals to document.body. Cleanup unmounts both, removing any open
 // modal so cross-test backdrop queries are unambiguous.
@@ -30,6 +35,41 @@ beforeAll(() => {
 function renderMd(content: string) {
   return render(<ThemeProvider><MarkdownContent content={content} /></ThemeProvider>);
 }
+
+describe("MarkdownContent — loopback link routing", () => {
+  afterEach(() => openLiveTarget.mockClear());
+
+  it("plain click on a loopback link routes to the split viewer (preventDefault)", () => {
+    renderMd("[preview](http://localhost:50452/report.html)");
+    const a = screen.getByText("preview").closest("a") as HTMLAnchorElement;
+    const ev = fireEvent.click(a, { button: 0 });
+    expect(openLiveTarget).toHaveBeenCalledWith("http://localhost:50452/report.html");
+    expect(ev).toBe(false); // preventDefault → dispatchEvent returns false
+  });
+
+  it("meta-click and middle-click on a loopback link do NOT route", () => {
+    renderMd("[preview](http://localhost:50452/report.html)");
+    const a = screen.getByText("preview").closest("a") as HTMLAnchorElement;
+    fireEvent.click(a, { metaKey: true });
+    fireEvent.click(a, { button: 1 });
+    expect(openLiveTarget).not.toHaveBeenCalled();
+  });
+
+  it("external link is unchanged (target=_blank, not routed)", () => {
+    renderMd("[out](https://example.com/x)");
+    const a = screen.getByText("out").closest("a") as HTMLAnchorElement;
+    expect(a.getAttribute("target")).toBe("_blank");
+    fireEvent.click(a);
+    expect(openLiveTarget).not.toHaveBeenCalled();
+  });
+
+  it("credentialed host http://localhost@evil.com/ is NOT routed", () => {
+    renderMd("[trap](http://localhost@evil.com/)");
+    const a = screen.getByText("trap").closest("a") as HTMLAnchorElement;
+    fireEvent.click(a);
+    expect(openLiveTarget).not.toHaveBeenCalled();
+  });
+});
 
 describe("isFencedBlockComplete — mermaid streaming gate", () => {
   const code = "graph TD; A-->B";

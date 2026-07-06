@@ -12,6 +12,7 @@ import { t as i18nT } from "../lib/i18n";
 import { tokenize } from "../lib/linkify-tool-output.js";
 import { useSessionAssets } from "../lib/SessionAssetsContext.js";
 import { getSyntaxTheme } from "../lib/syntax-theme.js";
+import { useLoopbackLinkOpen } from "../lib/use-loopback-link-open.js";
 import { wrapAsciiTables } from "../lib/wrap-ascii-tables.js";
 import { CopyButton } from "./CopyButton.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
@@ -372,6 +373,7 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
   // const processedContent = useMemo(() => wrapAsciiTables(content), [content]);
   const processedContent = content;
   const containerRef = useRef<HTMLDivElement>(null);
+  const onLoopbackClick = useLoopbackLinkOpen();
   const { resolved: theme, themeName } = useThemeContext();
   const syntaxStyle = getSyntaxTheme(theme, themeName);
 
@@ -489,6 +491,10 @@ export const MarkdownContent = React.memo(function MarkdownContent({ content, co
                 href={href}
                 className="text-blue-400 hover:underline"
                 {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                // Loopback links route into the internal live-server split
+                // viewer on a plain click; modifier/middle-click and the
+                // no-context fallback keep the native target="_blank" tab.
+                onClick={href ? (e) => onLoopbackClick(e, href) : undefined}
                 {...props}
               >
                 {children}

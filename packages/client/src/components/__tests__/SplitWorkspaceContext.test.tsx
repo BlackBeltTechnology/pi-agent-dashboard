@@ -46,6 +46,26 @@ describe("SplitWorkspaceProvider / openInSplit", () => {
     expect(result.current.split.open).toBe(false);
   });
 
+  it("openLiveTarget opens a live-server tab with the encoded path, idempotent on repeat", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: wrapper("sLive") });
+    expect(result.current.split.open).toBe(false);
+
+    act(() => result.current.openLiveTarget("http://localhost:50452/report.html"));
+    expect(result.current.split.open).toBe(true);
+    expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual([
+      "live:http://localhost:50452/report.html",
+    ]);
+    expect(result.current.paneState.openFiles[0].viewer).toBe("live-server");
+
+    // Idempotent: re-opening the same URL reuses the tab (no duplicate).
+    act(() => result.current.openLiveTarget("http://localhost:50452/report.html"));
+    expect(result.current.paneState.openFiles).toHaveLength(1);
+
+    // A distinct URL opens a distinct tab.
+    act(() => result.current.openLiveTarget("http://localhost:50452/other.html"));
+    expect(result.current.paneState.openFiles).toHaveLength(2);
+  });
+
   it("useOptionalSplitWorkspace returns null outside a provider", () => {
     const { result } = renderHook(() => useOptionalSplitWorkspace());
     expect(result.current).toBeNull();
