@@ -1554,6 +1554,12 @@ function DisplayPrefsSection() {
         onChange={(v) => patch({ reasoningAutoCollapseMs: Math.max(0, v) * 1000 })}
         disabled={!prefs.reasoning}
       />
+      <ToggleField
+        label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
+        value={prefs.keepReasoningOpenUntilTurnEnds}
+        onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
+        disabled={!prefs.reasoning}
+      />
       <ToggleField label={t("settings.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} onChange={(v) => patch({ toolResults: v })} />
       <ToggleField label={t("settings.turnMetadata", undefined, "Turn metadata separators")} value={prefs.turnMetadata} onChange={(v) => patch({ turnMetadata: v })} />
       <ToggleField label={t("settings.debugEvents", undefined, "Debug events")} value={prefs.debugTools} onChange={(v) => patch({ debugTools: v })} />

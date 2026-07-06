@@ -61,6 +61,17 @@ describe("mergeDisplayPrefs", () => {
     const merged = mergeDisplayPrefs(global, { reasoningAutoCollapseMs: 0 });
     expect(merged.reasoningAutoCollapseMs).toBe(0);
   });
+
+  it("defaults keepReasoningOpenUntilTurnEnds to false in all presets", () => {
+    expect(DISPLAY_PRESETS.simple.keepReasoningOpenUntilTurnEnds).toBe(false);
+    expect(DISPLAY_PRESETS.standard.keepReasoningOpenUntilTurnEnds).toBe(false);
+    expect(DISPLAY_PRESETS.everything.keepReasoningOpenUntilTurnEnds).toBe(false);
+  });
+
+  it("applies keepReasoningOpenUntilTurnEnds override precedence", () => {
+    const merged = mergeDisplayPrefs(global, { keepReasoningOpenUntilTurnEnds: true });
+    expect(merged.keepReasoningOpenUntilTurnEnds).toBe(true);
+  });
 });
 
 describe("toolCallPrefKey", () => {

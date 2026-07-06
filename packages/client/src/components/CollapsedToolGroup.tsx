@@ -11,6 +11,7 @@ import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useMobile } from "../hooks/useMobile.js";
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import { getSummary } from "../lib/tool-summary.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolContext } from "./tool-renderers/index.js";
 
@@ -55,21 +56,42 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
       </button>
       {expanded && (
         <div className="mt-1 space-y-0.5">
-          {visibleMessages.map((msg) => (
-            <ToolCallStep
-              key={msg.id}
-              toolName={msg.toolName ?? "unknown"}
-              toolCallId={msg.toolCallId ?? msg.id}
-              args={msg.args}
-              status={msg.toolStatus ?? "complete"}
-              result={msg.result}
-              images={msg.images}
-              context={toolContext}
-              startedAt={msg.startedAt}
-              duration={msg.duration}
-              showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
-            />
-          ))}
+          {group.rendered.map((row) => {
+            // Absorbed narration renders interleaved with its tool calls.
+            // thinking / non-empty assistant prose → lightweight inline text;
+            // empty assistant / separators / rawEvent / commandFeedback → skip.
+            if (row.role === "toolResult") {
+              const key = toolCallPrefKey(row.toolName ?? "");
+              if (key !== null && !prefs.toolCalls[key]) return null;
+              return (
+                <ToolCallStep
+                  key={row.id}
+                  toolName={row.toolName ?? "unknown"}
+                  toolCallId={row.toolCallId ?? row.id}
+                  args={row.args}
+                  status={row.toolStatus ?? "complete"}
+                  result={row.result}
+                  images={row.images}
+                  context={toolContext}
+                  startedAt={row.startedAt}
+                  duration={row.duration}
+                  showResultBody={prefs.toolResults || row.toolName === "ask_user"}
+                />
+              );
+            }
+            if (row.role === "thinking" || (row.role === "assistant" && row.content.trim() !== "")) {
+              return (
+                <div
+                  key={row.id}
+                  className="px-2 py-1 text-xs text-[var(--text-tertiary)]"
+                  data-testid="collapsed-group-narration"
+                >
+                  <MarkdownContent content={row.content} context={toolContext} />
+                </div>
+              );
+            }
+            return null;
+          })}
         </div>
       )}
     </div>

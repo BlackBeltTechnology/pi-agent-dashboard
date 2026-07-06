@@ -34,6 +34,16 @@ export interface DisplayPrefs {
    * See change: reasoning-auto-collapse-timer.
    */
   reasoningAutoCollapseMs: number;
+  /**
+   * When true, a live-streamed reasoning block stays expanded for the whole
+   * duration of the active turn (the per-block `reasoningAutoCollapseMs` timer
+   * is suppressed while the turn runs) and collapses on the turn-end edge.
+   * When false (default), behavior is unchanged: live blocks mount expanded and
+   * the ms timer governs collapse per-block. Only affects live-streamed blocks;
+   * replayed / cold-loaded blocks are unaffected. Default `false`.
+   * See change: keep-reasoning-open-until-turn-ends.
+   */
+  keepReasoningOpenUntilTurnEnds: boolean;
 }
 
 /**
@@ -56,6 +66,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     debugTools: false,
     toolCalls: { read: false, bash: false, edit: true, agent: true, generic: false },
     reasoningAutoCollapseMs: 30000,
+    keepReasoningOpenUntilTurnEnds: false,
   },
   standard: {
     tokenStatsBar: true,
@@ -66,6 +77,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     debugTools: false,
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
     reasoningAutoCollapseMs: 30000,
+    keepReasoningOpenUntilTurnEnds: false,
   },
   everything: {
     tokenStatsBar: true,
@@ -76,6 +88,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     debugTools: true,
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
     reasoningAutoCollapseMs: 30000,
+    keepReasoningOpenUntilTurnEnds: false,
   },
 };
 
@@ -103,6 +116,8 @@ export function mergeDisplayPrefs(
     toolCalls: { ...global.toolCalls, ...(override.toolCalls ?? {}) },
     reasoningAutoCollapseMs:
       override.reasoningAutoCollapseMs ?? global.reasoningAutoCollapseMs,
+    keepReasoningOpenUntilTurnEnds:
+      override.keepReasoningOpenUntilTurnEnds ?? global.keepReasoningOpenUntilTurnEnds,
   };
 }
 

@@ -419,6 +419,8 @@ export const ChatView = forwardRef<ChatViewHandle, Props>(function ChatView({ se
               duration={msg.duration}
               streamedLive={msg.streamedLive}
               autoCollapseMs={prefs.reasoningAutoCollapseMs}
+              keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
+              turnActive={state.status === "streaming"}
             />
           );
         }

@@ -157,15 +157,22 @@ describe("groupToolBursts", () => {
     expect(running).toBeDefined();
   });
 
-  it("does NOT over-merge identical calls split by prose (finding 2)", () => {
-    // [curl, curl, prose, curl, curl] — semantic-first would fold to ×4.
-    // Burst-outer keeps prose a boundary; neither side reaches the ≥3 threshold.
-    const msgs = [toolMsg(), toolMsg(), assistantMsg("found it"), toolMsg(), toolMsg()];
+  it("collapses identical calls split by prose into a ×N (composition flip)", () => {
+    // [curl, curl, prose, curl, curl] — semantic-first runs over the full stream
+    // and treats prose as transparent for ×N folding, so all 4 fold into one
+    // ×4 group with the prose absorbed into `rendered`.
+    const prose = assistantMsg("found it");
+    const msgs = [toolMsg(), toolMsg(), prose, toolMsg(), toolMsg()];
     const result = groupToolBursts(msgs);
-    expect(result.every((r) => !isBurst(r))).toBe(true);
-    // No ×N group either (each side has only 2 identical calls).
-    expect(result.every((r) => !isGroup(r as ChatItem))).toBe(true);
-    expect(result).toHaveLength(5);
+    expect(result).toHaveLength(1);
+    // A single ×4 group (1 post-semantic member → below burst threshold, no wrapper).
+    expect(isBurst(result[0])).toBe(false);
+    expect(isGroup(result[0] as ChatItem)).toBe(true);
+    const group = result[0] as unknown as ToolCallGroup;
+    expect(group.messages).toHaveLength(4); // toolResult-only count
+    // The absorbed prose is present in `rendered`, absent from `messages`.
+    expect(group.rendered).toContain(prose);
+    expect(group.messages).not.toContain(prose);
   });
 
   it("nests a ×N group inside a burst (coexistence, finding 4)", () => {
@@ -187,6 +194,34 @@ describe("groupToolBursts", () => {
     expect(nested[0].messages).toHaveLength(3);
     // Underlying count = grep + read + 3 polls + write = 6.
     expect(underlyingCount(burst)).toBe(6);
+  });
+
+  it("nests a NARRATED ×N poll loop inside a heterogeneous burst (composition flip)", () => {
+    // grep, read, then 3 identical polls EACH separated by narration prose, then
+    // write. Semantic-first folds the narrated polls into one ×3 (prose absorbed
+    // into rendered); the burst forms over [grep, read, ×3, write] = 4 members.
+    const p1 = assistantMsg("still starting");
+    const p2 = assistantMsg("still starting");
+    const msgs = [
+      distinctTool("grep", { pattern: "foo" }),
+      distinctTool("read", { path: "/a" }),
+      toolMsg(),
+      p1,
+      toolMsg(),
+      p2,
+      toolMsg(),
+      distinctTool("write", { path: "/b" }),
+    ];
+    const result = groupToolBursts(msgs);
+    expect(result).toHaveLength(1);
+    const burst = result[0] as ToolBurstGroup;
+    const nested = burst.items.filter((it) => isGroup(it)) as ToolCallGroup[];
+    expect(nested).toHaveLength(1);
+    expect(nested[0].messages).toHaveLength(3); // toolResult-only
+    // Absorbed narration lives in the nested group's `rendered`.
+    expect(nested[0].rendered).toContain(p1);
+    expect(nested[0].rendered).toContain(p2);
+    expect(underlyingCount(burst)).toBe(6); // grep + read + 3 polls + write
   });
 
   it("counts underlying calls, threshold counts post-semantic members (finding 5)", () => {

@@ -394,6 +394,41 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "burst complete" },
   },
 
+  // Composition flip (collapse-tool-calls-across-narration): a NARRATED poll
+  // loop — four IDENTICAL bash calls each preceded by a line of narration prose
+  // in the same tool-use turn. The semantic pass runs first over the full
+  // stream and treats prose as transparent, so all four fold into ONE ×4
+  // CollapsedToolGroup with the narration absorbed into `rendered` (visible
+  // only when expanded). The trailing "poll complete" is NOT absorbed and
+  // renders at the top level. Five steps so the agent TERMINATES.
+  "poll-narrated": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo checking" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("still starting"), fauxToolCall("bash", { command: "echo checking" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("still starting"), fauxToolCall("bash", { command: "echo checking" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("still starting"), fauxToolCall("bash", { command: "echo checking" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("poll complete")]),
+    ],
+    expect: { text: "poll complete" },
+  },
+
+  // Composition flip — a heterogeneous investigation split by a MID-TURN reply.
+  // Three distinct bash calls, then a non-empty assistant reply (HARD boundary
+  // for burst formation), then three more distinct bash calls, then the final
+  // text. Renders as: burst, the reply at the TOP level, burst. Seven steps.
+  "burst-split-by-reply": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-a1" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-a2" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-a3" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("found the cause"), fauxToolCall("bash", { command: "echo probe-b1" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-b2" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-b3" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("split complete")]),
+    ],
+    expect: { text: "split complete" },
+  },
+
   // ── Client interactive-renderer matrix (one per ask_user method) ────────
   "ask-confirm": askScenario("confirm", { title: "Proceed?" }),
   "ask-select": askScenario("select", {

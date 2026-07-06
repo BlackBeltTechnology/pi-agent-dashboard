@@ -32,6 +32,7 @@ import type { ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bur
 import type { ChatItem, ToolCallGroup } from "../lib/group-tool-calls.js";
 import { getSummary } from "../lib/tool-summary.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolContext } from "./tool-renderers/index.js";
 
@@ -159,7 +160,19 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
               return <CollapsedToolGroup key={it.messages[0]?.id} group={it} toolContext={toolContext} />;
             }
             const msg = it as ChatMessage;
-            if (msg.role !== "toolResult") return null; // skip absorbed transparents
+            // Absorbed narration renders interleaved with the burst's members.
+            if (msg.role === "thinking" || (msg.role === "assistant" && msg.content.trim() !== "")) {
+              return (
+                <div
+                  key={msg.id}
+                  className="px-2 py-1 text-xs text-[var(--text-tertiary)]"
+                  data-testid="tool-burst-narration"
+                >
+                  <MarkdownContent content={msg.content} context={toolContext} />
+                </div>
+              );
+            }
+            if (msg.role !== "toolResult") return null; // skip empty/separator rows
             if (!isVisible(msg.toolName)) return null;
             return (
               <ToolCallStep

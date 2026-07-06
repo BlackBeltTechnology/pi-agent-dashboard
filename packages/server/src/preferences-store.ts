@@ -167,14 +167,22 @@ function sanitizeName(input: unknown): string | null {
 }
 
 /**
- * Legacy backfill: files predating `reasoningAutoCollapseMs` load with the
- * field absent. Single chokepoint guaranteeing the client always receives a
- * number (default 30000). See change: reasoning-auto-collapse-timer.
+ * Legacy backfill: files predating `reasoningAutoCollapseMs` /
+ * `keepReasoningOpenUntilTurnEnds` load with the field absent. Single chokepoint
+ * guaranteeing the client always receives a number (default 30000) and a boolean
+ * (default false). See changes: reasoning-auto-collapse-timer,
+ * keep-reasoning-open-until-turn-ends.
  */
 function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | undefined {
   if (!prefs) return prefs;
-  if (typeof prefs.reasoningAutoCollapseMs === "number") return prefs;
-  return { ...prefs, reasoningAutoCollapseMs: 30000 };
+  let out = prefs;
+  if (typeof out.reasoningAutoCollapseMs !== "number") {
+    out = { ...out, reasoningAutoCollapseMs: 30000 };
+  }
+  if (typeof out.keepReasoningOpenUntilTurnEnds !== "boolean") {
+    out = { ...out, keepReasoningOpenUntilTurnEnds: false };
+  }
+  return out;
 }
 
 function normalizeWorkspaceOnLoad(ws: Workspace): Workspace {
@@ -473,6 +481,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         debugTools: false,
         toolCalls: { read: false, bash: false, edit: false, agent: false, generic: false },
         reasoningAutoCollapseMs: 30000,
+        keepReasoningOpenUntilTurnEnds: false,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -483,6 +492,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         debugTools: partial.debugTools ?? base.debugTools,
         toolCalls: { ...base.toolCalls, ...(partial.toolCalls ?? {}) },
         reasoningAutoCollapseMs: partial.reasoningAutoCollapseMs ?? base.reasoningAutoCollapseMs,
+        keepReasoningOpenUntilTurnEnds:
+          partial.keepReasoningOpenUntilTurnEnds ?? base.keepReasoningOpenUntilTurnEnds,
       };
       displayPrefs = merged;
       scheduleSave();

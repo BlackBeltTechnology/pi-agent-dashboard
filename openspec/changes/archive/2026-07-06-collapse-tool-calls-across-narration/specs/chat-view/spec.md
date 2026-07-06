@@ -1,3 +1,29 @@
+## ADDED Requirements
+
+### Requirement: Reasoning blocks stay open for the active turn when enabled
+
+The chat view SHALL expose a `keepReasoningOpenUntilTurnEnds` display preference (boolean, default `false`) at both global scope and per-session override. When `true`, a live-streamed reasoning block (`streamedLive`) SHALL remain EXPANDED for the whole duration of the active turn and SHALL collapse on the turn-end edge — the session status transitioning out of `streaming` (`turnActive` true→false) — bypassing the per-block `reasoningAutoCollapseMs` timer. When `false`, behavior is unchanged: live blocks mount expanded and `reasoningAutoCollapseMs` governs per-block collapse. The two preferences coexist (the ms timer is the sole governor only when `keepReasoningOpenUntilTurnEnds` is false). The preference SHALL apply only to live-streamed blocks; replayed/cold-loaded blocks (`streamedLive` falsy) SHALL mount collapsed regardless. A manual toggle SHALL freeze the block thereafter (user owns it — no auto-collapse, no re-open). Legacy `displayPrefs` files lacking the field SHALL backfill to `false` at load.
+
+#### Scenario: Enabled — live block held open past the ms timer while the turn runs
+- **GIVEN** `keepReasoningOpenUntilTurnEnds` is true and `reasoningAutoCollapseMs` is 30000
+- **WHEN** a live reasoning block finishes streaming but the turn is still active (`turnActive`)
+- **THEN** the block SHALL stay expanded past 30000 ms (the ms timer is suppressed)
+
+#### Scenario: Enabled — collapses on the turn-end edge
+- **GIVEN** `keepReasoningOpenUntilTurnEnds` is true and a live reasoning block is expanded while the turn is active
+- **WHEN** the session status transitions out of `streaming` (`turnActive` true→false)
+- **THEN** the block SHALL collapse
+
+#### Scenario: Disabled — per-block ms timer governs (unchanged)
+- **GIVEN** `keepReasoningOpenUntilTurnEnds` is false and `reasoningAutoCollapseMs` is 30000
+- **WHEN** a live reasoning block finishes streaming
+- **THEN** the block SHALL collapse 30000 ms after it finishes, independent of the turn boundary
+
+#### Scenario: Disabled — turn-end does not restart the ms timer
+- **GIVEN** `keepReasoningOpenUntilTurnEnds` is false and a live reasoning block's `reasoningAutoCollapseMs` countdown is in flight
+- **WHEN** the turn ends (`turnActive` transitions true→false) before the countdown elapses
+- **THEN** the countdown SHALL keep its ORIGINAL schedule (fire relative to when the block finished), NOT be cleared and re-armed relative to the turn-end edge
+
 ## MODIFIED Requirements
 
 ### Requirement: Polling-loop tool calls collapse across transparent intermediate rows

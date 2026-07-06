@@ -15,6 +15,7 @@ Separately, even when a `×N` pill *does* form today, the narration between the 
 - **Keep non-empty `assistant` prose a HARD boundary for HETEROGENEOUS burst formation only.** A real turn-final reply between distinct investigation steps still stays visible at top level and splits bursts — the legitimate case behind the original boundary rule is preserved. Prose is transparent ONLY for identical-call `×N` folding (as it always was pre-#249), never for heterogeneous burst formation.
 - **BREAKING (behavioral, client-only):** reverse the archived design's `does NOT over-merge identical calls split by prose` decision. Identical consecutive calls separated by narration SHALL collapse into a `×N` pill again.
 - **Fold the absorbed narration into the collapsed entry.** The `thinking` and `assistant`-prose rows absorbed between grouped identical calls (and the absorbed transparents inside a burst) SHALL render inside the EXPANDED view, interleaved in original order with their tool calls — instead of being dropped. Trailing prose after the final grouped call is NOT absorbed (it belongs to the next row) so the turn's final reply stays visible at top level.
+- **Add a `keepReasoningOpenUntilTurnEnds` display preference (default OFF).** When ON, live-streamed reasoning blocks stay expanded for the whole active turn and collapse on the turn-end edge (session status leaves `streaming`), bypassing the per-block `reasoningAutoCollapseMs` timer. When OFF, behavior is unchanged (ms timer governs). The two prefs coexist; only live-streamed blocks are affected; a manual toggle freezes the block. Surfaced in `SettingsPanel` (global) and `ChatViewMenu` (per-session override); backfilled to `false` for legacy `displayPrefs` files.
 
 ## Capabilities
 
@@ -22,7 +23,7 @@ Separately, even when a `×N` pill *does* form today, the narration between the 
 <!-- none -->
 
 ### Modified Capabilities
-- `chat-view`: (1) amend `Polling-loop tool calls collapse across transparent intermediate rows` so the collapsed group's expanded view renders the absorbed narration (`thinking` + `assistant` prose) interleaved with its tool calls, instead of rendering only `ToolCallStep` rows; (2) amend `Consecutive tool-call bursts collapse into a progress-aware group` so composition is burst-over-semantic-output (semantic pass runs first over the full stream), identical calls fold across narration into a nested `×N` even when prose sits between them, and absorbed transparents render inside the burst scrollbox.
+- `chat-view`: (0) ADD `Reasoning blocks stay open for the active turn when enabled` — a `keepReasoningOpenUntilTurnEnds` pref that holds live reasoning expanded until the turn-end edge, coexisting with the per-block `reasoningAutoCollapseMs` timer; (1) amend `Polling-loop tool calls collapse across transparent intermediate rows` so the collapsed group's expanded view renders the absorbed narration (`thinking` + `assistant` prose) interleaved with its tool calls, instead of rendering only `ToolCallStep` rows; (2) amend `Consecutive tool-call bursts collapse into a progress-aware group` so composition is burst-over-semantic-output (semantic pass runs first over the full stream), identical calls fold across narration into a nested `×N` even when prose sits between them, and absorbed transparents render inside the burst scrollbox.
 
 ## Impact
 
@@ -32,6 +33,14 @@ Separately, even when a `×N` pill *does* form today, the narration between the 
   - `packages/client/src/components/CollapsedToolGroup.tsx` — expanded view renders the interleaved narration rows (thinking/prose) alongside `ToolCallStep`.
   - `packages/client/src/components/ToolBurstGroup.tsx` — render absorbed transparent narration inside the scrollbox; consume the semantic-first `ChatItem[]` shape.
   - Tests: update `group-tool-bursts.test.ts` (`does NOT over-merge identical calls split by prose` is inverted), `group-tool-calls` tests for the new `rendered` field, and add narration-fold coverage.
+  - `packages/shared/src/display-prefs.ts` — add `keepReasoningOpenUntilTurnEnds: boolean` to `DisplayPrefs`, all three `DISPLAY_PRESETS` (`false`), and `mergeDisplayPrefs`; `PartialDisplayPrefs` mapped type auto-covers.
+  - `packages/server/src/preferences-store.ts` — `backfillDisplayPrefs` defaults the field to `false` for legacy files; `setDisplayPrefs` base literal + merge include it.
+  - `packages/client/src/components/ThinkingBlock.tsx` — new `keepOpenUntilTurnEnds` + `turnActive` props; effect holds the live block open while `turnActive`, collapses on the true→false edge, suppressing the ms timer.
+  - `packages/client/src/components/ChatView.tsx` — pass `keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}` + `turnActive={state.status === "streaming"}` to `ThinkingBlock`.
+  - `packages/client/src/components/SettingsPanel.tsx` + `ChatViewMenu.tsx` — new toggle (disabled when `reasoning` is off).
+  - Tests: `ThinkingBlock.test.tsx` (turn-hold + turn-end-edge collapse), `display-prefs.test.ts` (preset default + override precedence).
+
+  Note: the reasoning-hold pref is a self-contained addition recorded into this change per request; it shares the chat-view capability but is independent of the tool-call collapse composition flip.
 - **Spec:** modify two `chat-view` requirements (deltas below). No new capability name.
 - **No protocol / server / API / persistence changes.** Pure client-side render transform; collapse state stays component-local `useState`.
 - **Interaction:** operates on the same reducer array as `preserve-chat-head-on-event-trim`, `reconstruct-reasoning-on-replay`; grouping stays a pure read keyed on role adjacency, tolerant of seq gaps.

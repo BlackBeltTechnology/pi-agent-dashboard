@@ -106,6 +106,59 @@ describe("ThinkingBlock auto-collapse", () => {
     expect(isExpanded(container)).toBe(false);
   });
 
+  it("turnActive change does NOT re-arm the ms timer when keepOpenUntilTurnEnds is false", () => {
+    // Regression (doubt-review): turnActive must not be a dep of the ms-timer
+    // effect, else a turn-end status flip resets the collapse countdown.
+    vi.useFakeTimers();
+    try {
+      const { container, rerender } = render(
+        <ThinkingBlock content="hi" streamedLive autoCollapseMs={30000} turnActive />,
+      );
+      expect(isExpanded(container)).toBe(true);
+      act(() => vi.advanceTimersByTime(20000));
+      // Turn ends mid-countdown; timer must keep its ORIGINAL schedule.
+      rerender(
+        <ThinkingBlock content="hi" streamedLive autoCollapseMs={30000} turnActive={false} />,
+      );
+      act(() => vi.advanceTimersByTime(10000)); // total 30000 on original schedule
+      expect(isExpanded(container)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keepOpenUntilTurnEnds holds a live block open past autoCollapseMs while turn active", () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(
+        <ThinkingBlock
+          content="hi"
+          streamedLive
+          autoCollapseMs={30000}
+          keepOpenUntilTurnEnds
+          turnActive
+        />,
+      );
+      expect(isExpanded(container)).toBe(true);
+      // ms timer would have collapsed it; the turn hold suppresses that.
+      act(() => vi.advanceTimersByTime(120000));
+      expect(isExpanded(container)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keepOpenUntilTurnEnds collapses on the turn-end edge (turnActive true→false)", () => {
+    const { container, rerender } = render(
+      <ThinkingBlock content="hi" streamedLive keepOpenUntilTurnEnds turnActive />,
+    );
+    expect(isExpanded(container)).toBe(true);
+    rerender(
+      <ThinkingBlock content="hi" streamedLive keepOpenUntilTurnEnds turnActive={false} />,
+    );
+    expect(isExpanded(container)).toBe(false);
+  });
+
   it("mid-window autoCollapseMs change does NOT restart the timer", () => {
     vi.useFakeTimers();
     try {
