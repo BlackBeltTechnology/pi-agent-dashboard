@@ -62,3 +62,8 @@
 - [ ] 10.2 SKIP (pre-existing on develop): duplicated block in the `App.tsx` file-index row — `render-file-previews` appears 2× on develop's row too, NOT introduced by this PR. De-duping here would diverge from develop; fix separately on develop.
 - [ ] 10.3 SKIP (pre-existing on develop): `SettingsPanel.tsx` row keyed `src/client/…` — same on develop; the file already mixes `packages/` and `src/` prefixes. Not introduced here.
 - [ ] 10.4 SKIP (false positive): recovery-e2e writing `~/.pi/dashboard/config.json` cannot hit real home — global `setup-home.ts` overrides HOME to a tmp dir and hard-throws if HOME==real home; `os.homedir()` follows `$HOME` on POSIX. Identical pattern already used by recovery-offer.test.ts.
+
+## 11. Doubt-driven review (post-archive, C3 gap)
+
+- [x] 11.1 Fix C3: reset the once-per-activation liveness guard on every `session_register` (`event-wiring.ts`) — `stampedLiveEpoch.delete(sessionId)`. Without it, a session manually closed (`{live:false, closedReason:"manual"}`) then resumed via `pi --continue` in the SAME server run (same epoch, same sessionId) kept the guard entry, so `setLiveness` never re-fired and its `closedReason`-clear was unreachable → a resumed-then-crashed session was wrongly excluded from recovery. Verified: `liveness-stamp-wiring.test.ts` green.
+- [x] 11.2 Document the bounded clean-close-then-shutdown false-positive window + the guard-reset in `design.md` Risks/Trade-offs.

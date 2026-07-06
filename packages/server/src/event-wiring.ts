@@ -785,6 +785,15 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "session_register") {
+      // Reset the once-per-activation liveness guard on every (re)register so
+      // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
+      // activity event. Without this, a session manually closed (sidecar
+      // `{ live:false, closedReason:"manual" }`) then resumed in the SAME
+      // server run (same epoch, same sessionId via `pi --continue`) keeps the
+      // guard entry, so `setLiveness` never re-fires — its `closedReason`
+      // clear is unreachable and a resumed-then-crashed session is wrongly
+      // excluded from recovery. See change: reopen-sessions-after-shutdown.
+      stampedLiveEpoch.delete(sessionId);
       replayingSessions.add(sessionId);
       // Safety timeout: clear replay flag after 5s if replay_complete never arrives
       setTimeout(() => {
