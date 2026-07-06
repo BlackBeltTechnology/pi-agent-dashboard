@@ -24,6 +24,8 @@ import type {
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "wouter";
+import { useMediaQuery } from "../../hooks/useMediaQuery.js";
+import { useTreeColumnWidth } from "../../hooks/useTreeColumnWidth.js";
 import { getApiBase } from "../../lib/api-context.js";
 import { t as i18nT } from "../../lib/i18n";
 import { FilePicker } from "./FilePicker.js";
@@ -39,10 +41,68 @@ interface Message {
   text: string;
 }
 
+/** Discard-unsaved-changes confirm, shared by the file-switch and mobile-back guards. */
+function DiscardConfirm({
+  open,
+  testId,
+  fileLabel,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  testId: string;
+  fileLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Confirm
+      open={open}
+      testId={testId}
+      intent="danger"
+      title={i18nT("auto.discard_unsaved_changes", undefined, "Discard unsaved changes?")}
+      message={i18nT(
+        "auto.discard_unsaved_to_file",
+        undefined,
+        `Discard unsaved changes to ${fileLabel}?`,
+      )}
+      confirmLabel={i18nT("auto.discard", undefined, "Discard")}
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
+  );
+}
+
 /** Build the scoped markdown read URL; global scope omits `cwd`. */
 function fileReadUrl(cwd: string | undefined, absPath: string): string {
   const base = `${getApiBase()}/api/file/md-read?path=${encodeURIComponent(absPath)}`;
   return cwd ? `${base}&cwd=${encodeURIComponent(cwd)}` : base;
+}
+
+/**
+ * Resolve which candidate the `?file=` query selects. Exact match wins; else the
+ * default is viewport-gated — desktop falls back to AGENTS.md/first, mobile
+ * returns null so the master/detail layout shows the tree.
+ */
+function resolveSelection(
+  candidates: MdCandidate[],
+  fileParam: string | null,
+  isDesktop: boolean,
+): MdCandidate | null {
+  const target = fileParam ? candidates.find((c) => c.relPath === fileParam) : undefined;
+  if (target) return target;
+  if (!isDesktop) return null;
+  return candidates.find((c) => c.relPath === "AGENTS.md") ?? candidates[0] ?? null;
+}
+
+/**
+ * `md`-breakpoint gate. jsdom lacks `matchMedia`; treat its absence as desktop
+ * so the default split renders (and existing desktop tests stay green).
+ */
+function useIsDesktop(): boolean {
+  const mdUp = useMediaQuery("(min-width: 768px)");
+  const hasMatchMedia = typeof window !== "undefined" && typeof window.matchMedia === "function";
+  return hasMatchMedia ? mdUp : true;
 }
 
 export function InstructionsPage({ cwd }: Props) {
@@ -52,6 +112,13 @@ export function InstructionsPage({ cwd }: Props) {
   const [location, navigate] = useLocation();
   const [searchParams] = useSearchParams();
   const fileParam = searchParams.get("file");
+
+  // Below `md` the page is a mobile master/detail; at/above it is a split.
+  const isDesktop = useIsDesktop();
+
+  // Resizable tree column (desktop only). The hook owns the drag lifecycle and
+  // persists on mouseup. See change: directory-settings-tree-and-resize.
+  const { width: treeWidth, containerRef: pageRef, startResize } = useTreeColumnWidth();
   const [candidates, setCandidates] = useState<MdCandidate[]>([]);
   const [selected, setSelected] = useState<MdCandidate | null>(null);
   const [loadedContent, setLoadedContent] = useState<string>("");
@@ -64,6 +131,8 @@ export function InstructionsPage({ cwd }: Props) {
   const [message, setMessage] = useState<Message | null>(null);
   // Pending file switch awaiting discard confirmation (dirty guard).
   const [pendingSwitch, setPendingSwitch] = useState<MdCandidate | null>(null);
+  // Mobile back-to-tree awaiting discard confirmation (dirty guard).
+  const [confirmBack, setConfirmBack] = useState(false);
 
   const dirty = buffer !== loadedContent;
   const dirtyRef = useRef(dirty);
@@ -128,18 +197,20 @@ export function InstructionsPage({ cwd }: Props) {
     setCandidates(cands);
   }, []);
 
-  // Resolve the active file from `?file=` against the loaded candidates. Falls
-  // back to AGENTS.md/first when `?file=` is absent, or when it names a path not
-  // in the current candidate set (e.g. deleted or out of scope after refresh).
+  // Resolve the active file from `?file=` against the loaded candidates. Default
+  // selection is viewport-gated: at ≥md, absent/unknown `?file=` falls back to
+  // AGENTS.md/first; below md, absent/unknown `?file=` leaves the selection null
+  // so the mobile master/detail layout shows the tree.
+  // See change: directory-settings-tree-and-resize.
   useEffect(() => {
     if (candidates.length === 0) return;
-    const target = fileParam
-      ? candidates.find((c) => c.relPath === fileParam)
-      : undefined;
-    const next =
-      target ?? candidates.find((c) => c.relPath === "AGENTS.md") ?? candidates[0];
-    if (next && next.path !== selected?.path) loadCandidate(next);
-  }, [fileParam, candidates, selected?.path, loadCandidate]);
+    const next = resolveSelection(candidates, fileParam, isDesktop);
+    if (next === null) {
+      if (selected !== null) setSelected(null);
+      return;
+    }
+    if (next.path !== selected?.path) loadCandidate(next);
+  }, [fileParam, candidates, selected, isDesktop, loadCandidate]);
 
   // Selection is a URL push so browser/OS back walks file→file→page→launcher.
   const selectFile = useCallback(
@@ -262,59 +333,102 @@ export function InstructionsPage({ cwd }: Props) {
 
   const editable = selected ? fileKind(selected.path).editable : false;
 
+  // Mobile back control: clear `?file=` (navigate to the page route) so the
+  // master/detail returns to the tree WITHOUT relying on the depth-aware back.
+  // Back-navigation is a switch-away-from-dirty case, so it routes through the
+  // same discard confirm as a file switch. See change: directory-settings-tree-and-resize.
+  const backToTree = useCallback(() => {
+    if (dirtyRef.current) {
+      setConfirmBack(true);
+      return;
+    }
+    navigate(location);
+  }, [navigate, location]);
+
+  const confirmBackDiscard = useCallback(() => {
+    setConfirmBack(false);
+    setBuffer(loadedContent); // clear dirty so a later reselect won't re-confirm
+    navigate(location);
+  }, [loadedContent, navigate, location]);
+
+  // Master/detail visibility. Desktop always shows both panes (split). Mobile
+  // shows the editor once a file is selected, else the tree.
+  const showEditor = isDesktop || selected !== null;
+  const showTree = isDesktop || selected === null;
+
   return (
-    <div className="flex flex-col md:flex-row h-full min-h-0" data-testid="instructions-page">
-      <FilePicker
-        cwd={cwd}
-        selectedPath={selected?.path ?? null}
-        onSelect={handleSelect}
-        onLoaded={handleCandidatesLoaded}
-      />
-
-      {/* Editor pane */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {!selected ? (
-          <div className="p-4 text-sm text-[var(--text-tertiary)]">
-            {i18nT("auto.select_a_file_to_edit", undefined, "Select a file to edit")}
-          </div>
-        ) : (
-          <InstructionsEditorPane
-            selected={selected}
-            dirty={dirty}
-            loadedMtime={loadedMtime}
-            conflict={conflict}
-            saving={saving}
-            loading={loading}
-            readError={readError}
-            errorText={message?.type === "error" ? message.text : null}
-            buffer={buffer}
-            editable={editable}
-            onChangeBuffer={setBuffer}
-            onReload={reloadFromDisk}
-            onOverwrite={overwriteAnyway}
-            onDiscard={handleDiscard}
-            onSave={handleSave}
-          />
-        )}
-      </div>
-
-      {/* Unsaved-changes guard on file switch */}
-      {pendingSwitch && (
-        <Confirm
-          open
-          testId="instructions-switch-confirm"
-          intent="danger"
-          title={i18nT("auto.discard_unsaved_changes", undefined, "Discard unsaved changes?")}
-          message={i18nT(
-            "auto.discard_unsaved_to_file",
-            undefined,
-            `Discard unsaved changes to ${selected?.relPath ?? "this file"}?`,
-          )}
-          confirmLabel={i18nT("auto.discard", undefined, "Discard")}
-          onConfirm={confirmSwitch}
-          onClose={() => setPendingSwitch(null)}
+    <div
+      ref={pageRef}
+      className="flex flex-col md:flex-row h-full min-h-0"
+      data-testid="instructions-page"
+    >
+      {showTree && (
+        <FilePicker
+          cwd={cwd}
+          selectedPath={selected?.path ?? null}
+          onSelect={handleSelect}
+          onLoaded={handleCandidatesLoaded}
+          width={isDesktop ? treeWidth : undefined}
         />
       )}
+
+      {/* Resize gutter — desktop only (no split/resize on mobile). */}
+      {isDesktop && (
+        <div
+          data-testid="tree-gutter"
+          onMouseDown={startResize}
+          title={i18nT("auto.drag_to_resize", undefined, "Drag to resize")}
+          className="hidden md:block w-1.5 shrink-0 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50"
+        />
+      )}
+
+      {/* Editor pane */}
+      {showEditor && (
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
+          {!selected ? (
+            <div className="p-4 text-sm text-[var(--text-tertiary)]">
+              {i18nT("auto.select_a_file_to_edit", undefined, "Select a file to edit")}
+            </div>
+          ) : (
+            <InstructionsEditorPane
+              selected={selected}
+              dirty={dirty}
+              loadedMtime={loadedMtime}
+              conflict={conflict}
+              saving={saving}
+              loading={loading}
+              readError={readError}
+              errorText={message?.type === "error" ? message.text : null}
+              buffer={buffer}
+              editable={editable}
+              onChangeBuffer={setBuffer}
+              onReload={reloadFromDisk}
+              onOverwrite={overwriteAnyway}
+              onDiscard={handleDiscard}
+              onSave={handleSave}
+              onBack={isDesktop ? undefined : backToTree}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Unsaved-changes guard on file switch */}
+      <DiscardConfirm
+        open={pendingSwitch !== null}
+        testId="instructions-switch-confirm"
+        fileLabel={selected?.relPath ?? "this file"}
+        onConfirm={confirmSwitch}
+        onClose={() => setPendingSwitch(null)}
+      />
+
+      {/* Unsaved-changes guard on mobile back-to-tree */}
+      <DiscardConfirm
+        open={confirmBack}
+        testId="instructions-back-confirm"
+        fileLabel={selected?.relPath ?? "this file"}
+        onConfirm={confirmBackDiscard}
+        onClose={() => setConfirmBack(false)}
+      />
     </div>
   );
 }

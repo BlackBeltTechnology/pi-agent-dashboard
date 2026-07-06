@@ -35,11 +35,38 @@ function mockFetch() {
 
 const btn = (id: string) => screen.getByTestId(id) as HTMLButtonElement;
 
+/**
+ * Stub `window.matchMedia` so `(min-width: 768px)` reports `desktop`. jsdom has
+ * no `matchMedia`; `InstructionsPage` treats a missing `matchMedia` as desktop,
+ * so the default (unstubbed) tests exercise the desktop split. A mobile test
+ * installs this stub with `desktop=false`.
+ */
+function stubViewport(desktop: boolean) {
+  window.matchMedia = ((query: string) => ({
+    matches: query.includes("min-width: 768px") ? desktop : !desktop,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   // Reset the URL so a `?file=` pushed by one test does not leak into the next.
   window.history.replaceState(null, "", "/");
+  // Drop any matchMedia stub so the next test defaults to desktop.
+  // @ts-expect-error jsdom has no matchMedia; deleting restores that baseline.
+  delete window.matchMedia;
+  try {
+    localStorage.clear();
+  } catch {
+    /* noop */
+  }
 });
 
 describe("InstructionsPage", () => {
@@ -126,5 +153,104 @@ describe("InstructionsPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("instructions-switch-confirm")).toBeDefined();
     });
+  });
+});
+
+describe("InstructionsPage resize (desktop)", () => {
+  it("restores the tree column width from localStorage on mount", async () => {
+    localStorage.setItem("dashboard:dirset-width", "420");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const picker = await screen.findByTestId("file-picker");
+    expect(picker.style.width).toBe("420px");
+  });
+
+  it("dragging the gutter changes the tree width within the clamp and persists on mouseup", async () => {
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const gutter = await screen.findByTestId("tree-gutter");
+    const picker = screen.getByTestId("file-picker");
+
+    // Drag to 420px (jsdom getBoundingClientRect left = 0, so width = clientX).
+    fireEvent.mouseDown(gutter);
+    fireEvent.mouseMove(document, { clientX: 420 });
+    fireEvent.mouseUp(document, { clientX: 420 });
+    expect(picker.style.width).toBe("420px");
+    expect(localStorage.getItem("dashboard:dirset-width")).toBe("420");
+
+    // Beyond the max clamps to 560px.
+    fireEvent.mouseDown(gutter);
+    fireEvent.mouseMove(document, { clientX: 9999 });
+    fireEvent.mouseUp(document, { clientX: 9999 });
+    expect(picker.style.width).toBe("560px");
+
+    // Below the min clamps to 200px.
+    fireEvent.mouseDown(gutter);
+    fireEvent.mouseMove(document, { clientX: 10 });
+    fireEvent.mouseUp(document, { clientX: 10 });
+    expect(picker.style.width).toBe("200px");
+  });
+});
+
+describe("InstructionsPage mobile master/detail", () => {
+  it("shows the full-width tree with no default file and no gutter", async () => {
+    stubViewport(false);
+    window.history.replaceState(null, "", "/folder/Zm9v/settings/instructions");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const picker = await screen.findByTestId("file-picker");
+    // Full-width (no inline width) and no resize gutter.
+    expect(picker.style.width).toBe("");
+    expect(screen.queryByTestId("tree-gutter")).toBeNull();
+    // No file auto-selected ⇒ editor not mounted.
+    expect(screen.queryByTestId("monaco")).toBeNull();
+  });
+
+  it("swaps to the editor on file tap and back returns to the tree", async () => {
+    stubViewport(false);
+    window.history.replaceState(null, "", "/folder/Zm9v/settings/instructions");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const agents = await screen.findByText("AGENTS.md");
+    fireEvent.click(agents);
+    // Editor replaces the tree.
+    await screen.findByTestId("monaco");
+    expect(screen.queryByTestId("file-picker")).toBeNull();
+    await waitFor(() => expect(window.location.search).toContain("file=AGENTS.md"));
+    // Mobile back control clears ?file= and returns to the tree.
+    fireEvent.click(screen.getByTestId("instructions-mobile-back"));
+    await screen.findByTestId("file-picker");
+    expect(window.location.search).toBe("");
+    expect(screen.queryByTestId("monaco")).toBeNull();
+  });
+
+  it("prompts a discard confirm when mobile back is tapped with unsaved edits", async () => {
+    stubViewport(false);
+    window.history.replaceState(null, "", "/folder/Zm9v/settings/instructions?file=AGENTS.md");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const ta = (await screen.findByTestId("monaco")) as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "# changed" } });
+    // Tapping back while dirty must NOT navigate immediately — it confirms first.
+    fireEvent.click(screen.getByTestId("instructions-mobile-back"));
+    await screen.findByTestId("instructions-back-confirm");
+    expect(window.location.search).toContain("file=AGENTS.md");
+    // Confirming discard clears the buffer and returns to the tree.
+    fireEvent.click(screen.getByTestId("instructions-back-confirm-action"));
+    await screen.findByTestId("file-picker");
+    expect(window.location.search).toBe("");
+  });
+});
+
+describe("InstructionsPage default selection (desktop regression)", () => {
+  it("applies the default selection at ≥md when ?file= is absent", async () => {
+    stubViewport(true);
+    window.history.replaceState(null, "", "/folder/Zm9v/settings/instructions");
+    mockFetch();
+    render(<InstructionsPage cwd="/repo" />);
+    const ta = (await screen.findByTestId("monaco")) as HTMLTextAreaElement;
+    expect(ta.value).toBe("# hello");
+    const agents = screen.getAllByTestId("file-picker-item")[0];
+    expect(agents.getAttribute("aria-current")).toBe("true");
   });
 });
