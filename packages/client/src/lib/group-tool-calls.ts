@@ -72,6 +72,15 @@ export function groupConsecutiveToolCalls(messages: ChatMessage[]): ChatItem[] {
       i++;
       continue;
     }
+    // A live (running) toolResult is never absorbed into a collapsed group —
+    // it is always rendered as a live card. Guard the RUN-STARTING row too
+    // (the inner loop only guards subsequent rows). See change:
+    // collapse-tool-calls-across-narration.
+    if (msg.toolStatus === "running") {
+      result.push(msg);
+      i++;
+      continue;
+    }
 
     // Collect consecutive toolResults with same name and similar args.
     // Transparent intermediate rows (separator/thinking/empty assistant

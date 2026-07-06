@@ -161,7 +161,7 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
             }
             const msg = it as ChatMessage;
             // Absorbed narration renders interleaved with the burst's members.
-            if (msg.role === "thinking" || (msg.role === "assistant" && msg.content.trim() !== "")) {
+            if ((msg.role === "thinking" || msg.role === "assistant") && msg.content.trim() !== "") {
               return (
                 <div
                   key={msg.id}

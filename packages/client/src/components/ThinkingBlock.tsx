@@ -62,6 +62,12 @@ export function ThinkingBlock({
   const [expanded, setExpanded] = useState(streamedLive ?? defaultExpanded);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchedRef = useRef(false);
+  // Per-block latch for the turn-scoped hold: set once this block collapses on
+  // its OWN turn-end edge. `turnActive` is session-wide in ChatView, so without
+  // this latch a later turn (turnActive false→true again) would reopen every
+  // untouched historical block. Once latched, the hold never reopens the block.
+  // See change: collapse-tool-calls-across-narration.
+  const turnEndedRef = useRef(false);
   // autoCollapseMs captured at mount — deliberately NOT an effect dep, so a
   // mid-window pref change never restarts an in-flight timer (W1).
   const msRef = useRef(autoCollapseMs ?? 0);
@@ -112,7 +118,15 @@ export function ThinkingBlock({
     if (isStreaming) return;
     if (touchedRef.current) return;
     if (!streamedLive) return;
-    setExpanded(Boolean(turnActive));
+    // Latched: this block already handled its own turn-end collapse; a later
+    // session-wide turn must not reopen it.
+    if (turnEndedRef.current) return;
+    if (turnActive) {
+      setExpanded(true);
+    } else {
+      turnEndedRef.current = true;
+      setExpanded(false);
+    }
   }, [keepOpenUntilTurnEnds, turnActive, streamedLive, isStreaming]);
 
   const onToggle = () => {

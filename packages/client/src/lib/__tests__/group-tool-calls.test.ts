@@ -75,6 +75,19 @@ describe("groupConsecutiveToolCalls", () => {
     expect(isGroup(result[1])).toBe(false);
   });
 
+  it("does not absorb a RUN-STARTING running toolResult into a group", () => {
+    // A live (running) row that starts the run must render standalone, not be
+    // hidden inside a ×N pill. The following 3 identical completes still group.
+    const running = toolMsg({ toolStatus: "running" });
+    const msgs = [running, toolMsg(), toolMsg(), toolMsg()];
+    const result = groupConsecutiveToolCalls(msgs);
+    expect(result).toHaveLength(2);
+    expect(isGroup(result[0])).toBe(false);
+    expect((result[0] as ChatMessage).toolStatus).toBe("running");
+    expect(isGroup(result[1])).toBe(true);
+    expect((result[1] as ToolCallGroup).messages).toHaveLength(3);
+  });
+
   it("preserves non-tool messages between groups", () => {
     const msgs = [toolMsg(), toolMsg(), toolMsg(), userMsg(), toolMsg(), toolMsg(), toolMsg()];
     const result = groupConsecutiveToolCalls(msgs);

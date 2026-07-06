@@ -42,7 +42,7 @@ Separately, even when a `×N` pill *does* form today, the narration between the 
 
   Note: the reasoning-hold pref is a self-contained addition recorded into this change per request; it shares the chat-view capability but is independent of the tool-call collapse composition flip.
 - **Spec:** modify two `chat-view` requirements (deltas below). No new capability name.
-- **No protocol / server / API / persistence changes.** Pure client-side render transform; collapse state stays component-local `useState`.
+- **Shared preference plumbing changes (reasoning-hold pref only).** The `keepReasoningOpenUntilTurnEnds` pref is persisted via shared `DisplayPrefs` + server backfill; the tool-call collapse transform stays pure client-side render, collapse state component-local `useState`. No protocol / API changes.
 - **Interaction:** operates on the same reducer array as `preserve-chat-head-on-event-trim`, `reconstruct-reasoning-on-replay`; grouping stays a pure read keyed on role adjacency, tolerant of seq gaps.
 
 ## Discipline Skills

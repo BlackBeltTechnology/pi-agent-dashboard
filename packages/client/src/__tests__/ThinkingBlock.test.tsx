@@ -159,6 +159,22 @@ describe("ThinkingBlock auto-collapse", () => {
     expect(isExpanded(container)).toBe(false);
   });
 
+  it("keepOpenUntilTurnEnds does NOT reopen a collapsed block when a later turn starts", () => {
+    // Regression (CodeRabbit): turnActive is session-wide, so a subsequent turn
+    // must not reopen a historical block that already collapsed on its own
+    // turn-end edge. Latch it per-block.
+    const { container, rerender } = render(
+      <ThinkingBlock content="hi" streamedLive keepOpenUntilTurnEnds turnActive />,
+    );
+    expect(isExpanded(container)).toBe(true);
+    // Its own turn ends → collapses.
+    rerender(<ThinkingBlock content="hi" streamedLive keepOpenUntilTurnEnds turnActive={false} />);
+    expect(isExpanded(container)).toBe(false);
+    // A LATER turn begins (session-wide turnActive true again) → stays collapsed.
+    rerender(<ThinkingBlock content="hi" streamedLive keepOpenUntilTurnEnds turnActive />);
+    expect(isExpanded(container)).toBe(false);
+  });
+
   it("mid-window autoCollapseMs change does NOT restart the timer", () => {
     vi.useFakeTimers();
     try {

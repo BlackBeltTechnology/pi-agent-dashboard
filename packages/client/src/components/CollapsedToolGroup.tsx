@@ -79,7 +79,7 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
                 />
               );
             }
-            if (row.role === "thinking" || (row.role === "assistant" && row.content.trim() !== "")) {
+            if ((row.role === "thinking" || row.role === "assistant") && row.content.trim() !== "") {
               return (
                 <div
                   key={row.id}
