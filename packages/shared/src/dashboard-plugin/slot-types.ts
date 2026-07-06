@@ -176,6 +176,12 @@ export type SettingsTab =
   | "packages"
   | "plugins"
   | "openspec"
+  // Resource card pages (global scope). See change: resources-card-tabs.
+  | "skills"
+  | "agents"
+  | "extensions"
+  | "prompts"
+  | "themes"
   | "developer";
 
 export const VALID_SETTINGS_TABS: SettingsTab[] = [
@@ -188,6 +194,11 @@ export const VALID_SETTINGS_TABS: SettingsTab[] = [
   "packages",
   "plugins",
   "openspec",
+  "skills",
+  "agents",
+  "extensions",
+  "prompts",
+  "themes",
   "developer",
 ];
 

@@ -52,7 +52,7 @@ describe("route-builders", () => {
       const cwd = "/proj";
       const enc = encodeFolderPath(cwd);
       expect(buildFolderSettingsUrl(cwd, "packages")).toBe(`/folder/${enc}/settings/packages`);
-      expect(buildFolderSettingsUrl(cwd, "resources")).toBe(`/folder/${enc}/settings/resources`);
+      expect(buildFolderSettingsUrl(cwd, "skills")).toBe(`/folder/${enc}/settings/skills`);
     });
 
     it("round-trips cwd with spaces/Unicode and encodes odd page slugs", () => {

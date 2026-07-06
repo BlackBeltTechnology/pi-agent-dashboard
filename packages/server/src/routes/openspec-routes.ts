@@ -282,11 +282,10 @@ export function registerOpenSpecRoutes(
     "/api/pi-resources",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const cwd = request.query.cwd;
-      if (!cwd) {
-        reply.code(400);
-        return { success: false, error: "cwd parameter required" } satisfies ApiResponse;
-      }
+      // cwd optional: the global Settings resource pages read only the
+      // global scope (cwd-independent), so they omit it and the server scans
+      // relative to its own cwd. See change: resources-card-tabs.
+      const cwd = request.query.cwd ?? process.cwd();
       // Bootstrap gate removed under change: eliminate-electron-runtime-install
       // (task 3.5). pi/openspec/tsx ship as regular npm deps; pi-resources
       // endpoint is unconditionally available.

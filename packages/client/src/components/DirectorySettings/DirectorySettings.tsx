@@ -3,26 +3,42 @@
  * global <SettingsPanel> layout (back-arrow header + left nav rail that
  * degrades to a horizontal scroller on mobile + page content area).
  *
- * Three pages: instructions (placeholder for now), packages, resources.
- * The active page is URL-driven (`/folder/:cwd/settings/:page`); selecting a
- * nav item navigates via wouter so the page is bookmarkable / back-able.
+ * Pages: instructions, packages, and a `RESOURCES` group of per-type card
+ * pages — Skills / Agents / Extensions / Prompts / Themes. Each resource page
+ * renders a <ResourceGridPanel> (card grid across local+global scope with a
+ * search + `All/Local/Global` scope filter). The active page is URL-driven
+ * (`/folder/:cwd/settings/:page`).
  *
- * Reuses the global settings layout primitives/tokens (md:w-56 rail,
- * bg-blue-600/15 active state) so the two surfaces look identical.
- *
- * See change: directory-settings-page-and-scoped-md-editing.
+ * See change: directory-settings-page-and-scoped-md-editing,
+ * resources-card-tabs.
  */
 
-import { mdiArrowLeft, mdiFileDocumentOutline, mdiPackageVariant, mdiViewListOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiBookOpenPageVariant, mdiFileDocumentOutline, mdiPackageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import { useMemo } from "react";
 import { useLocation } from "wouter";
+import { usePiResources } from "../../hooks/usePiResources.js";
+import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { t as i18nT } from "../../lib/i18n";
 import { buildFolderSettingsUrl } from "../../lib/route-builders.js";
+import { countResources, type ResourceType } from "../ResourceCardGrid.js";
+import { ResourceGridPanel } from "../ResourceGridPanel.js";
 import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
-import { ResourcesPage } from "./ResourcesPage.js";
 
-export type DirectorySettingsPage = "instructions" | "packages" | "resources";
+export type DirectorySettingsResourcePage = "skills" | "agents" | "extensions" | "prompts" | "themes";
+export type DirectorySettingsPage = "instructions" | "packages" | DirectorySettingsResourcePage;
+
+/** Resource-page id → the singular `PiResource.type` its grid renders. */
+const RESOURCE_PAGE_TYPE: Record<DirectorySettingsResourcePage, ResourceType> = {
+  skills: "skill",
+  agents: "agent",
+  extensions: "extension",
+  prompts: "prompt",
+  themes: "theme",
+};
+
+const ALL_SCOPES = ["local", "global"] as const;
 
 interface Props {
   cwd: string;
@@ -33,12 +49,57 @@ interface Props {
 
 export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
   const [, navigate] = useLocation();
+  const { data, isLoading, error, refresh } = usePiResources(cwd);
+  const activation = useResourceActivation(cwd);
 
-  const navItems: { id: DirectorySettingsPage; label: string; icon: string }[] = [
+  const counts = useMemo(() => {
+    const empty: Record<DirectorySettingsResourcePage, number> = { skills: 0, agents: 0, extensions: 0, prompts: 0, themes: 0 };
+    if (!data) return empty;
+    for (const id of Object.keys(RESOURCE_PAGE_TYPE) as DirectorySettingsResourcePage[]) {
+      empty[id] = countResources(data, RESOURCE_PAGE_TYPE[id], [...ALL_SCOPES]);
+    }
+    return empty;
+  }, [data]);
+
+  const topItems: { id: DirectorySettingsPage; label: string; icon: string }[] = [
     { id: "instructions", label: i18nT("auto.instructions", undefined, "Instructions"), icon: mdiFileDocumentOutline },
     { id: "packages", label: i18nT("auto.packages", undefined, "Packages"), icon: mdiPackageVariant },
-    { id: "resources", label: i18nT("auto.resources", undefined, "Resources"), icon: mdiViewListOutline },
   ];
+  const resourceItems: { id: DirectorySettingsResourcePage; label: string; icon: string }[] = [
+    { id: "skills", label: i18nT("auto.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
+    { id: "agents", label: i18nT("auto.agents", undefined, "Agents"), icon: mdiRobotOutline },
+    { id: "extensions", label: i18nT("auto.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
+    { id: "prompts", label: i18nT("auto.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
+    { id: "themes", label: i18nT("auto.themes", undefined, "Themes"), icon: mdiPalette },
+  ];
+
+  const navButton = (item: { id: DirectorySettingsPage; label: string; icon: string }, count?: number) => {
+    const active = page === item.id;
+    return (
+      <button
+        type="button"
+        key={item.id}
+        onClick={() => navigate(buildFolderSettingsUrl(cwd, item.id))}
+        aria-current={active ? "page" : undefined}
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+          active
+            ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
+            : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+        }`}
+      >
+        <Icon path={item.icon} size={0.65} />
+        {item.label}
+        {count !== undefined && (
+          <span
+            data-testid={`nav-count-${item.id}`}
+            className={`ml-auto text-[11px] px-1.5 rounded-full ${active ? "bg-blue-600/20 text-[var(--accent-primary)]" : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"}`}
+          >
+            {count}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full" data-testid="directory-settings">
@@ -74,32 +135,30 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
           <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
             {i18nT("auto.directory", undefined, "Directory")}
           </div>
-          {navItems.map((item) => {
-            const active = page === item.id;
-            return (
-              <button
-                type="button"
-                key={item.id}
-                onClick={() => navigate(buildFolderSettingsUrl(cwd, item.id))}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
-                  active
-                    ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
-                    : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
-                }`}
-              >
-                <Icon path={item.icon} size={0.65} />
-                {item.label}
-              </button>
-            );
-          })}
+          {topItems.map((item) => navButton(item))}
+          <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+            {i18nT("auto.resources", undefined, "Resources")}
+          </div>
+          {resourceItems.map((item) => navButton(item, counts[item.id]))}
         </nav>
 
         {/* Page content */}
         <div data-testid="directory-settings-content" className="flex-1 overflow-y-auto min-w-0">
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
           {page === "packages" && <PackagesPage cwd={cwd} />}
-          {page === "resources" && <ResourcesPage cwd={cwd} onViewFile={onViewFile} />}
+          {page in RESOURCE_PAGE_TYPE && (
+            <ResourceGridPanel
+              data={data}
+              isLoading={isLoading}
+              error={error}
+              refresh={refresh}
+              activation={activation}
+              type={RESOURCE_PAGE_TYPE[page as DirectorySettingsResourcePage]}
+              scopes={[...ALL_SCOPES]}
+              showScopeFilter
+              onViewFile={onViewFile}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -56,6 +56,31 @@ Body`;
     expect(result.description).toBeUndefined();
   });
 
+  it("parses model and a list tools summary from agent frontmatter", () => {
+    const content = `---
+name: react-expert
+description: React work.
+model: sonnet
+tools: [edit, read]
+---
+Body`;
+    const result = parseFrontmatter(content);
+    expect(result.model).toBe("sonnet");
+    expect(result.tools).toBe("edit,read");
+  });
+
+  it("parses a scalar tools value", () => {
+    const result = parseFrontmatter("---\nname: a\nmodel: '@fast'\ntools: all\n---\nBody");
+    expect(result.model).toBe("'@fast'");
+    expect(result.tools).toBe("all");
+  });
+
+  it("omits model and tools when absent", () => {
+    const result = parseFrontmatter("---\nname: a\ndescription: d\n---\nBody");
+    expect(result.model).toBeUndefined();
+    expect(result.tools).toBeUndefined();
+  });
+
   it("extracts first non-empty line as description fallback", () => {
     const result = parseFrontmatter("# My Prompt\n\nDo something useful.", true);
     expect(result.description).toBe("# My Prompt");
@@ -114,11 +139,40 @@ Review the staged changes.`);
     expect(result.prompts[0].type).toBe("prompt");
   });
 
+  it("discovers agents from agents/*.md with model and tools", () => {
+    writeFile(".pi/agents/Explore.md", "---\nname: Explore\ndescription: Read-only search.\nmodel: '@fast'\ntools: read-only\n---\nBody");
+    writeFile(".pi/agents/react-expert.md", "---\nname: react-expert\ndescription: React work.\nmodel: sonnet\ntools: [edit, read]\n---\nBody");
+    const result = scanLocalResources(tmpDir);
+    expect(result.agents).toHaveLength(2);
+    const names = result.agents.map((a) => a.name).sort();
+    expect(names).toEqual(["Explore", "react-expert"]);
+    expect(result.agents.every((a) => a.type === "agent")).toBe(true);
+    const react = result.agents.find((a) => a.name === "react-expert");
+    expect(react?.model).toBe("sonnet");
+    expect(react?.tools).toBe("edit,read");
+  });
+
+  it("omits model and tools on an agent that lacks them", () => {
+    writeFile(".pi/agents/plain.md", "---\nname: plain\ndescription: No meta.\n---\nBody");
+    const result = scanLocalResources(tmpDir);
+    expect(result.agents).toHaveLength(1);
+    expect(result.agents[0].model).toBeUndefined();
+    expect(result.agents[0].tools).toBeUndefined();
+    expect(result.agents[0].description).toBe("No meta.");
+  });
+
   it("returns empty arrays when .pi/ does not exist", () => {
     const result = scanLocalResources(path.join(tmpDir, "nonexistent"));
     expect(result.extensions).toEqual([]);
     expect(result.skills).toEqual([]);
     expect(result.prompts).toEqual([]);
+    expect(result.agents).toEqual([]);
+  });
+
+  it("yields an empty agents array when agents/ is missing but .pi/ exists", () => {
+    writeFile(".pi/skills/s.md", "---\nname: s\n---\nBody");
+    const result = scanLocalResources(tmpDir);
+    expect(result.agents).toEqual([]);
   });
 });
 
@@ -136,6 +190,9 @@ Body`);
     fs.mkdirSync(path.join(globalDir, "prompts"), { recursive: true });
     fs.writeFileSync(path.join(globalDir, "prompts", "g-prompt.md"), "Do things.");
 
+    fs.mkdirSync(path.join(globalDir, "agents"), { recursive: true });
+    fs.writeFileSync(path.join(globalDir, "agents", "doc-writer.md"), "---\nname: doc-writer\ndescription: Docs.\nmodel: haiku\n---\nBody");
+
     const result = scanGlobalResources(globalDir);
     expect(result.skills).toHaveLength(1);
     expect(result.skills[0].name).toBe("my-skill");
@@ -143,6 +200,10 @@ Body`);
     expect(result.extensions[0].name).toBe("g-ext");
     expect(result.prompts).toHaveLength(1);
     expect(result.prompts[0].name).toBe("g-prompt");
+    expect(result.agents).toHaveLength(1);
+    expect(result.agents[0].name).toBe("doc-writer");
+    expect(result.agents[0].type).toBe("agent");
+    expect(result.agents[0].model).toBe("haiku");
   });
 
   it("returns empty when directory does not exist", () => {
@@ -185,6 +246,8 @@ name: my-skill
 description: Skill from package.
 ---
 Body`);
+    fs.mkdirSync(path.join(pkgDir, "agents"), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "agents", "pkg-agent.md"), "---\nname: pkg-agent\nmodel: sonnet\n---\nBody");
     fs.writeFileSync(
       path.join(pkgDir, "package.json"),
       JSON.stringify({ name: "conv-pkg", description: "Conventional" }),
@@ -194,6 +257,22 @@ Body`);
     expect(result).toHaveLength(1);
     expect(result[0].resources.extensions).toHaveLength(1);
     expect(result[0].resources.skills).toHaveLength(1);
+    expect(result[0].resources.agents).toHaveLength(1);
+    expect(result[0].resources.agents[0].name).toBe("pkg-agent");
+    expect(result[0].source).toBe(pkgDir);
+  });
+
+  it("resolves package agents declared in the pi manifest", () => {
+    const pkgDir = path.join(tmpDir, "manifest-pkg");
+    fs.mkdirSync(path.join(pkgDir, "my-agents"), { recursive: true });
+    fs.writeFileSync(path.join(pkgDir, "my-agents", "a.md"), "---\nname: a\nmodel: haiku\n---\nBody");
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "manifest-pkg", pi: { agents: ["./my-agents"] } }),
+    );
+    const result = resolvePackages([pkgDir], path.join(tmpDir, "settings-dir"));
+    expect(result[0].resources.agents).toHaveLength(1);
+    expect(result[0].resources.agents[0].name).toBe("a");
   });
 
   it("skips missing packages silently", () => {

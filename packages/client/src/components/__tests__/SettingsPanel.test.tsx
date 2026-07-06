@@ -563,6 +563,75 @@ describe("SettingsPanel", () => {
   });
 });
 
+// Resources nav group (global-scope per-type card pages).
+// See change: resources-card-tabs.
+describe("SettingsPanel Resources group", () => {
+  const piResourcesData = {
+    local: { extensions: [], skills: [], prompts: [], agents: [] },
+    global: {
+      extensions: [],
+      skills: [{ name: "a11y", description: "Accessibility.", filePath: "/g/.pi/agent/skills/a11y.md", type: "skill", enabled: true }],
+      prompts: [],
+      agents: [{ name: "doc-writer", description: "Docs.", filePath: "/g/.pi/agent/agents/doc-writer.md", type: "agent", enabled: true, model: "haiku", tools: "write" }],
+    },
+    packages: [],
+  };
+
+  function mockFetchWithResources() {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url.startsWith("/api/pi-resources")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: piResourcesData }) });
+      }
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/general");
+  });
+  afterEach(() => cleanup());
+
+  it("lists a Resources group with the five per-type pages", async () => {
+    global.fetch = mockFetchWithResources();
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("settings-nav-rail"));
+    const rail = screen.getByTestId("settings-nav-rail");
+    expect(rail.textContent).toContain("Resources");
+    for (const label of ["Skills", "Agents", "Extensions", "Prompts", "Themes"]) {
+      expect(screen.getByRole("button", { name: label })).toBeTruthy();
+    }
+  });
+
+  it("renders global agent cards with no scope filter and a global pill", async () => {
+    global.fetch = mockFetchWithResources();
+    setPath("/settings/agents");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("resource-card-grid"));
+    expect(screen.getByTestId("resource-card-grid").getAttribute("data-type")).toBe("agent");
+    const cards = screen.getAllByTestId("resource-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].textContent).toContain("doc-writer");
+    expect(screen.queryByTestId("resource-scope-filter")).toBeNull();
+    expect(screen.getByTestId("resource-global-pill")).toBeTruthy();
+  });
+
+  it("falls back to general for an unknown page id (registry gate)", async () => {
+    global.fetch = mockFetchWithResources();
+    setPath("/settings/bogus-xyz");
+    render(<SettingsPanel />);
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/settings/general");
+      expect(screen.getByText("Interface")).toBeTruthy();
+    });
+  });
+});
+
 // Listen-interface picker (Server page). See change: configurable-bind-host.
 describe("SettingsPanel listen-interface picker", () => {
   const NIC = { name: "en0", address: "10.0.0.5", netmask: "255.255.255.0", cidr: "10.0.0.0/24" };

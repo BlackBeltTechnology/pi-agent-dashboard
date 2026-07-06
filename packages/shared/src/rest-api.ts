@@ -283,19 +283,27 @@ export interface PiResource {
   name: string;
   description?: string;
   filePath: string;
-  type: "extension" | "skill" | "prompt" | "theme";
+  type: "extension" | "skill" | "prompt" | "theme" | "agent";
   /**
    * Scope-derived activation state, sourced from pi's own resolver
    * (`PackageManager.resolve()` → `ResolvedResource.enabled`). A resource pi
    * does not report defaults to `true`. See change: folder-resource-activation-toggle.
    */
   enabled: boolean;
+  /** Agent-only: `model` from frontmatter (e.g. `sonnet`, `@fast`). See change: resources-card-tabs. */
+  model?: string;
+  /** Agent-only: compact `tools` summary from frontmatter (e.g. `edit,read` or `all`). */
+  tools?: string;
+  /** Theme-only: palette swatch colors (bg / surface / accent / text) for the card strip. */
+  colors?: string[];
 }
 
 export interface PiResourceScope {
   extensions: PiResource[];
   skills: PiResource[];
   prompts: PiResource[];
+  /** Subagents from `agents/*.md`. See change: resources-card-tabs. */
+  agents: PiResource[];
 }
 
 export interface PiPackageInfo {

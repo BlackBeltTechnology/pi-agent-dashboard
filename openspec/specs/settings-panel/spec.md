@@ -95,7 +95,16 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 - **THEN** the panel SHALL `replace`-navigate to `/settings/general`
 
 ### Requirement: Settings page-id registry contract
-`VALID_SETTINGS_TABS` (and the `SettingsTab` type) SHALL enumerate the full set of page ids: `general, server, sessions, remote, security, providers, packages, plugins, openspec, developer`. The plugin `settings-section` slot SHALL continue to target a page via its `tab` field, defaulting to `general` when unset. Each settings page SHALL mount `<SettingsSectionSlot tab={page} />` so plugin claims render on their targeted page. Claims targeting an id outside the enumerated set SHALL be treated as `general`.
+
+`VALID_SETTINGS_TABS` (and the `SettingsTab` type) SHALL enumerate the full set
+of page ids: `general, server, sessions, remote, security, providers, packages,
+plugins, openspec, skills, agents, extensions, prompts, themes, developer`. The
+five resource page ids (`skills, agents, extensions, prompts, themes`) render
+the global-scope per-type resource card grids. The plugin `settings-section`
+slot SHALL continue to target a page via its `tab` field, defaulting to
+`general` when unset. Each settings page SHALL mount `<SettingsSectionSlot
+tab={page} />` so plugin claims render on their targeted page. Claims targeting
+an id outside the enumerated set SHALL be treated as `general`.
 
 #### Scenario: Unset claim lands on General
 - **WHEN** a plugin registers a `settings-section` claim with no `tab`
@@ -108,6 +117,10 @@ The settings panel SHALL be addressable at the canonical path `/settings/:page?`
 #### Scenario: Third-party claim with unknown id falls back
 - **WHEN** a plugin registers a `settings-section` claim with an id not in `VALID_SETTINGS_TABS`
 - **THEN** the claim SHALL render on the General page
+
+#### Scenario: Resource page ids resolve
+- **WHEN** the user navigates to `/settings/agents`
+- **THEN** the panel SHALL render the global-scope Agents resource card grid
 
 ### Requirement: Trusted Networks section on Security tab
 The Security tab SHALL include a "Trusted Networks" section that edits `config.auth.bypassHosts`. The section SHALL display existing entries as individual rows with per-entry remove (✕) buttons. The section SHALL provide a "+ Add Local Network" button that opens a dropdown listing the current host's non-loopback IPv4 network interfaces in CIDR form (fetched from `GET /api/network-interfaces`). The section SHALL provide a manual entry input that accepts exact IP, wildcard (e.g. `10.0.0.*`), or CIDR (e.g. `192.168.1.0/24`) formats. The section SHALL display an explicit security warning ("⚠ Anyone on a trusted network has full access to the dashboard without authentication. Only use on private networks you control."). Adding an entry SHALL write to `config.auth.bypassHosts` — never to top-level `config.trustedNetworks`. Removing an entry SHALL remove from `config.auth.bypassHosts` only.
@@ -595,4 +608,24 @@ The server `PUT /api/providers` merge SHALL treat the masked sentinel value (`**
 - **WHEN** the client PUTs a `proxy` provider with `apiKey: "***"` and the existing file has no `proxy` entry
 - **THEN** the server SHALL NOT persist `proxy.apiKey === "***"`
 - **AND** the response SHALL indicate the key is required (or the entry SHALL be stored with no usable key) rather than silently writing the sentinel
+
+### Requirement: Settings SHALL expose global resources as per-type card pages
+
+The settings panel nav SHALL include a `Resources` group listing five pages —
+**Skills, Agents, Extensions, Prompts, Themes** — each rendering the
+global-scope resources of that type as a card grid using the same
+`ResourceCard` component as Directory Settings. Because the settings panel is
+global-scope, these pages SHALL NOT render an `All / Local / Global` scope
+filter; scope SHALL be indicated by a static `global` affordance. A
+name/description search filter SHALL be provided.
+
+#### Scenario: Resources group in the settings nav
+- **WHEN** the settings panel nav rail renders
+- **THEN** a `Resources` group SHALL list `Skills`, `Agents`, `Extensions`, `Prompts`, `Themes`
+- **AND** the `Resources` group SHALL be distinct from the existing `Extensions` group
+
+#### Scenario: Global-scope type page omits the scope filter
+- **WHEN** the user opens the `Skills` page under Settings
+- **THEN** global skills SHALL render as cards
+- **AND** no `All / Local / Global` scope filter SHALL be shown
 

@@ -130,30 +130,42 @@ The PiResourcesView SHALL include a tab bar with "Installed" (existing view) and
 - **THEN** the "Installed" tab is selected by default showing the existing resources view
 
 ### Requirement: Merged scope sections
-The Installed tab SHALL show two merged sections: Local (loose resources + local packages) and Global (loose resources + global packages) instead of separate Local/Global/Packages sections.
 
-#### Scenario: View merged Local section
-- **WHEN** user views the Installed tab for a workspace with local loose resources and local packages
-- **THEN** both are displayed together under a single "Local" section
+The resource browse surface SHALL NOT render Local/Global as stacked collapsible
+sections. Resources SHALL instead be presented per type (Skills, Agents,
+Extensions, Prompts, Themes) as a flat card grid, with **scope** conveyed by a
+per-card `local`/`global` badge rather than by which section a row sits in. On a
+surface that spans both scopes (Directory Settings), an `All / Local / Global`
+segmented filter SHALL narrow the grid by the card scope badge.
 
-#### Scenario: View merged Global section
-- **WHEN** user views the Installed tab
-- **THEN** global loose resources and global packages are displayed together under a single "Global" section
+#### Scenario: Scope shown per card, not per section
+- **WHEN** the user views a resource type page for a workspace with local and global resources of that type
+- **THEN** all resources SHALL render as cards in one grid
+- **AND** each card SHALL carry a `local` or `global` scope badge
+- **AND** there SHALL be no stacked "Local" / "Global" section headers
+
+#### Scenario: Scope filter replaces scope sections
+- **WHEN** the user selects the `Global` scope filter on a type page
+- **THEN** only cards with a `global` scope badge SHALL remain visible
 
 ### Requirement: Collapsible resource hierarchy
-All sections, resource groups (Skills/Extensions/Prompts), and package items SHALL be collapsible with chevron toggles, defaulting to collapsed. Progressive indentation (16px per depth) SHALL visually distinguish hierarchy levels.
 
-#### Scenario: Collapse a section
-- **WHEN** user clicks the chevron toggle on a section header (e.g., "Local")
-- **THEN** the section collapses, hiding all nested resource groups and package items
+The resource browse surface SHALL render resources as a flat card grid rather
+than a collapsible chevron tree. There SHALL be no section/group/package chevron
+toggles and no depth-based indentation for browsing resources. Package
+provenance SHALL be conveyed by a per-card `📦 <package-name>` source badge
+rather than by nesting resources under a collapsible package row.
 
-#### Scenario: Default collapsed state
-- **WHEN** the Installed tab loads
-- **THEN** all sections, resource groups, and package items are collapsed by default
+#### Scenario: No chevron tree
+- **WHEN** a resource type page loads
+- **THEN** resources SHALL render as cards immediately (no collapsed groups to expand)
+- **AND** no chevron toggle SHALL gate their visibility
 
-#### Scenario: Visual indentation
-- **WHEN** nested items are expanded
-- **THEN** each depth level is indented by 16px to visually distinguish the hierarchy
+#### Scenario: Package provenance is a badge, not nesting
+- **GIVEN** a package `pi-flows` contributes skills to the workspace
+- **WHEN** the user views the Skills page
+- **THEN** each contributed skill SHALL render as its own card with a `📦 pi-flows` badge
+- **AND** the skills SHALL NOT be nested under a collapsible `📦 pi-flows` row
 
 ### Requirement: Resources tab SHALL be a pure browse surface
 

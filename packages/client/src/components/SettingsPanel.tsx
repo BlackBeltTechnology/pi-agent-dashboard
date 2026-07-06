@@ -3,7 +3,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiAlert, mdiArrowLeft, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPlay, mdiPlus, mdiPuzzle, mdiRestart, mdiServer, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -11,10 +11,13 @@ import { useAsyncAction } from "../hooks/useAsyncAction.js";
 import { useDebugToolsVisible } from "../hooks/useDebugToolsVisible.js";
 import { useInstalledPackages } from "../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../hooks/usePackageOperations.js";
+import { usePiResources } from "../hooks/usePiResources.js";
+import { useResourceActivation } from "../hooks/useResourceActivation.js";
 import { getApiBase } from "../lib/api-context.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
 import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { buildPiResourceFileUrl } from "../lib/route-builders.js";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
 import { type TestProviderResult, testProvider } from "../lib/providers-api.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
@@ -31,6 +34,8 @@ import { PackageInstallConfirmDialog } from "./PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "./PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "./PiVersionAdvisory.js";
 import { PluginsSection } from "./PluginsSection.js";
+import type { ResourceType } from "./ResourceCardGrid.js";
+import { ResourceGridPanel } from "./ResourceGridPanel.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
 import { UnifiedPackagesSection } from "./UnifiedPackagesSection.js";
@@ -256,6 +261,16 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // See change: directory-settings-page-and-scoped-md-editing.
 const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions"]);
 
+// Global-scope resource card pages. Page id → the singular `PiResource.type` its
+// grid renders. See change: resources-card-tabs.
+const RESOURCE_TAB_TYPE: Record<string, ResourceType> = {
+  skills: "skill",
+  agents: "agent",
+  extensions: "extension",
+  prompts: "prompt",
+  themes: "theme",
+};
+
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
   if (!raw) return null;
@@ -344,6 +359,30 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
   const routePage = routeParams?.page;
   const resolvedRoutePage = resolveSettingsPage(routePage);
   const activeTab = resolvedRoutePage ?? "general";
+
+  // Global-scope resource card pages (Resources nav group). One fetch backs the
+  // nav count pills + the active page grid. See change: resources-card-tabs.
+  const piResources = usePiResources(null, { globalOnly: true });
+  const resourceActivation = useResourceActivation();
+  const resourceCounts = useMemo(() => {
+    const empty: Record<string, number> = { skills: 0, agents: 0, extensions: 0, prompts: 0, themes: 0 };
+    const scope = piResources.data?.global;
+    if (scope) {
+      empty.skills = scope.skills.length;
+      empty.agents = scope.agents.length;
+      empty.extensions = scope.extensions.length;
+      empty.prompts = scope.prompts.length;
+      // themes are not scanned into PiResourceScope yet.
+    }
+    for (const pkg of piResources.data?.packages ?? []) {
+      if ((pkg.scope ?? "local") !== "global") continue;
+      empty.skills += pkg.resources.skills.length;
+      empty.agents += pkg.resources.agents.length;
+      empty.extensions += pkg.resources.extensions.length;
+      empty.prompts += pkg.resources.prompts.length;
+    }
+    return empty;
+  }, [piResources.data]);
 
   useEffect(() => {
     // 1) valid route param → nothing to do (already canonical).
@@ -686,6 +725,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
       ],
     },
     {
+      label: t("settings.groupResources", undefined, "Resources"),
+      items: [
+        { id: "skills", label: i18nT("auto.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
+        { id: "agents", label: i18nT("auto.agents", undefined, "Agents"), icon: mdiRobotOutline },
+        { id: "extensions", label: i18nT("auto.extensions", undefined, "Extensions"), icon: mdiPuzzleOutline },
+        { id: "prompts", label: i18nT("auto.prompts", undefined, "Prompts"), icon: mdiTextBoxOutline },
+        { id: "themes", label: i18nT("auto.themes", undefined, "Themes"), icon: mdiPalette },
+      ],
+    },
+    {
       label: t("settings.groupAdvanced", undefined, "Advanced"),
       items: [
         { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
@@ -779,6 +828,29 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
         <div data-testid="settings-content" className="flex-1 min-h-0 min-w-0 flex flex-col">
           {activeTab === "instructions" ? (
             <InstructionsPage />
+          ) : activeTab in RESOURCE_TAB_TYPE ? (
+            <div className="flex-1 overflow-y-auto min-w-0">
+              <ResourceGridPanel
+                data={piResources.data}
+                isLoading={piResources.isLoading}
+                error={piResources.error}
+                refresh={piResources.refresh}
+                activation={resourceActivation}
+                type={RESOURCE_TAB_TYPE[activeTab]}
+                scopes={["global"]}
+                showScopeFilter={false}
+                globalPill
+                onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
+              />
+              {/* Per-page plugin slot mounts (literal ids for the registry lint). */}
+              <div className="px-3">
+                {activeTab === "skills" && <SettingsSectionSlot tab="skills" />}
+                {activeTab === "agents" && <SettingsSectionSlot tab="agents" />}
+                {activeTab === "extensions" && <SettingsSectionSlot tab="extensions" />}
+                {activeTab === "prompts" && <SettingsSectionSlot tab="prompts" />}
+                {activeTab === "themes" && <SettingsSectionSlot tab="themes" />}
+              </div>
+            </div>
           ) : (
           <div className="p-4 space-y-6 max-w-3xl overflow-y-auto">
 

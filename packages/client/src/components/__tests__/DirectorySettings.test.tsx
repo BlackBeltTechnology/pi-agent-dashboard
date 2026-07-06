@@ -28,11 +28,17 @@ beforeEach(() => {
   // Permissive fetch so the packages/resources pages' hooks resolve without
   // throwing. Shape covers usePiResources + useInstalledPackages + search.
   vi.spyOn(globalThis, "fetch").mockResolvedValue({
+    ok: true,
     json: () => Promise.resolve({
       success: true,
       data: {
-        local: { extensions: [], skills: [], prompts: [] },
-        global: { extensions: [], skills: [], prompts: [] },
+        local: {
+          extensions: [],
+          skills: [{ name: "local-skill", description: "A local skill.", filePath: "/path/to/project/.pi/skills/local-skill.md", type: "skill", enabled: true }],
+          prompts: [],
+          agents: [{ name: "react-expert", description: "React.", filePath: "/path/to/project/.pi/agents/react-expert.md", type: "agent", enabled: true, model: "sonnet", tools: "edit,read" }],
+        },
+        global: { extensions: [], skills: [], prompts: [], agents: [] },
         packages: [],
       },
     }),
@@ -44,7 +50,7 @@ afterEach(() => {
   cleanup();
 });
 
-function renderAt(page: "instructions" | "packages" | "resources", path = buildFolderSettingsUrl(CWD, page)) {
+function renderAt(page: "instructions" | "packages" | "skills" | "agents", path = buildFolderSettingsUrl(CWD, page)) {
   const { hook, history } = memoryLocation({ path, record: true });
   const utils = render(
     <Router hook={hook}>
@@ -63,12 +69,14 @@ describe("DirectorySettings", () => {
     expect(screen.getByText(CWD)).toBeTruthy();
   });
 
-  it("renders the three nav items", () => {
+  it("renders the nav with a RESOURCES group of five per-type items and no combined Resources item", () => {
     renderAt("instructions");
     const nav = screen.getByTestId("directory-settings-nav");
-    for (const label of ["Instructions", "Packages", "Resources"]) {
+    for (const label of ["Instructions", "Packages", "Skills", "Agents", "Extensions", "Prompts", "Themes"]) {
       expect(nav.textContent).toContain(label);
     }
+    // The former combined "Resources" page is gone (it is now a group header only).
+    expect(screen.queryByRole("button", { name: /^Resources$/ })).toBeNull();
   });
 
   it("mounts the Instructions editing surface on the instructions page", () => {
@@ -77,7 +85,7 @@ describe("DirectorySettings", () => {
     // markdown editor). It mounts the file picker + editor scaffold.
     expect(screen.getByTestId("instructions-page")).toBeTruthy();
     expect(screen.queryByTestId("directory-settings-packages")).toBeNull();
-    expect(screen.queryByTestId("directory-settings-resources")).toBeNull();
+    expect(screen.queryByTestId("resource-grid-panel")).toBeNull();
   });
 
   it("renders the packages surface on the packages page", () => {
@@ -85,21 +93,35 @@ describe("DirectorySettings", () => {
     expect(screen.getByTestId("directory-settings-packages")).toBeTruthy();
   });
 
-  it("renders the resources surface on the resources page", () => {
-    renderAt("resources");
-    expect(screen.getByTestId("directory-settings-resources")).toBeTruthy();
+  it("renders only skill cards on the Skills page", async () => {
+    renderAt("skills");
+    const grid = await screen.findByTestId("resource-card-grid");
+    expect(grid.getAttribute("data-type")).toBe("skill");
+    const cards = screen.getAllByTestId("resource-card");
+    expect(cards.length).toBe(1);
+    expect(cards[0].textContent).toContain("local-skill");
+    // Directory Settings shows the scope filter.
+    expect(screen.getByTestId("resource-scope-filter")).toBeTruthy();
+  });
+
+  it("renders agent cards with model/tools badges and no toggle on the Agents page", async () => {
+    renderAt("agents");
+    const grid = await screen.findByTestId("resource-card-grid");
+    expect(grid.getAttribute("data-type")).toBe("agent");
+    expect(screen.getByTestId("badge-model").textContent).toContain("sonnet");
+    expect(screen.queryByTestId("resource-activation-toggle")).toBeNull();
   });
 
   it("marks the active nav item with aria-current", () => {
-    renderAt("resources");
-    const active = screen.getByRole("button", { name: /Resources/ });
+    renderAt("skills");
+    const active = screen.getByRole("button", { name: /Skills/ });
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
   it("navigates to /folder/<enc>/settings/<page> when a nav item is clicked", () => {
     const { history } = renderAt("instructions");
-    fireEvent.click(screen.getByRole("button", { name: /Resources/ }));
-    expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/resources`);
+    fireEvent.click(screen.getByRole("button", { name: /Agents/ }));
+    expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/agents`);
 
     fireEvent.click(screen.getByRole("button", { name: /Packages/ }));
     expect(history[history.length - 1]).toBe(`/folder/${ENC}/settings/packages`);

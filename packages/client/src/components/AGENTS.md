@@ -88,7 +88,6 @@ Files in this directory. One row per source file.
 | `PathPicker.tsx` | Reusable keyboard-first path picker with typeahead directory list. → see `PathPicker.tsx.AGENTS.md` |
 | `PiLogo.tsx` | Inline SVG brand mark (geometric Π). Exports `PiLogo`. Props: `size` (default 24), `className`, `title`. → see `PiLogo.tsx.AGENTS.md` |
 | `PinDirectoryDialog.tsx` | Dialog to pin directory (wraps PathPicker) |
-| `PiResourcesView.tsx` | Per-cwd Pi Resources view with Resources/Packages tabs. Exports `PiResourcesView`. Resources tab wires `useResourceActivation` → per-row toggle + `ResourceReloadBanner` (change: folder-resource-activation-toggle). → see `PiResourcesView.tsx.AGENTS.md` |
 | `PiUpdateBadge.tsx` | Header badge counting available pi-core updates. Exports `PiUpdateBadge`. → see `PiUpdateBadge.tsx.AGENTS.md` |
 | `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Reads `usePiCompatibility`. → see `PiVersionAdvisory.tsx.AGENTS.md` |
 | `PlaceholderSessionCard.tsx` | Skeleton card shown while a new session spawns. Exports `PlaceholderSessionCard`. Pulse-animated bars mimicking `SessionCard` layout; shows "Starting new session…" text. |
@@ -107,7 +106,10 @@ Files in this directory. One row per source file.
 | `RawEventCard.tsx` | Collapsible card showing one raw event in the event log. Exports `RawEventCard`. → see `RawEventCard.tsx.AGENTS.md` |
 | `RecommendedExtensions.tsx` | Panel rendering curated recommended extensions. Exports `RecommendedExtensions`. Props: `scope`, `cwd`. → see `RecommendedExtensions.tsx.AGENTS.md` |
 | `ResizableSidebar.tsx` | Drag-to-resize + collapse sidebar shell. Takes `SidebarState` (from `useSidebarState`). Clamp width 180–500px. Collapsed strip width 28px. Exports `ResizableSidebar`. |
-| `resource-tree.tsx` | Shared resource-tree primitives. MergedScopeSection + ResourceItem/ResourceGroup/PackageItem/ResourceIcon; optional `activation`+`activationScope` render a per-row enable/disable switch (`ActivationToggle`, `role=switch`) + exports `ResourceReloadBanner` (change: folder-resource-activation-toggle). → see `resource-tree.tsx.AGENTS.md` |
+| `ResourceCard.tsx` | One pi-resource as a card. Exports `ResourceCard`. Scope/source badges, path line, `ActivationToggle` (omitted for `agent` — no pi activation dim). Agent variant: `◆ model`+`🔧 tools` badges. Theme variant: swatch strip from `resource.colors` replaces desc. See change: resources-card-tabs. |
+| `ResourceCardGrid.tsx` | Auto-fill grid of `ResourceCard` for one type. Exports `ResourceCardGrid`, `ResourceType`, `countResources`. Flattens loose+package resources across `scopes`; search box + optional `All/Local/Global` scope filter. `themes` not in scope → empty. See change: resources-card-tabs. |
+| `ResourceGridPanel.tsx` | Loading/error/refresh chrome + `ResourceReloadBanner` around `ResourceCardGrid`. Exports `ResourceGridPanel`. Shared by Directory Settings (local+global, filter) + Settings (global-only, `◇ global` pill). Caller owns the `usePiResources` fetch. See change: resources-card-tabs. |
+| `resource-tree.tsx` | Activation primitives reused by `ResourceCard`. Exports `ActivationToggle` (`role=switch`) + `ResourceReloadBanner`. Legacy `MergedScopeSection`/`ResourceItem`/`ResourceGroup`/`PackageItem` tree removed once both surfaces moved to cards. See change: folder-resource-activation-toggle, resources-card-tabs. |
 | `RetriedErrorBadge.tsx` | Compact badge collapsing a tool error→retry pair into one line. Click expands to full `ToolCallStep`. → see `RetriedErrorBadge.tsx.AGENTS.md` |
 | `RichDiff.tsx` | Pure rich-diff rendering primitive over `@git-diff-view/react` + lowlight. → see `RichDiff.tsx.AGENTS.md` |
 | `SearchableSelectDialog.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
