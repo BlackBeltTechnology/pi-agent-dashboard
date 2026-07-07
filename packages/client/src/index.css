@@ -271,6 +271,72 @@ body {
 }
 .prompt-edge-pulse { animation: prompt-edge-pulse 1.1s ease-in-out infinite; }
 .prompt-tick-in { animation: prompt-tick-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* ── Tool-group liveness (change: enhance-tool-call-grouping) ──────────────────
+   All GPU-cheap (transform / opacity / background-position only). A running
+   group header carries an indeterminate shimmer sweep + a pulsing spinner; the
+   running→done flip plays a one-shot completion flash. Reduced-motion strips
+   every animation, leaving static text/icons. */
+@keyframes tool-group-sweep {
+  0%   { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+@keyframes tool-group-spin-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+@keyframes tool-group-flash {
+  0%   { transform: scale(0.6); opacity: 0.2; }
+  55%  { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+/* Header shimmer: an over-wide masked highlight swept via background-position.
+   Clipped to the header bounds (overflow:hidden on the header element). */
+.tool-group-shimmer { position: relative; overflow: hidden; }
+.tool-group-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(250, 204, 21, 0.10) 45%, rgba(250, 204, 21, 0.16) 50%, rgba(250, 204, 21, 0.10) 55%, transparent 80%);
+  background-size: 220% 100%;
+  animation: tool-group-sweep 1.6s linear infinite;
+}
+.tool-group-spin-pulse { animation: tool-group-spin-pulse 1.8s ease-in-out infinite; }
+.tool-group-flash { animation: tool-group-flash 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Streaming assistant bubble — same liveness language as a running group:
+   an edge-pulse glow + a shimmer sweep. Stops the instant streaming ends. */
+@keyframes chat-stream-edge-pulse {
+  0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 0 rgba(96, 165, 250, 0); }
+  50%      { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 3px rgba(96, 165, 250, 0.10); }
+}
+.chat-stream-live {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  animation: chat-stream-edge-pulse 1.8s ease-in-out infinite;
+}
+.chat-stream-live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 20%, rgba(96, 165, 250, 0.09) 45%, rgba(96, 165, 250, 0.15) 50%, rgba(96, 165, 250, 0.09) 55%, transparent 80%);
+  background-size: 220% 100%;
+  animation: tool-group-sweep 1.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-group-shimmer::after,
+  .tool-group-spin-pulse,
+  .tool-group-flash,
+  .chat-stream-live,
+  .chat-stream-live::after { animation: none; }
+  .tool-group-shimmer::after,
+  .chat-stream-live::after { background: none; }
+}
 .card-stripes-fx {
   position: absolute;
   inset: 0;

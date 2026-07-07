@@ -9,6 +9,23 @@
  * group-tool-call-bursts.
  */
 
+import {
+  mdiAccountQuestionOutline,
+  mdiCodeBraces,
+  mdiConsoleLine,
+  mdiDatabaseSearchOutline,
+  mdiFileDocumentOutline,
+  mdiFilePlusOutline,
+  mdiFolderSearchOutline,
+  mdiFormatListBulleted,
+  mdiMagnify,
+  mdiPencil,
+  mdiRobotOutline,
+  mdiSourceBranch,
+  mdiWeb,
+  mdiWrenchOutline,
+} from "@mdi/js";
+
 export const toolSummaries: Record<string, (args?: Record<string, unknown>) => string> = {
   read: (args) => `Read ${args?.path ?? "file"}`,
   bash: (args) => `$ ${String(args?.command ?? "")}`,
@@ -39,4 +56,39 @@ export function getSummary(toolName: string, args?: Record<string, unknown>): st
   const fn = toolSummaries[toolName];
   if (fn) return fn(args);
   return toolName;
+}
+
+/**
+ * `toolName → mdi icon path` for the per-kind breakdown chips + single-member
+ * header glyph. Unknown kinds fall back to a generic wrench. Keys mirror the
+ * `toolSummaries` map above (same tool-name space). See change:
+ * enhance-tool-call-grouping.
+ */
+export const toolIcons: Record<string, string> = {
+  read: mdiFileDocumentOutline,
+  bash: mdiConsoleLine,
+  edit: mdiPencil,
+  write: mdiFilePlusOutline,
+  grep: mdiMagnify,
+  glob: mdiFolderSearchOutline,
+  find: mdiFolderSearchOutline,
+  ls: mdiFolderSearchOutline,
+  git: mdiSourceBranch,
+  kb_search: mdiDatabaseSearchOutline,
+  ask_user: mdiAccountQuestionOutline,
+  Agent: mdiRobotOutline,
+  get_subagent_result: mdiRobotOutline,
+  steer_subagent: mdiRobotOutline,
+  ctx_execute: mdiCodeBraces,
+  ctx_execute_file: mdiCodeBraces,
+  ctx_batch_execute: mdiCodeBraces,
+  ctx_search: mdiDatabaseSearchOutline,
+  ctx_index: mdiDatabaseSearchOutline,
+  ctx_fetch_and_index: mdiWeb,
+  ctx_insight: mdiFormatListBulleted,
+};
+
+/** mdi icon path for a tool kind; generic wrench for unknown kinds. */
+export function getToolIcon(toolName: string): string {
+  return toolIcons[toolName] ?? mdiWrenchOutline;
 }

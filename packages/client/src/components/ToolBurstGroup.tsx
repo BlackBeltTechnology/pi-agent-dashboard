@@ -1,44 +1,51 @@
 /**
- * Renders a temporal BURST group: a run of heterogeneous consecutive tool
- * calls collapsed into one progress-aware block.
+ * Renders a temporal BURST group: a run of consecutive tool calls collapsed
+ * into one unified, progress-aware block. Grouping is universal (threshold 1),
+ * so a single tool call renders in the SAME frame as a multi-member run.
  *
- * Lifecycle (design finding 4): auto-expanded while any member runs (keeps the
- * live tool visible), auto-collapsed once the turn's boundary is reached. A
- * single nullable `override` cell expresses "follow auto UNLESS the user
- * toggled" — `expanded = override ?? isRunning` is derived, so it re-collapses
- * on the running→done flip yet pins a manual choice thereafter. No effect.
+ * ONE frame, four data-driven states (change: enhance-tool-call-grouping):
+ *   running        ⟳ Working · N done · $ <live command>   shimmer + spin-pulse
+ *   done · 1 call  ✓ <tool icon> <summary> · <duration>     completion flash
+ *   done · N calls ✓ N tool calls · <icon breakdown> · <dur> [· N failed]
+ * The running/done/single/multi paths flow through one `<GroupFrame>` with
+ * slots {leftGlyph, title, meta, motionClass, chevron, body} — no four-way
+ * branch. Honest counts only: NO fabricated total / progress bar; the running
+ * animation is indeterminate.
  *
- * Header — honest counts, NO fabricated total / progress bar (finding 1):
- *   running: ⟳ Working · N done · $ <live command>
- *   done:    ✓ N tool calls · <breakdown> · <duration>
- * All counts are over UNDERLYING tool calls (a nested ×N contributes N);
- * only formation threshold counts post-semantic members (helper, finding 5).
+ * Body grows in DOCUMENT FLOW — no fixed max-height, no inner overflow-y
+ * scrollbox (finding: full-height expansion). Absorbed `thinking` renders
+ * through the real `<ThinkingBlock>` (labeled, collapsible), identical to a
+ * top-level reasoning block; only non-empty `assistant` prose renders as flat
+ * narration.
  *
- * Body: fixed-max-height scrollbox rendering every visible member via
- * `ToolCallStep`, with nested `×N` runs as `CollapsedToolGroup`. One collapse
- * level, no inner windowing (finding 3).
+ * Default open state: `expanded = override ?? (toolGroupDefaultCollapsed ?
+ * false : isRunning)`. The pref only changes the body's default open state; the
+ * live header + animation key off `isRunning`, not `expanded`.
  *
- * See change: group-tool-call-bursts.
+ * See change: enhance-tool-call-grouping (was: group-tool-call-bursts).
  */
 
 import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiConsoleLine, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useMobile } from "../hooks/useMobile.js";
 import type { ChatMessage } from "../lib/event-reducer.js";
 import type { ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bursts.js";
 import type { ChatItem, ToolCallGroup } from "../lib/group-tool-calls.js";
-import { getSummary } from "../lib/tool-summary.js";
+import { getSummary, getToolIcon } from "../lib/tool-summary.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolCallStep } from "./ToolCallStep.js";
 import type { ToolContext } from "./tool-renderers/index.js";
 
 interface Props {
   burst: ToolBurstGroupData;
   toolContext: ToolContext;
+  /** True while the session turn is streaming (threaded to absorbed ThinkingBlocks). */
+  turnActive?: boolean;
 }
 
 function isGroup(item: ChatItem): item is ToolCallGroup {
@@ -61,16 +68,14 @@ function formatDuration(ms: number): string {
   return `${s.toFixed(s < 10 ? 1 : 0)}s`;
 }
 
-/** `9× grep · 8× read · 1× git` from a count over `toolName`. */
-function breakdown(members: ChatMessage[]): string {
+/** Per-tool-kind icon + count breakdown, insertion-ordered by first appearance. */
+function breakdown(members: ChatMessage[]): { name: string; icon: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const m of members) {
     const name = m.toolName ?? "unknown";
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
-  return [...counts.entries()]
-    .map(([name, n]) => `${n}× ${name}`)
-    .join(" · ");
+  return [...counts.entries()].map(([name, count]) => ({ name, icon: getToolIcon(name), count }));
 }
 
 /** Wall-clock span when timestamps exist, else sum of member durations. */
@@ -83,8 +88,59 @@ function totalDuration(members: ChatMessage[]): number {
   return members.reduce((sum, m) => sum + (m.duration ?? 0), 0);
 }
 
-export function ToolBurstGroup({ burst, toolContext }: Props) {
+/**
+ * The single unified frame. Running/done/single/multi differ only in the slots
+ * passed in — one visual chrome, no per-state branch.
+ */
+function GroupFrame({
+  leftGlyph,
+  title,
+  meta,
+  motionClass,
+  expanded,
+  onToggle,
+  isRunning,
+  children,
+}: {
+  leftGlyph: ReactNode;
+  title: ReactNode;
+  meta: ReactNode;
+  motionClass: string;
+  expanded: boolean;
+  onToggle: () => void;
+  isRunning: boolean;
+  children: ReactNode;
+}) {
   const isMobile = useMobile();
+  return (
+    <div
+      className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}
+      data-testid="tool-burst-group"
+      data-running={isRunning ? "true" : "false"}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left rounded ${motionClass} ${isMobile ? "min-h-[44px] py-2" : ""}`}
+        data-testid="tool-burst-header"
+      >
+        {leftGlyph}
+        {title}
+        {meta}
+        <span className="ml-auto text-[var(--text-muted)] inline-flex shrink-0">
+          <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
+        </span>
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-0.5" data-testid="tool-burst-body">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ToolBurstGroup({ burst, toolContext, turnActive }: Props) {
   const prefs = useDisplayPrefs();
 
   // Gate members by tool-kind toggle (mirrors CollapsedToolGroup). `ask_user`
@@ -97,102 +153,224 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
 
   const [override, setOverride] = useState<boolean | null>(null); // null = follow auto
   const isRunning = visibleMembers.some((m) => m.toolStatus === "running");
-  const expanded = override ?? isRunning;
+  // Pref only changes the body's default open state; the live header keys off
+  // isRunning, not expanded. Manual override always wins.
+  const autoOpen = prefs.toolGroupDefaultCollapsed ? false : isRunning;
+  const expanded = override ?? autoOpen;
+
+  // One-shot completion flash on the running→done flip.
+  const prevRunning = useRef(isRunning);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (prevRunning.current && !isRunning) {
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 200);
+      prevRunning.current = isRunning;
+      return () => clearTimeout(t);
+    }
+    prevRunning.current = isRunning;
+  }, [isRunning]);
 
   if (visibleMembers.length === 0) return null;
 
   const total = visibleMembers.length;
   const doneCount = visibleMembers.filter((m) => m.toolStatus !== "running").length;
+  const failedCount = visibleMembers.filter((m) => m.toolStatus === "error").length;
   const runningMember = visibleMembers.find((m) => m.toolStatus === "running");
   const liveCommand = runningMember ? getSummary(runningMember.toolName ?? "unknown", runningMember.args) : "";
   const durationMs = totalDuration(visibleMembers);
+  const single = total === 1;
+  const soleMember = visibleMembers[0];
+
+  // ── Slots ────────────────────────────────────────────────────────────────
+  const leftGlyph = (
+    <span
+      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : "text-green-400"} ${flash ? "tool-group-flash" : ""}`}
+    >
+      <Icon
+        path={isRunning ? mdiLoading : single ? getToolIcon(soleMember.toolName ?? "unknown") : mdiCheck}
+        size={0.55}
+        spin={isRunning}
+      />
+    </span>
+  );
+
+  const { title, meta } = headerSlots({
+    isRunning,
+    single,
+    total,
+    doneCount,
+    failedCount,
+    liveCommand,
+    durationMs,
+    soleMember,
+    members: visibleMembers,
+  });
+  const motionClass = isRunning ? "tool-group-shimmer" : "";
 
   return (
-    <div
-      className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}
-      data-testid="tool-burst-group"
-      data-running={isRunning ? "true" : "false"}
+    <GroupFrame
+      leftGlyph={leftGlyph}
+      title={title}
+      meta={meta}
+      motionClass={motionClass}
+      expanded={expanded}
+      onToggle={() => setOverride(!expanded)}
+      isRunning={isRunning}
     >
-      <button
-        type="button"
-        onClick={() => setOverride(!expanded)}
-        className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
-        data-testid="tool-burst-header"
-      >
-        <span className={`inline-flex ${isRunning ? "text-yellow-400" : "text-green-400"}`}>
-          <Icon path={isRunning ? mdiLoading : mdiCheck} size={0.55} spin={isRunning} />
-        </span>
-        {isRunning ? (
-          <>
-            <span className="font-medium text-[var(--text-secondary)]">Working</span>
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-[10px] font-medium">
-              {doneCount} done
-            </span>
-            {liveCommand && (
-              <span className="ml-1.5 flex items-center gap-1 min-w-0 text-[var(--text-muted)]">
-                <Icon path={mdiConsoleLine} size={0.5} />
-                <span className="truncate max-w-[240px]" data-testid="tool-burst-live-command">
-                  {liveCommand}
-                </span>
+      {burst.items.map((it) => (
+        <BurstBodyItem
+          key={isGroup(it) ? it.messages[0]?.id : (it as ChatMessage).id}
+          item={it}
+          toolContext={toolContext}
+          turnActive={turnActive}
+          isVisible={isVisible}
+        />
+      ))}
+    </GroupFrame>
+  );
+}
+
+/** Render one body item: a nested ×N group, absorbed reasoning/narration, or a tool step. */
+function BurstBodyItem({
+  item,
+  toolContext,
+  turnActive,
+  isVisible,
+}: {
+  item: ChatItem;
+  toolContext: ToolContext;
+  turnActive?: boolean;
+  isVisible: (name: string | undefined) => boolean;
+}) {
+  const prefs = useDisplayPrefs();
+  if (isGroup(item)) {
+    return <CollapsedToolGroup group={item} toolContext={toolContext} />;
+  }
+  const msg = item as ChatMessage;
+  // Absorbed reasoning renders through the real ThinkingBlock (labeled,
+  // collapsible) — identical to a top-level reasoning row. Honours the
+  // reasoning display preference.
+  if (msg.role === "thinking" && msg.content.trim() !== "") {
+    if (!prefs.reasoning) return null;
+    return (
+      <ThinkingBlock
+        content={msg.content}
+        startedAt={msg.startedAt}
+        duration={msg.duration}
+        streamedLive={msg.streamedLive}
+        autoCollapseMs={prefs.reasoningAutoCollapseMs}
+        keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
+        turnActive={turnActive}
+      />
+    );
+  }
+  // Non-empty assistant prose is NOT reasoning — flat narration.
+  if (msg.role === "assistant" && msg.content.trim() !== "") {
+    return (
+      <div className="px-2 py-1 text-xs text-[var(--text-tertiary)]" data-testid="tool-burst-narration">
+        <MarkdownContent content={msg.content} context={toolContext} />
+      </div>
+    );
+  }
+  if (msg.role !== "toolResult") return null; // skip empty/separator rows
+  if (!isVisible(msg.toolName)) return null;
+  return (
+    <ToolCallStep
+      toolName={msg.toolName ?? "unknown"}
+      toolCallId={msg.toolCallId ?? msg.id}
+      args={msg.args}
+      status={msg.toolStatus ?? "complete"}
+      result={msg.result}
+      images={msg.images}
+      context={toolContext}
+      startedAt={msg.startedAt}
+      duration={msg.duration}
+      toolDetails={msg.toolDetails}
+      showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
+    />
+  );
+}
+
+/**
+ * Compute the {title, meta} header slots for the three states. Standalone so the
+ * component body stays flat (one frame, data-driven slots).
+ */
+function headerSlots(p: {
+  isRunning: boolean;
+  single: boolean;
+  total: number;
+  doneCount: number;
+  failedCount: number;
+  liveCommand: string;
+  durationMs: number;
+  soleMember: ChatMessage;
+  members: ChatMessage[];
+}): { title: ReactNode; meta: ReactNode } {
+  if (p.isRunning) {
+    return {
+      title: <span className="font-medium text-[var(--text-secondary)]">Working</span>,
+      meta: (
+        <>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)] text-[10px] font-medium">
+            {p.doneCount} done
+          </span>
+          {p.liveCommand && (
+            <span className="ml-1.5 flex items-center gap-1 min-w-0 text-[var(--text-muted)]">
+              <Icon path={mdiConsoleLine} size={0.5} />
+              <span className="truncate max-w-[240px]" data-testid="tool-burst-live-command">
+                {p.liveCommand}
               </span>
-            )}
-          </>
-        ) : (
-          <>
-            <span className="font-medium text-[var(--text-secondary)]">{total} tool calls</span>
-            <span className="ml-1.5 truncate text-[var(--text-muted)]" data-testid="tool-burst-breakdown">
-              {breakdown(visibleMembers)}
-              {durationMs > 0 ? ` · ${formatDuration(durationMs)}` : ""}
             </span>
-          </>
-        )}
-        <span className="ml-auto text-[var(--text-muted)] inline-flex shrink-0">
-          <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
+          )}
+        </>
+      ),
+    };
+  }
+  if (p.single) {
+    // Single completed call: tool icon (in leftGlyph) + its own summary + duration.
+    return {
+      title: (
+        <span className="truncate text-[var(--text-secondary)]" data-testid="tool-burst-summary">
+          {getSummary(p.soleMember.toolName ?? "unknown", p.soleMember.args)}
         </span>
-      </button>
-      {expanded && (
-        <div
-          className="mt-1 space-y-0.5 max-h-[190px] overflow-y-auto"
-          data-testid="tool-burst-body"
-        >
-          {burst.items.map((it) => {
-            if (isGroup(it)) {
-              return <CollapsedToolGroup key={it.messages[0]?.id} group={it} toolContext={toolContext} />;
-            }
-            const msg = it as ChatMessage;
-            // Absorbed narration renders interleaved with the burst's members.
-            if ((msg.role === "thinking" || msg.role === "assistant") && msg.content.trim() !== "") {
-              return (
-                <div
-                  key={msg.id}
-                  className="px-2 py-1 text-xs text-[var(--text-tertiary)]"
-                  data-testid="tool-burst-narration"
-                >
-                  <MarkdownContent content={msg.content} context={toolContext} />
-                </div>
-              );
-            }
-            if (msg.role !== "toolResult") return null; // skip empty/separator rows
-            if (!isVisible(msg.toolName)) return null;
-            return (
-              <ToolCallStep
-                key={msg.id}
-                toolName={msg.toolName ?? "unknown"}
-                toolCallId={msg.toolCallId ?? msg.id}
-                args={msg.args}
-                status={msg.toolStatus ?? "complete"}
-                result={msg.result}
-                images={msg.images}
-                context={toolContext}
-                startedAt={msg.startedAt}
-                duration={msg.duration}
-                toolDetails={msg.toolDetails}
-                showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
-              />
-            );
-          })}
-        </div>
-      )}
-    </div>
+      ),
+      meta: (
+        <>
+          {p.durationMs > 0 && <span className="ml-1.5 text-[var(--text-muted)]">{formatDuration(p.durationMs)}</span>}
+          {p.failedCount > 0 && <FailedBadge n={p.failedCount} />}
+        </>
+      ),
+    };
+  }
+  return {
+    title: <span className="font-medium text-[var(--text-secondary)] shrink-0">{p.total} tool calls</span>,
+    meta: (
+      <span
+        className="ml-1.5 flex items-center gap-2 flex-wrap min-w-0 text-[var(--text-muted)]"
+        data-testid="tool-burst-breakdown"
+      >
+        {breakdown(p.members).map((b) => (
+          <span key={b.name} className="inline-flex items-center gap-0.5" title={b.name}>
+            <Icon path={b.icon} size={0.5} />
+            <span className="tabular-nums text-[var(--text-tertiary)]">{b.count}</span>
+          </span>
+        ))}
+        {p.durationMs > 0 && <span className="tabular-nums">· {formatDuration(p.durationMs)}</span>}
+        {p.failedCount > 0 && <FailedBadge n={p.failedCount} />}
+      </span>
+    ),
+  };
+}
+
+/** `N failed` badge in the error color, shown when any member errored. */
+function FailedBadge({ n }: { n: number }) {
+  return (
+    <span
+      className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] font-semibold"
+      data-testid="tool-burst-failed-badge"
+    >
+      {n} failed
+    </span>
   );
 }

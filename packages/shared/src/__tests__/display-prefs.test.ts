@@ -72,6 +72,20 @@ describe("mergeDisplayPrefs", () => {
     const merged = mergeDisplayPrefs(global, { keepReasoningOpenUntilTurnEnds: true });
     expect(merged.keepReasoningOpenUntilTurnEnds).toBe(true);
   });
+
+  it("defaults toolGroupDefaultCollapsed to false in all presets", () => {
+    expect(DISPLAY_PRESETS.simple.toolGroupDefaultCollapsed).toBe(false);
+    expect(DISPLAY_PRESETS.standard.toolGroupDefaultCollapsed).toBe(false);
+    expect(DISPLAY_PRESETS.everything.toolGroupDefaultCollapsed).toBe(false);
+  });
+
+  it("applies toolGroupDefaultCollapsed override precedence", () => {
+    expect(mergeDisplayPrefs(global, { toolGroupDefaultCollapsed: true }).toolGroupDefaultCollapsed).toBe(true);
+    // missing key inherits the global value
+    expect(
+      mergeDisplayPrefs({ ...global, toolGroupDefaultCollapsed: true }, {}).toolGroupDefaultCollapsed,
+    ).toBe(true);
+  });
 });
 
 describe("toolCallPrefKey", () => {

@@ -38,7 +38,7 @@ A group with a SINGLE tool-like member is valid and SHALL render in the same fra
 - **WHEN** the chat renders
 - **THEN** the 24 `curl` calls SHALL fold into one nested `×24` line (prose absorbed), and expanding the `×24` SHALL show the absorbed narration
 
-### Requirement: Running groups group live, auto-expanded, with an honest animated count
+### Requirement: Running bursts group live, auto-expanded, with an honest count
 
 While a group contains a member whose `toolStatus` is `running`, the group SHALL form INCLUDING that running member (overriding the identical-call rule that never groups running tools) and SHALL render in the EXPANDED state so the live tool stays visible. The header SHALL show an animated indeterminate spinner, the title `Working`, a `"N done"` count of COMPLETED visible members only, and the summary of the currently-running member. The header SHALL render an **indeterminate** shimmer/pulse animation to signal liveness. The header SHALL NOT display a total-count denominator or a determinate progress bar. When `prefers-reduced-motion: reduce` is set, animation SHALL be suppressed while the static `Working` / `N done` / live-command text remains.
 

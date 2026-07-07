@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { groupToolBursts, type BurstItem, type ToolBurstGroup } from "../group-tool-bursts.js";
-import type { ChatItem, ToolCallGroup } from "../group-tool-calls.js";
+import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../event-reducer.js";
+import { type BurstItem, groupToolBursts, type ToolBurstGroup } from "../group-tool-bursts.js";
+import type { ChatItem, ToolCallGroup } from "../group-tool-calls.js";
 
 let seq = 0;
 function toolMsg(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -72,19 +72,86 @@ describe("groupToolBursts", () => {
     expect((result[0] as ToolBurstGroup).id).toBe(first.id);
   });
 
-  it("does NOT form a burst below the 3-member threshold (verbatim emit)", () => {
-    const msgs = [distinctTool("grep", { pattern: "foo" }), distinctTool("read", { path: "/a" })];
+  it("forms a burst from a single tool call (threshold 1)", () => {
+    const msgs = [distinctTool("read", { path: "/a" })];
     const result = groupToolBursts(msgs);
-    expect(result).toHaveLength(2);
-    expect(result.every((r) => !isBurst(r))).toBe(true);
+    expect(result).toHaveLength(1);
+    expect(isBurst(result[0])).toBe(true);
+    expect(underlyingCount(result[0] as ToolBurstGroup)).toBe(1);
   });
 
-  it("sub-threshold emits intermediate transparents verbatim in original order", () => {
+  it("forms a burst from 2 tools (threshold 1) absorbing intermediate transparents", () => {
     const a = distinctTool("grep", { pattern: "foo" });
     const sep = transparent();
     const b = distinctTool("read", { path: "/a" });
     const result = groupToolBursts([a, sep, b]);
-    expect(result.map((r) => (r as ChatMessage).id)).toEqual([a.id, sep.id, b.id]);
+    expect(result).toHaveLength(1);
+    expect(isBurst(result[0])).toBe(true);
+    const burst = result[0] as ToolBurstGroup;
+    // The intermediate transparent is absorbed as an interior item.
+    expect(burst.items.some((it) => (it as ChatMessage).id === sep.id)).toBe(true);
+    expect(underlyingCount(burst)).toBe(2);
+  });
+
+  it("absorbs a leading thinking row into the group (turn-scoped, leading)", () => {
+    const think = transparent("thinking");
+    const msgs = [
+      userMsg(),
+      think,
+      distinctTool("grep", { pattern: "foo" }),
+      distinctTool("read", { path: "/a" }),
+      distinctTool("write", { path: "/b" }),
+      assistantMsg("done"),
+    ];
+    const result = groupToolBursts(msgs);
+    // user, burst, assistant — no standalone thinking between user and burst.
+    expect(result).toHaveLength(3);
+    expect((result[0] as ChatMessage).role).toBe("user");
+    expect(isBurst(result[1])).toBe(true);
+    expect((result[1] as ToolBurstGroup).items[0]).toBe(think);
+    expect((result[2] as ChatMessage).content).toBe("done");
+  });
+
+  it("absorbs trailing thinking rows into the group (turn-scoped, trailing)", () => {
+    const t1 = transparent("thinking");
+    const t2 = transparent("thinking");
+    const u = userMsg();
+    const msgs = [
+      distinctTool("grep", { pattern: "foo" }),
+      distinctTool("read", { path: "/a" }),
+      distinctTool("write", { path: "/b" }),
+      t1,
+      t2,
+      u,
+    ];
+    const result = groupToolBursts(msgs);
+    // burst (absorbing both trailing thinking), then user — no standalone thinking.
+    expect(result).toHaveLength(2);
+    expect(isBurst(result[0])).toBe(true);
+    const burst = result[0] as ToolBurstGroup;
+    expect(burst.items).toContain(t1);
+    expect(burst.items).toContain(t2);
+    expect((result[1] as ChatMessage).id).toBe(u.id);
+  });
+
+  it("does NOT let a group absorb a following turn's reasoning across a HARD row", () => {
+    // burst, reply (HARD), thinking, burst — the thinking belongs to turn 2.
+    const t = transparent("thinking");
+    const msgs = [
+      distinctTool("grep", { pattern: "foo" }),
+      distinctTool("read", { path: "/a" }),
+      assistantMsg("reply"),
+      t,
+      distinctTool("grep", { pattern: "bar" }),
+      distinctTool("read", { path: "/c" }),
+    ];
+    const result = groupToolBursts(msgs);
+    // burst1, reply, burst2 (with leading thinking absorbed).
+    expect(result).toHaveLength(3);
+    expect(isBurst(result[0])).toBe(true);
+    expect((result[1] as ChatMessage).content).toBe("reply");
+    expect(isBurst(result[2])).toBe(true);
+    expect((result[2] as ToolBurstGroup).items[0]).toBe(t);
   });
 
   it("walks across empty assistant rows (transparent)", () => {
@@ -232,6 +299,30 @@ describe("groupToolBursts", () => {
     expect(result).toHaveLength(1);
     const burst = result[0] as ToolBurstGroup;
     expect(underlyingCount(burst)).toBe(26);
+  });
+
+  it("keeps a lone ×N group bare when only STRUCTURAL transparents lead it", () => {
+    // Leading debug rawEvent + turnSeparator before a pure ×3 poll → the ×N
+    // stays a bare group (no double-frame), transparents emit standalone.
+    const ev = transparent("rawEvent");
+    const sep = transparent("turnSeparator");
+    const msgs = [ev, sep, toolMsg(), toolMsg(), toolMsg()];
+    const result = groupToolBursts(msgs);
+    expect(result).toHaveLength(3); // rawEvent, turnSeparator, bare ×3 group
+    expect((result[0] as ChatMessage).id).toBe(ev.id);
+    expect((result[1] as ChatMessage).id).toBe(sep.id);
+    expect(isBurst(result[2])).toBe(false);
+    expect(isGroup(result[2] as ChatItem)).toBe(true);
+  });
+
+  it("wraps a lone ×N group when it absorbed leading reasoning (thinking)", () => {
+    // Leading thinking before a pure ×3 poll → wraps so the reasoning folds in.
+    const think = transparent("thinking");
+    const msgs = [think, toolMsg(), toolMsg(), toolMsg()];
+    const result = groupToolBursts(msgs);
+    expect(result).toHaveLength(1);
+    expect(isBurst(result[0])).toBe(true);
+    expect((result[0] as ToolBurstGroup).items[0]).toBe(think);
   });
 
   it("does NOT wrap a pure homogeneous ×N run in a burst (byte-identical to today)", () => {

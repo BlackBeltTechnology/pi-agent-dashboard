@@ -429,6 +429,35 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "split complete" },
   },
 
+  // Universal grouping (enhance-tool-call-grouping): a SINGLE tool call now
+  // forms a framed group that renders its own one-line summary (NOT "1 tool
+  // calls"). Two steps so the agent terminates.
+  "grp-single": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo single-call" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("single done")]),
+    ],
+    expect: { text: "single done" },
+  },
+
+  // Turn-scoped reasoning folding (enhance-tool-call-grouping): a TRAILING
+  // `thinking` row after the last tool is absorbed INTO the group and renders
+  // as a real ThinkingBlock (labeled "Reasoning"), not demoted narration. The
+  // trailing `thinking`+`text` pattern replays reliably (matches thinking-text).
+  // Requires "Reasoning blocks" ON to see the folded reasoning.
+  "grp-reasoning": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo probe-three" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([
+        fauxThinking("all three probed; the cause is the stale cache"),
+        fauxText("reasoning burst complete"),
+      ]),
+    ],
+    expect: { text: "reasoning burst complete" },
+  },
+
   // ── Client interactive-renderer matrix (one per ask_user method) ────────
   "ask-confirm": askScenario("confirm", { title: "Proceed?" }),
   "ask-select": askScenario("select", {

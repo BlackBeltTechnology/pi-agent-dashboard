@@ -99,9 +99,12 @@ describe("ChatView", () => {
     const state = stateWithToolMessage();
     const { container } = render(<ThemeProvider><ChatView state={state} toolContext={defaultToolContext} /></ThemeProvider>);
 
-    // Click to expand
-    const button = container.querySelector("button")!;
-    fireEvent.click(button);
+    // A single tool call now forms a burst group (universal grouping, threshold
+    // 1). First click expands the group body (revealing the ToolCallStep);
+    // second click expands the ToolCallStep to show its args + result.
+    fireEvent.click(container.querySelector('[data-testid="tool-burst-header"]')!);
+    const stepButton = container.querySelector('[data-testid="tool-burst-body"] button')!;
+    fireEvent.click(stepButton);
 
     // Should show args and result in expanded view
     const expanded = container.querySelector(".bg-\\[var\\(--bg-secondary\\)\\]");

@@ -44,6 +44,17 @@ export interface DisplayPrefs {
    * See change: keep-reasoning-open-until-turn-ends.
    */
   keepReasoningOpenUntilTurnEnds: boolean;
+  /**
+   * When true, every tool-call GROUP defaults to COLLAPSED in all automatic
+   * states — including while a member is running (the live header/animation
+   * still renders; only the body starts closed). When false (default), a
+   * group's automatic open state follows run status (expanded while running,
+   * collapsed when done). A per-instance manual toggle always wins. Does NOT
+   * affect reasoning-block collapse nor the nested `×N` `CollapsedToolGroup`.
+   * Default `false`.
+   * See change: enhance-tool-call-grouping.
+   */
+  toolGroupDefaultCollapsed: boolean;
 }
 
 /**
@@ -67,6 +78,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolCalls: { read: false, bash: false, edit: true, agent: true, generic: false },
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
+    toolGroupDefaultCollapsed: false,
   },
   standard: {
     tokenStatsBar: true,
@@ -78,6 +90,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
+    toolGroupDefaultCollapsed: false,
   },
   everything: {
     tokenStatsBar: true,
@@ -89,6 +102,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
+    toolGroupDefaultCollapsed: false,
   },
 };
 
@@ -118,6 +132,8 @@ export function mergeDisplayPrefs(
       override.reasoningAutoCollapseMs ?? global.reasoningAutoCollapseMs,
     keepReasoningOpenUntilTurnEnds:
       override.keepReasoningOpenUntilTurnEnds ?? global.keepReasoningOpenUntilTurnEnds,
+    toolGroupDefaultCollapsed:
+      override.toolGroupDefaultCollapsed ?? global.toolGroupDefaultCollapsed,
   };
 }
 

@@ -182,6 +182,9 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.keepReasoningOpenUntilTurnEnds !== "boolean") {
     out = { ...out, keepReasoningOpenUntilTurnEnds: false };
   }
+  if (typeof out.toolGroupDefaultCollapsed !== "boolean") {
+    out = { ...out, toolGroupDefaultCollapsed: false };
+  }
   return out;
 }
 
@@ -482,6 +485,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         toolCalls: { read: false, bash: false, edit: false, agent: false, generic: false },
         reasoningAutoCollapseMs: 30000,
         keepReasoningOpenUntilTurnEnds: false,
+        toolGroupDefaultCollapsed: false,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -494,6 +498,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         reasoningAutoCollapseMs: partial.reasoningAutoCollapseMs ?? base.reasoningAutoCollapseMs,
         keepReasoningOpenUntilTurnEnds:
           partial.keepReasoningOpenUntilTurnEnds ?? base.keepReasoningOpenUntilTurnEnds,
+        toolGroupDefaultCollapsed:
+          partial.toolGroupDefaultCollapsed ?? base.toolGroupDefaultCollapsed,
       };
       displayPrefs = merged;
       scheduleSave();
