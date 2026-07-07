@@ -20,10 +20,15 @@ import type { ToolContext } from "../tool-renderers/index.js";
 
 const toolContext: ToolContext = { editors: [] };
 
+// jsdom implements neither scrollTo nor matchMedia; shim them for the suite.
+// NOT restored in afterAll on purpose — sibling suites (e.g. EditorFileTree)
+// rely on the global scrollTo shim staying in place, matching the existing
+// pattern in ChatView.test.tsx. Restoring to jsdom's undefined regresses them.
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
   Object.defineProperty(window, "matchMedia", {
     writable: true,
+    configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
       matches: false,
       media: query,

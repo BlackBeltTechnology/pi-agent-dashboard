@@ -307,16 +307,30 @@ body {
 .tool-group-flash { animation: tool-group-flash 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 /* Streaming assistant bubble — same liveness language as a running group:
-   an edge-pulse glow + a shimmer sweep. Stops the instant streaming ends. */
-@keyframes chat-stream-edge-pulse {
-  0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 0 rgba(96, 165, 250, 0); }
-  50%      { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 3px rgba(96, 165, 250, 0.10); }
+   an edge-pulse glow + a shimmer sweep. Stops the instant streaming ends.
+   Compositor-only: the glow ring is a STATIC box-shadow painted once on a
+   `::before` overlay; only its `opacity` animates (no per-frame box-shadow
+   repaint). See change: enhance-tool-call-grouping. */
+@keyframes chat-stream-glow-pulse {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
 }
 .chat-stream-live {
   position: relative;
   overflow: hidden;
   border-color: rgba(96, 165, 250, 0.35) !important;
-  animation: chat-stream-edge-pulse 1.8s ease-in-out infinite;
+}
+.chat-stream-live::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  /* INSET ring so the bubble's `overflow: hidden` (required by the shimmer
+     ::after) doesn't clip it; static box-shadow, only opacity animates. */
+  box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.18);
+  opacity: 0;
+  animation: chat-stream-glow-pulse 1.8s ease-in-out infinite;
 }
 .chat-stream-live::after {
   content: "";
@@ -332,8 +346,9 @@ body {
   .tool-group-shimmer::after,
   .tool-group-spin-pulse,
   .tool-group-flash,
-  .chat-stream-live,
+  .chat-stream-live::before,
   .chat-stream-live::after { animation: none; }
+  .chat-stream-live::before { opacity: 0; }
   .tool-group-shimmer::after,
   .chat-stream-live::after { background: none; }
 }

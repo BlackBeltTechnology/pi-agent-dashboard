@@ -44,8 +44,6 @@ import type { ToolContext } from "./tool-renderers/index.js";
 interface Props {
   burst: ToolBurstGroupData;
   toolContext: ToolContext;
-  /** True while the session turn is streaming (threaded to absorbed ThinkingBlocks). */
-  turnActive?: boolean;
 }
 
 function isGroup(item: ChatItem): item is ToolCallGroup {
@@ -140,7 +138,7 @@ function GroupFrame({
   );
 }
 
-export function ToolBurstGroup({ burst, toolContext, turnActive }: Props) {
+export function ToolBurstGroup({ burst, toolContext }: Props) {
   const prefs = useDisplayPrefs();
 
   // Gate members by tool-kind toggle (mirrors CollapsedToolGroup). `ask_user`
@@ -168,6 +166,9 @@ export function ToolBurstGroup({ burst, toolContext, turnActive }: Props) {
       prevRunning.current = isRunning;
       return () => clearTimeout(t);
     }
+    // Re-running before the 200ms flash window elapsed: clear any lingering
+    // flash so a done→running→done cycle can't bleed the cue into the next flip.
+    if (isRunning) setFlash(false);
     prevRunning.current = isRunning;
   }, [isRunning]);
 
@@ -223,7 +224,11 @@ export function ToolBurstGroup({ burst, toolContext, turnActive }: Props) {
           key={isGroup(it) ? it.messages[0]?.id : (it as ChatMessage).id}
           item={it}
           toolContext={toolContext}
-          turnActive={turnActive}
+          // Burst-SCOPED, not session-scoped: absorbed reasoning is "live for the
+          // turn" only while THIS group runs. Passing the session-wide streaming
+          // status would let an older completed burst's ThinkingBlocks re-open
+          // during a later turn.
+          turnActive={isRunning}
           isVisible={isVisible}
         />
       ))}
