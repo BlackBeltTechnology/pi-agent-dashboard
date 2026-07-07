@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mock — enhanced tool-call grouping (live stream)</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --border-subtle: #222;
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --reason-border: #a855f7;
+    --reason-bg: #1a1526;
+    --code-bg: #262626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-primary); color: var(--text-secondary);
+  }
+  .chat { max-width: 820px; margin: 0 auto; }
+  .inline-code, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .inline-code { background: var(--code-bg); border-radius: 4px; padding: 1px 6px; font-size: 12.5px; color: var(--text-primary); }
+  p { margin: 0 0 10px; } p:last-child { margin: 0; }
+
+  /* ---- message bubbles (mirror ChatView) ---- */
+  .row { margin: 16px 0; display: flex; }
+  .row.user { justify-content: flex-end; }
+  .bubble { max-width: 80%; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.3); padding: 9px 16px; }
+  .bubble.user { background: rgba(59,130,246,.10); border: 1px solid rgba(59,130,246,.20); border-left: 2px solid var(--blue); color: var(--text-primary); }
+  .bubble.assistant { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); color: var(--text-secondary); }
+  .ts { font-size: 10px; color: var(--text-muted); margin-top: 6px; text-align: right; }
+  .cursor { display: inline-block; width: 6px; height: 15px; background: var(--text-secondary); margin-left: 2px; vertical-align: -2px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* streaming response bubble — same liveness language as the running group */
+  .bubble.assistant.streaming { position: relative; overflow: hidden; border-color: rgba(96,165,250,.35); animation: edgepulse 1.8s ease-in-out infinite; }
+  .bubble.assistant.streaming::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(100deg, transparent 20%, rgba(96,165,250,.09) 45%, rgba(96,165,250,.15) 50%, rgba(96,165,250,.09) 55%, transparent 80%);
+    background-size: 220% 100%; animation: sweep 1.6s linear infinite;
+  }
+  @keyframes edgepulse {
+    0%,100% { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 0 rgba(96,165,250,0); }
+    50%     { box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 0 0 3px rgba(96,165,250,.10); }
+  }
+
+  /* ---- top-level reasoning (standalone) ---- */
+  .toplevel { margin: 12px 2px; }
+
+  /* ---- unified group frame ---- */
+  .group { position: relative; margin: 10px 2px; border-radius: 10px; background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0)); border: 1px solid var(--border-primary); overflow: hidden; }
+  .group::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--border-secondary); }
+  .group.running::before { background: linear-gradient(var(--yellow), #b78a09); }
+  .group.done::before { background: linear-gradient(var(--green), #1f7a45); }
+  .group.failed::before { background: linear-gradient(var(--red), #7a1f1f); }
+  .ghead { display: flex; align-items: center; gap: 9px; padding: 10px 12px 10px 15px; cursor: pointer; user-select: none; font-size: 12.5px; color: var(--text-secondary); position: relative; }
+  .ghead:hover { background: rgba(255,255,255,.015); }
+  .ghead .glyph { display: inline-flex; width: 16px; justify-content: center; }
+  .ghead .title { color: var(--text-primary); font-weight: 600; }
+  .ghead .meta { color: var(--text-muted); display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .ghead .chev { margin-left: auto; color: var(--text-muted); }
+  .pill { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--bg-tertiary); color: var(--text-tertiary); }
+  .badge-fail { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: #2a1414; color: var(--red); border: 1px solid #4a1f1f; }
+  .chips { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; color: var(--text-tertiary); }
+  .chip .c { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .dur { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .livecmd { display: inline-flex; align-items: center; gap: 5px; color: var(--text-tertiary); min-width: 0; }
+  .livecmd .cmd { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .spin { color: var(--yellow); animation: spin 1s linear infinite, pulse 1.8s ease-in-out infinite; }
+  .check { color: var(--green); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+  .running .ghead::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(100deg, transparent 20%, rgba(250,204,21,.10) 45%, rgba(250,204,21,.16) 50%, rgba(250,204,21,.10) 55%, transparent 80%); background-size: 220% 100%; animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { 0% { background-position: 160% 0; } 100% { background-position: -60% 0; } }
+  /* group body grows to full height — no fixed max-height, no inner scroll */
+  .gbody { border-top: 1px solid var(--border-primary); padding: 8px 12px 10px 15px; display: flex; flex-direction: column; gap: 5px; }
+  .tool { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-secondary); }
+  .tool .ic { width: 15px; text-align: center; opacity: .85; }
+  .tool .cmd { font-family: ui-monospace, monospace; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tool .t { color: var(--text-muted); font-size: 11px; margin-left: auto; }
+  .tool.run .ic { color: var(--yellow); }
+  .tool.err .cmd { color: var(--red); }
+
+  /* ---- reasoning block (collapsible <details>) ---- */
+  .reason { margin: 4px 0; }
+  .reason > summary { list-style: none; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); cursor: pointer; }
+  .reason > summary::-webkit-details-marker { display: none; }
+  .reason > summary:hover { color: var(--text-secondary); }
+  .reason > summary .d { color: var(--reason-border); }
+  .reason > summary .rchev { margin-left: auto; color: var(--text-muted); transition: transform .15s ease; }
+  .reason[open] > summary .rchev { transform: rotate(90deg); }
+  .reason .rbody { margin-top: 6px; padding: 9px 11px; background: var(--reason-bg); border: 1px solid #2a2038; border-radius: 6px; color: var(--text-secondary); font-size: 12.5px; }
+  .goodbadge { font-size: 10px; font-weight: 700; color: var(--green); background: #14251a; border-radius: 4px; padding: 1px 6px; margin-left: 4px; }
+
+  .hint { text-align: center; color: var(--text-muted); font-size: 11px; margin: 30px 0 4px; text-transform: uppercase; letter-spacing: .08em; }
+
+  /* global settings panel */
+  .gsettings { background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 10px; padding: 8px 8px 10px; margin-bottom: 14px; }
+  .gs-crumb { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-tertiary); padding: 4px 8px 8px; border-bottom: 1px solid var(--border-primary); margin-bottom: 4px; }
+  .gs-pill { font-size: 9px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: rgba(96,165,250,.15); color: var(--blue); }
+
+  /* View settings popover */
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .viewbtn { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); background: var(--bg-tertiary); border: 1px solid var(--border-secondary); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+  .viewbtn .pillmod { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 999px; background: rgba(245,158,11,.2); color: #fbbf24; }
+  .popover { margin-top: 6px; width: 268px; margin-left: auto; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); padding: 6px; font-size: 12px; }
+  .popover .sec { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 6px 8px 3px; }
+  .optrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text-secondary); }
+  .optrow:hover { background: rgba(255,255,255,.03); }
+  .optrow .sw { width: 30px; height: 17px; border-radius: 999px; background: #333; position: relative; flex-shrink: 0; transition: background .15s; }
+  .optrow .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #999; transition: transform .15s, background .15s; }
+  .optrow.on .sw { background: var(--blue); }
+  .optrow.on .sw::after { transform: translateX(13px); background: #fff; }
+  .optrow .lbl2 { flex: 1; } .optrow .lbl2 small { display: block; color: var(--text-muted); font-size: 10.5px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spin { animation: spin 1s linear infinite; }
+    .running .ghead::after { animation: none; background: rgba(250,204,21,.06); }
+    .cursor { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="chat">
+
+  <!-- GLOBAL settings page (Settings › Interface › Chat display) — sets the default for ALL sessions -->
+  <div class="gsettings">
+    <div class="gs-crumb">⚙ Settings › Interface › Chat display <span class="gs-pill">global default</span></div>
+    <div class="optrow on">
+      <span class="sw"></span>
+      <span class="lbl2">Keep tool groups collapsed by default<small>Start every group closed — even while running. Applies to all sessions unless overridden.</small></span>
+    </div>
+    <div class="optrow on">
+      <span class="sw"></span>
+      <span class="lbl2">Show reasoning</span>
+    </div>
+    <div class="optrow">
+      <span class="sw"></span>
+      <span class="lbl2">Keep reasoning open until turn ends</span>
+    </div>
+  </div>
+
+  <!-- Per-session View popover — OVERRIDES the global default for this session only -->
+  <div class="toolbar">
+    <span class="viewbtn">⚙ View <span class="pillmod">modified</span> ▾</span>
+  </div>
+  <div class="popover">
+    <div class="sec">Tool groups · this session</div>
+    <div class="optrow on">
+      <span class="sw"></span>
+      <span class="lbl2">Keep tool groups collapsed<small>Overrides the global default for this session</small></span>
+    </div>
+    <div class="sec">Reasoning</div>
+    <div class="optrow on">
+      <span class="sw"></span>
+      <span class="lbl2">Show reasoning</span>
+    </div>
+    <div class="optrow">
+      <span class="sw"></span>
+      <span class="lbl2">Keep reasoning open until turn ends</span>
+    </div>
+  </div>
+
+  <!-- ============ TURN 1 (completed) ============ -->
+  <div class="row user">
+    <div>
+      <div class="bubble user">Is this repos independent from proposal <span class="inline-code">wire-nonzrok-pairing-view</span>?</div>
+      <div class="ts">00:21:25</div>
+    </div>
+  </div>
+
+  <!-- turn-scoped group: leading reasoning folded INSIDE as the first body item -->
+  <div class="group done">
+    <div class="ghead">
+      <span class="glyph"><span class="check">✓</span></span>
+      <span class="title">3 tool calls</span>
+      <span class="meta"><span class="chips"><span class="chip">⌘<span class="c">3</span></span></span> <span class="dur">· 19s</span></span>
+      <span class="chev">⌄</span>
+    </div>
+    <div class="gbody">
+      <details class="reason">
+        <summary><span class="d">◆</span> Reasoning <span class="dur">2s</span> <span class="goodbadge">leading · inside the group</span> <span class="rchev">›</span></summary>
+        <div class="rbody">I'll diff the two proposals — grep the changes dir, then read both proposal files and compare their specs and touched code paths.</div>
+      </details>
+      <div class="tool"><span class="ic">⌘</span> <span class="cmd">ls openspec/changes/ | grep -iE 'tunnel|pairing|zrok'</span> <span class="t">&lt;1s</span></div>
+      <div class="tool"><span class="ic">⌘</span> <span class="cmd">cat …/add-tunnel-providers/proposal.md</span> <span class="t">&lt;1s</span></div>
+      <details class="reason">
+        <summary><span class="d">◆</span> Reasoning <span class="goodbadge">absorbed · same ThinkingBlock</span> <span class="rchev">›</span></summary>
+        <div class="rbody">The add-tunnel-providers proposal refactors the URL-retrieval functions. Now reading the wire-nonzrok-pairing-view proposal to see whether it depends on those same functions.</div>
+      </details>
+      <div class="tool"><span class="ic">⌘</span> <span class="cmd">cat …/wire-nonzrok-pairing-view/proposal.md</span> <span class="t">&lt;1s</span></div>
+      <details class="reason" open>
+        <summary><span class="d">◆</span> Reasoning <span class="dur">13s</span> <span class="goodbadge">trailing · inside the group</span> <span class="rchev">›</span></summary>
+        <div class="rbody">Both proposals modify the same <span class="inline-code">qr-device-pairing</span> spec and share the reachable-URL code path — one rewrites the function, the other depends on it. The coupling is in how they source the <span class="inline-code">urls[]</span> array and handle the empty-state action.</div>
+      </details>
+    </div>
+  </div>
+
+  <!-- assistant response text -->
+  <div class="row">
+    <div class="bubble assistant">
+      <p><strong>No — they're not independent.</strong> They collide on two surfaces:</p>
+      <p>1. Both modify the same <span class="inline-code">qr-device-pairing</span> spec delta.<br>
+         2. <span class="inline-code">wire-nonzrok-pairing-view</span> depends on the URL-retrieval functions that <span class="inline-code">add-tunnel-providers</span> rewrites for multi-provider support.</p>
+      <p>Recommend landing <span class="inline-code">add-tunnel-providers</span> first, then rebasing the pairing view onto the new <span class="inline-code">urls[]</span> sourcing.</p>
+    </div>
+  </div>
+
+  <!-- ============ TURN 2 (streaming, live) ============ -->
+  <div class="row user">
+    <div>
+      <div class="bubble user">Check which files both proposals touch and whether any tests overlap.</div>
+      <div class="ts">00:24:02</div>
+    </div>
+  </div>
+
+  <!-- running tool group with toolGroupDefaultCollapsed ON — collapsed body, live header still animates -->
+  <div class="group running">
+    <div class="ghead">
+      <span class="glyph"><span class="spin">◐</span></span>
+      <span class="title">Working</span>
+      <span class="meta">
+        <span class="pill">4 done</span>
+        <span class="livecmd">▸ <span class="cmd">$ grep -rl 'qr-device-pairing' tests/</span></span>
+        <span class="goodbadge">default-collapsed · body closed</span>
+      </span>
+      <span class="chev">›</span>
+    </div>
+  </div>
+
+  <!-- (for contrast) the same group with the pref OFF would render expanded: -->
+  <div class="group running" style="opacity:.55">
+    <div class="ghead">
+      <span class="glyph"><span class="spin">◐</span></span>
+      <span class="title">Working</span>
+      <span class="meta">
+        <span class="pill">4 done</span>
+        <span class="livecmd">▸ <span class="cmd">$ grep -rl 'qr-device-pairing' tests/</span></span>
+        <span class="pill">pref OFF · auto-expanded</span>
+      </span>
+      <span class="chev">⌄</span>
+    </div>
+    <div class="gbody">
+      <details class="reason" open>
+        <summary><span class="d">◆</span> Reasoning <span class="goodbadge">leading · inside the group</span> <span class="rchev">›</span></summary>
+        <div class="rbody">Listing the spec + tasks files each proposal changes, then grepping the test dirs for shared paths.<span class="cursor"></span></div>
+      </details>
+      <div class="tool"><span class="ic">📄</span> <span class="cmd">cat …/add-tunnel-providers/tasks.md</span> <span class="t">&lt;1s</span></div>
+      <div class="tool"><span class="ic">📄</span> <span class="cmd">cat …/wire-nonzrok-pairing-view/tasks.md</span> <span class="t">&lt;1s</span></div>
+      <div class="tool"><span class="ic">🔍</span> <span class="cmd">grep -rl 'urls\[\]' packages/server/src</span> <span class="t">1s</span></div>
+      <div class="tool"><span class="ic">🔍</span> <span class="cmd">grep -rl 'reachableUrl' packages/</span> <span class="t">&lt;1s</span></div>
+      <div class="tool run"><span class="ic">▸</span> <span class="cmd">grep -rl 'qr-device-pairing' tests/</span> <span class="t">running…</span></div>
+    </div>
+  </div>
+
+  <!-- streaming assistant text with live cursor -->
+  <div class="row">
+    <div class="bubble assistant streaming">
+      <p>Both proposals touch <span class="inline-code">specs/qr-device-pairing/spec.md</span> and the server URL helpers. Overlapping tests so far:<span class="cursor"></span></p>
+    </div>
+  </div>
+
+  <div class="hint">Live stream · click any group header or “Reasoning” row to collapse/expand</div>
+</div>
+</body>
+</html>
