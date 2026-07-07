@@ -4,7 +4,12 @@
  * three presets (`simple` | `standard` | `everything`); on dismiss the
  * client PATCHes `standard` so the modal does not re-open.
  *
- * See change: configurable-chat-display.
+ * `seed()` closes the modal optimistically from local state: it applies the
+ * chosen preset and calls `onClose(prefs)` on EVERY path (PATCH 200, non-2xx,
+ * thrown fetch), so a dropped/failed WS broadcast never strands the modal.
+ * The 200 body `{ displayPrefs }`, when readable, refines the passed value.
+ *
+ * See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile.
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { DialogPortal } from "./DialogPortal.js";
@@ -24,23 +29,30 @@ export function FirstLaunchDisplayModal({
   onClose,
 }: {
   apiBase: string;
-  onClose: () => void;
+  onClose: (prefs: DisplayPrefs) => void;
 }): React.ReactElement {
   const [choice, setChoice] = useState<PresetKey>("standard");
   const [submitting, setSubmitting] = useState(false);
 
   const seed = useCallback(async (key: PresetKey) => {
     setSubmitting(true);
+    // Source of truth is the chosen preset — the modal closes even if the
+    // PATCH never completes. The 200 body may refine it (server deep-merges).
+    let prefs = DISPLAY_PRESETS[key] as DisplayPrefs;
     try {
-      await fetch(`${apiBase}/api/preferences/display`, {
+      const r = await fetch(`${apiBase}/api/preferences/display`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(DISPLAY_PRESETS[key] as DisplayPrefs),
         credentials: "include",
       });
-    } catch { /* swallow; broadcast will reconcile */ }
+      if (r.ok) {
+        const body = await r.json().catch(() => undefined) as { displayPrefs?: DisplayPrefs } | undefined;
+        if (body?.displayPrefs) prefs = body.displayPrefs;
+      }
+    } catch { /* keep preset prefs; close unconditionally below */ }
     setSubmitting(false);
-    onClose();
+    onClose(prefs);
   }, [apiBase, onClose]);
 
   // Dismissal (Esc / backdrop) seeds `standard` — same as picking it.

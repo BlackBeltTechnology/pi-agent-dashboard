@@ -353,6 +353,18 @@ export function createBrowserGateway(
       if (typeof preferencesStore.getWorkspaces === "function") {
         sendTo(ws, { type: "workspaces_updated", workspaces: preferencesStore.getWorkspaces() });
       }
+      // Send display-prefs snapshot on connect so a client that missed a live
+      // `display_prefs_updated` broadcast (socket not OPEN at broadcast time)
+      // recovers on reconnect without a page reload — parity with the sibling
+      // prefs above. Guarded with `typeof` for old stubs; sent ONLY when prefs
+      // are defined so a genuinely seedless install still opens the first-launch
+      // modal exactly once. See change: fix-first-launch-display-modal-stuck-on-mobile.
+      if (typeof preferencesStore.getDisplayPrefs === "function") {
+        const displayPrefs = preferencesStore.getDisplayPrefs();
+        if (displayPrefs !== undefined) {
+          sendTo(ws, { type: "display_prefs_updated", prefs: displayPrefs });
+        }
+      }
     }
 
     // Send OpenSpec data for every known directory — exactly one

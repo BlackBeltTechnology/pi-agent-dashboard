@@ -20,7 +20,7 @@ describe("FirstLaunchDisplayModal", () => {
     cleanup();
   });
 
-  it("PATCHes the chosen preset on Continue", async () => {
+  it("PATCHes the chosen preset on Continue and closes with those prefs", async () => {
     const onClose = vi.fn();
     render(<FirstLaunchDisplayModal apiBase="" onClose={onClose} />);
     fireEvent.click(screen.getByDisplayValue("simple"));
@@ -31,7 +31,33 @@ describe("FirstLaunchDisplayModal", () => {
     expect(call[1].method).toBe("PATCH");
     const body = JSON.parse(call[1].body as string);
     expect(body).toEqual(DISPLAY_PRESETS.simple);
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith(DISPLAY_PRESETS.simple));
+  });
+
+  it("refines onClose prefs from the PATCH 200 body when readable", async () => {
+    const merged = { ...DISPLAY_PRESETS.simple, tokenStatsBar: true };
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ displayPrefs: merged }) });
+    const onClose = vi.fn();
+    render(<FirstLaunchDisplayModal apiBase="" onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith(merged));
+  });
+
+  it("closes with the preset prefs even when the PATCH returns non-2xx", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+    const onClose = vi.fn();
+    render(<FirstLaunchDisplayModal apiBase="" onClose={onClose} />);
+    fireEvent.click(screen.getByDisplayValue("everything"));
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith(DISPLAY_PRESETS.everything));
+  });
+
+  it("closes with the preset prefs even when fetch rejects", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+    const onClose = vi.fn();
+    render(<FirstLaunchDisplayModal apiBase="" onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledWith(DISPLAY_PRESETS.standard));
   });
 
   it("PATCHes standard on Skip dismissal", async () => {

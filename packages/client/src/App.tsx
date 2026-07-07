@@ -505,6 +505,12 @@ export default function App() {
   // See change: configurable-chat-display.
   const [displayPrefs, setDisplayPrefs] = useState<import("@blackbelt-technology/pi-dashboard-shared/display-prefs.js").DisplayPrefs | undefined>(undefined);
   const [displayPrefsLoaded, setDisplayPrefsLoaded] = useState(false);
+  // Confirmed-seedless signal: true ONLY when the mount GET succeeds AND
+  // returns `displayPrefs === undefined`. Distinct from `loaded && undefined`
+  // because `setDisplayPrefsLoaded(true)` runs in the fetch `finally` even on
+  // a failed GET — a 403/flap must NOT open the first-launch modal.
+  // See change: fix-first-launch-display-modal-stuck-on-mobile.
+  const [displayPrefsSeedless, setDisplayPrefsSeedless] = useState(false);
   const subscribedRef = useRef(new Set<string>());
   const maxSeqMapRef = useRef(new Map<string, number>());
   // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
@@ -711,6 +717,8 @@ export default function App() {
         const body = await r.json() as { displayPrefs?: import("@blackbelt-technology/pi-dashboard-shared/display-prefs.js").DisplayPrefs };
         if (cancelled) return;
         setDisplayPrefs(body.displayPrefs);
+        // Only a successful GET with no stored prefs is a genuine first launch.
+        if (body.displayPrefs === undefined) setDisplayPrefsSeedless(true);
       } catch { /* ignore */ }
       finally {
         if (!cancelled) setDisplayPrefsLoaded(true);
@@ -1796,6 +1804,20 @@ export default function App() {
       sessionId ? sessions.get(sessionId)?.displayPrefsOverride : undefined,
   }), [displayPrefs, sessions]);
 
+  // First-launch chat-display preset picker. Rendered once (single `onClose`
+  // wiring) in BOTH the mobile and desktop returns — not gated on `isMobile`.
+  // Gate is `displayPrefsSeedless && displayPrefs === undefined`: the seedless
+  // term stops spurious opens on a failed GET; the `displayPrefs === undefined`
+  // term is what lets `onClose`, a cross-tab broadcast, AND the connect
+  // snapshot each close the modal by defining `displayPrefs`.
+  // See change: fix-first-launch-display-modal-stuck-on-mobile.
+  const firstLaunchModal = displayPrefsSeedless && displayPrefs === undefined ? (
+    <FirstLaunchDisplayModal
+      apiBase={apiBase}
+      onClose={(prefs) => setDisplayPrefs(prefs)}
+    />
+  ) : null;
+
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
@@ -1884,15 +1906,7 @@ export default function App() {
         <Toast messages={toastMessages} onDismiss={dismissToast} />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} />
-        {/* First-launch chat-display preset picker. Opens once when the
-            server reports `displayPrefs: undefined`. See change:
-            configurable-chat-display. */}
-        {displayPrefsLoaded && displayPrefs === undefined && (
-          <FirstLaunchDisplayModal
-            apiBase={apiBase}
-            onClose={() => { /* PATCH inside the modal triggers display_prefs_updated which seeds the store; no extra work needed. */ }}
-          />
-        )}
+        {firstLaunchModal}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -2006,6 +2020,7 @@ export default function App() {
   // Desktop: side-by-side layout
   return apiProvider(
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+      {firstLaunchModal}
       <div className="hidden md:flex">
         <ResizableSidebar sidebar={sidebar}>
           {sessionList}

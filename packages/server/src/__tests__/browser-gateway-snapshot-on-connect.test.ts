@@ -141,3 +141,47 @@ describe("browser-gateway on-connect sessions_snapshot", () => {
     expect(pinnedIdx).toBeGreaterThan(snapshotIdx);
   });
 });
+
+describe("browser-gateway on-connect display_prefs_updated snapshot", () => {
+  // See change: fix-first-launch-display-modal-stuck-on-mobile.
+  function connectWith(prefsStoreExtra: Record<string, unknown>) {
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({}),
+      {
+        getPinnedDirectories: () => [],
+        setPinnedDirectories: () => {},
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+        ...prefsStoreExtra,
+      } as never,
+    );
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    return sentMessages(ws);
+  }
+
+  it("sends display_prefs_updated when getDisplayPrefs returns defined prefs", () => {
+    const prefs = { tokenStatsBar: true, contextUsageBar: false };
+    const msgs = connectWith({ getDisplayPrefs: () => prefs });
+    const snaps = msgs.filter((m) => m.type === "display_prefs_updated");
+    expect(snaps).toHaveLength(1);
+    expect((snaps[0] as { prefs: unknown }).prefs).toEqual(prefs);
+  });
+
+  it("sends NO display_prefs_updated for a seedless (undefined) store", () => {
+    const msgs = connectWith({ getDisplayPrefs: () => undefined });
+    expect(msgs.filter((m) => m.type === "display_prefs_updated")).toHaveLength(0);
+  });
+
+  it("does not crash the handshake when getDisplayPrefs is absent (old stub)", () => {
+    const msgs = connectWith({});
+    // Handshake still completes: pinned snapshot present, no display snapshot.
+    expect(msgs.filter((m) => m.type === "pinned_dirs_updated")).toHaveLength(1);
+    expect(msgs.filter((m) => m.type === "display_prefs_updated")).toHaveLength(0);
+  });
+});

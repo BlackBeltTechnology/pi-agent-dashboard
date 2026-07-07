@@ -1,6 +1,6 @@
 # Chat display preferences
 
-See change: configurable-chat-display.
+See change: configurable-chat-display, fix-first-launch-display-modal-stuck-on-mobile.
 
 ## What
 
@@ -27,6 +27,7 @@ Global + per-session `DisplayPrefs` gate chat-view chrome (thinking blocks, tool
 | `GET /api/preferences/display` | client → server | Returns `{ global, sessionOverrides }`. `global: undefined` triggers `FirstLaunchDisplayModal`. |
 | `PATCH /api/preferences/display` | client → server | Deep-merges body into global `displayPrefs`. Broadcasts `display_prefs_updated`. |
 | `display_prefs_updated` | server → browser | Full `{ global, sessionOverrides }` snapshot on every change. |
+| `display_prefs_updated` (on WS connect) | server → browser | Snapshot on connect, parity with pinned_dirs/favorite_models/workspaces. Sent ONLY when `getDisplayPrefs()` defined. Guarded by `typeof preferencesStore.getDisplayPrefs === "function"`. Seedless install sends nothing; first-launch modal opens exactly once. |
 | `setSessionDisplayPrefs` | browser → server | `{ sessionId, override: Partial<DisplayPrefs> | null }`. `null` clears override (revert to global). |
 
 ## Non-hidable
@@ -53,6 +54,18 @@ When `GET /api/preferences/display` returns `global === undefined`:
 - Esc / Skip → PATCH `DISPLAY_PRESETS.standard`.
 
 After first PATCH, modal never re-opens (global now defined).
+
+### Dismissal contract (optimistic close)
+
+- `FirstLaunchDisplayModal.seed(key)` applies `DISPLAY_PRESETS[key]` locally. Calls `onClose(prefs)` on EVERY path: PATCH 200, non-2xx, thrown fetch.
+- Modal closes from local state. Independent of WS broadcast or PATCH success.
+- PATCH 200 body `{ displayPrefs }`, when readable, refines applied value.
+- App.tsx `onClose` seeds `displayPrefs` via `setDisplayPrefs(prefs)`. No longer no-op.
+- Render gate: `displayPrefsSeedless && displayPrefs === undefined`.
+- `displayPrefsSeedless` set true ONLY when mount GET `r.ok && body.displayPrefs === undefined`. Distinct from `loaded && undefined` — `setDisplayPrefsLoaded(true)` runs in fetch `finally` even on failed GET.
+- Failed/denied GET (403/flap) no longer opens modal.
+- Modal renders in BOTH mobile and desktop returns. Single `firstLaunchModal` element. Not gated on `isMobile`.
+- Failed-PATCH dismiss = current-session only. Server stays seedless; reload/new-tab re-opens modal. Deliberate trade-off, self-correcting.
 
 ## Key files
 
