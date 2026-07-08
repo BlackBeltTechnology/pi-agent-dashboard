@@ -22,10 +22,12 @@ The role-name set is a hardcoded `DEFAULT_ROLE_NAMES` const overlaid at read tim
 
 **Non-Goals:**
 - Per-session role scoping — roles stay global in `providers.json`.
-- Changing `agent-model-introspection`'s `GET /api/models` requirements; `list_roles` reuses the same registry path.
+- Changing `agent-model-introspection`'s `GET /api/models` requirements; that REST surface stays for out-of-process/HTTP callers.
 - Keeping any `flow:role-*` compatibility alias — the rename is atomic (no external emitters).
 
 ## Decisions
+
+**D0. `list_models` is a TOOL (in-process Registry #1), added alongside the existing REST surface.** `GET /api/models` + the `dashboard-list-models` slash command already exist but read the dashboard server's registry (Registry #2) over HTTP. The tool reads the session's own registry (Registry #1) in-process, so its `ref`s are guaranteed consistent with what `set_role` persists and `model:resolve` resolves — and it matches the human ModelSelector exactly. The tool SUPERSEDES `dashboard-list-models` for in-session agents; the REST endpoint + command stay for out-of-process/HTTP consumers. *Alt:* reuse the command only — rejected (Registry #2 can drift from the session's actual registry). *Alt:* retire the command — rejected (still needed for browser/external).
 
 **D1. Three tools; read/write split AND model/role decouple.** `list_models` (read), `list_roles` (read), `update_roles` (dispatched write). A safe read and a global-mutating write behind one call would muddy the schema + confirmation story (write split). Model listing is a lower-level primitive with an independent failure mode from roles — an agent may want the catalogue when roles are absent/unconfigured/malformed — so `list_models` is its own tool that never touches the role slice (model/role decouple). *Alt considered:* bundle models into `list_roles` (a single read) — rejected: couples model listing to role-slice health, so a malformed `providers.json#roles` would break model discovery too. *Alt:* single `roles` tool with a mode flag — rejected (conflates safety tiers).
 
@@ -71,5 +73,4 @@ Rollback: tools and alias are additive; reverting the extension restores prior b
 ## Open Questions
 
 - Exact persistence shape for the editable role-name schema + removal markers (new `roleNames` array? a `removedRoles` set?) — resolve when implementing `lookupRole()`.
-- Should `list_roles` support an `annotated` mode (surfacing `excludedReason: "no-credential"` for reachable-filtered custom models) to mirror `agent-model-introspection`? Leaning yes; low cost.
 - Confirmation UX for batch wiring (agent setting 6 roles) — one confirm per action is safe but chatty; a single batched confirm is out of scope for v1.
