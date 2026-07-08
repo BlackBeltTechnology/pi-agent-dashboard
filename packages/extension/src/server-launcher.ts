@@ -3,16 +3,17 @@
  * The spawned server runs in foreground mode (no subcommand) and writes
  * its own PID file at ~/.pi/dashboard/server.pid.
  */
-import path from "node:path";
+
 import { createRequire } from "node:module";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import {
-  launchDashboardServer,
-  JitiNotFoundError,
-  PortConflictError,
   EarlyExitError,
+  JitiNotFoundError,
+  launchDashboardServer,
+  PortConflictError,
 } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,9 +64,18 @@ export function resolveServerCliPath(): string {
 }
 
 /**
+ * Default V8 old-space ceiling (MB) for the dashboard server. Guards against a
+ * single oversized forwarded event OOM-ing the process before the per-event
+ * size cap can degrade it — belt-and-braces, not the primary fix.
+ * See change: bound-subagent-event-serialization.
+ */
+export const DEFAULT_SERVER_MAX_OLD_SPACE_MB = 8192;
+
+/**
  * Build the environment object passed to the spawned server process.
  * Always stamps DASHBOARD_STARTER=Bridge so the server knows it was
- * launched by the pi bridge extension.
+ * launched by the pi bridge extension. Adds `--max-old-space-size` to
+ * NODE_OPTIONS for heap headroom, but never overrides a user-supplied value.
  */
 export function buildSpawnEnv(
   baseEnv: NodeJS.ProcessEnv = process.env,
@@ -76,6 +86,12 @@ export function buildSpawnEnv(
     if (v !== undefined) out[k] = v;
   }
   out["DASHBOARD_STARTER"] = "Bridge";
+  // Only add heap headroom when the user has not already pinned a limit.
+  const existing = out["NODE_OPTIONS"] ?? "";
+  if (!/--max[-_]old[-_]space[-_]size/.test(existing)) {
+    const flag = `--max-old-space-size=${DEFAULT_SERVER_MAX_OLD_SPACE_MB}`;
+    out["NODE_OPTIONS"] = existing ? `${existing} ${flag}` : flag;
+  }
   return out;
 }
 

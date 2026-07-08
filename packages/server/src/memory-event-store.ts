@@ -88,18 +88,52 @@ function trimBufferToLimit(buf: SessionBuffer, cap: number): void {
 
 /** Default max size for any string field within event data */
 const DEFAULT_MAX_STRING_SIZE = 4_000;
-/** Max total serialized size for an individual event's data */
-const MAX_EVENT_DATA_SIZE = 20_000;
+/**
+ * Default cap on the TOTAL serialized size of an individual event's `data`
+ * (bytes). A single subagent turn embeds its full timeline (tool calls,
+ * reasoning, assistant text) into ONE forwarded event; without this ceiling a
+ * deeply-nested payload can escape per-field truncation and blow the server
+ * heap when `JSON.stringify`d on the broadcast path (whole-server OOM).
+ * See change: bound-subagent-event-serialization.
+ */
+export const DEFAULT_MAX_EVENT_DATA_SIZE = 20_000;
+
+/** True for a base64 image content block (`data` string + sibling `mimeType`). */
+function isImageBlock(obj: object): boolean {
+  return (
+    typeof (obj as Record<string, unknown>).data === "string" &&
+    "mimeType" in obj
+  );
+}
+
+/** Cap a string to `maxSize`, appending a truncation marker when trimmed. */
+function capString(s: string, maxSize: number): string {
+  return s.length > maxSize ? `${s.slice(0, maxSize)}\n…[truncated]` : s;
+}
+
+/**
+ * Handle a value that sits BEYOND the recursion depth limit. Never returns the
+ * sub-tree raw — that let deeply-nested subagent payloads smuggle unbounded
+ * data past truncation. Strings are capped; containers collapse to a bounded
+ * marker; base64 image blocks are preserved.
+ * See change: bound-subagent-event-serialization.
+ */
+function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
+  if (typeof obj === "string") return capString(obj, maxSize);
+  if (obj && typeof obj === "object") {
+    if (!Array.isArray(obj) && isImageBlock(obj)) return obj;
+    return "[truncated: deep]";
+  }
+  return obj;
+}
 
 /**
  * Recursively truncate large string fields in an object.
  * Returns a new object if any truncation occurred, otherwise the original.
  */
 function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
-  if (depth > 4) return obj;
-  if (typeof obj === "string") {
-    return obj.length > maxSize ? obj.slice(0, maxSize) + "\n…[truncated]" : obj;
-  }
+  if (depth > 4) return summarizeAtDepthLimit(obj, maxSize);
+  if (typeof obj === "string") return capString(obj, maxSize);
   if (Array.isArray(obj)) {
     // Skip large arrays (e.g., edits arrays)
     if (obj.length > 20) return "[array truncated]";
@@ -122,7 +156,7 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
       }
       // Skip 'thinking' blocks entirely — large and not shown in chat
       if (key === "thinking" && typeof val === "string" && val.length > maxSize) {
-        result[key] = (val as string).slice(0, 500) + "\n…[truncated]";
+        result[key] = `${(val as string).slice(0, 500)}\n…[truncated]`;
         changed = true;
         continue;
       }
@@ -136,14 +170,106 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
 }
 
 /**
- * Truncate large event data to bound memory usage per event.
+ * Bounded-cost check: does `value` serialize to more than `cap` bytes?
+ * Early-exits the moment the running estimate crosses `cap`, so it NEVER
+ * materializes the full serialization (that allocation is exactly the OOM we
+ * are guarding against). Worst-case cost is O(cap), not O(payload).
+ * The estimate approximates JSON byte length (ignores escape expansion); it is
+ * a guard threshold, not an exact size. See change:
+ * bound-subagent-event-serialization.
  */
-function createTruncator(maxStringSize: number) {
-  if (maxStringSize <= 0) return (event: DashboardEvent) => event; // disabled
+interface SizeWalk {
+  total: number;
+  cap: number;
+  seen: WeakSet<object>;
+}
+
+/** Accumulate an array's approximate JSON size; early-exit once over cap. */
+function walkArraySize(arr: unknown[], w: SizeWalk): boolean {
+  w.total += 2; // []
+  for (const item of arr) {
+    if (walkSize(item, w)) return true;
+    w.total += 1; // comma
+  }
+  return w.total > w.cap;
+}
+
+/** Accumulate an object's approximate JSON size; early-exit once over cap. */
+function walkObjectSize(obj: Record<string, unknown>, w: SizeWalk): boolean {
+  w.total += 2; // {}
+  // Iterate keys and read each value lazily so we genuinely stop the moment the
+  // running total crosses the cap (Object.entries reads every value up front,
+  // defeating the early exit).
+  for (const k of Object.keys(obj)) {
+    w.total += k.length + 3; // "k":
+    if (w.total > w.cap) return true;
+    if (walkSize(obj[k], w)) return true;
+    w.total += 1; // comma
+  }
+  return w.total > w.cap;
+}
+
+/** Add `v`'s approximate JSON size to `w.total`; return true once over cap. */
+function walkSize(v: unknown, w: SizeWalk): boolean {
+  if (w.total > w.cap) return true;
+  switch (typeof v) {
+    case "string":
+      w.total += v.length + 2; // surrounding quotes
+      return w.total > w.cap;
+    case "number":
+    case "boolean":
+      w.total += 8;
+      return w.total > w.cap;
+    case "object":
+      break; // handled below
+    default:
+      return w.total > w.cap; // undefined / function → omitted by JSON
+  }
+  if (v === null) {
+    w.total += 4;
+    return w.total > w.cap;
+  }
+  if (w.seen.has(v)) {
+    w.total += 2;
+    return w.total > w.cap;
+  }
+  w.seen.add(v);
+  return Array.isArray(v)
+    ? walkArraySize(v, w)
+    : walkObjectSize(v as Record<string, unknown>, w);
+}
+
+export function exceedsSerializedSize(value: unknown, cap: number): boolean {
+  return walkSize(value, { total: 0, cap, seen: new WeakSet<object>() });
+}
+
+/**
+ * Truncate large event data to bound memory usage per event. Applies a
+ * per-field string cap (`maxStringSize`) and then a hard per-event total-size
+ * ceiling (`maxEventDataSize`); an over-ceiling event's data is replaced with a
+ * bounded placeholder so it can never OOM the persist/broadcast path.
+ */
+function createTruncator(maxStringSize: number, maxEventDataSize: number) {
+  const stringPass = maxStringSize > 0;
+  const sizePass = maxEventDataSize > 0;
+  if (!stringPass && !sizePass) return (event: DashboardEvent) => event; // disabled
   return (event: DashboardEvent): DashboardEvent => {
     const data = event.data;
     if (!data || typeof data !== "object") return event;
-    const truncated = truncateStrings(data, maxStringSize) as Record<string, unknown>;
+    const truncated = stringPass
+      ? (truncateStrings(data, maxStringSize) as Record<string, unknown>)
+      : (data as Record<string, unknown>);
+    if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
+      return {
+        ...event,
+        data: {
+          __truncated: true,
+          reason: "event data exceeded MAX_EVENT_DATA_SIZE",
+          thresholdBytes: maxEventDataSize,
+          eventType: event.eventType,
+        },
+      };
+    }
     return truncated !== data ? { ...event, data: truncated } : event;
   };
 }
@@ -153,8 +279,9 @@ export function createMemoryEventStore(
   maxCachedSessions: number = DEFAULT_MAX_CACHED_SESSIONS,
   maxEventsPerSession: number = DEFAULT_MAX_EVENTS_PER_SESSION,
   maxStringFieldSize: number = DEFAULT_MAX_STRING_SIZE,
+  maxEventDataSize: number = DEFAULT_MAX_EVENT_DATA_SIZE,
 ): EventStore {
-  const truncateEventData = createTruncator(maxStringFieldSize);
+  const truncateEventData = createTruncator(maxStringFieldSize, maxEventDataSize);
   const buffers = new Map<string, SessionBuffer>();
   // Overshoot allowed before a reclaim pass runs. Scales to 0 for the tiny
   // caps used in unit tests (so they trim on every over-cap insert, exercising

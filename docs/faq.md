@@ -852,7 +852,9 @@ Side effects in step 3:
 - Heartbeat/metrics events (`process_metrics`, `git_info_update`, `model_select`, `ui_data_list`, `ext_ui_decorator`) excluded from activity stamping.
 - Replaying sessions skipped (`replayingSessions.has(sessionId)`).
 - Payloads truncated (tool results, file content, thinking blocks) to bound memory.
+- Event data also bounded by total-serialized-size ceiling (`DEFAULT_MAX_EVENT_DATA_SIZE`=20000 bytes, `0`=off, `packages/server/src/memory-event-store.ts`). Over-cap event data replaced with `{__truncated}` placeholder before store/broadcast. Stops one oversized subagent event OOM-ing broadcast `JSON.stringify`. See change: bound-subagent-event-serialization.
 - Backpressure: browser sends drop when WS buffer > 4MB.
+- Bridge-launched server gets `--max-old-space-size=8192` via `NODE_OPTIONS` (`packages/extension/src/server-launcher.ts` `buildSpawnEnv`) for heap headroom, unless user already pinned a limit. Defensive belt-and-braces behind per-event ceiling.
 
 Cross-refs:
 - docs/architecture.md:98

@@ -1,6 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { createMemoryEventStore } from "../memory-event-store.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import {
+  createMemoryEventStore,
+  exceedsSerializedSize,
+} from "../memory-event-store.js";
 
 function makeEvent(type: string = "test"): DashboardEvent {
   return { eventType: type, timestamp: Date.now(), data: {} };
@@ -320,6 +323,122 @@ describe("memory-event-store", () => {
       expect(events[0].event.eventType).toBe("message_start");
       expect(events[1].seq).toBe(2);
       expect(events[1].event.eventType).toBe("message_end");
+    });
+  });
+
+  describe("per-event serialized-size ceiling", () => {
+    // Signature: createMemoryEventStore(isPinned, maxCachedSessions,
+    //   maxEventsPerSession, maxStringFieldSize, maxEventDataSize)
+    const CAP = 2_000;
+
+    it("bounds an oversized deeply-nested subagent event before storage", () => {
+      // maxStringFieldSize huge (no per-field truncation) so ONLY the
+      // per-event size ceiling can bound this; deep nesting past depth 4.
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 1_000_000, CAP);
+      // Build data nested past the depth-4 recursion limit, each level
+      // carrying a large string, so aggregate >> CAP.
+      let node: Record<string, unknown> = { leaf: "Z".repeat(50_000) };
+      for (let i = 0; i < 8; i++) node = { big: "Y".repeat(20_000), next: node };
+      const event: DashboardEvent = {
+        eventType: "subagent_end",
+        timestamp: Date.now(),
+        data: { result: node },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1);
+      // The stored event must serialize small (ceiling + small constant).
+      const size = JSON.stringify(stored).length;
+      expect(size).toBeLessThanOrEqual(CAP + 500);
+      // eventType preserved for the client.
+      expect(stored?.eventType).toBe("subagent_end");
+    });
+
+    it("stores under-ceiling events unchanged (no placeholder)", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 1_000_000, CAP);
+      const event: DashboardEvent = {
+        eventType: "message_end",
+        timestamp: Date.now(),
+        data: { text: "hello world" },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.text).toBe("hello world");
+      expect(stored.data.__truncated).toBeUndefined();
+    });
+
+    it("truncates deep sub-trees rather than returning them raw", () => {
+      // Small maxStringFieldSize; generous size ceiling so the depth escape,
+      // not the ceiling, is what would (previously) leak the deep payload.
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 100, 10_000_000);
+      const deepBig = "Q".repeat(50_000);
+      const event: DashboardEvent = {
+        eventType: "test",
+        // depth: data(0) > a(1) > b(2) > c(3) > d(4) > e(5) — past the limit
+        data: { a: { b: { c: { d: { e: { huge: deepBig } } } } } },
+        timestamp: Date.now(),
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1);
+      const size = JSON.stringify(stored).length;
+      // The deep 50k string must NOT survive whole.
+      expect(size).toBeLessThan(deepBig.length);
+    });
+
+    it("preserves deep base64 image data even past the depth limit", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 100, 10_000_000);
+      const img = "I".repeat(2_000);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        data: { a: { b: { c: { d: { e: { data: img, mimeType: "image/png" } } } } } },
+        timestamp: Date.now(),
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      expect(stored.data.a.b.c.d.e.data).toBe(img);
+    });
+
+    it("the broadcast source (getEvent) is bounded for an over-ceiling event", () => {
+      // event-wiring broadcasts eventStore.getEvent(seq); asserting getEvent is
+      // bounded proves the broadcast JSON.stringify cannot allocate unbounded.
+      const store = createMemoryEventStore(neverPinned, 100, 20000, 1_000_000, 2_000);
+      const event: DashboardEvent = {
+        eventType: "subagent_end",
+        timestamp: Date.now(),
+        data: { timeline: Array.from({ length: 500 }, () => "X".repeat(1_000)) },
+      };
+      const seq = store.insertEvent("s1", event);
+      const broadcastPayload = store.getEvent("s1", seq);
+      expect(JSON.stringify(broadcastPayload).length).toBeLessThanOrEqual(2_500);
+    });
+  });
+
+  describe("exceedsSerializedSize (bounded early-exit guard)", () => {
+    it("returns false for small values", () => {
+      expect(exceedsSerializedSize({ a: 1, b: "hi" }, 1_000)).toBe(false);
+    });
+
+    it("returns true once the running total crosses the cap", () => {
+      expect(exceedsSerializedSize({ big: "A".repeat(10_000) }, 1_000)).toBe(true);
+    });
+
+    it("early-exits without visiting the whole object", () => {
+      // A huge tail after an already-over-cap head must never be walked. Use a
+      // getter that throws if accessed to prove the walk stopped early.
+      const trap: Record<string, unknown> = { head: "A".repeat(5_000) };
+      Object.defineProperty(trap, "tail", {
+        enumerable: true,
+        get() {
+          throw new Error("walked past the cap");
+        },
+      });
+      expect(() => exceedsSerializedSize(trap, 1_000)).not.toThrow();
+      expect(exceedsSerializedSize(trap, 1_000)).toBe(true);
+    });
+
+    it("tolerates cyclic references without infinite recursion", () => {
+      const a: Record<string, unknown> = {};
+      a.self = a;
+      expect(exceedsSerializedSize(a, 1_000)).toBe(false);
     });
   });
 });

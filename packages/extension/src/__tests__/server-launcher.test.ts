@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { resolveServerCliPath, buildSpawnArgs, buildSpawnEnv } from "../server-launcher.js";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { buildSpawnArgs, buildSpawnEnv, resolveServerCliPath } from "../server-launcher.js";
 
 describe("server-launcher", () => {
   describe("resolveServerCliPath", () => {
@@ -79,6 +79,23 @@ describe("server-launcher", () => {
     it("filters out undefined values from baseEnv", () => {
       const env = buildSpawnEnv({ DEFINED: "yes", UNDEF: undefined });
       expect(Object.keys(env)).not.toContain("UNDEF");
+    });
+
+    it("adds --max-old-space-size to NODE_OPTIONS by default", () => {
+      const env = buildSpawnEnv({});
+      expect(env["NODE_OPTIONS"]).toContain("--max-old-space-size=8192");
+    });
+
+    it("appends the flag to an existing NODE_OPTIONS without a heap limit", () => {
+      const env = buildSpawnEnv({ NODE_OPTIONS: "--enable-source-maps" });
+      expect(env["NODE_OPTIONS"]).toBe(
+        "--enable-source-maps --max-old-space-size=8192",
+      );
+    });
+
+    it("never overrides a user-supplied --max-old-space-size", () => {
+      const env = buildSpawnEnv({ NODE_OPTIONS: "--max-old-space-size=2048" });
+      expect(env["NODE_OPTIONS"]).toBe("--max-old-space-size=2048");
     });
   });
 });
