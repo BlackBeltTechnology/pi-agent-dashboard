@@ -9,9 +9,14 @@
  *
  * The contribution is typed structurally so flows needs no compile dependency
  * on automation. See change: decouple-automation-action-registry.
+ *
+ * Flow availability + the `flow` enum options come from the LIVE per-session
+ * flows list the server already holds (`stateStore`, populated by the
+ * bridge-forwarded `flows_list`), resolved by mapping a cwd to its running
+ * session(s). NOT a static `.pi/flows/flows/` scan — so package-bundled and
+ * event-registered flows (which pi-flows discovers at runtime) are reflected.
+ * See change: fix-automation-flow-detection.
  */
-import fs from "node:fs";
-import path from "node:path";
 
 /** Publish key automation collects under (`automation.action.<source>`). */
 export const ACTION_CONTRIBUTION_KEY = "automation.action.flows";
@@ -54,39 +59,14 @@ export interface ActionContributionLike {
 }
 
 /**
- * Discover flows on disk for a cwd: `<cwd>/.pi/flows/flows/<ns>/<name>/flow.yaml`
- * → `<ns>:<name>` (the command id pi registers the flow under). Sorted.
+ * Resolve the flows available in a cwd: `<ns>:<name>` ids from the live
+ * per-session flows list. Injected by the server entry (see index.ts) so this
+ * module stays free of server/session dependencies.
  */
-export function discoverFlows(cwd: string): string[] {
-  const root = path.join(cwd, ".pi", "flows", "flows");
-  const out: string[] = [];
-  let nsDirs: fs.Dirent[];
-  try {
-    nsDirs = fs.readdirSync(root, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  for (const ns of nsDirs) {
-    if (!ns.isDirectory()) continue;
-    const nsPath = path.join(root, ns.name);
-    let nameDirs: fs.Dirent[];
-    try {
-      nameDirs = fs.readdirSync(nsPath, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const nm of nameDirs) {
-      if (!nm.isDirectory()) continue;
-      if (fs.existsSync(path.join(nsPath, nm.name, "flow.yaml"))) {
-        out.push(`${ns.name}:${nm.name}`);
-      }
-    }
-  }
-  return out.sort();
-}
+export type FlowsForCwd = (cwd: string) => string[];
 
 /**
- * A flow id is `<ns>:<name>` (from discoverFlows). It is placed into the
+ * A flow id is `<ns>:<name>`. It is placed into the
  * `flow:run` event payload, so a malformed value is rejected (emit nothing).
  */
 const FLOW_ID_RE = /^[\w.-]+:[\w.-]+$/;
@@ -116,9 +96,13 @@ export function summarizeFlowResult(data: Record<string, unknown> | undefined): 
     .trim();
 }
 
-/** Build the flows action contribution(s): flows.run only. */
-export function flowsActionContributions(): ActionContributionLike[] {
-  const hasFlows = (cwd: string) => discoverFlows(cwd).length > 0;
+/**
+ * Build the flows action contribution(s): flows.run only. Availability and the
+ * `flow` enum options derive from the injected `flowsForCwd` resolver (live
+ * per-session flows list). See change: fix-automation-flow-detection.
+ */
+export function flowsActionContributions(flowsForCwd: FlowsForCwd): ActionContributionLike[] {
+  const hasFlows = (cwd: string) => flowsForCwd(cwd).length > 0;
   return [
     {
       id: "flows.run",
@@ -126,9 +110,9 @@ export function flowsActionContributions(): ActionContributionLike[] {
       label: "Run a flow",
       description: "Run a flow with a task.",
       available: hasFlows,
-      unavailableReason: "no flows in this folder",
+      unavailableReason: "no flows in this folder (no running session, or the session reports no flows)",
       payloadSchema: [
-        { key: "flow", label: "Flow", type: "enum", options: discoverFlows, help: "Discovered in .pi/flows/flows" },
+        { key: "flow", label: "Flow", type: "enum", options: flowsForCwd, help: "Flows reported by the running session for this folder" },
         { key: "task", label: "Task", type: "multiline", help: "Passed as the flow's initial task." },
       ],
       // Emit flow:run into the run session (the event pi-flows listens for),
@@ -171,7 +155,8 @@ export function flowsActionContributions(): ActionContributionLike[] {
 export function provideFlowsActions(
   provide: (name: string, value: unknown) => void,
   log: (m: string) => void,
+  flowsForCwd: FlowsForCwd,
 ): void {
-  provide(ACTION_CONTRIBUTION_KEY, flowsActionContributions());
+  provide(ACTION_CONTRIBUTION_KEY, flowsActionContributions(flowsForCwd));
   log("[flows] published automation action: flows.run");
 }

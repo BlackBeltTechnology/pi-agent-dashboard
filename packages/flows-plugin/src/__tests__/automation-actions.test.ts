@@ -1,66 +1,47 @@
 /**
- * Flows → automation action contribution (publish/collect): per-cwd flow
- * discovery, availability gating, enum options, flow:run event build, and
- * pure-publisher wiring (provide, no consume). See change:
- * decouple-automation-action-registry.
+ * Flows → automation action contribution (publish/collect): availability
+ * gating + enum options from the injected live flows resolver, flow:run event
+ * build, and pure-publisher wiring (provide, no consume).
+ * See change: decouple-automation-action-registry, fix-automation-flow-detection.
  */
 
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ACTION_CONTRIBUTION_KEY,
-  discoverFlows,
+  type FlowsForCwd,
   flowsActionContributions,
   provideFlowsActions,
   summarizeFlowResult,
 } from "../server/automation-actions.js";
 
-function mkFlow(root: string, ns: string, name: string): void {
-  const dir = path.join(root, ".pi", "flows", "flows", ns, name);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "flow.yaml"), "name: x\n");
+/** Stub resolver: returns the flows configured for a given cwd. */
+function stubFlows(map: Record<string, string[]>): FlowsForCwd {
+  return (cwd: string) => map[cwd] ?? [];
 }
 
-let tmp: string;
-beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flows-actions-"));
-});
-afterEach(() => {
-  fs.rmSync(tmp, { recursive: true, force: true });
-});
-
-describe("discoverFlows", () => {
-  it("lists <ns>:<name> for each flow.yaml, sorted", () => {
-    mkFlow(tmp, "test", "capabilities");
-    mkFlow(tmp, "test", "subflow");
-    mkFlow(tmp, "custom", "deploy");
-    expect(discoverFlows(tmp)).toEqual(["custom:deploy", "test:capabilities", "test:subflow"]);
-  });
-  it("returns [] when no flows dir exists", () => {
-    expect(discoverFlows(tmp)).toEqual([]);
-  });
-});
+const noFlows: FlowsForCwd = () => [];
 
 describe("flowsActionContributions", () => {
-  it("contributes flows.run only (no resume/cancel); gated on cwd flows; enum options resolve", () => {
-    const contribs = flowsActionContributions();
+  it("contributes flows.run only (no resume/cancel); gated on the live flows resolver; enum options resolve", () => {
+    const flowsForCwd = stubFlows({ "/w/invoice-bot": ["invoicebot:pull"] });
+    const contribs = flowsActionContributions(flowsForCwd);
     expect(contribs.map((c) => c.id)).toEqual(["flows.run"]);
 
     const run = contribs[0]!;
     expect(run.source).toBe("flows");
-    expect(run.available!(tmp)).toBe(false); // no flows yet
-    mkFlow(tmp, "test", "capabilities");
-    expect(run.available!(tmp)).toBe(true);
+    // Package/event-registered flow, not on disk under .pi/flows/flows.
+    expect(run.available!("/w/invoice-bot")).toBe(true);
+    // No running session for this cwd → empty → unavailable.
+    expect(run.available!("/w/other")).toBe(false);
 
     const flowField = run.payloadSchema!.find((f) => f.key === "flow")!;
     expect(flowField.type).toBe("enum");
-    expect(flowField.options!(tmp)).toEqual(["test:capabilities"]);
+    expect(flowField.options!("/w/invoice-bot")).toEqual(["invoicebot:pull"]);
+    expect(flowField.options!("/w/other")).toEqual([]);
   });
 
   it("flows.run emits a flow:run event (flowName+task) and declares its completion", () => {
-    const run = flowsActionContributions()[0]!;
+    const run = flowsActionContributions(noFlows)[0]!;
     const ev = run.buildEvent!({ payload: { flow: "test:capabilities", task: "do it" }, automation: {} });
     expect(ev).toMatchObject({ eventType: "flow:run", data: { flowName: "test:capabilities", task: "do it" } });
     // Event-dispatched flow runs emit no agent_end — the action declares how it
@@ -73,7 +54,7 @@ describe("flowsActionContributions", () => {
   });
 
   it("flows.run emits data.inputs (per-fire resolved, types preserved), task optional", () => {
-    const run = flowsActionContributions()[0]!;
+    const run = flowsActionContributions(noFlows)[0]!;
     // Every flows.run also declares its completion (merged from
     // finalize-event-dispatched-automation-runs).
     const completion = { eventType: "flow_complete", summarize: expect.any(Function) };
@@ -100,7 +81,7 @@ describe("flowsActionContributions", () => {
   });
 
   it("flows.run rejects a malformed flow id (emits nothing)", () => {
-    const run = flowsActionContributions()[0]!;
+    const run = flowsActionContributions(noFlows)[0]!;
     expect(run.buildEvent!({ payload: { flow: "test:cap x", task: "t" }, automation: {} })).toBeNull();
     expect(run.buildEvent!({ payload: { flow: "nocolon", task: "t" }, automation: {} })).toBeNull();
     expect(run.buildEvent!({ payload: { flow: "" }, automation: {} })).toBeNull();
@@ -126,7 +107,7 @@ describe("summarizeFlowResult (flows owns the FlowResult shape)", () => {
 describe("provideFlowsActions (pure publisher)", () => {
   it("publishes the contribution under automation.action.flows and consumes nothing", () => {
     const provide = vi.fn();
-    provideFlowsActions(provide, () => {});
+    provideFlowsActions(provide, () => {}, noFlows);
     expect(provide).toHaveBeenCalledTimes(1);
     const [key, value] = provide.mock.calls[0]!;
     expect(key).toBe(ACTION_CONTRIBUTION_KEY);
