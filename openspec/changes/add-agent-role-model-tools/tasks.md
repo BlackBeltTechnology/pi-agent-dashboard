@@ -23,11 +23,11 @@
 
 ## 4. `list_models` + `list_roles` tools (read, decoupled)
 
-- [ ] 4.1 Register `list_models` via `pi.registerTool`; source models from the IN-PROCESS session registry (`cachedModelRegistry.getAvailable()` + reuse `toModelInfo`), NOT the server `registry-singleton`. Emit a ready-to-assign `ref` per model + capability metadata.
+- [ ] 4.1 Register `list_models` via `pi.registerTool`; source models from the EXACT ModelSelector path — `cachedModelRegistry.getAvailable().map(toModelInfo)` (NOT the server `registry-singleton`). Emit a ready-to-assign `ref` per model + `toModelInfo` metadata INCLUDING the `custom` flag. Custom-registered providers appear because they register into the same registry.
 - [ ] 4.2 Make `list_models` fully roles-independent: it MUST NOT read `providers.json#roles` and MUST succeed when the role slice is missing/malformed.
-- [ ] 4.3 (Optional, per Open Question) support `annotated` mode on `list_models` surfacing `excludedReason` for reachable-filtered models.
+- [ ] 4.3 Support `annotated` mode on `list_models` (`getAllAnnotated()`) surfacing uncredentialed custom/built-in providers with `excludedReason`; default (unannotated) stays reachability-filtered like the picker.
 - [ ] 4.4 Register `list_roles` via `pi.registerTool`; return `{ roles(bound-only), presets, activePreset }` (NO models key); filter unset roles (empty-slot omission for the tool only; UI overlay unchanged); tolerate missing/malformed role slice → empty result.
-- [ ] 4.5 Tests: `list_models` refs assignable + works with roles absent + custom-provider ref present; `list_roles` bound-only + presets/activePreset + no `models` key + tolerates malformed slice.
+- [ ] 4.5 Tests: `list_models` refs assignable + works with roles absent + custom-registered provider present with `custom:true` (matching ModelSelector) + uncredentialed custom appears only under `annotated` with `excludedReason`; `list_roles` bound-only + presets/activePreset + no `models` key + tolerates malformed slice.
 
 ## 5. `update_roles` tool (write, confirmed, dispatched)
 
