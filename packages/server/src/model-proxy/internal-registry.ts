@@ -49,6 +49,15 @@ export interface InternalRegistryDeps {
   readProviders: () => Record<string, CustomProviderEntry>;
   readModels: () => CustomModelEntry[];
   readAuth: () => Record<string, any>;
+  /**
+   * Discover models for every custom provider in `providers.json#providers`
+   * (live `/v1/models` fetch). Optional so tests can inject a fake; when
+   * absent the registry only exposes built-in + `readModels()` models.
+   * See change: add-agent-role-model-tools.
+   */
+  discoverCustomProviders?: (
+    providers: Record<string, CustomProviderEntry>,
+  ) => Promise<CustomModelEntry[]>;
 }
 
 export class InternalRegistry {
@@ -57,6 +66,8 @@ export class InternalRegistry {
   private deps: InternalRegistryDeps;
   private cachedModels: any[] | null = null;
   private cachedAllModels: any[] | null = null;
+  /** Custom-provider models discovered from providers.json (Approach C). */
+  private discoveredCustomModels: CustomModelEntry[] = [];
 
   constructor(piAi: PiAiModule, authStorage: InternalAuthStorage, deps: InternalRegistryDeps) {
     this.piAi = piAi;
@@ -91,6 +102,24 @@ export class InternalRegistry {
     this.cachedModels = null;
     this.cachedAllModels = null;
     await this.authStorage.reload();
+    await this.discover();
+  }
+
+  /**
+   * Discover custom-provider models from providers.json and cache them.
+   * No-op when no `discoverCustomProviders` dep is supplied. Invalidates the
+   * model caches so the next `getAllModels()` merges the fresh set.
+   * See change: add-agent-role-model-tools.
+   */
+  async discover(): Promise<void> {
+    if (!this.deps.discoverCustomProviders) return;
+    try {
+      this.discoveredCustomModels = await this.deps.discoverCustomProviders(this.deps.readProviders());
+    } catch {
+      this.discoveredCustomModels = [];
+    }
+    this.cachedModels = null;
+    this.cachedAllModels = null;
   }
 
   /** All models regardless of auth state (diagnostics). */
@@ -137,16 +166,12 @@ export class InternalRegistry {
       }
     }
 
-    // 2. Custom provider models — register providers from providers.json
+    // 2. Custom-provider models. Two sources, both keyed by providers.json:
+    //    - discovered models (live `/v1/models` fetch, Approach C — fills the
+    //      former no-op loop so the server matches every pi session)
+    //    - any user-authored models.json entries (read-only; never written)
     const customProviders = this.deps.readProviders();
-    for (const [name, entry] of Object.entries(customProviders)) {
-      // Custom providers are already in providers.json; models from them
-      // are added via models.json (step 3). The baseUrl/api is used when
-      // the model references this provider.
-    }
-
-    // 3. Custom models from models.json
-    const customModels = this.deps.readModels();
+    const customModels = [...this.discoveredCustomModels, ...this.deps.readModels()];
     for (const cm of customModels) {
       // Look up base URL from custom providers if available
       const providerEntry = customProviders[cm.provider];

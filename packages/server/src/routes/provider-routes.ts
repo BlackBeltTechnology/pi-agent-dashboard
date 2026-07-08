@@ -2,7 +2,7 @@
  * Provider REST API routes: read/write custom LLM providers (~/.pi/agent/providers.json).
  */
 import type { FastifyInstance } from "fastify";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import type { NetworkGuard } from "./route-deps.js";
@@ -142,7 +142,11 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
 
       const dir = dirname(CONFIG_PATH);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(CONFIG_PATH, JSON.stringify(fileData, null, 2) + "\n", "utf-8");
+      // Atomic tmp+rename so concurrent readers never observe a partial file
+      // (Bug 7). See change: add-agent-role-model-tools.
+      const tmp = `${CONFIG_PATH}.tmp-${process.pid}-${Date.now()}`;
+      writeFileSync(tmp, JSON.stringify(fileData, null, 2) + "\n", "utf-8");
+      renameSync(tmp, CONFIG_PATH);
 
       // Broadcast credentials_updated so each bridge re-reads providers.json
       // and pushes a fresh per-session models_list. Browsers receive those

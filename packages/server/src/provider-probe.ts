@@ -179,6 +179,41 @@ function extractModelIds(body: any): string[] {
 
 // -- I/O: probe ----------------------------------------------------------
 
+/**
+ * Full model discovery: fetch the provider's model list and return EVERY model
+ * id (not just a capped sample). Reuses `buildProbeRequest` so all four api
+ * types hit the correct endpoint/headers. Returns [] on any failure (never
+ * throws) so server-side registry discovery degrades gracefully.
+ *
+ * See change: add-agent-role-model-tools (server custom-provider registry).
+ */
+export async function listProviderModelIds(input: ProbeInput): Promise<string[]> {
+  let req: ProbeRequest;
+  try {
+    req = buildProbeRequest(input);
+  } catch {
+    return [];
+  }
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) return [];
+    let body: any = null;
+    try {
+      body = await response.json();
+    } catch {
+      return [];
+    }
+    return extractModelIds(body);
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
 export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
   let req: ProbeRequest;
   try {

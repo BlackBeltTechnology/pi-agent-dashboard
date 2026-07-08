@@ -1,5 +1,5 @@
 /**
- * Tests for role-manager.ts — the relocated `flow:role-*` event handlers
+ * Tests for role-manager.ts — the dashboard-owned `roles:*` event handlers
  * that own `~/.pi/agent/providers.json#roles`, `#rolePresets`, `#activePreset`.
  *
  * Spec: openspec/changes/adopt-model-resolve-handler-and-roles-ownership/
@@ -18,10 +18,16 @@ import { join } from "node:path";
 import {
   activate,
   getModelRole,
+  lookupRole,
   loadRoleConfig,
   saveRoleConfig,
   DEFAULT_ROLE_NAMES,
   overlayDefaultRoles,
+  overlayRoles,
+  effectiveRoleNames,
+  addRoleName,
+  removeRoleFromSchema,
+  type RoleConfig,
 } from "../role-manager.js";
 
 /** Build the expected overlay map: every default name empty, then `assigned` wins. */
@@ -116,12 +122,12 @@ describe("saveRoleConfig", () => {
   });
 });
 
-describe("flow:role-get-all", () => {
+describe("roles:get-all", () => {
   it("overlays default role names on a missing file and does not create it", async () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = {};
-    await pi.events.emit("flow:role-get-all", data);
+    await pi.events.emit("roles:get-all", data);
     expect(data.roles).toEqual(withDefaults());
     expect(data.presets).toEqual([]);
     expect(data.activePreset).toBeNull();
@@ -138,7 +144,7 @@ describe("flow:role-get-all", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = {};
-    await pi.events.emit("flow:role-get-all", data);
+    await pi.events.emit("roles:get-all", data);
     expect(data.roles).toEqual(withDefaults({ fast: "anthropic/opus" }));
     expect(data.presets).toEqual([{ name: "default", roles: { fast: "anthropic/opus" } }]);
     expect(data.activePreset).toBe("default");
@@ -151,7 +157,7 @@ describe("flow:role-get-all", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = {};
-    await pi.events.emit("flow:role-get-all", data);
+    await pi.events.emit("roles:get-all", data);
     expect(data.roles).toEqual(withDefaults({ custom: "x/y" }));
   });
 
@@ -160,7 +166,7 @@ describe("flow:role-get-all", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = {};
-    await pi.events.emit("flow:role-get-all", data);
+    await pi.events.emit("roles:get-all", data);
     expect(data.roles).toEqual(withDefaults());
   });
 });
@@ -177,12 +183,12 @@ describe("overlayDefaultRoles", () => {
   });
 });
 
-describe("flow:role-set", () => {
+describe("roles:set", () => {
   it("persists role assignment to disk", async () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = { role: "coding", modelId: "anthropic/claude-opus-4" };
-    await pi.events.emit("flow:role-set", data);
+    await pi.events.emit("roles:set", data);
     expect(data.success).toBe(true);
     expect(readFile().roles).toEqual({ coding: "anthropic/claude-opus-4" });
   });
@@ -191,7 +197,7 @@ describe("flow:role-set", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = {};
-    await pi.events.emit("flow:role-set", data);
+    await pi.events.emit("roles:set", data);
     expect(data.success).toBe(false);
     expect(existsSync(CONFIG())).toBe(false);
   });
@@ -204,7 +210,7 @@ describe("flow:role-set", () => {
     }));
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-set", { role: "fast", modelId: "new" });
+    await pi.events.emit("roles:set", { role: "fast", modelId: "new" });
     const after = readFile();
     expect(after.roles).toEqual({ fast: "new" });
     expect(after.rolePresets[0].roles).toEqual({ fast: "new" });
@@ -215,12 +221,12 @@ describe("flow:role-set", () => {
     writeFileSync(CONFIG(), JSON.stringify({ autonomousMode: false }));
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-set", { role: "fast", modelId: "x/y" });
+    await pi.events.emit("roles:set", { role: "fast", modelId: "x/y" });
     expect(readFile().autonomousMode).toBe(false);
   });
 });
 
-describe("flow:role-preset-load", () => {
+describe("roles:preset-load", () => {
   it("replaces roles wholesale", async () => {
     writeFileSync(CONFIG(), JSON.stringify({
       roles: { fast: "old", slow: "leftover" },
@@ -230,7 +236,7 @@ describe("flow:role-preset-load", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = { name: "speed" };
-    await pi.events.emit("flow:role-preset-load", data);
+    await pi.events.emit("roles:preset-load", data);
     expect(data.success).toBe(true);
     const after = readFile();
     expect(after.roles).toEqual({ fast: "x/y" });
@@ -247,20 +253,20 @@ describe("flow:role-preset-load", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = { name: "nonexistent" };
-    await pi.events.emit("flow:role-preset-load", data);
+    await pi.events.emit("roles:preset-load", data);
     expect(data.success).toBe(false);
     // File contents unchanged (no rewrite).
     expect(readFileSync(CONFIG(), "utf-8")).toBe(sizeBefore);
   });
 });
 
-describe("flow:role-preset-save", () => {
+describe("roles:preset-save", () => {
   it("creates a new preset entry", async () => {
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-set", { role: "fast", modelId: "x/y" });
+    await pi.events.emit("roles:set", { role: "fast", modelId: "x/y" });
     const data: any = { name: "myset" };
-    await pi.events.emit("flow:role-preset-save", data);
+    await pi.events.emit("roles:preset-save", data);
     expect(data.success).toBe(true);
     const after = readFile();
     expect(after.rolePresets).toEqual([{ name: "myset", roles: { fast: "x/y" } }]);
@@ -274,13 +280,13 @@ describe("flow:role-preset-save", () => {
     }));
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-preset-save", { name: "myset" });
+    await pi.events.emit("roles:preset-save", { name: "myset" });
     const after = readFile();
     expect(after.rolePresets).toEqual([{ name: "myset", roles: { fast: "new" } }]);
   });
 });
 
-describe("flow:role-preset-delete", () => {
+describe("roles:preset-delete", () => {
   it("removes named preset", async () => {
     writeFileSync(CONFIG(), JSON.stringify({
       roles: {},
@@ -290,7 +296,7 @@ describe("flow:role-preset-delete", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = { name: "a" };
-    await pi.events.emit("flow:role-preset-delete", data);
+    await pi.events.emit("roles:preset-delete", data);
     expect(data.success).toBe(true);
     expect(readFile().rolePresets).toEqual([{ name: "b", roles: {} }]);
   });
@@ -299,7 +305,7 @@ describe("flow:role-preset-delete", () => {
     const { pi } = makeFakePi();
     activate(pi);
     const data: any = { name: "ghost" };
-    await pi.events.emit("flow:role-preset-delete", data);
+    await pi.events.emit("roles:preset-delete", data);
     expect(data.success).toBe(false);
   });
 
@@ -311,7 +317,7 @@ describe("flow:role-preset-delete", () => {
     }));
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-preset-delete", { name: "a" });
+    await pi.events.emit("roles:preset-delete", { name: "a" });
     expect(readFile().activePreset).toBeNull();
   });
 });
@@ -367,7 +373,7 @@ describe("role:resolve-model (subagents adapter)", () => {
   it("re-reads disk so cross-session role edits are visible", async () => {
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-set", { role: "fast", modelId: "x/y" });
+    await pi.events.emit("roles:set", { role: "fast", modelId: "x/y" });
     const probe: any = { ref: "@fast" };
     await pi.events.emit("role:resolve-model", probe);
     expect(probe.resolved).toBe("x/y");
@@ -381,11 +387,99 @@ describe("role:resolve-model (subagents adapter)", () => {
   });
 });
 
+describe("editable role-name schema", () => {
+  const base = (over: Partial<RoleConfig> = {}): RoleConfig => ({
+    roles: {},
+    rolePresets: [],
+    activePreset: null,
+    ...over,
+  });
+
+  it("effectiveRoleNames = defaults \u222a added \u2212 removed, order-stable", () => {
+    const names = effectiveRoleNames(base({ roleNames: ["review"], removedRoles: ["vision"] }));
+    expect(names).toContain("review");
+    expect(names).not.toContain("vision");
+    // defaults first, then adds
+    expect(names[0]).toBe("planning");
+    expect(names.indexOf("review")).toBeGreaterThan(names.indexOf("research"));
+  });
+
+  it("overlayRoles surfaces an added role as an empty slot", () => {
+    const out = overlayRoles(base({ roleNames: ["review"] }));
+    expect(out.review).toBe("");
+    expect(out.planning).toBe("");
+  });
+
+  it("overlayRoles omits a removed default (not re-injected)", () => {
+    const out = overlayRoles(base({ removedRoles: ["vision"] }));
+    expect(out.vision).toBeUndefined();
+    expect(out.coding).toBe("");
+  });
+
+  it("addRoleName records a non-default and clears its removal marker", () => {
+    const cfg = base({ removedRoles: ["review"] });
+    addRoleName(cfg, "review");
+    expect(cfg.roleNames).toEqual(["review"]);
+    expect(cfg.removedRoles).toEqual([]);
+  });
+
+  it("removeRoleFromSchema purges from roles, every preset, and marks defaults removed", () => {
+    const cfg = base({
+      roles: { vision: "x/y" },
+      rolePresets: [
+        { name: "cheap", roles: { vision: "a/b" } },
+        { name: "premium", roles: { vision: "c/d" } },
+      ],
+    });
+    removeRoleFromSchema(cfg, "vision");
+    expect(cfg.roles.vision).toBeUndefined();
+    expect(cfg.rolePresets[0].roles.vision).toBeUndefined();
+    expect(cfg.rolePresets[1].roles.vision).toBeUndefined();
+    expect(cfg.removedRoles).toContain("vision");
+  });
+
+  it("saveRoleConfig round-trips roleNames + removedRoles and preserves unrelated keys", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ providers: { p: { baseUrl: "u", apiKey: "k" } } }));
+    saveRoleConfig(base({ roleNames: ["review"], removedRoles: ["vision"] }));
+    const after = loadRoleConfig();
+    expect(after.roleNames).toEqual(["review"]);
+    expect(after.removedRoles).toEqual(["vision"]);
+    expect(readFile().providers).toEqual({ p: { baseUrl: "u", apiKey: "k" } });
+  });
+});
+
+describe("lookupRole", () => {
+  it("returns the literal for a bound bare role name", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/haiku" } }));
+    expect(lookupRole("fast")).toEqual({ literal: "anthropic/haiku" });
+  });
+
+  it("strips a leading @ and returns the literal", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/haiku" } }));
+    expect(lookupRole("@fast")).toEqual({ literal: "anthropic/haiku" });
+  });
+
+  it("returns a structured reason for an unset role", () => {
+    expect(lookupRole("@ghost")).toEqual({ reason: "role 'ghost' not configured yet" });
+  });
+
+  it("returns a reason for an empty role name", () => {
+    expect(lookupRole("@")).toEqual({ reason: "empty role name" });
+  });
+
+  it("re-reads disk so cross-session edits are visible", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "a/b" } }));
+    expect(lookupRole("fast")).toEqual({ literal: "a/b" });
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "c/d" } }));
+    expect(lookupRole("fast")).toEqual({ literal: "c/d" });
+  });
+});
+
 describe("getModelRole", () => {
   it("returns the current model assigned to a role, re-reading from disk", async () => {
     const { pi } = makeFakePi();
     activate(pi);
-    await pi.events.emit("flow:role-set", { role: "fast", modelId: "anthropic/haiku" });
+    await pi.events.emit("roles:set", { role: "fast", modelId: "anthropic/haiku" });
     expect(getModelRole("fast")).toBe("anthropic/haiku");
 
     // Simulate cross-session update: another writer mutates the file directly.

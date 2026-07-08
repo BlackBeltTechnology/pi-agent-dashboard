@@ -3,9 +3,7 @@
 ## Purpose
 
 Owns the `model:resolve` event handler registered by the pi-agent-dashboard extension. Resolves three input forms — `@role`, `provider/model[:thinking]`, and bare `model-id` — against `pi.modelRegistry` and `~/.pi/agent/providers.json#roles`, filling a cooperative probe object. Includes a deprecated `flow:resolve-model` alias kept for one release.
-
 ## Requirements
-
 ### Requirement: pi-agent-dashboard SHALL register a `model:resolve` listener
 
 The dashboard extension SHALL register `pi.events.on("model:resolve", async (probe) => { … })` exactly once at activation. The listener SHALL handle three input forms — `@role`, `provider/model[:thinking]`, and bare `model-id` — and SHALL fill the probe according to the contract documented in pi-dashboard-subagents' spec `subagent-role-aliasing`.
@@ -74,25 +72,6 @@ The listener SHALL follow the cooperative early-return idiom: if `probe.model` i
 - **AND** SHALL NOT modify any field on the probe
 - **AND** SHALL NOT call `pi.modelRegistry`
 
-### Requirement: The legacy `flow:resolve-model` listener SHALL remain registered as a deprecated alias
-
-For one release after this change lands, the dashboard SHALL continue to register `pi.events.on("flow:resolve-model", …)` with the pre-change behavior (handles literal `provider/model` and bare `model-id` only; skips `@role`; reads `data.modelRef` not `data.ref`). The handler body is unchanged from its pre-change form.
-
-The implementation file SHALL annotate this listener with a `// DEPRECATED` comment naming the replacement (`model:resolve`) and stating that the listener is removed in the next major release.
-
-#### Scenario: flow:resolve-model still works for the legacy probe shape
-
-- **WHEN** an external extension emits `pi.events.emit("flow:resolve-model", { modelRef: "anthropic/claude-haiku-4-5" })`
-- **THEN** the dashboard's deprecated handler SHALL run
-- **AND** SHALL fill `data.model` with the Model resolved via `pi.modelRegistry.find()`
-- **AND** SHALL fill `data.auth`
-
-#### Scenario: flow:resolve-model continues to skip @role
-
-- **WHEN** an external extension emits `pi.events.emit("flow:resolve-model", { modelRef: "@fast" })`
-- **THEN** the deprecated handler SHALL return early without filling anything
-- **AND** SHALL NOT read `providers.json#roles`
-
 ### Requirement: The probe shape SHALL be additively extensible
 
 The `model:resolve` probe SHALL accept additional fields without rejection. Handlers SHALL ignore unknown keys on the probe object. Future fields (e.g. `cacheControl`, `timeoutMs`) can be added by emitters without coordinated handler upgrades.
@@ -156,3 +135,53 @@ When BOTH `modelRegistryRef` and `pi.modelRegistry` are null/undefined (degenera
 - **THEN** the handler SHALL look up the role mapping via `getModelRole("fast")`
 - **AND** SHALL then call `pi.modelRegistry.find("opencode-go", "deepseek-v4-flash")` via the fallback
 - **AND** SHALL fill `probe.model` and `probe.resolved` as in the warm path
+
+### Requirement: The `model:resolve` handler SHALL acquire the registry from `ctx.modelRegistry` and resolve in spawned/headless sessions
+
+`getModelRegistry()` SHALL return the lazily-captured `modelRegistryRef` when non-null, where `modelRegistryRef` is populated from `ctx.modelRegistry` captured across the available lifecycle points (e.g. `session_start`, `model_select`, and any earlier context the harness provides for spawned sessions). It SHALL NOT fall back to the non-existent `pi.modelRegistry` property. When no registry handle can be acquired, the handler SHALL set the existing `probe.error = "Model registry unavailable — cannot resolve \"<ref>\"."` and SHALL NOT throw.
+
+The intent is that subagent spawning — which resolves `@role`/literal refs in the PARENT session (the harness's `resolveModelFromRef` emits `model:resolve` on a mid-session tool call, then passes the resolved `Model` into the child) — SHALL reliably fill `probe.model` for both built-in and custom-provider models. The child session never resolves for itself, so no registry handle is required in the child.
+
+#### Scenario: Parent-side resolution fills probe.model for a known model
+
+- **GIVEN** a running parent session whose `ctx.modelRegistry` has been captured into `modelRegistryRef`
+- **AND** the registry contains `anthropic/claude-opus-4-8`
+- **WHEN** the handler receives `{ ref: "anthropic/claude-opus-4-8" }`
+- **THEN** the handler SHALL resolve via `modelRegistryRef.find("anthropic", "claude-opus-4-8")`
+- **AND** SHALL fill `probe.model`, `probe.resolved`, and `probe.auth`
+- **AND** `probe.error` SHALL remain unset
+
+#### Scenario: Dead `pi.modelRegistry` fallback is gone
+
+- **WHEN** the extension source is inspected
+- **THEN** `getModelRegistry()` SHALL NOT reference `pi.modelRegistry` (nor a `(piRef as any).modelRegistry` cast)
+- **AND** the only registry source SHALL be the `ctx.modelRegistry`-captured `modelRegistryRef`
+
+#### Scenario: No registry handle yields the unavailable error, not a throw
+
+- **GIVEN** `modelRegistryRef` is `null` and no `ctx.modelRegistry` has been captured
+- **WHEN** a `model:resolve` probe arrives
+- **THEN** the handler SHALL set `probe.error = "Model registry unavailable — cannot resolve \"<ref>\"."`
+- **AND** SHALL NOT throw
+- **AND** SHALL NOT fill `probe.model`
+
+### Requirement: `model:resolve` SHALL fill `probe.model` as the primary output for `@role` refs
+
+The primary consumer (the subagents harness) reads `probe.model` (a registry-resolved `Model` object), then `probe.error`; it does NOT read `probe.resolved`. For an `@role` ref the handler SHALL map the role to its literal via `lookupRole()`, resolve that literal through the registry, and fill `probe.model` + `probe.resolved` + `probe.auth` on success. On a registry miss the handler SHALL set `probe.error` (naming the ref) and SHALL NOT fill `probe.model`. No early-`probe.resolved` "leniency" behavior is required — a string with no `Model` does not help the primary consumer.
+
+#### Scenario: @role fills probe.model on success
+
+- **GIVEN** `roles.coding` is `"anthropic/claude-x"` and the registry resolves it
+- **WHEN** the handler receives `{ ref: "@coding" }`
+- **THEN** `probe.model` SHALL be the resolved `Model`
+- **AND** `probe.resolved` SHALL equal `"<model.provider>/<model.id>"`
+- **AND** `probe.auth` SHALL be filled
+- **AND** `probe.error` SHALL be unset
+
+#### Scenario: Registry miss sets probe.error, not probe.model
+
+- **GIVEN** `roles.coding` is `"mycustom/foo-v2"` and `registry.find("mycustom","foo-v2")` returns null
+- **WHEN** the handler receives `{ ref: "@coding" }`
+- **THEN** `probe.error` SHALL be set naming the unresolved ref
+- **AND** `probe.model` SHALL remain unset
+

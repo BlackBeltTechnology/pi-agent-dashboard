@@ -3,9 +3,7 @@
 ## Purpose
 
 Establishes pi-agent-dashboard as the sole owner of `~/.pi/agent/providers.json#roles`, `#rolePresets`, and `#activePreset`. Hosts the relocated `flow:role-*` event handlers (previously in pi-flows' `role-manager.ts`), preserves bit-for-bit behaviour, and exposes a single role-reader function consumed by `model:resolve` for `@role` lookups. The `autonomousMode` key remains owned by pi-flows.
-
 ## Requirements
-
 ### Requirement: pi-agent-dashboard SHALL own `~/.pi/agent/providers.json#roles`, `#rolePresets`, and `#activePreset`
 
 The dashboard extension SHALL be the sole writer of the `roles`, `rolePresets`, and `activePreset` keys in `~/.pi/agent/providers.json`. The dashboard SHALL be a reader of those keys as needed for serving `flow:role-*` events and for `model:resolve` `@role` lookups.
@@ -39,64 +37,6 @@ The on-disk format SHALL NOT change. Existing files written by pi-flows' (now-de
 - **WHEN** the dashboard updates `roles` only
 - **THEN** the file's `providers`, `autonomousMode`, and `foo` keys SHALL be preserved bit-for-bit
 - **AND** only the `roles` (and possibly `rolePresets` / `activePreset`) keys SHALL be rewritten
-
-### Requirement: pi-agent-dashboard SHALL register the `flow:role-*` event handlers relocated from pi-flows
-
-The dashboard extension SHALL register listeners for the five event names that today (pre-change) are answered by `pi-flows/extensions/role-manager.ts`:
-
-- `flow:role-set` — set/clear a role's model assignment.
-- `flow:role-get-all` — snapshot all roles, presets, and active preset name.
-- `flow:role-preset-load` — replace the active roles map with a named preset's contents.
-- `flow:role-preset-save` — capture the current roles map as a named preset.
-- `flow:role-preset-delete` — remove a named preset.
-
-Behaviour SHALL be preserved bit-for-bit from the pi-flows implementation, including (a) re-reading the file on every event so cross-session updates are visible, (b) the rule that loading a preset replaces `roles` wholesale, (c) the rule that setting a role while a preset is active updates that preset in-place, and (d) the `success` boolean response field on mutating events.
-
-The event NAMES SHALL be preserved with the `flow:` prefix in this change. A rename to `roles:*` is out of scope and tracked separately.
-
-#### Scenario: flow:role-get-all returns roles + presets + activePreset
-
-- **GIVEN** the file contains `roles: { fast: "anthropic/opus" }, rolePresets: [{ name: "default", roles: { … } }], activePreset: "default"`
-- **WHEN** an emitter calls `pi.events.emit("flow:role-get-all", data)`
-- **THEN** after the emit returns, `data.roles` SHALL deep-equal `{ fast: "anthropic/opus" }`
-- **AND** `data.presets` SHALL deep-equal `[{ name: "default", roles: { … } }]`
-- **AND** `data.activePreset` SHALL equal `"default"`
-
-#### Scenario: flow:role-set persists immediately
-
-- **WHEN** an emitter calls `pi.events.emit("flow:role-set", { role: "coding", modelId: "anthropic/claude-opus-4" })`
-- **THEN** `data.success` SHALL be set to `true`
-- **AND** the on-disk file SHALL contain `roles.coding === "anthropic/claude-opus-4"` after the call returns
-- **AND** a subsequent `flow:role-get-all` SHALL return that value
-
-#### Scenario: flow:role-set with an active preset updates the preset too
-
-- **GIVEN** `activePreset === "default"` and `rolePresets[0].name === "default"`
-- **WHEN** `flow:role-set` runs with a new role assignment
-- **THEN** both `roles[role]` and `rolePresets[0].roles[role]` SHALL be updated to the new value
-- **AND** both updates SHALL be persisted in the same atomic write
-
-#### Scenario: flow:role-preset-load replaces roles wholesale
-
-- **GIVEN** `rolePresets` contains `{ name: "speed", roles: { fast: "x/y" } }` and the current `roles` map has `{ fast: "old", slow: "leftover" }`
-- **WHEN** `flow:role-preset-load` runs with `{ name: "speed" }`
-- **THEN** `data.success` SHALL be `true`
-- **AND** the new `roles` map SHALL deep-equal `{ fast: "x/y" }` (NOT `{ fast: "x/y", slow: "leftover" }`)
-- **AND** `activePreset` SHALL be `"speed"`
-
-#### Scenario: flow:role-preset-load with unknown name fails cleanly
-
-- **GIVEN** `rolePresets` does NOT contain an entry named `"nonexistent"`
-- **WHEN** `flow:role-preset-load` runs with `{ name: "nonexistent" }`
-- **THEN** `data.success` SHALL be `false`
-- **AND** the existing `roles` map SHALL NOT be modified
-- **AND** the file SHALL NOT be written
-
-#### Scenario: Missing required fields produce success=false
-
-- **WHEN** `flow:role-set` runs with `{}` (no role, no modelId)
-- **THEN** `data.success` SHALL be `false`
-- **AND** the file SHALL NOT be written
 
 ### Requirement: pi-agent-dashboard SHALL NOT read or write `~/.pi/agent/providers.json#autonomousMode`
 
@@ -181,14 +121,14 @@ This requirement is additive with respect to `dashboard-model-resolution`: the e
 
 The dashboard SHALL own a canonical default role-name set `DEFAULT_ROLE_NAMES = ["planning", "coding", "compact", "fast", "vision", "research"]`, defined in the dashboard (not read from pi-flows, which the dashboard no longer depends on for role ownership).
 
-The default set SHALL contribute role NAMES only; it SHALL NOT assign any model. A default role with no assigned model is "unconfigured". The dashboard SHALL overlay these default names onto the assigned-roles map at READ time (in the `flow:role-get-all` response) so the Roles UI is never an empty dead end. Assigned values SHALL win over defaults; non-default assigned roles SHALL be preserved.
+The default set SHALL contribute role NAMES only; it SHALL NOT assign any model. A default role with no assigned model is "unconfigured". The dashboard SHALL overlay the effective role-name schema onto the assigned-roles map at READ time (in the `roles:get-all` response) so the Roles UI is never an empty dead end. Assigned values SHALL win over defaults; non-default assigned roles SHALL be preserved.
 
-The dashboard SHALL NOT auto-write default role names to `providers.json`. A role reaches disk only when the user assigns a model (via the existing `flow:role-set` handler). This avoids an uninvited write to the shared global `providers.json` on session start.
+The role-name schema SHALL be USER-EDITABLE. `DEFAULT_ROLE_NAMES` seeds the schema for display but is NOT immutable: a user (or the `update_roles` tool) MAY add a role name (implicitly, by assigning a model to a new name) and MAY remove any role name — including a default. Removal is a purge (see the removal requirement below); once removed, a default name SHALL NOT be re-injected by the read-time overlay for that role while a removal marker is in effect. The dashboard SHALL NOT auto-write default role names to `providers.json`; a role reaches disk only when a model is assigned.
 
 #### Scenario: Default role names available on a fresh install
 
-- **GIVEN** `~/.pi/agent/providers.json` has no `roles` key (or an empty `roles` map)
-- **WHEN** the Roles back-end reports the roles map (via `flow:role-get-all`)
+- **GIVEN** `~/.pi/agent/providers.json` has no `roles` key (or an empty `roles` map) and no removal markers
+- **WHEN** the Roles back-end reports the roles map (via `roles:get-all`)
 - **THEN** the reported roles SHALL include every name in `DEFAULT_ROLE_NAMES`
 - **AND** each default role with no assignment SHALL report an empty/unset model value
 - **AND** `~/.pi/agent/providers.json` SHALL NOT be created or modified by the read
@@ -196,9 +136,15 @@ The dashboard SHALL NOT auto-write default role names to `providers.json`. A rol
 #### Scenario: Assigned roles win over defaults in the overlay
 
 - **GIVEN** `roles` contains `{ fast: "anthropic/haiku", custom: "x/y" }`
-- **WHEN** the Roles back-end reports the roles map (via `flow:role-get-all`)
+- **WHEN** the Roles back-end reports the roles map (via `roles:get-all`)
 - **THEN** the reported map SHALL contain `fast: "anthropic/haiku"` and `custom: "x/y"`
-- **AND** SHALL also contain the remaining `DEFAULT_ROLE_NAMES` with empty/unset values
+- **AND** SHALL also contain the remaining un-removed `DEFAULT_ROLE_NAMES` with empty/unset values
+
+#### Scenario: A user-added role persists and is reported
+
+- **GIVEN** a model has been assigned to a new role name `review`
+- **WHEN** the Roles back-end reports the roles map
+- **THEN** `review` SHALL appear in the reported map with its assigned model
 
 ### Requirement: The Roles settings panel SHALL render default roles and a setup prompt instead of an empty state
 
@@ -217,3 +163,28 @@ The Roles settings UI (`RolesSettingsSection.tsx`) SHALL render one row per role
 - **GIVEN** at least one role has an assigned model
 - **WHEN** the panel renders
 - **THEN** the "set up now" banner SHALL NOT be shown
+
+### Requirement: pi-agent-dashboard SHALL register the `roles:*` event handlers
+
+The dashboard extension SHALL register listeners for five dashboard-owned role events under the `roles:` namespace: `roles:get-all`, `roles:set`, `roles:preset-load`, `roles:preset-save`, `roles:preset-delete`. Behaviour is preserved bit-for-bit from the former `flow:role-*` handlers: re-read the file on every event; loading a preset replaces `roles` wholesale; setting a role while a preset is active updates that preset in-place; mutating events set a `success` boolean. No `flow:`-prefixed alias SHALL be retained.
+
+#### Scenario: roles:get-all returns roles + presets + activePreset
+
+- **GIVEN** the file contains `roles: { fast: "anthropic/opus" }, rolePresets: [{ name: "default", roles: {} }], activePreset: "default"`
+- **WHEN** an emitter calls `pi.events.emit("roles:get-all", data)`
+- **THEN** `data.roles` SHALL include `fast: "anthropic/opus"` (with the read-time schema overlay)
+- **AND** `data.presets` SHALL contain the `default` preset
+- **AND** `data.activePreset` SHALL equal `"default"`
+
+#### Scenario: roles:set persists immediately
+
+- **WHEN** an emitter calls `pi.events.emit("roles:set", { role: "coding", modelId: "anthropic/claude-opus-4" })`
+- **THEN** `data.success` SHALL be `true`
+- **AND** the on-disk file SHALL contain `roles.coding === "anthropic/claude-opus-4"`
+
+#### Scenario: No flow:-prefixed role event is registered
+
+- **WHEN** the dashboard extension's `activate(pi)` runs
+- **THEN** it SHALL register the five `roles:*` listeners
+- **AND** it SHALL NOT register any `flow:role-*` listener (no compatibility alias)
+

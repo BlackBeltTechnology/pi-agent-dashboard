@@ -780,7 +780,7 @@ export default function App() {
   // Request global roles once on connect, using any available session id
   // as a routing target (the bridge handler doesn't actually scope by it).
   // Without this the Settings → Roles panel stays empty until something else
-  // (a `flow:role-set`, `session_start`, etc.) triggers a `roles_list`.
+  // (a `roles:set`, `session_start`, etc.) triggers a `roles_list`.
   // See change: fix-pi-flows-end-to-end (Group 5 — global roles).
   const globalRefreshRequestedRef = useRef(false);
   useEffect(() => {

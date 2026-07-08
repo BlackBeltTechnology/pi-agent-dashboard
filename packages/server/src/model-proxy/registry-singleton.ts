@@ -14,6 +14,8 @@ import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology
 import { InternalRegistry, type PiAiModule, type CustomProviderEntry, type CustomModelEntry } from "./internal-registry.js";
 import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-storage.js";
 import { readAuthJson } from "../provider-auth-storage.js";
+import { discoverAllCustomProviders } from "./custom-provider-discovery.js";
+import { resolveProbeApiKey, readProvidersFromDisk } from "../provider-probe.js";
 
 let cachedRegistry: InternalRegistry | null = null;
 let cachedPiAi: PiAiModule | null = null;
@@ -46,6 +48,28 @@ function readModels(): CustomModelEntry[] {
   }
 }
 
+/**
+ * Synthetic api_key credentials for custom providers, keyed by provider name.
+ * Custom-provider apiKeys live in providers.json#providers (not auth.json), so
+ * the registry's auth-filter (canRouteModel) and the proxy's key resolution
+ * would otherwise treat every discovered custom model as unauthenticated and
+ * exclude it from `getAvailable()`. Resolves literal / `$ENV` keys.
+ * See change: add-agent-role-model-tools.
+ */
+function readCustomProviderCreds(): Record<string, { type: "api_key"; key: string }> {
+  const out: Record<string, { type: "api_key"; key: string }> = {};
+  for (const [name, entry] of Object.entries(readProviders())) {
+    const resolved = resolveProbeApiKey({ apiKey: entry.apiKey ?? "", name, readProviders: readProvidersFromDisk });
+    if (resolved.ok && resolved.key) out[name] = { type: "api_key", key: resolved.key };
+  }
+  return out;
+}
+
+/** auth.json credentials plus synthetic custom-provider api_key creds. */
+function readAugmentedAuth(): Record<string, any> {
+  return { ...readAuthJson(), ...readCustomProviderCreds() };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function getModelRegistry(): Promise<InternalRegistry> {
@@ -65,13 +89,17 @@ export async function getModelRegistry(): Promise<InternalRegistry> {
       }
     }
 
-    const authStorage = new InternalAuthStorage(oauthModule);
+    const authStorage = new InternalAuthStorage(oauthModule, readCustomProviderCreds);
     cachedPiAi = piAi;
     cachedRegistry = new InternalRegistry(piAi, authStorage, {
       readProviders,
       readModels,
-      readAuth: readAuthJson,
+      readAuth: readAugmentedAuth,
+      discoverCustomProviders: discoverAllCustomProviders,
     });
+    // Fire-and-forget initial custom-provider discovery so /api/models reflects
+    // providers.json without waiting on the first request. Non-fatal on error.
+    void cachedRegistry.discover().catch(() => {});
     lastError = null;
     return cachedRegistry;
   } catch (err) {

@@ -137,6 +137,23 @@ describe("BuiltInRolesSettings", () => {
     expect(getByTestId("roles-row-planning")).toBeTruthy();
   });
 
+  it("renders an added role as an empty slot and omits a removed default (effective schema)", () => {
+    // Back-end overlay now keys off the effective schema (defaults \u222a added
+    // \u2212 removed). The section transparently renders whatever roles arrive.
+    // See change: add-agent-role-model-tools.
+    seedConfig({
+      roles: { planning: "", coding: "", compact: "", fast: "", research: "", review: "" },
+      presets: [],
+      activePreset: null,
+      models: [],
+    });
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    // Added role appears as an empty slot.
+    expect(getByTestId("roles-row-review").textContent).toContain("Add model");
+    // Removed default (vision) is absent.
+    expect(queryByTestId("roles-row-vision")).toBeNull();
+  });
+
   it("hides the setup banner once a role has an assigned model", () => {
     seedConfig(sampleConfig);
     const { queryByTestId } = render(wrap(<BuiltInRolesSettings />));

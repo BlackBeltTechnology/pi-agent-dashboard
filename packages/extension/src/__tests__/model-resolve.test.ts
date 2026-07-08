@@ -299,12 +299,14 @@ describe("model:resolve — malformed providers.json tolerated", () => {
   });
 });
 
-// ── Cold-start fallback via `pi.modelRegistry` ────────────────────────
+// ── Dead pi.modelRegistry fallback removed ────────────────────────────
 //
-// See change: fix-model-resolve-cold-start. These tests exercise the
-// getModelRegistry() fallback path. They do NOT fire `session_start` /
-// `model_select`, so `modelRegistryRef` stays null and the handler must
-// reach the registry through `pi.modelRegistry`.
+// See change: add-agent-role-model-tools. The former getModelRegistry()
+// fallback read `(piRef as any).modelRegistry` — a property that does NOT
+// exist on ExtensionAPI in pi 0.80 (it lives on ExtensionContext). These
+// tests pin the corrected behaviour: the ONLY registry source is the
+// `ctx.modelRegistry`-captured `modelRegistryRef`, and when it is unpopulated
+// the handler sets probe.error (never throws, never resolves via pi.*).
 
 async function bootstrapCold(piModelRegistry: any) {
   const fake = mkPi();
@@ -317,8 +319,11 @@ async function bootstrapCold(piModelRegistry: any) {
   return fake;
 }
 
-describe("model:resolve — cold-start fallback to pi.modelRegistry", () => {
-  it("resolves provider/model via pi.modelRegistry when modelRegistryRef is null", async () => {
+describe("model:resolve — dead pi.modelRegistry fallback is gone", () => {
+  it("does NOT resolve via pi.modelRegistry when modelRegistryRef is null (known model)", async () => {
+    // Repro (task 1.1): pi.modelRegistry is set but modelRegistryRef is not.
+    // The dead fallback would have resolved; the corrected handler must NOT —
+    // probe.model stays unset and probe.error fires for a known model.
     const m = { id: "claude-haiku-4-5", provider: "anthropic" };
     const piRegistry = makeRegistry({ models: [m] });
     const fake = await bootstrapCold(piRegistry);
@@ -326,24 +331,19 @@ describe("model:resolve — cold-start fallback to pi.modelRegistry", () => {
     const probe: any = { ref: "anthropic/claude-haiku-4-5" };
     await fake.emit("model:resolve", probe);
 
-    expect(probe.error).toBeUndefined();
-    expect(probe.model).toBe(m);
-    expect(probe.resolved).toBe("anthropic/claude-haiku-4-5");
-    expect(probe.auth).toEqual({ ok: true, apiKey: "sk-test", headers: {} });
+    expect(probe.model).toBeUndefined();
+    expect(probe.error).toBe('Model registry unavailable — cannot resolve "anthropic/claude-haiku-4-5".');
   });
 
-  it("prefers the warm modelRegistryRef over pi.modelRegistry once captured", async () => {
-    // Two distinct registries: only the warm one knows about the model.
-    // If the handler used pi.modelRegistry instead, lookup would miss.
+  it("fills probe.model from the ctx.modelRegistry-captured warm ref", async () => {
     const warmModel = { id: "warm-only", provider: "anthropic" };
     const warmRegistry = makeRegistry({ models: [warmModel] });
-    const coldRegistry = makeRegistry({ models: [] });
 
     const fake = mkPi();
-    fake.pi.modelRegistry = coldRegistry;
+    // Even with a bogus pi.modelRegistry present, the warm ref is the source.
+    fake.pi.modelRegistry = makeRegistry({ models: [] });
     const { activate } = await import("../provider-register.js");
     activate(fake.pi);
-    // Warm via session_start — this should win for subsequent probes.
     await fake.fireLifecycle("session_start", {}, { modelRegistry: warmRegistry, model: null, ui: { notify: () => {} } });
 
     const probe: any = { ref: "anthropic/warm-only" };
@@ -353,22 +353,20 @@ describe("model:resolve — cold-start fallback to pi.modelRegistry", () => {
     expect(probe.model).toBe(warmModel);
   });
 
-  it("degenerate: both modelRegistryRef and pi.modelRegistry null sets the registry-unavailable error", async () => {
-    // No pi.modelRegistry, no session_start.
+  it("no registry handle yields the unavailable error, not a throw", async () => {
     const fake = await bootstrapCold(undefined);
     const probe: any = { ref: "anthropic/claude-haiku-4-5" };
-    await fake.emit("model:resolve", probe);
+    await expect(fake.emit("model:resolve", probe)).resolves.toBeUndefined();
     expect(probe.model).toBeUndefined();
     expect(probe.error).toBe('Model registry unavailable — cannot resolve "anthropic/claude-haiku-4-5".');
   });
 
-  it("resolves @fast cold-start via pi.modelRegistry fallback", async () => {
+  it("@role with a captured warm ref fills probe.model", async () => {
     writeFileSync(CONFIG(), JSON.stringify({
       roles: { fast: "anthropic/claude-haiku-4-5" },
     }));
     const m = { id: "claude-haiku-4-5", provider: "anthropic" };
-    const piRegistry = makeRegistry({ models: [m] });
-    const fake = await bootstrapCold(piRegistry);
+    const fake = await bootstrap(makeRegistry({ models: [m] }));
 
     const probe: any = { ref: "@fast" };
     await fake.emit("model:resolve", probe);

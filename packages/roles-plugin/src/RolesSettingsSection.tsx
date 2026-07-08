@@ -115,7 +115,7 @@ export function BuiltInRolesSettings() {
   // pi-flows roles are GLOBAL, but the server's WS routing forwards
   // role_set / role_preset_* messages to a specific pi session by id
   // (`piGateway.sendToSession(msg.sessionId, ...)`). The bridge handler
-  // there ignores the routed sessionId and emits flow:role-* on its own
+  // there ignores the routed sessionId and emits roles:* on its own
   // session's pi.events bus — any live session works as a transport.
   // Pick the first non-ended session as the routing target.
   const allSessions = useAllSessions();

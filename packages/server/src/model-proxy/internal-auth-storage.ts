@@ -36,16 +36,29 @@ export class InternalAuthStorage {
   private cachedAuth: AuthData | null = null;
   /** Serializes concurrent refresh attempts per provider. */
   private refreshLocks = new Map<string, Promise<OAuthCredential>>();
+  /**
+   * Resolver for custom-provider api_key creds (providers.json#providers).
+   * Custom-provider keys are not in auth.json, so routing a custom-provider
+   * model falls back to this. See change: add-agent-role-model-tools.
+   */
+  private customProviderCreds: (() => Record<string, { type: "api_key"; key: string }>) | null;
 
-  constructor(oauthModule: PiAiOAuthModule | null) {
+  constructor(
+    oauthModule: PiAiOAuthModule | null,
+    customProviderCreds?: () => Record<string, { type: "api_key"; key: string }>,
+  ) {
     this.oauthModule = oauthModule;
+    this.customProviderCreds = customProviderCreds ?? null;
   }
 
   async getApiKeyAndHeaders(
     model: any,
   ): Promise<{ apiKey: string; headers: Record<string, string> }> {
     const auth = this.getAuth();
-    const cred = auth[model.provider];
+    let cred: AuthCredential | undefined = auth[model.provider];
+    if (!cred && this.customProviderCreds) {
+      cred = this.customProviderCreds()[model.provider];
+    }
     if (!cred) {
       throw new Error(`No credentials for provider "${model.provider}"`);
     }

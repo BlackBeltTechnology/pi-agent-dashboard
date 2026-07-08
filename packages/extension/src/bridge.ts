@@ -33,6 +33,7 @@ import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { PromptBus } from "./prompt-bus.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
+import { registerRoleModelTools } from "./role-model-tools.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { activate as activateProviderRegister, onProviderChanged, reloadProviders, buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { activate as activateRoleManager } from "./role-manager.js";
@@ -123,9 +124,10 @@ export default function (pi: ExtensionAPI) {
     // registered before session_start fires and models_list is sent.
     activateProviderRegister(pi);
 
-    // Activate role manager: registers `flow:role-*` handlers that back
+    // Activate role manager: registers `roles:*` handlers that back
     // Settings → Roles. Relocated from pi-flows per OpenSpec change
-    // `adopt-model-resolve-handler-and-roles-ownership`.
+    // `adopt-model-resolve-handler-and-roles-ownership`; the legacy `flow:`
+    // prefix was dropped in `add-agent-role-model-tools` (design D11).
     activateRoleManager(pi);
 
     // Anthropic-messages payload transforms (system prompt rewrite + tool
@@ -756,10 +758,10 @@ function initBridge(pi: ExtensionAPI) {
       // Route role management from dashboard
       if (msg.type === "role_set" && pi.events) {
         const data: any = { role: (msg as any).role, modelId: (msg as any).modelId };
-        pi.events.emit("flow:role-set", data);
+        pi.events.emit("roles:set", data);
         if (data.success) {
           const rolesData: any = {};
-          pi.events.emit("flow:role-get-all", rolesData);
+          pi.events.emit("roles:get-all", rolesData);
           connection.send({
             type: "roles_list",
             sessionId,
@@ -772,10 +774,10 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (msg.type === "role_preset_load" && pi.events) {
         const data: any = { name: (msg as any).presetName };
-        pi.events.emit("flow:role-preset-load", data);
+        pi.events.emit("roles:preset-load", data);
         if (data.success) {
           const rolesData: any = {};
-          pi.events.emit("flow:role-get-all", rolesData);
+          pi.events.emit("roles:get-all", rolesData);
           connection.send({
             type: "roles_list",
             sessionId,
@@ -788,10 +790,10 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (msg.type === "role_preset_save" && pi.events) {
         const data: any = { name: (msg as any).presetName };
-        pi.events.emit("flow:role-preset-save", data);
+        pi.events.emit("roles:preset-save", data);
         if (data.success) {
           const rolesData: any = {};
-          pi.events.emit("flow:role-get-all", rolesData);
+          pi.events.emit("roles:get-all", rolesData);
           connection.send({
             type: "roles_list",
             sessionId,
@@ -804,10 +806,10 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (msg.type === "role_preset_delete" && pi.events) {
         const data: any = { name: (msg as any).presetName };
-        pi.events.emit("flow:role-preset-delete", data);
+        pi.events.emit("roles:preset-delete", data);
         if (data.success) {
           const rolesData: any = {};
-          pi.events.emit("flow:role-get-all", rolesData);
+          pi.events.emit("roles:get-all", rolesData);
           connection.send({
             type: "roles_list",
             sessionId,
@@ -820,7 +822,7 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (msg.type === "request_roles" && pi.events) {
         const rolesData: any = {};
-        pi.events.emit("flow:role-get-all", rolesData);
+        pi.events.emit("roles:get-all", rolesData);
         connection.send({
           type: "roles_list",
           sessionId,
@@ -1780,6 +1782,12 @@ function initBridge(pi: ExtensionAPI) {
     // tool-name conflicts with other extensions like pi-flows.
     registerAskUserTool(pi);
 
+    // Register the agent-facing role/model tools (list_models, list_roles,
+    // update_roles). list_models reads the in-process session registry via a
+    // live getter so its refs match the human Model Selector exactly.
+    // See change: add-agent-role-model-tools.
+    registerRoleModelTools(pi, { getRegistry: () => cachedModelRegistry });
+
     // Extract session file/dir early — needed for source detection and UI proxy
     const sessionFile = ctx.sessionManager.getSessionFile?.() ?? undefined;
     const sessionDir = ctx.sessionManager.getSessionDir?.() ?? undefined;
@@ -2244,7 +2252,7 @@ function initBridge(pi: ExtensionAPI) {
     // Send initial roles
     if (pi.events) {
       const rolesData: any = {};
-      pi.events.emit("flow:role-get-all", rolesData);
+      pi.events.emit("roles:get-all", rolesData);
       if (rolesData.roles) {
         connection.send({
           type: "roles_list",
