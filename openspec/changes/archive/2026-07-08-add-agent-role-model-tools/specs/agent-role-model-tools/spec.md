@@ -4,7 +4,7 @@
 
 The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the assignable model catalogue from the IN-PROCESS session registry via the EXACT SAME source the human Model Selector uses: `cachedModelRegistry.getAvailable().map(toModelInfo)` (the path feeding the `models_list` push and `flow:get-available-models`), NOT the dashboard server's `registry-singleton`. This guarantees the tool lists the same models the picker shows — including custom providers registered via `pi.registerProvider()` (which register into the same registry; `getAvailable()` surfaces pi-ai's catalog PLUS custom models) — and that returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves.
 
-Each row SHALL carry the `toModelInfo` projection including the `custom?: boolean` flag (true for models from a `pi.registerProvider()` custom provider), so an agent can distinguish custom-provider models. Because `getAvailable()` is reachability-filtered, a custom provider without resolved credentials is excluded from the default result; the tool MAY accept an `annotated` flag surfacing every known model with `excludedReason` (`no-credential` / `oauth-incompatible`) via `getAllAnnotated()`.
+Each row SHALL carry the `toModelInfo` projection including the `custom?: boolean` flag (true for models from a `pi.registerProvider()` custom provider), so an agent can distinguish custom-provider models. Because `getAvailable()` is reachability-filtered, a custom provider without resolved credentials is excluded from the default result; the tool MAY accept an `annotated` flag surfacing every known model with `excludedReason` (`no-credential` / `oauth-incompatible`), derived in-process from the registry's `getAll()` minus `getAvailable()` (pi's session `ModelRegistry` exposes no `getAllAnnotated()` — that method exists only on the server's `InternalRegistry`).
 
 The tool SHALL be fully DECOUPLED from the role subsystem: it SHALL NOT read `providers.json#roles` and SHALL succeed even when the role slice is missing or malformed. Each row SHALL be `{ ref, provider, id, custom?, reasoning, input, contextWindow, cost }`, where `ref` is the exact `"provider/modelId"` literal accepted by `update_roles` `set_role` and parsed by `model:resolve`.
 
@@ -46,7 +46,7 @@ The returned object SHALL contain:
 - `presets`: an array of preset names.
 - `activePreset`: the active preset name, or `null`.
 
-The tool SHALL read the role slice through the single `lookupRole`/role-accessor in `role-manager.ts` (no independent file reader), and SHALL tolerate a missing/malformed role slice by returning `{ roles: {}, presets: [], activePreset: null }`.
+The tool SHALL read the role slice through the shared role-config reader in `role-manager.ts` (`loadRoleConfig`, the same accessor family as `lookupRole`; no independent file reader), and SHALL tolerate a missing/malformed role slice by returning `{ roles: {}, presets: [], activePreset: null }`.
 
 #### Scenario: list_roles returns bound roles only
 
