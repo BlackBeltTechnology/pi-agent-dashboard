@@ -63,7 +63,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
+import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/loading-history.js";
@@ -1552,37 +1552,23 @@ export default function App() {
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Unified status banner. Sticky above the command input — ONE
-              composed error-lifecycle surface: a persistent error anchor
-              (lastError) with a live retry sub-status (retryState) on top.
-              Dismiss ✕ is state-dependent inside SessionBanner: abort+clear
-              on a retrying/retryable surface, clear-only on limit-exceeded.
-              See change: unify-error-retry-lifecycle. */}
+              single card: a persistent error anchor (lastError) with a live
+              retry sub-line (retryState) composed in the same card. Dismiss ✕
+              is CLEAR-ONLY (never aborts); the labeled "Stop (ends the
+              session)" retry control is the sole abort path. No manual retry.
+              See change: unify-error-retry-lifecycle.
+              See change: simplify-error-retry-single-card. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onAbort={handleAbort}
-            onRetry={selectedId && !selectedState.isStreaming ? () => {
-              // Retry the last user prompt by re-sending it via send_prompt.
-              // The reducer flags the new user message `retriedFrom` so the
-              // chat view does not render a duplicate bubble. See change:
-              // fix-retry-resends-last-user-message.
-              // Gated on `!isStreaming`: while the (manual or auto) retry turn
-              // is already in flight the error anchor still shows but the
-              // manual Retry control is suppressed to avoid a duplicate send.
-              // See change: unify-error-retry-lifecycle.
-              const last = findLastUserPrompt(selectedState.messages);
-              if (last) handleSendPromptToSession(selectedId, last.text, last.images);
-            } : undefined}
             onDismiss={selectedId ? () => {
+              // Clear-only: hide the card by clearing BOTH the error anchor
+              // and any live retry sub-status locally. Does NOT abort — the
+              // session keeps running/retrying in the background.
+              // See change: simplify-error-retry-single-card.
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear BOTH the error anchor and any live retry sub-status so
-                // the composed surface disappears immediately. On a retrying
-                // dismiss the banner also fired onAbort (handleAbort) — the
-                // bridge will confirm via a synthesized auto_retry_end, but we
-                // clear retryState locally so the amber block does not linger
-                // until that round-trip lands.
-                // See change: unify-error-retry-lifecycle.
                 if (current?.lastError || current?.retryState) {
                   next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
                 }

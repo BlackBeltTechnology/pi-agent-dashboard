@@ -1,63 +1,88 @@
-import { describe, it, expect } from "vitest";
-import { RetryTracker, RETRYABLE_PATTERN } from "../retry-tracker.js";
+import { describe, expect, it } from "vitest";
+import { RetryTracker } from "../retry-tracker.js";
 
-describe("RetryTracker", () => {
-  it("synthesizes auto_retry_start on retryable assistant error", () => {
+describe("RetryTracker (observe-based, no regex)", () => {
+  it("error message_end alone emits nothing and does not mark retrying", () => {
     const t = new RetryTracker();
     const ev = t.observeMessageEnd("s1", {
       role: "assistant",
       stopReason: "error",
-      errorMessage: "rate limit exceeded",
+      errorMessage: "overloaded",
     });
+    expect(ev).toBeNull();
+    // Not yet retrying — pi may retry or give up.
+    expect(t.isRetrying("s1")).toBe(false);
+  });
+
+  it("a fresh assistant message_start after an error emits auto_retry_start", () => {
+    const t = new RetryTracker();
+    t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "overloaded" });
+    const ev = t.observeMessageStart("s1", { role: "assistant" });
     expect(ev).not.toBeNull();
     expect(ev!.eventType).toBe("auto_retry_start");
     expect(ev!.data).toEqual({
       attempt: 1,
       maxAttempts: -1,
       delayMs: -1,
-      errorMessage: "rate limit exceeded",
+      errorMessage: "overloaded",
     });
     expect(t.isRetrying("s1")).toBe(true);
   });
 
-  it("does not synthesize for non-retryable error (e.g. context overflow)", () => {
+  it("no regex gate: a would-be non-retryable string still retries if pi restarts", () => {
     const t = new RetryTracker();
-    const ev = t.observeMessageEnd("s1", {
+    // A string pi historically would NOT retry — but detection is behavioral,
+    // so IF a new attempt is observed, we emit auto_retry_start.
+    t.observeMessageEnd("s1", {
       role: "assistant",
       stopReason: "error",
       errorMessage: "prompt is too long: 300000 tokens > 200000 maximum",
     });
-    expect(ev).toBeNull();
+    const ev = t.observeMessageStart("s1", { role: "assistant" });
+    expect(ev).not.toBeNull();
+    expect(ev!.eventType).toBe("auto_retry_start");
+  });
+
+  it("message_start with no pending failure emits nothing", () => {
+    const t = new RetryTracker();
+    expect(t.observeMessageStart("s1", { role: "assistant" })).toBeNull();
     expect(t.isRetrying("s1")).toBe(false);
   });
 
-  it("does not synthesize for non-assistant messages", () => {
+  it("does not track non-assistant message_end", () => {
     const t = new RetryTracker();
     expect(t.observeMessageEnd("s1", { role: "user" })).toBeNull();
     expect(t.observeMessageEnd("s1", { role: "toolResult", stopReason: "error" })).toBeNull();
+    expect(t.observeMessageStart("s1", { role: "user" })).toBeNull();
   });
 
-  it("does not synthesize for missing or empty errorMessage", () => {
+  it("does not track an empty errorMessage", () => {
     const t = new RetryTracker();
     expect(t.observeMessageEnd("s1", { role: "assistant", stopReason: "error" })).toBeNull();
     expect(
       t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "" }),
     ).toBeNull();
+    // No pending failure recorded → no retry synth on the next attempt.
+    expect(t.observeMessageStart("s1", { role: "assistant" })).toBeNull();
   });
 
-  it("increments attempt counter across multiple retryable errors", () => {
+  it("increments attempt across successive error → retry cycles", () => {
     const t = new RetryTracker();
-    const a = t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
-    const b = t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
-    const c = t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    const a = t.observeMessageStart("s1", { role: "assistant" });
+    t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    const b = t.observeMessageStart("s1", { role: "assistant" });
+    t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    const c = t.observeMessageStart("s1", { role: "assistant" });
     expect((a!.data as any).attempt).toBe(1);
     expect((b!.data as any).attempt).toBe(2);
     expect((c!.data as any).attempt).toBe(3);
   });
 
-  it("synthesizes auto_retry_end success on successful assistant message_end after retry", () => {
+  it("synthesizes auto_retry_end success on a successful message_end after a retry", () => {
     const t = new RetryTracker();
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    t.observeMessageStart("s1", { role: "assistant" });
     const ev = t.observeMessageEnd("s1", { role: "assistant", stopReason: "end_turn" });
     expect(ev).not.toBeNull();
     expect(ev!.eventType).toBe("auto_retry_end");
@@ -73,7 +98,9 @@ describe("RetryTracker", () => {
   it("synthesizes auto_retry_end failure on agent_end with terminal error", () => {
     const t = new RetryTracker();
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "rate limit" });
+    t.observeMessageStart("s1", { role: "assistant" });
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "rate limit" });
+    t.observeMessageStart("s1", { role: "assistant" });
     const ev = t.observeAgentEnd("s1", {
       messages: [{ role: "assistant", stopReason: "error", errorMessage: "Rate limit exceeded permanently" }],
     });
@@ -87,9 +114,24 @@ describe("RetryTracker", () => {
     expect(t.isRetrying("s1")).toBe(false);
   });
 
+  it("un-retried error → agent_end returns null (flows via reducer's extractor)", () => {
+    const t = new RetryTracker();
+    // Error message_end but pi never starts a new attempt (non-retryable).
+    t.observeMessageEnd("s1", {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "invalid api key",
+    });
+    const ev = t.observeAgentEnd("s1", {
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "invalid api key" }],
+    });
+    expect(ev).toBeNull();
+  });
+
   it("synthesizes auto_retry_end success on agent_end with non-error terminal message", () => {
     const t = new RetryTracker();
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    t.observeMessageStart("s1", { role: "assistant" });
     const ev = t.observeAgentEnd("s1", {
       messages: [{ role: "assistant", stopReason: "end_turn" }],
     });
@@ -105,43 +147,19 @@ describe("RetryTracker", () => {
   it("noteAbort clears tracker so subsequent agent_end does not double-emit", () => {
     const t = new RetryTracker();
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    t.observeMessageStart("s1", { role: "assistant" });
     t.noteAbort("s1");
     expect(t.isRetrying("s1")).toBe(false);
     expect(t.observeAgentEnd("s1", { messages: [] })).toBeNull();
+    // Pending failure also cleared — a later message_start does not resurrect.
+    expect(t.observeMessageStart("s1", { role: "assistant" })).toBeNull();
   });
 
   it("scopes retry state per-session", () => {
     const t = new RetryTracker();
     t.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "429" });
+    t.observeMessageStart("s1", { role: "assistant" });
     expect(t.isRetrying("s1")).toBe(true);
     expect(t.isRetrying("s2")).toBe(false);
-  });
-
-  it.each([
-    "rate limit exceeded",
-    "Rate Limit hit",
-    "overloaded_error",
-    "too many requests",
-    "HTTP 429",
-    "HTTP 500 Internal Server Error",
-    "service unavailable",
-    "fetch failed",
-    "socket hang up",
-    "connection refused",
-    "connection lost",
-    "request timed out",
-    "terminated",
-    "retry delay exceeded",
-  ])("RETRYABLE_PATTERN matches: %s", (msg) => {
-    expect(RETRYABLE_PATTERN.test(msg)).toBe(true);
-  });
-
-  it.each([
-    "prompt is too long: 300000 tokens > 200000 maximum",
-    "tool execution failed",
-    "invalid input",
-    "",
-  ])("RETRYABLE_PATTERN does NOT match: %s", (msg) => {
-    expect(RETRYABLE_PATTERN.test(msg)).toBe(false);
   });
 });

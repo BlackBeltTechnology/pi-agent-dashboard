@@ -8,9 +8,9 @@ import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
  * pipeline (faux model → bridge → /ws → reducer → SessionBanner), no LLM
  * credential:
  *
- *  1. A terminal model error surfaces ONE composed error-lifecycle surface
- *     (`error-banner`) with Retry + Dismiss, and NO yellow retry banner for a
- *     non-retryable error (single red surface).
+ *  1. A terminal model error surfaces ONE single-card error surface
+ *     (`error-banner`) with clear-only Dismiss (no manual retry), and NO
+ *     yellow retry banner for a non-retryable error (single red surface).
  *  2. The error anchor PERSISTS across the start of a NEW turn that has not yet
  *     produced a confirmed-good response — it is NOT cleared optimistically on
  *     `agent_start`. Driven deterministically with an `ask_user` turn: it pauses
@@ -45,9 +45,9 @@ test.describe("error-lifecycle surface", () => {
 
     // Exactly one red surface — never two banners for the same failure.
     await expect(page.getByTestId("error-banner")).toHaveCount(1);
-    // Generic (non-billing) error → Retry + Dismiss available.
-    await expect(page.getByTestId("error-banner-retry")).toBeVisible();
+    // Clear-only Dismiss available; NO manual retry control.
     await expect(page.getByTestId("error-banner-dismiss")).toBeVisible();
+    await expect(page.getByTestId("error-banner-retry")).toHaveCount(0);
     // Non-retryable error → NO amber retry banner alongside the red one.
     await expect(page.getByTestId("retry-banner")).toHaveCount(0);
   });

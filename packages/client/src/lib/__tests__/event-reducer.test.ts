@@ -2885,11 +2885,11 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     });
   });
 
-  it("returns error anchor (kind limit-exceeded) for USAGE_LIMIT_PATTERN match", () => {
+  it("returns ordinary error anchor (never limit-exceeded) for a billing message", () => {
     const s = createInitialState();
     s.lastError = { message: "monthly_spending_cap exceeded", timestamp: 1 };
     expect(deriveBannerState(s)).toEqual({
-      error: { kind: "limit-exceeded", message: "monthly_spending_cap exceeded" },
+      error: { kind: "error", message: "monthly_spending_cap exceeded" },
     });
   });
 
@@ -2910,14 +2910,14 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     });
   });
 
-  it("limit-exceeded kind distinguishes various USAGE_LIMIT_PATTERN matches", () => {
-    const cases: Array<[string, "limit-exceeded" | "error"]> = [
-      ["usage_limit_reached", "limit-exceeded"],
-      ["quota_exceeded", "limit-exceeded"],
-      ["insufficient_quota", "limit-exceeded"],
-      ["credit balance too low", "limit-exceeded"],
-      ["monthly_spending_cap", "limit-exceeded"],
-      ["reset after 12h", "limit-exceeded"],
+  it("every lastError maps to kind error (no billing regex classification)", () => {
+    const cases: Array<[string, "error"]> = [
+      ["usage_limit_reached", "error"],
+      ["quota_exceeded", "error"],
+      ["insufficient_quota", "error"],
+      ["credit balance too low", "error"],
+      ["monthly_spending_cap", "error"],
+      ["reset after 12h", "error"],
       ["fetch failed", "error"],
       ["tool execution failed", "error"],
       ["429 too many requests", "error"],

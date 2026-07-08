@@ -3,7 +3,6 @@
  * (state, event) → new state
  */
 
-import { USAGE_LIMIT_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/error-patterns.js";
 // Flow + architect state derivation moved into flows-plugin per change
 // pluginize-flows-via-registry. The shell carries no flow knowledge.
 // Plugins consume `useSessionEvents(sessionId)` from
@@ -903,10 +902,11 @@ export function isCleanAgentEnd(data: Record<string, unknown>): boolean {
  * as the header AND the retry status renders as a sub-line in the same
  * surface. Returns `{ variant: "hidden" }` only when BOTH are undefined.
  *
- * `error.kind` is `"limit-exceeded"` when `USAGE_LIMIT_PATTERN` matches,
- * else `"error"`.
+ * `error.kind` is always `"error"`. There is no billing/quota classification:
+ * usage-limit failures render as ordinary errors (no regex, no 💳 variant).
  *
  * See change: unify-error-retry-lifecycle.
+ * See change: simplify-error-retry-single-card.
  */
 export interface BannerRetry {
   attempt: number;
@@ -918,16 +918,15 @@ export interface BannerRetry {
 export type BannerState =
   | { variant: "hidden" }
   | {
-      error?: { kind: "error" | "limit-exceeded"; message: string };
+      error?: { kind: "error"; message: string };
       retry?: BannerRetry;
     };
 
 export function deriveBannerState(state: SessionState): BannerState {
   if (!state.lastError && !state.retryState) return { variant: "hidden" };
-  const out: { error?: { kind: "error" | "limit-exceeded"; message: string }; retry?: BannerRetry } = {};
+  const out: { error?: { kind: "error"; message: string }; retry?: BannerRetry } = {};
   if (state.lastError) {
-    const limit = USAGE_LIMIT_PATTERN.test(state.lastError.message);
-    out.error = { kind: limit ? "limit-exceeded" : "error", message: state.lastError.message };
+    out.error = { kind: "error", message: state.lastError.message };
   }
   if (state.retryState) {
     out.retry = {
