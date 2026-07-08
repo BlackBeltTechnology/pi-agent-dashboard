@@ -21,14 +21,13 @@ The role-name set is a hardcoded `DEFAULT_ROLE_NAMES` const overlaid at read tim
 - Delete the subagents harness's own dead `pi.modelRegistry` fallback; bump its installed build (it already emits `model:resolve` / reads `probe.model`).
 
 **Non-Goals:**
-- Renaming `flow:role-*` events to `roles:*` (tracked separately).
 - Per-session role scoping — roles stay global in `providers.json`.
 - Changing `agent-model-introspection`'s `GET /api/models` requirements; `list_roles` reuses the same registry path.
-- Deleting `flow:resolve-model` now — that removal stays at next major.
+- Keeping any `flow:role-*` compatibility alias — the rename is atomic (no external emitters).
 
 ## Decisions
 
-**D1. Two tools, not one; read vs write split.** A safe read and a global-mutating write behind one call would muddy both the schema and the confirmation story. `list_roles` (read) + `update_roles` (dispatched write). *Alt considered:* single `roles` tool with a mode flag — rejected (conflates safety tiers).
+**D1. Three tools; read/write split AND model/role decouple.** `list_models` (read), `list_roles` (read), `update_roles` (dispatched write). A safe read and a global-mutating write behind one call would muddy the schema + confirmation story (write split). Model listing is a lower-level primitive with an independent failure mode from roles — an agent may want the catalogue when roles are absent/unconfigured/malformed — so `list_models` is its own tool that never touches the role slice (model/role decouple). *Alt considered:* bundle models into `list_roles` (a single read) — rejected: couples model listing to role-slice health, so a malformed `providers.json#roles` would break model discovery too. *Alt:* single `roles` tool with a mode flag — rejected (conflates safety tiers).
 
 **D2. `update_roles` uses a discriminated `action` schema.** Mirrors the repo's existing `ask_user` discriminator pattern (`ask-user-schema-discriminator.test.ts`) — clean per-action arg shapes instead of a bag of optionals. Actions: `set_role`, `remove_role`, `create_preset`, `load_preset`, `delete_preset`.
 
@@ -46,6 +45,8 @@ The role-name set is a hardcoded `DEFAULT_ROLE_NAMES` const overlaid at read tim
 
 **D9. `role:resolve-model` kept one release as a thin alias over the shared resolve path.** Same one-release pattern already used for `flow:resolve-model`; avoids a flag day where an un-migrated subagents build hard-fails. Delete at next major.
 
+**D11. Atomic `flow:role-*` → `roles:*` rename, no alias; delete `flow:resolve-model` now.** Roles are 100% dashboard-owned; the `flow:` prefix is a cosmetic legacy holdover from when the code lived in pi-flows. pi-flows now has zero role code, and every `flow:role-*` emitter (bridge.ts, ~11 sites) and handler (role-manager.ts, 5) is in-repo, so there is no external producer to break — the base spec's "preserve for one release" shim is obsolete and its window expired. Rename all producers + consumers in one commit; no `flow:` alias retained. `flow:resolve-model` (deprecated, replacement `model:resolve`, zero in-repo emitters) is deleted in the same pass rather than deferred. *Contrast with D9:* `role:resolve-model` DOES keep a one-release alias because it has a known external consumer (older installed subagents-harness builds); `flow:role-*` has none. *Alt:* keep `flow:` aliases one release — rejected (no consumer to protect; keeps dead surface).
+
 **D10. Single `lookupRole()` accessor.** The `@role` → `providers.json#roles[name]` lookup is currently duplicated (`getModelRole()` vs `loadRoleConfig().roles[name]`). Collapse into one accessor consumed by the resolver, the alias, and both tools — no fourth independent reader.
 
 ## Risks / Trade-offs
@@ -62,7 +63,8 @@ The role-name set is a hardcoded `DEFAULT_ROLE_NAMES` const overlaid at read tim
 2. Add `lookupRole()`; route resolver + alias + tools through it.
 3. Add `list_roles` / `update_roles` tools; editable schema + purge.
 4. Delete the harness's dead `pi.modelRegistry` fallback + bump its build. Keep `role:resolve-model` as a deprecated alias for legacy harness builds.
-5. Next major: delete `role:resolve-model` and `flow:resolve-model`.
+5. Rename `flow:role-*` → `roles:*` atomically across `bridge.ts` (emitters) + `role-manager.ts` (handlers) + comments (`App.tsx`, `provider-register.ts`) + tests, in one commit; delete `flow:resolve-model`.
+6. Next major: delete `role:resolve-model`.
 
 Rollback: tools and alias are additive; reverting the extension restores prior behavior. The registry-handle fix is a strict correction (dead code removed) — low rollback risk.
 

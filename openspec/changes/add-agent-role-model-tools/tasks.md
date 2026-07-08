@@ -21,13 +21,13 @@
 - [ ] 3.4 Update `RolesSettingsSection.tsx` so the never-empty overlay + setup banner track the effective schema (added roles appear as empty slots in every preset; removed defaults disappear).
 - [ ] 3.5 Tests: overlay with adds/removes; purge clears all presets; `RolesSettingsSection` renders effective schema; unrelated keys preserved.
 
-## 4. `list_roles` tool (read)
+## 4. `list_models` + `list_roles` tools (read, decoupled)
 
-- [ ] 4.1 Register `list_roles` via `pi.registerTool`; return `{ roles(bound-only), presets, activePreset, models }`.
-- [ ] 4.2 Filter unset roles out of `roles` (empty-slot omission for the tool only; UI overlay unchanged).
-- [ ] 4.3 Source `models` from the same `ModelRegistry` path as `flow:get-available-models` / `GET /api/models`; include a ready-to-assign `ref` per model plus capability metadata.
-- [ ] 4.4 (Optional, per Open Question) support `annotated` mode surfacing `excludedReason` for reachable-filtered custom models.
-- [ ] 4.5 Tests: bound-only roles; presets/activePreset; refs assignable; custom-provider model appears with `provider/id` ref.
+- [ ] 4.1 Register `list_models` via `pi.registerTool`; source models from the IN-PROCESS session registry (`cachedModelRegistry.getAvailable()` + reuse `toModelInfo`), NOT the server `registry-singleton`. Emit a ready-to-assign `ref` per model + capability metadata.
+- [ ] 4.2 Make `list_models` fully roles-independent: it MUST NOT read `providers.json#roles` and MUST succeed when the role slice is missing/malformed.
+- [ ] 4.3 (Optional, per Open Question) support `annotated` mode on `list_models` surfacing `excludedReason` for reachable-filtered models.
+- [ ] 4.4 Register `list_roles` via `pi.registerTool`; return `{ roles(bound-only), presets, activePreset }` (NO models key); filter unset roles (empty-slot omission for the tool only; UI overlay unchanged); tolerate missing/malformed role slice → empty result.
+- [ ] 4.5 Tests: `list_models` refs assignable + works with roles absent + custom-provider ref present; `list_roles` bound-only + presets/activePreset + no `models` key + tolerates malformed slice.
 
 ## 5. `update_roles` tool (write, confirmed, dispatched)
 

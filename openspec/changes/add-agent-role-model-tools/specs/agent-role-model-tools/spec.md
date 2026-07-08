@@ -1,17 +1,41 @@
 ## ADDED Requirements
 
+### Requirement: The dashboard SHALL register a `list_models` agent tool decoupled from roles
+
+The dashboard extension SHALL register a `list_models` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the assignable model catalogue from the IN-PROCESS session registry — the same `cachedModelRegistry.getAvailable()` + `toModelInfo` path used by `flow:get-available-models` and the `models_list` push, NOT the dashboard server's `registry-singleton`. This guarantees the returned `ref`s match what `update_roles` `set_role` persists and `model:resolve` resolves.
+
+The tool SHALL be fully DECOUPLED from the role subsystem: it SHALL NOT read `providers.json#roles` and SHALL succeed even when the role slice is missing or malformed. Each row SHALL be `{ ref, provider, id, reasoning, input, contextWindow, cost }`, where `ref` is the exact `"provider/modelId"` literal accepted by `update_roles` `set_role` and parsed by `model:resolve`. The tool MAY accept an `annotated` flag surfacing `excludedReason` (`no-credential` / `oauth-incompatible`) for models excluded from the reachable set.
+
+#### Scenario: list_models returns assignable refs
+
+- **WHEN** an agent invokes `list_models`
+- **THEN** every row SHALL carry a `ref` string of the form `"provider/id"` assignable via `update_roles`
+- **AND** each row SHALL include available capability metadata (`reasoning`, `input`, `contextWindow`, `cost`) when known
+
+#### Scenario: list_models works when roles are unavailable
+
+- **GIVEN** `providers.json#roles` is missing or contains malformed JSON
+- **WHEN** an agent invokes `list_models`
+- **THEN** the tool SHALL return the model catalogue normally
+- **AND** SHALL NOT throw or depend on the role slice
+
+#### Scenario: Custom-provider models appear with an assignable ref
+
+- **GIVEN** a reachable custom provider `mycustom` with model `foo-v2` registered in the session registry
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL include `{ ref: "mycustom/foo-v2", provider: "mycustom", id: "foo-v2", … }`
+
 ### Requirement: The dashboard SHALL register a `list_roles` agent tool
 
-The dashboard extension SHALL register a `list_roles` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns, in a single call, everything an in-session agent needs to inspect and wire roles: the bound roles map, the presets list, the active preset, and the assignable model catalogue.
+The dashboard extension SHALL register a `list_roles` tool via `pi.registerTool` at activation. The tool is READ-ONLY and returns the role configuration only — NO models slice (model listing is the separate `list_models` tool).
 
 The returned object SHALL contain:
 
 - `roles`: an object mapping role name to its bound model ref, containing ONLY roles with a non-empty assigned model. Unset/empty role slots SHALL be omitted from the tool output (the human Settings UI keeps its empty-slot overlay; the tool does not).
 - `presets`: an array of preset names.
 - `activePreset`: the active preset name, or `null`.
-- `models`: an array of `{ ref, provider, id, reasoning, input, contextWindow, cost }` where `ref` is the exact `"provider/modelId"` literal accepted by `update_roles` `set_role` and parsed by `model:resolve`. The model slice SHALL be sourced from the same `ModelRegistry` access used by `flow:get-available-models` / `GET /api/models` (one source of truth).
 
-The tool SHALL read the role slice through the single `lookupRole`/role-accessor in `role-manager.ts` (no independent file reader).
+The tool SHALL read the role slice through the single `lookupRole`/role-accessor in `role-manager.ts` (no independent file reader), and SHALL tolerate a missing/malformed role slice by returning `{ roles: {}, presets: [], activePreset: null }`.
 
 #### Scenario: list_roles returns bound roles only
 
@@ -19,20 +43,14 @@ The tool SHALL read the role slice through the single `lookupRole`/role-accessor
 - **WHEN** an agent invokes `list_roles`
 - **THEN** the result `roles` SHALL deep-equal `{ planning: "anthropic/claude-x", coding: "openai/gpt-5" }`
 - **AND** `vision` SHALL be absent from `roles` (empty slot omitted)
+- **AND** the result SHALL NOT contain a `models` key
 
-#### Scenario: list_roles returns presets, activePreset, and assignable models
+#### Scenario: list_roles returns presets and activePreset
 
 - **GIVEN** `rolePresets` contains `cheap` and `premium` and `activePreset` is `cheap`
 - **WHEN** an agent invokes `list_roles`
 - **THEN** `presets` SHALL contain `"cheap"` and `"premium"`
 - **AND** `activePreset` SHALL equal `"cheap"`
-- **AND** every entry in `models` SHALL carry a `ref` string of the form `"provider/id"` assignable via `update_roles`
-
-#### Scenario: Custom-provider models appear with an assignable ref
-
-- **GIVEN** a reachable custom provider `mycustom` with model `foo-v2` registered in the registry
-- **WHEN** an agent invokes `list_roles`
-- **THEN** `models` SHALL include `{ ref: "mycustom/foo-v2", provider: "mycustom", id: "foo-v2", … }`
 
 ### Requirement: The dashboard SHALL register an `update_roles` agent tool with confirmed, dispatched writes
 

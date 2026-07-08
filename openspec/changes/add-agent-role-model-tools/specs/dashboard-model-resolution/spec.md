@@ -56,3 +56,11 @@ The primary consumer (the subagents harness) reads `probe.model` (a registry-res
 - **WHEN** the handler receives `{ ref: "@coding" }`
 - **THEN** `probe.error` SHALL be set naming the unresolved ref
 - **AND** `probe.model` SHALL remain unset
+
+## REMOVED Requirements
+
+### Requirement: The legacy `flow:resolve-model` listener SHALL remain registered as a deprecated alias
+
+**Reason**: `flow:resolve-model` is a deprecated alias whose behaviour is fully covered by `model:resolve`. It has ZERO in-repo emitters (only the handler registration exists in `provider-register.ts`) and no known external emitter, so retaining it keeps dead surface with no consumer to protect. The "keep one release" window has expired.
+
+**Migration**: Delete the `pi.events.on("flow:resolve-model", …)` listener and its `// DEPRECATED` block from `provider-register.ts`. Any hypothetical external caller MUST migrate to `model:resolve` (which handles `@role`, `provider/model[:thinking]`, and bare ids, and fills `probe.model`). This removal is executed in THIS change, not deferred to next major.
