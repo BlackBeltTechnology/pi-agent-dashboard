@@ -19,6 +19,7 @@ function depsWithSharedRegistry(): ServerContextDeps {
     registerPiHandler: () => {},
     registerBrowserHandler: () => {},
     onEvent: () => () => {},
+    onSessionEnded: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
     consumeAll: <T = unknown>(prefix: string) => {

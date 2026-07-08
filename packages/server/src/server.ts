@@ -750,6 +750,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
   const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
+  // Plugin session-end subscribers (ServerPluginContext.onSessionEnded). Fired
+  // from sessionManager.onUnregister via wireEvents — the transport-independent
+  // death signal, even when no terminal pi event was forwarded.
+  // See change: finalize-automation-run-on-session-death.
+  const pluginSessionEndSubs = new Set<(sessionId: string) => void>();
   // Host-owned cross-plugin service registry backing ServerPluginContext
   // provide/consume. One instance shared across every plugin context; the
   // loader's topological order guarantees a provider's registerPlugin runs
@@ -778,6 +783,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
     for (const h of pluginRawEventSubs) {
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
+    }
+  }
+  function dispatchPluginSessionEnded(sessionId: string): void {
+    for (const h of pluginSessionEndSubs) {
+      try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
   }
 
@@ -889,6 +899,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingClientCorrelations,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
+    dispatchPluginSessionEnded,
     metaPersistence,
     liveEpoch,
   });
@@ -1606,6 +1617,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               onEvent: (handler) => {
                 pluginRawEventSubs.add(handler);
                 return () => pluginRawEventSubs.delete(handler);
+              },
+              onSessionEnded: (handler) => {
+                pluginSessionEndSubs.add(handler);
+                return () => pluginSessionEndSubs.delete(handler);
               },
               sendToSession: (sessionId, text) =>
                 piGateway.sendToSession(sessionId, { type: "send_prompt", sessionId, text }),

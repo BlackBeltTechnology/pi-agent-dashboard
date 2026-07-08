@@ -47,6 +47,17 @@ export type RegisterPiHandlerFn = (type: string, handler: (msg: unknown) => void
 export type OnEventFn = (handler: (sessionId: string, event: unknown) => void) => () => void;
 
 /**
+ * Subscribe to session-end (unregister) for any session. The handler receives
+ * the ended `sessionId` once the host marks the session `ended` — fired on
+ * every death path (explicit unregister, heartbeat-timeout / reconnect-grace
+ * expiry, dead-TCP cleanup). Returns an unsubscribe fn. Distinct from the
+ * forwarded-event stream (`onEvent`): this fires from the transport/liveness
+ * layer even when no terminal pi event was forwarded. See change:
+ * finalize-automation-run-on-session-death.
+ */
+export type OnSessionEndedFn = (handler: (sessionId: string) => void) => () => void;
+
+/**
  * Send a prompt/command into a running pi session. Text starting with `/`
  * is routed through the bridge's extension-command dispatch (Path C keeper
  * for headless sessions). Returns false when the session is not connected.
@@ -183,6 +194,11 @@ export interface ServerPluginContext {
   registerBrowserHandler: RegisterBrowserHandlerFn;
   /** Subscribe to all forwarded pi events. See change: add-goal-continuation-plugin. */
   onEvent: OnEventFn;
+  /**
+   * Subscribe to session-end (unregister). See change:
+   * finalize-automation-run-on-session-death.
+   */
+  onSessionEnded: OnSessionEndedFn;
   /** Send a prompt/command into a running session. See change: add-goal-continuation-plugin. */
   sendToSession: SendToSessionFn;
   /**
@@ -237,6 +253,7 @@ export interface ServerContextDeps {
   registerPiHandler: RegisterPiHandlerFn;
   registerBrowserHandler: RegisterBrowserHandlerFn;
   onEvent: OnEventFn;
+  onSessionEnded: OnSessionEndedFn;
   sendToSession: SendToSessionFn;
   emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
@@ -266,6 +283,7 @@ export function createServerPluginContext(
     registerPiHandler: deps.registerPiHandler,
     registerBrowserHandler: deps.registerBrowserHandler,
     onEvent: deps.onEvent,
+    onSessionEnded: deps.onSessionEnded,
     sendToSession: deps.sendToSession,
     emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,

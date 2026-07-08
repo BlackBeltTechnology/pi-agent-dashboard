@@ -144,6 +144,21 @@ export function listRuns(scopeBase: string, name?: string): RunRecord[] {
 }
 
 /**
+ * List `running` run records across a scope whose age (`now - startedAt`)
+ * exceeds `maxAgeMs`. Backstop input for the stale-run reaper. See change:
+ * finalize-automation-run-on-session-death.
+ */
+export function listStaleRunningRuns(
+  scopeBase: string,
+  maxAgeMs: number,
+  now: number = Date.now(),
+): RunRecord[] {
+  return listRuns(scopeBase).filter(
+    (r) => r.status === "running" && now - r.startedAt > maxAgeMs,
+  );
+}
+
+/**
  * Prune the run store for one automation to keep at most `retention` runs,
  * deleting the oldest-first overflow. Returns the count pruned.
  */

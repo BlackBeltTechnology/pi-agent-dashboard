@@ -41,6 +41,12 @@ interface AutomationPluginConfig {
   scanFolderScope?: boolean;
   scanGlobalScope?: boolean;
   defaultModel?: string;
+  /**
+   * Max age (ms) a run may stay `running` before the stale-run reaper
+   * finalizes it `error` + frees its slot. Default 30 min; <= 0 disables.
+   * See change: finalize-automation-run-on-session-death.
+   */
+  maxRunAgeMs?: number;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -111,6 +117,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       ...(cfg.defaultModel ? { defaultModel: cfg.defaultModel } : {}),
       scanFolder: cfg.scanFolderScope !== false,
       scanGlobal: cfg.scanGlobalScope !== false,
+      maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
     };
   }
 
@@ -263,6 +270,22 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       }, 2000);
       if (typeof rescanTimer.unref === "function") rescanTimer.unref();
     }
+  });
+
+  // Finalize a run whose session DIES before its terminal event crosses the
+  // bridge — the proven code-only teardown race. Fires on every unregister
+  // path (WS close for a headless automation session, heartbeat-timeout,
+  // dead-TCP cleanup). Passes the buffered assistant/flow text if any; the
+  // engine finalizes `error` with a "session ended before completion" reason
+  // when nothing was buffered, and no-ops when the run already finalized
+  // (idempotent vs a late flow_complete/agent_end/Stop).
+  // See change: finalize-automation-run-on-session-death.
+  ctx.onSessionEnded((sessionId) => {
+    const buffered = (runText.get(sessionId) ?? []).join("\n\n").trim();
+    runText.delete(sessionId);
+    runPrompt.delete(sessionId);
+    runCompletion.delete(sessionId);
+    engine.onSessionDeath(sessionId, buffered);
   });
 
   void PLUGIN_ID;

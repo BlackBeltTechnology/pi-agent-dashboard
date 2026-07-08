@@ -380,9 +380,32 @@ export function createPiGateway(
         ws.on("close", () => {
           if (currentSessionId) {
             console.error(`[gateway] connection closed: ${currentSessionId}`);
-            // Don't immediately unregister - wait for heartbeat timeout
-            // This handles temporary disconnects
-            onDisconnect?.(currentSessionId);
+            // Headless automation runs are one-shot and never reconnect.
+            // Treating a WS close as terminal for them finalizes the run
+            // immediately instead of holding it in the human-oriented
+            // reconnect-grace path (which would leave the run `running` for
+            // the full heartbeat window and starve `concurrency: skip`).
+            // Every other session keeps the grace behavior unchanged.
+            // See change: finalize-automation-run-on-session-death.
+            const session = sessionManager.get(currentSessionId);
+            if (session?.kind === "automation" && session.status !== "ended") {
+              console.error(`[gateway] automation session ${currentSessionId} closed; finalizing now (no reconnect grace)`);
+              const timer = heartbeatTimers.get(currentSessionId);
+              if (timer) clearTimeout(timer);
+              heartbeatTimers.delete(currentSessionId);
+              heartbeatMeta.delete(currentSessionId);
+              connections.delete(currentSessionId);
+              onDisconnect?.(currentSessionId);
+              // unregister LAST: it fires onUnregister → plugin onSessionEnded
+              // → engine finalize; do it after local cleanup so the death
+              // signal sees a fully torn-down connection.
+              sessionManager.unregister(currentSessionId);
+              checkEmpty();
+            } else {
+              // Don't immediately unregister - wait for heartbeat timeout
+              // This handles temporary disconnects
+              onDisconnect?.(currentSessionId);
+            }
           }
           aliveMisses.delete(ws);
         });
