@@ -20,6 +20,7 @@ function makeFakeContext(): ServerPluginContext {
     broadcastToSubscribers: () => {},
     registerPiHandler: () => {},
     onEvent: () => () => {},
+    onSessionEnded: () => () => {},
     sendToSession: () => true,
     emitEventToSession: () => true,
     consumeAll: () => [],

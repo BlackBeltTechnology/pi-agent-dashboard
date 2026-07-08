@@ -34,7 +34,11 @@ import {
 import { fileTrigger } from "./file-trigger.js";
 import { interpolate } from "./interpolate.js";
 import { resolveModel } from "./model-resolver.js";
-import { finishRun as storeFinishRun, startRun as storeStartRun } from "./run-store.js";
+import {
+  finishRun as storeFinishRun,
+  listStaleRunningRuns,
+  startRun as storeStartRun,
+} from "./run-store.js";
 import { createRunner, type Runner } from "./runner.js";
 import { scanAutomations } from "./scanner.js";
 import { scheduleTrigger } from "./schedule-trigger.js";
@@ -147,6 +151,13 @@ export interface EngineConfig {
   defaultModel?: string;
   scanFolder: boolean;
   scanGlobal: boolean;
+  /**
+   * Max age (ms) a run may stay `running` before the reaper finalizes it as
+   * `error` and frees its concurrency slot. Transport-independent backstop
+   * against a lost terminal event. <= 0 disables the reaper. See change:
+   * finalize-automation-run-on-session-death.
+   */
+  maxRunAgeMs: number;
 }
 
 export interface EngineDeps {
@@ -239,6 +250,24 @@ export interface Engine {
   onSessionRegisteredForRun(sessionId: string, runId: string): void;
   /** Capture result.md + transition status when a run session ends. */
   onSessionEnded(sessionId: string, result: string): void;
+  /**
+   * Finalize a tracked run whose session DIED (connection close / heartbeat
+   * timeout, no reconnect) before delivering a terminal event. Finalizes once
+   * with the buffered `result` if present, else `error` with a
+   * "session ended before completion" reason, and frees the concurrency slot.
+   * Idempotent: a run already finalized (removed from pending) is a no-op, so
+   * a late `flow_complete`/`agent_end`/Stop after death does nothing.
+   * See change: finalize-automation-run-on-session-death.
+   */
+  onSessionDeath(sessionId: string, result?: string): void;
+  /**
+   * Backstop sweep: any `running` run older than `config().maxRunAgeMs` is
+   * finalized `error` + its slot freed (live runs) or its on-disk record
+   * cleared (pre-existing orphans). Idempotent with every other finalize
+   * path. Driven by an internal timer and callable directly (tests).
+   * See change: finalize-automation-run-on-session-death.
+   */
+  reapStaleRuns(): void;
   scheduler: Scheduler;
   runner: Runner;
   registry: TriggerRegistry;
@@ -299,6 +328,50 @@ export function createEngine(deps: EngineDeps): Engine {
     }
     return undefined;
   }
+  function findByRunId(runId: string): RunContext | undefined {
+    for (const q of pending.values()) {
+      const hit = q.find((c) => c.runId === runId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  function reapStaleRuns(): void {
+    const cfg = deps.config();
+    const maxAgeMs = cfg.maxRunAgeMs;
+    if (!maxAgeMs || maxAgeMs <= 0) return;
+    const now = deps.now?.() ?? Date.now();
+    const seenBases = new Set<string>();
+    for (const s of deps.listScopes()) {
+      if (seenBases.has(s.base)) continue;
+      seenBases.add(s.base);
+      let stale: ReturnType<typeof listStaleRunningRuns>;
+      try {
+        stale = listStaleRunningRuns(s.base, maxAgeMs, now);
+      } catch {
+        continue;
+      }
+      for (const rec of stale) {
+        const ctx = findByRunId(rec.runId);
+        if (ctx) {
+          // Live wedged run — finalize + free the concurrency slot.
+          finishAndRelease(ctx, {
+            status: "error",
+            error: "run exceeded max age",
+            result: "_(run exceeded max age)_",
+          });
+        } else {
+          // Pre-existing on-disk orphan (no live lock held) — clear the record.
+          storeFinishRun(s.base, rec.runId, {
+            status: "error",
+            error: "run exceeded max age",
+            result: "_(run exceeded max age)_",
+            retention: cfg.retention,
+          });
+        }
+        warn(`[engine] reaped stale run ${rec.runId} (running > ${maxAgeMs}ms)`);
+      }
+    }
+  }
   function finishAndRelease(ctx: RunContext, fin: { status: "done" | "error"; result?: string; error?: string }): void {
     const cfg = deps.config();
     storeFinishRun(ctx.scopeBase, ctx.runId, {
@@ -337,6 +410,12 @@ export function createEngine(deps: EngineDeps): Engine {
     log,
     warn,
   });
+
+  // Stale-run reaper backstop timer. Sweeps on an interval; also callable
+  // directly (reapStaleRuns) for tests. See change:
+  // finalize-automation-run-on-session-death.
+  const REAP_INTERVAL_MS = 60_000;
+  let reapTimer: ReturnType<typeof setInterval> | null = null;
 
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
     if (!automation.valid || !automation.config) return null;
@@ -413,7 +492,13 @@ export function createEngine(deps: EngineDeps): Engine {
 
     start(): void {
       this.refresh();
+      if (!reapTimer) {
+        reapTimer = setInterval(() => reapStaleRuns(), REAP_INTERVAL_MS);
+        if (typeof reapTimer.unref === "function") reapTimer.unref();
+      }
     },
+
+    reapStaleRuns,
 
     refresh(): void {
       const scopes = deps.listScopes();
@@ -464,14 +549,7 @@ export function createEngine(deps: EngineDeps): Engine {
       // Find the live pending context for this run (any state). A run already
       // finalized has been removed from `pending`, so this returns false and
       // the call is a no-op — idempotent against a prior stop or agent_end.
-      let ctx: RunContext | undefined;
-      for (const q of pending.values()) {
-        const hit = q.find((c) => c.runId === runId);
-        if (hit) {
-          ctx = hit;
-          break;
-        }
-      }
+      const ctx = findByRunId(runId);
       if (!ctx) return false;
       // Terminate the actual process (immediate hard-kill — the failure mode
       // is a surviving pi, not a stuck turn). Kills by sessionId when linked,
@@ -516,8 +594,39 @@ export function createEngine(deps: EngineDeps): Engine {
       log(`[engine] run ${found.runId} ended (${found.key})`);
     },
 
+    onSessionDeath(sessionId: string, result?: string): void {
+      const found = findBySession(sessionId);
+      if (!found) return; // unknown or already finalized — idempotent no-op
+      const spawnToken = found.spawnToken;
+      const buffered = (result ?? "").trim();
+      if (buffered.length > 0) {
+        finishAndRelease(found, {
+          status: found.modelError ? "error" : "done",
+          result: buffered,
+          ...(found.modelError ? { error: found.modelError } : {}),
+        });
+      } else {
+        finishAndRelease(found, {
+          status: "error",
+          error: found.modelError ?? "session ended before completion",
+          result: "_(session ended before completion)_",
+        });
+      }
+      // The session is already gone (WS closed / heartbeat expired). Best-effort
+      // hard-kill any surviving process so a hung rpc session cannot linger.
+      // Runs after removePending, so a later end signal is a no-op (idempotent).
+      if (deps.abortAutomationRun) {
+        void deps.abortAutomationRun({ sessionId, ...(spawnToken ? { spawnToken } : {}) });
+      }
+      log(`[engine] run ${found.runId} finalized on session death (${found.key})`);
+    },
+
     dispose(): void {
       scheduler.disposeAll();
+      if (reapTimer) {
+        clearInterval(reapTimer);
+        reapTimer = null;
+      }
       pending.clear();
     },
   };

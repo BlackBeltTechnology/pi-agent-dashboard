@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { createEngine, buildRunPrompt, buildRunDispatch, effectiveVisibility } from "../server/engine.js";
 import { ActionRegistry } from "../server/action-registry.js";
-import { listRuns } from "../server/run-store.js";
+import { listRuns, startRun as storeStartRun } from "../server/run-store.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 let repo: string;
@@ -79,6 +79,7 @@ function makeEngine(spawnCalls: any[], roles: Record<string, string> = { fast: "
       defaultModel: "anthropic/claude-sonnet-4-5",
       scanFolder: true,
       scanGlobal: false,
+      maxRunAgeMs: 30 * 60 * 1000,
     }),
     readRoles: () => roles,
     warn: () => {},
@@ -275,7 +276,7 @@ describe("engine run lifecycle", () => {
         throw new Error("spawn boom");
       },
       listScopes: () => [{ base: repo, scope: "folder" }],
-      config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false }),
+      config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
       readRoles: () => ({ fast: "m" }),
       warn: () => {},
     });
@@ -346,7 +347,7 @@ describe("engine run lifecycle", () => {
         return true;
       },
       listScopes: () => [{ base: repo, scope: "folder" }],
-      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false }),
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
       readRoles: () => ({ fast: "m" }),
       warn: () => {},
     });
@@ -430,5 +431,137 @@ describe("engine run lifecycle", () => {
     engine.start();
     expect(engine.scheduler.armedKeys()).toContain("folder:nightly");
     engine.dispose();
+  });
+});
+
+// See change: finalize-automation-run-on-session-death.
+describe("session-death finalize + stale-run reaper", () => {
+  const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  function makeReaperEngine(nowRef: { v: number }, maxRunAgeMs = 1000) {
+    const terminations: any[] = [];
+    const engine = createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok" }),
+      abortAutomationRun: async (a) => { terminations.push(a); return true; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false, maxRunAgeMs }),
+      readRoles: () => ({ fast: "m" }),
+      now: () => nowRef.v,
+      warn: () => {},
+    });
+    return { engine, terminations };
+  }
+
+  it("3.1/3.5: session death with no buffered result finalizes error + frees the skip slot", async () => {
+    const engine = makeEngine([]);
+    const a = promptAutomation("pull", "x"); // concurrency: skip
+    engine.runner.fire(a);
+    await flushSpawn();
+    const key = "folder:pull";
+    const runId = engine.runner.activeRunId(key)!;
+    expect(runId).toBeTruthy();
+    engine.onSessionRegisteredForRun("sess-1", runId);
+
+    // A second fire is dropped by skip while the run is active.
+    engine.runner.fire(a);
+    expect(listRuns(repo, "pull")).toHaveLength(1);
+
+    // Session dies before any terminal event crosses the bridge.
+    engine.onSessionDeath("sess-1", "");
+    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
+    expect(rec.status).toBe("error");
+    expect(rec.error).toContain("session ended before completion");
+    expect(engine.runner.activeRunId(key)).toBeNull();
+
+    // Slot freed → the next fire is no longer wedged.
+    engine.runner.fire(a);
+    await flushSpawn();
+    expect(listRuns(repo, "pull")).toHaveLength(2);
+  });
+
+  it("3.1: session death WITH a buffered result finalizes done", () => {
+    const engine = makeEngine([]);
+    const { runId } = engine.startRunFor(promptAutomation("pull", "x"))!;
+    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionDeath("sess-1", "- partial finding before teardown");
+    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
+    expect(rec.status).toBe("done");
+    expect(fs.readFileSync(path.join(rec.dir, "result.md"), "utf-8")).toContain("partial finding");
+  });
+
+  it("3.2: a forwarded completion / agent_end after session-death finalize is a no-op", () => {
+    const engine = makeEngine([]);
+    const { runId } = engine.startRunFor(promptAutomation("pull", "x"))!;
+    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionDeath("sess-1", "");
+    expect(listRuns(repo, "pull")).toHaveLength(1);
+    expect(listRuns(repo, "pull")[0]!.status).toBe("error");
+
+    // Late agent_end for that session must not re-finalize or duplicate.
+    engine.onSessionEnded("sess-1", "late findings");
+    // A second death signal is likewise a no-op.
+    engine.onSessionDeath("sess-1", "more late findings");
+    const after = listRuns(repo, "pull");
+    expect(after).toHaveLength(1);
+    expect(after[0]!.status).toBe("error");
+  });
+
+  it("onSessionDeath for an unknown/finalized session is a no-op", () => {
+    const engine = makeEngine([]);
+    engine.onSessionDeath("never-existed", "x");
+    expect(listRuns(repo)).toHaveLength(0);
+  });
+
+  it("3.4: reaper reaps an overdue running run + frees its slot; healthy untouched; terminal after reap no-op", async () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    const a = promptAutomation("pull", "x");
+    engine.runner.fire(a);
+    await flushSpawn();
+    const key = "folder:pull";
+    const runId = engine.runner.activeRunId(key)!;
+    engine.onSessionRegisteredForRun("sess-1", runId);
+    const started = listRuns(repo, "pull").find((r) => r.runId === runId)!.startedAt;
+
+    // Healthy: within maxAge → untouched.
+    nowRef.v = started + 500;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === runId)!.status).toBe("running");
+    expect(engine.runner.activeRunId(key)).toBe(runId);
+
+    // Overdue: beyond maxAge → reaped to error + slot freed.
+    nowRef.v = started + 1001;
+    engine.reapStaleRuns();
+    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
+    expect(rec.status).toBe("error");
+    expect(rec.error).toContain("max age");
+    expect(engine.runner.activeRunId(key)).toBeNull();
+
+    // A terminal signal after reap is a no-op.
+    engine.onSessionEnded("sess-1", "late");
+    const after = listRuns(repo, "pull");
+    expect(after).toHaveLength(1);
+    expect(after[0]!.status).toBe("error");
+  });
+
+  it("4.1: reaper clears a pre-existing on-disk running orphan with no live context", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 1000);
+    // Orphan left by a prior process: a running record, no in-memory context.
+    const orphan = storeStartRun(repo, "pull");
+    nowRef.v = orphan.startedAt + 2000;
+    engine.reapStaleRuns();
+    const after = listRuns(repo, "pull").find((r) => r.runId === orphan.runId)!;
+    expect(after.status).toBe("error");
+    expect(after.error).toContain("max age");
+  });
+
+  it("reaper is disabled when maxRunAgeMs <= 0", () => {
+    const nowRef = { v: Date.now() };
+    const { engine } = makeReaperEngine(nowRef, 0);
+    const orphan = storeStartRun(repo, "pull");
+    nowRef.v = orphan.startedAt + 10_000_000;
+    engine.reapStaleRuns();
+    expect(listRuns(repo, "pull").find((r) => r.runId === orphan.runId)!.status).toBe("running");
   });
 });

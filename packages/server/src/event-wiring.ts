@@ -154,6 +154,13 @@ export interface EventWiringDeps {
    */
   dispatchPluginRawEvent?: (sessionId: string, event: unknown) => void;
   /**
+   * Fan a session-end (unregister) out to plugin
+   * `ServerPluginContext.onSessionEnded` subscribers. Fired from
+   * `sessionManager.onUnregister` — the transport-independent death signal.
+   * See change: finalize-automation-run-on-session-death.
+   */
+  dispatchPluginSessionEnded?: (sessionId: string) => void;
+  /**
    * Optional eager liveness stamping. When both provided, the wiring stamps
    * `{ live:true, liveEpoch }` into a session's `.meta.json` once per
    * activation (first live activity event under the current epoch), via the
@@ -172,6 +179,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
     eventStore,
+    dispatchPluginSessionEnded,
     piGateway,
     browserGateway,
     sessionOrderManager,
@@ -427,6 +435,11 @@ export function wireEvents(deps: EventWiringDeps): void {
         currentTool: null,
       });
     }
+    // Fan the death out to plugin onSessionEnded subscribers regardless of
+    // whether a session record still exists — the automation plugin finalizes
+    // any run wedged by a lost terminal event.
+    // See change: finalize-automation-run-on-session-death.
+    dispatchPluginSessionEnded?.(sessionId);
   };
 
   // Per-event cap for `Session.uiDataMap[event]`. Phase-1 spec contract:
