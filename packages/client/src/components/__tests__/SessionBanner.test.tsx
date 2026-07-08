@@ -1,16 +1,19 @@
 /**
- * Unit tests for the unified single-card SessionBanner. The selector
- * (`deriveBannerState`) is tested in event-reducer.test.ts; here we test the
- * rendered output + action callbacks given an already-derived BannerState.
+ * Unit tests for the unified SessionBanner component (composed error-lifecycle
+ * surface). The selector (`deriveBannerState`) is tested in
+ * event-reducer.test.ts; here we test the rendered output + action callbacks
+ * given an already-derived composed BannerState.
  *
  * See change: unify-error-retry-lifecycle.
- * See change: simplify-error-retry-single-card.
  */
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, render, fireEvent } from "@testing-library/react";
 import { SessionBanner } from "../SessionBanner";
 
+// vitest.config.ts does not enable @testing-library/react's auto-cleanup
+// (no `globals: true`), so we clean up manually between tests to avoid
+// duplicate DOM nodes leaking across renders.
 afterEach(() => cleanup());
 
 const retry = (over: Partial<{ attempt: number; maxAttempts: number; delayMs: number; reason: string; startedAt: number }> = {}) => ({
@@ -22,47 +25,20 @@ const retry = (over: Partial<{ attempt: number; maxAttempts: number; delayMs: nu
   ...over,
 });
 
-describe("SessionBanner single card", () => {
+describe("SessionBanner composed surface", () => {
   it("hidden variant renders nothing in the DOM", () => {
     const { container } = render(<SessionBanner state={{ variant: "hidden" }} />);
     expect(container.firstChild).toBeNull();
   });
 
-  describe("one card, never two", () => {
-    it("error + retry render inside a SINGLE card (no two sibling cards)", () => {
-      const { getByTestId, container } = render(
-        <SessionBanner
-          state={{ error: { kind: "error", message: "overloaded_error" }, retry: retry({ attempt: 2 }) }}
-          onAbort={vi.fn()}
-        />,
-      );
-      // Exactly one bordered surface (the card carries `error-banner`).
-      expect(container.querySelectorAll('[data-testid="error-banner"]').length).toBe(1);
-      // Both error text and retry sub-line live inside that one card.
-      const card = getByTestId("error-banner");
-      expect(card.querySelector('[data-testid="error-banner-text"]')?.textContent).toContain("overloaded_error");
-      expect(card.querySelector('[data-testid="retry-banner"]')).not.toBeNull();
-      expect(card.querySelector('[data-testid="retry-banner-stop"]')).not.toBeNull();
-    });
-
-    it("never renders a manual retry control", () => {
-      const { container } = render(
-        <SessionBanner
-          state={{ error: { kind: "error", message: "429" }, retry: retry() }}
-        />,
-      );
-      expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
-    });
-  });
-
-  describe("retry-only surface", () => {
+  describe("retry-only sub-surface", () => {
     it("renders attempt + reason + Stop with countdown when delayMs > 0", () => {
       const onAbort = vi.fn();
       const { container, getByTestId } = render(
         <SessionBanner
           state={{ retry: retry({ attempt: 2, maxAttempts: 3, delayMs: 4000, reason: "rate limit exceeded", startedAt: 1_000_000 }) }}
           onAbort={onAbort}
-          now={() => 1_001_000}
+          now={() => 1_001_000} // 1s elapsed of 4s
         />,
       );
       expect(getByTestId("retry-banner")).toBeTruthy();
@@ -71,7 +47,7 @@ describe("SessionBanner single card", () => {
       expect(getByTestId("retry-banner-reason").textContent).toBe("rate limit exceeded");
       fireEvent.click(getByTestId("retry-banner-stop"));
       expect(onAbort).toHaveBeenCalledOnce();
-      // No error surface in a retry-only card.
+      // No error-banner DOM in a retry-only surface (no early red promotion).
       expect(container.querySelector('[data-testid="error-banner"]')).toBeNull();
     });
 
@@ -95,48 +71,46 @@ describe("SessionBanner single card", () => {
     });
   });
 
-  describe("settled error surface", () => {
-    it("renders message + Dismiss (no manual retry), fires dismiss", () => {
+  describe("error-only sub-surface", () => {
+    it("renders message + Retry + Dismiss, fires callbacks", () => {
+      const onRetry = vi.fn();
       const onDismiss = vi.fn();
-      const { container, getByTestId } = render(
+      const { getByTestId } = render(
         <SessionBanner
           state={{ error: { kind: "error", message: "fetch failed: ECONNRESET" } }}
+          onRetry={onRetry}
           onDismiss={onDismiss}
         />,
       );
       expect(getByTestId("error-banner")).toBeTruthy();
       expect(getByTestId("error-banner-text").textContent).toContain("fetch failed: ECONNRESET");
-      expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
+      fireEvent.click(getByTestId("error-banner-retry"));
+      expect(onRetry).toHaveBeenCalledOnce();
       fireEvent.click(getByTestId("error-banner-dismiss"));
       expect(onDismiss).toHaveBeenCalledOnce();
     });
 
-    it("billing message renders as an ordinary error (no limit-exceeded hint / 💳, no retry)", () => {
-      const { container, getByTestId } = render(
-        <SessionBanner
-          state={{ error: { kind: "error", message: "usage_limit_reached: monthly cap" } }}
-          onDismiss={vi.fn()}
-        />,
+    it("hides Retry button when onRetry omitted", () => {
+      const { container } = render(
+        <SessionBanner state={{ error: { kind: "error", message: "x" } }} onDismiss={vi.fn()} />,
       );
-      expect(getByTestId("error-banner-text").textContent).toContain("usage_limit_reached");
       expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
-      expect(container.querySelector('[data-testid="limit-exceeded-banner"]')).toBeNull();
-      expect(container.querySelector('[data-testid="limit-exceeded-hint"]')).toBeNull();
     });
 
     it("truncates long messages with Show more / Show less toggle", () => {
       const long = "a".repeat(300);
-      const { getByTestId } = render(
+      const { container, getByTestId } = render(
         <SessionBanner state={{ error: { kind: "error", message: long } }} collapseThreshold={240} />,
       );
       const text = getByTestId("error-banner-text").textContent ?? "";
-      expect(text.length).toBeLessThan(long.length);
+      expect(text.length).toBeLessThan(long.length); // truncated
       expect(text.endsWith("…")).toBe(true);
       const toggle = getByTestId("error-banner-toggle");
       expect(toggle.textContent).toBe("Show more");
       fireEvent.click(toggle);
       expect(getByTestId("error-banner-text").textContent).toBe(long);
       expect(getByTestId("error-banner-toggle").textContent).toBe("Show less");
+      expect(container.querySelector('[data-testid="limit-exceeded-hint"]')).toBeNull();
     });
 
     it("short message has no toggle", () => {
@@ -147,8 +121,55 @@ describe("SessionBanner single card", () => {
     });
   });
 
-  describe("Dismiss ✕ is clear-only (never aborts)", () => {
-    it("does NOT abort when a retry is in flight — clears only", () => {
+  describe("limit-exceeded sub-surface", () => {
+    it("renders message + Dismiss + hint, NO Retry button", () => {
+      const onRetry = vi.fn();
+      const onDismiss = vi.fn();
+      const { container, getByTestId } = render(
+        <SessionBanner
+          state={{ error: { kind: "limit-exceeded", message: "monthly_spending_cap exceeded" } }}
+          onRetry={onRetry}
+          onDismiss={onDismiss}
+        />,
+      );
+      expect(getByTestId("error-banner")).toBeTruthy();
+      expect(getByTestId("limit-exceeded-banner")).toBeTruthy();
+      expect(getByTestId("limit-exceeded-hint").textContent).toBe("Session stopped automatically.");
+      expect(getByTestId("error-banner-text").textContent).toContain("monthly_spending_cap");
+      expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
+      fireEvent.click(getByTestId("error-banner-dismiss"));
+      expect(onDismiss).toHaveBeenCalledOnce();
+      expect(onRetry).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("composed error anchor + retry sub-line", () => {
+    it("renders BOTH the error header and the retry sub-line in one surface", () => {
+      const { getByTestId } = render(
+        <SessionBanner
+          state={{ error: { kind: "error", message: "429 rate limited" }, retry: retry({ attempt: 2 }) }}
+          onAbort={vi.fn()}
+        />,
+      );
+      expect(getByTestId("error-banner")).toBeTruthy();
+      expect(getByTestId("error-banner-text").textContent).toContain("429 rate limited");
+      expect(getByTestId("retry-banner")).toBeTruthy();
+      expect(getByTestId("retry-banner-stop")).toBeTruthy();
+    });
+
+    it("does NOT render a manual Retry button while a retry is in flight", () => {
+      const { container } = render(
+        <SessionBanner
+          state={{ error: { kind: "error", message: "429" }, retry: retry() }}
+          onRetry={vi.fn()}
+        />,
+      );
+      expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
+    });
+  });
+
+  describe("state-dependent Dismiss ✕", () => {
+    it("aborts AND clears when a retry is in flight", () => {
       const onAbort = vi.fn();
       const onDismiss = vi.fn();
       const { getByTestId } = render(
@@ -159,11 +180,11 @@ describe("SessionBanner single card", () => {
         />,
       );
       fireEvent.click(getByTestId("error-banner-dismiss"));
-      expect(onAbort).not.toHaveBeenCalled();
+      expect(onAbort).toHaveBeenCalledOnce();
       expect(onDismiss).toHaveBeenCalledOnce();
     });
 
-    it("does NOT abort on a generic error — clears only", () => {
+    it("aborts AND clears on a generic retryable error (no live retry)", () => {
       const onAbort = vi.fn();
       const onDismiss = vi.fn();
       const { getByTestId } = render(
@@ -174,21 +195,39 @@ describe("SessionBanner single card", () => {
         />,
       );
       fireEvent.click(getByTestId("error-banner-dismiss"));
-      expect(onAbort).not.toHaveBeenCalled();
+      expect(onAbort).toHaveBeenCalledOnce();
       expect(onDismiss).toHaveBeenCalledOnce();
     });
 
-    it("Stop is the only control that aborts", () => {
+    it("only clears (no abort) on a terminal limit-exceeded surface", () => {
       const onAbort = vi.fn();
+      const onDismiss = vi.fn();
       const { getByTestId } = render(
         <SessionBanner
-          state={{ error: { kind: "error", message: "429" }, retry: retry() }}
+          state={{ error: { kind: "limit-exceeded", message: "usage_limit_reached" } }}
           onAbort={onAbort}
-          onDismiss={vi.fn()}
+          onDismiss={onDismiss}
         />,
       );
-      fireEvent.click(getByTestId("retry-banner-stop"));
-      expect(onAbort).toHaveBeenCalledOnce();
+      fireEvent.click(getByTestId("error-banner-dismiss"));
+      expect(onAbort).not.toHaveBeenCalled();
+      expect(onDismiss).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("legacy data-testid compatibility", () => {
+    it("error and limit-exceeded both expose `error-banner` test-id", () => {
+      const errR = render(<SessionBanner state={{ error: { kind: "error", message: "x" } }} />);
+      const limR = render(<SessionBanner state={{ error: { kind: "limit-exceeded", message: "usage_limit_reached" } }} />);
+      expect(errR.container.querySelector('[data-testid="error-banner"]')).not.toBeNull();
+      expect(limR.container.querySelector('[data-testid="error-banner"]')).not.toBeNull();
+    });
+
+    it("error and limit-exceeded both expose `error-banner-dismiss` when onDismiss supplied", () => {
+      const errR = render(<SessionBanner state={{ error: { kind: "error", message: "x" } }} onDismiss={vi.fn()} />);
+      const limR = render(<SessionBanner state={{ error: { kind: "limit-exceeded", message: "y" } }} onDismiss={vi.fn()} />);
+      expect(errR.container.querySelector('[data-testid="error-banner-dismiss"]')).not.toBeNull();
+      expect(limR.container.querySelector('[data-testid="error-banner-dismiss"]')).not.toBeNull();
     });
   });
 });
