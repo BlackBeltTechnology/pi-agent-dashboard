@@ -1,0 +1,9 @@
+/* Reuse the dashboard client's own entry CSS: Tailwind v4 + the full theme
+   variable set (--bg-primary, --text-secondary, --bg-hover, …) + its @source
+   list for the sibling source-published packages. Path relative to this file
+   (examples/chat-embed-tester/) → worktree packages/client/src/index.css. */
+@import "../../packages/client/src/index.css";
+
+/* Vite root here is this app dir, so Tailwind v4 does NOT auto-scan the client
+   subtree. Add it explicitly so the classes ChatView uses survive purge. */
+@source "../../packages/client/src";

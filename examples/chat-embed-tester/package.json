@@ -1,0 +1,9 @@
+{
+  "name": "chat-embed-tester",
+  "private": true,
+  "type": "module",
+  "description": "Standalone isolated consumer of @blackbelt-technology/pi-dashboard-web/chat-embed, tested live against a running dashboard. NOT a workspace package (examples/ is outside packages/*); resolves deps from the hoisted root node_modules — no install needed.",
+  "scripts": {
+    "dev": "vite"
+  }
+}
