@@ -7,7 +7,7 @@
   after the SECOND assistant `message_start` is applied (NOT after the first inference's
   own `message_end`).
 - [x] 1.2 Reducer test: same start, later `tool_start` sibling in the SAME inference, NO
-  later assistant `message_end` → assert the row stays `running` (parallel-tool
+  later assistant `message_start` → assert the row stays `running` (parallel-tool
   false-positive guard).
 - [x] 1.3 Reducer test (abort scope, F4): start withheld-end, then `agent_end` (abort)
   with NO later assistant inference → assert the row stays `running` (aborted-mid-tool
@@ -29,7 +29,8 @@
 
 ## 3. Superseded terminal heal (client) — ADD
 - [x] 3.1 `synthesizeSupersededEnd(toolCallId, now)` → `tool_execution_end` with
-  `isError:false`, sentinel body, `details.healedBy:"superseded"`, through the existing
+  `isError:false`, sentinel body, top-level `data.healedBy:"superseded"` (surfaced on the
+  row as `toolDetails.healedBy`), through the existing
   `toolCallId`-keyed reducer path.
 - [x] 3.2 Wire into the existing session-scoped reconcile tick (NOT a per-row effect) so a
   virtualized/off-screen stuck card still heals.

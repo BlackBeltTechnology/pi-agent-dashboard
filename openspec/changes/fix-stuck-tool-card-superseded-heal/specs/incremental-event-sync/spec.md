@@ -31,7 +31,7 @@ condition.
   and the REST route returns 404 repeatedly
 - **THEN** the reconcile path SHALL NOT flip the row on a 404 (unchanged)
 - **AND** finalization is delegated to the Superseded terminal heal, which fires only
-  when a later assistant turn proves the tool finished
+  when a later assistant `message_start` proves the tool finished
 
 ## ADDED Requirements
 
@@ -53,8 +53,8 @@ is introduced.
 
 #### Scenario: Unrecoverable-but-superseded card is finalized
 - **WHEN** a tool row has been `running` past `STALE_TOOL_MS`, the reconcile route has
-  returned 404 at least `SUPERSEDE_MIN_404` times, and a later assistant turn exists
-  after the tool call's turn
+  returned 404 at least `SUPERSEDE_MIN_404` times, and a later assistant `message_start`
+  exists after the tool call's inference
 - **THEN** the client SHALL flip the row to `complete` with `healedBy: "superseded"` and
   a "result not captured (recovered)" body
 - **AND** SHALL increment the supersede-heal counter and badge the card

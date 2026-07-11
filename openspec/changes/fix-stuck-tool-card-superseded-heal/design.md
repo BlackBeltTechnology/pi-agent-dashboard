@@ -119,7 +119,7 @@ stateDiagram-v2
     running --> complete: real tool_execution_end (WS)
     running --> error: real tool_execution_end isError
     running --> complete_recovered: reconcile HTTP 200 (base change)
-    running --> complete_superseded: 404×N AND later-turn exists (THIS change)
+    running --> complete_superseded: 404×N AND later assistant inference exists (THIS change)
     complete_superseded --> complete: real tool_execution_end arrives (D4)
     complete_superseded --> complete_superseded: another superseded heal (no-op)
     complete --> complete: idempotent (no clobber)

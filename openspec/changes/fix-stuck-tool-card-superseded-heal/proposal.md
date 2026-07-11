@@ -24,8 +24,8 @@ re-sync. Neither happens automatically. So whenever the authoritative result is
    without a full reconnect re-sync, nothing recovers it.
 
 In every one of these cases the tool **did finish** — proven by the same evidence the
-base change already relies on: **a strictly-later assistant turn exists in the
-transcript.** The model cannot emit a new turn until every prior tool result returns
+base change already relies on: **a strictly-later assistant inference exists in the
+transcript.** The model cannot emit a new inference until every prior tool result returns
 (true even for parallel tool calls). If the session moved past the tool's turn, the tool
 is complete; the card is stale, not the agent. Today the client has no backstop that
 acts on that proof when the result body is gone.
@@ -40,8 +40,9 @@ unrecoverable.
 
 - **Superseded terminal heal (client).** A `running` tool row whose recovery is exhausted
   (base reconcile returned HTTP 404 at least `SUPERSEDE_MIN_404` times, i.e. the store
-  has no result) AND for which a **later assistant turn exists after the tool call's own
-  turn** SHALL be finalized to a terminal state via the existing `toolCallId`-keyed
+  has no result) AND for which a **later assistant inference (a later assistant
+  `message_start`) exists after the tool call's own inference** SHALL be finalized to a
+  terminal state via the existing `toolCallId`-keyed
   reducer path, carrying a sentinel body (`result unavailable — recovered by supersede
   heal`) and a `healedBy: "superseded"` detail. The card stops spinning and renders a
   small "result not captured" note.
@@ -51,9 +52,10 @@ unrecoverable.
   overwrite a supersede-healed placeholder — the only case where a terminal row is
   allowed to be re-reduced.
 
-- **Supersede signal is turn-scoped, not sibling-scoped.** The proof event MUST be a
-  *later assistant turn / turn boundary* after the tool call's turn — NOT merely another
-  `tool_start` in the same turn — so parallel in-flight tools within the current turn are
+- **Supersede signal is inference-scoped, not sibling-scoped.** The proof MUST be a
+  *later assistant `message_start`* after the tool call's inference — NOT merely another
+  `tool_start` in the same inference — so parallel in-flight tools within the current
+  inference are
   never falsely completed.
 
 Non-goals: raising store/ring caps; changing the base reconcile's HTTP path; per-event

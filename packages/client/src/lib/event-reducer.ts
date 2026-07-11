@@ -1550,7 +1550,11 @@ export function reduceEvent(
       // See change: fix-stuck-tool-card-superseded-heal.
       const healedBy = data.healedBy as string | undefined;
       const existing = next.toolCalls.get(toolCallId);
-      if (healedBy === "superseded" && existing && existing.status !== "running") {
+      // A superseded synth may only finalize a live `running` map entry. An
+      // absent entry (`existing === undefined`) is also rejected so a stray
+      // synth can never mutate a message row while leaving `toolCalls`
+      // inconsistent. Real ends (no `healedBy`) are unaffected.
+      if (healedBy === "superseded" && existing?.status !== "running") {
         break;
       }
       if (existing) {
