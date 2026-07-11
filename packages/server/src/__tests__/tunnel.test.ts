@@ -1,13 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
-import * as childProcess from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return {
     ...actual,
     execSync: vi.fn(),
+    execFileSync: vi.fn(),
   };
 });
 
@@ -40,17 +41,17 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import {
-  loadZrokEnv,
-  detectZrokBinary,
-  writeZrokPid,
-  readZrokPid,
-  removeZrokPid,
-  cleanupStaleZrok,
-  getTunnelStatus,
-  releaseShare,
-  scavengeOrphanZrokProcesses,
   _resetBinaryCache,
   _setBinaryAvailable,
+  cleanupStaleZrok,
+  detectZrokBinary,
+  getTunnelStatus,
+  loadZrokEnv,
+  readZrokPid,
+  releaseShare,
+  removeZrokPid,
+  scavengeOrphanZrokProcesses,
+  writeZrokPid,
 } from "../tunnel.js";
 
 beforeEach(() => {
@@ -225,17 +226,19 @@ describe("releaseShare", () => {
     // `zrok release abc123` (no quotes) never appears.
     // See change: fix(tunnel): cache zrok absolute path (commit 346a671d).
     _setBinaryAvailable(true);
-    vi.mocked(childProcess.execSync).mockReturnValue(Buffer.from(""));
+    vi.mocked(childProcess.execFileSync).mockReturnValue(Buffer.from(""));
     const ok = releaseShare("abc123");
     expect(ok).toBe(true);
-    expect(childProcess.execSync).toHaveBeenCalledTimes(1);
-    const [cmd, opts] = vi.mocked(childProcess.execSync).mock.calls[0];
-    expect(cmd).toMatch(/zrok["']?\s+release\s+abc123/);
-    expect(opts).toEqual(expect.any(Object));
+    expect(childProcess.execFileSync).toHaveBeenCalledTimes(1);
+    // argv form (D3): binary + ["release", token] as an array, never a shell
+    // string. The token sits in its own argv slot, so no interpolation.
+    const [bin, args] = vi.mocked(childProcess.execFileSync).mock.calls[0];
+    expect(bin).toMatch(/zrok/);
+    expect(args).toEqual(["release", "abc123"]);
   });
 
   it("should return false when zrok release fails (best-effort, non-throwing)", () => {
-    vi.mocked(childProcess.execSync).mockImplementation(() => {
+    vi.mocked(childProcess.execFileSync).mockImplementation(() => {
       throw new Error("release failed");
     });
     expect(releaseShare("abc123")).toBe(false);
@@ -244,7 +247,7 @@ describe("releaseShare", () => {
   it("should return false for empty token without invoking zrok", () => {
     const ok = releaseShare("");
     expect(ok).toBe(false);
-    expect(childProcess.execSync).not.toHaveBeenCalled();
+    expect(childProcess.execFileSync).not.toHaveBeenCalled();
   });
 });
 
