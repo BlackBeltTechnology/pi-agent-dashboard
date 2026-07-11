@@ -39,8 +39,12 @@ condition.
 The client SHALL finalize a `running` tool row whose authoritative result is
 unrecoverable when the transcript proves the tool completed. A row is eligible only when
 BOTH hold: (a) the base reconcile has returned HTTP 404 at least `SUPERSEDE_MIN_404`
-times for that row (the store has no result), AND (b) at least one assistant turn
-strictly later than the tool call's own turn has been applied for the session. On
+times for that row (the store has no result), AND (b) at least one assistant *inference*
+strictly later than the inference that emitted the tool call has been applied for the
+session, where an inference boundary is an assistant `message_start` (tracked as a
+monotonic `assistantInferenceSeq`) — NOT `message_end` (which fires after its own
+inference's tool), NOT the coarse per-user-cycle `turnCount`, and NOT a sibling
+`tool_start` in the same inference. On
 eligibility the client SHALL synthesize a `tool_execution_end` via the existing
 `toolCallId`-keyed reducer path with `isError: false`, a sentinel result body, and a
 `healedBy: "superseded"` detail, and SHALL increment a supersede-heal counter and render
@@ -55,9 +59,10 @@ is introduced.
   a "result not captured (recovered)" body
 - **AND** SHALL increment the supersede-heal counter and badge the card
 
-#### Scenario: Parallel in-flight tool in the current turn is not falsely completed
-- **WHEN** a tool row is `running`, its turn is still the newest turn (no later assistant
-  turn exists yet), even if a sibling `tool_start` in the same turn has appeared
+#### Scenario: Parallel in-flight tool in the current inference is not falsely completed
+- **WHEN** a tool row is `running`, its inference is still the newest (no later assistant
+  `message_start` exists yet), even if a sibling `tool_start` in the same inference has
+  appeared, or the emitting inference's own `message_end` has fired
 - **THEN** the client SHALL NOT apply the supersede heal
 - **AND** SHALL keep the running spinner
 

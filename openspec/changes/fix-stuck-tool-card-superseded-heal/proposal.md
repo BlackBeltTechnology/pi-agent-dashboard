@@ -57,7 +57,10 @@ unrecoverable.
   never falsely completed.
 
 Non-goals: raising store/ring caps; changing the base reconcile's HTTP path; per-event
-acks; healing a tool whose turn is still the active/in-flight turn (no later turn yet).
+acks; healing a tool whose inference is still the active/in-flight one (no later
+assistant inference yet); healing an **aborted** tool (user abort / `agent_end` with no
+later inference — the tool did not finish, so no later-inference proof exists and the card
+correctly stays running; the abort-stuck-card class is a separate concern).
 
 ## Capabilities
 
