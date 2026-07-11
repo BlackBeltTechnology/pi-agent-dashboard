@@ -211,6 +211,13 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
   return steps;
 }
 
+/**
+ * Later-inference marker for the supersede-heal e2e. The second scripted
+ * assistant message (a NEW `message_start`) is the proof-of-completion signal
+ * the supersede heal requires. See change: fix-stuck-tool-card-superseded-heal.
+ */
+export const SUPERSEDE_HEAL_MARKER = "supersede-heal follow-up landed";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -430,6 +437,21 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("burst complete")]),
     ],
     expect: { text: "burst complete" },
+  },
+
+  // Supersede-heal fixture (fix-stuck-tool-card-superseded-heal). One bash tool
+  // call (inference #1) followed by a plain-text reply (inference #2 → a LATER
+  // assistant message_start = the completion proof). The e2e DROPS the tool's
+  // `tool_execution_end` WS frame (server→browser drop) and 404s the reconcile
+  // route (store eviction), so the card is unrecoverable yet provably finished
+  // → the client supersede heal must finalize it + badge it. Two steps so the
+  // agent terminates after the follow-up text.
+  "stuck-tool-superseded": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo supersede-probe" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(SUPERSEDE_HEAL_MARKER)]),
+    ],
+    expect: { text: SUPERSEDE_HEAL_MARKER },
   },
 
   // Long heterogeneous transcript spanning several viewports (Step B e2e gate).

@@ -108,6 +108,14 @@ export interface ToolCallState {
    * See change: redesign-process-list-activity-bar.
    */
   startedAt?: number;
+  /**
+   * Value of `SessionState.assistantInferenceSeq` at this tool's
+   * `tool_execution_start` (i.e. its own emitting inference index). The
+   * supersede heal proof is `state.assistantInferenceSeq > emittedAtInferenceSeq`
+   * — a strictly-later assistant `message_start`. See change:
+   * fix-stuck-tool-card-superseded-heal.
+   */
+  emittedAtInferenceSeq?: number;
 }
 
 export interface TurnStat {
@@ -210,6 +218,15 @@ export interface SessionState {
   /** Total turn count (for turnIndex assignment and sliding window offset) */
   turnCount: number;
   /**
+   * Monotonic count of assistant inferences (incremented on each assistant
+   * `message_start`). NOT `message_end` (which fires after its own inference's
+   * tool) and NOT the coarse per-user-cycle `turnCount`. Sole proof primitive
+   * for the supersede heal: a stuck tool is finalized only once this advances
+   * past the tool's `emittedAtInferenceSeq`. See change:
+   * fix-stuck-tool-card-superseded-heal.
+   */
+  assistantInferenceSeq: number;
+  /**
    * Correlation slot for `InputEvent.streamingBehavior`. Set by an
    * interactive `input` event that arrived mid-stream (steer/followUp),
    * consumed by the next user `message_start` which stamps it onto the
@@ -289,6 +306,46 @@ export function createInitialState(): SessionState {
     hasFileChanges: false,
     subagents: new Map(),
     turnCount: 0,
+    assistantInferenceSeq: 0,
+  };
+}
+
+/**
+ * Sentinel body written into a supersede-healed tool row. Deliberately loud so
+ * a real result loss reads as a visible "recovered" state, never a silent
+ * bodyless success. See change: fix-stuck-tool-card-superseded-heal.
+ */
+export const SUPERSEDE_SENTINEL_BODY = "result unavailable — recovered by supersede heal";
+
+/**
+ * Proof-of-completion selector for the supersede heal. True iff `toolCallId` is
+ * a still-`running` row AND a strictly-later assistant inference (a later
+ * assistant `message_start`, tracked by `assistantInferenceSeq`) has been
+ * applied than the one that emitted it. `message_end` and `turnCount` are NOT
+ * used — see design D1. False for terminal or unknown rows.
+ */
+export function hasLaterAssistantInference(state: SessionState, toolCallId: string): boolean {
+  const tc = state.toolCalls.get(toolCallId);
+  if (!tc || tc.status !== "running" || tc.emittedAtInferenceSeq === undefined) return false;
+  return state.assistantInferenceSeq > tc.emittedAtInferenceSeq;
+}
+
+/**
+ * Build the synthetic `tool_execution_end` that finalizes a stuck card via the
+ * existing toolCallId-keyed reducer path. Carries `isError:false`, the loud
+ * sentinel body, and `healedBy:"superseded"`. A later REAL end overwrites it
+ * (D4). See change: fix-stuck-tool-card-superseded-heal.
+ */
+export function synthesizeSupersededEnd(toolCallId: string, now: number): DashboardEvent {
+  return {
+    eventType: "tool_execution_end",
+    timestamp: now,
+    data: {
+      toolCallId,
+      result: SUPERSEDE_SENTINEL_BODY,
+      isError: false,
+      healedBy: "superseded",
+    },
   };
 }
 
@@ -1028,6 +1085,11 @@ export function reduceEvent(
         // Reset the per-message flush flag at the start of every assistant
         // message. See change: fix-streaming-text-vs-interactive-ui-order.
         next.streamingTextFlushed = false;
+        // Advance the inference counter. A new assistant message can only begin
+        // after every prior tool result is in hand, so this is the supersede
+        // heal's proof-of-completion boundary. See change:
+        // fix-stuck-tool-card-superseded-heal.
+        next.assistantInferenceSeq = next.assistantInferenceSeq + 1;
       }
       if (msg?.role === "user") {
         next.pendingPrompt = undefined;
@@ -1388,6 +1450,10 @@ export function reduceEvent(
         args,
         status: "running",
         startedAt: event.timestamp,
+        // Stamp the emitting inference index; its own `message_start` has
+        // already advanced the counter, so only a LATER inference satisfies the
+        // supersede proof. See change: fix-stuck-tool-card-superseded-heal.
+        emittedAtInferenceSeq: next.assistantInferenceSeq,
       });
       next.currentTool = toolName;
 
@@ -1477,7 +1543,20 @@ export function reduceEvent(
 
     case "tool_execution_end": {
       const toolCallId = data.toolCallId as string;
+      // Supersede heal (`healedBy:"superseded"`) is a client-synthesized
+      // placeholder. D4: it MUST NOT clobber a real terminal row nor another
+      // superseded row — only a `running` row is eligible. A real end (no
+      // `healedBy`) always proceeds and overwrites a superseded placeholder.
+      // See change: fix-stuck-tool-card-superseded-heal.
+      const healedBy = data.healedBy as string | undefined;
       const existing = next.toolCalls.get(toolCallId);
+      // A superseded synth may only finalize a live `running` map entry. An
+      // absent entry (`existing === undefined`) is also rejected so a stray
+      // synth can never mutate a message row while leaving `toolCalls`
+      // inconsistent. Real ends (no `healedBy`) are unaffected.
+      if (healedBy === "superseded" && existing?.status !== "running") {
+        break;
+      }
       if (existing) {
         next.toolCalls.set(toolCallId, {
           ...existing,
@@ -1509,13 +1588,24 @@ export function reduceEvent(
             status: isError ? "error" : "completed",
           };
         }
+        // Thread the supersede marker: set it on a synthesized heal; CLEAR it
+        // when a real end (no `healedBy`) overwrites a prior superseded
+        // placeholder, so the recovered badge disappears with the real body.
+        // See change: fix-stuck-tool-card-superseded-heal.
+        let finalDetails = mergedDetails;
+        if (healedBy === "superseded") {
+          finalDetails = { ...(finalDetails ?? {}), healedBy: "superseded" };
+        } else if (finalDetails && "healedBy" in finalDetails) {
+          const { healedBy: _dropped, ...rest } = finalDetails;
+          finalDetails = rest;
+        }
         next.messages[idx] = {
           ...next.messages[idx],
           toolStatus: isError ? "error" : "complete",
           result: result ? truncateOutputForDisplay(result) : next.messages[idx].result,
           duration: msgStartedAt ? event.timestamp - msgStartedAt : undefined,
           ...(images ? { images } : {}),
-          ...(mergedDetails ? { toolDetails: mergedDetails } : {}),
+          ...(finalDetails ? { toolDetails: finalDetails } : {}),
         };
       }
 
