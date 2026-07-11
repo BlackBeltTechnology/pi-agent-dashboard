@@ -64,6 +64,13 @@ describe("ZeroTierProvider (5.1/5.2)", () => {
     await expect(p.connect(8000, "public")).rejects.toThrow(/private-only/);
   });
 
+  it("connect without a configured networkId rejects (no join attempted)", async () => {
+    const calls: string[][] = [];
+    const p = new ZeroTierProvider({ run: (a) => { calls.push(a); return { code: 0, stdout: "", stderr: "" }; } });
+    await expect(p.connect(8000, "private")).rejects.toThrow(/networkId not configured/);
+    expect(calls).toEqual([]);
+  });
+
   it("no assigned IP (unauthorized node) yields no endpoints", async () => {
     const run: CmdRunner = (args) =>
       args.join(" ") === "-j listnetworks"

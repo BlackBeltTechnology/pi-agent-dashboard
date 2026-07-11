@@ -1704,6 +1704,10 @@ function BlockEventTrustBanner({
   onTrust: (entry: string) => void;
 }) {
   const [events, setEvents] = useState<BlockEvent[]>([]);
+  // IPs the operator has acted on this session. A wide-subnet trust (e.g.
+  // 10.0.0.0/8) does not contain the exact IP string, so `trusted.includes`
+  // alone would leave the banner up — track the dismissal explicitly.
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     let alive = true;
     getBlockEvents()
@@ -1712,7 +1716,12 @@ function BlockEventTrustBanner({
     return () => { alive = false; };
   }, []);
 
-  const pending = events.filter((e) => e.trustable && !trusted.includes(e.ip));
+  const trust = (ip: string, entry: string) => {
+    setDismissed((prev) => new Set(prev).add(ip));
+    onTrust(entry);
+  };
+
+  const pending = events.filter((e) => e.trustable && !trusted.includes(e.ip) && !dismissed.has(e.ip));
   if (pending.length === 0) return null;
 
   return (
@@ -1739,7 +1748,7 @@ function BlockEventTrustBanner({
                     ? `Grants unauthenticated access to the whole ${s.value} range`
                     : "Grants unauthenticated access to this exact host"
                 }
-                onClick={() => onTrust(s.value)}
+                onClick={() => trust(ev.ip, s.value)}
                 className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${
                   s.wide
                     ? "border-[#4a3c14] text-[var(--amber,#e2b24a)] hover:bg-[var(--amber-soft,#3a2e10)]"

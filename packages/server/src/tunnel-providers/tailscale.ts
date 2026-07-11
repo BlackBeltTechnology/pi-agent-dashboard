@@ -15,7 +15,7 @@
  */
 
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
   ProviderEndpoints,
   ProviderStatus,
@@ -33,13 +33,15 @@ export interface CmdResult {
   stdout: string;
   stderr: string;
 }
-/** Injectable CLI runner (real one uses execSync; tests pass a fake). */
+/** Injectable CLI runner (real one uses execFileSync argv; tests pass a fake). */
 export type CmdRunner = (args: string[]) => CmdResult;
 
 function defaultRunner(getBinary: () => string): CmdRunner {
   return (args) => {
     try {
-      const stdout = execSync(`"${getBinary()}" ${args.join(" ")}`, {
+      // argv form (D3): args passed as an array, never joined into a shell
+      // command line, so a value with shell metacharacters cannot break out.
+      const stdout = execFileSync(getBinary(), args, {
         encoding: "utf-8",
         timeout: 30_000,
         stdio: ["ignore", "pipe", "pipe"],
@@ -126,12 +128,12 @@ export function deriveEndpoints(
   const dns = selfDnsName(statusJson);
   const ipv4 = selfMeshIpv4(statusJson);
 
-  const serveHasHttps = !!(
-    serveStatusJson &&
-    (serveStatusJson.Web ||
-      Object.keys(serveStatusJson.TCP ?? {}).includes("443") ||
-      JSON.stringify(serveStatusJson).includes(":443"))
-  );
+  // HTTPS only when serve actually terminates TLS on :443 — a Web handler keyed
+  // `host:443` or a TCP :443 entry. Do NOT treat any Web key or a stray ":443"
+  // substring elsewhere in the JSON as HTTPS (false-positive TLS tag).
+  const serveHasHttps =
+    Object.keys(serveStatusJson?.Web ?? {}).some((k) => k.endsWith(":443")) ||
+    Object.keys(serveStatusJson?.TCP ?? {}).includes("443");
 
   if (dns) {
     if (mode === "public") {

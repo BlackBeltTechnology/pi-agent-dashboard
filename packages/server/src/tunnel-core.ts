@@ -231,11 +231,11 @@ export class ChildTunnelRuntime {
           resolved = true;
           clearTimeout(timeout);
           if (token && retriesLeft > 0) {
-            console.warn(`Reserved share failed (code ${code}), releasing token ${token} and creating new reservation...`);
+            console.warn(`Reserved share failed (code ${code}), releasing token (redacted) and creating new reservation...`);
             this.spec.release?.(token);
             resolve(this.createInner(port, undefined, retriesLeft - 1));
           } else if (token) {
-            console.warn(`Reserved share failed (code ${code}) and retry budget exhausted; releasing token ${token}`);
+            console.warn(`Reserved share failed (code ${code}) and retry budget exhausted; releasing token (redacted)`);
             this.spec.release?.(token);
             resolve(null);
           } else {

@@ -100,7 +100,9 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
       setEndpoints(provided);
       return;
     }
-    void refresh();
+    void refresh().catch(() => {
+      /* endpoint fetch failed — leave existing list intact */
+    });
   }, [provided, refresh]);
 
   const addUrl = async () => {

@@ -64,6 +64,10 @@ function RunStep({
   const run = async () => {
     setBusy(true);
     setMsg(null);
+    setOk(false);
+    // runEnrollStep never throws — it maps transport/HTTP failures to
+    // { ok:false, error }. Reset `ok` above so a prior success does not linger
+    // when the operator edits the param and retries.
     const res = await runEnrollStep(provider, step.enrollStep ?? step.kind, param);
     setBusy(false);
     if (res.ok) {

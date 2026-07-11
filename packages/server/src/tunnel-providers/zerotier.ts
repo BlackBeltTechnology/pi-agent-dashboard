@@ -14,7 +14,7 @@
  */
 
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
   ProviderEndpoints,
   ProviderStatus,
@@ -30,7 +30,9 @@ const ztResolver = new ToolResolver({ processExecPath: process.execPath, useLogi
 function defaultRunner(getBinary: () => string): CmdRunner {
   return (args) => {
     try {
-      const stdout = execSync(`"${getBinary()}" ${args.join(" ")}`, {
+      // argv form (D3): args passed as an array, never joined into a shell
+      // command line — networkId cannot inject shell metacharacters.
+      const stdout = execFileSync(getBinary(), args, {
         encoding: "utf-8",
         timeout: 30_000,
         stdio: ["ignore", "pipe", "pipe"],

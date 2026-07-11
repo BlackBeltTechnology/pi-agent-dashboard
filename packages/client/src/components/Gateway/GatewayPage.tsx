@@ -27,20 +27,28 @@ export function GatewayPage() {
   const [mode, setMode] = useState<TunnelMode>("public");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    void getConfig().then((cfg) => {
-      const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
-      if (tunnel.provider) setProvider(tunnel.provider);
-      if (tunnel.mode) setMode(tunnel.mode);
-    });
+    void getConfig()
+      .then((cfg) => {
+        const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
+        if (tunnel.provider) setProvider(tunnel.provider);
+        if (tunnel.mode) setMode(tunnel.mode);
+      })
+      .catch(() => {
+        /* keep defaults on load failure */
+      });
   }, []);
 
   const save = useCallback(async () => {
     setSaving(true);
+    setSaveError(null);
     try {
       await putConfig({ tunnel: { provider, mode } });
       setDirty(false);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save Gateway settings");
     } finally {
       setSaving(false);
     }
@@ -99,7 +107,12 @@ export function GatewayPage() {
       </div>
 
       {dirty && (
-        <div className="mt-6 flex justify-end border-t border-[var(--border)] pt-4">
+        <div className="mt-6 flex items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
+          {saveError && (
+            <span className="text-xs text-[var(--danger,#ef4444)]" data-testid="gateway-page-save-error">
+              {saveError}
+            </span>
+          )}
           <button
             type="button"
             data-testid="gateway-page-save"

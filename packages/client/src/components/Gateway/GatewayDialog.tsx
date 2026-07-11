@@ -29,20 +29,28 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<TunnelMode>("public");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void getConfig().then((cfg) => {
-      const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
-      if (tunnel.provider) setProvider(tunnel.provider);
-      if (tunnel.mode) setMode(tunnel.mode);
-    });
+    void getConfig()
+      .then((cfg) => {
+        const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
+        if (tunnel.provider) setProvider(tunnel.provider);
+        if (tunnel.mode) setMode(tunnel.mode);
+      })
+      .catch(() => {
+        /* keep defaults on load failure */
+      });
   }, []);
 
   const save = useCallback(async () => {
     setSaving(true);
+    setError(null);
     try {
       await putConfig({ tunnel: { provider, mode } });
       setDirty(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "save failed");
     } finally {
       setSaving(false);
     }
@@ -121,10 +129,19 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
 
       <div className="mt-4 flex items-center gap-2 border-t border-[var(--border)] pt-3">
         <span className="flex-1" />
+        {error && (
+          <span className="text-xs text-[var(--danger,#ef4444)]" data-testid="gateway-dialog-error">
+            {error}
+          </span>
+        )}
         <button
           type="button"
           data-testid="gateway-disconnect"
-          onClick={() => void disconnectTunnel().catch(() => {})}
+          onClick={() =>
+            void disconnectTunnel().catch((e) =>
+              setError(e instanceof Error ? e.message : "disconnect failed"),
+            )
+          }
           className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
         >
           Disconnect

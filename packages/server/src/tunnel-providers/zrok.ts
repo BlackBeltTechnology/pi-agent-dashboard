@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
   ProviderEndpoints,
   ProviderStatus,
@@ -80,7 +80,9 @@ function saveReservedToken(token: string): void {
 export function releaseShare(token: string): boolean {
   if (!token) return false;
   try {
-    execSync(`"${getZrokBinary()}" release ${token}`, {
+    // argv form (D3): token passed as a single argv element, never
+    // string-interpolated into a shell command line.
+    execFileSync(getZrokBinary(), ["release", token], {
       timeout: 10_000,
       stdio: ["ignore", "ignore", "ignore"],
     });
@@ -93,14 +95,16 @@ export function releaseShare(token: string): boolean {
 function reserveShare(port: number): Promise<string | null> {
   return new Promise((resolve) => {
     try {
-      const result = execSync(
-        `"${getZrokBinary()}" reserve public http://localhost:${port} --json-output`,
+      const result = execFileSync(
+        getZrokBinary(),
+        ["reserve", "public", `http://localhost:${port}`, "--json-output"],
         { timeout: 30_000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
       );
       const data = JSON.parse(result.trim());
       const token = data.token ?? data.share_token ?? data.shareToken;
       if (token) {
-        console.log(`Reserved zrok share: ${token}`);
+        // Never log the reserved share token (secret). Confirm success only.
+        console.log("Reserved zrok share (token redacted)");
         saveReservedToken(token);
         return resolve(token);
       }

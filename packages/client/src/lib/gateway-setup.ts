@@ -59,7 +59,10 @@ export const GATEWAY_SETUP_STEPS: Record<GatewayProviderId, SetupStep[]> = {
     },
     { kind: "browser-auth", title: "…or sign in via browser", href: "#browser-auth" },
     { kind: "external", title: "Enable MagicDNS", href: "https://login.tailscale.com/admin/dns" },
-    { kind: "activate", title: "Connect — advertise mesh address", enrollStep: "activate" },
+    // NB: tailscale has NO server-side `activate` enroll recipe (only
+    // `auth-token`; see tunnel-enroll.ts ENROLL_STEPS). Connect/advertise runs
+    // through the Gateway connect path, not a whitelisted enroll step — so no
+    // `activate` step here (it would 400 unknown-step).
   ],
   zerotier: [
     { kind: "install", title: "Install the ZeroTier client", command: "brew install --cask zerotier-one" },

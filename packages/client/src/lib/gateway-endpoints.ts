@@ -19,7 +19,9 @@ import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/t
 import { getApiBase } from "./api-context.js";
 import { fetchJsonResponse } from "./fetch-json.js";
 
-const TLS_SCHEME = /^(https|wss):\/\//i;
+// Requires a non-empty authority after the scheme, matching `SECURE_SCHEME` in
+// gateway-config-ops.ts so a bare `https://` (no host) is never pairing-eligible.
+const TLS_SCHEME = /^(https|wss):\/\/[^\s]+$/i;
 
 /** A TLS (`https`/`wss`) endpoint is eligible for the secure pairing payload. */
 export function isPairingEligible(ep: TunnelEndpoint): boolean {
