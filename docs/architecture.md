@@ -1027,7 +1027,7 @@ Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (060
 
 #### QR / copy-string pairing
 
-Payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, secure reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; tunnel plus operator-configured `pairing.publicBaseUrls`. Rendered as QR plus copyable base64url string. Module `packages/server/src/pairing.ts`.
+Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `pairing.publicBaseUrls`. Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
 
 #### Compare-code approval — D12
 
@@ -1171,12 +1171,65 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `autoShutdown` | false | Server shuts down after idle period (disabled by default; enable for TUI auto-start scenarios) |
 | `shutdownIdleSeconds` | 300 | Idle timeout before auto-shutdown |
 | `spawnStrategy` | `"headless"` | How to spawn new sessions: `"headless"` or `"tmux"` |
-| `tunnel.enabled` | true | Enable zrok tunnel for remote access |
-| `tunnel.reservedToken` | _(auto)_ | Reserved zrok share token for persistent URL (auto-created on first run) |
+| `tunnel.enabled` | true | Enable Gateway (internal id `tunnel`) for remote access |
+| `tunnel.provider` | — | `"zrok"`\|`"ngrok"`\|`"tailscale"`\|`"zerotier"`. Required when enabled |
+| `tunnel.mode` | — | `"public"`\|`"private"`. Required when enabled |
+| `tunnel.zrok` | — | `{reservedToken}`. zrok sub-config |
+| `tunnel.ngrok` | — | `{authtoken, domain}`. ngrok sub-config |
+| `tunnel.tailscale` | — | `{authKey}`. tailscale sub-config |
+| `tunnel.zerotier` | — | `{networkId}`. zerotier sub-config |
+| `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 
 ### Tunnel Lifecycle
 
-The tunnel is **enabled by default** (`tunnel.enabled: true`). When the server starts:
+**Gateway** = user-facing label. Internal identifiers stay `tunnel`: `config.tunnel`, `/api/tunnel-status`, `tunnel.ts`, `createTunnel()`, `TunnelStatus`. UI-only relabel. No config migration, no API alias.
+
+#### Provider abstraction
+
+`TunnelProvider` interface (`packages/shared/src/tunnel-provider.ts`). Seam over four providers:
+
+| Provider | Scope | Lifecycle | Mode | URL source | TLS |
+|----------|-------|-----------|------|-----------|-----|
+| zrok | public | child | public | stdout | https |
+| ngrok | public | child | public | stdout | https |
+| tailscale | public + private | daemon | funnel (public) / serve+MagicDNS (private) | `tailscale serve status --json` | https |
+| zerotier | private-only | daemon | private | none — mesh IP only | — |
+
+`tunnel.provider` + `tunnel.mode` select provider + scope. Per-provider sub-config: `tunnel.zrok`, `tunnel.ngrok`, `tunnel.tailscale`, `tunnel.zerotier`.
+
+#### Child lifecycle (zrok, ngrok)
+
+Server owns child process. PID file + watchdog. URL parsed from stdout. zrok steps below — zrok now one provider behind the seam.
+
+#### Daemon lifecycle (tailscale, zerotier)
+
+Idempotent control commands against long-lived daemon (`tailscaled` / `zerotier-one`). PID file + watchdog SKIPPED — daemon owns process. tailscale URL from `tailscale serve status --json` (NOT `status --json`). zerotier `disconnect` = `zerotier-cli leave` (destructive).
+
+#### Server-side enroll
+
+`POST /api/tunnel/enroll` runs fixed whitelisted recipe keyed by `(provider, step)`. token/networkId validated param (strict regex), never free-form command. Secret never logged. Install stays copy-paste. Uses `packages/shared/platform/runner.ts` Recipe engine.
+
+#### Endpoints
+
+`GET /api/tunnel/endpoints` returns tagged `{kind, url, tls}`, kind ∈ `public`|`mesh`|`magicdns`|`lan`|`local`. Multi-sourced: active provider endpoints + manual `pairing.publicBaseUrls` + LAN/local. "Accessible at" UI surface.
+
+Manual HTTPS entry: UI "Add HTTPS URL" appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config` (no new route; `pairing` shallow-overwritten, client PUTs full pairing object). https/wss gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement.
+
+#### Trusted-network block events
+
+`GET /api/tunnel/block-events` — bounded ring buffer of guard denials (socket-peer IP only, never X-Forwarded-For; loopback/proxied marked non-trustable; deduped/capped). UI "Trust this network?" banner → add to trusted networks (exact /32 default, wider subnet optional). One trust entry bypasses auth for whole IP/CIDR.
+
+#### Docker
+
+Host-first this change. tailscaled/zerotier-one in-container = follow-up. zrok stays in image.
+
+#### Client modules
+
+`packages/client/src/lib/gateway-{api,config-ops,endpoints,providers,setup}.ts`, `packages/client/src/components/Gateway/*`. Gateway settings page (Network nav) + tabbed Gateway dialog.
+
+#### zrok child steps
+
+When the server starts (zrok provider):
 
 1. **Binary detection** — `detectZrokBinary()` checks if `zrok` is on PATH via `which`/`where`
 2. **Environment check** — `loadZrokEnv()` reads zrok's own config (`~/.zrok2/environment.json` or `~/.zrok/environment.json`) to verify enrollment. The dashboard never stores zrok API keys — they live entirely in zrok's config directory, created by `zrok enable <token>`.

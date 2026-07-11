@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ZrokInstallGuide } from "../ZrokInstallGuide.js";
 
 beforeEach(() => {
@@ -19,7 +19,7 @@ describe("ZrokInstallGuide", () => {
   it("should render the guide with back button", () => {
     render(<ZrokInstallGuide onBack={vi.fn()} />);
     expect(screen.getByTestId("tunnel-guide-back")).toBeDefined();
-    expect(screen.getByText(/Tunnel Setup/)).toBeDefined();
+    expect(screen.getByText(/Gateway Setup/)).toBeDefined();
   });
 
   it("should call onBack when back button clicked", () => {

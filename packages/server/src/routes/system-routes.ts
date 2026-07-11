@@ -47,6 +47,9 @@ import { spawnRestart } from "../restart-helper.js";
 import type { ServerConfig } from "../server.js";
 import { readSpawnFailures } from "../spawn-failure-log.js";
 import { createTunnel, deleteTunnel, getTunnelStatus, getTunnelUrl } from "../tunnel.js";
+import { blockEvents } from "../tunnel-block-events.js";
+import { collectEndpoints } from "../tunnel-endpoints.js";
+import { runEnrollStep } from "../tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel-watchdog.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -238,6 +241,56 @@ export function registerSystemRoutes(
     { preHandler: networkGuard },
     async () => {
       return { success: true, data: readConfigRedacted() };
+    },
+  );
+
+  // ── Gateway (tunnel) — endpoints, enroll, block-events ──────────────
+  // "Accessible at": every tagged address the dashboard answers on. Sourced
+  // from the active tunnel URL + manual publicBaseUrls + LAN/local. Auth-gated.
+  // See change: add-tunnel-providers.
+  fastify.get(
+    "/api/tunnel/endpoints",
+    { preHandler: networkGuard },
+    async () => {
+      const url = getTunnelUrl();
+      const providerEndpoints = url
+        ? [{ kind: "public" as const, url, tls: url.startsWith("https://") }]
+        : [];
+      const cfg = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+      const endpoints = collectEndpoints({
+        providerEndpoints,
+        publicBaseUrls: cfg.pairing?.publicBaseUrls,
+        port: config.port,
+      });
+      return { success: true, data: { endpoints } } satisfies ApiResponse;
+    },
+  );
+
+  // Run a whitelisted enroll step (auth-token/activate) server-side. The token
+  // is a validated parameter; arbitrary commands are refused. Auth-gated.
+  fastify.post<{ Body: { provider?: string; step?: string; param?: string } }>(
+    "/api/tunnel/enroll",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { provider, step, param } = request.body ?? {};
+      if (!provider || !step || typeof param !== "string") {
+        return reply.code(400).send({ success: false, error: "provider, step, param required" });
+      }
+      const result = await runEnrollStep(provider as any, step as any, param);
+      if (result.ok) return { success: true };
+      const code = result.reason === "unknown-step" || result.reason === "invalid-param" ? 400 : 422;
+      return reply.code(code).send({ success: false, error: result.message });
+    },
+  );
+
+  // Recent network-guard denials for the "Trust this network?" banner.
+  // Anti-poisoning buffer; trust/remove itself goes through PUT /api/config
+  // (config.trustedNetworks). Auth-gated.
+  fastify.get(
+    "/api/tunnel/block-events",
+    { preHandler: networkGuard },
+    async () => {
+      return { success: true, data: { events: blockEvents.list() } } satisfies ApiResponse;
     },
   );
 

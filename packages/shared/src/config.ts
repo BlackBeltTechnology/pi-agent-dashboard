@@ -6,6 +6,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import {
+  providerSupportsMode,
+  type TunnelMode,
+  type TunnelProviderId,
+} from "./tunnel-provider.js";
 
 export type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 
@@ -267,7 +272,23 @@ export interface DashboardConfig {
   spawnStrategy: SpawnStrategy;
   tunnel: {
     enabled: boolean;
+    /**
+     * Which provider backs the tunnel. Required (non-undefined) once a
+     * post-migration config is written; a legacy config with only
+     * `reservedToken` is normalized to `provider: "zrok"` at read time.
+     */
+    provider?: TunnelProviderId;
+    /** public reverse-proxy vs private mesh. Required when enabled + provider set. */
+    mode?: TunnelMode;
+    /**
+     * Legacy top-level zrok reserved token. Preserved on read for downgrade
+     * safety; the normalized shape also carries it under `zrok.reservedToken`.
+     */
     reservedToken?: string;
+    zrok?: { reservedToken?: string };
+    ngrok?: { authtoken?: string; domain?: string };
+    tailscale?: { authKey?: string };
+    zerotier?: { networkId?: string };
     watchdog?: {
       enabled: boolean;
       intervalMs: number;
@@ -693,6 +714,95 @@ function parseTrustedNetworks(raw: any): string[] {
   return raw.filter((entry: unknown) => typeof entry === "string" && entry.length > 0);
 }
 
+const KNOWN_TUNNEL_PROVIDERS: TunnelProviderId[] = ["zrok", "ngrok", "tailscale", "zerotier"];
+const KNOWN_TUNNEL_MODES: TunnelMode[] = ["public", "private"];
+
+/**
+ * Read-time back-compat shim (idempotent, pure). Normalizes a raw persisted
+ * `tunnel` block into the provider+mode shape without rewriting disk:
+ *  - a legacy bare `reservedToken` + no `provider` resolves to
+ *    `{ provider: "zrok", mode: "public", zrok: { reservedToken } }`;
+ *  - the legacy top-level `reservedToken` is preserved for downgrade safety;
+ *  - an explicit `provider` wins over a stray legacy `reservedToken`.
+ * See change: add-tunnel-providers.
+ */
+export function normalizeTunnelConfig(
+  raw: any,
+  defaults: DashboardConfig["tunnel"],
+): DashboardConfig["tunnel"] {
+  const rawProvider =
+    typeof raw?.provider === "string" && (KNOWN_TUNNEL_PROVIDERS as string[]).includes(raw.provider)
+      ? (raw.provider as TunnelProviderId)
+      : undefined;
+  const legacyToken = typeof raw?.reservedToken === "string" ? raw.reservedToken : undefined;
+  // Legacy bare token + no explicit provider → zrok/public.
+  const provider = rawProvider ?? (legacyToken ? ("zrok" as TunnelProviderId) : undefined);
+  const rawMode =
+    typeof raw?.mode === "string" && (KNOWN_TUNNEL_MODES as string[]).includes(raw.mode)
+      ? (raw.mode as TunnelMode)
+      : undefined;
+  const mode = rawMode ?? (provider === "zrok" && !rawProvider ? ("public" as TunnelMode) : undefined);
+
+  const zrok =
+    raw?.zrok?.reservedToken || legacyToken
+      ? { reservedToken: raw?.zrok?.reservedToken ?? legacyToken }
+      : undefined;
+
+  const out: DashboardConfig["tunnel"] = {
+    enabled: raw?.enabled ?? defaults.enabled,
+    ...(provider ? { provider } : {}),
+    ...(mode ? { mode } : {}),
+    ...(legacyToken ? { reservedToken: legacyToken } : {}),
+    ...(zrok ? { zrok } : {}),
+    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
+    ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
+    ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
+    watchdog: {
+      enabled: raw?.watchdog?.enabled ?? defaults.watchdog!.enabled,
+      intervalMs:
+        typeof raw?.watchdog?.intervalMs === "number" && raw.watchdog.intervalMs > 0
+          ? raw.watchdog.intervalMs
+          : defaults.watchdog!.intervalMs,
+      failureThreshold:
+        typeof raw?.watchdog?.failureThreshold === "number" && raw.watchdog.failureThreshold > 0
+          ? Math.floor(raw.watchdog.failureThreshold)
+          : defaults.watchdog!.failureThreshold,
+      probeTimeoutMs:
+        typeof raw?.watchdog?.probeTimeoutMs === "number" && raw.watchdog.probeTimeoutMs > 0
+          ? raw.watchdog.probeTimeoutMs
+          : defaults.watchdog!.probeTimeoutMs,
+    },
+  };
+  return out;
+}
+
+/** A tunnel config error surfaced instead of silently starting a tunnel. */
+export type TunnelConfigError =
+  | { ok: true }
+  | { ok: false; reason: "mode-unset" | "unsupported-mode" | "provider-unset"; message: string };
+
+/**
+ * Validate a normalized tunnel block before connect. The server MUST refuse
+ * to start a tunnel when `mode` is unset or the provider does not support the
+ * selected mode. See change: add-tunnel-providers.
+ */
+export function validateTunnelForConnect(tunnel: DashboardConfig["tunnel"]): TunnelConfigError {
+  if (!tunnel.provider) {
+    return { ok: false, reason: "provider-unset", message: "tunnel.provider is required when enabled" };
+  }
+  if (!tunnel.mode) {
+    return { ok: false, reason: "mode-unset", message: "tunnel.mode is required when enabled" };
+  }
+  if (!providerSupportsMode(tunnel.provider, tunnel.mode)) {
+    return {
+      ok: false,
+      reason: "unsupported-mode",
+      message: `provider ${tunnel.provider} does not support mode ${tunnel.mode}`,
+    };
+  }
+  return { ok: true };
+}
+
 /**
  * Load configuration from ~/.pi/dashboard/config.json.
  * Returns defaults for missing fields, malformed JSON, or missing file.
@@ -719,25 +829,7 @@ export function loadConfig(): DashboardConfig {
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
       spawnStrategy,
-      tunnel: {
-        enabled: parsed.tunnel?.enabled ?? defaults.tunnel.enabled,
-        ...(parsed.tunnel?.reservedToken ? { reservedToken: parsed.tunnel.reservedToken } : {}),
-        watchdog: {
-          enabled: parsed.tunnel?.watchdog?.enabled ?? defaults.tunnel.watchdog!.enabled,
-          intervalMs:
-            typeof parsed.tunnel?.watchdog?.intervalMs === "number" && parsed.tunnel.watchdog.intervalMs > 0
-              ? parsed.tunnel.watchdog.intervalMs
-              : defaults.tunnel.watchdog!.intervalMs,
-          failureThreshold:
-            typeof parsed.tunnel?.watchdog?.failureThreshold === "number" && parsed.tunnel.watchdog.failureThreshold > 0
-              ? Math.floor(parsed.tunnel.watchdog.failureThreshold)
-              : defaults.tunnel.watchdog!.failureThreshold,
-          probeTimeoutMs:
-            typeof parsed.tunnel?.watchdog?.probeTimeoutMs === "number" && parsed.tunnel.watchdog.probeTimeoutMs > 0
-              ? parsed.tunnel.watchdog.probeTimeoutMs
-              : defaults.tunnel.watchdog!.probeTimeoutMs,
-        },
-      },
+      tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
       auth: parseAuthConfig(parsed.auth),

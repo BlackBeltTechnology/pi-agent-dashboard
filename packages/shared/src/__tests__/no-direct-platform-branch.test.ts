@@ -73,6 +73,11 @@ const ALLOWLIST: readonly string[] = [
   // Server tunnel: surfaces process.platform in a response body.
   "packages/server/src/tunnel.ts",
 
+  // ngrok provider: per-OS ngrok.yml config-file location lookup (darwin
+  // Application Support / win32 LOCALAPPDATA / XDG). Genuine data-lookup
+  // branch like editor-registry.ts, benign. See change: add-tunnel-providers.
+  "packages/server/src/tunnel-providers/ngrok.ts",
+
   // Server browse: returns process.platform in BrowseResult for the
   // client path-picker (protocol surface).
   "packages/server/src/browse.ts",

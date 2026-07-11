@@ -36,7 +36,7 @@ describe("PairingView", () => {
     await waitFor(() => expect(screen.getByTestId("pairing-empty")).toBeDefined());
     // Start-tunnel action navigates to the secure road, never implies plain LAN works.
     fireEvent.click(screen.getByTestId("pairing-start-tunnel"));
-    expect(navigateFn).toHaveBeenCalledWith("/tunnel-setup");
+    expect(navigateFn).toHaveBeenCalledWith("/settings/gateway");
   });
 
   it("renders QR + copy-string + fingerprint when payload present", async () => {

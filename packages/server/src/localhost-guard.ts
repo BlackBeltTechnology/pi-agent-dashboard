@@ -2,8 +2,9 @@
  * Network access guard for Fastify routes.
  * Supports loopback, trusted networks (CIDR/wildcard/exact), and authenticated users.
  */
-import type { FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { verifyLocalToken } from "./local-token.js";
+import { blockEvents } from "./tunnel-block-events.js";
 
 const LOOPBACK_ADDRESSES = new Set([
   "127.0.0.1",
@@ -114,6 +115,15 @@ export function createNetworkGuard(
     if (opts?.localToken && verifyLocalToken(request.headers as Record<string, unknown>, opts.localToken)) return;
     if (trustedNetworks.length > 0 && isBypassedHost(request.ip, trustedNetworks)) return;
     if ((request as any).isAuthenticated) return;
+    // Record the denial into the bounded, anti-poisoning block-event buffer so
+    // the UI can offer "Trust this network?". The recorded IP is the SOCKET
+    // PEER (`request.ip`) only — never a forwarding header; a proxy-terminated
+    // peer is flagged non-trustable. See change: add-tunnel-providers.
+    try {
+      blockEvents.record(request.ip, {
+        proxied: hasProxyForwardingHeaders(request.headers as Record<string, unknown>),
+      });
+    } catch { /* recording is best-effort, never blocks the denial */ }
     // Self-describing denial so clients can branch on policy-denial vs
     // transport failure. `error` is the stable machine-readable literal;
     // `reason`/`hint` are human copy. See change:

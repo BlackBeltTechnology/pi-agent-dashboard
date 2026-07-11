@@ -443,6 +443,8 @@ Cross-refs:
 
 ## How do I set up a zrok tunnel for a persistent public URL?
 
+Feature presented as **Gateway** in UI. Internal id stays `tunnel`. zrok = one provider; pick via `tunnel.provider: "zrok"`. See providers matrix below.
+
 Install zrok, enrol with token, leave `tunnel.enabled: true` (default).
 
 Steps:
@@ -464,6 +466,31 @@ Dashboard never stores zrok API keys — they live in zrok's config directory.
 Cross-refs:
 - README.md:259
 - docs/architecture.md:978
+
+## What Gateway providers are available?
+
+Four providers behind `TunnelProvider` seam (`packages/shared/src/tunnel-provider.ts`). Select via `tunnel.provider` + `tunnel.mode`.
+
+| Provider | Scope | Mode | Lifecycle | TLS | URL |
+|----------|-------|------|-----------|-----|-----|
+| `zrok` | public | public | child | https | stdout |
+| `ngrok` | public | public | child | https | stdout |
+| `tailscale` | public + private | funnel / serve+MagicDNS | daemon | https | `tailscale serve status --json` |
+| `zerotier` | private-only | private | daemon | — | none (mesh IP only) |
+
+Child (zrok/ngrok) = server owns child process, PID + watchdog. Daemon (tailscale/zerotier) = control commands against `tailscaled`/`zerotier-one`, PID/watchdog skipped. Per-provider sub-config: `tunnel.zrok`, `tunnel.ngrok` (`authtoken`, `domain`), `tunnel.tailscale` (`authKey`), `tunnel.zerotier` (`networkId`).
+
+## How do I add my own HTTPS endpoint?
+
+Gateway UI → "Add HTTPS URL". Appends to `pairing.publicBaseUrls` via auth-gated `PUT /api/config`. No new route.
+
+https/wss only. Gate authoritative server-side at read time in `reachableUrls()`; plain-http dropped before advertisement. Endpoint surfaces in `GET /api/tunnel/endpoints` as tagged `{kind, url, tls}`.
+
+## Why do some endpoints get a link QR instead of the pairing QR?
+
+Two QR kinds. **Pairing QR** = secure payload `{v,id,code,urls[]}`, `urls[]` TLS-only (https/wss, incl. MagicDNS). **Link QR** = per no-TLS http mesh/LAN endpoint; encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer.
+
+No-TLS endpoints cannot carry the secure payload, so they get a link QR. Link-QR arrival governed by `config.trustedNetworks`.
 
 ## Why does my zrok tunnel sometimes return Bad Gateway, and is there auto-recovery?
 

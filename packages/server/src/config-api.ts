@@ -2,11 +2,11 @@
  * Config REST API helpers: read, write, redact secrets, runtime reload.
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { loadConfig, type DashboardConfig, type AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
+import path from "node:path";
+import { type AuthConfig, type DashboardConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
+import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
 
 const REDACTED = "***";
 
@@ -23,7 +23,20 @@ export function readConfigRedacted(): DashboardConfig {
   if (config.auth) {
     config.auth = redactAuthSecrets(config.auth);
   }
+  // Redact per-provider tunnel secrets so GET /api/config never serves them in
+  // clear (change: add-tunnel-providers — doubt-review gap). The write path
+  // preserves a redacted value via writeConfigPartial's tunnel deep-merge.
+  config.tunnel = redactTunnelSecrets(config.tunnel);
   return config;
+}
+
+function redactTunnelSecrets(tunnel: DashboardConfig["tunnel"]): DashboardConfig["tunnel"] {
+  const t = { ...tunnel };
+  if (t.reservedToken) t.reservedToken = REDACTED;
+  if (t.zrok?.reservedToken) t.zrok = { ...t.zrok, reservedToken: REDACTED };
+  if (t.ngrok?.authtoken) t.ngrok = { ...t.ngrok, authtoken: REDACTED };
+  if (t.tailscale?.authKey) t.tailscale = { ...t.tailscale, authKey: REDACTED };
+  return t;
 }
 
 function redactAuthSecrets(auth: AuthConfig): AuthConfig {
@@ -116,16 +129,36 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.auth = mergedAuth;
     }
 
-    // Merge tunnel sub-object (deep-merge nested watchdog)
+    // Merge tunnel sub-object (deep-merge nested watchdog + per-provider
+    // sub-objects; preserve redacted secrets so a PUT echoing "***" does not
+    // clobber the real value — change: add-tunnel-providers).
     if (partial.tunnel) {
-      const existingTunnel = existing.tunnel ?? {};
+      const existingTunnel: any = existing.tunnel ?? {};
       const mergedWatchdog = partial.tunnel.watchdog
         ? { ...(existingTunnel.watchdog ?? {}), ...partial.tunnel.watchdog }
         : existingTunnel.watchdog;
+      const keepSecret = (incoming: any, prior: any, field: string) => {
+        if (!incoming) return prior ? { ...prior } : incoming;
+        const out = { ...(prior ?? {}), ...incoming };
+        if (incoming[field] === REDACTED) out[field] = prior?.[field] ?? "";
+        return out;
+      };
       partial.tunnel = {
         ...existingTunnel,
         ...partial.tunnel,
         ...(mergedWatchdog ? { watchdog: mergedWatchdog } : {}),
+        ...(partial.tunnel.reservedToken === REDACTED
+          ? { reservedToken: existingTunnel.reservedToken }
+          : {}),
+        ...(partial.tunnel.zrok !== undefined
+          ? { zrok: keepSecret(partial.tunnel.zrok, existingTunnel.zrok, "reservedToken") }
+          : {}),
+        ...(partial.tunnel.ngrok !== undefined
+          ? { ngrok: keepSecret(partial.tunnel.ngrok, existingTunnel.ngrok, "authtoken") }
+          : {}),
+        ...(partial.tunnel.tailscale !== undefined
+          ? { tailscale: keepSecret(partial.tunnel.tailscale, existingTunnel.tailscale, "authKey") }
+          : {}),
       };
     }
 

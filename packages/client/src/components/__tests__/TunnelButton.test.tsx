@@ -1,11 +1,22 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import React from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TunnelButton } from "../TunnelButton.js";
 
 const navigateFn = vi.fn();
 vi.mock("wouter", () => ({
   useLocation: () => ["/", navigateFn],
+}));
+
+// The Gateway dialog fetches config/endpoints/pair payload on open; stub the
+// child so this unit test stays focused on the button's open/navigate logic.
+vi.mock("../Gateway/GatewayDialog.js", () => ({
+  GatewayDialog: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="gateway-dialog-overlay">
+      <button type="button" data-testid="gateway-dialog-close" onClick={onClose}>
+        close
+      </button>
+    </div>
+  ),
 }));
 
 afterEach(() => {
@@ -21,60 +32,36 @@ function mockFetch(status: "active" | "inactive" | "unavailable", url?: string) 
   } as Response);
 }
 
-describe("TunnelButton", () => {
-  it("should render the tunnel button", () => {
+describe("TunnelButton (Gateway)", () => {
+  it("renders the button", () => {
     render(<TunnelButton />);
     expect(screen.getByTestId("tunnel-btn")).toBeDefined();
   });
 
-  it("should navigate to setup when unavailable", async () => {
+  it("navigates to the Gateway settings page when unavailable", async () => {
     mockFetch("unavailable");
     render(<TunnelButton />);
     fireEvent.click(screen.getByTestId("tunnel-btn"));
     await waitFor(() => {
-      expect(navigateFn).toHaveBeenCalledWith("/tunnel-setup");
+      expect(navigateFn).toHaveBeenCalledWith("/settings/gateway");
     });
   });
 
-  it("should open dialog with connect button when inactive", async () => {
+  it("opens the Gateway dialog when inactive", async () => {
     mockFetch("inactive");
     render(<TunnelButton />);
     fireEvent.click(screen.getByTestId("tunnel-btn"));
     await waitFor(() => {
-      expect(screen.getByTestId("qr-dialog-overlay")).toBeDefined();
-      expect(screen.getByTestId("qr-connect-btn")).toBeDefined();
+      expect(screen.getByTestId("gateway-dialog-overlay")).toBeDefined();
     });
   });
 
-  it("should open dialog with QR code and disconnect when active", async () => {
+  it("opens the Gateway dialog when active", async () => {
     mockFetch("active", "https://example.zrok.io");
     render(<TunnelButton />);
     fireEvent.click(screen.getByTestId("tunnel-btn"));
     await waitFor(() => {
-      expect(screen.getByTestId("qr-dialog-overlay")).toBeDefined();
-      expect(screen.getByTestId("qr-disconnect-btn")).toBeDefined();
-      expect(screen.getByTestId("qr-setup-btn")).toBeDefined();
-      expect(screen.getByTestId("qr-canvas")).toBeDefined();
+      expect(screen.getByTestId("gateway-dialog-overlay")).toBeDefined();
     });
-  });
-
-  it("should not show disconnect when inactive", async () => {
-    mockFetch("inactive");
-    render(<TunnelButton />);
-    fireEvent.click(screen.getByTestId("tunnel-btn"));
-    await waitFor(() => {
-      expect(screen.getByTestId("qr-connect-btn")).toBeDefined();
-    });
-    expect(screen.queryByTestId("qr-disconnect-btn")).toBeNull();
-  });
-
-  it("should not show connect when active", async () => {
-    mockFetch("active", "https://example.zrok.io");
-    render(<TunnelButton />);
-    fireEvent.click(screen.getByTestId("tunnel-btn"));
-    await waitFor(() => {
-      expect(screen.getByTestId("qr-disconnect-btn")).toBeDefined();
-    });
-    expect(screen.queryByTestId("qr-connect-btn")).toBeNull();
   });
 });

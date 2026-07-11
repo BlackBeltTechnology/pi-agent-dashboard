@@ -45,6 +45,7 @@ Files in this directory. One row per source file.
 | `FolderNeedsYouPill.tsx` | Folder-header "N need you" rollup pill. Counts chat-routed ask_user child sessions; excludes widget-bar via… → see `FolderNeedsYouPill.tsx.AGENTS.md` |
 | `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route + Refresh + Specs/Archive buttons. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
 | `FolderSpawnButtons.tsx` | Stacked spawn buttons in folder header: `+ New Session` (green, always) + `+ New Worktree` (orange, gated by `showWorktree`). Min-height 44px on mobile. Exports `FolderSpawnButtons`. |
+| `Gateway/` | Reusable Gateway (tunnel-providers) UI sections + hosts (dialog + settings page). → see `Gateway/AGENTS.md`. See change: add-tunnel-providers. |
 | `FrontmatterProperties.tsx` | Obsidian-style YAML frontmatter Properties panel. Exports `extractFrontmatter` (leading `---` block parser),… → see `FrontmatterProperties.tsx.AGENTS.md` |
 | `GroupedAttachDialog.tsx` | Grouped attach dialog with pill filters + collapsible sections for OpenSpec change selection. See change: add-openspec-change-grouping. |
 | `ImageLightbox.tsx` | Portal full-screen image overlay with `useZoomPan` (wheel/pointer/touch zoom+pan, 0.25–10x). Closes on Escape + backdrop click via document listeners. Exports `ImageLightbox`. |
@@ -102,7 +103,7 @@ Files in this directory. One row per source file.
 | `ProcessList.tsx` | Repurposed as BackgroundProcessesDrawer (filename kept). Renders bridge PGID scan as collapsible drawer under… → see `ProcessList.tsx.AGENTS.md` |
 | `ProposeDialog.tsx` | Name-only dialog launching `/skill:openspec-propose`. Exports `ProposeDialog`, `formatProposePrompt(name)`. → see `ProposeDialog.tsx.AGENTS.md` |
 | `ProviderAuthSection.tsx` | Settings section for LLM provider auth. Exports `ProviderAuthSection`. → see `ProviderAuthSection.tsx.AGENTS.md` |
-| `QrCodeDialog.tsx` | Dialog showing tunnel URL as QR code for mobile access. Exports `QrCodeDialog`. → see `QrCodeDialog.tsx.AGENTS.md` |
+| `QrCodeDialog.tsx` | Dialog showing tunnel URL as QR code for mobile access. Exports `QrCodeDialog`. ORPHANED by add-tunnel-providers: `TunnelButton` now opens `Gateway/GatewayDialog` instead; retained (still unit-tested) but no longer mounted. → see `QrCodeDialog.tsx.AGENTS.md` |
 | `QueuePanel.tsx` | Read-only follow-up cycler. Pi ExtensionAPI exposes no queue mutation (verified through pi 0.76.0). → see `QueuePanel.tsx.AGENTS.md` |
 | `RawEventCard.tsx` | Collapsible card showing one raw event in the event log. Exports `RawEventCard`. → see `RawEventCard.tsx.AGENTS.md` |
 | `RecommendedExtensions.tsx` | Panel rendering curated recommended extensions. Exports `RecommendedExtensions`. Props: `scope`, `cwd`. → see `RecommendedExtensions.tsx.AGENTS.md` |
