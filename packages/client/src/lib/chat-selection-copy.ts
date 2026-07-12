@@ -65,6 +65,9 @@ function serializeFragment(root: Node): string {
       out += "\n";
       return;
     }
+    // Separate a block element from preceding inline content with a leading
+    // newline too, so `inline<block>inline` reads like a native copy.
+    if (BLOCK_TAGS.has(el.tagName) && out.length > 0 && !out.endsWith("\n")) out += "\n";
     for (const child of Array.from(el.childNodes)) walk(child);
     if (BLOCK_TAGS.has(el.tagName)) out += "\n";
   };
