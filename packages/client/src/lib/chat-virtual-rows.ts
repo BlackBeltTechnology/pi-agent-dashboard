@@ -87,10 +87,7 @@ function baseRowSize(role: ChatMessage["role"]): number {
     case "thinking":
       return 72;
     case "user":
-      // Image-bearing user rows are far taller than a text bubble. A taller
-      // pre-mount estimate bounds first-paint scroll drift before the
-      // decode-driven re-measure lands (measurement stays authoritative).
-      return (msg.images?.length ?? 0) > 0 ? 320 : 96;
+      return 96;
     case "toolResult":
       return 120;
     case "rawEvent":

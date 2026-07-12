@@ -24,6 +24,10 @@
 - [x] 3.1 If low-risk, make `estimateVirtualRowSize` return a taller value for a
   user row known to carry images. Measurement stays authoritative; this only
   reduces the first-paint jump. Skip if it complicates row typing.
+  SUPERSEDED by develop PR #273 (fix-chat-scroll-to-top-estimate-drift): it
+  rewrote `estimateVirtualRowSize(item, textChars)` to be content-aware and
+  already reserves `IMAGE_RESERVE_USER=300` for image rows. Our interim estimate
+  edit was dropped in the develop merge; develop's approach is authoritative.
 
 ## 4. Verify
 - [x] 4.1 New re-measure test passes.
