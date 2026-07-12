@@ -90,4 +90,25 @@ describe("ChatView image-row re-measure", () => {
     // Three decodes in the same frame → at most one scheduled measure pass.
     expect(rafSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("does not schedule a re-measure when an image fails to decode (onError)", () => {
+    // Only onLoad drives the re-measure; a broken data-URL fires onError and
+    // must NOT schedule a measure pass (the reserved loading box keeps the row
+    // bounded, so nothing collapses). Guards against wiring onError by mistake.
+    const state = stateWithUserImages([img()]);
+    const { container } = render(
+      <ThemeProvider>
+        <ChatView sessionId="s1" state={state} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+    const image = container.querySelector("img");
+    expect(image).not.toBeNull();
+
+    rafSpy.mockClear();
+    act(() => {
+      image?.dispatchEvent(new Event("error"));
+    });
+
+    expect(rafSpy).not.toHaveBeenCalled();
+  });
 });
