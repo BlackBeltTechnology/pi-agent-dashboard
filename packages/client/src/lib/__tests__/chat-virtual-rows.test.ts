@@ -100,6 +100,22 @@ describe("estimateVirtualRowSize (task 2.2)", () => {
     expect(huge).toBeLessThanOrEqual(140 + 8000);
   });
 
+  it("saturates at the clamp boundary (CHARS_PER_LINE=80, LINE_PX=20, clamp=8000)", () => {
+    const row = msg({ id: "a", role: "assistant" });
+    // ceil(32000/80)*20 = 8000 = clamp exactly (base 140 + 8000 = 8140).
+    expect(estimateVirtualRowSize(row, 32_000)).toBe(140 + 8000);
+    // One char past the boundary already saturates (ceil(32001/80)*20 = 8020 -> clamped).
+    expect(estimateVirtualRowSize(row, 32_001)).toBe(140 + 8000);
+    // Far above the clamp stays saturated at the same value.
+    expect(estimateVirtualRowSize(row, 5_000_000)).toBe(estimateVirtualRowSize(row, 32_000));
+  });
+
+  it("returns the bare base (no reserve) for an empty text payload", () => {
+    // textChars defaults to 0; no image block -> base only.
+    expect(estimateVirtualRowSize(msg({ id: "a", role: "assistant" }))).toBe(140);
+    expect(estimateVirtualRowSize(msg({ id: "u", role: "user" }), 0)).toBe(96);
+  });
+
   it("adds the user image reserve (300) for an image-bearing user row", () => {
     const withText = estimateVirtualRowSize(msg({ id: "u", role: "user" }), 1000);
     const withImage = estimateVirtualRowSize(
@@ -137,6 +153,14 @@ describe("computeRowTextChars (task 2.1)", () => {
       ],
     } as unknown as ToolCallGroup;
     expect(computeRowTextChars(g)).toBe(7);
+  });
+
+  it("returns 0 for empty/default message, group, and burst payloads", () => {
+    expect(computeRowTextChars(msg({ id: "a", role: "assistant", content: "" }))).toBe(0);
+    expect(
+      computeRowTextChars({ type: "group", toolName: "bash", messages: [] } as unknown as ToolCallGroup),
+    ).toBe(0);
+    expect(computeRowTextChars({ type: "burst", id: "b", items: [] } as ToolBurstGroup)).toBe(0);
   });
 
   it("aggregates member text across a burst's items", () => {
