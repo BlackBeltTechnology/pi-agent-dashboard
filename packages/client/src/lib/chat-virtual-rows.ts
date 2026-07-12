@@ -170,3 +170,97 @@ export function buildTurnToFirstRowIndex(rows: BurstItem[]): Map<number, number>
   }
   return map;
 }
+
+// --- Active-selection retention (change: preserve-chat-selection-during-churn) ---
+
+/** Inclusive display-row index span [min..max] a selection intersects. */
+export interface SelectionRowSpan {
+  min: number;
+  max: number;
+}
+
+/**
+ * Resolve a Range endpoint node to its display-row index by walking up to the
+ * nearest mounted `[data-index]` element. Returns `null` when the node is not
+ * inside a virtual row (streaming tail, pending-steer/prompt, header/composer —
+ * none carry `data-index`).
+ */
+function endpointRowIndex(node: Node | null, container: HTMLElement): number | null {
+  if (!node) return null;
+  const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+  const rowEl = el?.closest?.("[data-index]") ?? null;
+  if (!rowEl || !container.contains(rowEl)) return null;
+  const idx = Number(rowEl.getAttribute("data-index"));
+  return Number.isInteger(idx) ? idx : null;
+}
+
+/**
+ * Clamp a NON-virtual endpoint (no `[data-index]`) to the nearest virtual
+ * boundary by document order: a node preceding the container clamps to the
+ * first row (0); a node following/contained-below (streaming tail, pending)
+ * clamps to the last row (`rowCount - 1`).
+ */
+function clampEndpointToBoundary(node: Node, container: HTMLElement, rowCount: number): number {
+  const pos = container.compareDocumentPosition(node);
+  return pos & Node.DOCUMENT_POSITION_PRECEDING ? 0 : rowCount - 1;
+}
+
+/**
+ * Map a DOM `Range` to the inclusive display-row span it intersects (D3).
+ *
+ * Walks `startContainer`/`endContainer` up to the nearest `[data-index]` row.
+ * Endpoints in a non-virtual region clamp to the nearest virtual boundary.
+ * Reversed and same-row selections normalize via `min`/`max`. Returns `null`
+ * when the selection touches no virtual row (e.g. entirely inside the streaming
+ * tail, or entirely outside the transcript).
+ *
+ * PURE + O(1)-ish (two ancestor walks): the caller reads this on every
+ * `selectionchange` while all rows are still mounted, storing the result in a
+ * ref so `rangeExtractor` keeps those rows mounted BEFORE any unmount can move
+ * the live Range endpoints. The retained-row ceiling is applied by the caller
+ * (device-aware via `useMobile()`), not here.
+ */
+export function rangeToRowIndexSpan(
+  range: Range,
+  container: HTMLElement,
+  rowCount: number,
+): SelectionRowSpan | null {
+  if (rowCount <= 0) return null;
+  const { startContainer, endContainer } = range;
+  const startIn = container.contains(startContainer);
+  const endIn = container.contains(endContainer);
+  if (!startIn && !endIn) return null; // selection does not touch the transcript
+
+  const startIdx = endpointRowIndex(startContainer, container);
+  const endIdx = endpointRowIndex(endContainer, container);
+  if (startIdx == null && endIdx == null) return null; // only non-virtual regions
+
+  const a = startIdx ?? clampEndpointToBoundary(startContainer, container, rowCount);
+  const b = endIdx ?? clampEndpointToBoundary(endContainer, container, rowCount);
+  const min = Math.max(0, Math.min(a, b));
+  const max = Math.min(rowCount - 1, Math.max(a, b));
+  return { min, max };
+}
+
+/**
+ * Union an active selection's row span into the virtualizer's default range
+ * (D3). Returns `base` unchanged when there is no span OR when the span exceeds
+ * the retained-row ceiling `cap` (past the cap the caller ACTIVELY clears the
+ * selection rather than force-mounting the span or handing back a silently
+ * truncated copy). Result stays sorted ascending and within `[0, count)` as the
+ * virtualizer requires.
+ */
+export function extendRangeWithSelection(
+  base: number[],
+  span: SelectionRowSpan | null,
+  cap: number,
+  count: number,
+): number[] {
+  if (!span) return base;
+  if (span.max - span.min + 1 > cap) return base; // past ceiling: caller clears
+  const set = new Set(base);
+  const lo = Math.max(0, span.min);
+  const hi = Math.min(count - 1, span.max);
+  for (let i = lo; i <= hi; i++) set.add(i);
+  return Array.from(set).sort((a, b) => a - b);
+}

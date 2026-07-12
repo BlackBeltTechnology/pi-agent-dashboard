@@ -4,13 +4,14 @@ import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skelet
 import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useActiveChatSelection } from "../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../hooks/useFxVisibility.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, isBurst, isGroup, virtualRowKey } from "../lib/chat-virtual-rows.js";
+import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../lib/chat-virtual-rows.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../lib/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
@@ -195,6 +196,16 @@ function hasMermaid(content: string): boolean {
 
 const SCROLL_THRESHOLD = 50;
 
+// Retained-row ceiling for an active selection (change:
+// preserve-chat-selection-during-churn, D3). The `rangeExtractor` keeps up to
+// this many selection-intersecting rows mounted; past it the view actively
+// clears the selection rather than force-mounting the span. Device-aware: rows
+// carry heavy subtrees (Prism/xterm/mermaid/SubagentDetailView) + one
+// ResizeObserver each, so mobile drag stays bounded lower. Coarse interim
+// units pending a measured pixel/node budget.
+const SELECTION_RETAIN_CAP_DESKTOP = 100;
+const SELECTION_RETAIN_CAP_MOBILE = 40;
+
 // Per-session scroll state, persisted across session switches
 const scrollStateMap = new Map<string, { anchorRowId: string | null; offset: number; nearBottom: boolean }>();
 
@@ -310,12 +321,57 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const rowTextChars = useMemo(() => displayRows.map(computeRowTextChars), [displayRows]);
   const turnToFirstRowIndex = useMemo(() => buildTurnToFirstRowIndex(displayRows), [displayRows]);
 
+  // --- Active-selection preservation (change: preserve-chat-selection-during-churn) ---
+  // Row count + device-aware retained-row ceiling read as refs so the stable
+  // `mapChatRange` closure and the virtualizer `rangeExtractor` always see the
+  // latest values without re-subscribing.
+  const rowCountRef = useRef(0);
+  rowCountRef.current = displayRows.length;
+  const selectionCapRef = useRef(SELECTION_RETAIN_CAP_DESKTOP);
+  selectionCapRef.current = isMobile ? SELECTION_RETAIN_CAP_MOBILE : SELECTION_RETAIN_CAP_DESKTOP;
+
+  const mapChatRange = useCallback((range: Range): SelectionRowSpan | null => {
+    const el = scrollRef.current;
+    if (!el) return null;
+    const span = rangeToRowIndexSpan(range, el, rowCountRef.current);
+    if (span && span.max - span.min + 1 > selectionCapRef.current) {
+      // Past the retained-row ceiling (notably Select-All): ACTIVELY clear the
+      // selection so the outcome is visible, NOT a silently-truncated copy.
+      // Passive non-extension does not collapse a Range whose endpoints sit in
+      // two different removed rows — it persists with garbage offsets. See D3.
+      window.getSelection()?.removeAllRanges();
+      return null;
+    }
+    return span;
+  }, []);
+
+  const { isSelecting, selectionSpanRef } = useActiveChatSelection(scrollRef, mapChatRange);
+  // Mirror into a ref so the virtualizer `onChange` (created once, invoked
+  // outside render during scroll) reads the latest value.
+  const isSelectingRef = useRef(false);
+  isSelectingRef.current = isSelecting;
+
   const virtualizer = useVirtualizer({
     count: displayRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => estimateVirtualRowSize(displayRows[i], rowTextChars[i]),
     getItemKey: (i) => virtualRowKey(displayRows[i], i),
     overscan: 6,
+    // Union any active selection's row span into the mounted range (D3), so
+    // rows the selection intersects stay mounted, positioned, and measured by
+    // the virtualizer itself. Runs on EVERY recompute before the unmount
+    // decision; reading the proactively-tracked span ref here keeps selected
+    // rows from ever unmounting (avoids the synchronous Range-mutation race).
+    // `getTotalSize()` may change as a retained row measures — accepted normal
+    // virtualizer behavior. Past the device-aware ceiling the span ref is null
+    // (mapChatRange cleared the selection) so the default range is returned.
+    rangeExtractor: (range) =>
+      extendRangeWithSelection(
+        defaultRangeExtractor(range),
+        selectionSpanRef.current,
+        selectionCapRef.current,
+        range.count,
+      ),
     // Re-pin the bottom on measurement-driven size changes while following.
     // Bottom-pin stays DOM-measured (CR-1): getTotalSize() excludes the live
     // tail siblings, so pin to the real scrollHeight, not the virtual total.
@@ -330,7 +386,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       if (!el) return;
       const grew = el.scrollHeight !== lastScrollHeightRef.current;
       lastScrollHeightRef.current = el.scrollHeight;
-      if (grew && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+      // Suspend the bottom-pin while a transcript selection is held (D2) so the
+      // selected row is not scrolled out of its overscan band. stickToBottomRef
+      // is NOT cleared — follow resumes on collapse.
+      if (grew && stickToBottomRef.current && !isSelectingRef.current) el.scrollTop = el.scrollHeight;
       // Ascending: re-target index 0 whenever a measurement grows the total
       // size (an above-viewport row mounting/measuring, INCLUDING the async
       // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
@@ -465,12 +524,28 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // Auto-scroll on new content when the user has not escaped the bottom.
   // Layout effect keeps the DOM and scroll position synchronized before paint,
   // eliminating the per-line jumps caused by async scrollTo calls.
+  //
+  // Suspended while a transcript selection is held (D2) WITHOUT clearing
+  // stickToBottomRef, so the selected row is not scrolled out of its overscan
+  // band. `isSelecting` is in the dep array so the `→ false` edge re-fires the
+  // pin even when no content arrived after collapse (else the user is stranded
+  // at a stale position). On that edge lastScrollHeightRef is resynced so the
+  // next onChange does not read a stale height and fire a spurious pin.
+  const wasSelectingRef = useRef(false);
   useLayoutEffect(() => {
-    if (stickToBottomRef.current) {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+    const el = scrollRef.current;
+    if (isSelecting) {
+      wasSelectingRef.current = true;
+      return;
     }
-  }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering]);
+    const resumedFromSelection = wasSelectingRef.current;
+    wasSelectingRef.current = false;
+    if (resumedFromSelection && el) lastScrollHeightRef.current = el.scrollHeight;
+    if (stickToBottomRef.current && el) {
+      el.scrollTop = el.scrollHeight;
+      lastScrollHeightRef.current = el.scrollHeight;
+    }
+  }, [state.messages.length, state.streamingText, state.pendingPrompt, state.streamingThinking, pendingSteering, isSelecting]);
 
   useImperativeHandle(ref, () => ({
     scrollToTurn(turnIndex: number) {

@@ -19,4 +19,4 @@ Skipping off-screen rendering SHALL NOT change user-visible scrolling behavior: 
 #### Scenario: Selection-intersecting rows stay mounted
 - **WHEN** the user holds an active transcript selection AND a selection-intersecting row would normally be unmounted (outside viewport + overscan)
 - **THEN** that row SHALL remain mounted until the selection collapses
-- **AND** the total virtual size and spacer height SHALL be unchanged by the retained rows
+- **AND** the retained rows SHALL be mounted, positioned, and measured by the virtualizer via `rangeExtractor` (not bolt-on rows); `getTotalSize()`/spacer height MAY change as a retained row measures, exactly as it does when the user scrolls a row into view (per design D3 — the "unchanged total size" invariant is not achievable with `measureElement` rows and is not required)

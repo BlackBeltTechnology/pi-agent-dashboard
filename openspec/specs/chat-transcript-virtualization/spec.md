@@ -22,39 +22,24 @@ The chat transcript SHALL window the message list so that only rows near the vie
 
 ### Requirement: Virtualization preserves scroll and streaming semantics
 
-Windowing off-screen rows SHALL NOT change user-visible scrolling behavior. The existing `chat-scroll-lock` capability (50px lock threshold, scroll-to-bottom button, multi-batch `event_replay` race behavior), the bottom-anchored auto-scroll-while-following, jump-to-message, per-session scroll restore, and the imperative `ChatViewHandle` API (including `scrollToTurn`) MUST behave exactly as before. In addition, the user SHALL be able to scroll up and land on the first transcript row: an upward scroll gesture SHALL converge on index 0 and MUST NOT diverge as off-screen rows mount and re-measure.
+Skipping off-screen rendering SHALL NOT change user-visible scrolling behavior: bottom-anchored auto-scroll while following, scroll-lock when the user has scrolled up (per the existing `chat-scroll-lock` capability), jump-to-message, and the imperative `ChatViewHandle` API MUST behave exactly as before. The mounted working set SHALL be the viewport + overscan window PLUS any rows intersected by an active transcript selection, extended through the virtualizer's own range (a `rangeExtractor` that unions the selection-intersecting indices into the default range) so those rows are mounted, positioned, and measured by the virtualizer. Selection-intersecting rows outside the normal window SHALL stay mounted for the selection's lifetime, subject to a bounded retained-row ceiling.
 
 #### Scenario: Auto-scroll follow unaffected
-- **WHEN** the user is within 50px of the bottom and new content streams in
+- **WHEN** the user is at/near the bottom and new content streams in
 - **THEN** the view SHALL auto-scroll to follow, with no visible jumps caused by off-screen size estimation
-
-#### Scenario: Scroll lock preserved under windowing
-- **WHEN** the user scrolls up more than 50px from the bottom
-- **THEN** new and streaming content SHALL NOT pull the view down, AND the scroll-to-bottom button SHALL appear — identical to the `chat-scroll-lock` behavior with a fully-materialized list
-
-#### Scenario: Scrolling up converges on the first row
-- **WHEN** the user scrolls up through a transcript that contains rows far larger than their pre-measure estimate (for example a user message with a pasted image, or a multi-thousand-line tool result) positioned near the top
-- **THEN** the scroll position SHALL converge on the first row without the top boundary receding faster than the user scrolls, AND the user SHALL be able to bring the first message fully into view
-
-#### Scenario: Above-viewport row mount does not shift the visible anchor
-- **WHEN** a row above the current viewport mounts and measures larger than its estimated size while the view is scroll-locked (not following the bottom)
-- **THEN** the currently visible content SHALL NOT shift by more than one row height, because `scrollTop` is compensated by the measured-minus-estimated delta
 
 #### Scenario: Scrolling back through history
 - **WHEN** the user scrolls up through older messages
-- **THEN** rows SHALL mount and be correctly sized as they enter the viewport, without scroll-position jumps or blank flashes lasting beyond one frame
-
-#### Scenario: Jump to an off-screen turn
-- **WHEN** `ChatViewHandle.scrollToTurn(turnIndex)` is called for a turn whose rows are currently unmounted (outside the window)
-- **THEN** the view SHALL scroll so that turn's first row lands at the top of the viewport (top-aligned), mounting it in the process, AND auto-scroll follow SHALL be suspended until the user returns to the bottom
+- **THEN** messages SHALL appear rendered and correctly sized as they enter the viewport, without scroll-position jumps or blank flashes lasting beyond one frame
 
 #### Scenario: Streaming tail always rendered
-- **WHEN** a message is currently streaming (`streamingText`/`streamingThinking`) or steering bubbles are pending
-- **THEN** the streaming/pending content SHALL always be mounted and rendered, never unmounted by the windowing, and its growth SHALL keep the bottom pinned while the user is following
+- **WHEN** a message is currently streaming (`streamingText`/`streamingThinking`)
+- **THEN** the streaming content SHALL always be fully rendered and never skipped by the off-screen optimization
 
-#### Scenario: Per-session scroll position restored across switches
-- **WHEN** the user switches away from a session scrolled to a specific position and later returns
-- **THEN** the view SHALL restore that position (bottom-pinned if it was following, else the same anchored row), using virtual coordinates rather than a raw pixel offset
+#### Scenario: Selection-intersecting rows stay mounted
+- **WHEN** the user holds an active transcript selection AND a selection-intersecting row would normally be unmounted (outside viewport + overscan)
+- **THEN** that row SHALL remain mounted until the selection collapses
+- **AND** the retained rows SHALL be mounted, positioned, and measured by the virtualizer via `rangeExtractor` (not bolt-on rows); `getTotalSize()`/spacer height MAY change as a retained row measures, exactly as it does when the user scrolls a row into view (per design D3 — the "unchanged total size" invariant is not achievable with `measureElement` rows and is not required)
 
 ### Requirement: Content-aware pre-measure row-height estimate
 
@@ -87,3 +72,4 @@ The transcript SHALL provide a scroll-to-top control, symmetric to the scroll-to
 #### Scenario: Scroll-to-top does not fight the bottom-pin
 - **WHEN** the scroll-to-top control is activated while content is streaming
 - **THEN** the view SHALL move to the top and remain scroll-locked (not be pulled back to the bottom by the streaming bottom-pin) until the user re-arms follow
+
