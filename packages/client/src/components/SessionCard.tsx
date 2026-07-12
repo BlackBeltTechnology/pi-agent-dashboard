@@ -824,8 +824,15 @@ export function SessionCard({
             it via WorktreeSpawnDialog. Gated upstream by gitWorktreeEnabled.
             Hidden when the session is ALREADY a worktree session
             (`session.gitWorktree` set) — spawning a worktree from inside a
-            worktree is redundant. See change: session-card-plus-session-button. */}
-        {onSpawnWorktree && !session.gitWorktree && (
+            worktree is redundant. Also hidden ONLY when the cwd is a
+            confirmed non-git directory (`isGitRepo === false`); `true` and
+            `undefined` (unknown / probe-timed-out / legacy) keep the button
+            so a real repo never loses it. NOT gated on `gitBranch` — that is
+            a data-arrival signal (absent during the register race, on probe
+            failure, and after restart for cold sessions).
+            See changes: session-card-plus-session-button,
+            gate-session-worktree-button-on-git. */}
+        {onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}

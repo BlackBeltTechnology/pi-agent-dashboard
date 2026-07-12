@@ -1,5 +1,9 @@
-## ADDED Requirements
+# Git Context
 
+## Purpose
+
+Detect and propagate per-session git context — branch, detached HEAD SHA, worktree identity, remote URL, PR number, hosting-platform links, worktree base ref, cwd-missing state, and the persistent is-git-repo tri-state — from the bridge extension through the session protocol into `DashboardSession` and `.meta.json`, so the dashboard can render branch/PR affordances and gate worktree actions accurately across live, cold, and restarted sessions.
+## Requirements
 ### Requirement: Git branch detection
 The bridge extension SHALL detect the current git branch by running `git rev-parse --abbrev-ref HEAD` in the session's `cwd`. If the command fails (not a git repo), the branch SHALL be `undefined`. When in detached HEAD state, the extension SHALL detect the short commit SHA via `git rev-parse --short HEAD`.
 
@@ -166,3 +170,35 @@ The server's spawn / resume preflight SHALL return error `code: "cwd_missing"` (
 #### Scenario: Resume fails with cwd_missing
 - **WHEN** a client attempts to resume a session whose cwd has been deleted
 - **THEN** the server SHALL respond with `{ success: false, error: "cwd_missing", stderr: "<path>" }`
+
+### Requirement: Persistent is-git-repo tri-state
+The system SHALL expose a per-session `isGitRepo` tri-state describing whether the session's cwd is a git repository, independent of branch-info arrival. The value SHALL be one of: `true` (confirmed git repo), `false` (confirmed non-git), or `undefined` (unknown — probe inconclusive or legacy session).
+
+The bridge SHALL compute `isGitRepo` from `git rev-parse --is-inside-work-tree` (the `git.isGitRepo()` `Result`): a successful result SHALL yield its boolean value; a process exit with code `128` (git ran and definitively reported "not a repository") SHALL yield `false`; any other failure (spawn error such as missing git binary, timeout, or termination signal) SHALL yield `undefined`. A failed or timed-out probe SHALL NEVER yield `false` — inconclusive is not negative.
+
+The bridge SHALL include `isGitRepo` on the `session_register` payload (computed synchronously at register time, so browsers receive it without the race that affects `git_info_update`) and MAY refresh it on `git_info_update`. The field SHALL be optional; a client or server receiving an older bridge MUST treat its absence as `undefined` (unknown).
+
+The server SHALL store `isGitRepo` on `DashboardSession`, forward it in `session_added` / `session_updated` browser messages, and persist it into the session's `.meta.json` as `isGitRepo: boolean`. On cold start, `sessionFromMeta` SHALL restore `meta.isGitRepo` so ended/cold sessions in a git repo retain a truthy signal across server restarts without a live bridge.
+
+#### Scenario: Confirmed git repo on register
+- **WHEN** the bridge registers a session whose cwd is inside a git work tree
+- **THEN** the `session_register` payload SHALL include `isGitRepo: true`
+- **AND** the server SHALL persist `isGitRepo: true` to the session's `.meta.json`
+
+#### Scenario: Confirmed non-git on register
+- **WHEN** the bridge registers a session whose cwd is not a git repository (git exits `128`)
+- **THEN** the `session_register` payload SHALL include `isGitRepo: false`
+
+#### Scenario: Inconclusive probe yields unknown, never false
+- **WHEN** the git probe fails to run or times out (missing binary, permission error, ≥15s timeout, killed by signal)
+- **THEN** `isGitRepo` SHALL be `undefined`
+- **AND** SHALL NOT be reported as `false`
+
+#### Scenario: Survives server restart for cold sessions
+- **WHEN** the server restarts and rebuilds an ended session from `.meta.json` where `meta.isGitRepo === true`, with no live bridge reconnected
+- **THEN** the restored `DashboardSession.isGitRepo` SHALL be `true`
+
+#### Scenario: Legacy bridge / session
+- **WHEN** a session is registered by a bridge that does not send `isGitRepo`, or restored from a `.meta.json` lacking the field
+- **THEN** `DashboardSession.isGitRepo` SHALL be `undefined`
+

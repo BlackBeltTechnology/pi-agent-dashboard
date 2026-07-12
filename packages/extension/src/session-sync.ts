@@ -6,7 +6,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString, extractFirstMessage, filterHiddenCommands } from "./bridge-context.js";
 import { detectSessionSource } from "./source-detector.js";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
-import { gatherGitInfo } from "./vcs-info.js";
+import { gatherGitInfo, detectIsGitRepo } from "./vcs-info.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 
@@ -79,6 +79,9 @@ export function sendStateSync(
     eventCount,
     pid: process.pid,
     registerReason,
+    // Tri-state git-repo signal computed synchronously (no git_info_update
+    // arrival race). See change: gate-session-worktree-button-on-git.
+    isGitRepo: detectIsGitRepo(process.cwd()),
     ...(spawnToken ? { spawnToken } : {}),
     ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
   });
@@ -169,6 +172,8 @@ export function handleSessionChange(
     eventCount,
     pid: process.pid,
     registerReason: "spawn",
+    // See change: gate-session-worktree-button-on-git.
+    isGitRepo: detectIsGitRepo(ctx.cwd),
   });
 
   replaySessionEntries(bc);

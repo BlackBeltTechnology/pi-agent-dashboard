@@ -770,7 +770,12 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           <div className="mt-1">
             <FolderSpawnButtons
               spawningDisabled={spawningCwds?.has(group.cwd)}
-              showWorktree={group.sessions.some((s) => !!s.gitBranch) && gitWorktreeEnabled && !!onSpawnSession}
+              // Show unless EVERY session in the folder is a confirmed non-git
+              // (`isGitRepo === false`). `true`/`undefined` keep the button, so
+              // a real repo whose probe timed out / a legacy session never
+              // hides it. NOT gated on `gitBranch` (data-arrival signal).
+              // See change: gate-session-worktree-button-on-git.
+              showWorktree={group.sessions.some((s) => s.isGitRepo !== false) && gitWorktreeEnabled && !!onSpawnSession}
               onSpawnSession={() => {
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSpawnSession?.(group.cwd);

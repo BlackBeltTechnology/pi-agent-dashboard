@@ -45,6 +45,7 @@ import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { runGitPollTick } from "./git-poll.js";
+import { detectIsGitRepo } from "./vcs-info.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
 import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
@@ -2192,6 +2193,9 @@ function initBridge(pi: ExtensionAPI) {
       firstMessage,
       eventCount,
       ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
+      // Tri-state git-repo signal, computed at register time (authority).
+      // See change: gate-session-worktree-button-on-git.
+      isGitRepo: detectIsGitRepo(ctx.cwd),
       // Fact-forwarding: server decides auto-hide. See change:
       // auto-hide-headless-worker-sessions.
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),

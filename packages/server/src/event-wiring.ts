@@ -867,6 +867,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: auto-hide-headless-worker-sessions.
       sessionManager.update(sessionId, { dataUnavailable: false });
 
+      // Apply + persist the tri-state git-repo signal carried on register.
+      // Register is the authority (arrival-independent, no git_info_update
+      // race); persisting to .meta.json lets sessionFromMeta restore it on
+      // cold start so an ended git-repo session keeps its +Worktree button.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        sessionManager.update(sessionId, { isGitRepo: msg.isGitRepo });
+        if (msg.sessionFile) {
+          try {
+            mergeSessionMeta(msg.sessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
+
       if (msg.sessionFile) {
         for (const other of sessionManager.listAll()) {
           if (other.id !== sessionId && other.sessionFile === msg.sessionFile) {
@@ -1156,6 +1170,18 @@ export function wireEvents(deps: EventWiringDeps): void {
         gitPrNumber: msg.gitPrNumber,
         gitPrUrl: msg.gitPrUrl,
       };
+      // Refresh + persist the tri-state git-repo signal when the bridge
+      // includes it (confirmed repo). Register remains the authority.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        gitUpdates.isGitRepo = msg.isGitRepo;
+        const gitSessionFile = sessionManager.get(sessionId)?.sessionFile;
+        if (gitSessionFile) {
+          try {
+            mergeSessionMeta(gitSessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
       if (composedWorktree !== undefined) {
         // Map wire `null` → in-memory `undefined` so the field clears
         // cleanly on the DashboardSession.

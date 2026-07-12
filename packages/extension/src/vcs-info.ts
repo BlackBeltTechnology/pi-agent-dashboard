@@ -25,6 +25,29 @@ export interface GitInfo {
   gitWorktree?: GitWorktreeInfo;
 }
 
+/**
+ * Detect whether `cwd` is a git repository as a tri-state.
+ *
+ * Uses the `git.isGitRepo()` `Result` (NOT `isGitRepoOr`) to distinguish
+ * *confirmed non-git* from *unknown*:
+ *   - `ok` → the boolean value (`git rev-parse --is-inside-work-tree`);
+ *   - `error kind:"exit" code:128` → `false` (git ran and definitively
+ *     reported "not a repository");
+ *   - any other failure (missing binary, timeout, signal, other exit code)
+ *     → `undefined` (unknown).
+ *
+ * Returns `undefined` — never `false` — on an inconclusive probe so a real
+ * git repo whose probe failed never loses its truthy signal (the client
+ * gate hides the `+Worktree` button only on a confirmed `false`).
+ * See change: gate-session-worktree-button-on-git.
+ */
+export function detectIsGitRepo(cwd: string): boolean | undefined {
+  const res = git.isGitRepo({ cwd });
+  if (res.ok) return res.value;
+  if (res.error.kind === "exit" && res.error.code === 128) return false;
+  return undefined;
+}
+
 /** Detect the current git branch. Returns short SHA for detached HEAD. */
 export function detectBranch(cwd: string): string | undefined {
   const ref = git.currentBranchOr({ cwd });

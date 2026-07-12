@@ -91,6 +91,11 @@ function sessionFromMeta(
     // Restore unread bit from .meta.json so it survives server restart.
     // See change: session-card-unread-stripes.
     unread: meta.unread,
+    // Restore the tri-state git-repo signal from .meta.json so an ended/cold
+    // session in a git repo keeps a truthy signal across server restarts
+    // without a live bridge — the +Worktree button gate hides only on
+    // `=== false`. See change: gate-session-worktree-button-on-git.
+    isGitRepo: meta.isGitRepo,
     // Cache the worktree base ref from meta so a later git_info_update
     // can compose it into gitWorktree.base for browser payloads. Field
     // is server-internal storage on DashboardSession (the wire shape's

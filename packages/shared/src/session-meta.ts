@@ -68,6 +68,17 @@ export interface SessionMeta {
   gitWorktree?: { mainPath?: string; name?: string };
 
   /**
+   * Persisted mirror of `DashboardSession.isGitRepo` tri-state. `true` =
+   * confirmed git repo, `false` = confirmed non-git, `undefined` (field
+   * absent) = unknown. Restored by `sessionFromMeta` on cold start so an
+   * ended/cold git-repo session keeps a truthy signal across restarts
+   * without a live bridge. Gates the `+Worktree` button (hide only on
+   * `=== false`).
+   * See change: gate-session-worktree-button-on-git.
+   */
+  isGitRepo?: boolean;
+
+  /**
    * Sparse per-session override for chat-view display preferences.
    * Deep-merged onto the global `DisplayPrefs` from `preferences.json`.
    * `undefined` (field absent) means "no override — use global".
