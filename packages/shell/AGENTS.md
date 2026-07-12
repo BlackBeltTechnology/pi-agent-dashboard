@@ -13,7 +13,7 @@ Neutral static PWA shell. Published to GitHub Pages (pi-dashboard.dev). NOT serv
 | `src/main.tsx` | Entry. Mounts App in `Router hook={useHashLocation}` + StrictMode. Imports index.css. |
 | `src/index.html` | HTML shell. `<meta http-equiv=CSP>` connect-src self https: wss: (talks to arbitrary paired servers). `class="dark"`. |
 | `src/index.css` | `@import "tailwindcss"`. Dark theme base. |
-| `src/lib/protocol.ts` | Wire helpers. base64url encode/decode, `decodePayloadString`, `postJson`/`getJson` envelope unwrap, `challengeIdentity` (WebCrypto Ed25519 verify of signed nonce). Types `ApiResponse`, `PairingPayload`, `IdentityProof`. |
+| `src/lib/protocol.ts` | Wire helpers. base64url encode/decode, `decodePayloadString` (tolerates a `https://…/pair#<payload>` scannable-QR wrapper → takes URL fragment; strips `pi:pair:v1.` prefix; also bare b64 / raw JSON — so ONE QR serves phone camera + Electron scan/paste), `postJson`/`getJson` envelope unwrap, `challengeIdentity` (WebCrypto Ed25519 verify of signed nonce). Types `ApiResponse`, `PairingPayload`, `IdentityProof`. See change: make-pairing-qr-camera-scannable. |
 | `src/lib/keyring.ts` | IndexedDB store `pi-dashboard-shell/servers`, keyPath `id`. Entry `{id,label,urls,pinnedPubkey,pinnedFingerprint,bearerToken}`. `addServer`/`listServers`/`removeServer`. In-memory Map fallback when no indexedDB. |
 | `src/lib/keyring.test.ts` | vitest over keyring. Uses `fake-indexeddb/auto`. Covers add/list, upsert, remove, reload-survival. |
 | `src/lib/connect.ts` | `connectServer(entry)`. Races `urls[]`, verifies signed nonce vs pinned pubkey+fingerprint, REFUSES impostor. Bearer → GET /api/paired-devices. Fresh /api/ws-ticket per connect. Opens wss `/ws?ticket=`. Bearer never in WS URL. Returns `ConnectLog`. |

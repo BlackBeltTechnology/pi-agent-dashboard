@@ -6,9 +6,13 @@
  *   - **pairing** (TLS) — encodes the base64url `pi:pair:v1.…` copy-string of
  *     the secure `{ v, id, code, urls[] }` payload minted by
  *     `GET /api/pair/payload`. `urls[]` is TLS-only (server read-time gate);
- *     the client re-guards with `guardPairingUrls` before encoding. The context
- *     panel shows expiry + fingerprint + copy-string + confirmation input +
- *     Approve (typed compare-code, D12).
+ *     the client re-guards with `guardPairingUrls` before encoding. The QR
+ *     encodes a camera-scannable `https://<selected-tls-endpoint>/pair#<payload>`
+ *     deep link (payload in the fragment, so the one-time code never reaches the
+ *     server / logs; change: make-pairing-qr-camera-scannable). The copyable
+ *     string stays the bare `pi:pair:v1.…` payload for Electron paste. The
+ *     context panel shows expiry + fingerprint + copy-string + confirmation
+ *     input + Approve (typed compare-code, D12).
  *   - **link** (no-TLS http mesh/LAN) — encodes the BARE URL string only. No
  *     pairing payload, no `crypto.subtle`, no bearer. The context panel swaps to
  *     the bare URL + "opens the dashboard directly, no pairing, no secret" note.
@@ -29,14 +33,7 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway-endpoints.js";
 import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing-api.js";
-
-/** base64url copy-string the device/Electron accepts (task 8.4). */
-function encodePayloadString(payload: PairingPayload): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return `pi:pair:v1.${btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
-}
+import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing-qr.js";
 
 /** A QR canvas for arbitrary text (pairing string or bare link URL). */
 function QrCanvas({ text, size = 132 }: { text: string; size?: number }) {
@@ -320,7 +317,10 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
   // Non-null only when a TLS pairing endpoint is selected AND its payload loaded;
   // a single narrowed handle avoids repeating `pairingSelected && payload` in JSX.
   const pairingPayload = selected && payload && isPairingEligible(selected) ? payload : null;
-  const qrText = pairingPayload ? copyStr : (selected?.url ?? "");
+  // Pairing selection → camera-scannable `https://<selected-tls>/pair#<payload>`
+  // deep link on the SELECTED TLS endpoint (change: make-pairing-qr-camera-scannable);
+  // link selection → the bare URL. The copy-string stays the raw payload.
+  const qrText = pairingPayload && selected ? encodePairingQrUrl(pairingPayload, selected.url) : (selected?.url ?? "");
   const expired = !!pairingPayload && secondsLeft <= 0;
 
   return (

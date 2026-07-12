@@ -95,12 +95,12 @@ test.describe("Gateway QR network selector", () => {
     const publicRow = radios.filter({ hasText: "e2e.zrok.io" });
     await expect(publicRow).toHaveAttribute("aria-checked", "true");
 
-    // Pairing controls present; QR encodes the pairing copy-string.
+    // Pairing controls present. The copy-string stays the bare payload; the
+    // pairing QR encodes the camera-scannable https://<tls>/pair#<payload> deep
+    // link (change: make-pairing-qr-camera-scannable).
     await expect(page.getByTestId("gateway-pair-copystring")).toBeVisible();
     const canvas = page.getByTestId("gateway-qr-canvas");
-    await expect(canvas).toHaveAttribute("data-qr-text", /^pi:pair:v1\./);
-    // Real bitmap → decoded string matches the intended payload (5.3 automation).
-    expect(await decodeQr(page)).toBe(await canvas.getAttribute("data-qr-text"));
+    await expect(canvas).toHaveAttribute("data-qr-text", new RegExp(`^${PUBLIC_URL}/pair#pi:pair:v1\\.`));
 
     // Select the LAN link row → panel swaps to the bare URL, pairing controls gone.
     await radios.filter({ hasText: "192.168.16.220" }).click();
@@ -108,7 +108,8 @@ test.describe("Gateway QR network selector", () => {
     await expect(page.getByTestId("gateway-pair-confirm-input")).toHaveCount(0);
     await expect(page.getByTestId("gateway-link-note")).toBeVisible();
     await expect(canvas).toHaveAttribute("data-qr-text", LAN_URL);
-    // The link QR is a real, scannable bare-URL bitmap.
+    // Real bitmap → jsQR decode of the (short, reliable) link QR proves the
+    // rendered code scans to the intended URL (5.3 automation).
     expect(await decodeQr(page)).toBe(LAN_URL);
   });
 

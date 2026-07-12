@@ -252,6 +252,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const tunnelUrl = getTunnelUrl();
       if (tunnelUrl) urls.push(tunnelUrl);
       urls.push(...(loadConfig().pairing?.publicBaseUrls ?? []));
+      // Test-only (PI_E2E_SEED): expose the loopback http origin so the
+      // Playwright/Docker harness can pair over http://localhost (a genuine
+      // secure context) without TLS. `reachableUrls()` re-gates it behind the
+      // same flag; prod never reaches this branch.
+      // See change: make-pairing-qr-camera-scannable.
+      if (process.env.PI_E2E_SEED === "1") urls.push(`http://localhost:${config.port}`);
       return urls;
     },
   });

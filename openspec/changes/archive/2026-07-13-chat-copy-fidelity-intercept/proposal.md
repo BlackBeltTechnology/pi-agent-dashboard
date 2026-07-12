@@ -37,3 +37,10 @@ streaming-tail node stability (`preserve-streaming-tail-selection`).
 - Capping tool renderers (e.g. `AgentToolRenderer`) — expose full text to the
   copy path.
 - Tests: partial-row copy fidelity; capped-renderer copy fidelity.
+
+## Discipline Skills
+
+None apply. Client-only fidelity fix: one pure DOM helper + a React `copy`
+handler + a renderer opt-in attribute. No auth/untrusted-sink, latency budget,
+new endpoint, migration, or irreversible step — the checkpoint-table triggers
+do not fire.

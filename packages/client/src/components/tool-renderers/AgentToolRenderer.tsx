@@ -17,16 +17,18 @@
  *
  * See change: add-subagent-inspector.
  */
-import React, { useState } from "react";
-import { Icon } from "@mdi/react";
+
+import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
 import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
-import type { ToolRendererProps } from "./types.js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
+import { t as i18nT } from "../../lib/i18n";
 import { AgentCardShell } from "../AgentCardShell.js";
 import { formatDuration } from "../agent-card-utils.js";
 import { ElapsedBadge } from "../ElapsedBadge.js";
 import { MarkdownContent } from "../MarkdownContent.js";
-import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents-plugin/client";
-import { t as i18nT } from "../../lib/i18n";
+import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
 interface AgentDetails {
@@ -84,7 +86,11 @@ function PromptBlock({ text }: { text: string }) {
   return (
     <div className="mt-1.5">
       <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">{i18nT("auto.prompt", undefined, "Prompt")}</div>
-      <pre className="whitespace-pre-wrap text-[11px] text-[var(--text-secondary)] max-h-40 overflow-auto">
+      {/* Renders a 1000-char prefix but exposes the full text to the copy path
+          via `data-copy-text` so a selection over this card copies the whole
+          prompt, not the DOM-capped prefix. See change:
+          chat-copy-fidelity-intercept. */}
+      <pre data-copy-text={text} className="whitespace-pre-wrap text-[11px] text-[var(--text-secondary)] max-h-40 overflow-auto">
         {text.slice(0, 1000)}
       </pre>
     </div>

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import type { ServerToBrowserMessage, BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { getApiBase } from "../lib/api-context.js";
 import { setSender as setPluginActionSender } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
+import { appendWsTicket, getDeviceBearer, mintWsTicket } from "../lib/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 
@@ -14,10 +15,13 @@ export function useWebSocket(url: string) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backoffRef = useRef(1000);
   const failCountRef = useRef(0);
+  // Holds the latest `connect` so the onclose reconnect timer always re-runs
+  // the current ticket-minting path (avoids capturing a stale closure).
+  const connectRef = useRef<() => void>(() => {});
 
-  const connect = useCallback(() => {
+  const openSocket = useCallback((finalUrl: string) => {
     try {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(finalUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -56,7 +60,7 @@ export function useWebSocket(url: string) {
         }
         reconnectTimerRef.current = setTimeout(() => {
           backoffRef.current = Math.min(backoffRef.current * 2, 30000);
-          connect();
+          connectRef.current();
         }, backoffRef.current);
       };
 
@@ -71,7 +75,22 @@ export function useWebSocket(url: string) {
         setStatus("connecting");
       }
     }
-  }, [url]);
+  }, []);
+
+  // Paired-device browsers (bearer in localStorage) can't set an Authorization
+  // header on a WebSocket and the durable bearer must never ride the socket
+  // (F6). Mint a FRESH single-use ticket per (re)connect and present only that.
+  // Unpaired browsers (cookie/loopback auth) skip ticketing — unchanged path.
+  const connect = useCallback(() => {
+    if (getDeviceBearer()) {
+      mintWsTicket("browser")
+        .then((ticket) => openSocket(ticket ? appendWsTicket(url, ticket) : url))
+        .catch(() => openSocket(url));
+    } else {
+      openSocket(url);
+    }
+  }, [url, openSocket]);
+  connectRef.current = connect;
 
   useEffect(() => {
     connect();

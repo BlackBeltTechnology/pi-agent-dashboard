@@ -58,15 +58,18 @@ describe("GatewayPairQR — single-QR network selector", () => {
     expect(lanRow?.textContent).toMatch(/lan/i);
   });
 
-  it("1.3 defaults to the public TLS pairing endpoint; QR encodes the copy-string", async () => {
+  it("1.3 defaults to the public TLS pairing endpoint; QR encodes the scannable deep link", async () => {
     getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
     render(<GatewayPairQR endpoints={MIXED_EPS} />);
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
     const checked = screen.getAllByRole("radio").find((r) => r.getAttribute("aria-checked") === "true");
     expect(checked?.textContent).toContain("cwanni9.zrok.io");
+    // The copy-string stays the bare payload (Electron paste); the pairing QR
+    // encodes a camera-scannable `https://<selected-tls>/pair#<payload>` deep
+    // link (change: make-pairing-qr-camera-scannable) on the SELECTED endpoint.
     const copyStr = screen.getByTestId("gateway-pair-copystring").textContent ?? "";
     expect(copyStr).toMatch(/^pi:pair:v1\./);
-    expect(qrText()).toBe(copyStr);
+    expect(qrText()).toBe(`https://cwanni9.zrok.io/pair#${copyStr}`);
   });
 
   it("1.4 with no TLS endpoint, defaults to the first link endpoint; QR encodes its bare URL", async () => {
