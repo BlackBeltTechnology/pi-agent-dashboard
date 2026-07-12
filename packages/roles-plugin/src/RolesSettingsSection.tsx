@@ -357,7 +357,12 @@ export function BuiltInRolesSettings() {
     const dirty = role in pending && pending[role] !== rolesMap[role];
     const assigned = isAssigned(role);
     const displayLabel = inferProviderForBareId(effective(role), models);
-    const isCustom = !builtinRoleNames.includes(role);
+    // A role is removable (custom) ONLY when the bridge advertised the built-in
+    // set. With an older bridge (`builtinRoleNames` empty) we cannot tell
+    // built-ins from custom, so per the "built-ins permanent" locked decision
+    // NO pill shows × in that back-compat flat-render mode.
+    // See change: add-custom-roles-ui.
+    const isCustom = builtinRoleNames.length > 0 && !builtinRoleNames.includes(role);
     const mainButton = (
       <button
         key={role}

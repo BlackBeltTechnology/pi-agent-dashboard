@@ -376,6 +376,20 @@ describe("roles:remove", () => {
     expect(bad.success).toBe(false);
     expect(existsSync(CONFIG())).toBe(false);
   });
+
+  it("reports success (no-op atomic rewrite) for a valid custom name absent from config", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { coding: "anthropic/opus" }, rolePresets: [], activePreset: null,
+    }));
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "ghost-role" };
+    await pi.events.emit("roles:remove", data);
+    // removeRoleFromSchema is idempotent: the name isn't present, so the write
+    // is a no-op rewrite and the handler still reports success.
+    expect(data.success).toBe(true);
+    expect(readFile().roles).toEqual({ coding: "anthropic/opus" });
+  });
 });
 
 describe("roles:set validation (bridge trust boundary)", () => {

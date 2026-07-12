@@ -492,6 +492,20 @@ describe("BuiltInRolesSettings", () => {
       expect(queryByTestId("roles-row-planning-remove")).toBeNull();
     });
 
+    it("renders NO × on any pill when builtinRoleNames is empty (old-bridge back-compat)", () => {
+      // Without the built-in set we can't tell built-ins from custom, so per the
+      // "built-ins permanent" decision nothing is removable in flat mode.
+      seedConfig({
+        roles: { planning: "anthropic/opus", review: "openai/gpt-4o" },
+        presets: [],
+        activePreset: null,
+        models: [{ provider: "openai", id: "gpt-4o" }],
+      });
+      const { queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+      expect(queryByTestId("roles-row-review-remove")).toBeNull();
+      expect(queryByTestId("roles-row-planning-remove")).toBeNull();
+    });
+
     it("clicking × + confirm dispatches role_remove", () => {
       const send = makeSend();
       seedConfig(groupedConfig);

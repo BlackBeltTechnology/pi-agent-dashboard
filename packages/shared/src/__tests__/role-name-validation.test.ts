@@ -23,6 +23,14 @@ describe("isValidRoleName", () => {
     }
   });
 
+  it("rejects __proto__ and underscore-prefixed names (prototype-key guard)", () => {
+    // Regex requires an alnum first char, so these can never become object keys.
+    // Explicit regression test guards against future regex loosening.
+    for (const name of ["__proto__", "_private", "_"]) {
+      expect(isValidRoleName(name, []).ok, name).toBe(false);
+    }
+  });
+
   it("rejects collisions with existing names (case-sensitive)", () => {
     expect(isValidRoleName("review", ["review"]).ok).toBe(false);
     expect(isValidRoleName("coding", ["planning", "coding", "fast"]).ok).toBe(false);
