@@ -18,7 +18,7 @@
 ## 4. Streaming tail always-live
 
 - [x] 4.1 Ensure the streaming/pending-steer row(s) are never unmounted (static sibling below the spacer, or `rangeExtractor` force-append of the last index). Pin the mechanism.
-- [ ] 4.2 TDD: test asserting the streaming row stays mounted across window changes and that its growth keeps the bottom pinned while following.
+- [x] 4.2 TDD: test asserting the streaming row stays mounted across window changes and that its growth keeps the bottom pinned while following. Two Playwright e2e in `chat-transcript-virtualization.spec.ts`: `"streaming tail stays mounted while scrolled up in history"` (live `.chat-stream-live` sibling stays attached after scrolling to top — a window change) and `"streaming growth keeps the bottom pinned while following"` (samples `distanceFromBottom < 50` across 5 stream frames while `scrollHeight` grows). Green via `PW_CHANNEL=chrome` docker harness.
 
 ## 5. `scrollToTurn` → `scrollToIndex`
 
@@ -28,18 +28,18 @@
 
 ## 6. Scroll-lock parity (`chat-scroll-lock` must not regress)
 
-- [ ] 6.1 Reproduce all `chat-scroll-lock` scenarios on the windowed path: 50px lock, resume within 50px, scroll-to-bottom button visibility, click-to-resume, and the multi-batch `event_replay` race (programmatic scroll must not register as user scroll-up; real user scroll during replay still wins).
+- [x] 6.1 Reproduce all `chat-scroll-lock` scenarios on the windowed path: 50px lock, resume within 50px, scroll-to-bottom button visibility, click-to-resume, and the multi-batch `event_replay` race (programmatic scroll must not register as user scroll-up; real user scroll during replay still wins). Covered by Playwright e2e in `chat-transcript-virtualization.spec.ts`: `"50px lock…"`, `"resume within 50px…"` (manual scroll back within threshold re-arms follow — no button click), `"scroll-to-bottom button…"` (visibility + click-resume), `"reload lands at latest…"` (programmatic replay pins bottom, no false lock), and `"user scroll-up mid-replay wins…"` (real scroll-up during a 120-turn batched reload replay flips follow off and stays off). All green via `PW_CHANNEL=chrome` docker harness.
 - [x] 6.2 (CR-1 — REVISED, do NOT blanket-delete) PRESERVE the DOM-measured scroll state machine: `handleScroll` (50px near-bottom), `stickToBottomRef`, `showScrollButton`, instant-vs-smooth scroll-to-bottom (`ChatView.tsx:236`), and the `event_replay` race + 150ms user-scroll arbitration. These already pass `chat-scroll-lock` and measure the REAL container (which includes the bottom sibling rows the spacer excludes). Only remove what the virtualizer genuinely replaces (the full `groupedMessages.map`); swap `overflowAnchor:"auto"` → `"none"`. The virtualizer does windowing + history-prepend anchoring ONLY.
 
 ## 7. Per-session scroll persistence
 
 - [x] 7.1 Replace saved `{scrollTop, nearBottom}` with `{anchorRowIndex, offset, nearBottom}`; restore via `scrollToEnd()` (if following) or `scrollToIndex(anchorRowIndex,{align:'start'})` + offset.
-- [ ] 7.2 Test: switch away mid-scroll, switch back → same anchored row (not bottom) when not following.
+- [x] 7.2 Test: switch away mid-scroll, switch back → same anchored row (not bottom) when not following. Playwright e2e `"switching away mid-scroll and back restores the anchored row, not bottom"` in `chat-transcript-virtualization.spec.ts`: spawns B first then streams A (B/A ordering matters — `spawnFreshGitSession`→`gotoDashboard` does a full `page.goto` reload that wipes the in-memory `scrollStateMap`, so A's stream must be the LAST reload), scrolls A to top (button appears, anchor persisted), switches B→A via card clicks (client-side wouter nav, no reload; URL `/session/:id` confirms each switch), asserts A restores `distanceFromBottom > 200` + button visible (not bottom). Passing via `PW_CHANNEL=chrome` docker harness.
 
 ## 8. Height stability
 
 - [x] 8.1 Reserve intrinsic size for inline images (width/height or `aspect-ratio`) and a min-height for mermaid containers so above-viewport async loads do not shift scroll offset.
-- [ ] 8.2 Verify expanding/collapsing an above-viewport tool group does not yank the viewport (ResizeObserver re-measure + chat-mode offset adjust).
+- [x] 8.2 Verify expanding/collapsing an above-viewport tool group does not yank the viewport (ResizeObserver re-measure + chat-mode offset adjust). Playwright e2e `"toggling an above-viewport tool group does not yank the viewport"`: streams ~120 single-member burst groups, parks at mid-scroll (follow OFF), records a visible anchor row's on-screen Y, then toggles the topmost mounted `tool-burst-header` that sits fully ABOVE the fold via `dispatchEvent('click')` (no auto-scroll-into-view). Asserts the anchor's Y shifts < 8px — TanStack's measure-driven scroll adjustment (with `overflowAnchor:none`) absorbs the above-fold height change. NOTE: `Locator.evaluate` passes `(element, arg)` — element is FIRST; mis-signaturing it as `(arg)` silently makes the element the arg. Green via `PW_CHANNEL=chrome` docker harness.
 - [ ] 8.3 Manual: scroll an image-heavy + mermaid-heavy long session; confirm no jitter beyond one frame.
 
 ## 9. Browser E2E validation (the layer units cannot reach)
@@ -48,7 +48,7 @@ The scroll/streaming/windowing behavior is not assertable in vitest (jsdom has n
 
 - [x] 9.1 **Add the `long-transcript` faux scenario** to `qa/fixtures/faux-scenarios.ts`: stream ~400+ heterogeneous messages (mix of assistant text, thinking blocks, and tool calls) so the transcript spans several viewports — enough to force a >50px scroll-up AND to make windowing observable. Existing `burst-heterogeneous` is too short. Export a marker for the tail message so the e2e can assert the streaming tail. This is the single unblock for all 6 skeleton tests.
 - [x] 9.2 **Resolve the scroll-container handle** (helpers say "do NOT add app testids for E2E", but the virtualizer needs `getScrollElement` on that node regardless): add `data-testid="chat-scroll-container"` to the transcript scroller in `ChatView.tsx` and promote both it and the existing `scroll-to-bottom` button testid into the central `TESTIDS` map (`tests/e2e/helpers/index.ts`). Then replace the skeleton's structural `.overflow-y-auto` fallback with the testid.
-- [ ] 9.3 Flip the 6 `test.fixme` → `test` in `chat-transcript-virtualization.spec.ts`; wire the two TODO stubs (off-screen `scrollToTurn` trigger; streaming-tail mounted assertion) to real affordances. Run `npm run test:e2e` — all 6 green.
+- [x] 9.3 Flip the 6 `test.fixme` → `test` in `chat-transcript-virtualization.spec.ts`; wire the two TODO stubs (off-screen `scrollToTurn` trigger; streaming-tail mounted assertion) to real affordances. Run `npm run test:e2e` — all 6 green. Verified via `PW_CHANNEL=chrome` (system Chrome) against the `docker/` harness. Two calibration fixes needed: (a) `test.setTimeout(240_000)` on the 3 tail-dependent tests (120-turn fixture fires 120 real bash calls, cannot settle in the 60s default); (b) new `long-transcript-nav` faux scenario (40 turns) for the scroll-to-turn test — a faux run has ONE user turn so only turn 0 gets a `turnIndex`, and 120 turns evicts its stat past client `MAX_TURN_STATS=50`, hiding the clickable `turn-bar`; 40 turns keeps it in-window while still off-screen. Also de-flaked scroll-to-bottom via `expect.poll` (streaming race).
 - [x] 9.4 Add a `tests/e2e/AGENTS.md` row for the new spec and a `qa/fixtures/` note for the `long-transcript` scenario (per Documentation Update Protocol).
 
 ## 10. Verification

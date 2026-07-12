@@ -37,10 +37,15 @@
       /tmp/pi-test.log; grep -nE 'FAIL|✗' /tmp/pi-test.log` returns nothing.
 - [x] 4.2 Type-check clean. → verify: `npm run quality:changed`.
 
-## 5. Manual verification (QA — tested later)
+## 5. Manual verification (QA — automated via Playwright e2e)
 
-- [ ] 5.1 With the poisoned IndexedDB cache present, cold-load session
-      `019f4456-4d63-7a26-9b82-e237cef4672d` → the chat renders (fallback tool card if
-      applicable), no black screen, no uncaught `toLowerCase` error in console.
-- [ ] 5.2 Clear `pi-dashboard-replay-cache` and reload → session still loads via full
-      replay, identical result (no regression to the clean path).
+- [x] 5.1 With a poisoned IndexedDB cache present, cold-reload → the chat renders, no
+      black screen, no uncaught `toLowerCase` error in console. → automated:
+      `tests/e2e/reducer-poisoned-cache-heal.spec.ts` test 1 poisons the live
+      `pi-dashboard-replay-cache` with an absent-`toolName` `tool_execution_start`,
+      reloads, asserts `header-app-bar` still mounts + transcript paints + zero
+      `/toLowerCase/` pageerror. Passed `PW_CHANNEL=chrome`.
+- [x] 5.2 Clear `pi-dashboard-replay-cache` and reload → session still loads via full
+      replay, identical result (no regression). → automated: same spec test 2 clears the
+      `sessions` store, reloads, asserts the post-reload subscribe carries `lastSeq: 0`
+      (full replay) + transcript repaints. Passed `PW_CHANNEL=chrome`.

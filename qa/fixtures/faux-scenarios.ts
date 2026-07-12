@@ -566,6 +566,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: SCROLL_TOP_HEAVY_TAIL },
   },
 
+  // Navigable variant for the scroll-to-TURN e2e. A faux scenario has ONE user
+  // turn, so only turn 0 is ever assigned a turnIndex; its per-turn stat must
+  // stay inside the client's MAX_TURN_STATS=50 window or the TokenStatsBar
+  // butterfly renders no clickable `turn-bar`. 40 turns keeps turn 0's stat
+  // (and its bar) alive while still pushing turn 0 well off-screen (~80 rows
+  // below). Same tail marker. See change: virtualize-chat-transcript-tanstack
+  // (task 9.3 — off-screen scrollToTurn trigger).
+  "long-transcript-nav": {
+    script: buildLongTranscript(40),
+    expect: { text: LONG_TRANSCRIPT_TAIL },
+  },
+
   // Composition flip (collapse-tool-calls-across-narration): a NARRATED poll
   // loop — four IDENTICAL bash calls each preceded by a line of narration prose
   // in the same tool-use turn. The semantic pass runs first over the full
