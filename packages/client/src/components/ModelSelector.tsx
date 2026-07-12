@@ -22,6 +22,9 @@ interface Props {
   models?: ModelInfo[];
   onSelect: (model: string) => void;
 
+  /** Trigger text shown when no `current` model is selected. Default "no model". */
+  placeholder?: string;
+
   /**
    * User-initiated re-request of the model list for the current session.
    * When provided, a footer refresh control renders in the dropdown; when
@@ -94,7 +97,7 @@ function CapBadges({ m }: { m: ModelInfo }) {
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, favorites, onToggleFavorite }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, favorites, onToggleFavorite, placeholder }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -285,7 +288,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
               {pendingModel} <Icon path={mdiLoading} size={0.4} className="inline animate-spin" />
             </>
           ) : (
-            current ?? "no model"
+            current ?? placeholder ?? "no model"
           )}
         </span>
         {hasModels && !pendingModel && <Icon path={mdiChevronDown} size={0.5} />}

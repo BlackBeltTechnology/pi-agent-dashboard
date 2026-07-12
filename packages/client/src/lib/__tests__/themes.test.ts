@@ -48,6 +48,7 @@ describe("themes", () => {
         expect(vars["--status-working"], `${theme.id} ${mode}`).toBe("var(--accent-yellow)");
         expect(vars["--status-idle"], `${theme.id} ${mode}`).toBe("var(--accent-green)");
         expect(vars["--status-error"], `${theme.id} ${mode}`).toBe("var(--accent-red)");
+        expect(vars["--status-notice"], `${theme.id} ${mode}`).toBe("var(--accent-blue)");
       }
     }
   });

@@ -117,9 +117,17 @@ export function registerSystemRoutes(
     // self-records); `/api/health` reads its snapshot additively.
     // See change: attribute-openspec-poll-eventloop-stalls.
     eventLoopSpikes?: EventLoopSpikeMetrics;
+    // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
+    // additive `storeTrim` field. See change: instrument-event-store-trim.
+    eventStore?: {
+      getTrimStats?: () => {
+        trimmedEvents: { total: number; toolExecutionEnd: number; bySession: Record<string, number> };
+        evictedSessions: number;
+      };
+    };
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -506,6 +514,13 @@ export function registerSystemRoutes(
           (max, s) => Math.max(max, (s.processMetrics as { droppedBufferedFrames?: number } | undefined)?.droppedBufferedFrames ?? 0),
           0,
         ),
+      },
+      // In-memory event-store shed counters (per-session trim + cross-session
+      // LRU eviction). The third silent tool_execution_end loss path, made
+      // observable beside droppedFrames. See change: instrument-event-store-trim.
+      storeTrim: eventStore?.getTrimStats?.() ?? {
+        trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
+        evictedSessions: 0,
       },
     };
   });

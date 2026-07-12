@@ -83,6 +83,22 @@ export function extractDashboardFragment(systemPrompt: string | undefined): stri
   return idx === -1 ? NO_DASHBOARD_CONTEXT_MARKER : sp.slice(idx);
 }
 
+/**
+ * Marker a flow-agent's system prompt embeds so the faux provider can branch
+ * its reply per agent. The synthetic e2e flow's agent `.md` bodies carry
+ * `[[flow-agent:<name>]]`; the `flow-agent-branch` scenario reads it off
+ * `context.systemPrompt` and echoes a per-agent completion line. Keeps the
+ * fixture as pure data + a factory — no per-spec wiring.
+ * See change: add-flow-plugin-e2e-tests.
+ */
+export const FLOW_AGENT_MARKER = /\[\[flow-agent:([\w-]+)\]\]/;
+
+/** Extract the flow-agent name from a system prompt, or `"unknown"` when absent. Pure. */
+export function flowAgentName(systemPrompt: string | undefined): string {
+  const match = FLOW_AGENT_MARKER.exec(systemPrompt ?? "");
+  return match ? match[1] : "unknown";
+}
+
 /** Assertion hints shared across both test layers. */
 export interface ScenarioExpect {
   /** Substring that MUST appear in the streamed assistant text. */
@@ -392,6 +408,25 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "Alpha" },
   },
 
+  // Copy-surfaces round-trip. Streams an assistant message carrying a GFM table
+  // AND a fenced code block so one render exercises all four copy buttons:
+  //   - table "Copy as Markdown" / "Copy as TSV" (TableWrapper, ref-at-click),
+  //   - code-block "Copy code" (CodeBlockWrapper),
+  //   - message "Copy as plain text" (MessageBubble.getPlainText, ref-at-click).
+  // MarkdownContent is React.memo → a completed message renders exactly once, so
+  // the payloads MUST resolve at click time (post-commit) or copy the empty
+  // string. See change: fix-table-copy-empty-clipboard.
+  "copy-surfaces": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Here is a table and some code.\n\n| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n\n```js\nconst x = 1;\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Alice" },
+  },
+
   "thinking-text": {
     script: [
       fauxAssistantMessage([
@@ -640,6 +675,62 @@ export const SCENARIOS: Record<string, Scenario> = {
       ]),
     ],
     expect: { text: "reasoning burst complete" },
+  },
+
+  // ── Flow / subagent scenario family (L3 activation + render) ─────────────
+  // Per-agent branching by system prompt. Each agent in the synthetic e2e flow
+  // carries `[[flow-agent:<name>]]` in its `.md` body; the flow step wires
+  // `task: "[[faux:flow-agent-branch]] …"` so the agent's rendered user message
+  // selects THIS scenario, and the factory reads the agent's systemPrompt marker
+  // to echo a deterministic per-agent completion line. Drives the REAL pi-flows
+  // engine at L3 with agents resolving to faux/faux-1 (via the faux role-preset).
+  //
+  // A pi-flows agent step terminates by calling the guard's `finish` tool. The
+  // finish schema (mirrored from pi-flows' own extensions/flow-engine/testing.ts
+  // `FinishArgs` — NOT imported, per design D2's hermetic-L2 decision) requires
+  // `{ status, summary, files }` PLUS the agent's declared typed outputs (`note`).
+  // A finish MISSING status/summary/files fails the guard schema (isError) so the
+  // finish-latch never fires and the agent loops forever. The tool name is bare
+  // `finish` (pi-flows only mcp__flows__-prefixes for anthropic-messages models;
+  // faux/faux-1's api is `faux`). No explicit stopReason — mirrors `scriptFinish`.
+  // On success the latch aborts the agent, `flow_agent_complete` fires with the
+  // note in typedOutputs, and the flow advances. See change: add-flow-plugin-e2e-tests.
+  "flow-agent-branch": {
+    script: [
+      (context: FauxContext) =>
+        fauxAssistantMessage([
+          fauxToolCall("finish", {
+            status: "complete",
+            summary: `flow-agent ${flowAgentName(context.systemPrompt)} done`,
+            files: [],
+            note: `flow-agent ${flowAgentName(context.systemPrompt)} done`,
+          }),
+        ]),
+    ],
+    expect: { text: "flow-agent" },
+  },
+
+  // Spawns a REAL subagent via the `Agent` tool, then terminates. The spawned
+  // subagent's prompt embeds a `[[faux:plain-text]]` sentinel so it resolves the
+  // plain-text scenario, replies once, and completes — firing the subagent
+  // lifecycle events (`subagents:created/started/completed`) the subagents-plugin
+  // bridge forwards and its inspector renders. Two steps so the PARENT session
+  // terminates after the subagent returns. See change: add-flow-plugin-e2e-tests.
+  "subagent-spawn": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux subagent probe",
+            prompt: "[[faux:plain-text]] run the faux subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("subagent spawn complete")]),
+    ],
+    expect: { text: "subagent spawn complete" },
   },
 
   // ── Client interactive-renderer matrix (one per ask_user method) ────────

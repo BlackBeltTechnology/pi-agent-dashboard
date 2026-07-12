@@ -35,18 +35,31 @@ async function* fakeTextStream(text: string): AsyncIterable<any> {
 
 // ── Fake registry ──────────────────────────────────────────────────────────
 
-function makeFakeRegistry() {
-  const model = {
-    id: "claude-3-5-sonnet",
-    provider: "anthropic",
-    contextWindow: 200000,
-    maxTokens: 8192,
-    reasoning: false,
-  };
+function makeFakeRegistry(models?: any[]) {
+  const list = models ?? [
+    {
+      id: "claude-3-5-sonnet",
+      provider: "anthropic",
+      contextWindow: 200000,
+      maxTokens: 8192,
+      reasoning: false,
+    },
+  ];
   return {
-    getAvailable: async () => [model],
-    find: async (_provider: string, modelId: string) =>
-      modelId === "claude-3-5-sonnet" ? model : null,
+    getAvailable: async () => list,
+    find: async (provider: string, modelId: string) =>
+      list.find((m) => m.provider === provider && m.id === modelId) ?? null,
+    firstAvailable: async (preferred: string[]) => {
+      for (const label of preferred) {
+        const slash = label.indexOf("/");
+        if (slash <= 0) continue;
+        const provider = label.slice(0, slash);
+        const id = label.slice(slash + 1);
+        const m = list.find((x) => x.provider === provider && x.id === id);
+        if (m) return m;
+      }
+      return null;
+    },
     getApiKeyAndHeaders: async () => ({ apiKey: "sk-test", headers: {} }),
   };
 }
@@ -68,6 +81,8 @@ function makeKey(scopes = ["all"]) {
 async function buildApp(opts: {
   streamFn?: (o: any) => AsyncIterable<any>;
   capExhausted?: boolean;
+  models?: any[];
+  configOverrides?: Partial<ModelProxyConfig>;
 } = {}) {
   const { cleartext, entry } = makeKey();
   const config: ModelProxyConfig = {
@@ -76,6 +91,7 @@ async function buildApp(opts: {
     perKeyConcurrentStreams: opts.capExhausted ? 0 : 4,
     logRequests: false,
     apiKeys: [entry],
+    ...opts.configOverrides,
   };
 
   const streamFn = opts.streamFn ?? ((o: any) => fakeTextStream("hello"));
@@ -87,7 +103,7 @@ async function buildApp(opts: {
 
   registerModelProxyRoutes(app, {
     getConfig: () => config,
-    getRegistry: async () => makeFakeRegistry(),
+    getRegistry: async () => makeFakeRegistry(opts.models),
     streamSimple: streamFn,
   });
 
@@ -282,5 +298,151 @@ describe("POST /v1/messages (task 8.4)", () => {
     });
 
     expect(res.statusCode).toBe(400);
+  });
+});
+
+// ── Model-id resolution (change: fix-and-prefer-model-proxy-resolution) ──────
+
+const MULTI_SLASH_MODEL = {
+  id: "anthropic/claude-3.5-sonnet",
+  provider: "openrouter",
+  contextWindow: 200000,
+  maxTokens: 8192,
+};
+
+describe("model-id resolution — first-slash parse", () => {
+  it("multi-slash id resolves (not 404) on /v1/chat/completions", async () => {
+    const { app, cleartext } = await buildApp({ models: [MULTI_SLASH_MODEL] });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "openrouter/anthropic/claude-3.5-sonnet",
+        messages: [{ role: "user", content: "hi" }],
+        stream: false,
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).choices[0].message.content).toBe("hello");
+  });
+
+  it("round-trip: every /v1/models id resolves on /v1/chat/completions", async () => {
+    const models = [
+      MULTI_SLASH_MODEL,
+      { id: "claude-3-5-sonnet", provider: "anthropic" },
+      { id: "gpt-4o", provider: "openai" },
+    ];
+    const { app, cleartext } = await buildApp({ models });
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/v1/models",
+      headers: { authorization: `Bearer ${cleartext}` },
+    });
+    const ids: string[] = JSON.parse(list.body).data.map((m: any) => m.id);
+    expect(ids).toContain("openrouter/anthropic/claude-3.5-sonnet");
+
+    for (const id of ids) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/chat/completions",
+        headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+        body: JSON.stringify({ model: id, messages: [{ role: "user", content: "hi" }], stream: false }),
+      });
+      expect(res.statusCode, `id ${id} should resolve`).not.toBe(404);
+    }
+  });
+
+  it("multi-slash id resolves on /v1/messages", async () => {
+    const { app, cleartext } = await buildApp({ models: [MULTI_SLASH_MODEL] });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/messages",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "openrouter/anthropic/claude-3.5-sonnet",
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 100,
+        stream: false,
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("model-id resolution — aliases + preferred fallback", () => {
+  it("alias expands to a fully-qualified id", async () => {
+    const { app, cleartext } = await buildApp({
+      models: [{ id: "claude-3-5-sonnet", provider: "anthropic" }],
+      configOverrides: { modelAliases: { claude: "anthropic/claude-3-5-sonnet" } },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude", messages: [{ role: "user", content: "hi" }], stream: false }),
+    });
+
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("omitted model uses first available preferred entry", async () => {
+    const { app, cleartext } = await buildApp({
+      // anthropic/... NOT in registry (unavailable); openai/gpt-4o IS.
+      models: [{ id: "gpt-4o", provider: "openai" }],
+      configOverrides: { preferredModels: ["anthropic/claude-3-5-sonnet", "openai/gpt-4o"] },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], stream: false }),
+    });
+
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("preferredModels supersedes defaultModel on omitted model", async () => {
+    // defaultModel points at an UNavailable model; preferred points at the
+    // available one. Resolution must pick preferred (200), not defaultModel (404).
+    const { app, cleartext } = await buildApp({
+      models: [{ id: "gpt-4o", provider: "openai" }],
+      configOverrides: {
+        defaultModel: "anthropic/ghost",
+        preferredModels: ["openai/gpt-4o"],
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], stream: false }),
+    });
+
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("unresolved model with no available preferred → 404", async () => {
+    const { app, cleartext } = await buildApp({
+      models: [{ id: "gpt-4o", provider: "openai" }],
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/chat/completions",
+      headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "ghost/none", messages: [{ role: "user", content: "hi" }], stream: false }),
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error.message).toBe("Model not found: ghost/none");
   });
 });

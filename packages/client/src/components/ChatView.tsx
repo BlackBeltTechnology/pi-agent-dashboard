@@ -91,19 +91,40 @@ interface Props {
   /** Current sparse override for the session, or `undefined`. */
 }
 
-function ImageAttachments({ images }: { images: ChatImage[] }) {
+function ImageAttachments({
+  images,
+  onImageLoad,
+}: {
+  images: ChatImage[];
+  /**
+   * Fired when an attached `<img>` finishes decoding. In the virtualized
+   * transcript the owning row is first measured pre-decode (img ~0px); this
+   * signal lets ChatView re-measure the row at its true post-decode height so
+   * the message cannot stay collapsed and overlap its neighbour (issue #267).
+   */
+  onImageLoad?: (e: React.SyntheticEvent<HTMLImageElement>) => void;
+}) {
   const [lightboxSrc, setLightboxSrc] = useState<{ src: string; alt: string } | null>(null);
+  // Track decoded images so the reserved loading box is dropped once the real
+  // intrinsic size is known (a bounded box avoids the near-zero pre-decode
+  // measurement without distorting small decoded images).
+  const [loaded, setLoaded] = useState<Set<number>>(() => new Set());
   return (
     <>
       <div className="flex gap-2 flex-wrap mb-2">
         {images.map((img, i) => {
           const src = `data:${img.mimeType};base64,${img.data}`;
+          const reserve = !loaded.has(i) ? "min-w-[80px] min-h-[80px]" : "";
           return (
             <img
               key={i}
               src={src}
               alt={`Attachment ${i + 1}`}
-              className="max-w-[300px] max-h-[300px] rounded border border-white/20 object-contain cursor-pointer"
+              className={`max-w-[300px] max-h-[300px] ${reserve} rounded border border-white/20 object-contain cursor-pointer`}
+              onLoad={(e) => {
+                setLoaded((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
+                onImageLoad?.(e);
+              }}
               onClick={() => setLightboxSrc({ src, alt: `Attachment ${i + 1}` })}
             />
           );
@@ -154,8 +175,8 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
         {timestamp != null && (
           <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
-        <CopyButton text={content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
-        <CopyButton text={getPlainText()} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
+        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
+        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
@@ -343,6 +364,36 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   });
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+
+  // Async image-decode re-measure (issue #267). A base64 data-URL decodes after
+  // mount, so an image-bearing row is first measured near-zero. The reused
+  // (not remounted) ChatView + no-op ResizeObserver paths can leave that stale
+  // collapsed height cached, overlapping the next row. Each `<img onLoad>` asks
+  // us to re-measure its owning virtual row (the `[data-index]` ancestor that
+  // already carries `ref={virtualizer.measureElement}`). Coalesce to one
+  // measure per row per animation frame so a many-image message can't storm.
+  const pendingRowMeasure = useRef<Map<number, HTMLElement>>(new Map());
+  const rowMeasureRaf = useRef<number | null>(null);
+  const requestRowMeasure = useCallback(
+    (from: HTMLElement | null) => {
+      const row = from?.closest?.("[data-index]") as HTMLElement | null;
+      if (!row) return;
+      pendingRowMeasure.current.set(Number(row.getAttribute("data-index")), row);
+      if (rowMeasureRaf.current != null) return;
+      rowMeasureRaf.current = requestAnimationFrame(() => {
+        rowMeasureRaf.current = null;
+        for (const node of pendingRowMeasure.current.values()) virtualizer.measureElement(node);
+        pendingRowMeasure.current.clear();
+      });
+    },
+    [virtualizer],
+  );
+  useLayoutEffect(
+    () => () => {
+      if (rowMeasureRaf.current != null) cancelAnimationFrame(rowMeasureRaf.current);
+    },
+    [],
+  );
 
   // Real user input (wheel / touch) cancels an in-flight descent so the user
   // can always escape mid-flight.
@@ -561,7 +612,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 <div className={bubbleMax}>
                   {msg.images && msg.images.length > 0 && (
                     <div className="mb-2">
-                      <ImageAttachments images={msg.images} />
+                      <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                     </div>
                   )}
                   <SkillInvocationCard
@@ -580,7 +631,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
               <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
-                  <ImageAttachments images={msg.images} />
+                  <ImageAttachments images={msg.images} onImageLoad={(e) => requestRowMeasure(e.currentTarget)} />
                 )}
                 {msg.content && (
                   <MessageBubble

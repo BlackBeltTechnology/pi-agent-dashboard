@@ -227,6 +227,19 @@ export interface ModelProxyConfig {
   enabled: boolean;
   /** Default model for requests that omit it. */
   defaultModel?: string;
+  /**
+   * Ordered list of fully-qualified `provider/id`s. The first *available*
+   * entry is used when a request omits `model` or names an unresolved model.
+   * Supersedes `defaultModel` when both are set and an entry is available.
+   * See change: fix-and-prefer-model-proxy-resolution.
+   */
+  preferredModels?: string[];
+  /**
+   * Alias → fully-qualified `provider/id`, expanded (exact key match) before
+   * parsing. Lets a caller send `claude` and route to `anthropic/claude-3.5-sonnet`.
+   * See change: fix-and-prefer-model-proxy-resolution.
+   */
+  modelAliases?: Record<string, string>;
   /** Optional second port for /v1/* routes (for SDKs that hardcode path-prefix-less base URLs). */
   secondPort?: number;
   /** Server-wide max concurrent streams. Default 16. Clamped [1, 256]. */
@@ -662,6 +675,20 @@ export function parseModelProxyConfig(raw: any): ModelProxyConfig {
     }
   }
 
+  const preferredModels: string[] = Array.isArray(raw.preferredModels)
+    ? raw.preferredModels.filter((s: unknown) => typeof s === "string" && s.length > 0)
+    : [];
+
+  let modelAliases: Record<string, string> | undefined;
+  if (raw.modelAliases && typeof raw.modelAliases === "object" && !Array.isArray(raw.modelAliases)) {
+    modelAliases = {};
+    for (const [key, val] of Object.entries(raw.modelAliases)) {
+      if (typeof key === "string" && key.length > 0 && typeof val === "string" && val.length > 0) {
+        modelAliases[key] = val;
+      }
+    }
+  }
+
   let perProviderCaps: Record<string, number> | undefined;
   if (raw.perProviderCaps && typeof raw.perProviderCaps === "object" && !Array.isArray(raw.perProviderCaps)) {
     perProviderCaps = {};
@@ -691,6 +718,8 @@ export function parseModelProxyConfig(raw: any): ModelProxyConfig {
       64,
     ),
     ...(perProviderCaps ? { perProviderCaps } : {}),
+    ...(preferredModels.length > 0 ? { preferredModels } : {}),
+    ...(modelAliases && Object.keys(modelAliases).length > 0 ? { modelAliases } : {}),
     logRequests:
       typeof raw.logRequests === "boolean" ? raw.logRequests : DEFAULT_MODEL_PROXY.logRequests,
     apiKeys,

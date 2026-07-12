@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the Electron desktop shell: main-process lifecycle and bootstrap arms (attach / launch-server / remote), the splash + loading windows, the system tray (ownership-aware menu), the zombie-adoption modal, window state, the opt-in CDP debug surface, and single-instance handling.
-
 ## Requirements
-
 ### Requirement: Electron main process lifecycle
 
 The Electron main process SHALL discover or launch a dashboard server, then open a BrowserWindow pointing at the server URL. The server SHALL always run as a separate detached process, never in-process. On `ensureServer()` failure the main process SHALL classify the error and route to either the configuration-error dialog or the interactive loading page — it SHALL NOT retry `ensureServer()` a second time, because a second 15 s budget produces no useful signal that the loading page (which polls indefinitely) does not already provide.
@@ -208,6 +206,7 @@ The server SHALL be launched using the `tsx` binary (not `node --import tsx/esm`
 - **WHEN** `tsx` is not found
 - **THEN** the jiti loader passed to `node --import` SHALL be resolved from `~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent` (managed install) BEFORE checking the system pi install
 - **AND** the resolver SHALL NOT check the bundled server's `node_modules` (which intentionally does not contain pi-coding-agent — see the `electron-build-pipeline` spec)
+
 ### Requirement: External links open in the system browser, not a secondary Electron window
 The main `BrowserWindow` created by `createMainWindow` SHALL route every external URL initiated **from the dashboard origin** to the user's system browser via `shell.openExternal`, and SHALL never allow an external URL to (a) replace the dashboard in the main window or (b) spawn a secondary Electron `BrowserWindow`. An external URL is any URL whose origin differs from the server origin the main window was loaded with.
 
@@ -678,3 +677,22 @@ The modal SHALL be suppressed when Electron is invoked with the command-line swi
 - **WHEN** Electron is launched with `--no-zombie-prompt`
 - **THEN** zombie detection SHALL still run for logging purposes
 - **AND** the modal SHALL NOT be displayed regardless of the result
+
+### Requirement: Remote-mode attach probes reachability in the main process
+When attaching in remote mode, the app SHALL determine target reachability using a **main-process** probe (a Node HTTP request that sends no browser `Origin` header and is not subject to CORS), and the renderer SHALL reach the dashboard via a top-level navigation (`location.href = serverUrl`). The loading page SHALL NOT gate that navigation behind a renderer-side `fetch` from its `file://` (`Origin: null`) document, because a remote dashboard's CORS policy deliberately refuses the `null` origin — making such a probe never succeed and the attach hang until the error timeout despite a healthy, directly-reachable server.
+
+#### Scenario: Remote attach reaches a healthy remote without a renderer fetch gate
+- **WHEN** the app starts in remote mode with `remoteUrl = http://192.168.16.242:8000` and that server is healthy
+- **THEN** the main process SHALL probe `${remoteUrl}/api/health` (Node fetch, no `Origin` header) and report reachable
+- **AND** the loading page SHALL navigate the window to `remoteUrl` via a top-level navigation
+- **AND** the attach SHALL NOT depend on a renderer `fetch(${remoteUrl}/api/health)` succeeding
+
+#### Scenario: Loopback attach unchanged
+- **WHEN** the app attaches to `http://localhost:<port>`
+- **THEN** the loading page behavior SHALL be unchanged (its existing health polling and Start server / Open Doctor / server-log controls after ~15 s still apply)
+
+#### Scenario: Unreachable remote still surfaces the error page
+- **WHEN** the app starts in remote mode but the remote is genuinely unreachable
+- **THEN** the main-process probe SHALL report not-reachable
+- **AND** the loading page SHALL surface the existing connection-error UI after the timeout (no indefinite silent hang)
+

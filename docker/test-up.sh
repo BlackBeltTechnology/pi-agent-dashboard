@@ -74,6 +74,14 @@ export DASHBOARD_PORT PI_GATEWAY_PORT
 export PI_GATEWAY_BIND=127.0.0.1
 export TUNNEL_ENABLED=false
 
+# Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests). Passed
+# through to the container (compose.test.yml -> test-entrypoint.sh) which wires
+# the pi-flows engine + anthropic-messages bridge peer accordingly:
+#   both | no-am | legacy | bad-registration   (unset => no flow-peer wiring)
+# Requires PI_E2E_SEED=1. Boot a specific variant for manual /api/health checks:
+#   PI_E2E_SEED=1 PI_TEST_PEERS=no-am /path/to/docker/test-up.sh -d --build
+export PI_TEST_PEERS="${PI_TEST_PEERS:-}"
+
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {

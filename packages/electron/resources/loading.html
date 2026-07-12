@@ -123,11 +123,35 @@
         }
       }
 
-      async function tryConnect() {
+      // A remote dashboard deliberately refuses this file:// page's `Origin:
+      // null`, so a renderer fetch to a remote never passes CORS and the attach
+      // would hang. For non-loopback targets, probe in the MAIN process (Node
+      // fetch, no Origin header) via IPC, then do a CORS-free top-level nav.
+      // Loopback (or an older preload without probeServer) keeps the renderer
+      // fetch path unchanged. See change: fix-remote-connect-cors-gates.
+      function isLoopbackUrl(u) {
+        try {
+          const h = new URL(u).hostname;
+          return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+        } catch (_) { return false; }
+      }
+      const useMainProbe = !!(api && api.probeServer) && !isLoopbackUrl(serverUrl);
+
+      async function reachable() {
+        if (useMainProbe) {
+          try {
+            const r = await api.probeServer(serverUrl);
+            return !!(r && r.ok);
+          } catch (_) { return false; }
+        }
         try {
           const res = await fetch(serverUrl + "/api/health", { signal: AbortSignal.timeout(2000) });
-          if (res.ok) { location.href = serverUrl; return; }
-        } catch (_) { /* not ready */ }
+          return res.ok;
+        } catch (_) { return false; }
+      }
+
+      async function tryConnect() {
+        if (await reachable()) { location.href = serverUrl; return; }
         attempts++;
         if (attempts === MAX_ATTEMPTS_BEFORE_ERROR) showError();
         setTimeout(tryConnect, 1500);

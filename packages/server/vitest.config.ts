@@ -13,4 +13,12 @@ export default defineConfig({
     // client config's resolve.alias rationale. See change: parallelize-test-suite.
     setupFiles: [path.resolve(__dirname, "../shared/src/test-support/setup-home-perfile.ts")],
   },
+  resolve: {
+    // Worktree-local shared source wins over the hoisted-workspace symlink
+    // (which escapes to the main checkout), so tests see the same code the
+    // build does. Mirrors packages/client/vitest.config.ts resolve.alias.
+    alias: {
+      "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+    },
+  },
 });

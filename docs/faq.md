@@ -648,7 +648,8 @@ Step-by-step equivalent:
 npm run build                         # web client
 cd packages/electron
 bash scripts/download-node.sh         # bundled Node.js
-npm run make                          # electron-forge make
+electron-forge package --platform=darwin --arch=<a>   # sign .app
+npx electron-builder --mac dmg --prepackaged <.app>   # DMG + update metadata
 ```
 
 Outputs in `packages/electron/out/make/`:
@@ -1235,6 +1236,24 @@ Recovery order:
 Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression.
 
 See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
+
+## Gemini session starts, model never responds, no error — "Gemini doesn't work with subagents"?
+
+Symptom: dashboard spawns Gemini session (`google-vertex/gemini-2.5-pro`). Model never emits visible text. No error on card. Session idles silent.
+
+NOT auth. NOT access. Vertex auth works. Model works.
+
+Root cause: heavy first agentic turn. Gemini 2.5 Pro returns thinking-only completion. All output tokens reasoning. Zero visible text. No tool call. `stopReason=stop`. Empty-actionable turn. Pre-fix pi/dashboard treated clean-but-empty turn as finished. Session idled silent.
+
+Fix (change: fix-gemini-subagent-silent-tool-schema-failure): empty-actionable-turn guard continues-or-surfaces instead of idling. Default auto-continue — bounded continuation nudge, cap 2 — to elicit answer. Cap exceeded or surface-only mode → card shows NON-error status "model returned only reasoning, no answer" + writes line to `~/.pi/dashboard/server.log`.
+
+Guard provider-agnostic. Applies to any `reasoning:true` model that emits reasoning-then-stop.
+
+Config:
+- `PI_DASHBOARD_EMPTY_TURN_GUARD` = `auto-continue` (default) | `surface-only`.
+- `PI_DASHBOARD_EMPTY_TURN_RETRY_CAP` (default `2`).
+
+See change: fix-gemini-subagent-silent-tool-schema-failure.
 
 ## Why does Windows session spawning fail with 'spawn npm ENOENT'?
 
@@ -2381,8 +2400,6 @@ Cross-refs:
 - packages/client/src/components/SettingsPanel.tsx
 - packages/server/src/routes/preferences-worktree-init-routes.ts
 
-## Local `electron-forge make` fails with `Cannot find module '.../volume.node'`
+## Local macOS DMG: the old `macos-alias`/`volume.node` error is gone
 
-DMG maker chain (`@electron-forge/maker-dmg` → appdmg → macos-alias) needs compiled native module `macos-alias/build/Release/volume.node`. Missing when install ran `--ignore-scripts` or Xcode CLT absent at install time.
-
-Fix: run `pnpm install` — `packages/electron` postinstall (`scripts/ensure-macos-alias.mjs`) self-heals, rebuilds `volume.node`. Rebuild fail → install Xcode Command Line Tools: `xcode-select --install`, then `pnpm install` again. `build-installer.sh` also gates `electron-forge make` on darwin; exits 1 with the same hint when rebuild fails. Doctor row `macos-alias native module` (darwin-only) surfaces state.
+Obsolete since change `fix-local-electron-dmg-build`. DMG no longer built by `@electron-forge/maker-dmg`; built by `electron-builder` `dmg` target (uses `hdiutil`, not `macos-alias`). Removed: the `macos-alias`/`volume.node` prerequisite, the `packages/electron` `postinstall` hook (`ensure-macos-alias.mjs`), the darwin build-time gate in `build-installer.sh`, the Doctor `macos-alias native module` row. macOS DMG builds now need only `electron-builder` (already a dependency) + Xcode Command Line Tools for any native rebuild `electron-forge package` triggers.

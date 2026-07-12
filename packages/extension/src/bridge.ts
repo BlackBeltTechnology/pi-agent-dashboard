@@ -16,6 +16,9 @@ import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { AbortLatch } from "./abort-latch.js";
 import { UsageLimitOrderer } from "./usage-limit-orderer.js";
+import { classifyTurnActionability } from "./turn-actionability.js";
+import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
+import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { USAGE_LIMIT_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/error-patterns.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -278,6 +281,12 @@ function initBridge(pi: ExtensionAPI) {
   // `message_end` / `agent_end` events. See change: fix-provider-retry-infinite-loop.
   const retryTracker = new RetryTracker();
   const usageLimitOrderer = new UsageLimitOrderer();
+  // Empty-actionable-turn guard: when a terminal turn is a clean-but-empty
+  // `stop` (thinking-only, no text, no tool call), continue-or-surface instead
+  // of idling silently. Provider-agnostic. See change:
+  // fix-gemini-subagent-silent-tool-schema-failure.
+  const guardConfig = resolveGuardConfig();
+  const emptyActionableGuard = new EmptyActionableGuard(guardConfig.mode, guardConfig.retryCap);
   // Abort latch: keeps a user abort latched so a provider backoff that
   // outlives the 2 s persistent-abort scheduler still stops pi's retry.
   // Set on abort; cleared on a new user prompt or terminal agent_end; honored
@@ -1404,6 +1413,57 @@ function initBridge(pi: ExtensionAPI) {
         // See change: rework-mid-turn-prompt-queue (post-smoke fix #3).
         setTimeout(() => drainFollowupQueue(0), 0);
 
+        // Empty-actionable-turn guard: classify this turn's terminal shape.
+        // A thinking-only / empty `stop` (no visible text, no tool call, no
+        // error) would otherwise idle the session silently. Continue-or-
+        // surface instead. Normal / tool-call / truncated / error turns yield
+        // `none` and only reset the guard's per-session counter.
+        // See change: fix-gemini-subagent-silent-tool-schema-failure.
+        {
+          const agentMsgs = (event as any)?.messages;
+          const terminalMsg =
+            Array.isArray(agentMsgs) && agentMsgs.length > 0
+              ? (agentMsgs[agentMsgs.length - 1] as Record<string, unknown>)
+              : undefined;
+          if (terminalMsg?.role === "assistant") {
+            const actionability = classifyTurnActionability(terminalMsg as any);
+            const decision = emptyActionableGuard.observe(sessionId, actionability);
+            if (decision.action === "continue" && decision.nudge) {
+              // Only nudge when nothing else will already re-run the session
+              // (no user/system follow-up pending). A pending entry means the
+              // session is not idling, so the guard can safely no-op.
+              if (bridgeFollowUp.length === 0) {
+                enqueueSystemFollowup(decision.nudge);
+              }
+            } else if (decision.action === "surface") {
+              // Non-error status: the model returned only reasoning. Forward a
+              // structured, non-error notice so the server logs it to
+              // server.log and the dashboard card renders it (distinct from an
+              // error banner).
+              const model =
+                typeof terminalMsg.model === "string"
+                  ? (terminalMsg.model as string)
+                  : undefined;
+              const provider =
+                typeof terminalMsg.provider === "string"
+                  ? (terminalMsg.provider as string)
+                  : undefined;
+              connection.send({
+                type: "event_forward",
+                sessionId,
+                event: {
+                  eventType: "empty_actionable_surface",
+                  timestamp: Date.now(),
+                  data: {
+                    message: decision.reason ?? SURFACE_MESSAGE,
+                    model: provider && model ? `${provider}/${model}` : model,
+                  },
+                },
+              });
+            }
+          }
+        }
+
       }
       // For model_select, enrich the event data with thinkingLevel
       if (eventType === "model_select") {
@@ -1480,6 +1540,12 @@ function initBridge(pi: ExtensionAPI) {
           // See change: unify-error-retry-lifecycle.
           if (role === "user") {
             abortLatch.clear(sessionId);
+            // A deliberate new user turn resets the empty-actionable guard's
+            // consecutive-continuation counter, so a stale count from a prior
+            // (possibly aborted) empty-actionable chain never shortens the next
+            // unrelated prompt's retry budget.
+            // See change: fix-gemini-subagent-silent-tool-schema-failure.
+            emptyActionableGuard.reset(sessionId);
           } else if (abortLatch.shouldAbort(sessionId)) {
             try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
           }

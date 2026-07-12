@@ -3,23 +3,23 @@ import { Icon } from "@mdi/react";
 import { mdiCheck } from "@mdi/js";
 
 interface Props {
-  text: string;
+  getText: () => string;
   icon: ReactNode;
   title: string;
 }
 
-export function CopyButton({ text, icon, title }: Props) {
+export function CopyButton({ getText, icon, title }: Props) {
   const [copied, setCopied] = useState(false);
 
   const handleClick = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(getText());
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard API unavailable — fail silently
     }
-  }, [text]);
+  }, [getText]);
 
   return (
     <button

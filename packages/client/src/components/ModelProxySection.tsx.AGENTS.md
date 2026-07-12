@@ -1,3 +1,5 @@
 # ModelProxySection.tsx — index
 
 Settings panel section for model proxy. Exports `ModelProxySection`, `ModelProxyConfig`. Renders master toggle, default-model input, second-port input, API keys table with reveal-once `RevealBanner`, `NewKeyForm`, `KeyRow`. Calls `listApiKeys`/`createApiKey`/`revokeApiKey`/`deleteApiKey`/`refreshRegistry` from `lib/model-proxy-api`. Shows upstream `@blackbelt-technology/pi-model-proxy` coexistence warning when `upstreamExtensionDetected`.
+
+`ModelProxyConfig` gains `preferredModels?: string[]` + `modelAliases?: Record<string,string>`. Props gain `availableModels?: Array<{provider,id}>`. `PreferredModelsEditor`: ordered drag-to-reorder list (native HTML5 DnD, order = priority), per-row availability pill (`available`/`no credential` from availableModels set) + remove; add control reuses `ModelSelector` (placeholder "＋ Add model", no free-text). `ModelAliasesEditor`: key text input + `ModelSelector` value (local AliasEntry[] state; commit drops empty key/value) + remove + Add alias. onChange writes into `config.modelProxy` — rides existing SettingsPanel diff-and-merge PUT. See change: fix-and-prefer-model-proxy-resolution.

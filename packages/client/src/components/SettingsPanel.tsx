@@ -1268,6 +1268,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
+                    availableModels={availableModels}
                   />
                 </Section>
                 <SettingsSectionSlot tab="providers" />
