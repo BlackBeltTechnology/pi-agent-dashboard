@@ -356,6 +356,10 @@ export function createMemoryEventStore(
   // See change: instrument-event-store-trim.
   let trimmedEventsTotal = 0;
   let trimmedToolEndTotal = 0;
+  // Per-session trim tally. Lifecycle-scoped: the entry is dropped whenever its
+  // session buffer is removed (LRU evict / explicit delete), so the Map cannot
+  // accumulate stale sessions over process lifetime. The cumulative global
+  // counters above are the lifetime record. See change: instrument-event-store-trim.
   const trimmedEventsBySession = new Map<string, number>();
   let evictedSessionsTotal = 0;
 
@@ -387,6 +391,7 @@ export function createMemoryEventStore(
     for (const [id] of evictable) {
       if (toEvict <= 0) break;
       buffers.delete(id);
+      trimmedEventsBySession.delete(id);
       toEvict--;
       evicted++;
     }
@@ -462,6 +467,7 @@ export function createMemoryEventStore(
       if (!buf) return 0;
       const count = buf.events.length;
       buffers.delete(sessionId);
+      trimmedEventsBySession.delete(sessionId);
       return count;
     },
 

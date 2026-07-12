@@ -542,6 +542,25 @@ describe("memory-event-store", () => {
       expect(stats.trimmedEvents.bySession.s2).toBeUndefined();
     });
 
+    it("drops the bySession entry when its buffer is deleted or evicted", () => {
+      // maxCachedSessions = 2 so a third session evicts the LRU one.
+      const store = createMemoryEventStore(neverPinned, 2, 3);
+      for (let i = 0; i < 5; i++) store.insertEvent("s1", makeEvent("tool_execution_end"));
+      expect(store.getTrimStats().trimmedEvents.bySession.s1).toBeGreaterThan(0);
+      // Explicit delete purges the per-session tally.
+      store.deleteEventsForSession("s1");
+      expect(store.getTrimStats().trimmedEvents.bySession.s1).toBeUndefined();
+      // Re-trim s2, then evict it via LRU with s3/s4 → its tally is purged too.
+      for (let i = 0; i < 5; i++) store.insertEvent("s2", makeEvent("tool_execution_end"));
+      expect(store.getTrimStats().trimmedEvents.bySession.s2).toBeGreaterThan(0);
+      store.insertEvent("s3", makeEvent());
+      store.insertEvent("s4", makeEvent()); // evicts s2 (LRU)
+      expect(store.hasEvents("s2")).toBe(false);
+      expect(store.getTrimStats().trimmedEvents.bySession.s2).toBeUndefined();
+      // The cumulative global total is NOT reset by eviction/deletion.
+      expect(store.getTrimStats().trimmedEvents.total).toBeGreaterThan(0);
+    });
+
     it("counts cross-session LRU evictions", () => {
       const store = createMemoryEventStore(neverPinned, 3); // maxCachedSessions = 3
       store.insertEvent("s1", makeEvent());
