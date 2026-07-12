@@ -237,6 +237,14 @@ export interface SessionState {
   /** Last LLM provider error (set from agent_end, cleared on agent_start or dismiss) */
   lastError?: { message: string; timestamp: number };
   /**
+   * Non-error notice: the model returned only reasoning, no answer
+   * (empty-actionable turn surfaced by the bridge guard). Set from the
+   * `empty_actionable_surface` event, cleared on the next `agent_start`.
+   * Distinct from `lastError` — rendered as info, never as an error.
+   * See change: fix-gemini-subagent-silent-tool-schema-failure.
+   */
+  notice?: { message: string; timestamp: number };
+  /**
    * In-flight LLM-provider auto-retry state. Set on `auto_retry_start`,
    * cleared on `auto_retry_end` / `agent_start` / `agent_end`. Drives the
    * `SessionBanner` UI (retrying variant) and the session-card amber dot.
@@ -1019,7 +1027,22 @@ export function reduceEvent(
       // removes the optimistic-clear desync where the error vanished before
       // the retry was confirmed good. See change: unify-error-retry-lifecycle.
       next.retryState = undefined;
+      // A fresh turn clears any stale empty-actionable notice.
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      next.notice = undefined;
       break;
+
+    case "empty_actionable_surface": {
+      // Non-error status: the model returned only reasoning, no answer. Set a
+      // notice distinct from lastError so the card renders info, not an error.
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      const message =
+        typeof data.message === "string" && data.message.length > 0
+          ? data.message
+          : "model returned only reasoning, no answer";
+      next.notice = { message, timestamp: event.timestamp };
+      break;
+    }
 
     case "agent_end": {
       next.isStreaming = false;

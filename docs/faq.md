@@ -1236,6 +1236,24 @@ Diagnostic: `ps -p <piPid>` after Shutdown. Alive after 3 s indicates regression
 
 See change: `fix-keeper-kill-escalation`. See also `docs/architecture.md` § "RPC keeper sidecar".
 
+## Gemini session starts, model never responds, no error — "Gemini doesn't work with subagents"?
+
+Symptom: dashboard spawns Gemini session (`google-vertex/gemini-2.5-pro`). Model never emits visible text. No error on card. Session idles silent.
+
+NOT auth. NOT access. Vertex auth works. Model works.
+
+Root cause: heavy first agentic turn. Gemini 2.5 Pro returns thinking-only completion. All output tokens reasoning. Zero visible text. No tool call. `stopReason=stop`. Empty-actionable turn. Pre-fix pi/dashboard treated clean-but-empty turn as finished. Session idled silent.
+
+Fix (change: fix-gemini-subagent-silent-tool-schema-failure): empty-actionable-turn guard continues-or-surfaces instead of idling. Default auto-continue — bounded continuation nudge, cap 2 — so model emits answer. Cap exceeded or surface-only mode → card shows NON-error status "model returned only reasoning, no answer" + writes line to `~/.pi/dashboard/server.log`.
+
+Guard provider-agnostic. Applies to any `reasoning:true` model that emits reasoning-then-stop.
+
+Config:
+- `PI_DASHBOARD_EMPTY_TURN_GUARD` = `auto-continue` (default) | `surface-only`.
+- `PI_DASHBOARD_EMPTY_TURN_RETRY_CAP` (default `2`).
+
+See change: fix-gemini-subagent-silent-tool-schema-failure.
+
 ## Why does Windows session spawning fail with 'spawn npm ENOENT'?
 
 Electron wizard only — old build before commit `29af651`. Windows `npm` is actually `npm.cmd` (batch wrapper). `child_process.spawn("npm", ...)` without `.cmd` extension fails on Windows.

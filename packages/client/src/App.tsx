@@ -1219,6 +1219,17 @@ export default function App() {
     return ids;
   }, [sessionStates]);
 
+  // Sessions whose last turn returned only reasoning, no answer (non-error
+  // notice). Suppressed when a real error is also present.
+  // See change: fix-gemini-subagent-silent-tool-schema-failure.
+  const noticeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, state] of sessionStates) {
+      if (state.notice && !state.lastError) ids.add(id);
+    }
+    return ids;
+  }, [sessionStates]);
+
   // Per-session map of unresolved `bash` toolCalls, consumed by the
   // SessionActivityBar inside each session card's PROCESS subcard.
   // See change: redesign-process-list-activity-bar.
@@ -1322,6 +1333,7 @@ export default function App() {
       editorAvailable={editorAvailable}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
+      noticeSessionIds={noticeSessionIds}
       retrySessionIds={retrySessionIds}
       spawnErrors={spawnErrors}
       onDismissSpawnError={(cwd) => setSpawnErrors((prev) => { const next = new Map(prev); next.delete(cwd); return next; })}
