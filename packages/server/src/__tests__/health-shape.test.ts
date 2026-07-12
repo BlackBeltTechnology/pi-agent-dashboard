@@ -95,6 +95,26 @@ describe("GET /api/health — shape", () => {
     expect(dropped.bridgeToServer).toBe(0);
   });
 
+  it("surfaces store-trim counters (instrument-event-store-trim)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as Record<string, unknown>;
+    const storeTrim = body.storeTrim as {
+      trimmedEvents: { total: number; toolExecutionEnd: number; bySession: Record<string, number> };
+      evictedSessions: number;
+    };
+    expect(storeTrim).toBeDefined();
+    expect(typeof storeTrim.trimmedEvents.total).toBe("number");
+    expect(typeof storeTrim.trimmedEvents.toolExecutionEnd).toBe("number");
+    expect(typeof storeTrim.trimmedEvents.bySession).toBe("object");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+    // Fresh server: nothing trimmed or evicted yet.
+    expect(storeTrim.trimmedEvents.total).toBe(0);
+    expect(storeTrim.trimmedEvents.toolExecutionEnd).toBe(0);
+    expect(storeTrim.evictedSessions).toBe(0);
+  });
+
   it("launchSource is 'bridge' when DASHBOARD_STARTER=Bridge", async () => {
     process.env.DASHBOARD_STARTER = "Bridge";
     handle = await createTestServer();
