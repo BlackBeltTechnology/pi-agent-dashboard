@@ -61,6 +61,8 @@ A single `CtxToolRenderer` component SHALL render all `ctx_*` tool calls. It SHA
 - **THEN** the header chip SHALL read `🔍 2 queries`
 - **AND** the running body SHALL list both `args.queries` entries
 
+## ADDED Requirements
+
 ### Requirement: Raw fallback still renders a card
 When `parseCtxResult` returns `{ kind: "raw", text }`, the `CtxToolRenderer` SHALL render a card whose header chip is derived from the tool `args` (via the same args-chip path used for the running state) rather than the bare tool name, and whose body is the stripped `text` rendered as linkified output. The card SHALL NOT render `JSON.stringify(args)`.
 
