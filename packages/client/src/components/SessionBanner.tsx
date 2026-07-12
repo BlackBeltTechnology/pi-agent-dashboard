@@ -240,7 +240,7 @@ function ErrorBlock({
             </button>
           )}
           <CopyButton
-            text={message}
+            getText={() => message}
             icon={<Icon path={mdiContentCopy} size={0.6} />}
             title={i18nT("auto.copy_error_message", undefined, "Copy error message")}
           />

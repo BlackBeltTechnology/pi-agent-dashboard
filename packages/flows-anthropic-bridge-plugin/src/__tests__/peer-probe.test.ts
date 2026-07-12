@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { probeAll, PEER_AM, PEER_FLOWS } from "../peer-probe.js";
+import { probeAll, PEER_AM, PEER_AM_LEGACY, PEER_AM_NAMES, PEER_FLOWS } from "../peer-probe.js";
 
 function makeResolver(present: Set<string>): (spec: string) => string {
   return (spec) => {
@@ -122,5 +122,45 @@ describe("probeAll", () => {
     });
     expect(r.am.ok).toBe(false);
     expect(r.flows.ok).toBe(false);
+  });
+
+  // ── anthropic name-skew: scoped name probed BEFORE legacy ───────────
+  // Regression guard: the peer was rescoped from @pi/anthropic-messages to
+  // @blackbelt-technology/pi-anthropic-messages. A stale bridge probing only
+  // the legacy name resolves nothing on npm. The shipped probe MUST try the
+  // scoped name first and keep the legacy name as a fallback.
+
+  it("probes the scoped name before the legacy name", () => {
+    expect(PEER_AM).toBe("@blackbelt-technology/pi-anthropic-messages");
+    expect(PEER_AM_LEGACY).toBe("@pi/anthropic-messages");
+    expect(PEER_AM_NAMES).toEqual([PEER_AM, PEER_AM_LEGACY]);
+    expect(PEER_AM_NAMES[0]).toBe(PEER_AM);
+  });
+
+  it("resolves when only the scoped name is present (legacy absent)", () => {
+    const r = probeAll({
+      resolve: makeResolver(new Set([PEER_AM, PEER_FLOWS])),
+    });
+    expect(r.am.ok).toBe(true);
+    expect(r.am.via).toBe("node");
+    expect(r.bothPresent).toBe(true);
+  });
+
+  it("resolves via legacy fallback when only the legacy name is present", () => {
+    const r = probeAll({
+      resolve: makeResolver(new Set([PEER_AM_LEGACY, PEER_FLOWS])),
+    });
+    expect(r.am.ok).toBe(true);
+    expect(r.bothPresent).toBe(true);
+  });
+
+  it("neither scoped nor legacy resolvable surfaces the last probe reason", () => {
+    const r = probeAll({
+      resolve: makeResolver(new Set([PEER_FLOWS])),
+    });
+    expect(r.am.ok).toBe(false);
+    expect(r.am.reason).toMatch(/Cannot find module/);
+    // the reason names the LAST probed (legacy) spec
+    expect(r.am.reason).toMatch(/@pi\/anthropic-messages/);
   });
 });

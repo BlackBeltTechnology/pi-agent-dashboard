@@ -26,6 +26,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
+  // run through it). Existing app testid on FlowLaunchDialog's Run button — no
+  // new app testid added. See change: add-flow-plugin-e2e-tests.
+  flowLaunchRun: "flow-launch-run",
   // Chat transcript scroller + its scroll-to-bottom button. The scroller testid
   // is a deliberate exception to "do NOT add app testids for E2E": the windowed
   // transcript needs a stable getScrollElement node, and the virtualization
@@ -33,6 +37,10 @@ export const TESTIDS = {
   // virtualize-chat-transcript-tanstack (task 9.2).
   chatScrollContainer: "chat-scroll-container",
   scrollToBottom: "scroll-to-bottom",
+  // Scroll-to-top control, symmetric to scroll-to-bottom. The estimate-drift
+  // e2e reads it to prove scroll-up converges on index 0. See change:
+  // fix-chat-scroll-to-top-estimate-drift.
+  scrollToTop: "scroll-to-top",
   // TokenStatsBar turn bar — clicking it fires scrollToTurn (jump-to-turn
   // affordance the off-screen scrollToTurn e2e drives). data-turn-index carries
   // the turnIndex. See change: virtualize-chat-transcript-tanstack.

@@ -94,6 +94,16 @@ export interface DashboardSession {
    */
   gitWorktreeBase?: string;
   /**
+   * Tri-state whether the session's cwd is a git repository, independent of
+   * branch-info arrival. `true` = confirmed git repo, `false` = confirmed
+   * non-git, `undefined` = unknown (probe inconclusive / legacy session).
+   * Carried on `session_register` (no arrival race), persisted to `.meta.json`,
+   * restored by `sessionFromMeta` on cold start. Used to gate the `+Worktree`
+   * button (hide only on `=== false`).
+   * See change: gate-session-worktree-button-on-git.
+   */
+  isGitRepo?: boolean;
+  /**
    * Server-managed flag set by any of three probe sites: (1) the bridge's
    * 30 s VCS tick (`existsSync(cwd) === false`), (2) the server's session
    * scanner re-probing ended sessions on boot, (3) the `worktree/remove`

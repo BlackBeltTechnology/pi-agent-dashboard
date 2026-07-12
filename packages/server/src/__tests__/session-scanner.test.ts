@@ -287,6 +287,47 @@ describe("session-scanner", () => {
     expect(result.sessions[0].gitWorktree).toBeUndefined();
   });
 
+  it("restores isGitRepo === false from meta on cold start", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_nogit-id.jsonl", { id: "nogit-id", cwd: "/plain" });
+    writeSessionMeta(sf, {
+      cwd: "/plain",
+      status: "ended",
+      isGitRepo: false,
+      cachedAt: Date.now() + 10000,
+    });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions[0].isGitRepo).toBe(false);
+  });
+
+  it("restores isGitRepo === true from meta on cold start", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_isgit-id.jsonl", { id: "isgit-id", cwd: "/repo" });
+    writeSessionMeta(sf, {
+      cwd: "/repo",
+      status: "ended",
+      isGitRepo: true,
+      cachedAt: Date.now() + 10000,
+    });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions[0].isGitRepo).toBe(true);
+  });
+
+  it("leaves isGitRepo undefined for a legacy sidecar lacking the field", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_legacygit-id.jsonl", { id: "legacygit-id", cwd: "/legacy" });
+    writeSessionMeta(sf, {
+      cwd: "/legacy",
+      status: "ended",
+      cachedAt: Date.now() + 10000,
+    });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions[0].isGitRepo).toBeUndefined();
+  });
+
   it("should set hidden from meta", () => {
     const dir = createSessionDir("--test-cwd--");
     const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_hidden-id.jsonl", { id: "hidden-id", cwd: "/test" });

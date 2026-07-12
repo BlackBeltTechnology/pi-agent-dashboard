@@ -60,6 +60,10 @@ services:
       # scenario specs clear the onboarding gate and reach guarded endpoints.
       # Default empty → manual test-up.sh QA stays UI-only.
       PI_E2E_SEED: "${PI_E2E_SEED:-}"
+      # Flow-plugin e2e peer selector (change: add-flow-plugin-e2e-tests):
+      # both | no-am | legacy | bad-registration. Empty => test-entrypoint skips
+      # all flow-peer wiring (non-flow specs unaffected). Requires PI_E2E_SEED=1.
+      PI_TEST_PEERS: "${PI_TEST_PEERS:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

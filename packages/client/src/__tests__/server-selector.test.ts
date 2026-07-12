@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
-import { isLoopbackOrigin, buildServerEntries } from "../components/ServerSelector.js";
+import { isLoopbackOrigin, buildServerEntries, isLanHost } from "../components/ServerSelector.js";
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 
 describe("ServerSelector logic", () => {
@@ -103,6 +103,30 @@ describe("isLoopbackOrigin", () => {
     expect(isLoopbackOrigin("pennyroyal.lan")).toBe(false);
     expect(isLoopbackOrigin("192.168.1.5")).toBe(false);
     expect(isLoopbackOrigin("brass.lan")).toBe(false);
+  });
+});
+
+describe("isLanHost (CORS-blocked vs Unreachable heuristic)", () => {
+  it("is true for RFC-1918 private ranges", () => {
+    expect(isLanHost("10.0.0.5")).toBe(true);
+    expect(isLanHost("192.168.16.242")).toBe(true);
+    expect(isLanHost("172.16.0.1")).toBe(true);
+    expect(isLanHost("172.31.255.254")).toBe(true);
+  });
+
+  it("is true for link-local, CGNAT, and mDNS .local", () => {
+    expect(isLanHost("169.254.1.1")).toBe(true);
+    expect(isLanHost("100.64.0.1")).toBe(true);
+    expect(isLanHost("workstation.local")).toBe(true);
+  });
+
+  it("is false for public IPs and non-.local hostnames", () => {
+    expect(isLanHost("8.8.8.8")).toBe(false);
+    expect(isLanHost("172.32.0.1")).toBe(false); // just outside 172.16/12
+    expect(isLanHost("172.15.0.1")).toBe(false);
+    expect(isLanHost("100.128.0.1")).toBe(false); // just outside CGNAT
+    expect(isLanHost("example.com")).toBe(false);
+    expect(isLanHost("dashboard.example.org")).toBe(false);
   });
 });
 

@@ -26,6 +26,11 @@ import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-atta
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
 import { decideDashboardSource } from "./dashboard-source-decision.js";
+import {
+  buildEmptyActionableLogLine,
+  buildModelErrorLogLine,
+  extractModelTurnError,
+} from "./spawned-turn-log.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -498,6 +503,33 @@ export function wireEvents(deps: EventWiringDeps): void {
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
       }
 
+      // Spawned-session turn-outcome surfacing to server.log (live only).
+      // Two invisible-until-now outcomes get a redacted stdout line:
+      //  1. empty-actionable turn (non-error) — the bridge forwards
+      //     `empty_actionable_surface`; card render rides the broadcast above.
+      //  2. genuine model-turn error — the terminal agent_end assistant
+      //     message carries `stopReason === "error"`.
+      // The empty-actionable case (clean `stop`) never matches the error
+      // extractor, keeping the two paths distinct (spec req).
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      if (!replayingSessions.has(sessionId)) {
+        if (msg.event.eventType === "empty_actionable_surface") {
+          const d = msg.event.data ?? {};
+          console.log(
+            buildEmptyActionableLogLine({
+              sessionId,
+              model: typeof d.model === "string" ? d.model : undefined,
+              message: typeof d.message === "string" ? d.message : "model returned only reasoning, no answer",
+            }),
+          );
+        } else if (msg.event.eventType === "agent_end") {
+          const turnError = extractModelTurnError(msg.event.data ?? {});
+          if (turnError) {
+            console.error(buildModelErrorLogLine({ sessionId, ...turnError }));
+          }
+        }
+      }
+
       // Snapshot pre-update fields used by `isUnreadTrigger`. Captured here
       // so the trigger sees the before/after edges of `status` and
       // `currentTool` cleanly. See change: session-card-unread-stripes.
@@ -867,6 +899,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: auto-hide-headless-worker-sessions.
       sessionManager.update(sessionId, { dataUnavailable: false });
 
+      // Apply + persist the tri-state git-repo signal carried on register.
+      // Register is the authority (arrival-independent, no git_info_update
+      // race); persisting to .meta.json lets sessionFromMeta restore it on
+      // cold start so an ended git-repo session keeps its +Worktree button.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        sessionManager.update(sessionId, { isGitRepo: msg.isGitRepo });
+        if (msg.sessionFile) {
+          try {
+            mergeSessionMeta(msg.sessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
+
       if (msg.sessionFile) {
         for (const other of sessionManager.listAll()) {
           if (other.id !== sessionId && other.sessionFile === msg.sessionFile) {
@@ -1156,6 +1202,18 @@ export function wireEvents(deps: EventWiringDeps): void {
         gitPrNumber: msg.gitPrNumber,
         gitPrUrl: msg.gitPrUrl,
       };
+      // Refresh + persist the tri-state git-repo signal when the bridge
+      // includes it (confirmed repo). Register remains the authority.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        gitUpdates.isGitRepo = msg.isGitRepo;
+        const gitSessionFile = sessionManager.get(sessionId)?.sessionFile;
+        if (gitSessionFile) {
+          try {
+            mergeSessionMeta(gitSessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
       if (composedWorktree !== undefined) {
         // Map wire `null` → in-memory `undefined` so the field clears
         // cleanly on the DashboardSession.

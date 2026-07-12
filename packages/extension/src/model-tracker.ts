@@ -64,6 +64,9 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
     type: "git_info_update",
     sessionId: bc.sessionId,
     ...info,
+    // `info` present ⇒ branch resolved ⇒ cwd is a confirmed git repo.
+    // See change: gate-session-worktree-button-on-git.
+    isGitRepo: true,
     // Use explicit `null` on the wire when worktree state went from
     // present → absent, so the server can clear its cached value.
     gitWorktree: info.gitWorktree ?? null,

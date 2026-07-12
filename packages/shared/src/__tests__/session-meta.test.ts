@@ -111,6 +111,21 @@ describe("session-meta", () => {
       expect(meta?.cost).toBe(1.0);
     });
 
+    it("should preserve isGitRepo tri-state through merge round-trip", () => {
+      const sessionFile = path.join(tmpDir, "is-git-repo.jsonl");
+      writeSessionMeta(sessionFile, { source: "dashboard", isGitRepo: false });
+      expect(readSessionMeta(sessionFile)?.isGitRepo).toBe(false);
+      mergeSessionMeta(sessionFile, { isGitRepo: true });
+      expect(readSessionMeta(sessionFile)?.isGitRepo).toBe(true);
+      // Merging an unrelated field preserves the existing isGitRepo.
+      mergeSessionMeta(sessionFile, { name: "X" });
+      expect(readSessionMeta(sessionFile)?.isGitRepo).toBe(true);
+      // Absent field stays undefined.
+      const other = path.join(tmpDir, "no-git-flag.jsonl");
+      writeSessionMeta(other, { source: "dashboard" });
+      expect(readSessionMeta(other)?.isGitRepo).toBeUndefined();
+    });
+
     it("should preserve unknown fields", () => {
       const sessionFile = path.join(tmpDir, "unknown.jsonl");
       // Write a file with an unknown field

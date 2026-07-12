@@ -7,6 +7,7 @@
  *
  * See change: add-dashboard-model-proxy, design §1.
  */
+import { parseModelId } from "@blackbelt-technology/pi-dashboard-shared/model-id.js";
 import type { InternalAuthStorage } from "./internal-auth-storage.js";
 import { isOauthIncompatible } from "./oauth-compat.js";
 
@@ -92,6 +93,24 @@ export class InternalRegistry {
   async find(provider: string, modelId: string): Promise<any | null> {
     const available = await this.getAvailable();
     return available.find((m: any) => m.provider === provider && m.id === modelId) ?? null;
+  }
+
+  /**
+   * Walk an ordered list of fully-qualified `provider/id`s, returning the first
+   * entry present in `getAvailable()`. Bare labels (no provider) are skipped.
+   * Returns null for an empty list or when none is available.
+   * See change: fix-and-prefer-model-proxy-resolution.
+   */
+  async firstAvailable(preferred: string[]): Promise<any | null> {
+    if (!preferred || preferred.length === 0) return null;
+    const available = await this.getAvailable();
+    for (const label of preferred) {
+      const { provider, modelId } = parseModelId(label);
+      if (!provider) continue;
+      const m = available.find((x: any) => x.provider === provider && x.id === modelId);
+      if (m) return m;
+    }
+    return null;
   }
 
   async getApiKeyAndHeaders(model: any): Promise<{ apiKey: string; headers: Record<string, string> }> {
@@ -195,8 +214,21 @@ export class InternalRegistry {
       models.push(model);
     }
 
-    this.cachedAllModels = models;
-    return models;
+    // Dedup by fully-qualified `provider/id`, keeping the FIRST occurrence.
+    // Push order above encodes precedence: built-in → discovered-custom →
+    // models.json. Guarantees at most one entry per fqid and makes `find`
+    // deterministic by design. See change: fix-and-prefer-model-proxy-resolution.
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const m of models) {
+      const fqid = `${m.provider}/${m.id}`;
+      if (seen.has(fqid)) continue;
+      seen.add(fqid);
+      deduped.push(m);
+    }
+
+    this.cachedAllModels = deduped;
+    return deduped;
   }
 
   private hasAuth(provider: string, auth: Record<string, any>): boolean {

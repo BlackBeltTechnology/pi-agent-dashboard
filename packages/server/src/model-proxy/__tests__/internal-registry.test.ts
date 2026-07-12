@@ -89,6 +89,50 @@ describe("InternalRegistry.getAvailable — credential-kind filtering", () => {
   });
 });
 
+describe("InternalRegistry — deterministic source precedence (dedup by fqid)", () => {
+  it("collision between built-in and models.json → one entry, built-in wins", async () => {
+    // Both sources produce fqid `openai/gpt-4o`; built-in carries a marker.
+    const reg = makeRegistry({
+      builtins: { openai: [{ id: "gpt-4o", provider: "openai", __src: "builtin" }] },
+      auth: { openai: API_KEY },
+      customModels: [{ id: "gpt-4o", provider: "openai" }],
+    });
+    const all = reg.getAll().filter((m) => m.provider === "openai" && m.id === "gpt-4o");
+    expect(all).toHaveLength(1);
+    expect(all[0].__src).toBe("builtin");
+
+    const available = (await reg.getAvailable()).filter(
+      (m) => m.provider === "openai" && m.id === "gpt-4o",
+    );
+    expect(available).toHaveLength(1);
+    expect(await reg.find("openai", "gpt-4o")).toMatchObject({ __src: "builtin" });
+  });
+});
+
+describe("InternalRegistry.firstAvailable", () => {
+  it("walks the ordered list, returns the first entry present in getAvailable()", async () => {
+    const reg = makeRegistry({
+      builtins: {
+        anthropic: [{ id: "claude-haiku-4-5", provider: "anthropic" }],
+        openai: [{ id: "gpt-4o", provider: "openai" }],
+      },
+      // anthropic has NO credential → unavailable; openai available.
+      auth: { openai: API_KEY },
+    });
+    const pick = await reg.firstAvailable(["anthropic/claude-haiku-4-5", "openai/gpt-4o"]);
+    expect(pick).toMatchObject({ provider: "openai", id: "gpt-4o" });
+  });
+
+  it("returns null for empty list or when no entry is available", async () => {
+    const reg = makeRegistry({
+      builtins: { openai: [{ id: "gpt-4o", provider: "openai" }] },
+      auth: { openai: API_KEY },
+    });
+    expect(await reg.firstAvailable([])).toBeNull();
+    expect(await reg.firstAvailable(["ghost/none", "bare"])).toBeNull();
+  });
+});
+
 describe("InternalRegistry.getAllAnnotated — excluded reasons", () => {
   it("annotates oauth-incompatible, included, and no-credential entries", async () => {
     const reg = makeRegistry({

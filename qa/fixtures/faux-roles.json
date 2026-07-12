@@ -1,0 +1,14 @@
+{
+  "_comment": "Faux role-preset for the e2e harness (change: add-flow-plugin-e2e-tests). Maps EVERY built-in role to faux/faux-1 so any flow whose agents use `model: @role` resolve to the key-free faux model without per-spec role wiring. Also exercises the `model:resolve` path (a field-bug class) end-to-end. Delivery (design Open Question resolved): IMAGE-BAKED — docker/test-entrypoint.sh copies this to ~/.pi/agent/providers.json under PI_E2E_SEED, matching the existing auth.json/config.json/settings.json seed steps. Simpler than session-spawn-helper injection and consistent with the harness's single seed point.",
+  "roles": {
+    "planning": "faux/faux-1",
+    "coding": "faux/faux-1",
+    "fast": "faux/faux-1",
+    "research": "faux/faux-1",
+    "compact": "faux/faux-1",
+    "vision": "faux/faux-1",
+    "architect": "faux/faux-1"
+  },
+  "rolePresets": [],
+  "activePreset": null
+}

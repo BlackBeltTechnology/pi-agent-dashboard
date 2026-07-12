@@ -351,22 +351,57 @@ build_native_one_arch() {
 
   cd "$ELECTRON_DIR"
 
-  # macos-alias native-module gate (DMG maker prerequisite). On darwin the
-  # `@electron-forge/maker-dmg` chain needs `volume.node`; rebuild it before
-  # forge make so the maker never emits a confusing "Cannot find module
-  # '../build/Release/volume.node'" stack trace. See change:
-  # fix-darwin-dmg-maker-macos-alias.
+  # Platform branch mirroring .github/workflows/_electron-build.yml.
+  # forge.config.ts has no DMG/AppImage maker (removed by
+  # fix-electron-auto-update-pipeline D1); electron-builder produces the DMG /
+  # AppImage + latest-*.yml + app-update.yml (the update metadata
+  # electron-updater needs) from the Forge-packaged app in --prepackaged mode.
+  #   darwin → electron-forge package (signs) → electron-builder --mac dmg
+  #   linux  → electron-forge make (.deb)     → electron-builder --linux AppImage
+  # CSC_IDENTITY_AUTO_DISCOVERY=false on the darwin step so electron-builder
+  # wraps the Forge-signed .app without re-signing/stripping the signature.
+  # See change: fix-local-electron-dmg-build.
+  local forge_bin="$PROJECT_DIR/node_modules/.bin/electron-forge"
   if [ "$HOST_PLATFORM" = "darwin" ]; then
-    if ! find "$PROJECT_DIR/node_modules" -path '*/macos-alias/build/Release/volume.node' -print -quit 2>/dev/null | grep -q .; then
-      echo "→ macos-alias native module missing; attempting rebuild..."
-      if ! node "$ELECTRON_DIR/scripts/ensure-macos-alias.mjs" --rebuild; then
-        echo "❌ macos-alias build failed. Install Xcode Command Line Tools (xcode-select --install) and retry."
-        exit 1
-      fi
+    echo ""
+    echo "→ Packaging .app via electron-forge (arch=$target_arch)..."
+    "$forge_bin" package --platform=darwin --arch="$target_arch"
+    # electron-builder --mac --prepackaged wants the .app PATH (not its parent
+    # dir, unlike --linux which takes the unpacked dir).
+    local app_path
+    app_path=$(find "$ELECTRON_DIR/out" -maxdepth 2 -name '*.app' -type d | head -1)
+    if [ -z "$app_path" ]; then
+      echo "❌ Forge .app not found under out/ — cannot build the DMG."
+      find "$ELECTRON_DIR/out" -maxdepth 2 -type d 2>/dev/null | head -20 || true
+      exit 1
     fi
+    echo "→ Wrapping DMG via electron-builder (arch=$target_arch): $app_path"
+    CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg \
+      --prepackaged "$app_path" \
+      --config electron-builder.yml \
+      -c.mac.artifactName="PI-Dashboard-\${version}-${target_arch}.\${ext}" \
+      --publish never
+  elif [ "$HOST_PLATFORM" = "linux" ]; then
+    echo ""
+    echo "→ Building .deb via electron-forge make (arch=$target_arch)..."
+    "$forge_bin" make --platform=linux --arch="$target_arch"
+    local pkg_dir
+    pkg_dir=$(find "$ELECTRON_DIR/out" -maxdepth 1 -type d -name 'PI-Dashboard-linux-*' | head -1)
+    if [ -z "$pkg_dir" ]; then
+      echo "❌ Forge packaged dir not found under out/ — cannot build the AppImage."
+      find "$ELECTRON_DIR/out" -maxdepth 1 -type d 2>/dev/null | head -20 || true
+      exit 1
+    fi
+    echo "→ Building AppImage via electron-builder (arch=$target_arch): $pkg_dir"
+    npx electron-builder --linux AppImage \
+      --prepackaged "$pkg_dir" \
+      --config electron-builder.yml \
+      -c.linux.artifactName="PI-Dashboard-\${version}-${target_arch}.\${ext}" \
+      --publish never
+  else
+    # win32 native path is out of scope here (ZIP via Docker / NSIS in CI).
+    npm run make -- --arch "$target_arch"
   fi
-
-  npm run make -- --arch "$target_arch"
   echo "✓ $HOST_LABEL build complete (arch=$target_arch)"
 }
 

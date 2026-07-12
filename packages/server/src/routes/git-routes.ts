@@ -21,7 +21,7 @@ import {
   pushBranch,
   readHead,
   removeWorktree,
-  resolveMainPath,
+  resolveConfigRoot,
   stashPop,
   worktreeDiffStat,
 } from "../git-operations.js";
@@ -185,18 +185,18 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      if (!isGitRepo(validated.cwd)) {
-        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      // Config root without a git assumption: a non-git dir with
+      // `.pi/settings.json` resolves to itself so its declared hook is read.
+      // See change: support-non-git-init-hook.
+      const configRoot = resolveConfigRoot(validated.cwd);
+      if (!configRoot) {
+        return { success: true, data: { hasHook: false } } satisfies ApiResponse;
       }
-      const repoRoot = resolveMainPath(validated.cwd);
-      if (!repoRoot) {
-        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
-      }
-      const hook = readInitHook(repoRoot);
+      const hook = readInitHook(configRoot);
       if (!hook) {
         return { success: true, data: { hasHook: false } } satisfies ApiResponse;
       }
-      const trusted = isTrusted(repoRoot, hookDefHash(hook));
+      const trusted = isTrusted(configRoot, hookDefHash(hook));
       // TOFU: do NOT execute the repo-declared `gate` (arbitrary bash) until the
       // hook is trusted. An untrusted hook reports presence only; `needsInit` is
       // unknown until the user confirms. See change: generalize-worktree-init-hook.
@@ -234,22 +234,22 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      if (!isGitRepo(validated.cwd)) {
-        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      // Config root without a git assumption; a `null` root means an
+      // unconfigured non-git dir — reuse the existing no-hook envelope, not
+      // `not_a_repo`. See change: support-non-git-init-hook.
+      const configRoot = resolveConfigRoot(validated.cwd);
+      if (!configRoot) {
+        return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
       }
-      const repoRoot = resolveMainPath(validated.cwd);
-      if (!repoRoot) {
-        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
-      }
-      const hook = readInitHook(repoRoot);
+      const hook = readInitHook(configRoot);
       if (!hook) {
         return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
       }
       const hash = hookDefHash(hook);
       if (typeof body.confirmHash === "string" && body.confirmHash === hash) {
-        recordTrust(repoRoot, hash);
+        recordTrust(configRoot, hash);
       }
-      if (!isTrusted(repoRoot, hash)) {
+      if (!isTrusted(configRoot, hash)) {
         // Echo the hash so the client confirms with `confirmHash` without
         // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
         return { success: false, code: "init_untrusted", data: { hook, hash } } satisfies ApiResponse;

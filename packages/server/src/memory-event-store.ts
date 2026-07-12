@@ -30,6 +30,21 @@ export interface EventStore {
   getMaxSeq(sessionId: string): number;
   /** Number of cached sessions */
   sessionCount(): number;
+  /**
+   * Cumulative store-shed telemetry (process lifetime, never reset on read).
+   * `trimmedEvents` counts per-session-cap drops; `evictedSessions` counts
+   * whole-session LRU evictions. See change: instrument-event-store-trim.
+   */
+  getTrimStats(): TrimStats;
+}
+
+export interface TrimStats {
+  trimmedEvents: {
+    total: number;
+    toolExecutionEnd: number;
+    bySession: Record<string, number>;
+  };
+  evictedSessions: number;
 }
 
 interface SessionBuffer {
@@ -68,22 +83,33 @@ const ESSENTIAL_CHAT_EVENT_TYPES: ReadonlySet<string> = new Set([
  * on the surviving entries and `getEvents` filters by seq (gaps are fine).
  * See change: preserve-chat-head-on-event-trim.
  */
-function trimBufferToLimit(buf: SessionBuffer, cap: number): void {
+function trimBufferToLimit(
+  buf: SessionBuffer,
+  cap: number,
+): { dropped: number; toolEndDropped: number } {
   let toDrop = buf.events.length - cap;
-  if (toDrop <= 0) return;
+  if (toDrop <= 0) return { dropped: 0, toolEndDropped: 0 };
   const kept: StoredEvent[] = [];
+  let dropped = 0;
+  let toolEndDropped = 0;
   // Pass 1 (fused into the copy): drop the oldest non-essential entries.
   for (const e of buf.events) {
     if (toDrop > 0 && !ESSENTIAL_CHAT_EVENT_TYPES.has(e.event.eventType)) {
       toDrop--;
+      dropped++;
+      if (e.event.eventType === "tool_execution_end") toolEndDropped++;
       continue;
     }
     kept.push(e);
   }
   // Pass 2: essentials alone still exceed the cap → drop oldest essentials to
   // hold the memory bound (pathological; cap is 20000 so never hit in practice).
-  if (kept.length > cap) kept.splice(0, kept.length - cap);
+  if (kept.length > cap) {
+    dropped += kept.length - cap;
+    kept.splice(0, kept.length - cap);
+  }
   buf.events = kept;
+  return { dropped, toolEndDropped };
 }
 
 /** Default max size for any string field within event data */
@@ -324,6 +350,19 @@ export function createMemoryEventStore(
   // per 256 inserts). See change: preserve-chat-head-on-event-trim.
   const trimSlack = Math.min(256, Math.floor(maxEventsPerSession * 0.05));
 
+  // Cumulative store-shed counters (process lifetime, never reset on read).
+  // Mirrors browserGateway's droppedFramesTotal shape. Answers "does trim/evict
+  // ever fire, and does trim ever hit a terminal tool_execution_end."
+  // See change: instrument-event-store-trim.
+  let trimmedEventsTotal = 0;
+  let trimmedToolEndTotal = 0;
+  // Per-session trim tally. Lifecycle-scoped: the entry is dropped whenever its
+  // session buffer is removed (LRU evict / explicit delete), so the Map cannot
+  // accumulate stale sessions over process lifetime. The cumulative global
+  // counters above are the lifetime record. See change: instrument-event-store-trim.
+  const trimmedEventsBySession = new Map<string, number>();
+  let evictedSessionsTotal = 0;
+
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
     if (!buf) {
@@ -334,8 +373,8 @@ export function createMemoryEventStore(
     return buf;
   }
 
-  function evictIfNeeded(): void {
-    if (buffers.size <= maxCachedSessions) return;
+  function evictIfNeeded(): number {
+    if (buffers.size <= maxCachedSessions) return 0;
 
     // Collect evictable sessions sorted by lastAccess ascending
     const evictable: Array<[string, number]> = [];
@@ -348,11 +387,15 @@ export function createMemoryEventStore(
 
     // Evict until we're at or below the limit
     let toEvict = buffers.size - maxCachedSessions;
+    let evicted = 0;
     for (const [id] of evictable) {
       if (toEvict <= 0) break;
       buffers.delete(id);
+      trimmedEventsBySession.delete(id);
       toEvict--;
+      evicted++;
     }
+    return evicted;
   }
 
   return {
@@ -373,9 +416,17 @@ export function createMemoryEventStore(
         maxEventsPerSession > 0 &&
         buf.events.length > maxEventsPerSession + trimSlack
       ) {
-        trimBufferToLimit(buf, maxEventsPerSession);
+        const { dropped, toolEndDropped } = trimBufferToLimit(buf, maxEventsPerSession);
+        if (dropped > 0) {
+          trimmedEventsTotal += dropped;
+          trimmedToolEndTotal += toolEndDropped;
+          trimmedEventsBySession.set(
+            sessionId,
+            (trimmedEventsBySession.get(sessionId) ?? 0) + dropped,
+          );
+        }
       }
-      evictIfNeeded();
+      evictedSessionsTotal += evictIfNeeded();
       return seq;
     },
 
@@ -416,6 +467,7 @@ export function createMemoryEventStore(
       if (!buf) return 0;
       const count = buf.events.length;
       buffers.delete(sessionId);
+      trimmedEventsBySession.delete(sessionId);
       return count;
     },
 
@@ -432,6 +484,17 @@ export function createMemoryEventStore(
 
     sessionCount(): number {
       return buffers.size;
+    },
+
+    getTrimStats(): TrimStats {
+      return {
+        trimmedEvents: {
+          total: trimmedEventsTotal,
+          toolExecutionEnd: trimmedToolEndTotal,
+          bySession: Object.fromEntries(trimmedEventsBySession),
+        },
+        evictedSessions: evictedSessionsTotal,
+      };
     },
   };
 }

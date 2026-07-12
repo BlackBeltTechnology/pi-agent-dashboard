@@ -103,7 +103,20 @@
     "reduce-chat-render-cpu-umbrella": "ui",
     "fix-chat-scroll-to-top-estimate-drift": "ui",
     "fix-reducer-crash-undefined-toolname": "ui",
-    "add-flow-plugin-e2e-tests": "ui"
+    "add-flow-plugin-e2e-tests": "ui",
+    "fix-table-copy-empty-clipboard": "ui",
+    "fix-virtualized-image-row-measurement": "ui",
+    "add-custom-roles-ui": "ui",
+    "simplify-error-retry-single-card": "ui",
+    "persist-goal-status-and-progress": "ui",
+    "preserve-chat-selection-during-churn": "ui",
+    "fix-gemini-subagent-silent-tool-schema-failure": "ui",
+    "fix-and-prefer-model-proxy-resolution": "ui",
+    "add-kb-code-symbol-index": "next-phase",
+    "instrument-event-store-trim": "ui",
+    "support-non-git-init-hook": "ui",
+    "fix-remote-connect-cors-gates": "ui",
+    "gate-session-worktree-button-on-git": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
@@ -112,24 +125,33 @@
       "add-kb-semantic-annotation-plane",
       "add-lora-dataset-export-skill",
       "add-modular-doctor-skill",
-      "fix-remote-connect-cors-gates",
-      "gate-session-worktree-button-on-git",
-      "memory-retrieval-injection",
-      "persist-goal-status-and-progress",
-      "simplify-error-retry-single-card",
-      "support-non-git-init-hook",
-      "add-custom-roles-ui",
-      "instrument-event-store-trim"
+      "memory-retrieval-injection"
     ],
     "ui": [
+      "fix-table-copy-empty-clipboard",
       "fix-local-electron-dmg-build",
-      "reduce-chat-render-cpu-umbrella",
-      "fix-chat-scroll-to-top-estimate-drift",
+      "fix-virtualized-image-row-measurement",
       "add-flow-plugin-e2e-tests",
-      "fix-reducer-crash-undefined-toolname",
-      "virtualize-chat-transcript-tanstack"
+      "add-custom-roles-ui",
+      "fix-remote-connect-cors-gates",
+      "preserve-chat-selection-during-churn",
+      "gate-session-worktree-button-on-git",
+      "support-non-git-init-hook",
+      "simplify-error-retry-single-card",
+      "fix-gemini-subagent-silent-tool-schema-failure",
+      "instrument-event-store-trim",
+      "fix-and-prefer-model-proxy-resolution",
+      "persist-goal-status-and-progress"
     ],
-    "next-phase": [],
+    "next-phase": [
+      "add-kb-code-symbol-index",
+      "add-connector-layer",
+      "add-end-user-docs",
+      "add-hyperframes-skills",
+      "external-dashboard-plugins",
+      "macos-notarization",
+      "manage-node-runtime-updates"
+    ],
     "sdasdasd": [
       "focus-driven-folder-compaction"
     ],

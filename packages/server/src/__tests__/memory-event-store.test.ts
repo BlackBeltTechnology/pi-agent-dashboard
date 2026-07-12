@@ -497,4 +497,82 @@ describe("memory-event-store", () => {
       expect(exceedsSerializedSize(a, 1_000)).toBe(false);
     });
   });
+
+  // See change: instrument-event-store-trim.
+  describe("getTrimStats (store-shed telemetry)", () => {
+    it("reports all-zero stats when nothing is trimmed or evicted", () => {
+      const store = createMemoryEventStore(neverPinned);
+      store.insertEvent("s1", makeEvent("tool_execution_end"));
+      store.insertEvent("s1", makeEvent("message_start"));
+      expect(store.getTrimStats()).toEqual({
+        trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
+        evictedSessions: 0,
+      });
+    });
+
+    it("counts trimmed events, exactly the dropped tool_execution_end, per session", () => {
+      // cap = 3, trimSlack = 0 → trims on every over-cap insert.
+      const store = createMemoryEventStore(neverPinned, 100, 3);
+      // seq1..3 fill the cap; message_* are essential (never dropped).
+      store.insertEvent("s1", makeEvent("message_start")); // 1 essential
+      store.insertEvent("s1", makeEvent("message_end")); // 2 essential
+      store.insertEvent("s1", makeEvent("tool_execution_end")); // 3 noise
+      // seq4: length 4 > 3 → drop oldest non-essential = seq3 (tool_execution_end).
+      store.insertEvent("s1", makeEvent("tool_execution_start")); // 4
+      // seq5: kept [1,2,4] + 5 = 4 > 3 → drop seq4 (tool_execution_start, not a te).
+      store.insertEvent("s1", makeEvent("tool_execution_end")); // 5
+      // seq6: kept [1,2,5] + 6 = 4 > 3 → drop seq5 (tool_execution_end).
+      store.insertEvent("s1", makeEvent("tool_execution_start")); // 6
+
+      const stats = store.getTrimStats();
+      // Three drops total (seq3 te, seq4 tes, seq5 te); two were terminal.
+      expect(stats.trimmedEvents.total).toBe(3);
+      expect(stats.trimmedEvents.toolExecutionEnd).toBe(2);
+      expect(stats.trimmedEvents.bySession).toEqual({ s1: 3 });
+    });
+
+    it("does not attribute drops to a session that stays under the cap", () => {
+      const store = createMemoryEventStore(neverPinned, 100, 3);
+      // s1 overshoots and trims; s2 stays under the cap.
+      for (let i = 0; i < 5; i++) store.insertEvent("s1", makeEvent("tool_execution_end"));
+      store.insertEvent("s2", makeEvent("tool_execution_end"));
+
+      const stats = store.getTrimStats();
+      expect(stats.trimmedEvents.bySession.s1).toBeGreaterThan(0);
+      expect(stats.trimmedEvents.bySession.s2).toBeUndefined();
+    });
+
+    it("drops the bySession entry when its buffer is deleted or evicted", () => {
+      // maxCachedSessions = 2 so a third session evicts the LRU one.
+      const store = createMemoryEventStore(neverPinned, 2, 3);
+      for (let i = 0; i < 5; i++) store.insertEvent("s1", makeEvent("tool_execution_end"));
+      expect(store.getTrimStats().trimmedEvents.bySession.s1).toBeGreaterThan(0);
+      // Explicit delete purges the per-session tally.
+      store.deleteEventsForSession("s1");
+      expect(store.getTrimStats().trimmedEvents.bySession.s1).toBeUndefined();
+      // Re-trim s2, then evict it via LRU with s3/s4 → its tally is purged too.
+      for (let i = 0; i < 5; i++) store.insertEvent("s2", makeEvent("tool_execution_end"));
+      expect(store.getTrimStats().trimmedEvents.bySession.s2).toBeGreaterThan(0);
+      store.insertEvent("s3", makeEvent());
+      store.insertEvent("s4", makeEvent()); // evicts s2 (LRU)
+      expect(store.hasEvents("s2")).toBe(false);
+      expect(store.getTrimStats().trimmedEvents.bySession.s2).toBeUndefined();
+      // The cumulative global total is NOT reset by eviction/deletion.
+      expect(store.getTrimStats().trimmedEvents.total).toBeGreaterThan(0);
+    });
+
+    it("counts cross-session LRU evictions", () => {
+      const store = createMemoryEventStore(neverPinned, 3); // maxCachedSessions = 3
+      store.insertEvent("s1", makeEvent());
+      store.insertEvent("s2", makeEvent());
+      store.insertEvent("s3", makeEvent());
+      expect(store.getTrimStats().evictedSessions).toBe(0);
+      // s4 pushes over the LRU cap → evict 1 (s1).
+      store.insertEvent("s4", makeEvent());
+      expect(store.getTrimStats().evictedSessions).toBe(1);
+      // s5 evicts another.
+      store.insertEvent("s5", makeEvent());
+      expect(store.getTrimStats().evictedSessions).toBe(2);
+    });
+  });
 });

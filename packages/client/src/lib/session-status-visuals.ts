@@ -22,6 +22,7 @@ import {
   mdiCloseCircle,
   mdiCodeTags,
   mdiConsoleLine,
+  mdiInformationOutline,
   mdiRobotOutline,
 } from "@mdi/js";
 
@@ -92,15 +93,18 @@ export function deriveDotColor(session: DashboardSession): string {
  */
 export function deriveDotColorWithFlags(
   session: DashboardSession,
-  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean },
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean; hasNotice?: boolean },
 ): string {
   // Precedence (highest → lowest): error > ask_user (chat-routed) >
-  // resuming/retry > streaming/active/idle > ended.
+  // resuming/retry > notice (only-reasoning) > streaming/active/idle > ended.
   // See change: improve-dashboard-attention-routing.
   if (flags.hasError) return "bg-[var(--status-error)]";
   if (isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)) return "bg-[var(--status-needs-you)]";
   if (session.resuming) return "bg-[var(--status-working)] animate-pulse";
   if (flags.isRetrying) return "bg-[var(--status-working)] animate-pulse";
+  // Non-error notice: distinct info color, never the error red.
+  // See change: fix-gemini-subagent-silent-tool-schema-failure.
+  if (flags.hasNotice) return "bg-[var(--status-notice)]";
   return statusColors[session.status] ?? "bg-[var(--bg-surface)]";
 }
 
@@ -134,15 +138,18 @@ export function deriveIconStatusColor(
  *   needs-you = filled ● · working = half ◐ · idle = ring ○ · error = ✕
  * See change: improve-dashboard-attention-routing.
  */
-export type StatusShape = "needs-you" | "working" | "idle" | "error" | "ended";
+export type StatusShape = "needs-you" | "working" | "idle" | "error" | "notice" | "ended";
 
 export function deriveStatusShape(
   session: DashboardSession,
-  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean } = {},
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean; hasNotice?: boolean } = {},
 ): StatusShape {
   if (flags.hasError) return "error";
   if (isChatRoutedAskUser(session, flags.hasWidgetBarPrompt)) return "needs-you";
   if (session.resuming || flags.isRetrying || session.status === "streaming") return "working";
+  // Non-error notice: only-reasoning terminal (session is idle when set).
+  // See change: fix-gemini-subagent-silent-tool-schema-failure.
+  if (flags.hasNotice) return "notice";
   if (session.status === "active" || session.status === "idle") return "idle";
   return "ended";
 }
@@ -153,6 +160,7 @@ export const statusShapeIcon: Record<StatusShape, string | null> = {
   working: mdiCircleHalfFull,
   idle: mdiCircleOutline,
   error: mdiCloseCircle,
+  notice: mdiInformationOutline,
   ended: null,
 };
 
@@ -246,7 +254,7 @@ export function pulseClassForStatus(session: DashboardSession): string {
  */
 export function deriveRailBgColor(
   session: DashboardSession,
-  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean },
+  flags: { hasError?: boolean; isRetrying?: boolean; hasWidgetBarPrompt?: boolean; hasNotice?: boolean },
   isSelected: boolean,
 ): string {
   // Slim, low-alpha vertical line. `/25` for unselected and `/50` for
@@ -272,6 +280,13 @@ export function deriveRailBgColor(
     return isSelected
       ? "bg-[color-mix(in_srgb,var(--status-working)_65%,transparent)]"
       : "bg-[color-mix(in_srgb,var(--status-working)_40%,transparent)]";
+  }
+  // Non-error notice rail tint. See change:
+  // fix-gemini-subagent-silent-tool-schema-failure.
+  if (flags.hasNotice) {
+    return isSelected
+      ? "bg-[color-mix(in_srgb,var(--status-notice)_65%,transparent)]"
+      : "bg-[color-mix(in_srgb,var(--status-notice)_40%,transparent)]";
   }
   if (session.status === "active" || session.status === "idle") {
     return isSelected

@@ -148,6 +148,125 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     ' "${SETTINGS}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded defaultModel → settings.json"
   fi
+
+  # --- Faux role-preset: every role -> faux/faux-1 (change: add-flow-plugin-e2e-tests) ---
+  # Delivery decision (design Open Question resolved): IMAGE-BAKED via this seed
+  # step, matching auth.json/config.json/settings.json above. Lets flow agents
+  # using `model: @role` resolve to the key-free faux model AND exercises the
+  # model:resolve path (a field-bug class). Strips the fixture's `_comment` doc
+  # key so pi never sees an unknown field. No-op when providers.json exists.
+  ROLES_SRC="/app/qa/fixtures/faux-roles.json"
+  PROVIDERS="${PI_DIR}/agent/providers.json"
+  if [ -f "${ROLES_SRC}" ] && [ ! -f "${PROVIDERS}" ]; then
+    node -e '
+      const fs = require("node:fs");
+      const c = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      delete c._comment;
+      fs.writeFileSync(process.argv[2], JSON.stringify(c, null, 2) + "\n");
+    ' "${ROLES_SRC}" "${PROVIDERS}"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded faux role-preset → providers.json"
+  fi
+
+  # --- Flow-plugin e2e peers, selected by PI_TEST_PEERS (change: add-flow-plugin-e2e-tests) ---
+  # Variants: both | no-am | legacy | bad-registration. UNSET => skipped entirely
+  # (non-flow specs run exactly as before). The pi-flows engine + anthropic peer
+  # are baked globally by the Dockerfile; here we selectively wire them so the L3
+  # harness can drive real flows and assert the bridge state machine:
+  #   - pi-flows engine -> settings.json packages[] (pi loads it => flow discovery
+  #     + run) AND a bare `pi-flows` node_modules symlink for the bridge tier-1
+  #     probe. Present in every variant (all variants still run flows).
+  #   - anthropic-messages peer -> a node_modules symlink under the SESSION cwd so
+  #     the bridge's tier-1 `createRequire(cwd).resolve` hits. The symlink NAME
+  #     selects scoped vs legacy resolution.
+  # bad-registration flips the escape hatch so the bridge is NOT mirrored into
+  # packages[] (invisible to pi = the "no sessions reporting" condition).
+  if [ -n "${PI_TEST_PEERS:-}" ]; then
+    PF_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-flows"
+    AM_GLOBAL="/usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages"
+    SESSION_CWD="/fixtures/sample-git"
+    NM="${SESSION_CWD}/node_modules"
+    SETTINGS="${PI_DIR}/agent/settings.json"
+    mkdir -p "${NM}/@blackbelt-technology" "${NM}/@pi"
+
+    # Pre-trust the session cwd. The .pi/flows resources (project settings +
+    # flows/agents) make /fixtures/sample-git "trust-requiring": a headless RPC
+    # session would BLOCK on pi's interactive "Trust project folder?" prompt and
+    # never register -> REGISTER_TIMEOUT, no card. Seed pi's trust store
+    # (~/.pi/agent/trust.json, cwd -> true; walks parents) so every spawned
+    # session auto-trusts. See change: add-flow-plugin-e2e-tests.
+    node -e '
+      const fs = require("node:fs");
+      const [p, cwd] = process.argv.slice(1);
+      let d = {};
+      try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      d[cwd] = true;
+      fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+    ' "${PI_DIR}/agent/trust.json" "${SESSION_CWD}" \
+      && echo "[test-entrypoint] PI_TEST_PEERS: pre-trusted ${SESSION_CWD} (trust.json)"
+
+    register_flows() {
+      ln -sfn "${PF_GLOBAL}" "${NM}/pi-flows"
+      node -e '
+        const fs = require("node:fs");
+        const path = require("node:path");
+        const [p, dir] = process.argv.slice(1);
+        let s = {};
+        try { s = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+        if (!Array.isArray(s.packages)) s.packages = [];
+        if (!s.packages.includes(dir)) s.packages.push(dir);
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        fs.writeFileSync(p, JSON.stringify(s, null, 2) + "\n");
+      ' "${SETTINGS}" "${PF_GLOBAL}"
+    }
+
+    case "${PI_TEST_PEERS}" in
+      both)
+        register_flows
+        ln -sfn "${AM_GLOBAL}" "${NM}/@blackbelt-technology/pi-anthropic-messages"
+        ;;
+      no-am)
+        register_flows
+        # anthropic peer intentionally ABSENT -> bridge parks in waiting_peers
+        ;;
+      legacy)
+        register_flows
+        ln -sfn "${AM_GLOBAL}" "${NM}/@pi/anthropic-messages"   # legacy name only
+        ;;
+      bad-registration)
+        register_flows
+        ln -sfn "${AM_GLOBAL}" "${NM}/@blackbelt-technology/pi-anthropic-messages"
+        export PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1
+        ;;
+      *)
+        echo "[test-entrypoint] WARN: unknown PI_TEST_PEERS='${PI_TEST_PEERS}' (both|no-am|legacy|bad-registration)" >&2
+        ;;
+    esac
+
+    # Loading the pi-flows engine (jiti TS-compile of the whole engine) on a COLD
+    # RPC spawn can exceed the 30s spawnRegisterTimeoutMs default under container
+    # load -> the dashboard-spawned session hits REGISTER_TIMEOUT and no card
+    # appears. Two mitigations (harness-only):
+    #  1) bump spawnRegisterTimeoutMs in the seeded config.json (clamped 120000),
+    #  2) warm the jiti compile cache once here so the FIRST UI-spawned session
+    #     reuses cached JS instead of paying the full compile in the register
+    #     window. Both gated on PI_TEST_PEERS so non-flow runs are unaffected.
+    CFG="${PI_DIR}/dashboard/config.json"
+    node -e '
+      const fs = require("node:fs");
+      const p = process.argv[1];
+      let c = {};
+      try { c = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+      c.spawnRegisterTimeoutMs = 90000;
+      fs.writeFileSync(p, JSON.stringify(c) + "\n");
+    ' "${CFG}" && echo "[test-entrypoint] PI_TEST_PEERS: bumped spawnRegisterTimeoutMs=90000"
+    # Warm the jiti compile cache in the BACKGROUND so it never delays container
+    # readiness (the health gate below must not wait ~40s for the compile). By
+    # the time a spec spawns its first session the cache is warm (or warming);
+    # the bumped spawnRegisterTimeoutMs covers any residual cold compile.
+    echo "[test-entrypoint] PI_TEST_PEERS: warming pi-flows jiti compile cache (background)..."
+    ( cd "${SESSION_CWD}" && timeout 120 pi --list-models >/dev/null 2>&1 || true ) &
+    echo "[test-entrypoint] PI_TEST_PEERS=${PI_TEST_PEERS}: wired flow-plugin e2e peers"
+  fi
 fi
 
 # --- 2. Launch the dashboard daemon via the base entrypoint ----------------
