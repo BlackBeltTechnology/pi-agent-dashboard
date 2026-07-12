@@ -212,6 +212,65 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
 }
 
 /**
+ * Tail marker for the `scroll-top-heavy` scenario (change: fix-chat-scroll-to-
+ * top-estimate-drift). The scroll-to-top e2e waits for it to know the transcript
+ * settled at the bottom before climbing.
+ */
+export const SCROLL_TOP_HEAVY_TAIL = "scroll-top-heavy complete";
+
+/**
+ * Top-heavy transcript fixture (change: fix-chat-scroll-to-top-estimate-drift,
+ * task 1.1). The LARGEST rows sit near the TOP — a ~16k-char thinking block, a
+ * ~9k-char assistant text, a ~24k-char bash toolResult, and an inline image —
+ * mirroring the reproducing session (biggest rows ~5th-from-top, under-estimated
+ * 10-50x by the OLD static per-role estimate). `trailingTurns` small turns push
+ * them far above the bottom so scrolling up / scroll-to-top must climb past them.
+ * Gates the content-aware estimate + scroll-to-top convergence that jsdom cannot
+ * reproduce (the scroll-timing / async-image-remeasure race). Tail =
+ * SCROLL_TOP_HEAVY_TAIL.
+ */
+function buildScrollTopHeavy(trailingTurns = 40): FauxResponseStep[] {
+  const hugeThinking = "reasoning about the oversized top rows ".repeat(420); // ~16k chars
+  const hugeText = "This assistant reply is deliberately enormous. ".repeat(190); // ~9k chars
+  const steps: FauxResponseStep[] = [
+    // Turn 0: the biggest text rows + a ~24k-char bash toolResult, all near top.
+    fauxAssistantMessage(
+      [
+        fauxThinking(hugeThinking),
+        fauxText(hugeText),
+        fauxToolCall("bash", {
+          command: 'for i in $(seq 1 800); do echo "scroll-top padding line $i xxxxxxxxxxxxxxxxxxxxxxxx"; done',
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    // Turn 1: an inline image near the top (async <img> decode -> row remeasure).
+    // Reuses the screenshot inliner: bash writes a PNG + echoes its path; the
+    // bridge attaches a type:"image" block.
+    fauxAssistantMessage(
+      [
+        fauxToolCall("bash", {
+          command:
+            `mkdir -p "$HOME/.agent-browser/tmp" && printf %s '${TINY_PNG_B64}' | base64 -d > "$HOME/.agent-browser/tmp/scroll-top-shot.png" && ` +
+            `echo "Screenshot saved: $HOME/.agent-browser/tmp/scroll-top-shot.png"`,
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+  ];
+  for (let i = 0; i < trailingTurns; i++) {
+    steps.push(
+      fauxAssistantMessage(
+        [fauxText(`trailing turn ${i}`), fauxToolCall("bash", { command: `echo trail-${i}` })],
+        { stopReason: "toolUse" },
+      ),
+    );
+  }
+  steps.push(fauxAssistantMessage([fauxText(SCROLL_TOP_HEAVY_TAIL)]));
+  return steps;
+}
+
+/**
  * Later-inference marker for the supersede-heal e2e. The second scripted
  * assistant message (a NEW `message_start`) is the proof-of-completion signal
  * the supersede heal requires. See change: fix-stuck-tool-card-superseded-heal.
@@ -495,6 +554,16 @@ export const SCENARIOS: Record<string, Scenario> = {
   "long-transcript": {
     script: buildLongTranscript(),
     expect: { text: LONG_TRANSCRIPT_TAIL },
+  },
+
+  // Top-heavy transcript: the biggest rows (16k thinking, 9k text, 24k bash
+  // toolResult, inline image) sit near the TOP, then ~40 small turns. Gates the
+  // content-aware estimate + scroll-to-top convergence (scroll-up must land on
+  // index 0 without the top receding). See change:
+  // fix-chat-scroll-to-top-estimate-drift.
+  "scroll-top-heavy": {
+    script: buildScrollTopHeavy(),
+    expect: { text: SCROLL_TOP_HEAVY_TAIL },
   },
 
   // Navigable variant for the scroll-to-TURN e2e. A faux scenario has ONE user
