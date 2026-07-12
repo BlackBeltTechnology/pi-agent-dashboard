@@ -105,16 +105,12 @@ existing `{ success: false, code: "init_untrusted", data: { hook, hash } }`.
 
 ## Why not the alternatives
 
-```
-                        touches      correct for      TOFU        effort
-                        server?      non-git dir?     preserved?
- ─────────────────────────────────────────────────────────────────────────
- A. git init the dir    no           side-effect ✗    yes         trivial
- B. resolveConfigRoot   yes          yes ✓            yes         moderate   ◀ chosen
- C. client treats       yes(client)  partial ✗        n/a         small
-    not_a_repo=unknown
- D. do nothing          no           n/a              yes         zero
-```
+| Alternative | Touches server? | Correct for non-git dir? | TOFU preserved? | Effort |
+|---|---|---|---|---|
+| A. `git init` the dir | no | side-effect ✗ | yes | trivial |
+| **B. `resolveConfigRoot`** ◀ chosen | yes | yes ✓ | yes | moderate |
+| C. client treats `not_a_repo`=unknown | yes (client) | partial ✗ | n/a | small |
+| D. do nothing | no | n/a | yes | zero |
 
 - **A** pollutes a personal archive with a `.git`; unacceptable for a 1000+ file
   non-repo directory.

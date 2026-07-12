@@ -9,14 +9,12 @@ Both endpoints that read it — `GET /api/git/worktree/init-status` and
 short-circuit with `not_a_repo` **before** ever calling `readInitHook` when the
 cwd is not a git repository:
 
-```
-validateCwd → isGitRepo? ──no──▶ return not_a_repo    ◀── short-circuit
-                  │yes
-                  ▼
-         resolveMainPath (git common-dir)   ← the only "config root" resolver
-                  │
-                  ▼
-         readInitHook(repoRoot)             ← never reached for a non-git dir
+```mermaid
+flowchart TD
+  A[validateCwd] --> B{isGitRepo?}
+  B -- no --> C[return not_a_repo\nshort-circuit]
+  B -- yes --> D[resolveMainPath\ngit common-dir: only config-root resolver]
+  D --> E[readInitHook#40;repoRoot#41;\nnever reached for a non-git dir]
 ```
 
 Consequence: a fully-configured non-git directory (valid `AGENTS.md` +

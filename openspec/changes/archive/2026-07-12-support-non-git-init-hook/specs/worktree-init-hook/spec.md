@@ -16,7 +16,9 @@ git repository:
 
 For a non-git directory the config root SHALL be exactly `cwd`; the server SHALL
 NOT walk upward to a parent directory's `.pi/settings.json`. `resolveConfigRoot`
-only locates a config file and SHALL NOT execute any command.
+only locates a config file: its git branch MAY run read-only git discovery probes
+(`isGitRepo`/`resolveMainPath` shell out to `git rev-parse`), but it SHALL NOT
+execute any repo-declared hook command (`gate`/`run`).
 
 The init-status (`GET /api/git/worktree/init-status`) and init
 (`POST /api/git/worktree/init`) endpoints SHALL use `resolveConfigRoot` in place
