@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTurnToFirstRowIndex,
+  computeRowTextChars,
   estimateVirtualRowSize,
   isBurst,
   isGroup,
@@ -81,6 +82,77 @@ describe("estimateVirtualRowSize (task 2.2)", () => {
     for (const role of roles) {
       expect(estimateVirtualRowSize(msg({ id: role, role }))).toBeGreaterThan(0);
     }
+  });
+
+  it("is monotonic in text length (larger payload -> larger estimate), up to the clamp", () => {
+    const row = msg({ id: "a", role: "assistant" });
+    const small = estimateVirtualRowSize(row, 500);
+    const mid = estimateVirtualRowSize(row, 5_000);
+    const large = estimateVirtualRowSize(row, 20_000);
+    expect(mid).toBeGreaterThan(small);
+    expect(large).toBeGreaterThan(mid);
+  });
+
+  it("clamps the text reserve so a pathological row does not reserve unbounded px", () => {
+    const row = msg({ id: "a", role: "assistant" });
+    const huge = estimateVirtualRowSize(row, 1_000_000);
+    // base(140) + clamp(8000) = 8140; must not scale to ~250000px.
+    expect(huge).toBeLessThanOrEqual(140 + 8000);
+  });
+
+  it("adds the user image reserve (300) for an image-bearing user row", () => {
+    const withText = estimateVirtualRowSize(msg({ id: "u", role: "user" }), 1000);
+    const withImage = estimateVirtualRowSize(
+      msg({ id: "u", role: "user", images: [{ data: "x", mimeType: "image/png" }] }),
+      1000,
+    );
+    expect(withImage - withText).toBe(300);
+  });
+
+  it("adds the larger tool-result image reserve (512) for an image-bearing toolResult row", () => {
+    const withText = estimateVirtualRowSize(msg({ id: "t", role: "toolResult" }), 1000);
+    const withImage = estimateVirtualRowSize(
+      msg({ id: "t", role: "toolResult", images: [{ data: "x", mimeType: "image/png" }] }),
+      1000,
+    );
+    expect(withImage - withText).toBe(512);
+  });
+});
+
+describe("computeRowTextChars (task 2.1)", () => {
+  it("sums content + result length for a message row", () => {
+    expect(computeRowTextChars(msg({ id: "a", role: "assistant", content: "hello" }))).toBe(5);
+    expect(
+      computeRowTextChars(msg({ id: "t", role: "toolResult", content: "ab", result: "cde" })),
+    ).toBe(5);
+  });
+
+  it("aggregates member text for a group row", () => {
+    const g = {
+      type: "group",
+      toolName: "bash",
+      messages: [
+        msg({ id: "m1", role: "toolResult", result: "1234" }),
+        msg({ id: "m2", role: "toolResult", content: "567" }),
+      ],
+    } as unknown as ToolCallGroup;
+    expect(computeRowTextChars(g)).toBe(7);
+  });
+
+  it("aggregates member text across a burst's items", () => {
+    const b: ToolBurstGroup = {
+      type: "burst",
+      id: "b",
+      items: [
+        msg({ id: "m1", role: "toolResult", result: "abcd" }),
+        {
+          type: "group",
+          toolName: "bash",
+          messages: [msg({ id: "m2", role: "toolResult", content: "ef" })],
+        } as unknown as ToolCallGroup,
+      ],
+    };
+    expect(computeRowTextChars(b)).toBe(6);
   });
 });
 

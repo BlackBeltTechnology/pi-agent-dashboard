@@ -40,16 +40,46 @@ export function virtualRowKey(item: BurstItem, index: number): string {
 }
 
 /**
- * Per-row-type pre-measure size estimate (task 2.2). Only affects first-paint
- * offset error — `measureElement` caches each row's real rendered height after
- * mount. A per-type estimate beats one global constant (a burst group is far
- * taller than a turn separator), reducing scroll drift before measurement.
+ * Content-aware pre-measure size estimate (change: fix-chat-scroll-to-top-
+ * estimate-drift, Decision 1). Only affects first-paint offset error —
+ * `measureElement` caches each row's real rendered height after mount. A
+ * STATIC per-role constant under-shot the largest rows by 10-50x (a pasted-
+ * image user row, a 24k-char toolResult), so as they mounted during an upward
+ * scroll `getTotalSize()` jumped and the top receded. Scaling the estimate by
+ * the row's text payload shrinks that estimate error `delta`, which shrinks
+ * TanStack's built-in above-viewport correction below perception.
+ *
+ * `textChars` is the row's precomputed aggregate rendered text length (see
+ * `computeRowTextChars`), passed in so this stays **O(1) per row, pure, memo-
+ * safe** — it is called during windowing on every scroll pass and MUST NOT
+ * walk content blocks. Image presence is read O(1) from `item.images`.
+ *
+ * Constants derived from the repro height distribution (session `019f43e4`):
+ * 9240 chars -> ~2300px and 24071 chars -> ~6000px both give ~0.25 px/char,
+ * i.e. LINE_PX / CHARS_PER_LINE = 20 / 80. Acceptance is the convergence e2e,
+ * not intuition (task 2.4).
  */
-export function estimateVirtualRowSize(item: BurstItem): number {
-  if (isBurst(item)) return 220;
-  if (isGroup(item)) return 64;
-  const msg = item as ChatMessage;
-  switch (msg.role) {
+const CHARS_PER_LINE = 80;
+const LINE_PX = 20;
+/**
+ * Upper bound on the pre-measure text reserve. Bounds the reserve for a
+ * pathological 100k-char row (would otherwise reserve ~25000px of empty
+ * spacer); the residual delta above the clamp is absorbed by the built-in
+ * corrector + the scroll-to-top affordance. 8000px covers ~32k chars
+ * accurately — above the largest observed row (24k chars / ~6000px).
+ */
+const TEXT_RESERVE_CLAMP = 8000;
+/**
+ * Per-renderer-kind image reserve. Caps differ by render path (verified):
+ * user attachments `max-h-[300px]` (ChatView ImageAttachments), tool-result
+ * images `max-h-[512px]` (ToolResultImages). NOT one global constant.
+ */
+const IMAGE_RESERVE_USER = 300;
+const IMAGE_RESERVE_TOOL_RESULT = 512;
+
+/** Base (chrome) height per row type, before the text/image reserve. */
+function baseRowSize(role: ChatMessage["role"]): number {
+  switch (role) {
     case "turnSeparator":
       return 24;
     case "commandFeedback":
@@ -73,6 +103,49 @@ export function estimateVirtualRowSize(item: BurstItem): number {
     default:
       return 120;
   }
+}
+
+export function estimateVirtualRowSize(item: BurstItem, textChars = 0): number {
+  // Burst/group rows keep type constants — their variance is small relative to
+  // text rows and their aggregate text is folded into child cards.
+  if (isBurst(item)) return 220;
+  if (isGroup(item)) return 64;
+  const msg = item as ChatMessage;
+  const textReserve = Math.min(Math.ceil(textChars / CHARS_PER_LINE) * LINE_PX, TEXT_RESERVE_CLAMP);
+  let size = baseRowSize(msg.role) + textReserve;
+  if (msg.images && msg.images.length > 0) {
+    size += msg.role === "toolResult" ? IMAGE_RESERVE_TOOL_RESULT : IMAGE_RESERVE_USER;
+  }
+  return size;
+}
+
+/**
+ * Aggregate rendered text length for a display row (change: fix-chat-scroll-to-
+ * top-estimate-drift, task 2.1). Walks the row ONCE — call it when `displayRows`
+ * is built (in the ChatView `useMemo`), cache the result, and feed it to
+ * `estimateVirtualRowSize` so `estimateSize` never re-walks per scroll pass.
+ * Burst/group rows sum their members so their (unused) reserve stays bounded.
+ */
+export function computeRowTextChars(item: BurstItem): number {
+  if (isBurst(item)) {
+    let sum = 0;
+    for (const sub of item.items) {
+      sum += isGroup(sub) ? groupTextChars(sub) : messageTextChars(sub as ChatMessage);
+    }
+    return sum;
+  }
+  if (isGroup(item)) return groupTextChars(item);
+  return messageTextChars(item as ChatMessage);
+}
+
+function messageTextChars(m: ChatMessage): number {
+  return m.content.length + (m.result?.length ?? 0);
+}
+
+function groupTextChars(g: ToolCallGroup): number {
+  let sum = 0;
+  for (const m of g.messages) sum += messageTextChars(m);
+  return sum;
 }
 
 /**

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import React from "react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { createInitialState } from "../../lib/event-reducer.js";
 import { ChatView } from "../ChatView.js";
 import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState } from "../../lib/event-reducer.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultToolContext: ToolContext = { editors: [] };
@@ -192,5 +192,76 @@ describe("ChatView sticky scroll", () => {
 
     // Escape respected: button re-appears, no forced pin.
     expect(container.querySelector('[data-testid="scroll-to-bottom"]')).not.toBeNull();
+  });
+});
+
+// Scroll-to-top affordance (change: fix-chat-scroll-to-top-estimate-drift,
+// Decision 3). These are LOGIC guards on the state machine — the browser-
+// timing convergence guarantee (scrollTop lands on 0 through the bounded
+// scrollToIndex retries + async image remeasure) is Playwright-gated; jsdom's
+// virtualizer shim reports 0-height rows and a no-op ResizeObserver, so a
+// scrollTop===0 assertion here would be vacuous.
+describe("ChatView scroll-to-top", () => {
+  it("shows the scroll-to-top button when scrolled away from the top, hides it at the top", async () => {
+    const { container } = render(
+      <ThemeProvider>
+        <ChatView state={stateWith(50)} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+    await flushRaf();
+    const scrollEl = getScrollContainer(container);
+
+    // Scrolled down (away from the top) → button appears.
+    setScrollPosition(scrollEl, 900, 2000, 400);
+    fireEvent.scroll(scrollEl);
+    expect(container.querySelector('[data-testid="scroll-to-top"]')).not.toBeNull();
+
+    // Back at the very top → button hidden.
+    setScrollPosition(scrollEl, 0, 2000, 400);
+    fireEvent.scroll(scrollEl);
+    expect(container.querySelector('[data-testid="scroll-to-top"]')).toBeNull();
+  });
+
+  it("does not fight the bottom-pin: activating scroll-to-top from the bottom while streaming stays scroll-locked", async () => {
+    // The re-arm race: starting the ascent from the bottom means handleScroll
+    // fires with nearBottom=true during the scroll-to-top; without the
+    // ascendingRef latch it would flip stickToBottomRef back to true and the
+    // onChange/auto-scroll pin would yank the view back to the bottom.
+    const streaming = stateWith(50);
+    streaming.streamingText = "assistant is typing…";
+    const { container, rerender } = render(
+      <ThemeProvider>
+        <ChatView state={streaming} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+    await flushRaf();
+    const scrollEl = getScrollContainer(container);
+
+    // User is at the bottom (following).
+    setScrollPosition(scrollEl, 950, 1000, 400);
+    fireEvent.scroll(scrollEl);
+    expect(container.querySelector('[data-testid="scroll-to-top"]')).not.toBeNull();
+
+    // Activate scroll-to-top. scrollTo is stubbed, so the DOM position does not
+    // move here — we assert the STATE MACHINE stays scroll-locked.
+    fireEvent.click(container.querySelector('[data-testid="scroll-to-top"]')!);
+
+    // A scroll event still reporting near-bottom must NOT re-arm the pin
+    // (ascendingRef branch holds stickToBottomRef false).
+    setScrollPosition(scrollEl, 950, 1000, 400);
+    fireEvent.scroll(scrollEl);
+
+    // More streaming content arrives with grown height. Because follow is
+    // suspended, the view must NOT be pinned to the (grown) bottom.
+    const before = scrollEl.scrollTop;
+    const more = stateWith(60);
+    more.streamingText = "still typing…";
+    setScrollPosition(scrollEl, 950, 2000, 400);
+    rerender(
+      <ThemeProvider>
+        <ChatView state={more} toolContext={defaultToolContext} />
+      </ThemeProvider>,
+    );
+    expect(scrollEl.scrollTop).toBe(before); // not yanked to scrollHeight (2000)
   });
 });

@@ -2,7 +2,7 @@ import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtim
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
 import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiCheck, mdiChevronDown, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../hooks/useFxVisibility.js";
 import { useMobile } from "../hooks/useMobile.js";
-import { buildTurnToFirstRowIndex, estimateVirtualRowSize, isBurst, isGroup, virtualRowKey } from "../lib/chat-virtual-rows.js";
+import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, isBurst, isGroup, virtualRowKey } from "../lib/chat-virtual-rows.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../lib/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
@@ -221,7 +221,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // cancelled by real user input (wheel / touch). See change:
   // virtualize-chat-transcript-tanstack (scroll-to-bottom regression fix).
   const descendingRef = useRef(false);
+  // True while a scroll-to-TOP ascent is in flight (Decision 3, change:
+  // fix-chat-scroll-to-top-estimate-drift). `scrollToIndex(0)` is BOUNDED
+  // (maxAttempts=10) and a late async image-load remeasure can bump the view
+  // off index 0 after the retries exhaust; this latch (a) re-issues
+  // scrollToIndex(0) from `onChange` when a measurement grows the total size,
+  // and (b) stops `handleScroll` re-arming the bottom-pin mid-flight (the
+  // re-arm race: starting the ascent from the bottom would otherwise flip
+  // stickToBottomRef back to true and yank the view down). Cleared on arrival
+  // at the top or on real user input (wheel / touch), mirroring descendingRef.
+  const ascendingRef = useRef(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [showScrollTopButton, setShowScrollTopButton] = useState(false);
   // Effective display prefs for this session (configurable-chat-display).
   const prefs = useDisplayPrefs(sessionId);
   const showDebugTools = prefs.debugTools;
@@ -293,12 +304,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     [prefs, showDebugTools, hiddenToolResultIds],
   );
   const displayRows = useMemo(() => groupedMessages.filter(isRowVisible), [groupedMessages, isRowVisible]);
+  // Precompute each row's aggregate rendered text length ONCE per displayRows
+  // rebuild (task 2.1), so `estimateSize` stays O(1) per scroll pass and never
+  // walks content blocks. Feeds the content-aware estimate (Decision 1).
+  const rowTextChars = useMemo(() => displayRows.map(computeRowTextChars), [displayRows]);
   const turnToFirstRowIndex = useMemo(() => buildTurnToFirstRowIndex(displayRows), [displayRows]);
 
   const virtualizer = useVirtualizer({
     count: displayRows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => estimateVirtualRowSize(displayRows[i]),
+    estimateSize: (i) => estimateVirtualRowSize(displayRows[i], rowTextChars[i]),
     getItemKey: (i) => virtualRowKey(displayRows[i], i),
     overscan: 6,
     // Re-pin the bottom on measurement-driven size changes while following.
@@ -316,6 +331,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       const grew = el.scrollHeight !== lastScrollHeightRef.current;
       lastScrollHeightRef.current = el.scrollHeight;
       if (grew && stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+      // Ascending: re-target index 0 whenever a measurement grows the total
+      // size (an above-viewport row mounting/measuring, INCLUDING the async
+      // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
+      // so without this a late remeasure would leave the view off index 0.
+      if (ascendingRef.current) {
+        if (el.scrollTop <= 0) ascendingRef.current = false;
+        else if (grew) virtualizer.scrollToIndex(0, { align: "start" });
+      }
     },
   });
   const virtualItems = virtualizer.getVirtualItems();
@@ -325,22 +348,34 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // can always escape mid-flight.
   const cancelDescent = useCallback(() => {
     descendingRef.current = false;
+    // Real user input also escapes an in-flight scroll-to-top ascent so the
+    // onChange re-issue cannot fight the user scrolling back down.
+    ascendingRef.current = false;
   }, []);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_THRESHOLD;
+    const nearTop = el.scrollTop <= SCROLL_THRESHOLD;
     if (descendingRef.current) {
       // In-flight descent: hold the pin through intermediate (not-yet-bottom)
       // scroll events; clear the latch on arrival.
       if (nearBottom) descendingRef.current = false;
       stickToBottomRef.current = true;
       setShowScrollButton(false);
+    } else if (ascendingRef.current) {
+      // In-flight ascent: hold scroll-lock and NEVER re-arm the bottom-pin,
+      // even if an early frame reads nearBottom (starting from the bottom).
+      // Clear the latch on arrival at the top.
+      if (nearTop) ascendingRef.current = false;
+      stickToBottomRef.current = false;
+      setShowScrollButton(true);
     } else {
       stickToBottomRef.current = nearBottom;
       setShowScrollButton(!nearBottom);
     }
+    setShowScrollTopButton(!nearTop);
     // Persist scroll position for this session in VIRTUAL coordinates (CR-6):
     // the first below-the-fold row's stable id + its intra-row offset. Raw
     // scrollTop is meaningless once total size is an estimate across a remount.
@@ -369,6 +404,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       scrollStateMap.set(sessionId, { anchorRowId: null, offset: 0, nearBottom: true });
     }
   }, [sessionId, state.streamingText, state.streamingThinking, pendingSteering]);
+
+  // Scroll-to-top (Decision 3). Latch suppression FIRST, then scroll: escape
+  // sticky-bottom so streaming can't pull the view back down, mark the ascent
+  // so handleScroll won't re-arm the pin and onChange re-issues on remeasure,
+  // then target index 0 top-aligned. `scrollToIndex` mounts the first row if
+  // unmounted and (for index 0) self-corrects toward offset 0.
+  const scrollToTop = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    descendingRef.current = false;
+    ascendingRef.current = true;
+    stickToBottomRef.current = false;
+    setShowScrollButton(true);
+    virtualizer.scrollToIndex(0, { align: "start" });
+  }, [virtualizer]);
 
   // Save scroll state when leaving, restore when arriving. Layout effect keeps
   // the restored position synchronized with the first paint so there is no flash.
@@ -442,6 +492,12 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // resets the hoisted preview — a preview open in session A never leaks into B.
     <FilePreviewProvider key={sessionId}>
     <div className="flex-1 relative overflow-hidden flex flex-col">
+    {/* overflowAnchor:"none" is load-bearing: TanStack's built-in above-viewport
+        correction (resizeItem) drives scroll compensation itself, so browser
+        scroll-anchoring must stay OFF (it would double-move). Do NOT add
+        `scroll-behavior: smooth` here or on an ancestor — smooth would animate
+        each synchronous measurement correction and race the next, reintroducing
+        the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
     <div ref={scrollRef} onScroll={handleScroll} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
@@ -823,6 +879,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         )
       )}
     </div>
+    {showScrollTopButton && (
+      <button
+        data-testid="scroll-to-top"
+        onClick={scrollToTop}
+        className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
+        title={i18nT("auto.scroll_to_top", undefined, "Scroll to top")}
+      >
+        <Icon path={mdiChevronUp} size={0.8} className="text-[var(--text-secondary)]" />
+      </button>
+    )}
     {showScrollButton && (
       <button
         data-testid="scroll-to-bottom"
