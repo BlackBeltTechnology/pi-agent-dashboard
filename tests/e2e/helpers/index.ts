@@ -26,6 +26,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
+  // run through it). Existing app testid on FlowLaunchDialog's Run button — no
+  // new app testid added. See change: add-flow-plugin-e2e-tests.
+  flowLaunchRun: "flow-launch-run",
   // Chat transcript scroller + its scroll-to-bottom button. The scroller testid
   // is a deliberate exception to "do NOT add app testids for E2E": the windowed
   // transcript needs a stable getScrollElement node, and the virtualization

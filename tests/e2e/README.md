@@ -129,6 +129,10 @@ step.
 | `tests/e2e/inline-screenshot.spec.ts` | Faux round-trip: `[[faux:tool-screenshot]]` → real `bash` writes a PNG + echoes `Screenshot saved: <path>`; the bridge's `inlineToolResultImages` inlines it as a `type:"image"` block. Asserts an inline `data:image/png` `<img>` is visible (auto-expanded) and the consumed path is NOT linkified (D5). Change: inline-agent-screenshot-artifacts (automates task 4.2). Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/editor-pane.spec.ts` | Faux round-trip: `[[faux:tool-read-fixture]]` reads the real fixture `README.md` → `OpenFileButton` body click navigates to `/session/:id/editor` → MarkdownViewer renders the heading; the tree opens `hello.txt` (Monaco text), `logo.png` (ImageViewer `<img>` over `/api/file/raw`), `doc.pdf` (PdfViewer `<object>`); asserts 4 tabs, a concrete (non-transparent) Monaco background (theme inheritance), back-to-chat, and tab restore on re-entry. Binary fixtures `logo.png`/`doc.pdf` live in `docker/fixtures/sample-git/`. Change: add-internal-monaco-editor-pane. Needs `PI_E2E_SEED=1`. |
 | `tests/e2e/optimistic-prompt.spec.ts` | Change: optimistic-prompt-progress. (1) IDLE send → optimistic `pending-prompt-card` appears, then confirms with no leftover card. Widens the sub-second window by delaying server→client WS frames via `page.routeWebSocket` (CDP `emulateNetworkConditions` does NOT throttle an open WS). (2) MID-TURN send (during `[[faux:slow-stream]]`, sent with Alt+Enter = followUp) → no optimistic card; `queue-chip-followup` renders. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/flow-roundtrip.spec.ts` | L3: real pi-flows engine + faux agents. Launches the synthetic 2-agent flow; asserts availability gate → `FlowAgentCard` renders → flow completes. Needs `PI_E2E_SEED=1` + `PI_TEST_PEERS=both`. |
+| `tests/e2e/anthropic-bridge-activation.spec.ts` | L3: asserts the flows-anthropic-bridge state machine via `/api/health` + `/api/flows-anthropic-bridge/status`. `both` → `active` + `bridgeLoadedFrom: packages[]`; `no-am` (env-gated) → `waiting_peers`. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/subagent-inspector.spec.ts` | L3: `[[faux:subagent-spawn]]` spawns a real subagent; asserts the subagents-plugin inspector surface mounts. Needs `PI_E2E_SEED=1`. |
+| `tests/e2e/real-flow-regression.spec.ts` | L3 (opt-in, D5 follow-up): a real flow regression, skipped unless `PI_E2E_REAL_FLOW=<flow-name>` + the flow is baked into the harness. |
 | `tests/e2e/helpers/` | `gotoDashboard(page)`, `ensureGitSession(page)`, `sendPrompt(page, text)` + testid→locator map |
 
 ## Conventions
@@ -158,6 +162,47 @@ user message and replays the matching scenario from the catalog
 count of assistant turns since that message. No sentinel → the `FAUX_SCRIPT` env
 fallback. The visible sentinel in the user bubble is inert — assertions select
 on the scripted reply, never the echoed prompt.
+
+### Flow-plugin L3 specs + peer-presence variants (`PI_TEST_PEERS`)
+
+The flow / subagent / anthropic-bridge L3 specs need the pi-flows engine + the
+anthropic-messages bridge peer present. `docker/test-entrypoint.sh` wires them
+per the `PI_TEST_PEERS` selector (requires `PI_E2E_SEED=1`):
+
+| `PI_TEST_PEERS` | Wiring | Bridge outcome |
+|---|---|---|
+| `both` | pi-flows in `packages[]` + scoped anthropic peer | `active`, `bridgeLoadedFrom: packages[]` |
+| `no-am` | pi-flows only; anthropic peer absent | `waiting_peers` (names the missing scoped peer) |
+| `legacy` | anthropic peer under the legacy `@pi/anthropic-messages` name only | `active` via legacy fallback (rename-skew guard) |
+| `bad-registration` | bridge kept out of `packages[]` (`PI_DASHBOARD_DISABLE_PLUGIN_BRIDGE_PACKAGES_WRITE=1`) | not loaded from `packages[]` ("no sessions reporting") |
+
+The **managed** run defaults to `both` (`global-setup.ts`), so `flow-roundtrip`,
+`subagent-inspector`, and the `both` half of `anthropic-bridge-activation` run in
+the standard `npm run test:e2e`. The other variants are **opt-in** against a
+separately-booted container:
+
+```bash
+# Verify a variant's /api/health directly (fast, no browser):
+PI_E2E_SEED=1 PI_TEST_PEERS=no-am docker/test-up.sh -d --build
+curl -s http://localhost:<port>/api/flows-anthropic-bridge/status | jq
+
+# Or run the env-gated no-am spec against it:
+PW_E2E_USE_RUNNING=1 PI_TEST_PEERS=no-am npm run test:e2e -- anthropic-bridge-activation
+```
+
+The pi-flows engine + anthropic peer are BAKED into the image (Dockerfile
+`npm install -g @blackbelt-technology/pi-flows @blackbelt-technology/pi-anthropic-messages`);
+`PI_TEST_PEERS` only selects which get wired at boot. The faux role-preset
+(`qa/fixtures/faux-roles.json`) is seeded to `providers.json` so flow agents
+using `model: @role` resolve to `faux/faux-1`.
+
+### L1 / L2 run in `npm test`
+
+The L1 probe/reducer unit gaps and the hermetic L2 contract-pinned reducer test
+(`packages/flows-anthropic-bridge-plugin/src/__tests__/peer-probe.test.ts`,
+`packages/flows-plugin/src/__tests__/flow-reducer-*.test.ts`) are plain vitest —
+they run in the standard `npm test` (ci.yml) with NO Docker, browser, or
+pi-flows dependency (design D2). Only L3 needs the harness.
 
 ## Not run by `npm test`
 
