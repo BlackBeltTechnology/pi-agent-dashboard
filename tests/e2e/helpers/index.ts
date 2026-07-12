@@ -33,6 +33,10 @@ export const TESTIDS = {
   // virtualize-chat-transcript-tanstack (task 9.2).
   chatScrollContainer: "chat-scroll-container",
   scrollToBottom: "scroll-to-bottom",
+  // Scroll-to-top control, symmetric to scroll-to-bottom. The estimate-drift
+  // e2e reads it to prove scroll-up converges on index 0. See change:
+  // fix-chat-scroll-to-top-estimate-drift.
+  scrollToTop: "scroll-to-top",
   // TokenStatsBar turn bar — clicking it fires scrollToTurn (jump-to-turn
   // affordance the off-screen scrollToTurn e2e drives). data-turn-index carries
   // the turnIndex. See change: virtualize-chat-transcript-tanstack.

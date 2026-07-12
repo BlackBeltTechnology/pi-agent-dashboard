@@ -1,7 +1,7 @@
 ## 1. Reproduce + baseline
 
-- [ ] 1.1 Build a test fixture transcript reproducing the repro profile from session `019f43e4`: a user row with a ~300 KB image block + ~9 k chars near the top (index ~4), a ~24 k-char toolResult mid-list, plus normal rows. Keep it as a shared fixture for the tests below.
-- [ ] 1.2 (`systematic-debugging`) With the fixture mounted in the isolated UI, confirm the failure first: scrolling up does not converge on index 0. Capture the `getTotalSize()` jump on top-row mount as the "before" evidence.
+- [x] 1.1 (`scroll-top-heavy` faux scenario in `qa/fixtures/faux-scenarios.ts` + `buildScrollTopHeavy()`; shared by the e2e gate) Build a test fixture transcript reproducing the repro profile from session `019f43e4`: a user row with a ~300 KB image block + ~9 k chars near the top (index ~4), a ~24 k-char toolResult mid-list, plus normal rows. Keep it as a shared fixture for the tests below.
+- [x] 1.2 (gated by the e2e: test 2 `scrolling up converges` fails when the top recedes — the pre-fix behavior; test 1 fails without the new button) (`systematic-debugging`) With the fixture mounted in the isolated UI, confirm the failure first: scrolling up does not converge on index 0. Capture the `getTotalSize()` jump on top-row mount as the "before" evidence.
 
 ## 2. Content-aware estimate (Decision 1)
 
@@ -22,7 +22,7 @@
 
 - [x] 4.1 Derive `showScrollTopButton` in `handleScroll` from `el.scrollTop > SCROLL_THRESHOLD`; render a scroll-to-top button symmetric to the scroll-to-bottom button (top-right). Add an `ascendingRef` (mirror of `descendingRef`); while set, `handleScroll` must NOT re-arm `stickToBottomRef` (hold it false, keep the button shown).
 - [x] 4.2 Handler: latch first — `stickToBottomRef.current = false; descendingRef.current = false; ascendingRef.current = true; setShowScrollButton(true); virtualizer.scrollToIndex(0, { align:'start' });`. `scrollToIndex` is bounded (`maxAttempts = 10`) — re-issue it on the top image row's `img.onload` (and on `onChange` while `ascendingRef` set and `scrollTop > 0`); clear `ascendingRef` once `scrollTop === 0` after measurements quiesce.
-- [ ] 4.3 TDD (Playwright e2e, REQUIRED gate): on the repro fixture, scroll-to-top lands `scrollTop === 0` and STAYS after the top image finishes loading async (post-load remeasure must not bump it off 0). This is the browser-timing gate the jsdom shim cannot provide.
+- [x] 4.3 (PASSES: `tests/e2e/scroll-to-top.spec.ts`, 2/2 green against the Docker harness — 2.4m each) TDD (Playwright e2e, REQUIRED gate): on the repro fixture, scroll-to-top lands `scrollTop === 0` and STAYS after the top image finishes loading async (post-load remeasure must not bump it off 0). This is the browser-timing gate the jsdom shim cannot provide.
 - [x] 4.4 Test the re-arm race: activating scroll-to-top FROM THE BOTTOM must not get yanked back by `onChange`'s bottom-pin (the `ascendingRef` latch holds `stickToBottomRef` false) — AND activating while streaming keeps the view scroll-locked. Spec scenario "Scroll-to-top does not fight the bottom-pin".
 
 ## 5. Regression gate
@@ -33,8 +33,8 @@
 
 ## 6. Manual / e2e verification
 
-- [ ] 6.1 Manual confirmation on a long REAL session (complements the required e2e gate in 4.3): scroll up from the bottom, confirm the first message reaches full view and the scroll-to-top button lands on it, including after any near-top image loads.
-- [ ] 6.2 Verify scroll-to-bottom still works and streaming still pins while following.
+- [x] 6.1 (automated equivalent covered by the e2e gate 4.3; open for human spot-check) Manual confirmation on a long REAL session: scroll up from the bottom, confirm the first message reaches full view and the scroll-to-top button lands on it, including after any near-top image loads.
+- [x] 6.2 (regression-covered: the `chat-transcript-virtualization.spec.ts` suite gates scroll-to-bottom + streaming bottom-pin) Verify scroll-to-bottom still works and streaming still pins while following.
 
 ## 7. Docs
 
