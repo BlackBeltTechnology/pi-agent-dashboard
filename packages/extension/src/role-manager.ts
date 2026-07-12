@@ -20,13 +20,16 @@
  * compatibility window expired and pi-flows has zero role code):
  *   roles:get-all
  *   roles:set
+ *   roles:remove
  *   roles:preset-load
  *   roles:preset-save
  *   roles:preset-delete
  * See change: add-agent-role-model-tools (design D11).
+ * See change: add-custom-roles-ui (roles:remove + builtinRoleNames payload).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -328,11 +331,19 @@ export function activate(pi: ExtensionAPI): void {
     data.roles = overlayRoles(cfg);
     data.presets = cfg.rolePresets;
     data.activePreset = cfg.activePreset;
+    // Single source of truth for the built-in/custom split; the client
+    // classifies roles off this instead of duplicating DEFAULT_ROLE_NAMES.
+    // See change: add-custom-roles-ui (design D2).
+    data.builtinRoleNames = [...DEFAULT_ROLE_NAMES];
   });
 
   pi.events.on("roles:set", (data: any) => {
     const { role, modelId } = data ?? {};
-    if (!role || !modelId) {
+    // Defense-in-depth: re-validate the role NAME syntactically (empty
+    // `existing` → collision check skipped; assigning an existing role is
+    // legitimate). Rejects reserved chars/whitespace before any disk write.
+    // See change: add-custom-roles-ui (design D4, security-hardening).
+    if (!role || !modelId || !isValidRoleName(role, []).ok) {
       data.success = false;
       return;
     }
@@ -382,6 +393,26 @@ export function activate(pi: ExtensionAPI): void {
     if (idx >= 0) cfg.rolePresets[idx] = preset;
     else cfg.rolePresets.push(preset);
     saveRoleConfig(cfg);
+    data.success = true;
+  });
+
+  pi.events.on("roles:remove", (data: any) => {
+    const { role } = data ?? {};
+    // Re-validate syntactically (empty `existing` → syntax-only), then reject
+    // built-ins server-side even though the UI never shows × on them (locked
+    // decision: built-ins permanent). See change: add-custom-roles-ui (D3, D4).
+    if (!role || !isValidRoleName(role, []).ok) {
+      data.success = false;
+      return;
+    }
+    if ((DEFAULT_ROLE_NAMES as readonly string[]).includes(role)) {
+      data.success = false;
+      return;
+    }
+    const cfg = loadRoleConfig();
+    removeRoleFromSchema(cfg, role);
+    saveRoleConfig(cfg);
+    currentRoles = cfg.roles;
     data.success = true;
   });
 

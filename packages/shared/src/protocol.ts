@@ -291,6 +291,13 @@ export interface RolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+  /**
+   * Built-in (seeded default) role names, sourced server-side from
+   * DEFAULT_ROLE_NAMES. The client classifies a role as custom iff its name
+   * ∉ builtinRoleNames. Additive; older clients ignore it.
+   * See change: add-custom-roles-ui (design D2).
+   */
+  builtinRoleNames?: string[];
 }
 
 export interface ExtensionUiDismissMessage {
@@ -712,6 +719,18 @@ export interface RolePresetDeleteExtensionMessage {
   presetName: string;
 }
 
+/**
+ * Human-facing removal of a CUSTOM role. Routed to the `roles:remove` handler
+ * which purges the name from the schema, active map, and every preset in one
+ * atomic write. Built-in names are rejected server-side.
+ * See change: add-custom-roles-ui (design D3).
+ */
+export interface RoleRemoveExtensionMessage {
+  type: "role_remove";
+  sessionId: string;
+  role: string;
+}
+
 export interface RequestRolesMessage {
   type: "request_roles";
   sessionId: string;
@@ -863,6 +882,7 @@ export type ServerToExtensionMessage =
   | RolePresetLoadExtensionMessage
   | RolePresetSaveExtensionMessage
   | RolePresetDeleteExtensionMessage
+  | RoleRemoveExtensionMessage
   | RequestRolesMessage
   | UiManagementMessage
   | KillProcessMessage
