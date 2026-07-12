@@ -392,7 +392,6 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   "tunnel runtime": "tunnel",
   // diagnostics
   "Legacy install directory": "diagnostics",
-  "macos-alias native module": "diagnostics",
 };
 
 /**
@@ -541,75 +540,11 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
     status === "ok"
       ? undefined
       : "Left over from a previous version. Nothing reads or writes `~/.pi-dashboard/` under the immutable-bundle architecture. Delete the directory manually to reclaim disk space.",
-  // darwin-only DMG-maker prerequisite. The predicate (`checkMacosAliasVolume`)
-  // sets `suggestion` inline; this factory backs the Decision-8 lint and any
-  // stamping path. See change: fix-darwin-dmg-maker-macos-alias.
-  "macos-alias native module": (status) =>
-    status === "ok"
-      ? undefined
-      : "macos-alias `volume.node` is not built — `electron-forge make` will fail at the DMG step. Run `npm run -w packages/electron postinstall` to self-heal, or `xcode-select --install` if Xcode Command Line Tools are missing.",
 };
 
-// ─── macos-alias native module check (darwin-only) ────────────────────
-
-/**
- * Locate the hoisted `macos-alias` package dir via Node module resolution.
- * Returns null when the package is absent (shipped end-user app, or a build
- * env where `@electron-forge/maker-dmg` is pruned).
- */
-function defaultResolveMacosAliasDir(): string | null {
-  const pkg = tryResolvePkg("macos-alias");
-  return pkg ? path.dirname(pkg) : null;
-}
-
-export interface MacosAliasCheckDeps {
-  /** Defaults to `process.platform`. */
-  platform?: NodeJS.Platform | string;
-  /** Locate the macos-alias package dir; null = not installed → row omitted. */
-  resolveMacosAliasDir?: () => string | null;
-  /** Defaults to `existsSync`. */
-  fileExists?: (p: string) => boolean;
-}
-
-/**
- * Darwin-only diagnostic for the `macos-alias` native module
- * (`build/Release/volume.node`), a `@electron-forge/maker-dmg` prerequisite.
- *
- * Returns:
- *   - `null` on non-darwin hosts, OR when macos-alias is not installed
- *     (row omitted so shipped end-user apps never warn).
- *   - `{ status: "ok" }` when `volume.node` exists.
- *   - `{ status: "warning", suggestion }` when it is missing.
- *
- * See change: fix-darwin-dmg-maker-macos-alias.
- */
-export function checkMacosAliasVolume(deps: MacosAliasCheckDeps = {}): DoctorCheck | null {
-  const platform = deps.platform ?? process.platform;
-  if (platform !== "darwin") return null;
-  const resolveDir = deps.resolveMacosAliasDir ?? defaultResolveMacosAliasDir;
-  const fileExists = deps.fileExists ?? existsSync;
-  const dir = resolveDir();
-  if (!dir) return null;
-  const volumePath = path.join(dir, "build", "Release", "volume.node");
-  const exists = fileExists(volumePath);
-  if (exists) {
-    return {
-      name: "macos-alias native module",
-      section: "diagnostics",
-      status: "ok",
-      message: `Built at ${volumePath}`,
-    };
-  }
-  return {
-    name: "macos-alias native module",
-    section: "diagnostics",
-    status: "warning",
-    message: "Not built — the DMG maker will fail at `electron-forge make`",
-    detail: `Expected ${volumePath}`,
-    suggestion:
-      "Run `npm run -w packages/electron postinstall` to self-heal, or `xcode-select --install` if Xcode Command Line Tools are missing.",
-  };
-}
+// (macos-alias DMG-maker prereq check removed — electron-builder produces the
+// DMG now via hdiutil, not the macos-alias native module. See change:
+// fix-local-electron-dmg-build.)
 
 // ─── dns helper (test seam) ─────────────────────────────────────────
 
@@ -1248,16 +1183,6 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           `Delete it manually (e.g. \`rm -rf ${legacy.path}\`) to reclaim disk space.`,
       });
     }
-  } catch {
-    /* advisory only — never block doctor output */
-  }
-
-  // Darwin-only: macos-alias native-module readiness (DMG maker prereq).
-  // Row omitted off darwin or when macos-alias is not installed. See change:
-  // fix-darwin-dmg-maker-macos-alias.
-  try {
-    const row = checkMacosAliasVolume();
-    if (row) checks.push(row);
   } catch {
     /* advisory only — never block doctor output */
   }
