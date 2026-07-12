@@ -265,6 +265,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const ascendingRef = useRef(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [showScrollTopButton, setShowScrollTopButton] = useState(false);
+  // Streaming-tail selection preservation (change: preserve-streaming-tail-selection).
+  // While a selection is anchored inside the live tail, the tail renders from
+  // this frozen snapshot instead of the growing `state.streamingText`, so
+  // MarkdownContent's memo skips re-rendering and the committed Text nodes under
+  // the selection are never replaced on a chunk append. The snapshot is held
+  // across `message_end` too (the committed twin is hidden — see displayRows)
+  // so the anchored node is not detached at turn completion. Cleared on the
+  // selection's collapse → the tail flushes to the latest streamed text.
+  const tailContainerRef = useRef<HTMLDivElement>(null);
+  const [frozenTailText, setFrozenTailText] = useState<string | null>(null);
+  const frozenTailTextRef = useRef<string | null>(null);
+  // Mirror of the live streamingText read by the freeze effect (keyed on
+  // isSelecting only) so per-chunk changes do not re-run the snapshot.
+  const streamingTextRef = useRef("");
+  streamingTextRef.current = state.streamingText;
   // Effective display prefs for this session (configurable-chat-display).
   const prefs = useDisplayPrefs(sessionId);
   const showDebugTools = prefs.debugTools;
@@ -335,7 +350,24 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     },
     [prefs, showDebugTools, hiddenToolResultIds],
   );
-  const displayRows = useMemo(() => groupedMessages.filter(isRowVisible), [groupedMessages, isRowVisible]);
+  const displayRows = useMemo(() => {
+    const rows = groupedMessages.filter(isRowVisible);
+    // While a tail selection is frozen ACROSS turn completion, the committed
+    // assistant twin has appeared as the last row while the frozen tail still
+    // shows the same text. Hide the twin (view-only; it is never dropped from
+    // state.messages) so the text is not shown twice, until the selection
+    // collapses. See change: preserve-streaming-tail-selection.
+    if (frozenTailText && !state.streamingText && rows.length > 0) {
+      const last = rows[rows.length - 1];
+      if (!isBurst(last) && !isGroup(last)) {
+        const lastMsg = last as import("../lib/event-reducer.js").ChatMessage;
+        if (lastMsg.role === "assistant" && lastMsg.content.startsWith(frozenTailText)) {
+          return rows.slice(0, -1);
+        }
+      }
+    }
+    return rows;
+  }, [groupedMessages, isRowVisible, frozenTailText, state.streamingText]);
   // Precompute each row's aggregate rendered text length ONCE per displayRows
   // rebuild (task 2.1), so `estimateSize` stays O(1) per scroll pass and never
   // walks content blocks. Feeds the content-aware estimate (Decision 1).
@@ -367,6 +399,33 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, []);
 
   const { isSelecting, selectionSpanRef } = useActiveChatSelection(scrollRef, mapChatRange);
+  // Freeze/flush the streaming tail around an anchored selection (change:
+  // preserve-streaming-tail-selection). On the isSelecting false→true edge, if
+  // the selection sits inside the live tail, snapshot streamingText so the tail
+  // stops re-rendering per chunk (buffer). On the true→false edge, clear the
+  // snapshot to flush the latest text. Keyed on isSelecting only — the snapshot
+  // value comes from a ref so per-chunk streamingText changes do not re-run it.
+  useLayoutEffect(() => {
+    if (isSelecting) {
+      if (frozenTailTextRef.current == null && streamingTextRef.current) {
+        const sel = typeof window !== "undefined" ? window.getSelection() : null;
+        const tailEl = tailContainerRef.current;
+        const inTail = !!(
+          sel &&
+          tailEl &&
+          ((sel.anchorNode && tailEl.contains(sel.anchorNode)) ||
+            (sel.focusNode && tailEl.contains(sel.focusNode)))
+        );
+        if (inTail) {
+          frozenTailTextRef.current = streamingTextRef.current;
+          setFrozenTailText(streamingTextRef.current);
+        }
+      }
+    } else if (frozenTailTextRef.current != null) {
+      frozenTailTextRef.current = null;
+      setFrozenTailText(null);
+    }
+  }, [isSelecting]);
   // Mirror into a ref so the virtualizer `onChange` (created once, invoked
   // outside render during scroll) reads the latest value.
   const isSelectingRef = useRef(false);
@@ -423,6 +482,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   });
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+
+  // Streaming-tail content: the frozen snapshot while a tail selection is held
+  // (buffers chunks; survives the message_end unmount), else the live text.
+  // See change: preserve-streaming-tail-selection.
+  const streamingTailText = frozenTailText ?? state.streamingText;
 
   // Async image-decode re-measure (issue #267). A base64 data-URL decodes after
   // mount, so an image-bearing row is first measured near-zero. The reused
@@ -905,12 +969,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
       {/* Streaming text — carries the same liveness cue as a running group
           (edge-pulse glow + shimmer sweep) while the turn is alive. Settles
-          static the instant streaming ends. See change: enhance-tool-call-grouping. */}
-      {state.streamingText && (
-        <div className="flex justify-start chat-cv-skip">
-          <div ref={streamFxRef} className={`chat-stream-live bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(state.streamingText) ? bubbleWide : bubbleMax}`}>
-            <MarkdownContent content={state.streamingText} context={toolContext} />
-            <span className="inline-block w-1.5 h-4 bg-[var(--bg-surface)] animate-pulse ml-0.5" />
+          static the instant streaming ends. See change: enhance-tool-call-grouping.
+          `streamingTailText` is the frozen snapshot while a tail selection is
+          held (buffering chunks + surviving the message_end unmount), else the
+          live streamingText. See change: preserve-streaming-tail-selection. */}
+      {streamingTailText && (
+        <div ref={tailContainerRef} className="flex justify-start chat-cv-skip">
+          <div ref={streamFxRef} className={`chat-stream-live bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${hasMermaid(streamingTailText) ? bubbleWide : bubbleMax}`}>
+            <MarkdownContent content={streamingTailText} context={toolContext} />
+            {state.streamingText && (
+              <span className="inline-block w-1.5 h-4 bg-[var(--bg-surface)] animate-pulse ml-0.5" />
+            )}
           </div>
         </div>
       )}
