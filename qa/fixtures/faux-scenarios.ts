@@ -333,6 +333,25 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "Alpha" },
   },
 
+  // Copy-surfaces round-trip. Streams an assistant message carrying a GFM table
+  // AND a fenced code block so one render exercises all four copy buttons:
+  //   - table "Copy as Markdown" / "Copy as TSV" (TableWrapper, ref-at-click),
+  //   - code-block "Copy code" (CodeBlockWrapper),
+  //   - message "Copy as plain text" (MessageBubble.getPlainText, ref-at-click).
+  // MarkdownContent is React.memo → a completed message renders exactly once, so
+  // the payloads MUST resolve at click time (post-commit) or copy the empty
+  // string. See change: fix-table-copy-empty-clipboard.
+  "copy-surfaces": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Here is a table and some code.\n\n| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n\n```js\nconst x = 1;\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Alice" },
+  },
+
   "thinking-text": {
     script: [
       fauxAssistantMessage([

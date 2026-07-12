@@ -154,8 +154,8 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
         {timestamp != null && (
           <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
-        <CopyButton text={content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
-        <CopyButton text={getPlainText()} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
+        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
+        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}

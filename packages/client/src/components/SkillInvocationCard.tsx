@@ -117,23 +117,23 @@ export function SkillInvocationCard({
           </span>
         )}
         <CopyButton
-          text={rawContent}
+          getText={() => rawContent}
           icon={<Icon path={mdiContentCopy} size={0.6} />}
           title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")}
         />
         <CopyButton
-          text={getPlainText()}
+          getText={getPlainText}
           icon={<Icon path={mdiTextBox} size={0.6} />}
           title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")}
         />
         <CopyButton
-          text={skill.condensed}
+          getText={() => skill.condensed}
           icon={<Icon path={mdiSlashForward} size={0.6} />}
           title={i18nT("auto.copy_as_skill_command", undefined, "Copy as /skill: command")}
         />
         {skill.args && (
           <CopyButton
-            text={skill.args}
+            getText={() => skill.args ?? ""}
             icon={<Icon path={mdiMessageOutline} size={0.6} />}
             title={i18nT("auto.copy_as_message", undefined, "Copy as message")}
           />
