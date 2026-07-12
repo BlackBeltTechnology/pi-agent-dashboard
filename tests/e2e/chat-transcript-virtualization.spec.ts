@@ -200,7 +200,11 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
     const live = page.locator(".chat-stream-live");
     await live.first().waitFor({ state: "attached", timeout: 60_000 });
     await chatScroll(page).evaluate((el) => el.scrollTo(0, 0));
-    expect(await live.count()).toBeGreaterThan(0);
+    // Retry, not a single snapshot: the live class briefly drops at each turn
+    // boundary during the 120-turn stream. The invariant is that scrolling up
+    // never WINDOWS AWAY the live tail — it stays attached (reappearing each
+    // streaming turn) while parked at the top.
+    await expect(live.first()).toBeAttached({ timeout: 15_000 });
   });
 
   // ── chat-transcript-virtualization: "Streaming tail growth stays pinned" ──
@@ -221,7 +225,7 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
   });
 
   // ── chat-transcript-virtualization: "Layout/node count bounded" ───────────
-  test("mounted row count is bounded by the viewport, not session length", async ({ page }) => {
+  test("mounted rows AND DOM nodes are bounded by the viewport, not session length", async ({ page }) => {
     test.setTimeout(300_000); // full 120-turn stream must settle (waitForTail 240s)
     await startLongStream(page);
     await waitForTail(page); // ~120 turns → hundreds of display rows total
@@ -232,6 +236,16 @@ test.describe("chat transcript — scroll-lock + virtualization (Step B gate)", 
     const { mountedRows } = await metrics(page);
     expect(mountedRows).toBeGreaterThan(0);
     expect(mountedRows).toBeLessThan(60);
+
+    // Perf gate (design Decision 7 / task 10.1, automatable slice): total
+    // transcript DOM nodes must be bounded by the mounted working set, NOT
+    // session length. Step A (content-visibility) left every row mounted →
+    // ~46.9k nodes on a long session; true windowing targets < ~3k. The
+    // GC/heap/listener/idle-busy portions of the gate remain a manual DevTools
+    // trace (design: "not assertable").
+    const domNodes = await chatScroll(page).evaluate((el) => el.querySelectorAll("*").length);
+    console.log("PERF domNodes(120-turn):", domNodes);
+    expect(domNodes).toBeLessThan(3000);
   });
 
   // ── task 8.2: collapsing an ABOVE-viewport tool group does not yank ───────

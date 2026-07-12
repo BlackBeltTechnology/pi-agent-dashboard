@@ -6,15 +6,19 @@ Bound the chat transcript's per-frame layout and paint work to the viewport work
 ## Requirements
 ### Requirement: Off-screen transcript content costs no layout or paint
 
-The chat transcript SHALL limit per-frame layout and paint work to messages near the viewport plus the streaming tail. Messages far outside the viewport MUST NOT contribute to style-recalculation, layout, or paint cost (first step: `content-visibility: auto` with a tuned `contain-intrinsic-size` on per-message wrappers; full windowing only if the budget is still missed).
+The chat transcript SHALL window the message list so that only rows near the viewport (plus an overscan margin and the streaming tail) are **mounted in the DOM**. Rows far outside the viewport MUST NOT be mounted, and therefore MUST NOT contribute to style-recalculation, layout, paint, event-listener count, or retained React fibers. Mounted-node count, listener count, and GC pressure SHALL be bounded by the viewport working set, not by total session length.
 
 #### Scenario: Layout cost bounded regardless of session length
-- **WHEN** a session transcript grows arbitrarily long (hundreds of messages, tens of thousands of DOM nodes)
-- **THEN** the number of layout objects processed per layout pass SHALL remain bounded by the viewport working set (not the full transcript), and per-pass layout duration SHALL NOT grow with total session length
+- **WHEN** a session transcript grows arbitrarily long (hundreds of messages, tens of thousands of would-be DOM nodes)
+- **THEN** the number of mounted layout objects SHALL remain bounded by the viewport working set (viewport + overscan + streaming tail), and per-pass layout duration SHALL NOT grow with total session length
+
+#### Scenario: Mounted node and listener count bounded
+- **WHEN** the transcript is windowed on a long session
+- **THEN** the count of mounted DOM nodes and attached event listeners SHALL be bounded by the viewport working set and SHALL NOT scale with total message count
 
 #### Scenario: Off-screen strips are not repainted
 - **WHEN** animations or state changes trigger paints while a long transcript is open
-- **THEN** paint records SHALL NOT include repeated rasterization of tall off-screen transcript regions
+- **THEN** paint records SHALL NOT include rasterization of off-screen transcript rows, because those rows are not mounted
 
 ### Requirement: Virtualization preserves scroll and streaming semantics
 
@@ -35,6 +39,14 @@ Windowing off-screen rows SHALL NOT change user-visible scrolling behavior. The 
 #### Scenario: Above-viewport row mount does not shift the visible anchor
 - **WHEN** a row above the current viewport mounts and measures larger than its estimated size while the view is scroll-locked (not following the bottom)
 - **THEN** the currently visible content SHALL NOT shift by more than one row height, because `scrollTop` is compensated by the measured-minus-estimated delta
+
+#### Scenario: Scrolling back through history
+- **WHEN** the user scrolls up through older messages
+- **THEN** rows SHALL mount and be correctly sized as they enter the viewport, without scroll-position jumps or blank flashes lasting beyond one frame
+
+#### Scenario: Jump to an off-screen turn
+- **WHEN** `ChatViewHandle.scrollToTurn(turnIndex)` is called for a turn whose rows are currently unmounted (outside the window)
+- **THEN** the view SHALL scroll so that turn's first row lands at the top of the viewport (top-aligned), mounting it in the process, AND auto-scroll follow SHALL be suspended until the user returns to the bottom
 
 #### Scenario: Streaming tail always rendered
 - **WHEN** a message is currently streaming (`streamingText`/`streamingThinking`) or steering bubbles are pending
@@ -75,4 +87,3 @@ The transcript SHALL provide a scroll-to-top control, symmetric to the scroll-to
 #### Scenario: Scroll-to-top does not fight the bottom-pin
 - **WHEN** the scroll-to-top control is activated while content is streaming
 - **THEN** the view SHALL move to the top and remain scroll-locked (not be pulled back to the bottom by the streaming bottom-pin) until the user re-arms follow
-
