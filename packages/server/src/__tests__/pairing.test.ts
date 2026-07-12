@@ -41,6 +41,37 @@ describe("payload + reachable URLs (D14)", () => {
     expect(payload!.v).toBe(PAIRING_PROTOCOL_VERSION);
   });
 
+  it("NEVER admits a loopback http origin without PI_E2E_SEED (D14 intact)", () => {
+    const prev = process.env.PI_E2E_SEED;
+    delete process.env.PI_E2E_SEED;
+    try {
+      urls = ["http://localhost:18000", "http://127.0.0.1:8000", "http://evil.lan"];
+      const { mgr } = mkManager();
+      expect(mgr.reachableUrls()).toEqual([]);
+      expect(mgr.createPayload()).toBeNull();
+    } finally {
+      if (prev === undefined) delete process.env.PI_E2E_SEED;
+      else process.env.PI_E2E_SEED = prev;
+    }
+  });
+
+  it("admits ONLY loopback http (not other http) under PI_E2E_SEED (e2e harness)", () => {
+    const prev = process.env.PI_E2E_SEED;
+    process.env.PI_E2E_SEED = "1";
+    try {
+      urls = ["http://localhost:18000/", "http://127.0.0.1:8000", "http://evil.lan:8000", "https://a.io"];
+      const { mgr } = mkManager();
+      expect(mgr.reachableUrls()).toEqual([
+        "http://localhost:18000",
+        "http://127.0.0.1:8000",
+        "https://a.io",
+      ]);
+    } finally {
+      if (prev === undefined) delete process.env.PI_E2E_SEED;
+      else process.env.PI_E2E_SEED = prev;
+    }
+  });
+
   it("returns null when no secure endpoint exists (empty-state)", () => {
     urls = ["http://192.168.1.5:8000"];
     const { mgr } = mkManager();

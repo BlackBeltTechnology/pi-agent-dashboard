@@ -26,6 +26,20 @@ export const PAIRING_PROTOCOL_VERSION = 1;
 /** Versions this server can pair with (highest mutually supported wins). */
 export const SUPPORTED_PAIRING_VERSIONS = [1];
 
+/**
+ * Test-only: is `url` a loopback http origin the e2e harness may pair over?
+ * Gated by `PI_E2E_SEED` — never true in a normal/prod server. localhost /
+ * 127.0.0.1 over http is a genuine browser secure context (crypto.subtle runs),
+ * so the Playwright/Docker harness exercises the real handshake without TLS.
+ * See change: make-pairing-qr-camera-scannable.
+ */
+function isTestLoopbackOrigin(url: string): boolean {
+  return (
+    process.env.PI_E2E_SEED === "1" &&
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url)
+  );
+}
+
 const CODE_TTL_MS = 60_000; // ~60s one-time pairing code.
 const CONFIRM_CODE_DIGITS = 8; // ~26.5 bits; short window + lockout.
 const MAX_REDEEM_ATTEMPTS = 10; // per code, before lockout.
@@ -119,7 +133,11 @@ export class PairingManager {
     for (const raw of this.deps.getReachableUrls()) {
       const url = raw.trim().replace(/\/+$/, "");
       // D4/D14: only secure origins (https/wss). Never advertise plain http.
-      if (!/^https:\/\//i.test(url) && !/^wss:\/\//i.test(url)) continue;
+      // EXCEPTION (test-only, PI_E2E_SEED): a loopback http origin is a genuine
+      // browser secure context (crypto.subtle works), so the Playwright/Docker
+      // e2e harness can run the FULL real pairing handshake without TLS. Every
+      // non-localhost origin stays TLS-gated. See change: make-pairing-qr-camera-scannable.
+      if (!/^https:\/\//i.test(url) && !/^wss:\/\//i.test(url) && !isTestLoopbackOrigin(url)) continue;
       if (seen.has(url)) continue;
       seen.add(url);
       out.push(url);

@@ -10,38 +10,40 @@ import "./index.css";
 // See change: chat-markdown-local-images-and-math.
 import "katex/dist/katex.min.css";
 
-// UI primitive registry — see change: add-plugin-ui-primitive-registry.
-// The dashboard registers each declared primitive synchronously at startup;
-// plugin slot contributions look them up via `useUiPrimitive(key)`. Adding
-// a key in shared/ui-primitives.ts requires adding a registration here.
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
-  UiPrimitiveProvider,
   createUiPrimitiveRegistry,
   registerUiPrimitive,
+  UiPrimitiveProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
 import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
+import {
+  formatDuration,
+  formatTokens,
+} from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { SearchableSelectDialog } from "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog";
-import { ZoomControls } from "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls";
-import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
 import { StatusPill } from "@blackbelt-technology/pi-dashboard-client-utils/StatusPill";
-import {
-  formatDuration,
-  formatTokens,
-} from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
+import { ZoomControls } from "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls";
+import type {
+  UiConfirmDialogProps,
+  UiThinkingBlockProps,
+  UiToolCallStepProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+// UI primitive registry — see change: add-plugin-ui-primitive-registry.
+// The dashboard registers each declared primitive synchronously at startup;
+// plugin slot contributions look them up via `useUiPrimitive(key)`. Adding
+// a key in shared/ui-primitives.ts requires adding a registration here.
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { ModelSelector } from "./components/ModelSelector.js";
-import { ToolCallStep } from "./components/ToolCallStep.js";
+import { PairLanding } from "./components/PairLanding.js";
 import { ThinkingBlock } from "./components/ThinkingBlock.js";
-import type {
-  UiToolCallStepProps,
-  UiThinkingBlockProps,
-  UiConfirmDialogProps,
-} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { ToolCallStep } from "./components/ToolCallStep.js";
+import { installDeviceAuthFetch } from "./lib/device-auth.js";
 
 const primitiveRegistry = createUiPrimitiveRegistry();
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.agentCard, AgentCardShell);
@@ -129,6 +131,18 @@ registerUiPrimitive(
   ThinkingBlockPrimitive,
 );
 
+// Teach the dashboard's HTTP layer to present a paired-device bearer (if this
+// browser paired via `/pair`). Installed before any fetch fires so every
+// same-origin `/api/*` request carries the bearer.
+// See change: make-pairing-qr-camera-scannable.
+installDeviceAuthFetch();
+
+// `/pair` — the phone-camera pairing landing. A scanned pairing QR opens
+// `https://<tls-endpoint>/pair#<payload>`; this route decodes the fragment and
+// runs the challenge→redeem→confirm→poll handshake standalone (no dashboard WS
+// connection needed). Rendered instead of <App/> so it works pre-auth.
+const isPairRoute = window.location.pathname === "/pair";
+
 // Register service worker for PWA installability
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -141,7 +155,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <I18nProvider>
             <MobileProvider>
-              <App />
+              {isPairRoute ? <PairLanding /> : <App />}
             </MobileProvider>
           </I18nProvider>
         </ThemeProvider>

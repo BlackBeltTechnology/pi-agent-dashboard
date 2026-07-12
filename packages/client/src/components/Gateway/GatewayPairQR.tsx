@@ -4,7 +4,10 @@
  *   - **Pairing QR** — the secure `{ v, id, code, urls[] }` payload minted by
  *     `GET /api/pair/payload`. `urls[]` is TLS-only (server read-time gate);
  *     the client re-guards with `guardPairingUrls` before encoding (task 8.3).
- *     Rendered as a QR + base64url copy-string (Electron pastes it, task 8.4).
+ *     The QR encodes a camera-scannable `https://<tls-endpoint>/pair#<payload>`
+ *     deep link (payload in the fragment, so the one-time code never reaches
+ *     the server / logs); the copyable string stays the bare `pi:pair:v1.…`
+ *     payload for Electron paste. See change: make-pairing-qr-camera-scannable.
  *   - **Link QR** — for each no-TLS `http` mesh/LAN endpoint, a QR of the BARE
  *     URL string only (task 8.2). No pairing payload, no `crypto.subtle`, no
  *     bearer over the wire. Scanning opens the dashboard directly.
@@ -23,13 +26,21 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getGatewayEndpoints, guardPairingUrls, splitEndpoints } from "../../lib/gateway-endpoints.js";
 import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing-api.js";
+import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing-qr.js";
 
-/** base64url copy-string the device/Electron accepts (task 8.4). */
-function encodePayloadString(payload: PairingPayload): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(payload));
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return `pi:pair:v1.${btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+/**
+ * The scannable pairing-QR text: an `https://<tls-endpoint>/pair#<payload>` deep
+ * link landed on the primary TLS endpoint (`payload.urls[]` is TLS-only + is the
+ * challenge set the browser PairView pins). Falls back to the bare copy-string
+ * only when no TLS origin exists.
+ */
+function pairingQrText(
+  payload: PairingPayload | null,
+  pairingEps: TunnelEndpoint[],
+  copyStr: string,
+): string {
+  const landingBase = pairingEps[0]?.url ?? payload?.urls[0];
+  return payload && landingBase ? encodePairingQrUrl(payload, landingBase) : copyStr;
 }
 
 /** A QR canvas for arbitrary text (pairing string or bare link URL). */
@@ -108,6 +119,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
 
   const expired = state === "ready" && secondsLeft <= 0;
   const { pairing: pairingEps, link: linkEps } = splitEndpoints(endpoints);
+  const qrText = pairingQrText(payload, pairingEps, copyStr);
 
   const copy = async (text: string) => {
     try {
@@ -159,7 +171,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
         <>
           <div className="flex flex-wrap gap-4">
             <div className="shrink-0">
-              <QrCanvas text={copyStr} />
+              <QrCanvas text={qrText} />
               <p className="mt-1.5 text-center text-[11px] text-[var(--text-muted)]">
                 one-time · <b className="font-mono text-[var(--amber,#d29922)]">{secondsLeft}s</b>
                 <br />
