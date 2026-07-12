@@ -11,6 +11,7 @@ import { isDebugTool } from "../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../hooks/useFxVisibility.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { buildSelectionClipboardText } from "../lib/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../lib/chat-virtual-rows.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../lib/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
@@ -367,6 +368,24 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, []);
 
   const { isSelecting, selectionSpanRef } = useActiveChatSelection(scrollRef, mapChatRange);
+
+  // Rebuild clipboard text from the active selection (change:
+  // chat-copy-fidelity-intercept). Intercept the container `copy` so partial
+  // rows copy exactly the selected characters and capping renderers that opt in
+  // via `data-copy-text` copy their full text — never what happens to be
+  // mounted. Skip selections that don't touch the transcript so the browser's
+  // native copy still owns cross-boundary drags.
+  const handleCopy = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
+    const container = scrollRef.current;
+    const sel = window.getSelection();
+    if (!container || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    if (!container.contains(range.commonAncestorContainer)) return;
+    const text = buildSelectionClipboardText(range, container);
+    if (!text) return;
+    e.clipboardData.setData("text/plain", text);
+    e.preventDefault();
+  }, []);
   // Mirror into a ref so the virtualizer `onChange` (created once, invoked
   // outside render during scroll) reads the latest value.
   const isSelectingRef = useRef(false);
@@ -624,7 +643,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         `scroll-behavior: smooth` here or on an ancestor — smooth would animate
         each synchronous measurement correction and race the next, reintroducing
         the scroll-to-top drift. See change: fix-chat-scroll-to-top-estimate-drift. */}
-    <div ref={scrollRef} onScroll={handleScroll} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
+    <div ref={scrollRef} onScroll={handleScroll} onCopy={handleCopy} onWheel={cancelDescent} onTouchMove={cancelDescent} style={{ overflowAnchor: "none" }} data-testid="chat-scroll-container" className={`chat-cv h-full overflow-y-auto ${isMobile ? "p-2" : "p-4"}`}>
       {/* Windowed historical rows (TanStack Virtual): only viewport + overscan
           are mounted. The spacer reserves getTotalSize(); each row is absolutely
           positioned + re-measured on mount. chat-cv-skip keeps Step A's
