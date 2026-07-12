@@ -543,6 +543,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     language: "shell",
     code: "echo hi",
   }),
+  // Running-state render fixture (fix-ctx-running-render). A single
+  // `ctx_batch_execute` call carrying `args.commands`; the e2e DROPS the
+  // tool's `tool_execution_end` WS frame so the card stays RUNNING, proving
+  // the args-derived header chip (`▦ N cmds`) + command-list RunningPreview
+  // render mid-run instead of a bare `Running…` + duplicated tool name.
+  "ctx-batch-running": toolScenario("ctx_batch_execute", {
+    commands: [
+      { label: "list files", command: "echo list-files" },
+      { label: "count lines", command: "echo count-lines" },
+    ],
+    queries: ["find the thing"],
+  }),
   "tool-agent": toolScenario("Agent", {
     subagent_type: "Explore",
     description: "find faux usages",
