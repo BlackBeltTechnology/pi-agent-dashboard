@@ -53,7 +53,7 @@ The scroll/streaming/windowing behavior is not assertable in vitest (jsdom has n
 
 ## 10. Verification
 
-- [ ] 10.1 Re-trace the umbrella baseline scenario; diff vs. the task-1.1 "before Step B" numbers. Gate: mounted DOM nodes and listeners bounded by working set (not session length); GC time and heap peak materially reduced; idle busy still < 5%.
+- [ ] 10.1 Re-trace the umbrella baseline scenario; diff vs. the task-1.1 "before Step B" numbers. Gate: mounted DOM nodes and listeners bounded by working set (not session length); GC time and heap peak materially reduced; idle busy still < 5%. PARTIAL (automatable slice done): the **mounted-DOM-nodes-bounded** sub-gate is now an e2e assertion in `chat-transcript-virtualization.spec.ts` ("mounted rows AND DOM nodes are bounded…") — a 120-turn session measures **179** transcript DOM nodes vs the **46,918** Step-A baseline (< 3000 ceiling, ~262× reduction), proving nodes track the viewport working set, not session length. REMAINING (manual DevTools trace, design: "not assertable"): listeners bounded, GC time ↓, heap peak ↓, idle busy < 5%.
 - [x] 10.2 Full test suite (`npm test 2>&1 | tee /tmp/pi-test.log`; grep FAIL) + type-check. No `chat-scroll-lock` scenario regresses.
 - [x] 10.3 Document the Cmd-F find-in-page regression for the ship decision; file the in-app-search / print-expand follow-up as out-of-scope.
 - [ ] 10.4 Manual smoke: typing, streaming, scrolling history, tool bursts, jump-to-turn, session switch/restore, reduced-motion. (Tested later during ship.)

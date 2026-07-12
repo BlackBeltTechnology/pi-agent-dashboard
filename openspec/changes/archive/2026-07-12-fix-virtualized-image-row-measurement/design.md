@@ -17,11 +17,18 @@ with `max-w-[300px] max-h-[300px] object-contain` and no width/height attributes
 
 A base64 data-URL decodes **asynchronously**. Sequence on first paint:
 
-```
-mount row ──▶ <img> intrinsic size 0×0 ──▶ measureElement records ~small height
-                                              (padding only, ~96px order)
-   … browser decodes base64 …
-image paints, grows to ≤300px ──▶ ResizeObserver SHOULD refire ──▶ re-measure
+```mermaid
+sequenceDiagram
+    participant Row as mount row
+    participant Img as &lt;img&gt;
+    participant M as measureElement
+    participant RO as ResizeObserver
+    Row->>Img: render (intrinsic size 0×0)
+    Img->>M: measureElement records ~small height (padding only, ~96px order)
+    Note over Img: browser decodes base64
+    Img->>Img: image paints, grows to ≤300px
+    Img-->>RO: SHOULD refire
+    RO-->>M: re-measure
 ```
 
 The re-measure is not guaranteed to land where it matters:
