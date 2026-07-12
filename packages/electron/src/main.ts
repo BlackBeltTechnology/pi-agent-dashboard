@@ -72,6 +72,7 @@ if (disableGpu) {
 }
 log("Importing lib modules...");
 import { readModeFile } from "./lib/wizard-state.js";
+import { normalizeRemoteUrl, probeRemote } from "./lib/remote-probe.js";
 import {
   stopServerIfNeeded,
   loadMinimalConfig,
@@ -324,6 +325,15 @@ function registerPiDashboardIpc(): void {
   ipcMain.removeHandler("dashboard:read-server-log");
   ipcMain.handle("dashboard:read-server-log", async (_event, payload: { lines?: number } = {}) => {
     return readServerLogTail(payload?.lines ?? 20);
+  });
+
+  ipcMain.removeHandler("dashboard:probe-server");
+  ipcMain.handle("dashboard:probe-server", async (_event, payload: { url?: unknown } = {}) => {
+    // Untrusted renderer input — normalize before use. Node fetch sends no
+    // Origin header, so this is not subject to the remote's CORS policy.
+    const url = normalizeRemoteUrl(payload?.url);
+    if (!url) return { ok: false, reason: "Invalid URL" };
+    return probeRemote(url);
   });
 
   ipcMain.removeAllListeners("dashboard:open-doctor");

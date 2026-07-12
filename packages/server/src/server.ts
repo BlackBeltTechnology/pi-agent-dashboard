@@ -22,6 +22,7 @@ import { mergeSessionMeta, isRecoveryCandidate } from "@blackbelt-technology/pi-
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
+import { isCorsOriginAllowed } from "./cors-origin.js";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
@@ -946,40 +947,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     silently omitting CORS headers and letting the browser enforce its
   //     own same-origin policy.
   const corsAllowedOrigins = config.corsAllowedOrigins ?? [];
+  const corsTrustedNetworks = config.resolvedTrustedNetworks ?? [];
   await fastify.register(cors, {
+    // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
+    // security-critical allow/deny logic is tested against the REAL code, not a
+    // hand-mirrored copy. Trusted-network origins are allowed for LAN-to-LAN
+    // switching; the `null`-origin refusal and unknown-origin rejection stand.
+    // On mismatch return `cb(null, false)` (no CORS headers) rather than an
+    // Error — the latter makes @fastify/cors 500 same-origin module-script
+    // requests. See change: fix-remote-connect-cors-gates.
     origin: (origin, cb) => {
-      // Same-origin navigation (no Origin header) — always allow.
-      if (!origin) return cb(null, true);
-      // Opaque-origin documents (sandboxed live-server iframe WITHOUT
-      // allow-same-origin, D7) send the literal `Origin: null`. Never echo an
-      // ACAO for it, so the embedded untrusted app cannot call dashboard APIs
-      // even cross-origin. See change: improve-content-editor (§6.5).
-      if (origin === "null") return cb(null, false);
-      try {
-        const u = new URL(origin);
-        const host = u.hostname;
-        // Loopback — any port.
-        if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") {
-          return cb(null, true);
-        }
-        // Active zrok tunnel URL — checked dynamically so URL rotation is
-        // picked up without a server restart.
-        const tunnelUrl = getTunnelUrl();
-        if (tunnelUrl && origin === tunnelUrl) return cb(null, true);
-        // Any *.share.zrok.io host — covers the brief window between a new
-        // reservation being created and the in-memory `activeTunnelUrl`
-        // being populated, plus any other zrok share the user points at us.
-        if (host.endsWith(".share.zrok.io")) return cb(null, true);
-        // Neutral static PWA shell (D1/D8): trusted by default so the shell
-        // works without per-server config. CORS (who may READ responses) is
-        // distinct from auth (bearer token), so this weakens nothing.
-        if (origin === "https://pi-dashboard.dev") return cb(null, true);
-      } catch { /* ignore URL parse errors */ }
-      // Explicitly configured origins.
-      if (corsAllowedOrigins.includes(origin)) return cb(null, true);
-      // Unknown cross-origin request — don't emit CORS headers, but don't
-      // 500 either. Browser will block the request for us.
-      cb(null, false);
+      const allowed = isCorsOriginAllowed(origin ?? undefined, {
+        configuredOrigins: corsAllowedOrigins,
+        trustedNetworks: corsTrustedNetworks,
+        getTunnelUrl,
+      });
+      cb(null, allowed);
     },
     credentials: true,
   });

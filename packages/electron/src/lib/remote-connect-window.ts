@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain } from "electron";
+import { normalizeRemoteUrl, probeRemote, type RemoteProbeResult } from "./remote-probe.js";
 import {
   addRecentRemote,
   listRecentRemotes,
@@ -47,40 +48,11 @@ function getHtmlPath(): string {
   return p;
 }
 
-/** Normalize a user-entered URL: trim, default http://, strip trailing slash. */
-export function normalizeRemoteUrl(input: unknown): string | null {
-  const v = typeof input === "string" ? input.trim() : "";
-  if (!v) return null;
-  const withScheme = /^https?:\/\//i.test(v) ? v : `http://${v}`;
-  return withScheme.replace(/\/+$/, "");
-}
-
-export interface RemoteProbeResult {
-  ok: boolean;
-  version?: string;
-  reason?: string;
-}
-
-/** Probe `${url}/api/health` with a short timeout. */
-export async function probeRemote(url: string): Promise<RemoteProbeResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  try {
-    const res = await fetch(`${url}/api/health`, { signal: controller.signal });
-    if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
-    let version: string | undefined;
-    try {
-      const body = (await res.json()) as { version?: string };
-      if (typeof body?.version === "string") version = body.version;
-    } catch { /* health may return non-JSON */ }
-    return { ok: true, version };
-  } catch (err) {
-    const reason = (err as Error)?.name === "AbortError" ? "Timed out" : "Connection refused";
-    return { ok: false, reason };
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// probeRemote / normalizeRemoteUrl / RemoteProbeResult moved to `remote-probe.ts`
+// so main.ts can back the `dashboard:probe-server` IPC handler without importing
+// this window/IPC module. Re-exported here for back-compat with existing
+// callers. See change: fix-remote-connect-cors-gates.
+export { normalizeRemoteUrl, probeRemote, type RemoteProbeResult };
 
 /** Restart the app so startup re-reads the mode setting. */
 function relaunch(): void {
