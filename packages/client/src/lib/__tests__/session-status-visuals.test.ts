@@ -374,6 +374,15 @@ describe("deriveRailBgColor", () => {
   it("resuming → working tint", () => {
     expect(deriveRailBgColor(makeSession({ status: "idle", resuming: true }), {}, false)).toBe(mix("--status-working", 40));
   });
+  it("hasNotice → notice tint 40% (non-error), selected 65%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasNotice: true }, false)).toBe(mix("--status-notice", 40));
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasNotice: true }, true)).toBe(mix("--status-notice", 65));
+  });
+  it("error outranks notice on the rail", () => {
+    expect(
+      deriveRailBgColor(makeSession({ status: "idle" }), { hasError: true, hasNotice: true }, false),
+    ).toBe(mix("--status-error", 40));
+  });
 
   // Selected: 65% mix
   it("selected idle → idle tint 65%", () => {

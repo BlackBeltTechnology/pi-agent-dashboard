@@ -1539,6 +1539,12 @@ function initBridge(pi: ExtensionAPI) {
           // See change: unify-error-retry-lifecycle.
           if (role === "user") {
             abortLatch.clear(sessionId);
+            // A deliberate new user turn resets the empty-actionable guard's
+            // consecutive-continuation counter, so a stale count from a prior
+            // (possibly aborted) empty-actionable chain never shortens the next
+            // unrelated prompt's retry budget.
+            // See change: fix-gemini-subagent-silent-tool-schema-failure.
+            emptyActionableGuard.reset(sessionId);
           } else if (abortLatch.shouldAbort(sessionId)) {
             try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
           }

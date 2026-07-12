@@ -1244,7 +1244,7 @@ NOT auth. NOT access. Vertex auth works. Model works.
 
 Root cause: heavy first agentic turn. Gemini 2.5 Pro returns thinking-only completion. All output tokens reasoning. Zero visible text. No tool call. `stopReason=stop`. Empty-actionable turn. Pre-fix pi/dashboard treated clean-but-empty turn as finished. Session idled silent.
 
-Fix (change: fix-gemini-subagent-silent-tool-schema-failure): empty-actionable-turn guard continues-or-surfaces instead of idling. Default auto-continue — bounded continuation nudge, cap 2 — so model emits answer. Cap exceeded or surface-only mode → card shows NON-error status "model returned only reasoning, no answer" + writes line to `~/.pi/dashboard/server.log`.
+Fix (change: fix-gemini-subagent-silent-tool-schema-failure): empty-actionable-turn guard continues-or-surfaces instead of idling. Default auto-continue — bounded continuation nudge, cap 2 — to elicit answer. Cap exceeded or surface-only mode → card shows NON-error status "model returned only reasoning, no answer" + writes line to `~/.pi/dashboard/server.log`.
 
 Guard provider-agnostic. Applies to any `reasoning:true` model that emits reasoning-then-stop.
 
