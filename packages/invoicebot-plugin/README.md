@@ -30,6 +30,21 @@ The two op classes:
   `flow:run` into the workspace session (reuse a live `sessionId` or spawn), and
   returns the `sessionId`.
 
+## Consent UI: domain events + inline prompts (change: add-inline-consent-ui)
+
+- **Domain events reach the browser.** The extension bridge's EventBus catch-all
+  forwards every `pi.events` channel to the browser. Consumed InvoiceBot events
+  carry a **stable renamed protocol type** via `IB_EVENT_MAP`
+  (`flow-event-wiring.ts`): `ib:approval-requested` → `ib_approval_requested`,
+  `ib:approval-decided` → `ib_approval_decided` (payload preserved). Other `ib:*`
+  still pass through under their raw channel name.
+- **Consent prompts render inline.** A consent `ask_user` confirmation for a
+  consequential action is not claimed as a widget-bar prompt, so it resolves to
+  the prompt-bus **inline** default (`generic-dialog`) and renders in the chat
+  transcript — it is not suppressed by `flow-question-routing`.
+- **Flow discriminator.** Forwarded `flow_started` carries `data.flowName`, so a
+  consumer can filter a run by flow (e.g. distinguish `invoicebot:add-rule`).
+
 ## ⚠️ Interim dependency (MUST CHANGE before release)
 
 > **`TODO(release)`: unpublished — replace the `file:` link with a published npm

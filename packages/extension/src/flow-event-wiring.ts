@@ -38,6 +38,17 @@ export const SUBAGENT_EVENT_MAP: Record<string, string> = {
   "subagents:failed": "subagent_failed",
 };
 
+/** Map of InvoiceBot domain (`ib:*`) event names to dashboard protocol event
+ *  types. The bridge's EventBus catch-all already forwards every `pi.events`
+ *  channel to the browser (unknown channels pass through as-is); this map gives
+ *  the consumed domain events a stable, renamed protocol type — mirroring
+ *  FLOW_EVENT_MAP — so a client can subscribe to a fixed name rather than the
+ *  raw channel. Extend as more `ib:*` events (connector/intake) are consumed. */
+export const IB_EVENT_MAP: Record<string, string> = {
+  "ib:approval-requested": "ib_approval_requested",
+  "ib:approval-decided": "ib_approval_decided",
+};
+
 /**
  * Register flow event listeners on pi.events.
  * Must be called after session_start when pi.events is available.
