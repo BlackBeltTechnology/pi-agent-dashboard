@@ -31,6 +31,8 @@ export interface SessionLinkDeps {
   spawnSession: (opts: {
     cwd: string;
     model?: string;
+    /** Mark the spawn guarded (built-in tools disabled + cwd registered). See change: constrain-agent-tool-surface. */
+    guard?: boolean;
     automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
   }) => Promise<{ success: boolean; message?: string; spawnToken?: string }>;
   emitEventToSession: (sessionId: string, eventType: string, data?: Record<string, unknown>) => boolean;
@@ -125,7 +127,7 @@ export function createSessionLink(deps: SessionLinkDeps): SessionLink {
 
     let spawn: { success: boolean; message?: string; spawnToken?: string };
     try {
-      spawn = await deps.spawnSession({ cwd, automationRun: { name: flow.flowName, runId, visibility: "shown" } });
+      spawn = await deps.spawnSession({ cwd, guard: true, automationRun: { name: flow.flowName, runId, visibility: "shown" } });
     } catch (err) {
       pendingByRunId.delete(runId);
       deps.logger.warn(`invoicebot spawnSession threw for ${flow.flowName}: ${err instanceof Error ? err.message : String(err)}`);

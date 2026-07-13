@@ -25,6 +25,7 @@ import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import { mintSpawnToken } from "./spawn-token.js";
+import { resolveGuardForSpawn, guardPolicyToSpawn, type GuardOrigin } from "./session-guard.js";
 import {
   createKeeperManager,
   type KeeperManager,
@@ -103,6 +104,17 @@ export interface SessionOptions {
   mode?: "continue" | "fork";
   strategy?: SpawnStrategy;
   /**
+   * Session guard. `true` (or a policy object) marks this spawn as invoice-bot-
+   * originated → guarded regardless of cwd. Combined with the guarded-cwd
+   * registry (origin ∪ cwd) inside `spawnPiSession`. See change:
+   * constrain-agent-tool-surface.
+   */
+  guard?: GuardOrigin;
+  /** Resolved guard flags (internal; set by spawnPiSession, read by arg/env builders). */
+  noBuiltinTools?: boolean;
+  loadExtensions?: string[];
+  guardEnv?: Record<string, string>;
+  /**
    * Server-minted spawn correlation token. When provided, injected into
    * the spawned process env as `PI_DASHBOARD_SPAWN_TOKEN`. The bridge
    * echoes it back in the first `session_register` so the server can
@@ -178,6 +190,8 @@ export function buildSpawnEnv(
     argv0?: string;
     /** Injected `execPath`/`electronVersion` for deterministic tests. */
     electronDeps?: { execPath?: string; electronVersion?: string };
+    /** Extra env merged last (e.g. session-guard policy). See change: constrain-agent-tool-surface. */
+    extraEnv?: Record<string, string>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -200,6 +214,9 @@ export function buildSpawnEnv(
     // process can read it and echo back in `session_register`.
     // See change: spawn-correlation-token.
     env.PI_DASHBOARD_SPAWN_TOKEN = opts.spawnToken;
+  }
+  if (opts?.extraEnv) {
+    for (const [k, v] of Object.entries(opts.extraEnv)) env[k] = v;
   }
   return env;
 }
@@ -399,6 +416,17 @@ export async function spawnPiSession(
   const spawnToken = options?.spawnToken ?? mintSpawnToken();
   const opts: SessionOptions & { electronMode?: boolean } = { ...(options ?? {}), spawnToken };
 
+  // Session guard: resolve origin ∪ guarded-cwd, fold into spawn flags + env.
+  // Every invoice-bot-spawned session (per-invoice main, "Ask"/Kérdezz, or any
+  // plugin spawn) is guarded here. See change: constrain-agent-tool-surface.
+  const guardPolicy = resolveGuardForSpawn({ cwd, origin: opts.guard });
+  if (guardPolicy) {
+    const gf = guardPolicyToSpawn(guardPolicy, cwd);
+    if (gf.noBuiltinTools) opts.noBuiltinTools = true;
+    if (gf.loadExtensions?.length) opts.loadExtensions = [...(opts.loadExtensions ?? []), ...gf.loadExtensions];
+    if (gf.env) opts.guardEnv = { ...(opts.guardEnv ?? {}), ...gf.env };
+  }
+
   const mechanism = chooseMechanism(opts, opts?.electronMode ?? false);
 
   let result: SpawnResult;
@@ -421,7 +449,7 @@ function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, extraEnv: options?.guardEnv });
   try {
     execSync(cmd, { stdio: "ignore", env });
     return {
@@ -437,7 +465,7 @@ function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
 function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
   try {
     const cmd = `wsl ${buildTmuxCommand(cwd, false, options)}`;
-    const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+    const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, extraEnv: options?.guardEnv });
     execSync(cmd, { stdio: "ignore", env });
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
   } catch (err: any) {
@@ -464,7 +492,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     cwd,
     // pass the node-wrapped pi argv[0] so the Electron-as-node flag is
     // re-added when it is the Electron binary (execpath-fallback topology).
-    env: buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] }),
+    env: buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0], extraEnv: options?.guardEnv }),
   });
 
   if (!r.ok) {
@@ -496,7 +524,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // Build env AFTER resolving piCmd so the node-wrapped pi argv[0] re-adds
   // the Electron-as-node flag when it is the Electron binary. This env is
   // the keeper's base env, so the forwarded pi child inherits the flag too.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
+  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0], extraEnv: options?.guardEnv });
   return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }
 
