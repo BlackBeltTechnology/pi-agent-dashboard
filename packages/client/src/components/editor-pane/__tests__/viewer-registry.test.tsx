@@ -48,9 +48,9 @@ function renderKind(kind: keyof typeof viewerRegistry) {
 }
 
 describe("viewerRegistry — preview/* delegation", () => {
-  it("exposes all viewer kinds incl. live-server", () => {
+  it("exposes all viewer kinds incl. live-server and diff", () => {
     expect(Object.keys(viewerRegistry).sort()).toEqual(
-      ["audio", "binary-warn", "html", "image", "live-server", "markdown", "mermaid", "monaco", "pdf", "video"].sort(),
+      ["audio", "binary-warn", "diff", "html", "image", "live-server", "markdown", "mermaid", "monaco", "pdf", "video"].sort(),
     );
   });
 

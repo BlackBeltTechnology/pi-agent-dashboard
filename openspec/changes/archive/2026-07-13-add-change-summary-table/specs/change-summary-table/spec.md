@@ -22,6 +22,37 @@ The client SHALL render a compact change-summary block at each assistant turn bo
 - **WHEN** a turn changes more files than the display threshold
 - **THEN** the block SHALL show the first N rows and a "+M more" affordance that reveals the remainder in place
 
+### Requirement: Per-turn change block gated by a display preference
+The per-turn inline change block SHALL be gated by a new `DisplayPrefs` boolean axis `changeSummaryTable`, following the same global + per-session-override mechanism as the other chat-view display axes (`toolResults`, `tokenStatsBar`, etc.). The global value SHALL be editable in the Settings-panel display section (deferred Save) and the per-session value SHALL be editable in the ⚙ View popover (`ChatViewMenu`) with instant apply and a "Use global settings" reset. The effective value SHALL be `mergeDisplayPrefs(global, sessionOverride)`. `changeSummaryTable` SHALL default to `false` in the `simple` preset and `true` in the `standard` and `everything` presets, and SHALL be backfilled to `true` for legacy `preferences.json` that predates the field.
+
+#### Scenario: Enabled renders the block
+- **GIVEN** effective `changeSummaryTable = true`
+- **WHEN** an assistant turn contains one or more Edit or Write tool calls
+- **THEN** the per-turn change block SHALL render for that turn
+
+#### Scenario: Disabled globally hides the block
+- **GIVEN** global `displayPrefs.changeSummaryTable = false` and no per-session override
+- **WHEN** an assistant turn contains Edit or Write tool calls
+- **THEN** no per-turn change block SHALL render
+
+#### Scenario: Per-session override beats the global default
+- **GIVEN** global `displayPrefs.changeSummaryTable = true`
+- **AND** the session sets `displayPrefsOverride { changeSummaryTable: false }` via the ⚙ View popover
+- **WHEN** effective prefs are computed
+- **THEN** `changeSummaryTable` SHALL be `false` and the per-turn block SHALL NOT render for that session
+- **AND** other sessions without an override SHALL still render the block
+
+#### Scenario: View popover exposes the toggle
+- **GIVEN** a selected session and the ⚙ View popover open
+- **WHEN** the user toggles the change-summary axis
+- **THEN** the client SHALL send `setSessionDisplayPrefs { sessionId, override }` immediately
+- **AND** the chat view SHALL show/hide the per-turn blocks without a separate save step
+
+#### Scenario: Legacy preferences backfill
+- **GIVEN** a persisted `displayPrefs` object that predates the `changeSummaryTable` field
+- **WHEN** the preferences store loads it
+- **THEN** `changeSummaryTable` SHALL be set to `true` before it reaches any client
+
 ### Requirement: Changed Files integrated into the split editor pane
 The client SHALL surface changed files inside the split editor pane rather than as a full-screen takeover: a Changes section pinned atop the pane's project-tree rail, with each file's diff opened as a per-file `diff`-viewer tab (a new `ViewerKind` `diff`). A `SplitWorkspaceContext` helper `openChanges()` SHALL open the split and reveal the Changes section. The chat SHALL remain mounted in the adjacent pane.
 

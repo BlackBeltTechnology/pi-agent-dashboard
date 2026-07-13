@@ -111,6 +111,21 @@ Per Resolved Decision #2, the `App.tsx` `diffMatch` branch stays for deep-links 
 mobile; the session-header button becomes a summary chip that calls `openChanges()` on desktop
 and can fall back to the route where a split is impractical.
 
+### D8 — On/off is a `DisplayPrefs` axis, not a bespoke setting
+The per-turn block is gated by a new boolean `changeSummaryTable` on `DisplayPrefs`
+(`display-prefs.ts`), reusing the entire existing global + per-session-override mechanism
+(`mergeDisplayPrefs`, `PATCH /api/preferences/display`, `setSessionDisplayPrefs`, the ⚙ View
+`ChatViewMenu`, the Settings-panel display section, the 3 `DISPLAY_PRESETS`). This is the
+same pattern as `toolResults` / `toolGroupDefaultCollapsed`, so it inherits per-session
+override, WS broadcast, connect-snapshot self-heal, and legacy backfill for free — no new
+endpoint, no new control type, no standalone toggle button. **Only the per-turn
+`ChangeSummaryBlock` is gated** (per the user decision); the Changes rail section, the
+summary chip, and the `diff` viewer are NOT gated by this axis. Preset defaults follow the
+visibility-axis convention: `simple` false, `standard` / `everything` true; legacy prefs
+backfill to `true`. *Alternatives rejected:* a dedicated `preferences.json` field (duplicates
+the override/broadcast plumbing); a localStorage flag (no per-session override, no cross-tab
+sync — the legacy `show-debug-tools` mistake this capability already replaced).
+
 ## Risks / Trade-offs
 
 - **Per-turn recompute cost over large event streams** → memoize the turn-attribution walk
@@ -139,6 +154,10 @@ enrichment → (3) client `lineDelta` util + per-turn block → (4) `diff` viewe
 optional payload fields are inert for old clients.
 
 ## Open Questions
+
+- Preset defaults for `changeSummaryTable`: confirmed `simple` off / `standard` on /
+  `everything` on (visibility-axis convention). Revisit if the per-turn block proves noisy
+  enough to warrant off-by-default in `standard`.
 
 - Should the per-turn block row open the file's `diff` tab (D4) or scroll-to-change within an
   already-open diff? Leaning: open/activate the `diff:<path>` tab and select the file in the

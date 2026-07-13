@@ -54,6 +54,15 @@ Two facts make this cheap:
 - **Non-git fallback.** Per-turn always works (event-derived). When `isGitRepo` is false the
   roll-up falls back to summed per-turn deltas instead of numstat.
 
+- **On/off via a display-preference axis (overridable as others).** The per-turn block
+  is gated by a new `DisplayPrefs` boolean `changeSummaryTable`, wired through the existing
+  global + per-session-override machinery (`display-prefs.ts` / `mergeDisplayPrefs`,
+  `PATCH /api/preferences/display`, `setSessionDisplayPrefs`). It appears in the Settings
+  panel display section (global, deferred Save) AND as a row in the ⚙ View popover
+  (`ChatViewMenu`, per-session, instant apply, "Use global settings" reset) — exactly like
+  `toolResults` / `tokenStatsBar`. No new button, no new endpoint. Preset defaults: off in
+  `simple`, on in `standard` / `everything`; legacy prefs backfill to `true`.
+
 Explicitly **out of scope**: any LLM-generated prose summary of changes. Numbers only.
 
 ## Capabilities
@@ -74,12 +83,20 @@ Explicitly **out of scope**: any LLM-generated prose summary of changes. Numbers
 ## Impact
 
 - **Types**: `packages/shared/src/diff-types.ts` — 4 optional numeric fields.
+  `packages/shared/src/display-prefs.ts` — new `changeSummaryTable` boolean on `DisplayPrefs`
+  + `PartialDisplayPrefs` + `mergeDisplayPrefs` + all 3 `DISPLAY_PRESETS`.
+- **Server**: `packages/server/src/preferences-store.ts` — backfill `changeSummaryTable`
+  (default `true`) for legacy prefs; no new endpoint (reuses `PATCH /api/preferences/display`).
 - **Server**: `packages/server/src/session-diff.ts` — one `git diff --numstat` call +
   parse; reuses `parseShortstat`-style logic. No new endpoint, no protocol change, no bridge
   change.
 - **Client**:
   - new `ChangeSummaryBlock` (per-turn, pure event derivation, default expanded) + a
-    `lineDelta` util, wired into the chat stream at turn boundaries;
+    `lineDelta` util, wired into the chat stream at turn boundaries, **gated on effective
+    `displayPrefs.changeSummaryTable`**;
+  - `ChatViewMenu` (⚙ View popover) + `SettingsPanel` display section gain the
+    `changeSummaryTable` row (per-session override + global), reusing the existing
+    display-prefs toggle rows — no new control type;
   - new `ChangesRailSection` mounted atop the editor-pane project-tree rail (aggregate
     header + per-file rows), fed by `useSessionDiff` + the numstat fields;
   - new `ViewerKind` `diff` (added to the union AND to `VALID_VIEWERS` so persisted diff
@@ -134,3 +151,8 @@ variables). Verify in browser before implementation.
    `N files · +X −Y` summary).
 4. **Non-git roll-up → shown.** The Changes-section header shows summed per-turn deltas with
    a `summed` badge (never hidden).
+5. **On/off → a `DisplayPrefs` axis, overridable as others.** The per-turn block is gated by
+   a new `changeSummaryTable` boolean on `DisplayPrefs`, exposed in the Settings panel
+   (global) and the ⚙ View popover (per-session override) via the existing display-prefs
+   plumbing. No standalone toggle button. Preset defaults: `simple` off, `standard` /
+   `everything` on.

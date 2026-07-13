@@ -110,6 +110,11 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
         >
           <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
           <span className="truncate">{basename(file.path)}</span>
+          {file.viewer === "diff" && (
+            <span className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">
+              diff
+            </span>
+          )}
           <button
             type="button"
             aria-label={`Close ${basename(file.path)}`}

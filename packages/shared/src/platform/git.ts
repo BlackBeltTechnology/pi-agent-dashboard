@@ -69,6 +69,16 @@ export const GIT_DIFF: Recipe<WithCwd & { path: string; ref?: string }, string> 
   tolerate: [1],
 };
 
+export const GIT_NUMSTAT: Recipe<WithCwd & { ref?: string }, string> = {
+  // `--relative` outputs pathnames relative to cwd (matching the cwd-relative
+  // FileDiffEntry keys) and excludes changes outside cwd. Tab-separated:
+  // `<adds>\t<dels>\t<path>`; binary files report `-` for the counts.
+  argv: ({ ref }) => ["git", "diff", "--numstat", "--relative", ref ?? "HEAD"],
+  parse: (out) => out,
+  timeout: GIT_TIMEOUT,
+  tolerate: [1],
+};
+
 export const GIT_STATUS_PORCELAIN: Recipe<WithCwd & { path?: string }, string> = {
   argv: ({ path }) =>
     path === undefined
@@ -102,6 +112,7 @@ export const GIT_RECIPES = {
   GIT_COMMON_DIR,
   GIT_TOPLEVEL,
   GIT_DIFF,
+  GIT_NUMSTAT,
   GIT_STATUS_PORCELAIN,
   GH_PR_NUMBER,
 } as const;
@@ -138,6 +149,10 @@ export function diff(input: WithCwd & { path: string; ref?: string }): Result<st
 
 export function statusPorcelain(input: WithCwd & { path?: string }): Result<string> {
   return run(GIT_STATUS_PORCELAIN, input, { cwd: input.cwd });
+}
+
+export function numstat(input: WithCwd & { ref?: string }): Result<string> {
+  return run(GIT_NUMSTAT, input, { cwd: input.cwd });
 }
 
 export function prNumber(input: WithCwd): Result<number | undefined> {
@@ -178,6 +193,10 @@ export function diffOr(input: WithCwd & { path: string; ref?: string }, fallback
 
 export function statusPorcelainOr(input: WithCwd & { path?: string }, fallback = ""): string {
   return unwrap(statusPorcelain(input), fallback);
+}
+
+export function numstatOr(input: WithCwd & { ref?: string }, fallback = ""): string {
+  return unwrap(numstat(input), fallback);
 }
 
 export function prNumberOr(input: WithCwd, fallback?: number): number | undefined {

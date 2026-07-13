@@ -39,6 +39,7 @@ import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
+import { SessionDiffProvider } from "./components/SessionDiffContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
@@ -941,6 +942,18 @@ export default function App() {
   const selectedImages = (selectedId ? pendingImagesMap.get(selectedId) : undefined) ?? (EMPTY_IMAGES as ImageContent[]);
   const selectedHistory = useMemo(
     () => extractUserPromptHistory(selectedState.messages),
+    [selectedState.messages],
+  );
+  // Monotonic edit/write count for the selected session — drives the shared
+  // session-diff refetch (change: add-change-summary-table).
+  const diffChangeSignal = useMemo(
+    () =>
+      selectedState.messages.reduce(
+        (n, m) =>
+          n +
+          (m.role === "toolResult" && /^(edit|write)$/i.test(m.toolName ?? "") ? 1 : 0),
+        0,
+      ),
     [selectedState.messages],
   );
 
@@ -1939,7 +1952,9 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} />
-            {children}
+            <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
+              {children}
+            </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
       </ShellSessionsProvider>

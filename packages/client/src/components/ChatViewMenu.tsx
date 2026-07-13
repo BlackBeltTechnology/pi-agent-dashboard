@@ -129,6 +129,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("auto.keep_tool_groups_collapsed", undefined, "Keep tool groups collapsed")} value={prefs.toolGroupDefaultCollapsed} marked={isOverridden("toolGroupDefaultCollapsed")} onChange={(v) => patch({ toolGroupDefaultCollapsed: v })} />
           <Row label={i18nT("auto.tool_result_bodies", undefined, "Tool result bodies")} value={prefs.toolResults} marked={isOverridden("toolResults")} onChange={(v) => patch({ toolResults: v })} />
           <Row label={i18nT("auto.turn_metadata", undefined, "Turn metadata")} value={prefs.turnMetadata} marked={isOverridden("turnMetadata")} onChange={(v) => patch({ turnMetadata: v })} />
+          <Row label={i18nT("auto.change_summary_table", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} marked={isOverridden("changeSummaryTable")} onChange={(v) => patch({ changeSummaryTable: v })} />
           <Row label={i18nT("auto.debug_events", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="text-[var(--text-tertiary)] mb-1">{i18nT("auto.tool_calls", undefined, "Tool calls")}</div>

@@ -8,6 +8,9 @@ import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { MobileActionMenu } from "./MobileActionMenu.js";
 import { useMobile } from "../hooks/useMobile.js";
+import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
+import { useOptionalSessionDiff } from "./SessionDiffContext.js";
+import { CountBadges } from "./CountBadges.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
@@ -468,15 +471,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           <Icon path={mdiViewGridOutline} size={0.4} className="inline mr-0.5" />{i18nT("auto.modules", undefined, "Modules")}
         </button>
       )}
-      {hasFileChanges && onOpenDiffView && (
-        <button
-          onClick={onOpenDiffView}
-          className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mr-1"
-          title={i18nT("auto.view_changed_files", undefined, "View changed files")}
-        >
-          <Icon path={mdiFileCompare} size={0.4} className="inline mr-0.5" />{i18nT("auto.changed_files", undefined, "Changed Files")}
-        </button>
-      )}
+      <ChangedFilesChip hasFileChanges={hasFileChanges} onOpenDiffView={onOpenDiffView} />
       {isEnded ? (
         <>
           <button
@@ -528,5 +523,46 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
           /flows:delete) and SessionFlowActionsClaim. See change:
           pluginize-flows-via-registry. */}
     </div>
+  );
+}
+
+/**
+ * Session-header changed-files summary chip (change: add-change-summary-table).
+ * Shows `Changed files +X −Y · N` from the shared session diff. Prefers the
+ * integrated `openChanges()` (opens the split Changes section); falls back to
+ * the `/session/:id/diff` takeover route when no split workspace is mounted.
+ */
+function ChangedFilesChip({
+  hasFileChanges,
+  onOpenDiffView,
+}: {
+  hasFileChanges?: boolean;
+  onOpenDiffView?: () => void;
+}) {
+  const ws = useOptionalSplitWorkspace();
+  const diff = useOptionalSessionDiff();
+  const files = diff?.data?.files ?? [];
+  const nFiles = files.length;
+  const totalAdditions = diff?.data?.totalAdditions;
+  const totalDeletions = diff?.data?.totalDeletions;
+
+  const visible = nFiles > 0 || hasFileChanges;
+  const activate = ws?.openChanges ?? onOpenDiffView;
+  if (!visible || !activate) return null;
+
+  const hasCounts = totalAdditions !== undefined || totalDeletions !== undefined;
+  return (
+    <button
+      type="button"
+      onClick={() => activate()}
+      data-testid="changed-files-chip"
+      className="text-[10px] px-1.5 py-0.5 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mr-1 inline-flex items-center gap-1"
+      title={i18nT("auto.view_changed_files", undefined, "View changed files")}
+    >
+      <Icon path={mdiFileCompare} size={0.4} className="inline" />
+      <span>{i18nT("auto.changed_files", undefined, "Changed Files")}</span>
+      {hasCounts && <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />}
+      {nFiles > 0 && <span className="text-[var(--text-tertiary)]">· {nFiles}</span>}
+    </button>
   );
 }

@@ -1,10 +1,13 @@
 /**
  * DiffFileTree — two-level file tree showing changed files with expandable change events.
  */
-import React, { useState, useMemo, useCallback } from "react";
-import type { FileDiffEntry, FileChangeEvent } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+
+import type { FileChangeEvent, FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
+import type React from "react";
+import { useCallback, useMemo, useState } from "react";
 import { buildFileTree, type TreeNode } from "../lib/diff-tree.js";
 import { t as i18nT } from "../lib/i18n";
+import { CountBadges } from "./CountBadges.js";
 
 export interface FileSelection {
   /** Selected file path */
@@ -17,17 +20,51 @@ interface DiffFileTreeProps {
   files: FileDiffEntry[];
   selection: FileSelection | null;
   onSelect: (selection: FileSelection) => void;
+  /** Aggregate additions (numstat, or summed per-turn deltas when `summed`). */
+  totalAdditions?: number;
+  /** Aggregate deletions (numstat, or summed per-turn deltas when `summed`). */
+  totalDeletions?: number;
+  /**
+   * When true, the counts are summed per-turn event deltas (non-git session),
+   * not git-net; the header flags them with a `summed` badge so the number is
+   * never mistaken for git-net. See change: add-change-summary-table.
+   */
+  summed?: boolean;
 }
 
-export function DiffFileTree({ files, selection, onSelect }: DiffFileTreeProps) {
+export function DiffFileTree({
+  files,
+  selection,
+  onSelect,
+  totalAdditions,
+  totalDeletions,
+  summed = false,
+}: DiffFileTreeProps) {
   const tree = useMemo(() => buildFileTree(files), [files]);
   const totalFiles = files.length;
+  const hasTotals = totalAdditions !== undefined || totalDeletions !== undefined;
 
   return (
     <div className="flex flex-col h-full text-sm">
-      {/* Summary */}
-      <div className="px-3 py-2 border-b border-[var(--border-primary)] text-[var(--text-tertiary)] text-xs">
-        {totalFiles} file{totalFiles !== 1 ? "s" : ""} changed
+      {/* Summary roll-up header: N files · +X −Y (· summed badge for non-git). */}
+      <div className="px-3 py-2 border-b border-[var(--border-primary)] text-[var(--text-tertiary)] text-xs flex items-center gap-2">
+        <span>
+          {totalFiles} file{totalFiles !== 1 ? "s" : ""} changed
+        </span>
+        {hasTotals && (
+          <>
+            <span>·</span>
+            <CountBadges additions={totalAdditions ?? 0} deletions={totalDeletions ?? 0} />
+          </>
+        )}
+        {summed && (
+          <span
+            title={i18nT("auto.summed_badge_hint", undefined, "Summed per-turn deltas (non-git), not git-net")}
+            className="ml-auto rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]"
+          >
+            {i18nT("auto.summed", undefined, "summed")}
+          </span>
+        )}
       </div>
 
       {/* Tree */}
@@ -152,6 +189,11 @@ function FileNodeView({
         )}
         {statusIndicator}
         <span className="truncate flex-1">{node.name}</span>
+        {(file.additions !== undefined || file.deletions !== undefined) && (
+          <span className="text-[10px] shrink-0">
+            <CountBadges additions={file.additions ?? 0} deletions={file.deletions ?? 0} />
+          </span>
+        )}
         {changeCount > 1 && (
           <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">
             {changeCount}×
@@ -206,7 +248,7 @@ function ChangeEventNode({
       <span className="text-[var(--text-tertiary)] shrink-0">{timeStr}</span>
       {change.message && (
         <span className="truncate text-[var(--text-secondary)]" title={change.message}>
-          {change.message.length > 50 ? change.message.slice(0, 50) + "…" : change.message}
+          {change.message.length > 50 ? `${change.message.slice(0, 50)}…` : change.message}
         </span>
       )}
     </div>

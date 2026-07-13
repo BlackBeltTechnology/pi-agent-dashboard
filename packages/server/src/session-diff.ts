@@ -114,14 +114,52 @@ function normalizePath(rawPath: string, cwd: string): string | null {
 }
 
 /**
+ * Parse `git diff --numstat --relative HEAD` into a per-path line-count map.
+ * Format per line: `<adds>\t<dels>\t<path>`. Binary rows report `-` for the
+ * counts → that path is omitted (never emits a non-numeric value). This is a
+ * NEW parser distinct from `parseShortstat` (which parses `--shortstat`
+ * summary lines, a different format). See change: add-change-summary-table.
+ */
+export function gitNumstat(cwd: string): Map<string, { additions: number; deletions: number }> {
+  const map = new Map<string, { additions: number; deletions: number }>();
+  let raw: string;
+  try {
+    raw = git.numstatOr({ cwd });
+  } catch {
+    return map;
+  }
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    const [addStr, delStr] = parts;
+    // Binary / unmergeable rows report `-` — omit rather than emit NaN.
+    if (addStr === "-" || delStr === "-") continue;
+    const additions = Number.parseInt(addStr, 10);
+    const deletions = Number.parseInt(delStr, 10);
+    if (!Number.isFinite(additions) || !Number.isFinite(deletions)) continue;
+    // Path may itself contain tabs only under -z; here it is the tail join.
+    const path = parts.slice(2).join("\t");
+    map.set(path, { additions, deletions });
+  }
+  return map;
+}
+
+/**
  * Enrich file entries with git diff output.
- * Runs `git diff HEAD -- <path>` for each file when in a git repo.
+ * Runs `git diff HEAD -- <path>` for each file when in a git repo, plus one
+ * `git diff --numstat --relative HEAD` for per-file / aggregate line counts.
  * Returns gracefully on any git errors.
  */
 export function enrichWithGitDiff(
   cwd: string,
   files: FileDiffEntry[],
-): { enrichedFiles: FileDiffEntry[]; isGitRepo: boolean } {
+): {
+  enrichedFiles: FileDiffEntry[];
+  isGitRepo: boolean;
+  totalAdditions?: number;
+  totalDeletions?: number;
+} {
   let gitAvailable = false;
   try {
     gitAvailable = isGitRepo(cwd);
@@ -133,7 +171,21 @@ export function enrichWithGitDiff(
     return { enrichedFiles: files, isGitRepo: false };
   }
 
+  const numstatMap = gitNumstat(cwd);
+  let totalAdditions = 0;
+  let totalDeletions = 0;
+  let anyCounts = false;
+
   const enriched = files.map((file) => {
+    const counts = numstatMap.get(file.path);
+    if (counts) {
+      totalAdditions += counts.additions;
+      totalDeletions += counts.deletions;
+      anyCounts = true;
+    }
+    const withCounts: FileDiffEntry = counts
+      ? { ...file, additions: counts.additions, deletions: counts.deletions }
+      : file;
     try {
       // Delegate to the shared git tool module. The runner handles
       // windowsHide, timeout, argv-array escaping (no shell), and the
@@ -141,7 +193,7 @@ export function enrichWithGitDiff(
       const diff = git.diffOr({ cwd, path: file.path }).trim();
 
       if (diff) {
-        return { ...file, gitDiff: diff };
+        return { ...withCounts, gitDiff: diff };
       }
 
       // No diff from HEAD — try untracked (new file)
@@ -153,7 +205,7 @@ export function enrichWithGitDiff(
         // support (Windows has no `cat`). See change: fix-windows-server-parity.
         const absPath = resolve(cwd, file.path);
         if (!existsSync(absPath)) {
-          return file;
+          return withCounts;
         }
         const content = readFileSync(absPath, "utf-8");
         const lines = content.split("\n");
@@ -165,16 +217,21 @@ export function enrichWithGitDiff(
           `@@ -0,0 +1,${lines.length} @@`,
           ...lines.map((l) => `+${l}`),
         ];
-        return { ...file, gitDiff: diffLines.join("\n") };
+        return { ...withCounts, gitDiff: diffLines.join("\n") };
       }
 
-      return file;
+      return withCounts;
     } catch {
-      return file;
+      return withCounts;
     }
   });
 
-  return { enrichedFiles: enriched, isGitRepo: true };
+  return {
+    enrichedFiles: enriched,
+    isGitRepo: true,
+    totalAdditions: anyCounts ? totalAdditions : undefined,
+    totalDeletions: anyCounts ? totalDeletions : undefined,
+  };
 }
 
 // ── Unified dispatcher ──────────────────────────────────────────────────
@@ -185,6 +242,8 @@ export interface VcsEnrichmentResult {
   vcsKind?: "git";
   diffBase?: string;
   baseLabel?: string;
+  totalAdditions?: number;
+  totalDeletions?: number;
 }
 
 /**

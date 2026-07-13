@@ -22,6 +22,7 @@ import { ImagePreview } from "../preview/ImagePreview.js";
 import { PdfPreview } from "../preview/PdfPreview.js";
 import { VideoPreview } from "../preview/VideoPreview.js";
 import BinaryWarn from "./BinaryWarn.js";
+import DiffViewer from "./DiffViewer.js";
 import LiveServerViewer from "./LiveServerViewer.js";
 import MarkdownViewer from "./MarkdownViewer.js";
 import MermaidViewer from "./MermaidViewer.js";
@@ -48,5 +49,6 @@ export const viewerRegistry: Record<ViewerKind, ComponentType<ViewerProps>> = {
   video: VideoViewer,
   audio: AudioViewer,
   "live-server": LiveServerViewer,
+  diff: DiffViewer,
   "binary-warn": BinaryWarn,
 };

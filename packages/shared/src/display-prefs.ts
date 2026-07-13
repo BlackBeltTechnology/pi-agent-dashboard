@@ -55,6 +55,15 @@ export interface DisplayPrefs {
    * See change: enhance-tool-call-grouping.
    */
   toolGroupDefaultCollapsed: boolean;
+  /**
+   * When true (default), the per-turn change-summary block renders in the chat
+   * stream at each assistant turn boundary that changed files (a compact table
+   * of files + `+adds −dels`, derived client-side from Edit/Write events). When
+   * false, no per-turn block renders. Only gates the per-turn block; the split
+   * pane's Changes rail and the summary chip are unaffected.
+   * See change: add-change-summary-table.
+   */
+  changeSummaryTable: boolean;
 }
 
 /**
@@ -79,6 +88,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
+    changeSummaryTable: false,
   },
   standard: {
     tokenStatsBar: true,
@@ -91,6 +101,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
+    changeSummaryTable: true,
   },
   everything: {
     tokenStatsBar: true,
@@ -103,6 +114,7 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reasoningAutoCollapseMs: 30000,
     keepReasoningOpenUntilTurnEnds: false,
     toolGroupDefaultCollapsed: false,
+    changeSummaryTable: true,
   },
 };
 
@@ -134,6 +146,7 @@ export function mergeDisplayPrefs(
       override.keepReasoningOpenUntilTurnEnds ?? global.keepReasoningOpenUntilTurnEnds,
     toolGroupDefaultCollapsed:
       override.toolGroupDefaultCollapsed ?? global.toolGroupDefaultCollapsed,
+    changeSummaryTable: override.changeSummaryTable ?? global.changeSummaryTable,
   };
 }
 
