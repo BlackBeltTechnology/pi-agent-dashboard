@@ -8,16 +8,15 @@ The event reducer SHALL inspect `agent_end` events for error information. When `
 
 `lastError` SHALL be set primarily via two paths:
 
-1. **`agent_end` extractor (existing)**: when pi-coding-agent has fully exhausted its auto-retry attempts AND the terminal assistant message reaches `agent_end` with `stopReason: "error"` AND a non-empty `errorMessage`.
+1. **`agent_end` extractor**: when pi-coding-agent has fully exhausted its auto-retry attempts AND the terminal assistant message reaches `agent_end` with `stopReason: "error"` AND a non-empty `errorMessage`.
 
-2. **`auto_retry_end` arm with `finalError` (existing, broadened)**: when the bridge forwards a synthesized `auto_retry_end { success: false, finalError: <string> }` AND `SessionState.lastError` is currently undefined. This now covers three bridge-side synth sources:
-   - Orderer's `maybeSynthesize` ordering before terminal `agent_end` (existing).
-   - Auto-stop on `USAGE_LIMIT_PATTERN` match in `message_end` (NEW — see `provider-retry-state`).
-   - First-attempt terminal-limit branch on `agent_end` (NEW — see `provider-retry-state`).
+2. **`auto_retry_end` arm with `finalError`**: when the bridge forwards a synthesized `auto_retry_end { success: false, finalError: <string> }` AND `SessionState.lastError` is currently undefined. This covers the observe-based tracker's terminal synth (an error `agent_end` after an observed retry chain, forwarded before `agent_end` per the wire-ordering invariant).
 
-The command-handler's synth on user abort no longer carries a `finalError` field (the `"Aborted by user"` placeholder is REMOVED). Subsequent `agent_end` events surface the real provider error via path (1) when pi emits `stopReason: "error"` with the real `errorMessage`.
+There SHALL be NO usage-limit / `USAGE_LIMIT_PATTERN` synth source. Billing / quota errors are ordinary errors: they reach `lastError` via path (1) or (2) with no special classification, and the `SessionBanner` renders them as an ordinary settled error (no `limit-exceeded` variant — see `session-status-banner`).
 
-Transient retryable errors that pi-coding-agent retries internally SHALL NOT set `lastError`; they are surfaced via `SessionState.retryState` instead (see `provider-retry-state`).
+The command-handler's synth on user abort does not carry a `finalError` field. Subsequent `agent_end` events surface the real provider error via path (1) when pi emits `stopReason: "error"` with the real `errorMessage`.
+
+Transient retryable errors that pi-coding-agent retries internally SHALL NOT set `lastError` while the retry is in flight; they are surfaced via `SessionState.retryState` instead (see `provider-retry-state`). Once pi settles with a terminal `agent_end` error, `lastError` is set via path (1).
 
 #### Scenario: LLM provider returns quota exceeded error after retries exhausted
 - **WHEN** an `agent_end` event arrives with the last message having `stopReason: "error"` and `errorMessage: "Rate limit exceeded"`
@@ -34,19 +33,11 @@ Transient retryable errors that pi-coding-agent retries internally SHALL NOT set
 - **WHEN** an `agent_end` event arrives with no `messages` array or an empty array
 - **THEN** `SessionState.lastError` SHALL remain unchanged (defensive fallback)
 
-#### Scenario: USAGE_LIMIT_PATTERN message_end auto-stop sets lastError via synth
-- **WHEN** the bridge processes a `message_end` with `errorMessage: "usage_limit_reached"`
-- **AND** the bridge synthesizes `auto_retry_end { success: false, attempt: -1, finalError: "usage_limit_reached" }` (per `provider-retry-state` auto-abort requirement)
-- **AND** `SessionState.lastError` is currently undefined
-- **THEN** the reducer's `auto_retry_end` arm SHALL set `SessionState.lastError = { message: "usage_limit_reached", timestamp: <event.timestamp> }`
-- **AND** the unified `SessionBanner` SHALL render in `limit-exceeded` variant
-
-#### Scenario: First-attempt USAGE_LIMIT agent_end synth sets lastError early
-- **WHEN** the orderer's pending flag is false (no retry chain) AND `agent_end` arrives with `errorMessage: "credit_balance too low"`
-- **AND** the bridge's first-attempt-terminal branch synthesizes `auto_retry_end { success: false, finalError: "credit_balance too low" }` before forwarding `agent_end`
-- **THEN** the reducer's `auto_retry_end` arm SHALL set `lastError = { message: "credit_balance too low", … }` (assuming lastError was undefined)
-- **AND** the subsequent `agent_end` extractor SHALL also see `stopReason: "error"` AND attempt to overwrite, but the existing "finalError does not overwrite existing lastError" rule (kept) means the value stays consistent
-- **AND** the unified `SessionBanner` SHALL render in `limit-exceeded` variant
+#### Scenario: Billing error is an ordinary settled error (no limit-exceeded)
+- **WHEN** an `agent_end` arrives with `stopReason: "error"` and `errorMessage: "usage_limit_reached: monthly cap"`
+- **THEN** `SessionState.lastError` SHALL be set to `{ message: "usage_limit_reached: monthly cap", timestamp: <event.timestamp> }`
+- **AND** NO `USAGE_LIMIT_PATTERN` test SHALL be performed anywhere in the reducer
+- **AND** the `SessionBanner` SHALL render the ordinary settled-error card (NOT a `limit-exceeded` variant)
 
 #### Scenario: User abort no longer sets lastError to "Aborted by user"
 - **WHEN** the user aborts a retry-in-flight session

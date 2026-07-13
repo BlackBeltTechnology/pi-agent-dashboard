@@ -2,22 +2,23 @@ import { test, expect } from "@playwright/test";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 /**
- * Error-lifecycle surface — deferred clear + single red surface (browser E2E).
+ * Error-lifecycle surface — single-card settled error + deferred clear
+ * (browser E2E). Validates change `simplify-error-retry-single-card` end-to-end
+ * through the real pipeline (faux model → bridge → /ws → reducer →
+ * SessionBanner), no LLM credential:
  *
- * Validates change `unify-error-retry-lifecycle` end-to-end through the real
- * pipeline (faux model → bridge → /ws → reducer → SessionBanner), no LLM
- * credential:
- *
- *  1. A terminal model error surfaces ONE composed error-lifecycle surface
- *     (`error-banner`) with Retry + Dismiss, and NO yellow retry banner for a
- *     non-retryable error (single red surface).
- *  2. The error anchor PERSISTS across the start of a NEW turn that has not yet
+ *  1. A terminal model error surfaces ONE settled error card (`error-banner`):
+ *     the raw error string + a clear-only ✕ (`error-banner-dismiss`), with NO
+ *     manual "Try again" (`error-banner-retry` removed), NO Stop control
+ *     (`error-banner-stop` — Stop shows only while pi is actively retrying), and
+ *     NO retry sub-line (`retry-banner`) on a settled error.
+ *  2. The error card PERSISTS across the start of a NEW turn that has not yet
  *     produced a confirmed-good response — it is NOT cleared optimistically on
  *     `agent_start`. Driven deterministically with an `ask_user` turn: it pauses
  *     at a `tool_use` stop (renders a stable "alpha" option, never auto-
- *     completes), so the prior error banner stays visible while the new turn is
+ *     completes), so the prior error card stays visible while the new turn is
  *     in flight.
- *  3. The error anchor clears ONLY on a confirmed-good response: a successful
+ *  3. The error card clears ONLY on a confirmed-good response: a successful
  *     follow-up turn (`plain-text`, ending in `end_turn`) hides the banner.
  *
  * The pre-change behavior (optimistic clear on `agent_start`) would have hidden
@@ -31,7 +32,7 @@ const ERROR_MESSAGE = "faux model error";
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
 test.describe("error-lifecycle surface", () => {
-  test("terminal error shows one error banner with Retry + Dismiss, no yellow", async ({
+  test("terminal error shows ONE settled card: message + clear-only ✕, no retry/Stop", async ({
     page,
   }) => {
     const card = await spawnFreshGitSession(page);
@@ -43,13 +44,35 @@ test.describe("error-lifecycle surface", () => {
     await expect(banner).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("error-banner-text")).toContainText(ERROR_MESSAGE);
 
-    // Exactly one red surface — never two banners for the same failure.
+    // Exactly one card — never two surfaces for the same failure.
     await expect(page.getByTestId("error-banner")).toHaveCount(1);
-    // Generic (non-billing) error → Retry + Dismiss available.
-    await expect(page.getByTestId("error-banner-retry")).toBeVisible();
+    // Clear-only ✕ is present; there is no manual "Try again" anymore.
     await expect(page.getByTestId("error-banner-dismiss")).toBeVisible();
-    // Non-retryable error → NO amber retry banner alongside the red one.
+    await expect(page.getByTestId("error-banner-retry")).toHaveCount(0);
+    // Settled (not retrying) → no Stop control and no retry sub-line.
+    await expect(page.getByTestId("error-banner-stop")).toHaveCount(0);
     await expect(page.getByTestId("retry-banner")).toHaveCount(0);
+  });
+
+  test("✕ on a settled error clears the card AND keeps the session alive (no abort)", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+
+    await sendPrompt(page, "[[faux:model-error]] go");
+    const banner = page.getByTestId("error-banner");
+    await expect(banner).toBeVisible({ timeout: 30_000 });
+
+    // ✕ is clear-only: it dismisses the card without aborting the session.
+    await page.getByTestId("error-banner-dismiss").click();
+    await expect(banner).toBeHidden({ timeout: 10_000 });
+
+    // Session is still alive — a fresh prompt round-trips in the SAME session.
+    await sendPrompt(page, "[[faux:plain-text]] go");
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({
+      timeout: 30_000,
+    });
   });
 
   test("error anchor persists across a new turn that has no confirmed-good response yet", async ({
