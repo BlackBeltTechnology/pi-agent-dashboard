@@ -1,7 +1,7 @@
 # ship-it-orchestrator Specification
 
 ## Purpose
-TBD - created by archiving change add-openspec-pipeline-orchestrators. Update Purpose after archive.
+Worktree-side implementation orchestrator for an OpenSpec change. Idempotent entry gated on filesystem reality (an automated scenario is done only when its test file exists and passes the docker harness, never the checkbox alone); owns the red-test fix loop with a no-weakening guardrail; delegates the harness lifecycle with strict teardown ordering; drives `ship-change` inline with a manifest-aware defer; and provides a boundary-reverse escape hatch (`SHIP_IT_BLOCKED.md`) back to planning.
 ## Requirements
 ### Requirement: Idempotent entry gated on filesystem reality
 

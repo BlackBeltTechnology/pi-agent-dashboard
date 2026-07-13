@@ -85,9 +85,11 @@ requirements of the two new orchestrator capabilities above and as tasks:
   `openspec-apply-change`, `ship-change`, `docker/test-up.sh` + `lib-ports.sh` +
   `test-down.sh` (parallel-worktree ports already solved by
   `fix-parallel-e2e-docker-collisions`).
-- **`tasks.md` convention**: fold step introduces a `[manual-only]` task tag;
-  `ship-change`'s existing QA/manual defer matcher already covers deferral — the
-  tag makes the automate-vs-defer boundary explicit so the two do not fight.
+- **`tasks.md` convention**: `tasks.md` stays **vanilla checkbox format** with no
+  custom parser-visible token. The automated-vs-manual boundary is carried by the
+  **manifest** (`test-plan.md` `disposition` column), not a `tasks.md` tag;
+  `ship-change`'s defer rule reads the manifest (legacy keyword defer preserved
+  when no manifest exists). (Earlier drafts used an inline tag — dropped in D2.)
 - **No production code paths** touched — this is workflow/skill orchestration.
   No changes to the server, client, extension, or bridge.
 

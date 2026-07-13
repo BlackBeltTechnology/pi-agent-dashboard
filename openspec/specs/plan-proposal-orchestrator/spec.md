@@ -1,7 +1,7 @@
 # plan-proposal-orchestrator Specification
 
 ## Purpose
-TBD - created by archiving change add-openspec-pipeline-orchestrators. Update Purpose after archive.
+Develop-side planning orchestrator for an OpenSpec change, main interactive session only. Composes existing skills — ensures planning artifacts exist, runs `doubt-driven-review` on `proposal.md`/`design.md`, then runs `scenario-design` and folds each automated scenario into `tasks.md` as a vanilla checkbox routed to its test category. The `test-plan.md` manifest is the single source of truth for automated-vs-manual. Stops at the git-worktree boundary and hands off to `ship-it`.
 ## Requirements
 ### Requirement: Planning-phase orchestration on develop, main session only
 
