@@ -1,11 +1,20 @@
-import { act, render } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createInitialState } from "../../lib/event-reducer.js";
 import { ChatView } from "../ChatView.js";
 import { ThemeProvider } from "../ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultToolContext: ToolContext = { editors: [] };
+
+// Unmount rendered ChatView trees after each test. Without this the virtualized
+// transcript leaves React scheduler work queued that fires after the fork's
+// jsdom teardown (`ReferenceError: window is not defined`), failing the run even
+// though every assertion passed. See change: friendlier-worktree-init (surfaced
+// by test-file scheduling shift under pool:forks maxWorkers:50%).
+afterEach(() => {
+  cleanup();
+});
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
