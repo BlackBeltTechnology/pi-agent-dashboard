@@ -7,10 +7,18 @@ import { usePopoverFlip } from "../usePopoverFlip.js";
  * Build a fake trigger ref whose `getBoundingClientRect` returns a rect placing
  * the trigger's top/bottom at the supplied viewport coordinates.
  */
-function makeRef(top: number, bottom: number) {
+function makeRef(top: number, bottom: number, left = 0, right = 0) {
   const el = {
     getBoundingClientRect: vi.fn(
-      () => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top }) as DOMRect,
+      () =>
+        ({
+          top,
+          bottom,
+          left,
+          right,
+          width: right - left,
+          height: bottom - top,
+        }) as DOMRect,
     ),
   } as unknown as HTMLElement;
   return { current: el } as React.RefObject<HTMLElement>;
@@ -19,10 +27,14 @@ function makeRef(top: number, bottom: number) {
 function setViewportHeight(h: number) {
   Object.defineProperty(window, "innerHeight", { value: h, configurable: true, writable: true });
 }
+function setViewportWidth(w: number) {
+  Object.defineProperty(window, "innerWidth", { value: w, configurable: true, writable: true });
+}
 
 describe("usePopoverFlip", () => {
   beforeEach(() => {
     setViewportHeight(1000);
+    setViewportWidth(1200);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -90,6 +102,25 @@ describe("usePopoverFlip", () => {
     expect(ref.current!.getBoundingClientRect).not.toHaveBeenCalled();
     expect(addSpy).not.toHaveBeenCalledWith("resize", expect.anything(), expect.anything());
     expect(addSpy).not.toHaveBeenCalledWith("scroll", expect.anything(), expect.anything());
+  });
+
+  it("aligns right by default when the popover fits left of the trigger right edge", () => {
+    // Trigger near the right side of a wide viewport — classic desktop case.
+    const ref = makeRef(100, 130, 900, 980);
+    const { result } = renderHook(() =>
+      usePopoverFlip(ref, { open: true, estimatedWidth: 256 }),
+    );
+    expect(result.current.alignRight).toBe(true);
+  });
+
+  it("aligns left when right-align would hang past the left viewport edge", () => {
+    // Mobile StatusBar leading: View button near left edge (repro of the iOS clip).
+    setViewportWidth(390);
+    const ref = makeRef(719, 743, 41, 101);
+    const { result } = renderHook(() =>
+      usePopoverFlip(ref, { open: true, estimatedWidth: 256 }),
+    );
+    expect(result.current.alignRight).toBe(false);
   });
 });
 
