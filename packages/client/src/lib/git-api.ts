@@ -172,6 +172,13 @@ export interface WorktreeInitStatus {
   needsInit?: boolean;
   /** Present only when hasHook === true. */
   trusted?: boolean;
+  /**
+   * Present only when hasHook === false. Distinguishes an unconfigured
+   * directory (`false`, state ① → offer scaffold) from a configured project
+   * with no worktreeInit hook (`true`, state ③ → no button). Absent on the
+   * fail-open path. See change: distinguish-initialize-actions.
+   */
+  configured?: boolean;
 }
 
 /** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */

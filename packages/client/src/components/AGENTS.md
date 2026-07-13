@@ -102,6 +102,7 @@ Files in this directory. One row per source file.
 | `PreviewCard.tsx` | Inline chat-message card for `/view` rows. Header: icon (per renderer kind) + target label + `⤢ expand`… → see `PreviewCard.tsx.AGENTS.md` |
 | `PreviewOverlayView.tsx` | Full-viewport shell for overlay routes `/folder/:cwd/view?path=` + `/pi-view?url=`. → see `PreviewOverlayView.tsx.AGENTS.md` |
 | `ProcessList.tsx` | Repurposed as BackgroundProcessesDrawer (filename kept). Renders bridge PGID scan as collapsible drawer under… → see `ProcessList.tsx.AGENTS.md` |
+| `ProjectInitButton.tsx` | Presentational "Set up project" scaffold button (indigo, `mdiFolderPlusOutline`, testid `project-init-btn`). Props `{ cwd, status, onInitializeProject? }`. Renders iff `status.hasHook===false && status.configured===false && !!onInitializeProject` (strict `===false`; absent `configured`/state ③ → nothing). Click → `onInitializeProject(cwd)` spawns interactive project-init session. Split out of `WorktreeInitButton`'s polymorphic no-hook branch. See change: distinguish-initialize-actions. |
 | `ProposeDialog.tsx` | Name-only dialog launching `/skill:openspec-propose`. Exports `ProposeDialog`, `formatProposePrompt(name)`. → see `ProposeDialog.tsx.AGENTS.md` |
 | `ProviderAuthSection.tsx` | Settings section for LLM provider auth. Exports `ProviderAuthSection`. → see `ProviderAuthSection.tsx.AGENTS.md` |
 | `QrCodeDialog.tsx` | Dialog showing tunnel URL as QR code for mobile access. Exports `QrCodeDialog`. ORPHANED by add-tunnel-providers: `TunnelButton` now opens `Gateway/GatewayDialog` instead; retained (still unit-tested) but no longer mounted. → see `QrCodeDialog.tsx.AGENTS.md` |
@@ -161,7 +162,7 @@ Files in this directory. One row per source file.
 | `WhatsNewPackageRow.tsx` | Exports `WhatsNewPackageRow` + `WhatsNewPackageRowProps`. → see `WhatsNewPackageRow.tsx.AGENTS.md` |
 | `WorkspaceHeader.tsx` | Exports `WorkspaceHeader`. Header row for workspace container: name (double-click → `InlineRenameInput`),… → see `WorkspaceHeader.tsx.AGENTS.md` |
 | `WorktreeActionsMenu.tsx` | Exports `WorktreeActionsMenu` + `__resetGhAvailableCache`. → see `WorktreeActionsMenu.tsx.AGENTS.md` |
-| `WorktreeInitButton.tsx` | Self-contained Initialize button per directory/worktree row. → see `WorktreeInitButton.tsx.AGENTS.md` |
+| `WorktreeInitButton.tsx` | Hook-run-only amber Initialize button per directory/worktree row. Accepts shared `status`/`onStatusChange` (row-owned probe) or self-probes standalone. → see `WorktreeInitButton.tsx.AGENTS.md` |
 | `WorktreeSpawnDialog.tsx` | Fullscreen `+Worktree` dialog. Lists existing worktrees (one-click `Spawn →`) + create-new form (base picker,… → see `WorktreeSpawnDialog.tsx.AGENTS.md` |
 | `ZoomControls.tsx` | Re-export shim. Re-exports `ZoomControls` from `@blackbelt-technology/pi-dashboard-client-utils/ZoomControls`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
 | `ZrokInstallGuide.tsx` | Exports `ZrokInstallGuide`. Tunnel setup install guide. `useServerOs` fetches `/api/tunnel-status` for… → see `ZrokInstallGuide.tsx.AGENTS.md` |

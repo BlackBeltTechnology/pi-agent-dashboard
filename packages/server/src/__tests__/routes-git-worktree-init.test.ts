@@ -63,6 +63,20 @@ function makePlainRepo(): string {
   return dir;
 }
 
+/** Repo with `.pi/settings.json` but NO `worktreeInit` hook (state ③). */
+function makeConfiguredNoHookRepo(): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-nohook-")));
+  git("-c init.defaultBranch=main init", dir);
+  git("config user.email test@test.com", dir);
+  git("config user.name Test", dir);
+  mkdirSync(join(dir, ".pi"), { recursive: true });
+  writeFileSync(join(dir, ".pi", "settings.json"), JSON.stringify({ toolset: {} }));
+  writeFileSync(join(dir, "README.md"), "init");
+  git("add .", dir);
+  git("commit -m init", dir);
+  return dir;
+}
+
 async function makeApp(guard: (req: any, reply: any) => Promise<void> = async () => {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   registerGitRoutes(app, { networkGuard: guard });
@@ -78,11 +92,28 @@ describe("GET /api/git/worktree/init-status", () => {
   beforeEach(async () => { app = await makeApp(); });
   afterEach(async () => { if (repo) rmSync(repo, { recursive: true, force: true }); await app.close(); });
 
-  it("no hook → hasHook:false", async () => {
+  it("git repo, no .pi/settings.json → hasHook:false, configured:false (state ①)", async () => {
     repo = makePlainRepo();
     const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toEqual({ hasHook: false });
+    expect(res.json().data).toEqual({ hasHook: false, configured: false });
+  });
+
+  it("configured repo, no worktreeInit hook → hasHook:false, configured:true (state ③)", async () => {
+    repo = makeConfiguredNoHookRepo();
+    const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({ hasHook: false, configured: true });
+  });
+
+  it("hasHook:true responses carry NO configured field", async () => {
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
+    recordTrust(resolveMainPath(repo)!, hookDefHash(hook));
+    const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(repo)}` });
+    const data = res.json().data;
+    expect(data.hasHook).toBe(true);
+    expect("configured" in data).toBe(false);
   });
 
   it("untrusted hook → trusted:false, gate NOT run (no needsInit)", async () => {
@@ -188,14 +219,14 @@ describe("non-git dir — GET /api/git/worktree/init-status", () => {
     expect(body.data).toEqual({ hasHook: true, trusted: false });
   });
 
-  it("no .pi/settings.json → hasHook:false success, NOT not_a_repo", async () => {
+  it("no .pi/settings.json → hasHook:false configured:false success, NOT not_a_repo", async () => {
     dir = makePlainDir();
     const res = await app.inject({ method: "GET", url: `/api/git/worktree/init-status?cwd=${encodeURIComponent(dir)}` });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.success).toBe(true);
     expect(body.code).toBeUndefined();
-    expect(body.data).toEqual({ hasHook: false });
+    expect(body.data).toEqual({ hasHook: false, configured: false });
   });
 
   it("trusted hook → gate evaluated → needsInit + trusted:true", async () => {
