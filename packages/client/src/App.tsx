@@ -28,6 +28,7 @@ import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
 import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
 import { QueuePanel } from "./components/QueuePanel.js";
+import { RecoveryOfferHost } from "./components/RecoveryOfferHost.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { ServerSelector } from "./components/ServerSelector.js";
 import { SessionBanner } from "./components/SessionBanner.js";
@@ -36,14 +37,13 @@ import { SessionList } from "./components/SessionList.js";
 import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
-import { RecoveryOfferHost } from "./components/RecoveryOfferHost.js";
-import { clearRecoveryOffer } from "./lib/recovery-offer-bus.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
 import { TokenStatsBar } from "./components/TokenStatsBar.js";
+import { WorktreeInitStack } from "./components/WorktreeInitStack.js";
 import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
 import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
@@ -53,11 +53,11 @@ import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
-import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
+import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
@@ -66,6 +66,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
+import { fetchActiveInits } from "./lib/git-api.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/loading-history.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
@@ -79,6 +80,7 @@ import {
 } from "./lib/nav-tracker.js";
 import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/plugins-api.js";
+import { clearRecoveryOffer } from "./lib/recovery-offer-bus.js";
 import { rehydrateSession } from "./lib/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
 import { replayCache } from "./lib/replay-cache.js";
@@ -95,9 +97,7 @@ import { performServerSwitch } from "./lib/server-switch.js";
 import { openStagingSocket } from "./lib/staging-socket.js";
 import { useEditors } from "./lib/use-editors.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/worktree-init-bus.js";
-import { fetchActiveInits } from "./lib/git-api.js";
 import { initStore } from "./lib/worktree-init-store.js";
-import { WorktreeInitStack } from "./components/WorktreeInitStack.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -323,7 +323,9 @@ export default function App() {
     // Re-attach cwd subscriptions the reconnect dropped, then reconcile state
     // with the server's authoritative registry.
     resendActiveCwdSubscriptions();
-    void fetchActiveInits().then((runs) => { if (alive && runs.length) initStore.seed(runs); });
+    // Reconcile (not seed): an EMPTY snapshot must still prune a stale running
+    // chip left by a run that finished + evicted while the ws was down.
+    void fetchActiveInits().then((runs) => { if (alive) initStore.reconcile(runs); });
     return () => { alive = false; };
   }, [status]);
   // Drives the slot-registry enable filter from /api/health.plugins[] +
@@ -2069,6 +2071,10 @@ export default function App() {
   return apiProvider(
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
+      {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
+          (mobile branch above) so desktop also surfaces it. See change:
+          friendlier-worktree-init. */}
+      <WorktreeInitStack />
       <div className="hidden md:flex">
         <ResizableSidebar sidebar={sidebar}>
           {sessionList}

@@ -11,8 +11,8 @@
  * See change: friendlier-worktree-init.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { dispatchInitEvent, __resetInitBusForTests } from "../worktree-init-bus.js";
-import { DONE_FLASH_MS, initStore } from "../worktree-init-store.js";
+import { __resetInitBusForTests, dispatchInitEvent } from "../worktree-init-bus.js";
+import { DONE_FLASH_MS, initStore, RECONCILE_GRACE_MS } from "../worktree-init-store.js";
 
 beforeEach(() => { initStore.__resetForTests(); __resetInitBusForTests(); });
 afterEach(() => { initStore.__resetForTests(); __resetInitBusForTests(); vi.useRealTimers(); });
@@ -100,5 +100,33 @@ describe("worktree-init store", () => {
     initStore.startRun("/w/a");
     initStore.startRun("/w/b");
     expect(initStore.getAllSnapshot().map((r) => r.cwd).sort()).toEqual(["/w/a", "/w/b"]);
+  });
+
+  it("reconcile prunes a stale running run the server no longer reports", () => {
+    // A run that started long ago (past the grace) and is absent from the
+    // server snapshot = finished + evicted while ws was down → prune.
+    initStore.startRun("/w/stale");
+    const run = initStore.getRun("/w/stale");
+    if (run) run.startedAt = Date.now() - (RECONCILE_GRACE_MS + 1000);
+    initStore.reconcile([]); // empty snapshot must NOT be a no-op
+    expect(initStore.getRun("/w/stale")).toBeUndefined();
+  });
+
+  it("reconcile spares a just-started optimistic run within the grace window", () => {
+    initStore.startRun("/w/fresh"); // startedAt = now
+    initStore.reconcile([]);
+    expect(initStore.getRun("/w/fresh")?.phase).toBe("running");
+  });
+
+  it("reconcile preserves client failed-sticky state absent from the server", () => {
+    initStore.startRun("/w/fail");
+    initStore.markFailed("/w/fail", "script_nonzero_exit", "exit 1");
+    initStore.reconcile([]);
+    expect(initStore.getRun("/w/fail")?.phase).toBe("failed");
+  });
+
+  it("reconcile upserts server-reported running runs", () => {
+    initStore.reconcile([{ cwd: "/w/new", phase: "running", startedAt: 1, lastLine: "npm ci" }]);
+    expect(initStore.getRun("/w/new")?.phase).toBe("running");
   });
 });

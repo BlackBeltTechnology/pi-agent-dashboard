@@ -1,7 +1,10 @@
 # worktree-init-feedback Specification
 
 ## Purpose
-TBD - created by archiving change friendlier-worktree-init. Update Purpose after archive.
+Track worktree-init runs server-side by `cwd` and surface their progress with friendly,
+opt-in-log feedback shared by the manual button, auto-on-spawn, and post-refresh paths:
+running status chip, sticky retryable failure, success flash, boot rehydration via
+`GET /api/git/worktree/active-inits`, and a concurrent-run stack.
 ## Requirements
 ### Requirement: Init runs are tracked server-side by cwd
 The server SHALL track each worktree-init run in a registry keyed by the run's `cwd`,

@@ -43,6 +43,13 @@ export interface ClientInitRun {
 /** Success-flash window before a `done` entry auto-collapses. */
 export const DONE_FLASH_MS = 2000;
 
+/**
+ * Grace before `reconcile` prunes a client `running` run the server no longer
+ * reports. Spares a just-started optimistic run whose `POST /init` has not yet
+ * registered server-side (so a reconnect racing a click can't kill its chip).
+ */
+export const RECONCILE_GRACE_MS = 4000;
+
 const runs = new Map<string, ClientInitRun>();
 const cwdUnsubs = new Map<string, () => void>();
 const flashTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -141,6 +148,29 @@ export const initStore = {
     clearFlashTimer(cwd);
     dropCwdSubscription(cwd);
     if (runs.delete(cwd)) notify();
+  },
+
+  /**
+   * Reconcile against the server's authoritative snapshot (boot + reconnect):
+   * upsert present runs AND prune a stale client `running` run the server no
+   * longer reports (it finished + TTL-evicted while the ws was disconnected),
+   * so an empty snapshot is NOT a silent no-op. Grace-guarded to spare an
+   * in-flight optimistic run. Client terminal state (done-flash / failed-sticky)
+   * is preserved — the server evicts those but the client keeps them on purpose.
+   */
+  reconcile(active: ActiveWorktreeInit[]) {
+    const serverRunning = new Set(active.filter((r) => r.phase === "running").map((r) => r.cwd));
+    const now = Date.now();
+    let changed = false;
+    for (const [cwd, run] of runs) {
+      if (run.phase === "running" && !serverRunning.has(cwd) && now - run.startedAt > RECONCILE_GRACE_MS) {
+        dropCwdSubscription(cwd);
+        runs.delete(cwd);
+        changed = true;
+      }
+    }
+    if (changed) notify();
+    initStore.seed(active);
   },
 
   /** Boot rehydration: merge server-reported active runs. */
