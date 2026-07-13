@@ -1,7 +1,7 @@
 // Indexer: walk a filesystem source, layered mtime→sha256 change detection,
 // structural chunking, Tier-1 graph extraction, transactional upsert (design §5).
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { chunkMarkdown } from "./chunker.js";
 import type { DocType, KbStore } from "./types.js";
@@ -24,6 +24,7 @@ export interface IndexStats {
   changed: number;
   deleted: number;
   chunks: number;
+  missing?: boolean; // source dir did not exist → skipped (degrade, not abort)
 }
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
@@ -75,6 +76,13 @@ function docTypeOf(rel: string, includeSourceMarkdown: boolean): DocType {
 }
 
 export async function indexSource(store: KbStore, src: IndexSource, opts: IndexOptions = {}): Promise<IndexStats> {
+  // A configured source whose dir is absent degrades to skip-with-warning rather
+  // than throwing ENOENT mid-walk. A partial source set still indexes what exists.
+  // See change: harden-kb-index-failure-atomicity.
+  if (!existsSync(src.dir)) {
+    console.warn(`kb index: source directory does not exist, skipping: ${src.dir}`);
+    return { scanned: 0, changed: 0, deleted: 0, chunks: 0, missing: true };
+  }
   const extRe = opts.extensions?.length ? new RegExp("(" + opts.extensions.map((e) => e.replace(/\./g, "\\.")).join("|") + ")$", "i") : /\.(md|mdx|markdown)$/i;
   const inc = opts.include?.map(globToRe);
   const exc = opts.exclude?.map(globToRe);
