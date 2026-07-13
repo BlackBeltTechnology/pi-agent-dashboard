@@ -1332,6 +1332,11 @@ export function wireEvents(deps: EventWiringDeps): void {
         roles: (msg as any).roles,
         presets: (msg as any).presets,
         activePreset: (msg as any).activePreset,
+        // Forward the built-in role-name set so the Roles panel can render the
+        // Built-in/Custom split + "＋ Add custom role". Dropping it here (the
+        // original defect) collapsed the panel to its flat back-compat render.
+        // See change: fix-builtin-role-names-relay.
+        builtinRoleNames: (msg as any).builtinRoleNames,
       } as any);
     }
 

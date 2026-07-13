@@ -208,6 +208,14 @@ export interface BrowserRolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+  /**
+   * Built-in (seeded default) role names, equal to `DEFAULT_ROLE_NAMES`.
+   * Forwarded verbatim from the bridge's `roles_list`. The Roles panel reads
+   * it to split roles into Built-in vs Custom and to show "＋ Add custom role".
+   * Additive/optional; older clients ignore it.
+   * See change: fix-builtin-role-names-relay.
+   */
+  builtinRoleNames?: string[];
 }
 
 export interface SessionsListBrowserMessage {
