@@ -9,11 +9,11 @@
 
 Two relay hops between the bridge and the plugin config drop the field:
 
-```
-bridge.ts (sends builtinRoleNames)
-  → event-wiring.ts:1328  roles_list broadcast  → { roles, presets, activePreset }   ❌ drops it
-  → useMessageHandler.ts:508  roleInfo          → { roles, presets, activePreset }   ❌ drops it
-  → BuiltInRolesSettings  cfg.builtinRoleNames = undefined → [] → flat render, no "＋ Add custom role"
+```mermaid
+flowchart TD
+  A["bridge.ts<br/>sends builtinRoleNames"] -->|roles_list| B["event-wiring.ts:1328<br/>broadcast → { roles, presets, activePreset }"]
+  B -->|❌ drops it| C["useMessageHandler.ts:508<br/>roleInfo → { roles, presets, activePreset }"]
+  C -->|❌ drops it| D["BuiltInRolesSettings<br/>cfg.builtinRoleNames = undefined → []<br/>flat render, no '＋ Add custom role'"]
 ```
 
 ## Goals / Non-Goals
