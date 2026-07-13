@@ -35,7 +35,15 @@ if (!sessionId || typeof sessionId !== "string") {
   process.exit(2);
 }
 
-const SESSIONS_DIR = path.join(os.homedir(), ".pi", "dashboard", "sessions");
+// Base for keeper meta descriptors (socket, .pid, log). PI_DASHBOARD_HOME
+// overrides the base so the Unix socket path can be kept under the
+// sockaddr_un limit when the real HOME is deep; unset ⇒ ~/.pi (unchanged).
+// Must match the dashboard server's defaultSessionsDir() so both agree.
+const DASH_BASE =
+  process.env.PI_DASHBOARD_HOME && process.env.PI_DASHBOARD_HOME.trim()
+    ? process.env.PI_DASHBOARD_HOME.trim()
+    : os.homedir();
+const SESSIONS_DIR = path.join(DASH_BASE, ".pi", "dashboard", "sessions");
 try {
   fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 } catch (_e) { /* ignore — fs.openSync below will fail with a clearer error */ }

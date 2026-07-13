@@ -38,7 +38,14 @@ import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-share
 // ── Path conventions ─────────────────────────────────────────────────────────
 
 function defaultSessionsDir(): string {
-  return path.join(os.homedir(), ".pi", "dashboard", "sessions");
+  // Keeper meta descriptors (UDS socket, .pid sidecar, keeper log) live under
+  // <base>/.pi/dashboard/sessions. The base is os.homedir() by default; set
+  // PI_DASHBOARD_HOME to relocate it (e.g. to keep the Unix socket path under
+  // the sockaddr_un.sun_path limit when the real HOME is deep). This is the only
+  // knob — createKeeperManager() flows this dir to both spawn and the startup
+  // reconnect scan. Unset in production ⇒ ~/.pi/dashboard/sessions (unchanged).
+  const base = process.env.PI_DASHBOARD_HOME?.trim() || os.homedir();
+  return path.join(base, ".pi", "dashboard", "sessions");
 }
 
 function defaultKeeperPath(): string {
@@ -232,6 +239,13 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     // See change: fix-nodescript-argv-electron-execpath-fallback.
     if (electronAsNodeRequired(nodeBinary)) {
       keeperEnv = { ...keeperEnv, ELECTRON_RUN_AS_NODE: "1" };
+    }
+
+    // Forward PI_DASHBOARD_HOME explicitly so the keeper child derives the same
+    // sessions dir as the server's defaultSessionsDir() — buildSpawnEnv curates
+    // the env and may not carry this custom var through on its own.
+    if (process.env.PI_DASHBOARD_HOME && process.env.PI_DASHBOARD_HOME.trim()) {
+      keeperEnv = { ...keeperEnv, PI_DASHBOARD_HOME: process.env.PI_DASHBOARD_HOME };
     }
 
     // Delegate to the shared cross-platform primitive so libuv-correct
