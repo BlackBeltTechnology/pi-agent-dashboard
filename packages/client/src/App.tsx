@@ -94,7 +94,10 @@ import {
 import { performServerSwitch } from "./lib/server-switch.js";
 import { openStagingSocket } from "./lib/staging-socket.js";
 import { useEditors } from "./lib/use-editors.js";
-import { setInitSender } from "./lib/worktree-init-bus.js";
+import { resendActiveCwdSubscriptions, setInitSender } from "./lib/worktree-init-bus.js";
+import { fetchActiveInits } from "./lib/git-api.js";
+import { initStore } from "./lib/worktree-init-store.js";
+import { WorktreeInitStack } from "./components/WorktreeInitStack.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -309,6 +312,20 @@ export default function App() {
     setInitSender(send);
     return () => setInitSender(null);
   }, [send]);
+  // Boot rehydration: seed the cwd-keyed init store from the server's
+  // active-inits registry so a refresh mid-run keeps streaming and a refresh
+  // just-after-terminal shows done-flash / failed-sticky. Runs once the socket
+  // is open so `seed`'s re-subscribe reaches the server.
+  // See change: friendlier-worktree-init.
+  useEffect(() => {
+    if (status !== "connected") return;
+    let alive = true;
+    // Re-attach cwd subscriptions the reconnect dropped, then reconcile state
+    // with the server's authoritative registry.
+    resendActiveCwdSubscriptions();
+    void fetchActiveInits().then((runs) => { if (alive && runs.length) initStore.seed(runs); });
+    return () => { alive = false; };
+  }, [status]);
   // Drives the slot-registry enable filter from /api/health.plugins[] +
   // plugin_config_update broadcasts. The returned `startedAt` is also
   // consumed inside the Plugins tab via this same hook re-call, so we don't
@@ -1934,6 +1951,7 @@ export default function App() {
           inFlightSwitch={inFlightSwitchKey !== null}
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
+        <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}

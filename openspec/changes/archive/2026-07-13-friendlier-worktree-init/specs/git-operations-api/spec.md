@@ -17,8 +17,6 @@ entries still within their retention TTL.
 - **WHEN** no run for a `cwd` is running and none finished within the TTL
 - **THEN** the response SHALL NOT include an entry for that `cwd`
 
-## MODIFIED Requirements
-
 ### Requirement: Worktree-init progress channel is cwd-addressable
 The worktree-init progress channel SHALL accept subscriptions addressed by `cwd` in addition
 to the existing client-minted `requestId`, and progress/done/failed messages SHALL carry the

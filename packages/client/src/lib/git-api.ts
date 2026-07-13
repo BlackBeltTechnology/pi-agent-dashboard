@@ -1,6 +1,7 @@
 /**
  * Client-side git API helpers for the BranchPicker / BranchSwitchDialog.
  */
+import type { ActiveWorktreeInit } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { GitBranchesResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "./api-context.js";
 import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
@@ -266,6 +267,22 @@ export async function runWorktreeInit(params: { cwd: string; requestId?: string;
     error: json.error ?? "init failed",
     ...(typeof json.stderr === "string" ? { stderr: json.stderr } : {}),
   };
+}
+
+/**
+ * GET /api/git/worktree/active-inits — boot rehydration of in-flight and
+ * recently-finished init runs (server cwd-keyed registry). Fail-open: returns
+ * `[]` on any error so a probe failure never blocks boot.
+ * See change: friendlier-worktree-init.
+ */
+export async function fetchActiveInits(): Promise<ActiveWorktreeInit[]> {
+  try {
+    const json = await fetchJson(`${getApiBase()}/api/git/worktree/active-inits`);
+    if (!json.success || !Array.isArray(json.data?.runs)) return [];
+    return json.data.runs as ActiveWorktreeInit[];
+  } catch {
+    return [];
+  }
 }
 
 export interface OrphanCleanupOk {

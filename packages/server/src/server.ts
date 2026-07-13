@@ -1054,10 +1054,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   browserGateway.registerHandler("worktree_init_subscribe", (msg, ws) => {
     const requestId = typeof msg?.requestId === "string" ? msg.requestId : undefined;
     if (requestId) worktreeInitRegistry.subscribe(requestId, ws);
+    // cwd-keyed fan-out: survives refresh, reaches every tab.
+    // See change: friendlier-worktree-init.
+    const cwd = typeof msg?.cwd === "string" ? msg.cwd : undefined;
+    if (cwd) worktreeInitRegistry.subscribeCwd(cwd, ws);
   });
-  browserGateway.registerHandler("worktree_init_unsubscribe", (msg) => {
+  browserGateway.registerHandler("worktree_init_unsubscribe", (msg, ws) => {
     const requestId = typeof msg?.requestId === "string" ? msg.requestId : undefined;
     if (requestId) worktreeInitRegistry.unsubscribe(requestId);
+    const cwd = typeof msg?.cwd === "string" ? msg.cwd : undefined;
+    if (cwd) worktreeInitRegistry.unsubscribeCwd(cwd, ws);
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });

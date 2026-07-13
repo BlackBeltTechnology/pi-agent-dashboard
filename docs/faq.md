@@ -2403,3 +2403,29 @@ Cross-refs:
 ## Local macOS DMG: the old `macos-alias`/`volume.node` error is gone
 
 Obsolete since change `fix-local-electron-dmg-build`. DMG no longer built by `@electron-forge/maker-dmg`; built by `electron-builder` `dmg` target (uses `hdiutil`, not `macos-alias`). Removed: the `macos-alias`/`volume.node` prerequisite, the `packages/electron` `postinstall` hook (`ensure-macos-alias.mjs`), the darwin build-time gate in `build-installer.sh`, the Doctor `macos-alias native module` row. macOS DMG builds now need only `electron-builder` (already a dependency) + Xcode Command Line Tools for any native rebuild `electron-forge package` triggers.
+
+## What feedback do I get while a worktree initializes?
+
+Worktree-init shows friendly feedback, not raw terminal wall (change: friendlier-worktree-init).
+
+Running: one-line status chip `⚙ Initializing… · {elapsed}` + slim progress bar + last log line as muted ghost preview. Full log opt-in behind collapsed `<details>` (`View log`). No inline `<pre>` block.
+
+Success: green `✓ Initialized` flashes ~2s (`DONE_FLASH_MS=2000`), then feedback collapses. Never silent-vanishes.
+
+Failure: red `✕ Init failed · {code}` chip + `↻ Retry` + opt-in log. Sticky — never auto-dismisses on timer.
+
+Same feedback across all three trigger paths (manual Initialize button, auto-init on spawn, page refresh mid-run). Run state keyed by `cwd` server-side, not ephemeral client requestId.
+
+Auto-init on spawn no longer silent. Failed auto-init now visible + retryable, not silently-broken worktree.
+
+Boot/refresh: client fetches `GET /api/git/worktree/active-inits`, rehydrates correct chip state per cwd. Still-running runs keep streaming. Terminal states within ~60s TTL show done-flash / failed-sticky.
+
+Concurrent runs (N worktrees at once) collapse into one corner stack: header `Initializing N worktrees · M done · K failed` over ≤4 rows (`+N more` overflow). Any failed row holds it open.
+
+Manual control distinguishes label: `needsInit:true` → "Initialize"; `needsInit:false && trusted:false` (hook edited after last trust) → "Review & trust changes" (grants trust without re-running).
+
+Cross-refs:
+- packages/server/src/worktree-init-registry.ts
+- packages/server/src/routes/git-routes.ts
+- packages/client/src/lib/worktree-init-store.ts
+- packages/client/src/components/WorktreeInitChip.tsx

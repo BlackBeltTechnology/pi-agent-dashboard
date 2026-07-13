@@ -56,6 +56,14 @@ export const TESTIDS = {
   // Polymorphic Initialize on a no-hook folder row → spawns the interactive
   // project-init scaffolder. See change: project-init-skill-and-profiles.
   projectInitBtn: "project-init-btn",
+  // Worktree-init hook feedback surfaces (folder row). See change:
+  // friendlier-worktree-init.
+  worktreeInitBtn: "worktree-init-btn",
+  worktreeInitChip: "worktree-init-chip",
+  worktreeInitError: "worktree-init-error",
+  worktreeInitRetry: "worktree-init-retry",
+  worktreeInitLog: "worktree-init-log",
+  worktreeInitGhost: "worktree-init-ghost",
   // Git branch indicator on a session card — renders once the bridge reports
   // session.gitBranch (proves git status read from the repo). Scenario 5.2.
   gitBranchBtn: "git-branch-btn",

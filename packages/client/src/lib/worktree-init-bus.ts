@@ -2,17 +2,17 @@
  * Process-singleton event bus for worktree-init progress events.
  *
  * App.tsx wires the ws message handler to forward `worktree_init_*`
- * messages into the bus; `WorktreeSpawnDialog` (or any future consumer)
- * subscribes by `requestId`. The bus lives outside React state so the
+ * messages into the bus. Consumers subscribe by the run's stable `cwd`
+ * (survives refresh, reaches every tab) — the legacy `requestId` channel
+ * stays for back-compat. The bus lives outside React state so the
  * consumer's `useEffect` can attach a listener once and not rerender on
  * every progress tick.
  *
- * Also exposes a small `send` injection so the dialog can fire the
- * required `worktree_init_subscribe` / `worktree_init_unsubscribe`
- * messages without needing a direct reference to the WebSocket. App.tsx
- * calls `setInitSender(send)` once during boot.
+ * Also exposes a small `send` injection so consumers can fire the required
+ * `worktree_init_subscribe` / `worktree_init_unsubscribe` messages without a
+ * direct WebSocket reference. App.tsx calls `setInitSender(send)` once at boot.
  *
- * See change: generalize-worktree-init-hook.
+ * See change: generalize-worktree-init-hook, friendlier-worktree-init.
  */
 import type {
   BrowserToServerMessage,
@@ -29,6 +29,7 @@ export type WorktreeInitEvent =
 type Listener = (ev: WorktreeInitEvent) => void;
 
 const byRequestId = new Map<string, Set<Listener>>();
+const byCwd = new Map<string, Set<Listener>>();
 let injectedSender: ((msg: BrowserToServerMessage) => void) | null = null;
 
 /** Called from App.tsx after `useWebSocket` returns. */
@@ -38,11 +39,12 @@ export function setInitSender(send: ((msg: BrowserToServerMessage) => void) | nu
 
 /** App.tsx forwards every matching ws message into the bus. */
 export function dispatchInitEvent(ev: WorktreeInitEvent): void {
-  const set = byRequestId.get(ev.requestId);
-  if (!set) return;
-  for (const l of set) {
-    try { l(ev); } catch { /* swallow */ }
-  }
+  const fan = (set: Set<Listener> | undefined) => {
+    if (!set) return;
+    for (const l of set) { try { l(ev); } catch { /* swallow */ } }
+  };
+  if (ev.requestId) fan(byRequestId.get(ev.requestId));
+  if (ev.cwd) fan(byCwd.get(ev.cwd));
 }
 
 /**
@@ -70,8 +72,44 @@ export function subscribeInit(requestId: string, listener: Listener): () => void
   };
 }
 
+/**
+ * Listen for events addressed by the run's stable `cwd`. Sends
+ * `worktree_init_subscribe { cwd }` on first subscribe (so the server delivers
+ * this run's events to this ws even after a refresh) and
+ * `worktree_init_unsubscribe { cwd }` on last unsubscribe.
+ */
+export function subscribeInitByCwd(cwd: string, listener: Listener): () => void {
+  let set = byCwd.get(cwd);
+  if (!set) {
+    set = new Set();
+    byCwd.set(cwd, set);
+    injectedSender?.({ type: "worktree_init_subscribe", cwd });
+  }
+  set.add(listener);
+  return () => {
+    const s = byCwd.get(cwd);
+    if (!s) return;
+    s.delete(listener);
+    if (s.size === 0) {
+      byCwd.delete(cwd);
+      injectedSender?.({ type: "worktree_init_unsubscribe", cwd });
+    }
+  };
+}
+
+/**
+ * Re-send `worktree_init_subscribe { cwd }` for every active cwd listener.
+ * Call after a ws reconnect: the server dropped the old socket's subscriptions
+ * on close, so a still-running run would otherwise stream into the void.
+ * See change: friendlier-worktree-init.
+ */
+export function resendActiveCwdSubscriptions(): void {
+  for (const cwd of byCwd.keys()) injectedSender?.({ type: "worktree_init_subscribe", cwd });
+}
+
 /** Test-only: wipe the bus between cases. */
 export function __resetInitBusForTests(): void {
   byRequestId.clear();
+  byCwd.clear();
   injectedSender = null;
 }

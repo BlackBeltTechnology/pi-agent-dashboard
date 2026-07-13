@@ -10,10 +10,12 @@
  * See change: generalize-worktree-init-hook.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeInitHook } from "../../lib/git-api.js";
+import { initStore } from "../../lib/worktree-init-store.js";
+import { dispatchInitEvent, __resetInitBusForTests } from "../../lib/worktree-init-bus.js";
 import { WorktreeInitButton } from "../WorktreeInitButton.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
@@ -28,7 +30,7 @@ vi.mock("../../lib/git-api.js", async () => {
 
 const hook: WorktreeInitHook = { gate: "test ! -d node_modules", run: { type: "script", command: "npm ci" } };
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); initStore.__resetForTests(); __resetInitBusForTests(); });
 
 describe("WorktreeInitButton", () => {
   it("shows the button when needsInit is true", async () => {
@@ -105,6 +107,55 @@ describe("WorktreeInitButton", () => {
     await waitFor(() => screen.getByTestId("worktree-init-btn"));
     fireEvent.click(screen.getByTestId("worktree-init-btn"));
     await waitFor(() => expect(screen.queryByTestId("worktree-init-btn")).toBeNull());
+  });
+
+  it("running renders a status chip with opt-in log (not a raw <pre>)", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: true });
+    // Keep the run in flight so the chip stays visible.
+    runWorktreeInit.mockReturnValue(new Promise(() => {}));
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    fireEvent.click(screen.getByTestId("worktree-init-btn"));
+    await waitFor(() => screen.getByTestId("worktree-init-chip"));
+    // Stream a progress line by the run's cwd (survives refresh / cross-tab).
+    act(() => dispatchInitEvent({ type: "worktree_init_progress", requestId: "", cwd: "/repo", line: "$ npm ci\nadded 412 packages" }));
+    await waitFor(() => expect(screen.getByTestId("worktree-init-ghost").textContent).toContain("added 412 packages"));
+    // Full log is opt-in behind a collapsed disclosure, not an inline pre.
+    expect(screen.getByTestId("worktree-init-log").hasAttribute("open")).toBe(false);
+    expect(screen.queryByTestId("worktree-init-tail")).toBeNull();
+  });
+
+  it("failure chip is sticky + retryable and re-runs on Retry", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: true });
+    runWorktreeInit
+      .mockResolvedValueOnce({ ok: false, code: "init_failed", error: "boom", stderr: "trace tail" })
+      .mockReturnValueOnce(new Promise(() => {}));
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    fireEvent.click(screen.getByTestId("worktree-init-btn"));
+    await waitFor(() => screen.getByTestId("worktree-init-error"));
+    // Retry re-issues the run.
+    fireEvent.click(screen.getByTestId("worktree-init-retry"));
+    await waitFor(() => expect(runWorktreeInit).toHaveBeenCalledTimes(2));
+  });
+
+  it("success flashes a confirmation before collapsing", async () => {
+    fetchWorktreeInitStatus
+      .mockResolvedValueOnce({ hasHook: true, needsInit: true, trusted: true })
+      .mockResolvedValue({ hasHook: true, needsInit: false, trusted: true });
+    runWorktreeInit.mockResolvedValue({ ok: true, ran: true, durationMs: 12 });
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    fireEvent.click(screen.getByTestId("worktree-init-btn"));
+    // Green flash confirms success before the store collapses it.
+    await waitFor(() => expect(screen.getByTestId("worktree-init-chip").textContent).toContain("Initialized"));
+  });
+
+  it("labels the control 'Review & trust changes' when the hook was edited", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: false, trusted: false });
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => screen.getByTestId("worktree-init-btn"));
+    expect(screen.getByTestId("worktree-init-btn").textContent).toContain("Review & trust changes");
   });
 
   // The no-hook / scaffold branch moved to `ProjectInitButton`

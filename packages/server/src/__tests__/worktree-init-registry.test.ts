@@ -90,3 +90,89 @@ describe("createWorktreeInitRegistry", () => {
     expect(reg.size()).toBe(0);
   });
 });
+
+describe("cwd-keyed run tracking", () => {
+  it("registers a running entry on start", () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/x", 1000);
+    const runs = reg.getActiveRuns();
+    expect(runs).toEqual([{ cwd: "/x", phase: "running", startedAt: 1000 }]);
+  });
+
+  it("progress updates lastLine on the running entry", () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/x");
+    reg.progressRun("/x", "installing…", "full\nlog\ntail");
+    expect(reg.getActiveRuns()[0]?.lastLine).toBe("installing…");
+  });
+
+  it("done sets terminal phase and retains within TTL", () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/x");
+    reg.finishRun("/x", "done");
+    expect(reg.getActiveRuns()).toEqual([
+      expect.objectContaining({ cwd: "/x", phase: "done" }),
+    ]);
+  });
+
+  it("failed sets code and terminal phase", () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/x");
+    reg.finishRun("/x", "failed", "script_nonzero_exit");
+    expect(reg.getActiveRuns()[0]).toEqual(
+      expect.objectContaining({ cwd: "/x", phase: "failed", code: "script_nonzero_exit" }),
+    );
+  });
+
+  it("evicts expired terminal entries on read", async () => {
+    const reg = createWorktreeInitRegistry({ terminalTtlMs: 5 });
+    reg.startRun("/x");
+    reg.finishRun("/x", "done");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reg.getActiveRuns()).toEqual([]);
+  });
+
+  it("single run per cwd — start replaces prior state", () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/x", 1);
+    reg.startRun("/x", 2);
+    const runs = reg.getActiveRuns();
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.startedAt).toBe(2);
+  });
+});
+
+describe("cwd-keyed fan-out", () => {
+  it("sendCwd fans out to every subscriber", () => {
+    const reg = createWorktreeInitRegistry();
+    const a = fakeWs(); const b = fakeWs();
+    reg.subscribeCwd("/x", a);
+    reg.subscribeCwd("/x", b);
+    const n = reg.sendCwd("/x", { type: "worktree_init_done", requestId: "", cwd: "/x", durationMs: 0 });
+    expect(n).toBe(2);
+    expect(a.send).toHaveBeenCalledTimes(1);
+    expect(b.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("sendCwd returns 0 for an unknown cwd", () => {
+    const reg = createWorktreeInitRegistry();
+    expect(reg.sendCwd("/nope", { type: "worktree_init_done", requestId: "", cwd: "/nope", durationMs: 0 })).toBe(0);
+  });
+
+  it("drops cwd subscriptions on ws close", () => {
+    const reg = createWorktreeInitRegistry();
+    const ws = fakeWs();
+    reg.subscribeCwd("/x", ws);
+    ws._emit("close");
+    expect(reg.sendCwd("/x", { type: "worktree_init_done", requestId: "", cwd: "/x", durationMs: 0 })).toBe(0);
+  });
+
+  it("unsubscribeCwd removes a single subscriber", () => {
+    const reg = createWorktreeInitRegistry();
+    const a = fakeWs(); const b = fakeWs();
+    reg.subscribeCwd("/x", a);
+    reg.subscribeCwd("/x", b);
+    reg.unsubscribeCwd("/x", a);
+    expect(reg.sendCwd("/x", { type: "worktree_init_done", requestId: "", cwd: "/x", durationMs: 0 })).toBe(1);
+  });
+});

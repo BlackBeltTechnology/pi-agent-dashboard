@@ -1,0 +1,9 @@
+{
+  "worktreeInit": {
+    "gate": "test ! -f .initialized",
+    "run": {
+      "type": "script",
+      "command": "echo 'resolving dependencies…'; sleep 5; echo 'linking packages…'; touch .initialized; echo 'done'"
+    }
+  }
+}

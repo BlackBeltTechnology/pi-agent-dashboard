@@ -44,13 +44,18 @@ if [ -d /fixtures-src ] && [ -d /fixtures ]; then
   cp -a /fixtures-src/. /fixtures/ 2>/dev/null || true
   export GIT_AUTHOR_NAME="pi-test" GIT_AUTHOR_EMAIL="pi-test@localhost"
   export GIT_COMMITTER_NAME="pi-test" GIT_COMMITTER_EMAIL="pi-test@localhost"
-  if [ -d /fixtures/sample-git ] && ! [ -d /fixtures/sample-git/.git ]; then
-    ( cd /fixtures/sample-git \
-      && git init -q \
-      && git add -A \
-      && git commit -q -m "initial fixture commit" ) \
-      && echo "[test-entrypoint] git fixture ready: /fixtures/sample-git"
-  fi
+  # git-init the baked VCS fixtures (sample-git + the worktree-init hook
+  # fixtures for change friendlier-worktree-init). Each becomes a real repo so
+  # init-status resolves its declared `.pi/settings.json#worktreeInit` hook.
+  for fx in sample-git sample-hook-ok sample-hook-fail; do
+    if [ -d "/fixtures/${fx}" ] && ! [ -d "/fixtures/${fx}/.git" ]; then
+      ( cd "/fixtures/${fx}" \
+        && git init -q \
+        && git add -A \
+        && git commit -q -m "initial fixture commit" ) \
+        && echo "[test-entrypoint] git fixture ready: /fixtures/${fx}"
+    fi
+  done
 fi
 
 # --- 1c. E2E credential + network seed (gated; BEFORE base entrypoint) ------

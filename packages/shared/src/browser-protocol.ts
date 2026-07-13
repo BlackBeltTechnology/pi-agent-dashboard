@@ -2,36 +2,36 @@
  * Server ↔ Browser WebSocket protocol messages.
  */
 import type {
-  PluginIntentsMessage,
   PluginActionMessage,
   PluginEventBroadcast,
+  PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { EditorInstanceStatus } from "./editor-types.js";
+import type { TerminalSession } from "./terminal-types.js";
 import type {
-  DashboardSession,
-  DashboardEvent,
   CommandInfo,
-  FlowInfo,
-  ImageContent,
+  DashboardEvent,
+  DashboardSession,
+  DecoratorDescriptor,
+  ExtensionUiModule,
   FileEntry,
+  FlowInfo,
+  GoalRecord,
+  ImageContent,
+  ModelInfo,
   OpenSpecData,
   OpenSpecGroup,
-  GoalRecord,
-  ModelInfo,
   PiSessionInfo,
-  ExtensionUiModule,
-  DecoratorDescriptor,
 } from "./types.js";
-import type { TerminalSession } from "./terminal-types.js";
-import type { EditorInstanceStatus } from "./editor-types.js";
-import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
 // consumers import from one place. See change: redesign-ask-user-question-cards.
 export type {
-  InteractiveMethod,
-  BatchQuestion,
   BatchAnswer,
+  BatchQuestion,
   BatchResult,
+  InteractiveMethod,
 } from "./protocol.js";
 
 // ── Configurable chat display ───────────────────────────────────────
@@ -1547,12 +1547,33 @@ export interface WatchFilesBrowserMessage {
  */
 export interface WorktreeInitSubscribeMessage {
   type: "worktree_init_subscribe";
-  requestId: string;
+  /** Legacy per-click correlation key. */
+  requestId?: string;
+  /**
+   * Stable per-checkout key. Subscribing by `cwd` survives refresh and reaches
+   * every tab; used by the manual button, auto-on-spawn, and boot rehydration.
+   * See change: friendlier-worktree-init.
+   */
+  cwd?: string;
 }
 
 /** Drops the subscription if the dialog is cancelled or completes. */
 export interface WorktreeInitUnsubscribeMessage {
   type: "worktree_init_unsubscribe";
-  requestId: string;
+  requestId?: string;
+  cwd?: string;
+}
+
+/**
+ * One active worktree-init run in the server's cwd-keyed registry, as returned
+ * by `GET /api/git/worktree/active-inits`. See change: friendlier-worktree-init.
+ */
+export interface ActiveWorktreeInit {
+  cwd: string;
+  phase: "running" | "done" | "failed";
+  startedAt: number;
+  lastLine?: string;
+  /** Failure classifier (phase `failed` only). */
+  code?: string;
 }
 

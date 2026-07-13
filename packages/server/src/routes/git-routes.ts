@@ -58,6 +58,20 @@ export interface GitRoutesDeps {
 const GATE_CACHE_TTL_MS = 30 * 1000;
 const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>();
 function invalidateGateCache(checkoutPath: string) { gateCache.delete(checkoutPath); }
+
+/**
+ * Last non-empty line of the progress tail, for the ghost preview. The tail is
+ * the most recent <= 4KB of combined output; the chip shows only its final line.
+ * See change: friendlier-worktree-init.
+ */
+function lastLineOf(tail: string): string {
+  const lines = tail.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]?.trim();
+    if (line) return line;
+  }
+  return "";
+}
 async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook): Promise<GateResult> {
   const hit = gateCache.get(checkoutPath);
   if (hit && Date.now() - hit.evaluatedAt < GATE_CACHE_TTL_MS) return { needsInit: hit.needsInit };
@@ -215,6 +229,20 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
     },
   );
 
+  // ── Active worktree-inits (change: friendlier-worktree-init) ────────────
+  //
+  // Boot rehydration: returns the cwd-keyed registry's running entries plus
+  // any terminal entries still within their retention TTL. Empty when no
+  // registry is wired (progress streaming disabled).
+  fastify.get(
+    "/api/git/worktree/active-inits",
+    { preHandler: networkGuard },
+    async () => {
+      const runs = worktreeInitRegistry?.getActiveRuns() ?? [];
+      return { success: true, data: { runs } } satisfies ApiResponse;
+    },
+  );
+
   // ── Worktree init run (change: generalize-worktree-init-hook) ──────────
   //
   // Runs the declared hook for a checkout. TOFU-gated: an untrusted hook
@@ -261,23 +289,41 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
         return { success: false, code: "init_untrusted", data: { hook, hash } } satisfies ApiResponse;
       }
+      // Re-trust case: the hook was edited (invalidating trust) but the gate is
+      // already satisfied (`needsInit === false`). Granting trust should clear
+      // the control WITHOUT re-running the hook. See change:
+      // friendlier-worktree-init (folder-action-bar spec).
+      const preGate = await evaluateGateCached(validated.cwd, hook);
+      if (!preGate.needsInit) {
+        return { success: true, data: { ran: false, skippedReason: "already_initialized" } } satisfies ApiResponse;
+      }
       const requestId = typeof body.requestId === "string" && body.requestId.length > 0 ? body.requestId : undefined;
       const cwd = validated.cwd;
+      // Fan out to the legacy per-click requestId subscriber (if any) AND to
+      // every cwd-keyed subscriber (refresh / second tab / auto-init).
+      // See change: friendlier-worktree-init.
       const sendIf = (msg: any) => {
-        if (requestId && worktreeInitRegistry) worktreeInitRegistry.send(requestId, msg);
+        if (worktreeInitRegistry) {
+          if (requestId) worktreeInitRegistry.send(requestId, msg);
+          worktreeInitRegistry.sendCwd(cwd, msg);
+        }
       };
+      worktreeInitRegistry?.startRun(cwd);
       const onProgress = (p: InitProgress) => {
+        worktreeInitRegistry?.progressRun(cwd, lastLineOf(p.line), p.line);
         sendIf({ type: "worktree_init_progress", requestId: requestId ?? "", cwd, line: p.line });
       };
       invalidateGateCache(cwd);
       const runResult = await runInitHook(cwd, hook, onProgress);
       invalidateGateCache(cwd);
       if (runResult.ok) {
+        worktreeInitRegistry?.finishRun(cwd, "done");
         sendIf({ type: "worktree_init_done", requestId: requestId ?? "", cwd, durationMs: runResult.durationMs });
         return { success: true, data: { ran: true, durationMs: runResult.durationMs } } satisfies ApiResponse;
       }
       const stderr = runResult.stderr ?? "";
       const hint = mapInitStderrToHint(stderr) ?? `init failed (${runResult.code ?? "unknown"})`;
+      worktreeInitRegistry?.finishRun(cwd, "failed", runResult.code ?? "init_failed");
       sendIf({ type: "worktree_init_failed", requestId: requestId ?? "", cwd, code: runResult.code ?? "init_failed", message: hint, stderr });
       reply.code(500);
       return { success: false, code: "init_failed", error: hint, stderr } satisfies ApiResponse;
