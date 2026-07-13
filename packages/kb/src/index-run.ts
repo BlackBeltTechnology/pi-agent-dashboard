@@ -30,10 +30,13 @@ export interface RunIndexAtomicOpts {
 }
 
 /** True if `pid` names a live process (existence probe via signal 0). EPERM =
- *  alive but not ours; ESRCH = dead. */
+ *  alive but not ours; ESRCH = dead. kb is self-contained (no pi-dashboard-shared
+ *  dep, same as `sources.ts`), so it probes with a raw signal-0 send rather than
+ *  the shared platform helper — signal 0 is a read-only liveness check, never a
+ *  termination (see the ban-opt-out marker below). */
 function isProcessAlive(pid: number): boolean {
   try {
-    process.kill(pid, 0);
+    process.kill(pid, 0); // ban:process-kill-ok kb self-contained; signal 0 = liveness probe only
     return true;
   } catch (e) {
     return (e as NodeJS.ErrnoException)?.code === "EPERM";
