@@ -10,22 +10,26 @@ actions as reviewable in-chat confirmations are missing:
    inline-placed component, an `ask_user` confirmation either has no dedicated
    renderer or — if it lands with a widget-bar placement — is suppressed from the
    chat transcript by `flow-question-routing`.
-2. The plugin forwards `flow:*` lifecycle events to the browser but **not the
-   invoicebot domain events** (`ib:*`, e.g. approval-requested / approval-decided).
-   A client cannot render a live approval request without them.
+2. The bridge's EventBus catch-all forwards every session-bus channel to the
+   browser, so `ib:*` domain events (approval-requested / approval-decided) DO
+   reach the browser — but only as their raw channel name, with **no stable,
+   renamed protocol type** (unlike `flow:*`, which are renamed via a map). A
+   client has no fixed name to subscribe to.
 
-This change registers the inline consent components and adds an invoicebot
-domain-event bridge, so a subscribed client can render each consent confirmation
-in the conversation and react to approval requests live.
+This change gives the consumed `ib:*` events a stable renamed protocol type and
+codifies (with tests) that consent `ask_user` prompts render inline in the
+transcript, so a subscribed client can render each consent confirmation in the
+conversation and react to approval requests live.
 
 ## What Changes
 
-- Register **inline interactive components** for the consent surfaces, each with
-  a generic-dialog (inline) placement so it renders in the chat transcript and is
-  not suppressed by widget-bar routing.
-- Add an **invoicebot domain-event bridge** that forwards `ib:*` events from the
-  session bus to the browser as protocol events (mirroring the existing `flow:*`
-  event wiring), preserving each event's payload verbatim.
+- Add a **stable rename** (`IB_EVENT_MAP`) for the consumed `ib:*` domain events
+  (`ib:approval-requested` → `ib_approval_requested`, `ib:approval-decided` →
+  `ib_approval_decided`), merged into the bridge's rename map so they forward
+  under a fixed protocol type with payload preserved (mirroring `FLOW_EVENT_MAP`).
+- Codify (with tests) that consent `ask_user` prompts resolve to an **inline**
+  placement — the prompt-bus default — so they render in the transcript and are
+  not claimed as widget-bar (which `flow-question-routing` suppresses).
 - Ensure the forwarded `flow:*` events carry the `flowName` discriminator the
   client uses to distinguish flows (already present on `flow_started`), so a
   consumer can filter domain-specific runs.

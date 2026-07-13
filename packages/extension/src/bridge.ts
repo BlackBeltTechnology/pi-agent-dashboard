@@ -47,7 +47,7 @@ import { flipHasUI } from "./hasui-flip.js";
 import { runGitPollTick } from "./git-poll.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
 import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
-import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
+import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP, IB_EVENT_MAP } from "./flow-event-wiring.js";
 import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
@@ -1318,8 +1318,8 @@ function initBridge(pi: ExtensionAPI) {
   // - session change (new/fork/resume): handled inside session_start via event.reason
   // - `session_shutdown`: dedicated handler → disconnect/cleanup
 
-  // Unified EventBus rename map for the emit intercept (flow + subagent events)
-  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
+  // Unified EventBus rename map for the emit intercept (flow + subagent + ib domain events)
+  const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP, ...IB_EVENT_MAP };
 
   for (const eventType of enrichedEventTypes) {
     pi.on(eventType as any, safe(async (event: any, ctx: any) => {

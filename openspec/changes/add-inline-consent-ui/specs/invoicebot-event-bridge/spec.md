@@ -1,23 +1,26 @@
 ## ADDED Requirements
 
-### Requirement: Invoicebot domain events are forwarded to the browser
+### Requirement: Invoicebot domain events reach the browser with stable names
 
-The plugin SHALL forward invoicebot domain events (`ib:*`) emitted on the session
-bus to the browser as protocol events, mirroring the existing flow-event
-forwarding. At minimum `ib:approval-requested` and `ib:approval-decided` SHALL be
-forwarded, with each event's payload preserved verbatim.
+InvoiceBot domain events (`ib:*`) emitted on the session event bus SHALL be
+forwarded to the browser by the event bridge with their payload preserved.
+The consumed domain events SHALL carry a stable, renamed protocol type via a
+rename map (mirroring the flow-event rename), so a client can subscribe to a
+fixed name. At minimum `ib:approval-requested` and `ib:approval-decided` SHALL be
+renamed and forwarded.
 
-#### Scenario: Approval-requested reaches the browser
+#### Scenario: Approval-requested reaches the browser with a stable name
 
 - **WHEN** `ib:approval-requested` is emitted on a subscribed session's bus
-- **THEN** a corresponding protocol event SHALL be delivered to the browser
+- **THEN** a protocol event SHALL be forwarded to the browser
+- **AND** its type SHALL be the stable renamed type `ib_approval_requested`
 - **AND** its payload (invoice, approver set, active approver, reference,
-  summary) SHALL be preserved verbatim
+  summary) SHALL be preserved
 
-#### Scenario: Approval-decided reaches the browser
+#### Scenario: Approval-decided reaches the browser with a stable name
 
 - **WHEN** `ib:approval-decided` is emitted on a subscribed session's bus
-- **THEN** a corresponding protocol event SHALL be delivered to the browser with
+- **THEN** a protocol event of type `ib_approval_decided` SHALL be forwarded with
   its payload preserved
 
 #### Scenario: No subscriber is a no-op

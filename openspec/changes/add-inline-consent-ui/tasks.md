@@ -1,26 +1,24 @@
-## 1. Register inline consent components
+## 1. Stable names for invoicebot domain events
 
-- [ ] 1.1 Register the consent component family (kinds: rule-activation, rule-archive, approval-request, repair, config, handoff), each with a generic-dialog (inline) placement.
-- [ ] 1.2 Confirm the answer contract for each kind: accept/decline (and, for approval-request, a reason on reject) round-trips via the existing prompt-response path.
-- [ ] 1.3 Verify none of the consent kinds resolves to a widget-bar placement (so `flow-question-routing` does not suppress them from chat).
+- [x] 1.1 Add `IB_EVENT_MAP` in `flow-event-wiring.ts` mapping `ib:approval-requested` → `ib_approval_requested` and `ib:approval-decided` → `ib_approval_decided`.
+- [x] 1.2 Merge `IB_EVENT_MAP` into the bridge's `EVENT_BUS_MAP` so the EventBus catch-all renames these channels (payload preserved; other `ib:*` still pass through as-is).
 
-## 2. Invoicebot domain-event bridge
+## 2. Consent prompts are inline (verify, don't widget-bar)
 
-- [ ] 2.1 Add `IB_EVENT_MAP` alongside `FLOW_EVENT_MAP`, mapping `ib:approval-requested` and `ib:approval-decided` to browser protocol events.
-- [ ] 2.2 Register the `ib:*` listeners on session start (mirroring the flow-event listener registration); forward each event's `data` verbatim via the payload catch-all.
-- [ ] 2.3 Keep it headless-safe: no subscriber ⇒ no-op; no error when nothing is listening.
+- [x] 2.1 Confirm a consent `ask_user` prompt not claimed by a widget-bar adapter resolves to inline placement (prompt-bus default), so it renders in the transcript.
+- [x] 2.2 Confirm no widget-bar adapter claims the consent prompts (they are not `flow-question`/`architect-prompt`), so `flow-question-routing` does not suppress them.
 
 ## 3. Flow discriminator
 
-- [ ] 3.1 Assert the forwarded `flow_started` protocol event carries `data.flowName` so a consumer can filter runs by flow.
+- [x] 3.1 Assert the forwarded `flow_started` carries `data.flowName` so a consumer can filter runs by flow.
 
 ## 4. Tests (faux/offline gate)
 
-- [ ] 4.1 Assert each consent component kind is registered with an inline (generic-dialog) placement, not widget-bar.
-- [ ] 4.2 Assert `ib:approval-requested` / `ib:approval-decided` emitted on the session bus are forwarded to the browser with payload preserved.
-- [ ] 4.3 Assert `flow_started` forwarding preserves `flowName`.
-- [ ] 4.4 Run the plugin faux gate (fixtures, zero-network) and the build green.
+- [x] 4.1 Assert `ib:approval-requested` / `ib:approval-decided` emitted on the bus forward via the catch-all with the renamed protocol type and payload preserved.
+- [x] 4.2 Assert an unclaimed consent-style prompt resolves to inline placement.
+- [x] 4.3 Assert `flow_started` forwarding preserves `flowName`.
+- [x] 4.4 Run the extension/plugin test gate and the build green.
 
 ## 5. Docs
 
-- [ ] 5.1 Document the consent component family and the `ib:*` event bridge in the plugin README/architecture notes.
+- [x] 5.1 Document the `ib:*` stable-name forwarding and the inline-by-default consent placement in the plugin README / architecture notes.

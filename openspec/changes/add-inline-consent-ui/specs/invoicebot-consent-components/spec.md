@@ -1,39 +1,38 @@
 ## ADDED Requirements
 
-### Requirement: Consent surfaces are registered as inline interactive components
+### Requirement: Consent prompts resolve to an inline placement
 
-The plugin SHALL register a family of interactive components for the invoicebot
-consent surfaces, keyed by kind: `rule-activation`, `rule-archive`,
-`approval-request`, `repair`, `config`, and `handoff`. Each SHALL be registered
-with a generic-dialog (inline) placement so it renders in the chat transcript.
+A consent confirmation raised via `ask_user` SHALL resolve to an inline
+placement so it renders in the chat transcript, and SHALL NOT be claimed as a
+widget-bar prompt (which `flow-question-routing` suppresses from the transcript).
+This covers the consequential actions: rule activation, rule archive, invoice
+approve/reject, repair, config apply, and handoff.
 
-#### Scenario: Consent component renders in the transcript
+#### Scenario: An unclaimed consent prompt is inline
 
-- **GIVEN** an `ask_user` prompt whose component type is one of the registered
-  consent kinds
-- **WHEN** the chat transcript renders
-- **THEN** the prompt SHALL produce an inline interactive card in the transcript
+- **GIVEN** an `ask_user` consent prompt not claimed by a widget-bar adapter
+- **WHEN** the prompt bus resolves its placement
+- **THEN** the resolved placement SHALL be inline
 
-#### Scenario: Consent component is never widget-bar placed
+#### Scenario: Consent prompts are never widget-bar claimed
 
-- **WHEN** any consent component kind is registered
-- **THEN** its placement SHALL be generic-dialog (inline)
-- **AND** it SHALL NOT resolve to a widget-bar placement (which would be
-  suppressed from the chat transcript)
+- **WHEN** a consent prompt for any consequential action is raised
+- **THEN** no adapter SHALL claim it with a widget-bar placement
+- **AND** it SHALL therefore render in the chat transcript
 
-### Requirement: Consent components round-trip an accept/decline answer
+### Requirement: Consent prompts round-trip an accept/decline answer
 
-Each consent component SHALL accept an operator answer of accept or decline over
-the existing prompt-response path; the `approval-request` kind SHALL additionally
-carry a reason when the answer is a rejection.
+A consent prompt SHALL round-trip an operator answer of accept or decline over
+the existing prompt-response path; a rejection SHALL carry a reason when the
+action captures one (invoice reject, approval reject).
 
 #### Scenario: Accept and decline are delivered
 
-- **WHEN** the operator accepts or declines a consent component
+- **WHEN** the operator accepts or declines a consent prompt
 - **THEN** the answer SHALL be delivered to the session via the prompt-response
   path
 
 #### Scenario: Rejection carries a reason
 
-- **WHEN** the operator rejects an `approval-request` component
+- **WHEN** the operator rejects a consent prompt that captures a reason
 - **THEN** the delivered answer SHALL include the reason
