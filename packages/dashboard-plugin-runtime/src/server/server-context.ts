@@ -107,6 +107,14 @@ export interface PluginSpawnOptions {
    */
   sandbox?: "read-only" | "workspace-write" | "full-access";
   /**
+   * Mark this spawn as guarded (built-in tools disabled + tool-call cwd guard).
+   * The host also registers the spawn's `cwd` as guarded, so subsequent
+   * client-spawned sessions in the same workspace (e.g. the "Ask"/Kérdezz
+   * session on the generic spawn path) are guarded too. Opt-in per plugin.
+   * See change: constrain-agent-tool-surface.
+   */
+  guard?: boolean;
+  /**
    * When set, the spawned session is stamped `kind="automation"` +
    * `automationRun` once it registers (the server queues the stamp keyed
    * by cwd and applies it on `session_register`). `visibility` carries the

@@ -1,5 +1,28 @@
 ## ADDED Requirements
 
+### Requirement: Every invoice-bot-spawned session is guarded
+
+Every pi session spawned via the invoice bot SHALL be guarded — built-in tools
+disabled AND the tool-call working-directory containment guard applied —
+regardless of which spawn path created it. A session SHALL be treated as
+invoice-bot-spawned when EITHER it is spawned by the invoice plugin (origin) OR
+it runs in a working directory the invoice plugin registered as guarded. This
+union SHALL cover the per-invoice main sessions, the persistent "Ask" (Kérdezz)
+session, and any other session the invoice bot spawns.
+
+#### Scenario: Plugin-originated spawn is guarded regardless of cwd registration
+
+- **WHEN** the invoice plugin spawns a session
+- **THEN** that session SHALL be guarded even if its working directory was not
+  separately registered
+
+#### Scenario: Every invoice-bot session type is covered
+
+- **WHEN** a per-invoice main session, the persistent "Ask" (Kérdezz) session, or
+  any other invoice-bot-spawned session starts
+- **THEN** it SHALL run with built-in tools disabled and the tool-call cwd guard
+  applied
+
 ### Requirement: Guarded working directories are registered
 
 The system SHALL maintain a set of guarded working directories. A first-party
@@ -14,10 +37,10 @@ subject to any tool or sandbox restriction.
 - **THEN** that working directory SHALL be recorded as guarded for the lifetime
   of the plugin
 
-#### Scenario: Unregistered directory is unrestricted
+#### Scenario: Unrelated session is unrestricted
 
-- **WHEN** a session is spawned in a working directory that is not registered as
-  guarded
+- **WHEN** a session is spawned that is neither invoice-bot-originated nor in a
+  registered guarded working directory
 - **THEN** the session SHALL receive the default tool surface with no built-in
   tools disabled and no containment guard applied
 
@@ -51,29 +74,35 @@ outside the workspace.
 - **THEN** the action SHALL be impossible because no built-in tool capable of it
   exists in the session
 
-### Requirement: Policy is keyed on working directory, not spawn path
+### Requirement: Policy is keyed on invoice-bot origin or guarded cwd, not spawn path
 
-The tool and sandbox restriction SHALL be applied based on whether the spawn's
-working directory is guarded, independent of which spawn path initiated it
-(plugin spawn hook or generic client spawn). Any session spawned into a guarded
-working directory SHALL receive the restriction.
+The restriction SHALL be applied based on whether the session is invoice-bot-
+spawned — by plugin origin OR by running in a guarded working directory — never
+left to a particular spawn path to opt in. Any session meeting either condition
+SHALL receive the restriction, whether it was created by the plugin spawn hook or
+the generic client spawn path.
 
 #### Scenario: Same policy across both spawn paths
 
-- **WHEN** a session is spawned into a guarded working directory via either the
-  plugin spawn hook or the generic client spawn path
-- **THEN** both spawned sessions SHALL run with built-in tools disabled
+- **WHEN** an invoice-bot session is created via either the plugin spawn hook or
+  the generic client spawn path (plugin origin, or a guarded cwd)
+- **THEN** both spawned sessions SHALL run with built-in tools disabled and the
+  tool-call cwd guard applied
 
-### Requirement: A tool-call guard contains remaining tool calls to the working directory
+### Requirement: An extensible guard policy supports tool-call folder containment
 
-A guarded-directory session SHALL load a tool-call guard at spawn that, before a
-tool executes, rejects any tool call whose filesystem path argument resolves
-(after symlink resolution) outside the guarded working directory. Because
-built-in tools are disabled and no general-purpose shell/exec tool is present,
-every filesystem access flows through a tool call the guard inspects, so this
-guard SHALL be an authoritative working-directory boundary without any OS-level
-isolation runtime. The guard SHALL normalize path separators and drive-letter
-case before the compare so it holds on Windows.
+The guard SHALL be expressed as an extensible policy so further constraints
+(folder scoping, per-tool denials, and future rules) can be added without
+changing any spawn call site. The enforced baseline for every guarded session is
+built-in tools disabled. When a folder policy is configured, the session SHALL
+additionally load a tool-call guard that, before a tool executes, rejects any
+tool call whose filesystem path argument resolves (after symlink resolution)
+outside the allowed roots, and blocks any denied tool. Because built-in tools are
+disabled and no general-purpose shell/exec tool is present, every filesystem
+access flows through a tool call the guard can inspect, so when active the guard
+SHALL be an authoritative working-directory boundary with no OS-level isolation
+runtime. Path comparison SHALL normalize separators and drive-letter case so it
+holds on Windows.
 
 #### Scenario: Path-taking tool call outside the working directory is blocked
 

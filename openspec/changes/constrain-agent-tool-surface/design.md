@@ -59,17 +59,25 @@ extension/custom tool without naming any, so the policy does not drift when the
 considered:** an explicit `--tools` allowlist owned by the plugin — rejected as
 brittle and duplicative of engine-owned tool names.
 
-### D2 — Key the policy on the working directory, applied inside `spawnPiSession`
+### D2 — Guard by invoice-bot origin OR guarded cwd, applied inside `spawnPiSession`
 
-Enforcement lives at the single choke point both spawn paths share
-(`spawnPiSession`). The invoice plugin registers its workspace working
-directory(ies) as *guarded*; `spawnPiSession` consults that registry and, for a
-guarded working directory, injects `--no-builtin-tools`. Keying on the working
-directory — not on the spawn path — is what lets the client-spawned "Ask"
-session be restricted with no UI change. **Alternative considered:** thread an
-explicit flag through each spawn path and require the front-end to opt the "Ask"
-session in — rejected because it drags the UI into a security policy and leaves
-the generic path as a bypass.
+Goal: **every** session the invoice bot spawns is guarded. Enforcement lives at
+the single choke point all spawns share (`spawnPiSession`), which guards a
+session when EITHER condition holds:
+- **origin** — the spawn is invoice-bot-originated (the plugin marks its own
+  spawns as guarded), so a plugin spawn is guarded even in an unregistered cwd;
+- **cwd** — the spawn's working directory is one the invoice plugin registered as
+  guarded (covers the client-spawned "Ask"/Kérdezz session, which goes through
+  the generic path where the host cannot see plugin origin).
+
+For a guarded session `spawnPiSession` injects `--no-builtin-tools` + the
+tool-call cwd guard. The union of origin ∪ cwd guarantees the per-invoice main
+sessions, the Kérdezz session, and any other invoice-bot spawn are all covered,
+with no UI change. **Alternative considered:** cwd-only — rejected because a
+plugin spawn into an unregistered cwd would slip through; origin closes that.
+**Alternative considered:** require the front-end to opt the "Ask" session in —
+rejected because it drags the UI into a security policy and leaves the generic
+path as a bypass.
 
 > Note: cwd is a legitimate basis for a *policy* decision here. The documented
 > "never correlate by cwd" footgun concerns matching a spawn back to a specific

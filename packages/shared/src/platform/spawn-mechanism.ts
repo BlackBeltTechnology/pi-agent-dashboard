@@ -112,23 +112,45 @@ export interface SessionFlags {
    * See change: add-automation-plugin.
    */
   model?: string;
+  /**
+   * Disable pi's built-in tools (keeps extension/custom tools). Emits
+   * `--no-builtin-tools`. Set by the session-guard for guarded sessions.
+   * See change: constrain-agent-tool-surface.
+   */
+  noBuiltinTools?: boolean;
+  /**
+   * Extra pi extensions to load; each emits `-e <path>`. Used to attach the
+   * tool-call containment guard to guarded sessions.
+   * See change: constrain-agent-tool-surface.
+   */
+  loadExtensions?: string[];
 }
 
 /**
- * Return `["--session", file]` or `["--fork", file]` or `[]`.
- * Every mechanism MUST use this to append flags; dropping them silently
- * is the exact bug that motivated this change (B1, B2).
+ * Return `["--session", file]` or `["--fork", file]` or `[]`, always followed
+ * by any guard flags (`--no-builtin-tools`, `-e <ext>`). Every mechanism MUST
+ * use this to append flags; dropping them silently is the exact bug that
+ * motivated this change (B1, B2).
  */
 export function sessionFlagsToArgv(flags: SessionFlags): string[] {
+  const guard = guardFlagsToArgv(flags);
   if (flags.sessionFile && flags.mode === "continue") {
-    return ["--session", flags.sessionFile];
+    return ["--session", flags.sessionFile, ...guard];
   }
   if (flags.sessionFile && flags.mode === "fork") {
-    return ["--fork", flags.sessionFile, ...modelFlag(flags)];
+    return ["--fork", flags.sessionFile, ...modelFlag(flags), ...guard];
   }
-  return [...modelFlag(flags)];
+  return [...modelFlag(flags), ...guard];
 }
 
 function modelFlag(flags: SessionFlags): string[] {
   return flags.model ? ["--model", flags.model] : [];
+}
+
+/** Guard flags shared by every spawn mechanism (headless/tmux/wt). */
+function guardFlagsToArgv(flags: SessionFlags): string[] {
+  const out: string[] = [];
+  if (flags.noBuiltinTools) out.push("--no-builtin-tools");
+  for (const ext of flags.loadExtensions ?? []) out.push("-e", ext);
+  return out;
 }
