@@ -17,18 +17,19 @@
  * automations ~1 s after boot is operationally negligible.
  */
 const ENGINE_INIT_DELAY_MS = 1000;
+
 import os from "node:os";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { AutomationScope, Visibility } from "../shared/automation-types.js";
-import { mountAutomationRoutes } from "./routes.js";
-import type { Engine } from "./engine.js";
 import {
-  type ActionRegistry,
-  coreActionContributions,
-  collectActionRegistry,
   ACTION_CONTRIBUTION_PREFIX,
+  type ActionRegistry,
+  collectActionRegistry,
+  coreActionContributions,
 } from "./action-registry.js";
+import type { Engine } from "./engine.js";
+import { mountAutomationRoutes } from "./routes.js";
 
 const PLUGIN_ID = "automation";
 
@@ -147,7 +148,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 
   const engine = createEngine({
     spawnSession: (opts) => ctx.spawnSession(opts),
-    abortAutomationRun: (args) => ctx.abortAutomationRun(args),
+    abortSpawnedRun: (args) => ctx.abortSpawnedRun(args),
     resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
     listScopes,
     config: pluginConfig,

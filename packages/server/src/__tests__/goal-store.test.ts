@@ -7,10 +7,11 @@
  *
  * See change: add-goals-folder-page (task 1.1).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs/promises";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createGoalStore, GoalNotFoundError, type GoalStore } from "../goal-store.js";
 
 describe("goal-store", () => {
@@ -250,6 +251,101 @@ describe("goal-store", () => {
       expect(g.judge).toEqual({ provider: "p", modelId: "m" });
       const u = await store.update(cwdA, g.id, { judge: { provider: "p2", modelId: "m2", sameModel: true } });
       expect(u.judge).toEqual({ provider: "p2", modelId: "m2", sameModel: true });
+    });
+  });
+
+  // ── add-goal-session-supervisor (Phase 1) ──────────────────────────
+  describe("supervisor fields", () => {
+    it("seeds autoRespawn from create body; absent stays off", async () => {
+      const on = await store.create(cwdA, { objective: "o", autoRespawn: true });
+      expect(on.autoRespawn).toBe(true);
+      const off = await store.create(cwdA, { objective: "o2" });
+      expect(off.autoRespawn).toBeUndefined();
+    });
+
+    it("loads a legacy record (no supervisor fields) unchanged", async () => {
+      // Hand-write a pre-change GoalsFile.
+      const legacy = {
+        schemaVersion: 1,
+        goals: [
+          {
+            id: "legacy-1",
+            cwd: cwdA,
+            objective: "old",
+            criteria: [],
+            status: "pursuing",
+            sessionIds: ["s1"],
+            driverSessionId: "s1",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      };
+      const { createHash } = await import("node:crypto");
+      const hash = createHash("sha256").update(cwdA).digest("hex").slice(0, 12);
+      await fs.writeFile(path.join(dataDir, `${hash}.json`), JSON.stringify(legacy));
+      const fresh = createGoalStore({ dataDir });
+      const [g] = await fresh.list(cwdA);
+      expect(g!.id).toBe("legacy-1");
+      expect(g!.autoRespawn).toBeUndefined();
+      expect(g!.respawns).toBeUndefined();
+      fresh.dispose();
+    });
+
+    it("recordRespawn appends FIFO-capped", async () => {
+      const g = await store.create(cwdA, { objective: "o" });
+      for (let i = 0; i < 60; i++) {
+        await store.recordRespawn(cwdA, g.id, { at: i, sessionId: `s${i}`, reason: "resume", madeProgress: false });
+      }
+      const [rec] = await store.list(cwdA);
+      expect(rec!.respawns!.length).toBe(50);
+      // Oldest dropped: first retained is the 11th (at=10).
+      expect(rec!.respawns![0]!.at).toBe(10);
+      expect(rec!.respawns![49]!.at).toBe(59);
+    });
+
+    it("replaceDriver swaps driver even when one is already set", async () => {
+      const g = await store.create(cwdA, { objective: "o" });
+      await store.linkSession(cwdA, g.id, "driver-1");
+      const r = await store.replaceDriver(cwdA, g.id, "driver-2");
+      expect(r.driverSessionId).toBe("driver-2");
+      expect(r.sessionIds).toContain("driver-1");
+      expect(r.sessionIds).toContain("driver-2");
+    });
+
+    it("setStatus writes status + reason", async () => {
+      const g = await store.create(cwdA, { objective: "o" });
+      const r = await store.setStatus(cwdA, g.id, "failed", "crash loop");
+      expect(r.status).toBe("failed");
+      expect(r.statusReason).toBe("crash loop");
+    });
+
+    it("finalize bumps generation, sets terminal status, clears in-flight spawn", async () => {
+      const g = await store.create(cwdA, { objective: "o" });
+      await store.setInFlightSpawn(cwdA, g.id, { spawnToken: "tok", generation: 0, startedAt: 1 });
+      const r = await store.finalize(cwdA, g.id, { status: "cleared", statusReason: "cleared by user", clearInFlightSpawn: true });
+      expect(r.status).toBe("cleared");
+      expect(r.generation).toBe(1);
+      expect(r.inFlightSpawn).toBeUndefined();
+      // A second finalize bumps again (idempotent-safe monotonic).
+      const r2 = await store.finalize(cwdA, g.id, { status: "cleared" });
+      expect(r2.generation).toBe(2);
+    });
+
+    it("setInFlightSpawn sets then clears", async () => {
+      const g = await store.create(cwdA, { objective: "o" });
+      const set = await store.setInFlightSpawn(cwdA, g.id, { spawnToken: "t", generation: 3, startedAt: 9 });
+      expect(set.inFlightSpawn).toEqual({ spawnToken: "t", generation: 3, startedAt: 9 });
+      const cleared = await store.setInFlightSpawn(cwdA, g.id, null);
+      expect(cleared.inFlightSpawn).toBeUndefined();
+    });
+
+    it("listAll enumerates goals across folder files", async () => {
+      await store.create(cwdA, { objective: "a" });
+      await store.create(cwdB, { objective: "b1" });
+      await store.create(cwdB, { objective: "b2" });
+      const all = await store.listAll();
+      expect(all.map((g) => g.objective).sort()).toEqual(["a", "b1", "b2"]);
     });
   });
 

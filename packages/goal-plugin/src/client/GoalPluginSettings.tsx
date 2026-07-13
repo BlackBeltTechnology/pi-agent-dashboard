@@ -7,9 +7,12 @@
  *
  * See change: add-goal-continuation-plugin.
  */
-import React from "react";
+import type React from "react";
+import { useState } from "react";
+import { getAutoRespawnDefault, setAutoRespawnDefault } from "./goal-settings.js";
 
 export function GoalPluginSettings(): React.ReactElement {
+  const [autoRespawn, setAutoRespawn] = useState<boolean>(() => getAutoRespawnDefault());
   return (
     <div className="text-[13px] text-[var(--text-secondary)] space-y-2">
       <p>
@@ -21,6 +24,24 @@ export function GoalPluginSettings(): React.ReactElement {
         Install the extension into pi to activate. Set or control a goal from a
         session using <code className="font-mono text-[12px]">/goal &lt;objective&gt;</code>.
       </p>
+      <label className="flex items-center gap-2 pt-1" data-testid="goal-settings-auto-respawn-default">
+        <input
+          type="checkbox"
+          checked={autoRespawn}
+          onChange={(e) => {
+            setAutoRespawn(e.target.checked);
+            setAutoRespawnDefault(e.target.checked);
+          }}
+        />
+        <span>
+          Auto-respawn new goals by default
+          <span className="block text-[11px] text-[var(--text-muted)]">
+            When a goal&apos;s driver session dies, the dashboard respawns it to keep
+            pursuing — bounded by the turn budget and a crash-loop breaker. Off by
+            default; each goal can override.
+          </span>
+        </span>
+      </label>
     </div>
   );
 }

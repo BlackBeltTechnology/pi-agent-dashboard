@@ -140,19 +140,22 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
 export type AbortSessionFn = (sessionId: string) => boolean;
 
 /**
- * Terminate an automation run's spawned session. Gated to first-party /
- * trusted plugins (same trust gate as `spawnSession`/`abortSession`):
- * untrusted plugins receive a hook that resolves `false` without touching
- * the process registry.
+ * Terminate a plugin-spawned driver session (generic kill primitive shared by
+ * automation runs AND goal-supervisor respawns). Renamed from
+ * `abortAutomationRun` — the primitive is not automation-specific; goal is a
+ * second caller. Gated to first-party / trusted plugins (same trust gate as
+ * `spawnSession`/`abortSession`): untrusted plugins receive a hook that
+ * resolves `false` without touching the process registry.
  *
  * `graceful: true` sends a clean-exit `{type:"shutdown"}` hint to a live
  * session AND escalates via the host kill ladder (the hint is dropped when
  * the bridge WS is not OPEN, so the kill is the guarantee). Otherwise it
  * hard-kills: by `sessionId` when linked, falling back to `spawnToken` for a
  * run spawned but not yet registered. Returns `true` when a live process was
- * targeted. See change: fix-automation-stop-zombie-runs.
+ * targeted. See change: fix-automation-stop-zombie-runs (as `abortAutomationRun`),
+ * add-goal-session-supervisor (rename to `abortSpawnedRun`).
  */
-export type AbortAutomationRunFn = (args: {
+export type AbortSpawnedRunFn = (args: {
   sessionId?: string;
   spawnToken?: string;
   graceful?: boolean;
@@ -223,7 +226,7 @@ export interface ServerPluginContext {
    * Gated to first-party/trusted plugins; untrusted plugins get a hook that
    * resolves `false`. See change: fix-automation-stop-zombie-runs.
    */
-  abortAutomationRun: AbortAutomationRunFn;
+  abortSpawnedRun: AbortSpawnedRunFn;
   /**
    * Publish a value other plugins can consume. See change:
    * register-plugin-automation-events.
@@ -258,7 +261,7 @@ export interface ServerContextDeps {
   emitEventToSession: EmitEventToSessionFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
-  abortAutomationRun: AbortAutomationRunFn;
+  abortSpawnedRun: AbortSpawnedRunFn;
   provide: ProvideFn;
   consume: ConsumeFn;
   consumeAll: ConsumeAllFn;
@@ -288,7 +291,7 @@ export function createServerPluginContext(
     emitEventToSession: deps.emitEventToSession,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
-    abortAutomationRun: deps.abortAutomationRun,
+    abortSpawnedRun: deps.abortSpawnedRun,
     provide: deps.provide,
     consume: deps.consume,
     consumeAll: deps.consumeAll,

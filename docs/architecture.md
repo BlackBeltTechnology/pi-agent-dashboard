@@ -467,6 +467,24 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
 
+#### Goal Session Supervisor (`add-goal-session-supervisor`)
+
+Goal feature = session supervisor over host's existing session-lifecycle mechanism. Clean split: host owns mechanism (spawn + spawn-token correlation via `linkByToken` + death signal via `dispatchPluginSessionEnded`/`sessionManager.onUnregister` + kill via `abortSpawnedRun` + resume via `spawnPiSession` continue-mode). Goal plugin/server adds pursuit policy only.
+
+Supervisor lives in main server: `packages/server/src/goal-supervisor.ts`. NOT the goal plugin — plugin cannot reach `GoalStore`. Rides existing death fanout.
+
+- Policy: progress-gated auto-respawn. Progress = strict cumulative `totalTurnsUsed` increase past per-driver baseline.
+- Died-after-progress → resume conversation (continue-mode).
+- K=2 consecutive no-progress resume-deaths → fresh re-primed spawn (poisoned session).
+- Crash-loop breaker: 3 no-progress deaths in rolling 5 min → `GoalRecord.status = "failed"` ("crash loop").
+- Backoff exponential 5s→15s→45s. Progress resets counters.
+- Runaway-spend bounds: opt-in `autoRespawn` (default off, per-goal); cumulative turn budget (respawns cannot reset it); crash-loop breaker; backoff; headless-unavailable disables auto-respawn.
+- Correlation: goal-driver spawn stamps `goalId` onto headless-pid registry entry keyed to spawn token (strong `linkByToken` path). Replaces legacy per-cwd FIFO as primary link.
+- Abort ordering: clear/pause/delete finalize record (bump `generation` + write terminal status in one store write) BEFORE host kill, so death from that kill is no-op. Generation-guarded timers/spawns.
+- Server restarts: no quiesce queue. Boot-time reconcile (deferred ~30s past reconnect grace window) classifies any pursuing/respawning goal whose driver did not re-register.
+- `GoalRecordStatus` gains `respawning` (visible, non-terminal, no live driver) and `failed`.
+- See change: add-goal-session-supervisor.
+
 ### Automation Plugin (`add-automation-plugin`)
 
 Automation plugin = `packages/automation-plugin/`. Schedule-triggered background runs.

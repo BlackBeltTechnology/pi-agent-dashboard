@@ -12,20 +12,24 @@
  * extension stays source of truth for live loop state (associated by
  * `goalId`). See change: add-goals-folder-page (design.md Q1).
  */
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
+
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
-  GOALS_SCHEMA_VERSION,
+  GOAL_RESPAWNS_CAP,
   GOAL_VERDICTS_CAP,
+  GOALS_SCHEMA_VERSION,
+  type GoalBudget,
+  type GoalCriterion,
+  type GoalInFlightSpawn,
+  type GoalJudge,
   type GoalRecord,
   type GoalRecordStatus,
-  type GoalCriterion,
-  type GoalBudget,
-  type GoalJudge,
-  type GoalVerdict,
+  type GoalRespawn,
   type GoalsFile,
+  type GoalVerdict,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 // ── Errors ───────────────────────────────────────────────────────
@@ -46,6 +50,8 @@ export interface GoalCreateBody {
   criteria?: GoalCriterion[];
   budget?: GoalBudget;
   judge?: GoalJudge;
+  /** Seed value for the new goal's `autoRespawn` (from `autoRespawnDefault`). */
+  autoRespawn?: boolean;
 }
 
 export interface GoalUpdateBody {
@@ -55,6 +61,18 @@ export interface GoalUpdateBody {
   budget?: GoalBudget;
   judge?: GoalJudge;
   driverSessionId?: string;
+  autoRespawn?: boolean;
+}
+
+/** Atomic clear/pause finalize used by the supervisor's abort path. Bumps
+ *  `generation` and writes the terminal status + reason in ONE store write so
+ *  the death handler (which re-reads) sees the terminal state before deciding
+ *  to respawn. See change: add-goal-session-supervisor (S6/C2h). */
+export interface GoalFinalizeBody {
+  status: GoalRecordStatus;
+  statusReason?: string;
+  /** Clear the in-flight spawn record (terminal states have no pending spawn). */
+  clearInFlightSpawn?: boolean;
 }
 
 /** Semantic patch the projector hands to `GoalStore.applyStatus`. The store
@@ -91,6 +109,27 @@ export interface GoalStore {
   unlinkSession(cwd: string, id: string, sessionId: string): Promise<GoalRecord>;
   /** Append a judge verdict to a goal (FIFO-capped at GOAL_VERDICTS_CAP). */
   appendVerdict(cwd: string, id: string, verdict: GoalVerdict): Promise<GoalRecord>;
+  /** Enumerate every persisted goal across all folder files. Used by boot-time
+   *  reconcile. Best-effort: unreadable/malformed files are skipped.
+   *  See change: add-goal-session-supervisor (C2b). */
+  listAll(): Promise<GoalRecord[]>;
+  /** Replace the driver session: swaps `driverSessionId`, adds the new id to
+   *  `sessionIds`. Unlike `linkSession` this sets the driver even when one is
+   *  already set (the dead driver). See change: add-goal-session-supervisor (S5). */
+  replaceDriver(cwd: string, id: string, newSessionId: string): Promise<GoalRecord>;
+  /** Append a respawn attempt (FIFO-capped at GOAL_RESPAWNS_CAP). The breaker +
+   *  poison counters derive from this array. See change: add-goal-session-supervisor. */
+  recordRespawn(cwd: string, id: string, respawn: GoalRespawn): Promise<GoalRecord>;
+  /** Set durable status + optional reason (e.g. `failed`/`paused`).
+   *  See change: add-goal-session-supervisor. */
+  setStatus(cwd: string, id: string, status: GoalRecordStatus, reason?: string): Promise<GoalRecord>;
+  /** Atomic abort finalize: bump `generation`, write terminal status + reason
+   *  (+ optionally clear the in-flight spawn) in ONE write. Returns the updated
+   *  record incl. the new `generation`. See change: add-goal-session-supervisor (S6/C2h). */
+  finalize(cwd: string, id: string, body: GoalFinalizeBody): Promise<GoalRecord>;
+  /** Set (or clear, when `spawn` is null) the persisted in-flight respawn.
+   *  See change: add-goal-session-supervisor (C2b/C2d). */
+  setInFlightSpawn(cwd: string, id: string, spawn: GoalInFlightSpawn | null): Promise<GoalRecord>;
   /** Project a live `goal_status` snapshot onto durable status + turn fields.
    *  `turnsDelta` (non-negative) is ADDED to the cumulative `totalTurnsUsed`;
    *  `lastProgressAt` is stamped only when `progressed`. See change:
@@ -216,6 +255,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
         status: "pursuing",
         ...(body.budget !== undefined ? { budget: body.budget } : {}),
         ...(body.judge !== undefined ? { judge: body.judge } : {}),
+        ...(body.autoRespawn ? { autoRespawn: true } : {}),
         sessionIds: [],
         createdAt: now,
         updatedAt: now,
@@ -239,6 +279,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
         ...(body.budget !== undefined ? { budget: body.budget } : {}),
         ...(body.judge !== undefined ? { judge: body.judge } : {}),
         ...(body.driverSessionId !== undefined ? { driverSessionId: body.driverSessionId } : {}),
+        ...(body.autoRespawn !== undefined ? { autoRespawn: body.autoRespawn } : {}),
         updatedAt: Date.now(),
       };
       const next: GoalsFile = {
@@ -310,6 +351,126 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     });
   }
 
+  async function listAll(): Promise<GoalRecord[]> {
+    let files: string[];
+    try {
+      files = (await fs.readdir(dataDir)).filter((f) => f.endsWith(".json") && !f.endsWith(".tmp"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+      throw err;
+    }
+    const out: GoalRecord[] = [];
+    for (const f of files) {
+      try {
+        const raw = await fs.readFile(path.join(dataDir, f), "utf-8");
+        const parsed = JSON.parse(raw) as GoalsFile;
+        if (parsed && Array.isArray(parsed.goals)) {
+          for (const g of parsed.goals) out.push({ ...g });
+        }
+      } catch {
+        // Skip unreadable/malformed folder files — reconcile is best-effort.
+      }
+    }
+    return out;
+  }
+
+  async function replaceDriver(cwd: string, id: string, newSessionId: string): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const sessionIds = target.sessionIds.includes(newSessionId)
+        ? target.sessionIds
+        : [...target.sessionIds, newSessionId];
+      const updated: GoalRecord = {
+        ...target,
+        sessionIds,
+        driverSessionId: newSessionId,
+        // Capture the progress baseline for the incoming driver so the
+        // supervisor can classify its eventual death as progress vs not.
+        currentDriverBaselineTurns: target.totalTurnsUsed ?? 0,
+        updatedAt: Date.now(),
+      };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
+  async function recordRespawn(cwd: string, id: string, respawn: GoalRespawn): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const respawns = [...(target.respawns ?? []), respawn].slice(-GOAL_RESPAWNS_CAP);
+      const updated: GoalRecord = { ...target, respawns, updatedAt: Date.now() };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
+  async function setStatus(
+    cwd: string,
+    id: string,
+    status: GoalRecordStatus,
+    reason?: string,
+  ): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const updated: GoalRecord = {
+        ...target,
+        status,
+        ...(reason !== undefined ? { statusReason: reason } : {}),
+        updatedAt: Date.now(),
+      };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
+  async function finalize(cwd: string, id: string, body: GoalFinalizeBody): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const updated: GoalRecord = {
+        ...target,
+        status: body.status,
+        ...(body.statusReason !== undefined ? { statusReason: body.statusReason } : {}),
+        generation: (target.generation ?? 0) + 1,
+        ...(body.clearInFlightSpawn ? { inFlightSpawn: undefined } : {}),
+        updatedAt: Date.now(),
+      };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
+  async function setInFlightSpawn(
+    cwd: string,
+    id: string,
+    spawn: GoalInFlightSpawn | null,
+  ): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const updated: GoalRecord = {
+        ...target,
+        inFlightSpawn: spawn ?? undefined,
+        updatedAt: Date.now(),
+      };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
   async function applyStatus(
     cwd: string,
     id: string,
@@ -356,6 +517,12 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     linkSession,
     unlinkSession,
     appendVerdict,
+    listAll,
+    replaceDriver,
+    recordRespawn,
+    setStatus,
+    finalize,
+    setInFlightSpawn,
     applyStatus,
     subscribe,
     dispose,

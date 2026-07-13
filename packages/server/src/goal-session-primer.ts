@@ -40,6 +40,44 @@ export function goalSessionTitle(goal: Pick<GoalRecord, "objective">): string {
   return oneLine(goal.objective).slice(0, 80);
 }
 
+/** Max verdict notes folded into a fresh-respawn re-prime summary. */
+const REPRIME_VERDICTS = 8;
+
+/**
+ * Build the fresh-respawn re-prime CONTEXT the supervisor sends alongside the
+ * `/goal <objective>` kickoff after a poisoned session is replaced by a fresh
+ * driver. Carries the objective, criteria, and a bounded tail of the persisted
+ * verdict history so the new driver resumes with the dashboard's accumulated
+ * context (nothing already persisted is lost). Returns "" when there is no
+ * useful context to send. See change: add-goal-session-supervisor (S11).
+ */
+export function buildGoalReprime(
+  goal: Pick<GoalRecord, "objective"> & Partial<Pick<GoalRecord, "criteria" | "verdicts" | "totalTurnsUsed" | "budget">>,
+): string {
+  const objective = oneLine(goal.objective);
+  if (!objective) return "";
+  const lines: string[] = [];
+  lines.push(`Resuming goal after a fresh restart. Objective: ${objective}`);
+  const criteria = (goal.criteria ?? []).map((c) => oneLine(c.text)).filter(Boolean);
+  if (criteria.length > 0) {
+    lines.push("Success criteria:");
+    for (const c of criteria) lines.push(`- ${c}`);
+  }
+  const verdicts = (goal.verdicts ?? []).slice(-REPRIME_VERDICTS);
+  if (verdicts.length > 0) {
+    lines.push("Recent judge verdicts (oldest first):");
+    for (const v of verdicts) {
+      const note = oneLine(v.note);
+      lines.push(`- turn ${v.turn}: ${v.verdict}${note ? ` — ${note}` : ""}`);
+    }
+  }
+  if (typeof goal.totalTurnsUsed === "number" && goal.totalTurnsUsed > 0) {
+    const cap = goal.budget?.maxTurns;
+    lines.push(`Turns used so far: ${goal.totalTurnsUsed}${cap ? ` / ${cap}` : ""}.`);
+  }
+  return lines.join("\n");
+}
+
 export interface GoalPrimerDeps {
   /** Dispatch a prompt line into the session (RPC `send_prompt`). */
   sendPrompt: (sessionId: string, text: string) => void;

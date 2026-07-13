@@ -8,22 +8,28 @@
  *
  * See change: add-goals-folder-page (tasks 4.1, 4.2). Mockup screen B.
  */
-import React, { useMemo, useState } from "react";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiChevronRight, mdiChevronDown, mdiTrashCanOutline } from "@mdi/js";
+
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalRecord, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useGoals, statusMeta } from "./useGoals.js";
-import { deleteGoal, decodeFolderPath, goalDetailUrl } from "./goals-api.js";
-import { deriveSnapshot } from "./goal-state.js";
+import { mdiArrowLeft, mdiChevronDown, mdiChevronRight, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
+import { deriveSnapshot } from "./goal-state.js";
+import { decodeFolderPath, deleteGoal, goalDetailUrl } from "./goals-api.js";
+import { statusMeta, useGoals } from "./useGoals.js";
 
 const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
   { id: "all", label: "All" },
   { id: "pursuing", label: "Pursuing" },
+  { id: "respawning", label: "Respawning" },
   { id: "paused", label: "Paused" },
   { id: "achieved", label: "Achieved" },
+  // Terminal supervisor verdict (crash-loop breaker). See change:
+  // add-goal-session-supervisor.
+  { id: "failed", label: "Failed" },
 ];
 
 /** Small circular turn-progress ring for the driver session (task 5.3). */
