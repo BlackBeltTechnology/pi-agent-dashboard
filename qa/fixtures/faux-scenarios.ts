@@ -163,6 +163,38 @@ function lastToolResultText(context: FauxContext): string {
   return "(no answer)";
 }
 
+/**
+ * Deterministic marker prefix for the `tool-list-models` scenario (change:
+ * fix-list-models-empty-on-unhydrated-registry). Step 1 executes the REAL bridge
+ * `list_models` tool against the faux-populated session registry; step 2 reads
+ * the tool result out of context and echoes the readiness discriminator as plain
+ * assistant text the e2e asserts. `faux/faux-1` (registered via
+ * `pi.registerProvider`) guarantees a hydrated, non-empty catalogue — so this is
+ * the live end-to-end proof of the `registryReady: true` / populated path (V.2).
+ */
+export const LIST_MODELS_MARKER_PREFIX = "list-models registryReady=";
+
+/**
+ * Read the `list_models` tool result out of context and render the readiness
+ * discriminator as a single deterministic line. Pure; parse-safe (a malformed
+ * or absent result yields `parse-error`, never a throw). Mirrors the
+ * `ask-select-roundtrip` factory that reads `lastToolResultText(context)`.
+ */
+export function summarizeListModelsResult(context: FauxContext): string {
+  const raw = lastToolResultText(context);
+  try {
+    const parsed = JSON.parse(raw) as {
+      registryReady?: unknown;
+      models?: Array<{ ref?: string }>;
+    };
+    const models = Array.isArray(parsed.models) ? parsed.models : [];
+    const hasFaux = models.some((m) => m?.ref === "faux/faux-1");
+    return `${LIST_MODELS_MARKER_PREFIX}${String(parsed.registryReady)} count=${models.length} hasFaux=${hasFaux}`;
+  } catch {
+    return `${LIST_MODELS_MARKER_PREFIX}parse-error count=-1 hasFaux=false`;
+  }
+}
+
 /** Build a single-tool-call scenario for the client renderer matrix. */
 function toolScenario(
   name: string,
@@ -561,6 +593,24 @@ export const SCENARIOS: Record<string, Scenario> = {
     prompt: "Locate all faux provider references.",
   }),
   "tool-unknown": toolScenario("some_unknown_tool", { foo: "bar" }),
+
+  // Registry-readiness discriminator, live (change:
+  // fix-list-models-empty-on-unhydrated-registry). Step 1 executes the REAL
+  // bridge `list_models` tool against the faux-populated session registry
+  // (`faux/faux-1` is registered via pi.registerProvider, so getAvailable() is
+  // non-empty). Step 2 reads the tool result back out of context and echoes the
+  // discriminator (`registryReady`, model count, `faux/faux-1` presence) as
+  // plain text — a robust marker the e2e asserts without touching tool-card
+  // collapse/virtualization. Proves the steady-state `registryReady: true` +
+  // populated catalogue path (V.2); the absent-registry race (V.3) stays
+  // unit-proven (role-model-tools-registry-readiness.test.ts case A).
+  "tool-list-models": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(summarizeListModelsResult(context))]),
+    ],
+    expect: { text: LIST_MODELS_MARKER_PREFIX },
+  },
 
   // Temporal burst: three DISTINCT bash calls in a row (heterogeneous, so the
   // semantic ×N pass never merges them) with the LAST one slow, so a window
