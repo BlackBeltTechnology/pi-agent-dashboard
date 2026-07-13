@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Tags — Filter in action</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Session Tags — Filter in action</h1>
+  <p class="sub">How selected chips narrow the list. Resolves Open Decision #2 (OR within tags, AND across axes).</p>
+  <div class="navlinks">
+    <a href="index.html">Overview</a>
+    <a href="card-states.html">Card states</a>
+    <a class="here">Filter in action</a>
+  </div>
+
+  <h2>Composition rule</h2>
+  <p class="note"><code>(#feature OR #bugfix)</code> &nbsp;AND&nbsp; folder-filter &nbsp;AND&nbsp; session-search &nbsp;AND&nbsp; Active-only. Tags OR internally (widen); each other axis ANDs (narrow).</p>
+
+  <div class="cols">
+    <!-- LEFT: sidebar with selection -->
+    <div>
+      <div class="stage">
+        <div class="stage-cap">Sidebar — <strong>#feature</strong> and <strong>#bugfix</strong> selected</div>
+        <div class="sidebar" style="max-width:none;">
+          <div class="sb-row">
+            <input class="sb-input" placeholder="Folder…" value="~/proj/api" />
+            <input class="sb-input" placeholder="Session…" />
+          </div>
+          <label class="sb-toggle"><input type="checkbox" checked /> Active only</label>
+          <div class="sb-group-label">Your tags · OR</div>
+          <div class="chips">
+            <span class="chip user c-blue filter sel">#feature</span>
+            <span class="chip user c-rose filter sel">#bugfix</span>
+            <span class="chip user c-green filter">#docs</span>
+            <span class="chip user c-violet filter">#backend</span>
+          </div>
+          <div class="sb-group-label">Phase (read-only)</div>
+          <div class="chips">
+            <span class="chip exec filter">proposal</span>
+            <span class="chip exec filter">apply</span>
+            <span class="chip exec filter">verify</span>
+          </div>
+        </div>
+      </div>
+      <div class="arrow">↓ filters</div>
+      <p class="note" style="text-align:center;">3 of 7 sessions match</p>
+    </div>
+
+    <!-- RIGHT: resulting list -->
+    <div>
+      <div class="stage">
+        <div class="stage-cap">Result — matching sessions (active, in ~/proj/api, tagged #feature or #bugfix)</div>
+
+        <div class="card sel-card" style="margin-bottom:10px;">
+          <div class="card-head"><span class="card-title">add auth middleware</span><span class="card-status streaming">streaming</span></div>
+          <div class="card-tags chips" style="margin-top:8px;padding-top:8px;">
+            <span class="chip user c-blue sel">#feature</span><span class="chip user c-violet">#backend</span><span class="chip exec">apply <span class="lock">🔒</span></span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:10px;">
+          <div class="card-head"><span class="card-title">fix flaky login test</span><span class="card-status idle">idle</span></div>
+          <div class="card-tags chips" style="margin-top:8px;padding-top:8px;">
+            <span class="chip user c-rose sel">#bugfix</span><span class="chip user c-amber">#flaky</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:0;">
+          <div class="card-head"><span class="card-title">feature-flag rollout</span><span class="card-status idle">idle</span></div>
+          <div class="card-tags chips" style="margin-top:8px;padding-top:8px;">
+            <span class="chip user c-blue sel">#feature</span><span class="chip user c-orange">#ops</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow" style="opacity:.4;">↓ filtered out</div>
+      <div class="stage" style="opacity:.45;">
+        <div class="stage-cap">Hidden — wrong folder, ended, or untagged</div>
+        <div class="chips" style="font-size:11px;color:var(--text-muted);">
+          <span>· docs sweep <span class="chip user c-green">#docs</span></span>
+          <span>· billing migrate (ended)</span>
+          <span>· scratch (untagged)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Empty & clear states</h2>
+  <p class="note">No chips selected → tag axis is inert (shows all). One click on a selected chip deselects it; a "clear tags" affordance appears only while ≥1 tag is active. Selecting a chip that matches zero sessions shows an inline "0 match" rather than an empty list with no explanation.</p>
+</div>
+</body>
+</html>

@@ -53,7 +53,10 @@ Electron/native client can paste it directly.
 ### Requirement: Short-lived one-time pairing code
 The pairing code SHALL expire within a short TTL (~60 seconds), SHALL be
 redeemable at most once, and redemption attempts SHALL be rate-limited. The code
-SHALL NOT itself be the durable credential.
+SHALL NOT itself be the durable credential. A successful redemption SHALL restart
+the code's TTL from the moment of redemption, so the operator-approval window
+begins when the device presents itself rather than at payload mint — a payload
+left on screen SHALL NOT shorten the window a redeeming device receives.
 
 #### Scenario: Code redeemed within TTL
 - **WHEN** a device redeems a valid unexpired code
@@ -62,6 +65,11 @@ SHALL NOT itself be the durable credential.
 #### Scenario: Expired or reused code rejected
 - **WHEN** a device presents an expired or already-redeemed code
 - **THEN** the server rejects the redemption and issues no token
+
+#### Scenario: Redemption restarts the approval window
+- **WHEN** a device redeems a code near the end of the original mint TTL
+- **THEN** the code's expiry SHALL restart from the redemption instant
+- **AND** the device and operator SHALL retain a full short TTL to complete approval before the code expires
 
 ### Requirement: Compare-code approval; code consumed on approval, not redemption
 Redeeming a valid code SHALL create a PENDING device whose token is unusable until
@@ -77,7 +85,9 @@ and approval-prompt flooding. The confirmation code SHALL have enough entropy to
 resist brute-force within its short validity window. Approval SHALL be ACTIVE: the
 user TYPES the code shown on the physical device into the dashboard — not a
 one-click approve of a pushed prompt. Repeated invalid redemptions SHALL be
-rate-limited and locked out.
+rate-limited and locked out. Approval SHALL be rejected if the pairing code has
+expired, and this check SHALL hold independently of any lazy sweep, so the server
+remains the sole authority on code validity even when no `poll`/mint has run.
 
 #### Scenario: Premature redemption does not lock out the user
 - **WHEN** an attacker redeems a shoulder-surfed code before the intended device
@@ -99,6 +109,11 @@ rate-limited and locked out.
 - **WHEN** the user approves a device
 - **THEN** they must type the code displayed on the physical pairing device, so a passively-pushed attacker request cannot be approved by habituated clicking
 
+#### Scenario: Approval of an expired code rejected
+- **WHEN** the operator submits the correct confirmation code after the pairing code has expired
+- **THEN** the server SHALL reject the approval with an expired error and pair no device
+- **AND** the rejection SHALL hold even if no intervening sweep has removed the entry
+
 ### Requirement: Versioned pairing handshake
 The pairing payload and handshake SHALL carry a protocol version `v`, and the
 server SHALL retain backward-compatible pairing routes so an independently
@@ -109,7 +124,7 @@ released client can pair using the highest mutually supported version.
 - **THEN** the handshake completes using version 1
 
 ### Requirement: Operator-side pairing view renders the payload
-The dashboard web client SHALL provide an operator-side pairing view that, on open, calls `GET /api/pair/payload` and renders the returned `{ v, id, code, urls[] }` payload BOTH as a scannable QR code AND as a copyable base64url string. The view SHALL display the server fingerprint `id`, a countdown reflecting the one-time code TTL (~60s), and the list of `urls[]` currently advertised.
+The dashboard web client SHALL provide an operator-side pairing view that, on open, calls `GET /api/pair/payload` and renders the returned `{ v, id, code, urls[] }` payload BOTH as a scannable QR code AND as a copyable base64url string. The view SHALL display the server fingerprint `id`, a countdown reflecting the one-time code TTL (~60s), and the list of `urls[]` currently advertised. The countdown SHALL be ADVISORY: it SHALL NOT disable the approval action when it reaches zero, because a redeeming device restarts the code's TTL server-side and the server is the sole authority on validity (it rejects a truly-expired code at approval time).
 
 This closes the gap where the existing "pairing view" scenarios in this capability had no web-client implementation: `GET /api/pair/payload` shipped with zero callers.
 
@@ -138,6 +153,11 @@ Before this change, `/api/pair/approve` had no web-client caller, so an operator
 #### Scenario: Wrong confirm code rejected
 - **WHEN** the operator types a non-matching confirmation code
 - **THEN** the approval SHALL fail and the view SHALL show an error without pairing the device
+
+#### Scenario: Advisory countdown does not gate approval
+- **WHEN** the operator-view TTL countdown reaches zero
+- **THEN** the Approve control SHALL remain usable
+- **AND** submitting SHALL defer the validity decision to the server, which pairs the device when the code is still valid or returns an expired error when it has lapsed
 
 ### Requirement: Non-tunnel endpoint entry via the UI without hand-editing JSON
 

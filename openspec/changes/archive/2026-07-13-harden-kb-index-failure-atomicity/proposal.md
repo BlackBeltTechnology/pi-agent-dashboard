@@ -30,17 +30,21 @@ semantically empty** — over-trust of a file-existence sentinel.
 ## What Changes
 
 - **`kb index` is atomic and self-cleaning on failure (root-cause fix).** The index run
-  SHALL NOT leave a committed DB file when it fails before completing. Either write to a
-  temp DB and `rename()` into place only on success, or delete the freshly-created DB on
-  a failure exit. A file at `dbPath` then means "a successful index ran" — restoring the
-  existence-gate's truth for every caller, not just this repo.
-- **Missing source dirs degrade, not abort.** A configured source whose directory does
-  not exist SHALL be skipped with a warning, not throw `ENOENT` mid-walk. A partial
-  source set still produces a valid index of the sources that do exist.
-- **Worktree-init gate coherence.** Document (and, in the project hook, apply) that a
-  kb-index sentinel MUST reflect index *content*, not mere file presence — an empty index
-  is `needsInit: true`. Preferred: rely on the atomic-write guarantee so `test -f
-  index.db` is trustworthy again; alternatively probe a non-empty index.
+  SHALL NOT leave a committed DB file when it fails before completing. **Single strategy**
+  (see design.md D1), branching on whether `dbPath` exists: a *first* index writes to a temp
+  DB (`<dbPath>.tmp-<pid>`) and `rename()`s into place only on success; an *incremental* run
+  over an existing valid DB indexes in place. A create-track → `close()`+`unlink()`-on-failure
+  variant is **rejected** — that cleanup is dead code under OOM/SIGKILL and would leave the
+  husk. A file at `dbPath` then means "a successful index ran" — restoring the existence-gate's
+  truth for every caller.
+- **Missing source dirs: config-source degrades, explicit `--source` errors (design.md D3).**
+  A *config-declared* source whose directory does not exist SHALL be skipped with a warning,
+  not throw `ENOENT` mid-walk; a partial set still produces a valid index of the sources that
+  exist. A missing *explicit `--source` arg* is a user typo and SHALL still error.
+- **Worktree-init gate coherence.** Rely on the atomic-write guarantee (D1) so
+  `test ! -f index.db` is trustworthy again (file present ⟺ a successful index ran). Do NOT
+  probe emptiness: a source set with no markdown yields a *valid* 0-chunk DB, so an
+  "empty = needsInit" content probe would re-fire forever on such a repo (design.md D2).
 
 ## Capabilities
 
@@ -55,11 +59,11 @@ semantically empty** — over-trust of a file-existence sentinel.
 
 ## Impact
 
-- **Scope**: `packages/kb/src/cli.ts` (atomic open/rename or cleanup-on-failure around the
-  index run) + `packages/kb/src/indexer.ts` (skip missing source dir instead of throwing) +
-  `packages/kb/src/sqlite-store.ts` (support temp-path open / close-and-unlink) +
-  `.pi/settings.json` `worktreeInit.gate` (only if the doc route, not atomic-write, is
-  chosen). ~60–120 LOC + tests.
+- **Scope**: `packages/kb/src/cli.ts` (branch-on-existence atomic open/rename around the index
+  run) + `packages/kb/src/indexer.ts` (config-source skip vs explicit-`--source` error) +
+  `packages/kb/src/sqlite-store.ts` (temp-path open + checkpoint/close/rename finalize; orphan
+  sweep). **No `.pi/settings.json` change** — the existing `test ! -f index.db` gate is kept
+  (design.md D2). ~60–120 LOC + tests.
 - **Runtime**: unchanged happy path. Failure path now leaves no artifact.
 - **User-visible**: a failed/interrupted `worktree init` no longer bricks `kb_search` for
   that checkout; re-running init recovers it.
@@ -71,7 +75,8 @@ semantically empty** — over-trust of a file-existence sentinel.
   removed worktrees (see Non-Goals); a one-shot prune is optional and out of scope.
 - **Compatibility**: `--force` semantics unchanged; incremental content-hash indexing
   unchanged. Atomic write is transparent to callers.
-- **Rollback**: revert the cli/indexer changes; the gate reverts to `test ! -f index.db`.
+- **Rollback**: revert the cli/indexer/store changes; the gate is unchanged (`test ! -f
+  index.db`), so nothing to revert there.
 
 ## Non-Goals
 

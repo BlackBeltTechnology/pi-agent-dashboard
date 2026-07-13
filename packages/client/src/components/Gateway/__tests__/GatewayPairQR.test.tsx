@@ -1,5 +1,5 @@
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Only the pairing payload / approve calls are mocked; endpoints are injected
@@ -113,6 +113,33 @@ describe("GatewayPairQR — single-QR network selector", () => {
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
     expect(screen.getByTestId("gateway-pair-confirm-input")).toBeDefined();
     expect(screen.getByTestId("gateway-pair-approve-btn")).toBeDefined();
+  });
+
+  it("1.7 approve stays enabled after the mint countdown lapses (server is the authority)", async () => {
+    vi.useFakeTimers();
+    try {
+      getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
+      approvePairing.mockResolvedValue({ id: "d1", label: "iPhone", createdAt: 0, lastSeen: 0 });
+      render(<GatewayPairQR endpoints={MIXED_EPS} />);
+      // Flush the mocked async load, then tick past the 60s mint-anchored countdown.
+      await act(async () => {});
+      await act(async () => {
+        vi.advanceTimersByTime(61_000);
+      });
+      // Header now shows the advisory "code expired"...
+      expect(screen.getByText(/code expired/i)).toBeDefined();
+      // ...but the Approve action must NOT be disabled by that timer.
+      const input = screen.getByTestId("gateway-pair-confirm-input");
+      fireEvent.change(input, { target: { value: "12345678" } });
+      const btn = screen.getByTestId("gateway-pair-approve-btn") as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+      await act(async () => {
+        fireEvent.click(btn);
+      });
+      expect(approvePairing).toHaveBeenCalledWith(PAYLOAD.code, "12345678");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("3.1 radio group supports arrow-key navigation and Space commit", async () => {

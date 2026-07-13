@@ -3,14 +3,8 @@
  */
 import { existsSync } from "node:fs";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { BrowserHandlerContext } from "./handler-context.js";
-import { spawnPiSession } from "../process-manager.js";
-import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { preflightSpawn } from "../spawn-preflight.js";
-import { getSpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
-import { appendSpawnFailure } from "../spawn-failure-log.js";
-import { createBranchedSessionFile } from "../session-file-reader.js";
+import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
   killPidWithGroup,
   killProcess,
@@ -18,8 +12,14 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
-import { shouldInterceptReload } from "./session-action-helpers.js";
 import { keeperOptsFromSpawnResult } from "../headless-pid-registry.js";
+import { spawnPiSession } from "../process-manager.js";
+import { createBranchedSessionFile } from "../session-file-reader.js";
+import { appendSpawnFailure } from "../spawn-failure-log.js";
+import { preflightSpawn } from "../spawn-preflight.js";
+import { getSpawnRegisterWatchdog } from "../spawn-register-watchdog.js";
+import type { BrowserHandlerContext } from "./handler-context.js";
+import { shouldInterceptReload } from "./session-action-helpers.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -638,6 +638,23 @@ export function handleKillProcess(
   ctx: BrowserHandlerContext,
 ): void {
   ctx.piGateway.sendToSession(msg.sessionId, { type: "kill_process", sessionId: msg.sessionId, pgid: msg.pgid });
+}
+
+/**
+ * Forward a browser subagent-resync request to the owning bridge. The bridge
+ * replies with the latest retained snapshot as a synthetic subagent_started
+ * event_forward, or no-ops for an unknown/finished agent.
+ * See change: fix-subagent-live-detail-reliability (D2).
+ */
+export function handleSubagentResyncRequest(
+  msg: Extract<BrowserToServerMessage, { type: "subagent_resync_request" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "subagent_resync_request",
+    sessionId: msg.sessionId,
+    agentId: msg.agentId,
+  });
 }
 
 /**

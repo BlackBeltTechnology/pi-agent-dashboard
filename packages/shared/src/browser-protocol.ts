@@ -208,6 +208,14 @@ export interface BrowserRolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+  /**
+   * Built-in (seeded default) role names, equal to `DEFAULT_ROLE_NAMES`.
+   * Forwarded verbatim from the bridge's `roles_list`. The Roles panel reads
+   * it to split roles into Built-in vs Custom and to show "＋ Add custom role".
+   * Additive/optional; older clients ignore it.
+   * See change: fix-builtin-role-names-relay.
+   */
+  builtinRoleNames?: string[];
 }
 
 export interface SessionsListBrowserMessage {
@@ -1522,7 +1530,22 @@ export type BrowserToServerMessage =
   | SetSessionProcessDrawerBrowserMessage
   | InjectViewMessageBrowserMessage
   | RecoveryDismissMessage
+  | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;
+
+/**
+ * Browser → server → bridge: request the latest retained snapshot of a
+ * still-running subagent's timeline, to recover after a gap/reconnect without
+ * waiting for completion. The server forwards it to the owning bridge, which
+ * replies with a synthetic `subagent_started` `event_forward`, or no-ops for an
+ * unknown/finished agent (the durable completed-case backfill covers those).
+ * See change: fix-subagent-live-detail-reliability (D2).
+ */
+export interface SubagentResyncRequestBrowserMessage {
+  type: "subagent_resync_request";
+  sessionId: string;
+  agentId: string;
+}
 
 /**
  * Browser declares the editor pane's currently-open files for a session so the

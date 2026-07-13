@@ -4,9 +4,9 @@
  *
  * See change: adopt-pi-071-072-073-features (B.2).
  */
-import { describe, it, expect } from "vitest";
-import { handleStopAfterTurn } from "../session-action-handler.js";
+import { describe, expect, it } from "vitest";
 import type { BrowserHandlerContext } from "../handler-context.js";
+import { handleStopAfterTurn, handleSubagentResyncRequest } from "../session-action-handler.js";
 
 function makeCtx() {
   const sent: { sessionId: string; msg: unknown }[] = [];
@@ -28,6 +28,22 @@ describe("handleStopAfterTurn", () => {
     expect(sent[0]).toEqual({
       sessionId: "s1",
       msg: { type: "stop_after_turn", sessionId: "s1" },
+    });
+  });
+});
+
+// See change: fix-subagent-live-detail-reliability (D2).
+describe("handleSubagentResyncRequest", () => {
+  it("forwards a subagent_resync_request to the owning bridge", () => {
+    const { ctx, sent } = makeCtx();
+    handleSubagentResyncRequest(
+      { type: "subagent_resync_request", sessionId: "s1", agentId: "a1" },
+      ctx,
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toEqual({
+      sessionId: "s1",
+      msg: { type: "subagent_resync_request", sessionId: "s1", agentId: "a1" },
     });
   });
 });

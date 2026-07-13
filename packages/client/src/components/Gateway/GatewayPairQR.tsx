@@ -152,17 +152,20 @@ function NetworkSelector({
 
 /**
  * Typed compare-code approval (D12). Owns its own confirm-code state so its
- * branching stays isolated from the parent. `resetKey` remounts the input on
- * regenerate; `expired` disables submission after the code TTL lapses.
+ * branching stays isolated from the parent. The parent remounts it via `key`
+ * on regenerate. Submission is NOT gated on the local countdown: the code's TTL
+ * restarts server-side when the device redeems, so the server is the sole
+ * authority on validity and returns mismatch / no_pending / expired errors that
+ * surface below. Gating here would wrongly block an approval the server accepts.
  */
-function PairingApproval({ code, expired }: { code: string; expired: boolean }) {
+function PairingApproval({ code }: { code: string }) {
   const [confirmCode, setConfirmCode] = useState("");
   const [approving, setApproving] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approvedLabel, setApprovedLabel] = useState<string | null>(null);
 
   const approve = async () => {
-    if (approving || !confirmCode.trim() || expired) return;
+    if (approving || !confirmCode.trim()) return;
     setApproving(true);
     setApproveError(null);
     try {
@@ -208,7 +211,7 @@ function PairingApproval({ code, expired }: { code: string; expired: boolean }) 
         <button
           type="button"
           data-testid="gateway-pair-approve-btn"
-          disabled={approving || !confirmCode.trim() || expired}
+          disabled={approving || !confirmCode.trim()}
           onClick={() => void approve()}
           className="rounded border border-[var(--border)] px-3 py-1 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
         >
@@ -392,7 +395,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
           </button>
 
           {/* Typed compare-code approval (D12) — pairing selection only. */}
-          {pairingPayload && <PairingApproval key={pairingPayload.code} code={pairingPayload.code} expired={expired} />}
+          {pairingPayload && <PairingApproval key={pairingPayload.code} code={pairingPayload.code} />}
         </>
       )}
     </div>

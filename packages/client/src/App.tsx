@@ -854,6 +854,20 @@ export default function App() {
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
       const sid = selectedId;
+      // Resync running subagents whose live timeline is empty: a reconnect gap
+      // may have swallowed their frames downstream of the bridge, so pull the
+      // latest snapshot instead of waiting for completion. No-op server-side
+      // for unknown/finished agents. See change: fix-subagent-live-detail-reliability (D2).
+      {
+        const st = sessionStates.get(sid);
+        if (st) {
+          for (const sub of st.subagents.values()) {
+            if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
+              send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
+            }
+          }
+        }
+      }
       // Send subscribe with the resolved cursor, enter LOADING, and request
       // models if missing. Extracted so the cache-rehydrate path can call it
       // after the async IndexedDB read resolves.
@@ -1058,7 +1072,8 @@ export default function App() {
     editors: selectedCwd ? editorMap.get(selectedCwd) ?? [] : [],
     sessionId: selectedId,
     session: selectedId ? sessionStates.get(selectedId) : undefined,
-  }), [selectedCwd, editorMap, selectedId, sessionStates]);
+    send,
+  }), [selectedCwd, editorMap, selectedId, sessionStates, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),

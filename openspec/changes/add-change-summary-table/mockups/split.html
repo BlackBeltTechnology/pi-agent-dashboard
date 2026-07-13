@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Change Summary Table — Changed Files as split target</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Changed Files as a split target (integrated)</h1>
+  <p class="sub">Chat stays visible. Changed files live in the pane's project-tree rail; each diff opens as a sibling tab; the Changes-section header <em>is</em> the roll-up.</p>
+  <div class="navlinks">
+    <a href="index.html">← Overview</a>
+    <a href="states.html">Edge states</a>
+    <a class="here">Split target</a>
+  </div>
+
+  <p class="note">
+    <b>Integrated model (locked).</b> No takeover — <code>ChatView</code> keeps the left
+    pane. Changed files appear as a <b>Changes section</b> pinned atop the editor pane's
+    existing project-tree rail; clicking one opens a per-file <code>diff</code>-viewer tab
+    (sibling to normal file tabs). The pinned roll-up dock is <b>gone</b> — its aggregate is
+    the Changes-section header. The old full-screen takeover survives only as the
+    <code>/session/:id/diff</code> fallback route (deep-link / very narrow mobile).
+  </p>
+
+  <h2>Desktop — chat | Changes tab</h2>
+  <div class="split">
+    <!-- LEFT: chat -->
+    <div class="pane chatpane">
+      <div class="panehdr">
+        <span>💬 Chat</span>
+        <span style="margin-left:auto"></span>
+        <button class="hdrbtn on" title="Toggle Changed Files in split">
+          ⑃ Changed files <span class="badge"><span class="add">+68</span> <span class="del">−12</span> · 4</span>
+        </button>
+      </div>
+      <div class="chatmsgs">
+        <div class="msg">
+          <div class="avatar bot">pi</div>
+          <div class="bubble">
+            <div class="who">assistant · turn 4</div>
+            <div class="said">Done. Added the optional fields and wired the git call.</div>
+            <div class="turnblock">
+              <div class="cst">
+                <div class="cst-head">
+                  <span class="ico">✎</span><span class="title">Changed this turn</span>
+                  <span class="agg"><span class="add">+57</span><span class="del">−9</span><span class="zero">· 3</span></span>
+                  <span class="caret">▾</span>
+                </div>
+                <div class="row"><span class="glyph mod">●</span><span class="path">session-diff.ts</span>
+                  <span class="count"><span class="add">+42</span><span class="del">−8</span><a class="open" title="Open this file's diff in the split">⧉</a></span></div>
+                <div class="row"><span class="glyph add">+</span><span class="path">diff-types.ts</span>
+                  <span class="count"><span class="add">+15</span><span class="del zero">−0</span><a class="open">⧉</a></span></div>
+                <div class="row"><span class="glyph mod">●</span><span class="path">architecture.md</span>
+                  <span class="count"><span class="add zero">+0</span><span class="del">−1</span><a class="open">⧉</a></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="composer" style="margin:0;border:none;border-top:1px solid var(--border-primary);border-radius:0">✎ Message pi…</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- RIGHT: editor pane; per-file diff tabs; integrated rail -->
+    <div class="pane editpane">
+      <div class="tabs">
+        <div class="tab on">session-diff.ts <span class="difftag">diff</span> <span class="tx">✕</span></div>
+        <div class="tab">DiffFileTree.tsx <span class="difftag">diff</span> <span class="tx">✕</span></div>
+      </div>
+
+      <div class="changes">
+        <!-- integrated rail: Changes section (roll-up) ABOVE the project tree -->
+        <div class="rail">
+          <div class="rail-rows" style="flex:1">
+            <div class="rail-sec-lbl">Changes · net vs HEAD
+              <span class="agg2"><span class="zero">4</span><span class="add">+68</span><span class="del">−12</span></span></div>
+            <div class="trow on"><span class="glyph mod">●</span><span class="nm">session-diff.ts</span>
+              <span class="cc"><span class="add">+42</span><span class="del">−8</span></span></div>
+            <div class="trow"><span class="glyph mod">●</span><span class="nm">DiffFileTree.tsx</span>
+              <span class="cc"><span class="add">+11</span><span class="del">−3</span></span></div>
+            <div class="trow"><span class="glyph add">+</span><span class="nm">diff-types.ts</span>
+              <span class="cc"><span class="add">+15</span><span class="del zero">−0</span></span></div>
+            <div class="trow"><span class="glyph mod">●</span><span class="nm">architecture.md</span>
+              <span class="cc"><span class="add zero">+0</span><span class="del">−1</span></span></div>
+
+            <div class="rail-div"></div>
+            <div class="rail-sec-lbl">Files</div>
+            <div class="tfolder"><span class="car">▾</span><span class="fico">📁</span> packages</div>
+            <div class="tfolder" style="padding-left:22px"><span class="car">▾</span><span class="fico">📁</span> server</div>
+            <div class="tfile" style="padding-left:46px">git-operations.ts</div>
+            <div class="tfile" style="padding-left:46px">session-diff.ts</div>
+            <div class="tfolder" style="padding-left:22px"><span class="car">▸</span><span class="fico">📁</span> shared</div>
+            <div class="tfolder"><span class="car">▸</span><span class="fico">📁</span> docs</div>
+          </div>
+        </div>
+
+        <!-- diff area for the selected file -->
+        <div class="diffarea">
+          <div class="diff-hdr"><span class="glyph mod">●</span>
+            <span>packages/server/src/session-diff.ts</span>
+            <span class="agg" style="margin-left:auto"><span class="add">+42</span><span class="del">−8</span></span>
+          </div>
+          <div class="diff-body">
+            <div class="dl"><span class="gutter">40</span><span class="code"> export function enrichWithVcsDiff(cwd, files) {</span></div>
+            <div class="dl del"><span class="gutter">41</span><span class="code">-  const { enrichedFiles, isGitRepo } = enrichWithGitDiff(cwd, files);</span></div>
+            <div class="dl add"><span class="gutter">41</span><span class="code">+  const base = enrichWithGitDiff(cwd, files);</span></div>
+            <div class="dl add"><span class="gutter">42</span><span class="code">+  const numstat = base.isGitRepo ? gitNumstat(cwd) : null;</span></div>
+            <div class="dl add"><span class="gutter">43</span><span class="code">+  const files2 = base.enrichedFiles.map((f) => ({</span></div>
+            <div class="dl add"><span class="gutter">44</span><span class="code">+    ...f, ...numstat?.get(f.path),</span></div>
+            <div class="dl add"><span class="gutter">45</span><span class="code">+  }));</span></div>
+            <div class="dl"><span class="gutter">46</span><span class="code">   return { ...base, enrichedFiles: files2, ...totals(numstat) };</span></div>
+            <div class="dl"><span class="gutter">47</span><span class="code"> }</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <b>The merge.</b> The Changes-section label <code>Changes · net vs HEAD  4 +68 −12</code>
+    = the old pinned roll-up; its rows carry per-file <span class="add">+adds</span>
+    <span class="del">−dels</span>. It shares the <b>same rail</b> as the project tree — one
+    rail answers "how much overall?", "which files?", and "browse the repo." No separate dock,
+    no separate tree.
+  </div>
+
+  <h2>Entry points → the split pane + the Changes section</h2>
+  <div class="legend">
+    <span>① Header <code>Changed files</code> chip → <code>openChanges()</code> (opens split, reveals the Changes section)</span>
+  </div>
+  <div class="legend">
+    <span>② Per-turn block <b>row</b> ⧉ → opens that file's <code>diff</code> tab + selects it in the Changes section</span>
+  </div>
+  <div class="legend">
+    <span>③ Changes-section <b>row</b> click → opens/activates that file's <code>diff</code> tab</span>
+  </div>
+
+  <h2>Mobile — pane stacks under chat (split orientation "v")</h2>
+  <p class="note">Same components; the split flips to vertical. The lower pane holds the diff
+    tab + integrated rail (Changes section over the project tree). Very narrow widths fall
+    back to the <code>/session/:id/diff</code> takeover route.</p>
+  <div class="split" style="max-width:380px;height:auto;flex-direction:column">
+    <div class="pane chatpane" style="flex:none;border-right:none;border-bottom:1px solid var(--border-primary)">
+      <div class="panehdr">💬 Chat <button class="hdrbtn on" style="margin-left:auto">⑃ <span class="badge"><span class="add">+68</span><span class="del">−12</span></span></button></div>
+      <div class="chatmsgs" style="min-height:90px;flex:none">
+        <div class="turnblock"><div class="cst">
+          <div class="cst-head"><span class="ico">✎</span><span class="title">Changed this turn</span>
+            <span class="agg"><span class="add">+57</span><span class="del">−9</span></span><span class="caret">▾</span></div>
+          <div class="row"><span class="glyph mod">●</span><span class="path">session-diff.ts</span>
+            <span class="count"><span class="add">+42</span><span class="del">−8</span><a class="open">⧉</a></span></div>
+        </div></div>
+      </div>
+    </div>
+    <div class="pane editpane" style="flex:none">
+      <div class="tabs"><div class="tab on">session-diff.ts <span class="difftag">diff</span></div></div>
+      <div class="rail" style="flex:none;border-right:none">
+        <div class="rail-rows">
+          <div class="rail-sec-lbl">Changes · net vs HEAD
+            <span class="agg2"><span class="zero">4</span><span class="add">+68</span><span class="del">−12</span></span></div>
+          <div class="trow on"><span class="glyph mod">●</span><span class="nm">session-diff.ts</span><span class="cc"><span class="add">+42</span><span class="del">−8</span></span></div>
+          <div class="trow"><span class="glyph add">+</span><span class="nm">diff-types.ts</span><span class="cc"><span class="add">+15</span><span class="del zero">−0</span></span></div>
+          <div class="rail-div"></div>
+          <div class="rail-sec-lbl">Files</div>
+          <div class="tfolder"><span class="car">▸</span><span class="fico">📁</span> packages</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

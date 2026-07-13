@@ -81,7 +81,7 @@ export type RedeemResult =
 
 export type ApproveResult =
   | { ok: true; device: PairedDeviceView }
-  | { ok: false; error: "invalid_code" | "no_pending" | "mismatch" | "locked_out" };
+  | { ok: false; error: "invalid_code" | "no_pending" | "mismatch" | "locked_out" | "expired" };
 
 export type PollResult =
   | { status: "pending" }
@@ -171,7 +171,8 @@ export class PairingManager {
   /**
    * Device redeems a code → creates/refreshes the single pending slot and
    * returns the confirmation code to display on the device. Does NOT consume
-   * the code (D12).
+   * the code (D12). Restarts the code's TTL from redeem time so the operator
+   * approval countdown begins when the device presents itself, not at QR mint.
    */
   redeem(code: string): RedeemResult {
     // NB: do not sweep before lookup — an expired code must still be
@@ -198,6 +199,12 @@ export class PairingManager {
       issuedToken: null,
     };
     entry.pending = pending;
+    // Restart the approval window at redeem time. The one-time code's TTL is
+    // minted with the QR, but the operator's read+type+approve countdown must
+    // begin when the device actually presents itself — otherwise a QR left on
+    // screen leaves the phone only the leftover seconds before sweep() deletes
+    // the entry and poll() returns "unknown" ("Pairing expired" on the device).
+    entry.expiresAt = this.now() + CODE_TTL_MS;
     return { ok: true, pendingId: pending.pendingId, confirmCode: pending.confirmCode };
   }
 
@@ -219,6 +226,14 @@ export class PairingManager {
   approve(code: string, typedConfirmCode: string, label?: string): ApproveResult {
     const entry = this.codes.get(code);
     if (!entry) return { ok: false, error: "invalid_code" };
+    // Reject an expired entry explicitly — the server is the authority on code
+    // validity (the operator UI no longer gates on its advisory countdown). This
+    // must hold even when no poll()/createPayload() sweep has run, so mirror the
+    // sweep's cleanup and drop the entry here.
+    if (entry.expiresAt < this.now()) {
+      this.codes.delete(code);
+      return { ok: false, error: "expired" };
+    }
     const pending = entry.pending;
     if (!pending || pending.issuedToken) return { ok: false, error: "no_pending" };
     if (pending.approveAttempts >= MAX_APPROVE_ATTEMPTS) {

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Uncommitted indicator + commit dialog — mockup</title>
+<style>
+  /* ── Real dashboard tokens (base + dracula + github), pulled from themes.ts ── */
+  .theme-base.dark   { --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#8a8a8a; --text-muted:#585858; --border-subtle:rgba(255,255,255,.06); --border-secondary:rgba(255,255,255,.12); --accent-blue:#3b82f6; --accent-purple:#a855f7; --shadow-card:rgba(0,0,0,.4); --amber:#f59e0b; --green:#22c55e; --red:#ef4444; }
+  .theme-base.light  { --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#666; --text-muted:#999; --border-subtle:rgba(0,0,0,.08); --border-secondary:rgba(0,0,0,.14); --accent-blue:#3b82f6; --accent-purple:#a855f7; --shadow-card:rgba(0,0,0,.08); --amber:#b45309; --green:#15803d; --red:#dc2626; }
+  .theme-dracula.dark  { --bg-primary:#282a36; --bg-secondary:#21222c; --bg-tertiary:#343746; --text-primary:#f8f8f2; --text-secondary:#ccc9e7; --text-tertiary:#9aa0c4; --text-muted:#4d5681; --border-subtle:rgba(255,255,255,.08); --border-secondary:rgba(255,255,255,.14); --accent-blue:#8be9fd; --accent-purple:#bd93f9; --shadow-card:rgba(0,0,0,.5); --amber:#ffb86c; --green:#50fa7b; --red:#ff5555; }
+  .theme-github.dark  { --bg-primary:#0d1117; --bg-secondary:#161b22; --bg-tertiary:#21262d; --text-primary:#e6edf3; --text-secondary:#c9d1d9; --text-tertiary:#8b949e; --text-muted:#6e7681; --border-subtle:rgba(255,255,255,.06); --border-secondary:rgba(255,255,255,.12); --accent-blue:#58a6ff; --accent-purple:#bc8cff; --shadow-card:rgba(0,0,0,.4); --amber:#d29922; --green:#3fb950; --red:#f85149; }
+
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; background:#0b0b0b; color:#ddd; }
+  .toolbar { position:sticky; top:0; z-index:20; display:flex; gap:16px; align-items:center; padding:10px 16px; background:#111; border-bottom:1px solid #2a2a2a; font-size:13px; flex-wrap:wrap; }
+  .toolbar label { color:#aaa; }
+  select { background:#1a1a1a; color:#eee; border:1px solid #444; border-radius:6px; padding:4px 8px; font-size:13px; }
+  .hint { color:#666; }
+
+  .stage { background:var(--bg-primary); color:var(--text-primary); padding:28px; min-height:100vh; }
+  h2.section { font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--text-muted); margin:34px 0 12px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:16px; align-items:start; }
+
+  /* ── Session card (mirrors SessionCard desktop) ── */
+  .card { position:relative; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:12px; box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 4px 8px var(--shadow-card); padding:8px; display:flex; gap:8px; }
+  .card.sel { border-color:color-mix(in srgb,var(--accent-blue) 55%,transparent); box-shadow:0 0 0 1px color-mix(in srgb,var(--accent-blue) 35%,transparent),0 8px 18px var(--shadow-card); }
+  .rail { width:6px; border-radius:3px; background:var(--accent-purple); flex-shrink:0; margin:20px 3px 6px; }
+  .rail.work { background:var(--accent-blue); }
+  .body { flex:1; min-width:0; }
+  .row1 { display:flex; align-items:center; gap:8px; }
+  .name { font-size:14px; font-weight:600; color:var(--text-primary); flex:1; }
+  .age { font-size:10px; color:var(--text-muted); }
+  .meta { font-size:12px; color:var(--text-tertiary); margin-top:2px; }
+
+  /* subcard */
+  .subcard { margin-top:8px; border:1px solid var(--border-subtle); border-radius:8px; padding:6px 8px; background:color-mix(in srgb,var(--bg-secondary) 60%,transparent); }
+  .subcard-title { font-size:9px; letter-spacing:.11em; color:var(--text-muted); font-weight:600; margin-bottom:5px; }
+
+  /* GitInfo line */
+  .gitline { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-tertiary); flex-wrap:wrap; }
+  .branch { display:inline-flex; align-items:center; gap:4px; }
+  .ico { width:12px; height:12px; display:inline-block; }
+  .dot { color:var(--text-muted); }
+
+  /* the NEW pill */
+  .pill { display:inline-flex; align-items:center; gap:4px; padding:1px 7px; border-radius:999px; font-size:10px; line-height:1.6; border:1px solid; cursor:pointer; background:transparent; font-family:inherit; }
+  .pill.dirty { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 45%,transparent); background:color-mix(in srgb,var(--amber) 12%,transparent); }
+  .pill.dirty:hover { background:color-mix(in srgb,var(--amber) 20%,transparent); }
+  .pill .bullet { font-size:12px; line-height:0; }
+  .drift { display:inline-flex; gap:5px; font-size:10px; }
+  .ahead { color:var(--green); } .behind { color:var(--red); }
+  .wt { display:inline-flex; align-items:center; padding:1px 6px; border-radius:999px; font-size:9px; text-transform:uppercase; letter-spacing:.06em; border:1px solid var(--border-subtle); color:var(--text-muted); background:var(--bg-tertiary); }
+
+  /* commit button in subcard */
+  .git-actions { display:flex; gap:6px; margin-top:7px; }
+  .btn { font-family:inherit; font-size:10px; padding:3px 9px; border-radius:6px; border:1px solid; background:transparent; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+  .btn.commit { color:var(--amber); border-color:color-mix(in srgb,var(--amber) 40%,transparent); }
+  .btn.commit:hover { background:color-mix(in srgb,var(--amber) 14%,transparent); }
+  .btn.ghost { color:var(--text-tertiary); border-color:var(--border-secondary); }
+  .clean-note { font-size:10px; color:var(--text-muted); display:inline-flex; align-items:center; gap:4px; }
+
+  /* ── Commit dialog ── */
+  .dlg-wrap { display:flex; gap:16px; flex-wrap:wrap; }
+  .dialog { width:420px; max-width:100%; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,.5); overflow:hidden; }
+  .dlg-head { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border-subtle); }
+  .dlg-head .t { font-size:13px; font-weight:600; color:var(--text-primary); flex:1; }
+  .dlg-head .sub { font-size:10px; color:var(--text-muted); }
+  .dlg-body { padding:12px 14px; }
+  .files { border:1px solid var(--border-subtle); border-radius:8px; overflow:hidden; margin-bottom:12px; }
+  .fhead { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg-tertiary); font-size:10px; color:var(--text-muted); }
+  .fhead .sp { flex:1; }
+  .fhead a { color:var(--accent-blue); text-decoration:none; cursor:pointer; }
+  .file { display:flex; align-items:center; gap:9px; padding:6px 10px; font-size:11px; border-top:1px solid var(--border-subtle); color:var(--text-secondary); }
+  .file input { accent-color:var(--accent-blue); }
+  .file .path { flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file .st { font-size:9px; text-transform:uppercase; letter-spacing:.05em; padding:0 5px; border-radius:4px; border:1px solid var(--border-subtle); color:var(--text-muted); }
+  .file .add { color:var(--green); font-family:ui-monospace,monospace; font-size:10px; }
+  .file .del { color:var(--red); font-family:ui-monospace,monospace; font-size:10px; }
+  .file.off { opacity:.5; }
+
+  .msg-label { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .msg-label .l { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); flex:1; }
+  .ai-btn { font-family:inherit; font-size:10px; padding:3px 9px; border-radius:999px; border:1px solid color-mix(in srgb,var(--accent-purple) 45%,transparent); color:var(--accent-purple); background:color-mix(in srgb,var(--accent-purple) 12%,transparent); cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+  .ai-btn:hover { background:color-mix(in srgb,var(--accent-purple) 20%,transparent); }
+  .ai-btn.busy { opacity:.8; cursor:default; }
+  .spinner { width:10px; height:10px; border:2px solid color-mix(in srgb,var(--accent-purple) 30%,transparent); border-top-color:var(--accent-purple); border-radius:50%; display:inline-block; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  textarea { width:100%; background:var(--bg-primary); color:var(--text-primary); border:1px solid var(--border-secondary); border-radius:8px; padding:9px 10px; font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; resize:vertical; line-height:1.5; }
+  textarea.subject { min-height:34px; margin-bottom:6px; }
+  textarea.bodyfield { min-height:78px; }
+  .draft-badge { font-size:9px; color:var(--accent-purple); display:inline-flex; align-items:center; gap:4px; margin-top:5px; }
+  .charcount { font-size:9px; color:var(--text-muted); text-align:right; margin-top:3px; }
+
+  .dlg-foot { display:flex; align-items:center; gap:8px; padding:11px 14px; border-top:1px solid var(--border-subtle); }
+  .dlg-foot .sp { flex:1; font-size:10px; color:var(--text-muted); }
+  .fbtn { font-family:inherit; font-size:11px; padding:6px 14px; border-radius:8px; border:1px solid var(--border-secondary); background:transparent; color:var(--text-secondary); cursor:pointer; }
+  .fbtn.primary { background:var(--accent-blue); border-color:var(--accent-blue); color:#fff; font-weight:600; }
+  .fbtn.primary:disabled { opacity:.4; cursor:not-allowed; }
+  .caption { font-size:11px; color:var(--text-muted); margin:4px 0 14px; max-width:640px; line-height:1.5; }
+  .state-tag { display:inline-block; font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--accent-purple); border:1px solid color-mix(in srgb,var(--accent-purple) 40%,transparent); border-radius:4px; padding:1px 6px; margin-bottom:8px; }
+
+  /* branch switch dialog (mirrors BranchSwitchDialog size=sm) */
+  .bdlg { width:340px; max-width:100%; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:12px; box-shadow:0 20px 50px rgba(0,0,0,.5); padding:14px; }
+  .bdlg h3 { font-size:13px; font-weight:600; margin:0 0 10px; color:var(--text-primary); }
+  .bfilter { width:100%; background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:6px; padding:7px 10px; font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--text-primary); margin-bottom:6px; }
+  .blist { border:1px solid var(--border-secondary); border-radius:6px; overflow:hidden; }
+  .brow { display:flex; align-items:center; gap:8px; padding:6px 10px; font-size:12px; font-family:ui-monospace,monospace; color:var(--text-secondary); border-top:1px solid var(--border-subtle); cursor:pointer; }
+  .brow:first-child { border-top:none; }
+  .brow:hover { background:color-mix(in srgb,var(--accent-blue) 12%,transparent); }
+  .brow.cur { color:var(--text-muted); cursor:default; background:var(--bg-tertiary); }
+  .brow.cur:hover { background:var(--bg-tertiary); }
+  .brow .tag { margin-left:auto; font-size:9px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+  .brow .rmt { margin-left:auto; font-size:9px; color:var(--text-muted); }
+  .bfoot { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
+  .dirtybox { max-height:120px; overflow:auto; background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:6px; padding:7px 9px; margin:6px 0 10px; }
+  .dirtybox .df { font-size:11px; font-family:ui-monospace,monospace; color:var(--text-secondary); }
+  .btie { font-size:10px; color:var(--accent-purple); margin-top:8px; display:flex; align-items:center; gap:5px; }
+
+  /* folder group */
+  .fgroup { border:1px solid var(--border-subtle); border-radius:14px; padding:6px; background:var(--bg-primary); max-width:430px; box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 2px 4px var(--shadow-card); }
+  .fhead-row { display:flex; align-items:center; gap:8px; padding:7px 8px 2px; }
+  .fhead-row .caret { color:var(--text-muted); font-size:11px; }
+  .fhead-row .ftitle { font-size:13px; font-weight:600; color:var(--text-primary); }
+  .fhead-row .fcount { font-size:10px; color:var(--text-muted); }
+  .fgit { display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:2px 8px 6px 8px; font-size:11px; color:var(--text-tertiary); border-bottom:1px dashed var(--border-subtle); margin-bottom:4px; }
+  .fgit .git-actions { margin:0 0 0 auto; }
+  .child { display:flex; gap:8px; background:var(--bg-tertiary); border:1px solid var(--border-subtle); border-radius:10px; padding:8px; margin:5px 2px; }
+  .child .body .subcard { display:none; } /* git block suppressed on children */
+  .nogit-note { font-size:9px; color:var(--text-muted); font-style:italic; margin-top:5px; }
+
+  /* mobile */
+  .phone { width:300px; border:1px solid var(--border-secondary); border-radius:22px; padding:10px; background:var(--bg-primary); }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <label>Palette
+      <select id="palette">
+        <option value="base">Base</option>
+        <option value="dracula">Dracula</option>
+        <option value="github">GitHub</option>
+      </select>
+    </label>
+    <label>Mode
+      <select id="mode">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
+    <span class="hint">Mockup for <b>add-session-uncommitted-indicator-and-commit</b> — indicator states · commit dialog (file picker + AI draft) · mobile</span>
+  </div>
+
+  <div class="stage theme-base dark" id="stage">
+
+    <h2 class="section">1 · Indicator states on the session card (GIT subcard)</h2>
+    <p class="caption">The dirty/drift pill sits on the existing <code>GitInfo</code> line after branch · #PR · worktree. Whole pill is a button → opens the commit dialog. A Commit button joins the GIT subcard. Hidden entirely when the tree is clean and in sync.</p>
+    <div class="grid" id="cards"></div>
+
+    <h2 class="section">1b · Multiple sessions in the SAME directory (not a worktree)</h2>
+    <p class="caption">These sessions share one working tree, so the shell already suppresses the per-card git block (<code>showGitInfo = group.length === 1</code>) and shows <b>one</b> shared <code>GroupGitInfo</code> line in the folder header. The dirty pill + Commit live <b>there</b>, at folder level — one tree, one commit. The child cards below carry no git block.</p>
+    <div id="folder"></div>
+
+    <h2 class="section">1c · Switch branch dialog (existing control — opened by ⌘ Switch branch)</h2>
+    <p class="caption">Clicking <b>Switch branch</b> opens the existing <code>BranchSwitchDialog</code>. Shown for context, and because its <b>Uncommitted Changes</b> step is where this proposal ties in: today it only offers <i>Stash &amp; Switch</i> — with the commit feature, <b>Commit…</b> becomes a first-class alternative (commit, then switch clean).</p>
+    <div class="dlg-wrap" id="branchdlg"></div>
+
+    <h2 class="section">2 · Commit dialog — file picker + AI-draft lifecycle</h2>
+    <p class="caption">Pick a subset of changed files, then write the message by hand or let the AI draft it from the session's own context (fork-subagent — no conversation pollution). Draft is always editable before commit.</p>
+    <div class="dlg-wrap" id="dialogs"></div>
+
+    <h2 class="section">3 · Mobile (bottom-sheet dialog)</h2>
+    <div class="dlg-wrap" id="mobile"></div>
+
+  </div>
+
+<script>
+  const icoBranch = `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="8" r="2.4"/><path d="M6 8.4v7.2M8.4 8C14 8 15.6 9.6 15.6 12"/></svg>`;
+
+  function pill(status){
+    if(!status || (status.dirty===0 && status.ahead===0 && status.behind===0)){
+      return `<span class="clean-note">✓ clean · in sync</span>`;
+    }
+    let out = '';
+    if(status.dirty>0){
+      out += `<button class="pill dirty" title="${status.dirty} uncommitted files — click to commit"><span class="bullet">●</span>${status.dirty} uncommitted</button>`;
+    }
+    if(status.ahead>0 || status.behind>0){
+      out += `<span class="drift">`;
+      if(status.ahead>0) out += `<span class="ahead">↑${status.ahead}</span>`;
+      if(status.behind>0) out += `<span class="behind">↓${status.behind}</span>`;
+      out += `</span>`;
+    }
+    return out;
+  }
+
+  function card(c){
+    const showCommit = c.status && c.status.dirty>0;
+    return `<div class="card ${c.sel?'sel':''}">
+      <div class="rail ${c.work?'work':''}"></div>
+      <div class="body">
+        <div class="row1"><span class="name">${c.name}</span><span class="age">${c.age}</span></div>
+        <div class="meta">${c.model}</div>
+        <div class="subcard">
+          <div class="subcard-title">GIT</div>
+          <div class="gitline">
+            <span class="branch">${icoBranch}${c.branch}</span>
+            ${c.pr?`<span class="dot">·</span><span style="color:var(--accent-blue)">#${c.pr}</span>`:''}
+            ${c.wt?`<span class="wt">worktree · ${c.wt}</span>`:''}
+            ${pill(c.status)}
+          </div>
+          <div class="git-actions">
+            ${showCommit?`<button class="btn commit">✎ Commit…</button>`:''}
+            <button class="btn ghost" title="Switch branch (opens BranchSwitchDialog)">${icoBranch}Switch branch</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const cards = [
+    { name:'refactor-auth-guard', age:'2m ago', work:true, sel:true, model:'claude-sonnet · working',
+      branch:'feat/auth-guard', pr:412, status:{dirty:5, ahead:2, behind:0} },
+    { name:'fix-table-copy', age:'6m ago', model:'gpt-5 · idle',
+      branch:'fix/clipboard', status:{dirty:1, ahead:0, behind:0} },
+    { name:'sync-release', age:'1m ago', work:true, model:'claude-sonnet · working',
+      branch:'develop', status:{dirty:12, ahead:3, behind:1} },
+    { name:'os-add-tunnel', age:'8m ago', model:'gemini · idle', wt:'os-add-tunnel',
+      branch:'os/add-tunnel', status:{dirty:0, ahead:1, behind:0} },
+    { name:'docs-pass', age:'20m ago', model:'haiku · idle',
+      branch:'main', status:{dirty:0, ahead:0, behind:0} },
+  ];
+  document.getElementById('cards').innerHTML = cards.map(card).join('');
+
+  // ── Folder group: 2+ sessions sharing one cwd ──
+  function folderGroup(){
+    const shared = { dirty:7, ahead:2, behind:0 };
+    const kids = [
+      { name:'refactor-auth-guard', age:'2m', work:true, model:'claude-sonnet · working' },
+      { name:'write-auth-tests', age:'5m', work:true, model:'gpt-5 · working' },
+      { name:'review-pass', age:'11m', model:'haiku · idle' },
+    ];
+    return `<div class="fgroup">
+      <div class="fhead-row"><span class="caret">▾</span><span class="ftitle">pi-agent-dashboard</span><span class="fcount">(3 sessions · same cwd)</span></div>
+      <div class="fgit">
+        <span class="branch">${icoBranch}feat/auth-guard</span>
+        <span class="dot">·</span><span style="color:var(--accent-blue)">#412</span>
+        ${pill(shared)}
+        <div class="git-actions"><button class="btn commit">✎ Commit…</button><button class="btn ghost" title="Switch branch (opens BranchSwitchDialog)">${icoBranch}Switch branch</button></div>
+      </div>
+      ${kids.map(k=>`<div class="child">
+        <div class="rail ${k.work?'work':''}" style="margin:14px 3px 4px"></div>
+        <div class="body">
+          <div class="row1"><span class="name">${k.name}</span><span class="age">${k.age}</span></div>
+          <div class="meta">${k.model}</div>
+        </div>
+      </div>`).join('')}
+      <div class="nogit-note">↑ shared git surface in the header — child cards intentionally have no git block (one tree, one commit)</div>
+    </div>`;
+  }
+  document.getElementById('folder').innerHTML = folderGroup();
+
+  // ── Branch switch dialog: pick + dirty steps ──
+  const branchList = [
+    { n:'feat/auth-guard', cur:true },
+    { n:'develop' },
+    { n:'main' },
+    { n:'fix/clipboard' },
+    { n:'origin/main', rmt:true },
+  ];
+  function branchPick(){
+    return `<div>
+      <span class="state-tag">Step · pick</span>
+      <div class="bdlg">
+        <h3>Switch Branch</h3>
+        <input class="bfilter" placeholder="Filter branches…">
+        <div class="blist">
+          ${branchList.map(b=>`<div class="brow ${b.cur?'cur':''}">${icoBranch}<span>${b.n}</span>${b.cur?'<span class="tag">current</span>':(b.rmt?'<span class="rmt">remote</span>':'')}</div>`).join('')}
+        </div>
+        <div class="bfoot"><button class="fbtn">Cancel</button></div>
+      </div>
+    </div>`;
+  }
+  function branchDirty(){
+    const files = ['packages/server/src/routes/git-routes.ts','packages/server/src/git-operations.ts','packages/shared/src/types.ts','packages/client/src/components/CommitDialog.tsx','packages/extension/src/commit-draft.ts'];
+    return `<div>
+      <span class="state-tag">Step · uncommitted changes</span>
+      <div class="bdlg">
+        <h3>Uncommitted Changes</h3>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:2px">5 files with uncommitted changes:</div>
+        <div class="dirtybox">${files.map(f=>`<div class="df">${f}</div>`).join('')}</div>
+        <div class="bfoot">
+          <button class="fbtn">Cancel</button>
+          <button class="ai-btn" style="border-color:color-mix(in srgb,var(--amber) 45%,transparent);color:var(--amber);background:color-mix(in srgb,var(--amber) 12%,transparent)">✎ Commit…</button>
+          <button class="fbtn primary">Stash &amp; Switch</button>
+        </div>
+        <div class="btie">✨ NEW: Commit… lets you commit before switching, instead of stashing</div>
+      </div>
+    </div>`;
+  }
+  document.getElementById('branchdlg').innerHTML = branchPick() + branchDirty();
+
+  // ── Commit dialog builder ──
+  const fileRows = [
+    { p:'packages/server/src/routes/git-routes.ts', st:'M', add:42, del:3, on:true },
+    { p:'packages/server/src/git-operations.ts', st:'M', add:31, del:0, on:true },
+    { p:'packages/shared/src/types.ts', st:'M', add:9, del:1, on:true },
+    { p:'packages/client/src/components/CommitDialog.tsx', st:'A', add:214, del:0, on:false },
+    { p:'packages/extension/src/commit-draft.ts', st:'A', add:88, del:0, on:false },
+  ];
+  function files(){
+    return `<div class="files">
+      <div class="fhead"><input type="checkbox" checked><span>5 changed</span><span class="sp"></span><a>All</a>·<a>None</a></div>
+      ${fileRows.map(f=>`<div class="file ${f.on?'':'off'}">
+        <input type="checkbox" ${f.on?'checked':''}>
+        <span class="st">${f.st}</span>
+        <span class="path">${f.p}</span>
+        <span class="add">+${f.add}</span><span class="del">−${f.del}</span>
+      </div>`).join('')}
+    </div>`;
+  }
+  function dialog(state){
+    let msgArea, aiBtn, badge='', foot;
+    const draft = `feat(git): commit selected files from the session card
+
+Add a working-tree dirty indicator and a commit dialog to the session
+card so changes an agent produces can be reviewed and committed without
+leaving the dashboard. Message drafted by an in-session fork-subagent.`;
+    if(state==='idle'){
+      aiBtn = `<button class="ai-btn">✨ AI draft</button>`;
+      msgArea = `<textarea class="subject" placeholder="Summary (subject line)…"></textarea>
+                 <textarea class="bodyfield" placeholder="Optional body — what & why…"></textarea>`;
+      foot = `<span class="sp">3 files staged</span><button class="fbtn">Cancel</button><button class="fbtn primary">Commit 3 files</button>`;
+    } else if(state==='drafting'){
+      aiBtn = `<button class="ai-btn busy"><span class="spinner"></span> Drafting…</button>`;
+      msgArea = `<textarea class="subject" placeholder="Summary (subject line)…" disabled></textarea>
+                 <textarea class="bodyfield" disabled></textarea>`;
+      badge = `<div class="draft-badge"><span class="spinner"></span> fork-subagent reading session context…</div>`;
+      foot = `<span class="sp">Drafting from session…</span><button class="fbtn">Cancel</button><button class="fbtn primary" disabled>Commit 3 files</button>`;
+    } else { // drafted
+      aiBtn = `<button class="ai-btn">✨ Re-draft</button>`;
+      const lines = draft.split('\n');
+      msgArea = `<textarea class="subject">${lines[0]}</textarea>
+                 <textarea class="bodyfield">${lines.slice(2).join('\n')}</textarea>`;
+      badge = `<div class="draft-badge">✨ AI-drafted from session context · editable</div>`;
+      foot = `<span class="sp">3 files staged</span><button class="fbtn">Cancel</button><button class="fbtn primary">Commit 3 files</button>`;
+    }
+    const tag = {idle:'State A · empty',drafting:'State B · drafting',drafted:'State C · drafted (editable)'}[state];
+    return `<div>
+      <span class="state-tag">${tag}</span>
+      <div class="dialog">
+        <div class="dlg-head"><span class="t">Commit changes</span><span class="sub">feat/auth-guard</span></div>
+        <div class="dlg-body">
+          ${files()}
+          <div class="msg-label"><span class="l">Message</span>${aiBtn}</div>
+          ${msgArea}
+          ${badge}
+          <div class="charcount">subject 52/72</div>
+        </div>
+        <div class="dlg-foot">${foot}</div>
+      </div>
+    </div>`;
+  }
+  document.getElementById('dialogs').innerHTML = ['idle','drafting','drafted'].map(dialog).join('');
+
+  // mobile: reuse drafted dialog inside a phone frame
+  document.getElementById('mobile').innerHTML = `<div class="phone">${dialog('drafted').replace('State C · drafted (editable)','Bottom-sheet')}</div>`;
+
+  // theme switching
+  const stage = document.getElementById('stage');
+  function apply(){
+    const p = document.getElementById('palette').value;
+    const m = document.getElementById('mode').value;
+    stage.className = `stage theme-${p} ${m}`;
+  }
+  document.getElementById('palette').onchange = apply;
+  document.getElementById('mode').onchange = apply;
+</script>
+</body>
+</html>

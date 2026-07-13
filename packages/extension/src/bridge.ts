@@ -4,62 +4,62 @@
  * Global extension that connects to the dashboard server,
  * forwards all pi events, and relays commands back.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Loader } from "@earendil-works/pi-tui";
-import { ConnectionManager } from "./connection.js";
-import { detectSessionSource } from "./source-detector.js";
-import { buildVisibilityRegisterFields } from "./visibility-intent.js";
-import { mapEventToProtocol } from "./event-forwarder.js";
-import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
-import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
-import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
-import { RetryTracker } from "./retry-tracker.js";
-import { AbortLatch } from "./abort-latch.js";
-import { classifyTurnActionability } from "./turn-actionability.js";
-import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
-import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { runDevBuild } from "./dev-build.js";
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { ensureConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import { launchServer } from "./server-launcher.js";
-import { autoStartServer } from "./server-auto-start.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
-
-import { PromptBus } from "./prompt-bus.js";
-import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
-import { registerAskUserTool } from "./ask-user-tool.js";
-import { registerRoleModelTools } from "./role-model-tools.js";
-import { decodeMultiselectAnswer } from "./multiselect-decode.js";
-import { activate as activateProviderRegister, onProviderChanged, reloadProviders, buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { activate as activateRoleManager } from "./role-manager.js";
-import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { startMetricsMonitor, stopMetricsMonitor, collectMetrics } from "./process-metrics.js";
-import { scanChildProcesses, getOwnPgid } from "./process-scanner.js";
-import type { BridgeContext } from "./bridge-context.js";
-import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from "./bridge-context.js";
-import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
-import { flipHasUI } from "./hasui-flip.js";
-import { runGitPollTick } from "./git-poll.js";
-import { detectIsGitRepo } from "./vcs-info.js";
-import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
-import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
-import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
-import { refreshUiModules, subscribeUiInvalidate, handleUiManagement, type UiModulesBridgeCtx } from "./ui-modules.js";
-import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { inlineToolResultImages } from "./tool-result-image-inliner.js";
-import { resolveArtifactRoots, isUnderArtifactRoot } from "./artifact-roots.js";
-import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Loader } from "@earendil-works/pi-tui";
+import { AbortLatch } from "./abort-latch.js";
+import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
 import {
-  persistAttachment,
-  cleanupAttachmentsForSession,
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
+  cleanupAttachmentsForSession,
+  persistAttachment,
 } from "./ask-user-attachments.js";
+import { registerAskUserTool } from "./ask-user-tool.js";
+import type { BridgeContext } from "./bridge-context.js";
+import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
+import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
+import { ConnectionManager } from "./connection.js";
+import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
+import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
+import { runDevBuild } from "./dev-build.js";
+import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
+import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
+import { mapEventToProtocol } from "./event-forwarder.js";
+import { FLOW_EVENT_MAP, registerFlowEventListeners, SUBAGENT_EVENT_MAP } from "./flow-event-wiring.js";
+import { runGitPollTick } from "./git-poll.js";
+import { flipHasUI } from "./hasui-flip.js";
+import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
+import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { decodeMultiselectAnswer } from "./multiselect-decode.js";
+import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
+import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
+import { PromptBus } from "./prompt-bus.js";
+import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
+import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
+import { RetryTracker } from "./retry-tracker.js";
+import { activate as activateRoleManager } from "./role-manager.js";
+import { registerRoleModelTools } from "./role-model-tools.js";
+import { autoStartServer } from "./server-auto-start.js";
+import { launchServer } from "./server-launcher.js";
+import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync } from "./session-sync.js";
+import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
+import { detectSessionSource } from "./source-detector.js";
+import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
+import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { classifyTurnActionability } from "./turn-actionability.js";
+import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
+import { detectIsGitRepo } from "./vcs-info.js";
+import { buildVisibilityRegisterFields } from "./visibility-intent.js";
 
 const HEARTBEAT_INTERVAL = 15_000;
 const GIT_POLL_INTERVAL = 30_000;
@@ -291,6 +291,12 @@ function initBridge(pi: ExtensionAPI) {
   // on every observed resumption of the aborted turn. See change:
   // unify-error-retry-lifecycle (design D3b).
   const abortLatch = new AbortLatch();
+
+  // Subagent live-detail reliability: retain subagent frames emitted while the
+  // bridge is not ready (buffer-and-flush on re-register, D1) and keep the
+  // latest snapshot of each running subagent for the resync responder (D2).
+  // See change: fix-subagent-live-detail-reliability.
+  const subagentFrameBuffer = new SubagentFrameBuffer();
 
   // Bridge-owned queue structures with TWO different ownership models:
   //
@@ -895,6 +901,23 @@ function initBridge(pi: ExtensionAPI) {
         }
         return;
       }
+      // Subagent resync (D2): reply with the latest retained snapshot of a
+      // running subagent as a synthetic subagent_started event_forward. No-op
+      // for an unknown/finished agent (durable completed-case backfill covers
+      // those). See change: fix-subagent-live-detail-reliability.
+      if (msg.type === "subagent_resync_request") {
+        const agentId = (msg as { agentId?: unknown }).agentId;
+        if (typeof agentId === "string" && agentId.length > 0 && sessionReady && isActive()) {
+          const snap = subagentFrameBuffer.resync(agentId);
+          if (snap) {
+            sendEventForward("subagents:started", snap.data);
+            console.log(`[dashboard] served subagent resync for agentId=${agentId}`);
+          } else {
+            console.log(`[dashboard] subagent resync no-op (unknown/finished) agentId=${agentId}`);
+          }
+        }
+        return;
+      }
       if (msg.type === "flow_control" && pi.events) {
         if (msg.action === "abort") {
           pi.events.emit("flow:abort", {});
@@ -1014,6 +1037,12 @@ function initBridge(pi: ExtensionAPI) {
         }
       } catch { /* probe failure non-fatal */ }
       replaySessionEntries();
+      // Flush subagent frames buffered while the socket was down (D1). Unlike
+      // session_start, a transient WS reconnect keeps `sessionReady` true, so
+      // the intercept routes those frames into the per-agent buffer; drain them
+      // now that the transport is open again. See change:
+      // fix-subagent-live-detail-reliability.
+      flushPendingSubagentFrames();
       // Re-send pending PromptBus requests so dashboard dialogs survive browser refresh.
       // Synchronous within this tick to prevent TUI respond() from interleaving.
       // Client-side dedup by requestId prevents double-rendering.
@@ -1742,6 +1771,33 @@ function initBridge(pi: ExtensionAPI) {
   // clear here — it would wipe entries the user adds DURING the drain.
   // See change: add-followup-edit-and-steer-cancel (per-entry-drain).
 
+  // Forward one EventBus frame as an `event_forward` message. Known channels
+  // get renamed via EVENT_BUS_MAP; unknown channels use the channel name.
+  function sendEventForward(channel: string, data: Record<string, unknown>): void {
+    const eventType = EVENT_BUS_MAP[channel] ?? channel;
+    connection.send({
+      type: "event_forward",
+      sessionId,
+      event: { eventType, timestamp: Date.now(), data },
+    });
+  }
+
+  // Flush subagent frames buffered while the bridge was not ready (D1). Called
+  // right after `sessionReady` flips true on (re-)register, in emission order.
+  // See change: fix-subagent-live-detail-reliability.
+  function flushPendingSubagentFrames(): void {
+    const drained = subagentFrameBuffer.drain();
+    if (drained.length === 0) return;
+    for (const { channel, data } of drained) {
+      try { sendEventForward(channel, data); } catch { /* keep flushing */ }
+    }
+    console.log(
+      `[dashboard] flushed ${drained.length} buffered subagent frame(s) on re-register` +
+        ` (forwarded=${subagentFrameBuffer.stats.forwarded} buffered=${subagentFrameBuffer.stats.buffered}` +
+        ` flushed=${subagentFrameBuffer.stats.flushed})`,
+    );
+  }
+
   // EventBus catch-all: intercept pi.events.emit to forward all EventBus
   // traffic (flow events, subagent events, custom extension events).
   // Known channels get renamed via EVENT_BUS_MAP; unknown channels use the
@@ -1750,17 +1806,30 @@ function initBridge(pi: ExtensionAPI) {
   if (pi.events) {
     origEventsEmit = pi.events.emit.bind(pi.events);
     pi.events.emit = (channel: string, data: unknown) => {
-      if (sessionReady && isActive()) {
-        try {
-          const eventType = EVENT_BUS_MAP[channel] ?? channel;
-          const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-          connection.send({
-            type: "event_forward",
-            sessionId,
-            event: { eventType, timestamp: Date.now(), data: eventData },
-          });
-        } catch { /* forwarding failure must never break the original emit */ }
-      }
+      try {
+        const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+        if (SubagentFrameBuffer.isSubagentChannel(channel)) {
+          // Subagent frames are reconcilable state, not fire-and-forget. Forward
+          // live only when the session is ready AND the transport is actually
+          // open; otherwise buffer the latest frame per agent (latest-wins,
+          // bounded) instead of letting it fall into the shared FIFO ring.
+          // `sessionReady` stays true across a transient WS drop, so gating on
+          // `connection.isConnected` routes reconnect-window frames into the
+          // per-agent buffer (flushed on session_start AND onReconnect) rather
+          // than risking eviction from the shared ring.
+          // See change: fix-subagent-live-detail-reliability (D1/D2).
+          if (sessionReady && isActive() && connection.isConnected) {
+            sendEventForward(channel, eventData);
+            subagentFrameBuffer.markForwarded(channel, eventData);
+          } else if (!subagentFrameBuffer.buffer(channel, eventData)) {
+            console.warn(
+              `[dashboard] subagent frame dropped (no agentId) channel=${channel} while not ready`,
+            );
+          }
+        } else if (sessionReady && isActive()) {
+          sendEventForward(channel, eventData);
+        }
+      } catch { /* forwarding failure must never break the original emit */ }
       origEventsEmit!(channel, data);
     };
   }
@@ -2221,6 +2290,11 @@ function initBridge(pi: ExtensionAPI) {
     // Allow event forwarding now that session_register is buffered
     sessionReady = true;
 
+    // Flush any subagent frames buffered during the not-ready window (D1) so a
+    // reconnect/discovery/reload gap self-heals instead of leaving a running
+    // subagent's detail empty. See change: fix-subagent-live-detail-reliability.
+    flushPendingSubagentFrames();
+
     // Replay full session history so the dashboard has all messages
     replaySessionEntries();
     connection.send({ type: "replay_complete", sessionId });
@@ -2431,6 +2505,10 @@ function initBridge(pi: ExtensionAPI) {
     // sessionId on its session_register. See change: inject-session-context-into-agent.
     attachedChange = null;
     getBridgeState().attachedChange = null;
+    // Drop retained subagent frames/snapshots on a real session switch — the
+    // new/fork/resumed session's subagents are unrelated to the outgoing one.
+    // See change: fix-subagent-live-detail-reliability.
+    subagentFrameBuffer.reset();
     // Clear the stop-after-turn latch so a new/fork/resumed session does not
     // inherit the previous session's pending graceful-stop and shut down on
     // its first turn_end. See change: adopt-pi-071-072-073-features.
@@ -2507,6 +2585,10 @@ function initBridge(pi: ExtensionAPI) {
       type: "session_unregister",
       sessionId,
     });
+
+    // Drop retained subagent frames/snapshots on shutdown.
+    // See change: fix-subagent-live-detail-reliability.
+    subagentFrameBuffer.reset();
 
     // Best-effort: remove this session's pasted ask_user attachments.
     // See change: add-ask-user-input-multiline-paste.

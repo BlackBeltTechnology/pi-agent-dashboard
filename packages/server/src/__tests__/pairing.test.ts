@@ -91,6 +91,22 @@ describe("one-time code TTL", () => {
     const { mgr } = mkManager();
     expect(mgr.redeem("nope")).toEqual({ ok: false, error: "invalid_code" });
   });
+
+  it("restarts the approval window on redeem so a late scan still has time to approve", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!; // expiresAt = mint + 60s
+    // Phone scans 55s later — 5s before the original code TTL would lapse.
+    clock += 55_000;
+    const r = mgr.redeem(p.code);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // 30s after redeem — PAST the original mint window, but the redeem restarted it.
+    clock += 30_000;
+    // The pending device must still be visible (not swept to "unknown")...
+    expect(mgr.poll(r.pendingId).status).toBe("pending");
+    // ...and the operator can still type+approve.
+    expect(mgr.approve(p.code, r.confirmCode).ok).toBe(true);
+  });
 });
 
 describe("D12 compare-code approval", () => {
@@ -130,6 +146,16 @@ describe("D12 compare-code approval", () => {
     }
     // Second poll → code consumed, unknown.
     expect(mgr.poll(r.pendingId).status).toBe("unknown");
+  });
+
+  it("rejects approval of an expired code even without an intervening sweep", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    const r = mgr.redeem(p.code); // restarts expiresAt to now + 60s
+    if (!r.ok) throw new Error("redeem failed");
+    // Let the restarted window lapse with NO poll()/createPayload() sweep between.
+    clock += 61_000;
+    expect(mgr.approve(p.code, r.confirmCode)).toEqual({ ok: false, error: "expired" });
   });
 
   it("locks out after repeated wrong confirm codes", () => {

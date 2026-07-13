@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Change Summary Table — edge states</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Change Summary Table — edge states</h1>
+  <p class="sub">Empty · single-file · overflow · non-git fallback · net-vs-turn reconciliation.</p>
+  <div class="navlinks">
+    <a href="index.html">← Overview</a>
+    <a class="here">Edge states</a>
+  </div>
+
+  <div class="cols">
+    <!-- empty -->
+    <div class="stage">
+      <div class="stage-cap">Empty — no Edit/Write this turn</div>
+      <p class="note">No block rendered at all. Turn stays clean; nothing to summarize.</p>
+      <div class="empty">no change block for this turn</div>
+    </div>
+
+    <!-- single file -->
+    <div class="stage">
+      <div class="stage-cap">Single-file turn</div>
+      <div class="cst">
+        <div class="cst-head">
+          <span class="ico">✎</span><span class="title">Changed this turn</span>
+          <span class="agg"><span class="add">+6</span><span class="del">−2</span><span class="zero">· 1 file</span></span>
+          <span class="caret">▾</span>
+        </div>
+        <div class="row">
+          <span class="glyph mod">●</span>
+          <span class="path"><span class="dir">packages/client/src/lib/</span>event-reducer.ts</span>
+          <span class="count"><span class="add">+6</span><span class="del">−2</span>
+            <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i><i class="n"></i></span>
+            <a class="open">⧉</a></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- overflow -->
+    <div class="stage">
+      <div class="stage-cap">Overflow — many files, collapse tail</div>
+      <p class="note">First N shown; remainder folds behind a "+N more" row (expands in place).</p>
+      <div class="cst">
+        <div class="cst-head">
+          <span class="ico">✎</span><span class="title">Changed this turn</span>
+          <span class="agg"><span class="add">+214</span><span class="del">−88</span><span class="zero">· 9 files</span></span>
+          <span class="caret">▾</span>
+        </div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">a.ts</span><span class="count"><span class="add">+40</span><span class="del">−10</span><a class="open">⧉</a></span></div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">b.ts</span><span class="count"><span class="add">+33</span><span class="del">−21</span><a class="open">⧉</a></span></div>
+        <div class="row"><span class="glyph add">+</span><span class="path">c.ts</span><span class="count"><span class="add">+29</span><span class="del zero">−0</span><a class="open">⧉</a></span></div>
+        <div class="morerow">+6 more files…</div>
+      </div>
+    </div>
+
+    <!-- non-git fallback -->
+    <div class="stage">
+      <div class="stage-cap">Non-git session — roll-up fallback</div>
+      <p class="note">Per-turn blocks unaffected (event-derived). Roll-up sums per-turn
+        deltas instead of numstat and flags the source.</p>
+      <div class="cst">
+        <div class="cst-head">
+          <span class="pin">📌</span><span class="title">Session changes</span>
+          <span class="agg"><span class="pill">summed</span><span class="add">+57</span><span class="del">−9</span></span>
+          <span class="caret">▾</span>
+        </div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">notes.md</span><span class="count"><span class="add">+57</span><span class="del">−9</span><a class="open">⧉</a></span></div>
+      </div>
+      <p class="note" style="margin-top:8px">Badge <span class="pill">summed</span> = counts
+        are turn-delta sums, not <code>git</code> net (no repo to diff against).</p>
+    </div>
+  </div>
+
+  <!-- reconciliation -->
+  <h2>Net-vs-turn reconciliation (this is correct, not a bug)</h2>
+  <p class="note">Add 10 lines in turn 1, delete them in turn 2. Per-turn blocks log the
+    <em>activity</em>; the roll-up shows <em>net</em> state. The UI labels each so they never
+    read as contradictory.</p>
+
+  <div class="cols">
+    <div class="stage">
+      <div class="stage-cap">Per-turn blocks — activity log</div>
+      <div class="cst" style="margin-bottom:12px">
+        <div class="cst-head"><span class="ico">✎</span><span class="title">turn 1</span>
+          <span class="agg"><span class="add">+10</span><span class="del zero">−0</span></span></div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">foo.ts</span>
+          <span class="count"><span class="add">+10</span><span class="del zero">−0</span><a class="open">⧉</a></span></div>
+      </div>
+      <div class="cst">
+        <div class="cst-head"><span class="ico">✎</span><span class="title">turn 2</span>
+          <span class="agg"><span class="add zero">+0</span><span class="del">−10</span></span></div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">foo.ts</span>
+          <span class="count"><span class="add zero">+0</span><span class="del">−10</span><a class="open">⧉</a></span></div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-cap">Roll-up — net state vs baseline</div>
+      <div class="cst">
+        <div class="cst-head"><span class="pin">📌</span><span class="title">Session changes</span>
+          <span class="agg"><span class="zero">1 file ·</span><span class="add zero">+0</span><span class="del zero">−0</span></span></div>
+        <div class="row"><span class="glyph mod">●</span><span class="path">foo.ts</span>
+          <span class="count"><span class="add zero">+0</span><span class="del zero">−0</span>
+            <span class="bar"><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i></span>
+            <a class="open">⧉</a></span></div>
+      </div>
+      <div class="callout" style="margin-top:14px">
+        <b>Same file, two truths.</b> Per-turn = "we touched foo.ts twice."
+        Roll-up = "foo.ts is unchanged vs. HEAD." Both correct.
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

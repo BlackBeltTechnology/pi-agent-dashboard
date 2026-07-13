@@ -2,21 +2,22 @@
  * Browser Gateway - WebSocket handler for browser client connections.
  * Runs on the HTTP server port via upgrade handling.
  */
-import { WebSocketServer, WebSocket } from "ws";
+
 import type {
-  ServerToBrowserMessage,
   BrowserOpenSpecUpdateMessage,
   BrowserToServerMessage,
+  ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { SessionManager } from "./memory-session-manager.js";
-import type { EventStore } from "./memory-event-store.js";
-import type { PiGateway } from "./pi-gateway.js";
+import { WebSocket, WebSocketServer } from "ws";
+import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "./directory-service.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "./headless-pid-registry.js";
+import type { EventStore } from "./memory-event-store.js";
+import type { SessionManager } from "./memory-session-manager.js";
 import type { PendingForkRegistry } from "./pending-fork-registry.js";
-import type { SessionOrderManager } from "./session-order-manager.js";
+import type { PiGateway } from "./pi-gateway.js";
 import type { PreferencesStore } from "./preferences-store.js";
-import { hasOpenSpecDir, hasOpenSpecRoot, type DirectoryService } from "./directory-service.js";
+import type { SessionOrderManager } from "./session-order-manager.js";
 
 /**
  * Pure helper: build the per-cwd `openspec_update` messages a freshly
@@ -61,16 +62,17 @@ export function buildOpenSpecConnectSnapshot(
   }
   return out;
 }
-import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
-import { createViewedSessionTracker, type ViewedSessionTracker } from "./viewed-session-tracker.js";
-import type { TerminalManager } from "./terminal-manager.js";
+
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "./browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
+import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "./browser-handlers/session-action-handler.js";
+import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleUnhideSession } from "./browser-handlers/session-meta-handler.js";
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
+import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
+import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
+import type { TerminalManager } from "./terminal-manager.js";
 import { ViewMessageStore } from "./view-message-store.js";
-import { handleSendPrompt, handleResumeSession, handleSpawnSession, handleShutdown, handleAbort, handleStopAfterTurn, handleFlowControl, handleForceKill, handleKillProcess, handleClearFollowupEntries, handleEditFollowupEntry, handleRemoveFollowupEntry, handlePromoteFollowupEntry } from "./browser-handlers/session-action-handler.js";
-import { handleRenameSession, handleHideSession, handleUnhideSession, handleAttachProposal, handleDetachProposal, handleAcceptReplaceProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer } from "./browser-handlers/session-meta-handler.js";
-import { handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleOpenInlineTerminal, handleCloseInlineTerminal } from "./browser-handlers/terminal-handler.js";
-import { handlePinDirectory, handleUnpinDirectory, handleReorderPinnedDirs, handleFavoriteModel, handleUnfavoriteModel, handleReorderSessions, handleOpenSpecRefresh, handleOpenSpecBulkArchive, handleExtensionUiResponse, handlePiGatewayForward, handleCreateWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleSetWorkspaceCollapsed, handleAddFolderToWorkspace, handleRemoveFolderFromWorkspace, handleReorderWorkspaceFolders, handleReorderWorkspaces } from "./browser-handlers/directory-handler.js";
+import { createViewedSessionTracker, type ViewedSessionTracker } from "./viewed-session-tracker.js";
 
 
 
@@ -545,6 +547,9 @@ export function createBrowserGateway(
             break;
           case "kill_process":
             handleKillProcess(msg, ctx);
+            break;
+          case "subagent_resync_request":
+            handleSubagentResyncRequest(msg, ctx);
             break;
           case "shutdown":
             handleShutdown(msg, ctx);

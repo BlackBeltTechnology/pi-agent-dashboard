@@ -519,6 +519,12 @@ export function useMessageHandler(
           roles: msg.roles,
           presets: msg.presets,
           activePreset: msg.activePreset,
+          // Carry the built-in role-name set into the roles plugin config so
+          // BuiltInRolesSettings renders the Built-in/Custom split and the
+          // "＋ Add custom role" control. Dropping it here (the original defect)
+          // forced the flat back-compat layout.
+          // See change: fix-builtin-role-names-relay.
+          builtinRoleNames: msg.builtinRoleNames,
         };
         setRolesMap((prev) => {
           const next = new Map(prev);
