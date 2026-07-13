@@ -111,6 +111,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | Data flow, persistence, reconnection, protocol, config reference | `docs/architecture.md` |
 | End-user / developer setup, prerequisites, CI badges, project structure | `README.md` |
 | Cross-cutting rule EVERY agent needs on EVERY turn (rare) | AGENTS.md, ≤ 200 chars per row, no inline change history |
+| Source-of-truth change the doctor skill derives (peer rename, pi floor bump, new install platform, new bridge/plugin slot) | Run `doctor --regenerate <module>`: peer rename→`peers`; pi floor→`pi-resolution`; new platform→`install-topology`; new bridge slot→`plugins-bridges`. Doctor self-derives facts from live sources — never hand-maintain version/name tables in the module MDs. |
 
 Rules:
 
@@ -145,6 +146,7 @@ Why this exists: AGENTS.md ballooned to 107 KB (~27k tokens) by accreting per-ch
 
 See [docs/architecture.md](docs/architecture.md) for full details.
 - See [docs/electron-bootstrap-flow.md](docs/electron-bootstrap-flow.md) for the Electron app→server bootstrap state machine and end states.
+- See [docs/doctor-skill.md](docs/doctor-skill.md) for the modular doctor diagnostic skill (router + 7 capability modules, shell-first derive-on-run checks, two-tier self-update).
 
 - **Bridge Extension** (`src/extension/`) — Runs in every pi session, forwards events via WebSocket
 - **Dashboard Server** (`src/server/`) — Aggregates events, in-memory + JSON persistence, dual WebSocket servers
