@@ -1,45 +1,70 @@
 ## 1. Regression test: reproduce the husk (TDD, red first)
 
-- [ ] 1.1 `cli.test.ts` (or `indexer.test.ts`): `kb index` against a config whose source
-      dir does not exist SHALL exit non-zero AND leave **no file** at `dbPath` (currently
-      leaves a 0-chunk 56K DB) — write it failing first
+- [ ] 1.1 `cli.test.ts` (or `indexer.test.ts`): `kb index` where **all** configured sources'
+      dirs are missing SHALL exit non-zero AND leave **no file** at `dbPath` (currently
+      leaves a 0-chunk 56K husk) — write it failing first
 - [ ] 1.2 Test: `kb index` interrupted mid-run (simulate a throw after `openStore`, before
       commit) leaves no committed DB at `dbPath`
-- [ ] 1.3 Test: a pre-existing empty/0-chunk DB at `dbPath` does NOT count as initialized —
-      a coherent gate returns `needsInit: true` for it
+- [ ] 1.3 Test (N2 guard): a **successful** index of a present source set that contains no
+      markdown writes a valid `dbPath` that DOES count as initialized — empty ≠ uninitialized;
+      the gate MUST NOT re-fire on a legitimately empty index. Husk prevention comes from §2
+      atomicity (no file on *failure*), NOT from treating empty-as-uninitialized
 
 ## 2. kb index atomicity + cleanup on failure
 
-- [ ] 2.1 In `packages/kb/src/cli.ts::runCmd`, wrap the `index` path so a failure before
-      successful completion leaves no artifact: open the store on a temp path
-      (`<dbPath>.tmp-<pid>`) and `rename()` onto `dbPath` only after the index run resolves,
-      OR track "did this run create the file" and `close()`+`unlink()` on the failure exit
-- [ ] 2.2 `packages/kb/src/sqlite-store.ts`: support opening at a temp path and a
-      `closeAndUnlink()` / finalize-rename helper (respect WAL sidecar files `-wal`/`-shm`)
-- [ ] 2.3 Preserve incremental semantics: an atomic replace must not discard a valid prior
-      index when a *later* incremental run fails — only a run that had to create the DB
-      cleans it up; a run over an existing valid DB leaves it intact on failure
-- [ ] 2.4 Tests: happy path still writes `dbPath` with correct chunk count; `--force`
-      still rebuilds; failure leaves prior valid DB untouched (2.3)
+- [ ] 2.1 In `packages/kb/src/cli.ts::runCmd`, make the `index` path atomic. Branch on whether
+      `dbPath` already exists (single approach — NOT the "OR" of create-track+unlink; see
+      design.md D1):
+      - **First index (no `dbPath`)**: open the store on a temp path (`<dbPath>.tmp-<pid>`);
+        `rename()` onto `dbPath` only after the run resolves. A failure/crash leaves only the
+        temp orphan — the real path stays absent, so the gate correctly re-fires. This is the
+        ONLY path that survives uncatchable termination (OOM/SIGKILL).
+      - **Incremental (valid `dbPath` exists)**: index in-place. A mid-run failure leaves the
+        prior DB non-empty/valid; a re-run completes it. No temp copy — preserves the in-DB
+        `files` mtime/sha256 state that incremental skip needs.
+      Do NOT use a create-track → `close()`+`unlink()`-on-failure approach: that cleanup is
+      dead code under OOM/SIGKILL (the file is created by `new DatabaseSync` before the scan),
+      leaving the husk it was meant to prevent.
+- [ ] 2.2 `packages/kb/src/sqlite-store.ts`: support opening at a temp path + a finalize-rename
+      helper. WAL ordering is load-bearing: `wal_checkpoint(TRUNCATE)` + `close()` BEFORE
+      `rename`, then move the single main file (sidecars empty/removed on clean close) — OR
+      rename all three (`-wal`/`-shm`). Verify against `node:sqlite`; do NOT assume `close()`
+      checkpoints
+- [ ] 2.3 Preserve incremental semantics: only a first-index run (which created the DB) may
+      clean up on failure. A run over an existing valid DB leaves it **valid & queryable**
+      (partially updated by committed batches, not pristine) on failure; a re-run completes it
+- [ ] 2.4 Tests: happy path still writes `dbPath` with correct chunk count; `--force` still
+      rebuilds; a failed incremental run leaves the prior DB **valid & queryable** (assert it
+      still answers a known query — NOT byte-identical; batched commits mutate it) (2.3)
+- [ ] 2.5 Orphan sweep: on index startup, `unlink` stale `<dbPath>.tmp-*` (+ sidecars) left by
+      a prior SIGKILL'd first-index run, so temp husks don't accumulate. Cheap; guards the
+      first-index path's litter (Non-Goal covers teardown litter, not this in-run orphan)
 
-## 3. Missing source dir degrades, not aborts
+## 3. Missing source dir: config-source degrades, explicit --source errors
 
-- [ ] 3.1 In `packages/kb/src/indexer.ts` (`walk` / `indexSource`), a source whose `dir`
-      does not exist SHALL be skipped with a `console.warn`, not throw `ENOENT`
-- [ ] 3.2 A partial source set (some dirs present, some missing) SHALL produce a valid
-      index of the present sources and a non-zero chunk count when any source has files
-- [ ] 3.3 Tests: 3 sources, 1 missing → index built from 2, warning emitted, exit 0;
-      all sources missing → exit non-zero AND no husk (ties back to 1.1)
+(N1: survivability ≠ silent semantics. A missing **config-declared** source is a degrade;
+a missing **explicit `--source` arg** is a user typo that must still error — see design.md D3.)
+
+- [ ] 3.1 In `packages/kb/src/indexer.ts` (`walk` / `indexSource`), a **config-declared**
+      source whose `dir` does not exist SHALL be skipped with a `console.warn`, not throw
+      `ENOENT` (e.g. an optional workspace mount that may legitimately be absent)
+- [ ] 3.2 An **explicit `--source <dir>`** arg that does not exist SHALL still error (exit
+      non-zero), not silently produce an empty index — a missing explicit path is a typo
+- [ ] 3.3 A partial config source set (≥1 present) SHALL produce a valid index of the present
+      sources and a non-zero chunk count when any present source has files
+- [ ] 3.4 Tests: 3 config sources, 1 missing → index built from 2, warning emitted, exit 0;
+      explicit `--source missing/` → exit non-zero; ALL config sources missing → exit non-zero
+      AND no husk (ties back to 1.1, §2 atomicity holds)
 
 ## 4. Worktree-init gate coherence
 
-- [ ] 4.1 Decide + apply: with §2 in place, `test ! -f .pi/dashboard/kb/index.db` is
-      trustworthy again (file present ⟺ successful index). Keep it, OR harden the project
-      `worktreeInit.gate` in `.pi/settings.json` to additionally reject an empty index
-- [ ] 4.2 If hardened: gate probes index non-emptiness cheaply (e.g. a `kb`-provided
-      `--check` exit code, or a size/row threshold) without a full node spawn per status poll
-- [ ] 4.3 Test/verify: a checkout with an empty index.db re-fires the init run and recovers
-      to a populated index
+- [ ] 4.1 With §2's atomicity in place, `test ! -f .pi/dashboard/kb/index.db` is trustworthy
+      again (file present ⟺ a successful index ran) — **keep the existing file-existence gate**.
+      Do NOT harden it to probe non-emptiness: a legitimately empty source set produces a valid
+      0-chunk DB (see 1.3/N2), so an "empty = needsInit" probe would re-fire forever on such a
+      repo. Atomicity, not content-probing, is the coherence fix (design.md D2)
+- [ ] 4.2 Test/verify: a checkout whose init was interrupted (no `index.db`) re-fires init and
+      recovers to a populated index; a completed init (file present) does not re-fire
 
 ## 5. Docs + verification
 
