@@ -52,14 +52,11 @@ export interface GoalRoutesDeps {
  *  supervisor abort so an in-flight respawn / live driver is stopped first. */
 const TERMINAL_OR_PAUSED: ReadonlySet<string> = new Set(["paused", "cleared", "achieved", "failed"]);
 
-const VALID_STATUS: ReadonlySet<string> = new Set([
-  "pursuing",
-  "paused",
-  "achieved",
-  "cleared",
-  "respawning",
-  "failed",
-]);
+// Client-settable statuses. `respawning` is EXCLUDED — supervisor-owned; a direct
+// PATCH could persist it without scheduling a respawn timer or aborting the live
+// driver. `failed`/`respawning` still render (statusMeta), they are just not
+// user-settable. See change: add-goal-session-supervisor.
+const VALID_STATUS: ReadonlySet<string> = new Set(["pursuing", "paused", "achieved", "cleared"]);
 
 export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDeps): void {
   const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession, abortGoalSupervision } = deps;
@@ -269,9 +266,15 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         // is never terminal over a still-running process, and the death from
         // that kill is a no-op. See change: add-goal-session-supervisor (S6).
         if (update.status !== undefined && TERMINAL_OR_PAUSED.has(update.status) && abortGoalSupervision) {
+          const REASON: Record<string, string> = {
+            paused: "paused by user",
+            cleared: "cleared by user",
+            achieved: "achieved",
+            failed: "failed by user",
+          };
           await abortGoalSupervision(cwd!, id, {
             status: update.status,
-            reason: update.status === "paused" ? "paused by user" : "cleared by user",
+            reason: REASON[update.status] ?? "stopped by user",
           });
           // Apply any co-submitted non-status fields (status already written).
           const { status: _omit, ...rest } = update;

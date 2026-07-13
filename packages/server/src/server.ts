@@ -1212,6 +1212,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     killByToken: (token) => browserGateway.headlessPidRegistry.killByToken(token),
     killBySession: (sessionId) => browserGateway.headlessPidRegistry.killBySessionId(sessionId),
     buildReprime: (goal) => buildGoalReprime(goal),
+    // Respawn spawns force strategy:"headless" (spawnGoalDriver); the dashboard
+    // always spawns headless, so RPC control is available. See change:
+    // add-goal-session-supervisor (C2j).
+    headlessAvailable: () => true,
     log: (msg, meta) => console.error(msg, meta ?? ""),
   });
   // Boot-time reconcile: classify any pursuing/respawning goal whose driver did
@@ -2159,6 +2163,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       metaPersistence.flushAll();
       metaPersistence.dispose();
+      // Cancel the deferred boot reconcile + dispose supervisor (pending backoff
+      // timers) so a create/stop cycle in one process leaves no stale timer.
+      // See change: add-goal-session-supervisor.
+      clearTimeout(bootReconcileTimer);
+      goalSupervisor?.dispose();
       pendingForkRegistry.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();

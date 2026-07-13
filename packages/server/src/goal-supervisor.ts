@@ -124,6 +124,21 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
   // Serialize death handling per session so concurrent deaths don't interleave
   // store reads/writes.
   const chain = new Map<string, Promise<void>>();
+  // Per-GOAL lock spanning classify / performSpawn / abort so a death handler
+  // cannot record a respawn + flip status after abort() finalized the goal
+  // (CodeRabbit: abort-vs-death race). Keyed by goalId.
+  const goalLocks = new Map<string, Promise<unknown>>();
+
+  /** Run `fn` under the per-goal lock (serializes classify/performSpawn/abort). */
+  function withGoalLock<T>(goalId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = goalLocks.get(goalId) ?? Promise.resolve();
+    const next = prev.catch(() => {}).then(fn);
+    goalLocks.set(goalId, next);
+    void next.catch(() => {}).finally(() => {
+      if (goalLocks.get(goalId) === next) goalLocks.delete(goalId);
+    });
+    return next;
+  }
 
   /** Count no-progress deaths within the breaker window that occurred AFTER the
    *  last progress epoch (`lastProgressAt`). Derived from persisted `respawns[]`
@@ -181,8 +196,18 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
   }
 
   async function handleDeath(sessionId: string): Promise<void> {
-    const goal = await findCurrentDriverGoal(sessionId);
-    if (!goal) return; // not a current goal driver — ignore
+    const found = await findCurrentDriverGoal(sessionId);
+    if (!found) return; // not a current goal driver — ignore
+    // Serialize the classify+schedule under the per-goal lock, and RE-READ the
+    // record inside so a concurrent abort() (which finalizes first) is observed.
+    await withGoalLock(found.id, async () => {
+      const goal = (await store.list(found.cwd)).find((g) => g.id === found.id);
+      if (!goal || goal.driverSessionId !== sessionId) return; // replaced/removed
+      await classifyDeath(goal, sessionId);
+    });
+  }
+
+  async function classifyDeath(goal: GoalRecord, sessionId: string): Promise<void> {
     if (TERMINAL.has(goal.status) || goal.status === "paused") {
       // Terminal / already-paused (incl. a death from our own abort kill): no-op.
       return;
@@ -205,7 +230,6 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
       log("[goal-supervisor] driver ended; autoRespawn off → paused", { goalId: goal.id });
       return;
     }
-    void sessionId; // (kept for clarity; classification uses the persisted baseline)
 
     if (!headlessAvailable()) {
       await store.setStatus(goal.cwd, goal.id, "paused", "headless unavailable");
@@ -223,9 +247,12 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
       return;
     }
 
-    // Decide resume vs fresh (poisoned session falls back to fresh).
+    // Decide resume vs fresh AT CLASSIFICATION so the persisted `respawn.reason`
+    // matches the spawn actually executed (poison counter reads it). A poisoned
+    // session OR a missing continue-mode session file → fresh re-prime.
     const poisoned = consecutiveNoProgressResumes(goal) >= POISON_K;
-    const reason: GoalRespawn["reason"] = poisoned ? "fresh" : "resume";
+    const sessionFile = poisoned ? undefined : deps.resolveSessionFile(sessionId);
+    const reason: GoalRespawn["reason"] = poisoned || !sessionFile ? "fresh" : "resume";
 
     // Record this death as a respawn attempt (drives future counters) + flip to
     // the visible respawning state (never `pursuing` with no live driver — S1).
@@ -247,7 +274,11 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
 
     const timer = setTimer(() => {
       timers.delete(goal.id);
-      void performSpawn(goal.id, goal.cwd, reason, sessionId, generationAtSchedule);
+      // performSpawn is generation-guarded + lock-serialized; catch so a store
+      // I/O failure can't become an unhandled rejection.
+      void withGoalLock(goal.id, () =>
+        performSpawn(goal.id, goal.cwd, reason, sessionFile, generationAtSchedule),
+      ).catch((err) => log("[goal-supervisor] performSpawn failed", { goalId: goal.id, err: String(err) }));
     }, backoff);
     timers.set(goal.id, timer);
   }
@@ -256,7 +287,7 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
     goalId: string,
     cwd: string,
     reason: GoalRespawn["reason"],
-    deadSessionId: string,
+    sessionFile: string | undefined,
     generationAtSchedule: number,
   ): Promise<void> {
     // Re-read: a clear/pause during the backoff bumped `generation` → abort.
@@ -277,15 +308,13 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
       startedAt: now(),
     });
 
-    const sessionFile = reason === "resume" ? deps.resolveSessionFile(deadSessionId) : undefined;
-    const effectiveReason: GoalRespawn["reason"] = reason === "resume" && sessionFile ? "resume" : "fresh";
     const req: GoalDriverSpawnRequest = {
       cwd,
       goalId,
-      reason: effectiveReason,
+      reason,
       spawnToken,
-      ...(effectiveReason === "resume" && sessionFile ? { sessionFile } : {}),
-      ...(effectiveReason === "fresh" ? { reprime: deps.buildReprime(goal) } : {}),
+      ...(reason === "resume" && sessionFile ? { sessionFile } : {}),
+      ...(reason === "fresh" ? { reprime: deps.buildReprime(goal) } : {}),
     };
 
     let result: { success: boolean; message?: string };
@@ -313,10 +342,20 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
     // Success: the new driver's `session_register` links it via the token path,
     // which clears inFlightSpawn, replaces the driver (capturing a fresh
     // progress baseline), and re-sets status pursuing.
-    log("[goal-supervisor] respawn spawned", { goalId, reason: effectiveReason });
+    log("[goal-supervisor] respawn spawned", { goalId, reason });
   }
 
-  async function abort(
+  function abort(
+    cwd: string,
+    goalId: string,
+    terminal: { status: GoalRecordStatus; reason?: string },
+  ): Promise<void> {
+    // Serialize with classify/performSpawn so a concurrent death handler cannot
+    // record a respawn or flip status after this finalize (CodeRabbit race).
+    return withGoalLock(goalId, () => abortLocked(cwd, goalId, terminal));
+  }
+
+  async function abortLocked(
     cwd: string,
     goalId: string,
     terminal: { status: GoalRecordStatus; reason?: string },
@@ -400,6 +439,7 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
       for (const t of timers.values()) clearTimer(t);
       timers.clear();
       chain.clear();
+      goalLocks.clear();
     },
   };
 }

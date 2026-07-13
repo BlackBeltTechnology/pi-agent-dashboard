@@ -235,6 +235,17 @@ describe("goal-supervisor", () => {
     expect(fresh.sessionFile).toBeUndefined();
   });
 
+  it("resume downgrades to fresh (recorded reason matches) when the session file is gone", async () => {
+    const g = await activeGoal({ autoRespawn: true, totalTurns: 3 }); // progress → resume intent
+    sessionFiles.delete("driver-1"); // file gone → must fall back to fresh
+    await death("driver-1");
+    await runTimers();
+    expect(spawns.at(-1)!.reason).toBe("fresh");
+    expect(spawns.at(-1)!.sessionFile).toBeUndefined();
+    // Persisted respawn reason matches the spawn actually executed (poison counter).
+    expect((await get(g.id)).respawns!.at(-1)!.reason).toBe("fresh");
+  });
+
   it("crash-loop breaker: BREAKER_COUNT no-progress deaths in window → failed 'crash loop'", async () => {
     const g = await activeGoal({ autoRespawn: true });
     for (let i = 0; i < BREAKER_COUNT - 1; i++) {

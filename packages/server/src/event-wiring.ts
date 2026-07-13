@@ -986,12 +986,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: add-goal-session-supervisor (Correlation, replaces the
       // onSessionRegistered cwd-FIFO primary).
       if (goalStore) {
+        // Guard against a RE-REGISTER of an already-linked driver (bridge WS
+        // blip / dashboard restart while pi survives): the token path
+        // (`getGoalId`) is a non-destructive read that survives the process, so
+        // without this guard `linkGoalDriver` would re-prime `/goal` into a live
+        // conversation on every reconnect. Only link on a genuine handover —
+        // first link or a different driver taking over. The legacy cwd-FIFO is
+        // single-shot so it never re-fires. See change: add-goal-session-supervisor.
+        const alreadyLinked = sessionManager.get(sessionId)?.goalId;
         const tokenGoalId = browserGateway.headlessPidRegistry.getGoalId(sessionId);
         if (tokenGoalId) {
-          linkGoalDriver(sessionId, msg.cwd, tokenGoalId);
+          if (alreadyLinked !== tokenGoalId) linkGoalDriver(sessionId, msg.cwd, tokenGoalId);
         } else if (pendingGoalLinkRegistry) {
           const fifoGoalId = pendingGoalLinkRegistry.consume(msg.cwd);
-          if (fifoGoalId) linkGoalDriver(sessionId, msg.cwd, fifoGoalId);
+          if (fifoGoalId && alreadyLinked !== fifoGoalId) linkGoalDriver(sessionId, msg.cwd, fifoGoalId);
         }
       }
 
