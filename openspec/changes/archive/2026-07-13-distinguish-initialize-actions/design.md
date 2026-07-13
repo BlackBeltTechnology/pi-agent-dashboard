@@ -53,8 +53,8 @@ the hook-branch payload untouched.
 no extra I/O of note. Alternative (a separate `/configured` endpoint) doubles round-trips per
 row for no benefit.
 
-*Edge case:* a git repo with no `.pi/settings.json` — `configRoot = resolveMainPath(cwd)`
-(non-null) but the settings file is absent → `existsSync` false → `configured:false` → state ①
+*Edge case:* a git repo with no `.pi/settings.json` — `configRoot = resolveConfigRoot(cwd)`
+(non-null, since it falls through to `resolveMainPath` for a git repo) but the settings file is absent → `existsSync` false → `configured:false` → state ①
 (scaffold), which is correct (a git repo not yet set up for pi should be scaffoldable).
 
 ### D2 — Extract `ProjectInitButton` as a new component; slim `WorktreeInitButton`
