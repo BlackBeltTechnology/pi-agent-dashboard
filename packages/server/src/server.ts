@@ -1895,18 +1895,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
 
-        if (request.url === "/ws") {
-          browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
-            browserGateway.wss.emit("connection", ws, request);
-          });
-        } else if (request.url?.startsWith("/ws/terminal/")) {
-          terminalGateway.handleUpgrade(request, socket, head);
-        } else if (request.url?.startsWith("/editor/")) {
-          handleEditorUpgrade(editorManager, request, socket, head);
-        } else if (request.url?.startsWith("/live/")) {
-          handleLiveServerUpgrade(liveServerManager, request, socket, head);
-        } else {
-          socket.destroy();
+        // Route on the already-computed `scope` (the single source of truth
+        // for "which gateway"), NOT on `request.url` — the raw URL carries the
+        // `?ticket=` query a paired device appends (F6), so an exact-match on
+        // "/ws" would destroy the authorized upgrade. `routeScopeForUrl` strips
+        // the query, so scope stays query-string-safe by construction and
+        // auth-scope + routing-scope cannot drift.
+        switch (scope) {
+          case "browser":
+            browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
+              browserGateway.wss.emit("connection", ws, request);
+            });
+            break;
+          case "terminal":
+            terminalGateway.handleUpgrade(request, socket, head);
+            break;
+          case "editor":
+            handleEditorUpgrade(editorManager, request, socket, head);
+            break;
+          case "live":
+            handleLiveServerUpgrade(liveServerManager, request, socket, head);
+            break;
+          default:
+            socket.destroy();
         }
       });
 
