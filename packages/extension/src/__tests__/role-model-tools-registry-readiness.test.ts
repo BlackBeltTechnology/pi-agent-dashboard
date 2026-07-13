@@ -64,6 +64,12 @@ describe("list_models registry-readiness discriminator", () => {
     expect(res.details.models).toEqual([]);
     expect(res.details.registryReady).toBe(true);
     expect(res.details.reason ?? null).toBeNull();
+
+    // Content channel carries the same envelope as details.
+    const parsed = parseContent(res);
+    expect(parsed.models).toEqual([]);
+    expect(parsed.registryReady).toBe(true);
+    expect(parsed.reason ?? null).toBeNull();
   });
 
   it("C. populated → registryReady:true + full rows with existing shape", async () => {
@@ -79,6 +85,13 @@ describe("list_models registry-readiness discriminator", () => {
     expect(res.details.models[0].ref).toBe("anthropic/claude-x");
     expect(res.details.models[0].reasoning).toBe(true);
     expect(res.details.reason ?? null).toBeNull();
+
+    // Content channel carries the same envelope as details.
+    const parsed = parseContent(res);
+    expect(parsed.registryReady).toBe(true);
+    expect(parsed.models).toHaveLength(1);
+    expect(parsed.models[0].ref).toBe("anthropic/claude-x");
+    expect(parsed.reason ?? null).toBeNull();
   });
 
   it("D. annotated + absent registry → registryReady:false + reason (not silent empty)", async () => {
@@ -90,5 +103,12 @@ describe("list_models registry-readiness discriminator", () => {
     expect(res.details.registryReady).toBe(false);
     expect(typeof res.details.reason).toBe("string");
     expect(res.details.reason.length).toBeGreaterThan(0);
+
+    // Content channel carries the same envelope as details.
+    const parsed = parseContent(res);
+    expect(parsed.models).toEqual([]);
+    expect(parsed.registryReady).toBe(false);
+    expect(typeof parsed.reason).toBe("string");
+    expect(parsed.reason.length).toBeGreaterThan(0);
   });
 });
