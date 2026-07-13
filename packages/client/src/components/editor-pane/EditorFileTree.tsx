@@ -100,7 +100,10 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
 
   const doCopy = (key: string, payload: string) => {
     try {
-      navigator.clipboard?.writeText(payload);
+      // writeText returns a Promise; swallow async rejection (permission/policy
+      // denied) too so the action fails silently, matching CopyButton. Optional
+      // chaining short-circuits the whole chain when clipboard is unavailable.
+      navigator.clipboard?.writeText(payload).catch(() => {});
     } catch {
       // Clipboard API unavailable — fail silently.
     }

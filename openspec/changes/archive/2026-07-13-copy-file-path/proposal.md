@@ -45,7 +45,7 @@ open-file path, rail visibility/persistence, or icons.
 
 ## Discipline Skills
 
-None. Client-only affordance, no auth / untrusted-input / perf / observability
-surface; standard TDD + code-review + code-quality end gates apply. Keyboard
-reachability of the popup follows the project `accessibility-a11y` skill during
-implementation.
+`accessibility-a11y` (popup keyboard reachability + focus return during
+implementation) and `isolated-ui-verification` (task 2.3 live browser check).
+No auth / untrusted-input / perf / observability surface; standard TDD +
+code-review + code-quality end gates also apply.
