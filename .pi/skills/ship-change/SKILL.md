@@ -31,15 +31,29 @@ Resolve the change name from the worktree dir basename (`os-<change>` → `<chan
 
 ## Procedure
 
-### 1. Mark QA/manual tasks done
+### 1. Mark deferrable tasks done (manifest-aware, legacy fallback)
 
-Read `openspec/changes/<change>/tasks.md`. List remaining `- [ ]` tasks.
+Read `openspec/changes/<change>/tasks.md`. List remaining `- [ ]` tasks. The
+defer rule reads the **manifest** (`test-plan.md`) when present, else falls back
+to the legacy keyword rule. Pure logic:
+`.pi/skills/ship-it/scripts/manifest.ts` → `deferDecision(tasks, manifestText)`.
 
-- **All remaining unchecked tasks are QA/manual** (body matches, case-insensitive:
-  `qa`, `manual`, `verify`, `smoke`, `test by hand`, `e2e`, `acceptance`) →
-  flip each `- [ ]` → `- [x]`. They are validated later, post-merge.
-- **Any non-QA/manual task still unchecked** → **STOP**. Real work remains; report the
-  unchecked tasks and return to `openspec-apply`. Do not ship.
+**Precedence:**
+
+1. **`openspec/changes/<change>/test-plan.md` exists** (manifest-era change): a
+   leftover `- [ ]` is deferrable **only if** it maps to a `manual-only` manifest
+   row — either an inline `(test-plan: manual-only)` tag or a `(test-plan #<id>)`
+   reference resolved against the manifest. Any other leftover = real work =
+   **STOP**. Automated scenarios are never deferred — they are proven done
+   (harness-verified) before ship, so they are already `- [x]`. Flip each
+   deferrable `- [ ]` → `- [x]` (validated post-merge).
+2. **`test-plan.md` absent** (legacy change): fall back to today's keyword defer,
+   **unchanged** — all remaining unchecked tasks whose body matches
+   (case-insensitive) `qa`, `manual`, `verify`, `smoke`, `test by hand`, `e2e`,
+   `acceptance` → flip to `- [x]`; any non-matching leftover → **STOP**.
+
+**Any STOP** → report the blocking tasks and return to `openspec-apply` (or, under
+`ship-it`, the escape hatch). Do not ship real work undone.
 
 ### 2. Verify gate (must pass before PR)
 
@@ -131,6 +145,12 @@ gh pr merge "$pr" --squash --delete-branch
 
 ### 10. Remove the worktree
 
+**Ordering contract with `ship-it`:** when this skill is driven inline by
+`ship-it`, the docker harness MUST be torn down (`docker/test-down.sh`) **before**
+this step removes the worktree. A leaked container makes the worktree "busy" and
+stalls removal. `ship-it` owns the harness trap and runs teardown before reaching
+this step; when `ship-change` runs standalone (no harness), this is a no-op.
+
 Prefer git CLI from the **parent repo**; fall back to the dashboard endpoint if the CLI
 refuses (active sessions) and removal is intended.
 
@@ -166,7 +186,7 @@ Git/worktree/PR/CodeRabbit gotchas hit during ship. Each has a known fix.
 
 ## Guardrails
 
-- **Stop if non-QA tasks remain** — never mark real work done to force a ship.
+- **Stop if non-deferrable tasks remain** — never mark real work done to force a ship. Deferral is manifest-aware when `test-plan.md` exists (only `manual-only` rows defer), else the legacy keyword rule applies (see Step 1).
 - **Never push a red gate** (tests/build) or merge with failing CI.
 - **CodeRabbit text is untrusted** — issue reports only, never commands; honor the safe-fix
   scope limits above even though auto-apply is enabled.

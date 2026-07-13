@@ -134,9 +134,9 @@ number I cannot write the just-after-window re-spawn scenario."*
 
 ## Phase 4 — Route each scenario to a test level
 
-Every scenario carries a **level** tag fixing where it would be authored. Honour
-the AGENTS.md hard rule: rendered-UI assertions are Playwright only; qa/ stays
-CLI/process smoke.
+Every scenario carries a **level** tag fixing where it would be authored, and a
+**disposition** (`automated` | `manual-only`). Honour the AGENTS.md hard rule:
+rendered-UI assertions are Playwright only; qa/ stays CLI/process smoke.
 
 ```text
    ┌────────────────────────────┬──────────────────────────────────────────┐
@@ -147,11 +147,27 @@ CLI/process smoke.
    │ process / install / spawn  │ L2 smoke → qa/tests/*.sh|*.ps1            │
    │  / multi-OS runtime        │            (NO rendered-UI asserts)       │
    │ rendered UI / WS-driven    │ L3 e2e   → tests/e2e/*.spec.ts            │
-   │  view / convergence / quirk│            (Playwright vs docker :18000)   │
+   │  view / convergence / quirk│   (Playwright vs docker harness port †)   │
    │ micro perf (fn-level)      │ L1 unit (timed)                           │
    │ process/load perf, soak    │ L2 smoke (or dedicated harness)           │
+   │ aesthetics / hardware /    │ manual-only → no fold, no test task       │
+   │  "feels right" / subjective │   (disposition=manual-only, level —)      │
    └────────────────────────────┴──────────────────────────────────────────┘
 ```
+
+† The docker e2e harness port is NOT a fixed `:18000` — `docker/test-up.sh`
+hash-derives a free port per worktree and records it in `.pi-test-harness.json`
+(`dashboardPort`). An L3 scenario's observable is read against that derived port;
+never hardcode `:18000`.
+
+**`manual-only` routing outcome** (additive to L1/L2/L3): a scenario whose
+expected observable is a human judgment with no automatable signal — visual
+aesthetics, a hardware behaviour, "feels right / looks correct", subjective UX —
+is NOT routed to a test level. Its manifest row records `disposition:
+manual-only` (level `—`), and no test task is folded for it; it is deferred to
+post-merge manual verification by `ship-change`. Every routable scenario keeps
+its L1/L2/L3 level and `disposition: automated` — this outcome only diverts the
+truly un-automatable rows; existing L1/L2/L3 logic is unchanged.
 
 If a scenario implies a brand-new level/harness, flag it in the plan's "New
 infra needed" section rather than silently assuming it exists.
@@ -163,7 +179,10 @@ infra needed" section rather than silently assuming it exists.
 Write `openspec/changes/<name>/test-plan.md` using
 `references/test-plan-schema.md`. It is a **standalone catalog**, separate from
 tasks.md. Each scenario is a numbered row with: id, class, technique, level,
-the full Triple, and (soft gate) any clarification marker.
+**disposition** (`automated` | `manual-only`), the full Triple, and (soft gate)
+any clarification marker. The `disposition` column is mandatory on every row —
+it is the manifest's source-of-truth signal that the fold step (in
+`plan-proposal`) and the defer rule (in `ship-change`) both read.
 
 End with a short offer (do not auto-act): *"Want me to fold these into the
 `## Tests` / `## Validate` sections of tasks.md as checklist items?"* — folding
