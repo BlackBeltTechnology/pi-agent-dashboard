@@ -1,11 +1,11 @@
 ---
 name: scenario-design
 description: >-
-  Draft real-life test SCENARIOS (not smoke tests) from an OpenSpec change spec.
-  Derives edge-case, performance, frontend-quirk, and error-handling scenarios
-  using ISTQB design techniques, routes each to the right test level
-  (unit / qa VM smoke / Playwright e2e), and writes a standalone
-  openspec/changes/<name>/test-plan.md catalog. When a scenario's
+  Draft real-life test SCENARIOS (not smoke tests) from a change/feature spec
+  (OpenSpec optional). Derives edge-case, performance, frontend-quirk, and
+  error-handling scenarios using ISTQB design techniques, routes each to your
+  project's test levels, and writes a standalone test-plan.md catalog. When a
+  scenario's
   (input · trigger · observable) triple cannot be filled from the spec, the spec
   has a gap — the skill emits decision-forcing clarification questions and (in
   proposal/design stage) STOPS to ask. Use when the user says "design test
@@ -13,7 +13,7 @@ description: >-
   tests", "build a test plan", "find edge cases", "is this spec testable", or
   before writing the ## Tests / ## Validate sections of a tasks.md.
 license: MIT
-compatibility: Requires openspec CLI. Reads the change spec; writes test-plan.md.
+compatibility: "Optional: OpenSpec change spec as input. Reads a change/feature spec; writes test-plan.md."
 metadata:
   author: robson
   version: "1.0"
@@ -24,9 +24,11 @@ break the system, not confirm it works. A scenario is only as good as it is
 *concrete and executable*. If the spec can't supply the concrete bits, that is a
 **spec defect**, surfaced as a clarification — not a guess.
 
-**Input**: A change name. `--change <name>`, or infer from context / `openspec list`.
+**Input**: A change/feature spec. `--change <name>` (OpenSpec), or infer from
+context / point the skill at any spec doc.
 **Mode**: `--stage proposal|design|apply` (default: infer — see Gate).
-**Output**: `openspec/changes/<name>/test-plan.md` (standalone catalog).
+**Output**: a standalone `test-plan.md` catalog written to your change/spec's
+test-plan location (OpenSpec: `openspec/changes/<name>/test-plan.md`).
 
 ---
 
@@ -57,7 +59,9 @@ the scenario value is in the boundaries and failures.
 
 ## Phase 1 — Read the spec, classify requirements
 
-1. Read what exists:
+1. Read what exists (OpenSpec layout shown; in a non-OpenSpec project read
+   whatever spec/design/task docs the user points at — do not fail on a missing
+   `openspec/` dir or CLI):
    - `openspec/changes/<name>/proposal.md` (always)
    - `openspec/changes/<name>/design.md` (if present — decisions, invariants)
    - `openspec/changes/<name>/specs/**/spec.md` (requirement deltas)
@@ -135,30 +139,48 @@ number I cannot write the just-after-window re-spawn scenario."*
 ## Phase 4 — Route each scenario to a test level
 
 Every scenario carries a **level** tag fixing where it would be authored, and a
-**disposition** (`automated` | `manual-only`). Honour the AGENTS.md hard rule:
-rendered-UI assertions are Playwright only; qa/ stays CLI/process smoke.
+**disposition** (`automated` | `manual-only`). Map each scenario's *nature* to
+one of **your project's actual test levels** — the routing *method* is fixed; the
+level names and paths are yours to fill. Do not assume a level/harness the
+project lacks.
 
-```text
-   ┌────────────────────────────┬──────────────────────────────────────────┐
-   │ Scenario nature            │ Level → location                          │
-   ├────────────────────────────┼──────────────────────────────────────────┤
-   │ pure logic / boundary /    │ L1 unit  → packages/*/src/**/__tests__/   │
-   │ decision table / state pure│            *.test.ts (vitest)             │
-   │ process / install / spawn  │ L2 smoke → qa/tests/*.sh|*.ps1            │
-   │  / multi-OS runtime        │            (NO rendered-UI asserts)       │
-   │ rendered UI / WS-driven    │ L3 e2e   → tests/e2e/*.spec.ts            │
-   │  view / convergence / quirk│   (Playwright vs docker harness port †)   │
-   │ micro perf (fn-level)      │ L1 unit (timed)                           │
-   │ process/load perf, soak    │ L2 smoke (or dedicated harness)           │
-   │ aesthetics / hardware /    │ manual-only → no fold, no test task       │
-   │  "feels right" / subjective │   (disposition=manual-only, level —)      │
-   └────────────────────────────┴──────────────────────────────────────────┘
-```
+| Scenario nature | Route to the project level that is… |
+|---|---|
+| pure logic / boundary / decision table / pure state | the fast in-process unit tier |
+| process / install / spawn / multi-OS runtime | the process/CLI smoke tier (NO rendered-UI asserts) |
+| rendered UI / WS-driven view / convergence / quirk | the browser/e2e tier |
+| micro perf (fn-level) | the unit tier, timed |
+| process/load perf, soak | the smoke tier (or a dedicated perf harness) |
+| aesthetics / hardware / "feels right" / subjective | `manual-only` → no fold, no test task (disposition=manual-only, level —) |
 
-† The docker e2e harness port is NOT a fixed `:18000` — `docker/test-up.sh`
-hash-derives a free port per worktree and records it in `.pi-test-harness.json`
-(`dashboardPort`). An L3 scenario's observable is read against that derived port;
-never hardcode `:18000`.
+Keep the rendered-UI-vs-smoke boundary sacred: a UI-visible assertion never
+lives in a process/CLI smoke row.
+
+> **Example — pi-agent-dashboard levels** (this repo's concrete routing; other
+> projects substitute their own). Honour the AGENTS.md hard rule: rendered-UI
+> assertions are Playwright only; qa/ stays CLI/process smoke.
+>
+> ```text
+>    ┌────────────────────────────┬──────────────────────────────────────────┐
+>    │ Scenario nature            │ Level → location                          │
+>    ├────────────────────────────┼──────────────────────────────────────────┤
+>    │ pure logic / boundary /    │ L1 unit  → packages/*/src/**/__tests__/   │
+>    │ decision table / state pure│            *.test.ts (vitest)             │
+>    │ process / install / spawn  │ L2 smoke → qa/tests/*.sh|*.ps1            │
+>    │  / multi-OS runtime        │            (NO rendered-UI asserts)       │
+>    │ rendered UI / WS-driven    │ L3 e2e   → tests/e2e/*.spec.ts            │
+>    │  view / convergence / quirk│   (Playwright vs docker harness port †)   │
+>    │ micro perf (fn-level)      │ L1 unit (timed)                           │
+>    │ process/load perf, soak    │ L2 smoke (or dedicated harness)           │
+>    │ aesthetics / hardware /    │ manual-only → no fold, no test task       │
+>    │  "feels right" / subjective │   (disposition=manual-only, level —)      │
+>    └────────────────────────────┴──────────────────────────────────────────┘
+> ```
+>
+> † The docker e2e harness port is NOT a fixed `:18000` — `docker/test-up.sh`
+> hash-derives a free port per worktree and records it in `.pi-test-harness.json`
+> (`dashboardPort`). An L3 scenario's observable is read against that derived
+> port; never hardcode `:18000`.
 
 **`manual-only` routing outcome** (additive to L1/L2/L3): a scenario whose
 expected observable is a human judgment with no automatable signal — visual
@@ -176,7 +198,8 @@ infra needed" section rather than silently assuming it exists.
 
 ## Phase 5 — Write test-plan.md
 
-Write `openspec/changes/<name>/test-plan.md` using
+Write the `test-plan.md` to your change/spec's test-plan location (OpenSpec:
+`openspec/changes/<name>/test-plan.md`) using
 `references/test-plan-schema.md`. It is a **standalone catalog**, separate from
 tasks.md. Each scenario is a numbered row with: id, class, technique, level,
 **disposition** (`automated` | `manual-only`), the full Triple, and (soft gate)

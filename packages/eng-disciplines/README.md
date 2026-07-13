@@ -32,6 +32,7 @@ cover**, with every `description` retargeted so it never fires on
 | `observability-instrumentation` | runtime visibility (no prior equiv) | "add metrics/tracing/logging", "instrument" |
 | `systematic-debugging` | post-failure root-cause discipline (no prior equiv) | "root cause this", "why is this failing", "debug systematically" |
 | `node-inspect-debugger` | runtime state a `console.log` can't reach; jiti-verified breakpoints | "set a breakpoint", "inspect runtime state", "console.log isn't enough" |
+| `scenario-design` | test-scenario design (ISTQB) before the bug exists (≠ post-bug `systematic-debugging`) | "design test scenarios", "find edge cases", "is this spec testable" |
 
 ### Deliberately excluded
 
@@ -61,5 +62,6 @@ with only the frontmatter `name`/`description` (trigger routing) modified. The
 `systematic-debugging` and `node-inspect-debugger` skills are ported under MIT
 from NousResearch's `hermes-agent` and adapted to this repo's jiti-based
 TypeScript stack (the emitted-JS pitfall is corrected, and `cdp-inspect.ts` is a
-dependency-free TypeScript rewrite of the upstream CDP scope-walker). Full
-attribution and license in [`NOTICE`](./NOTICE).
+dependency-free TypeScript rewrite of the upstream CDP scope-walker). The
+`scenario-design` skill is repo-authored (MIT, `author: robson`) — no
+third-party attribution. Full attribution and license in [`NOTICE`](./NOTICE).
