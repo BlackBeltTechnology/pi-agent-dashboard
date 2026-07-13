@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { DashboardEvent, CommandInfo, FlowInfo, SessionSource, ImageContent, FileEntry, TurnUsage, ContextUsage, ModelInfo, ProviderInfo, PiSessionInfo, OpenSpecPhase, RoleInfo, ExtensionUiModule, DecoratorDescriptor } from "./types.js";
+import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 /**
  * Bridge -> server: mirror of pi's native steering + follow-up queues, forwarded
@@ -909,6 +909,19 @@ export type ServerToExtensionMessage =
   | RemoveFollowupEntryToExtensionMessage
   | PromoteFollowupEntryToExtensionMessage
   | AttachProposalChangedExtensionMessage
-  | PluginEmitEventExtensionMessage;
+  | PluginEmitEventExtensionMessage
+  | SubagentResyncRequestExtensionMessage;
+
+/**
+ * Server → extension: forward a browser resync request to the owning bridge.
+ * The bridge replies with the latest retained `AgentDetails` snapshot of the
+ * running subagent as a synthetic `subagent_started` `event_forward`, or no-ops
+ * for an unknown/finished agent. See change: fix-subagent-live-detail-reliability (D2).
+ */
+export interface SubagentResyncRequestExtensionMessage {
+  type: "subagent_resync_request";
+  sessionId: string;
+  agentId: string;
+}
 
 

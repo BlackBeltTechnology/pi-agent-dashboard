@@ -2,36 +2,36 @@
  * Server ↔ Browser WebSocket protocol messages.
  */
 import type {
-  PluginIntentsMessage,
   PluginActionMessage,
   PluginEventBroadcast,
+  PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
+import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { EditorInstanceStatus } from "./editor-types.js";
+import type { TerminalSession } from "./terminal-types.js";
 import type {
-  DashboardSession,
-  DashboardEvent,
   CommandInfo,
-  FlowInfo,
-  ImageContent,
+  DashboardEvent,
+  DashboardSession,
+  DecoratorDescriptor,
+  ExtensionUiModule,
   FileEntry,
+  FlowInfo,
+  GoalRecord,
+  ImageContent,
+  ModelInfo,
   OpenSpecData,
   OpenSpecGroup,
-  GoalRecord,
-  ModelInfo,
   PiSessionInfo,
-  ExtensionUiModule,
-  DecoratorDescriptor,
 } from "./types.js";
-import type { TerminalSession } from "./terminal-types.js";
-import type { EditorInstanceStatus } from "./editor-types.js";
-import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 
 // Batch ask_user contracts live in protocol.ts; re-export so browser-side
 // consumers import from one place. See change: redesign-ask-user-question-cards.
 export type {
-  InteractiveMethod,
-  BatchQuestion,
   BatchAnswer,
+  BatchQuestion,
   BatchResult,
+  InteractiveMethod,
 } from "./protocol.js";
 
 // ── Configurable chat display ───────────────────────────────────────
@@ -1522,7 +1522,22 @@ export type BrowserToServerMessage =
   | SetSessionProcessDrawerBrowserMessage
   | InjectViewMessageBrowserMessage
   | RecoveryDismissMessage
+  | SubagentResyncRequestBrowserMessage
   | WatchFilesBrowserMessage;
+
+/**
+ * Browser → server → bridge: request the latest retained snapshot of a
+ * still-running subagent's timeline, to recover after a gap/reconnect without
+ * waiting for completion. The server forwards it to the owning bridge, which
+ * replies with a synthetic `subagent_started` `event_forward`, or no-ops for an
+ * unknown/finished agent (the durable completed-case backfill covers those).
+ * See change: fix-subagent-live-detail-reliability (D2).
+ */
+export interface SubagentResyncRequestBrowserMessage {
+  type: "subagent_resync_request";
+  sessionId: string;
+  agentId: string;
+}
 
 /**
  * Browser declares the editor pane's currently-open files for a session so the

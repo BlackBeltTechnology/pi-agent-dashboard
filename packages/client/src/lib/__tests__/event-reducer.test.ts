@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { applyPromptReceived, createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, toDisplayString, addInteractiveRequest, resolveInteractiveRequest, dismissInteractiveRequest, extractAgentEndError, type SessionState, type PendingPrompt, type ChatMessage } from "../event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -1988,6 +1988,59 @@ describe("command_feedback events", () => {
         },
       ]);
       expect(state.subagents.get("s")!.startedAt).toBe(1234);
+    });
+
+    // --- D3: empty-array overwrite guard (fix-subagent-live-detail-reliability) ---
+
+    it("empty-array frame does NOT clobber a populated timeline", () => {
+      const three = [
+        { kind: "tool" as const, toolName: "Read", input: {}, ts: 1 },
+        { kind: "tool" as const, toolName: "Bash", input: {}, ts: 2 },
+        { kind: "text" as const, text: "hi", ts: 3 },
+      ];
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "s", type: "x", description: "", details: { entries: three } },
+        },
+        {
+          eventType: "subagent_started",
+          timestamp: 2000,
+          data: { id: "s", type: "x", description: "", details: { entries: [] } },
+        },
+      ]);
+      const sub = state.subagents.get("s")!;
+      expect(sub.entries).toEqual(three);
+      expect(sub.entries!.length).toBe(3);
+    });
+
+    it("non-empty frame replaces the timeline wholesale", () => {
+      const three = [
+        { kind: "tool" as const, toolName: "Read", input: {}, ts: 1 },
+        { kind: "tool" as const, toolName: "Bash", input: {}, ts: 2 },
+        { kind: "text" as const, text: "hi", ts: 3 },
+      ];
+      const five = [
+        ...three,
+        { kind: "tool" as const, toolName: "Grep", input: {}, ts: 4 },
+        { kind: "text" as const, text: "done", ts: 5 },
+      ];
+      const state = applyEvents([
+        {
+          eventType: "subagent_started",
+          timestamp: 1000,
+          data: { id: "s", type: "x", description: "", details: { entries: three } },
+        },
+        {
+          eventType: "subagent_started",
+          timestamp: 2000,
+          data: { id: "s", type: "x", description: "", details: { entries: five } },
+        },
+      ]);
+      const sub = state.subagents.get("s")!;
+      expect(sub.entries).toEqual(five);
+      expect(sub.entries!.length).toBe(5);
     });
   });
 

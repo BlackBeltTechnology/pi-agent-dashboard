@@ -3,14 +3,15 @@
  *
  * See change: add-subagent-inspector.
  */
-import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import React from "react";
-import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
-import { ThemeProvider } from "../ThemeProvider.js";
-import { createInitialState, type SessionState, type SubagentState } from "../../lib/event-reducer.js";
-import type { ToolContext } from "../tool-renderers/types.js";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createInitialState, type SessionState, type SubagentState } from "../../lib/event-reducer.js";
+import { ThemeProvider } from "../ThemeProvider.js";
+import { AgentToolRenderer } from "../tool-renderers/AgentToolRenderer.js";
+import type { ToolContext } from "../tool-renderers/types.js";
 
 // SubagentDetailView (in the subagents plugin) uses useUiPrimitive for the
 // markdown renderer; tests rendering its expanded body must wrap in a
@@ -103,7 +104,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
   });
 
-  it("popout button opens new tab with the correct URL when agentId is present", () => {
+  it("popout opens a ui:dialog (not a new browser tab) when agentId is present", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(wrapInProviders(
       <AgentToolRenderer
@@ -114,16 +115,53 @@ describe("AgentToolRenderer — expand + popout", () => {
         toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
       />
     ));
-    // Title is "Open subagent in new tab" — see fix-flows-plugin-polish
-    // (pill-style popout button with subagent-specific label).
-    fireEvent.click(screen.getByTitle(/Open subagent in new tab/i));
-    // Third arg `"noopener"` is a security best practice preventing the
-    // popup from accessing window.opener. Added in fix-flows-plugin-polish.
-    expect(open).toHaveBeenCalledWith("/session/sess_42/subagent/abc123", "_blank", "noopener");
+    // No dialog before activation.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Title changed to "Open subagent detail" — the popout now opens the
+    // shell ui:dialog primitive. See change: fix-subagent-live-detail-reliability (D4).
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    // A dialog opens…
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    // …and NO new browser tab/window is opened.
+    expect(open).not.toHaveBeenCalled();
     open.mockRestore();
   });
 
-  it("popout button is disabled when agentId is missing", () => {
+  it("detail dialog dismisses on Esc", () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore" }}
+        status="running"
+        context={makeContext(sessionWithAgent("abc123"), "sess_42")}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("detail dialog dismisses on overlay click", () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore" }}
+        status="running"
+        context={makeContext(sessionWithAgent("abc123"), "sess_42")}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    const dialog = screen.getByRole("dialog");
+    // The overlay is the sibling before the dialog panel; click it to dismiss.
+    const overlay = dialog.parentElement!.querySelector(".absolute.inset-0") as HTMLElement;
+    fireEvent.click(overlay);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("popout button is disabled when agentId is missing (no dialog opens)", () => {
     render(wrapInProviders(
       <AgentToolRenderer
         toolName="Agent"
@@ -135,5 +173,7 @@ describe("AgentToolRenderer — expand + popout", () => {
     ));
     const btn = screen.getByTitle(/Subagent id not yet available/i);
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
