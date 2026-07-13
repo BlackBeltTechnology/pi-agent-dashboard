@@ -155,6 +155,95 @@ describe("goal-store", () => {
     });
   });
 
+  describe("applyStatus()", () => {
+    it("projects status + turn fields and increments totalTurnsUsed cumulatively", async () => {
+      const g = await store.create(cwdA, { objective: "proj" });
+      await store.applyStatus(cwdA, g.id, {
+        status: "pursuing",
+        lastKnownTurnsUsed: 3,
+        turnsDelta: 3,
+        progressed: true,
+      });
+      let cur = (await store.list(cwdA))[0]!;
+      expect(cur.status).toBe("pursuing");
+      expect(cur.lastKnownTurnsUsed).toBe(3);
+      expect(cur.totalTurnsUsed).toBe(3);
+      expect(cur.lastProgressAt).toBeGreaterThan(0);
+
+      await store.applyStatus(cwdA, g.id, {
+        status: "achieved",
+        lastKnownTurnsUsed: 2,
+        turnsDelta: 2,
+        progressed: true,
+      });
+      cur = (await store.list(cwdA))[0]!;
+      expect(cur.status).toBe("achieved");
+      expect(cur.lastKnownTurnsUsed).toBe(2);
+      expect(cur.totalTurnsUsed).toBe(5); // 3 + 2, cumulative
+    });
+
+    it("does not stamp lastProgressAt when not progressed", async () => {
+      const g = await store.create(cwdA, { objective: "noprog" });
+      await store.applyStatus(cwdA, g.id, {
+        status: "paused",
+        lastKnownTurnsUsed: 0,
+        turnsDelta: 0,
+        progressed: false,
+      });
+      const cur = (await store.list(cwdA))[0]!;
+      expect(cur.lastProgressAt).toBeUndefined();
+      expect(cur.totalTurnsUsed).toBe(0);
+    });
+
+    it("loads a legacy record (no turn fields) and backfills on first applyStatus", async () => {
+      // Hand-write a pre-change goals file lacking the new optional fields.
+      const { createHash } = await import("node:crypto");
+      const hash = createHash("sha256").update(cwdA).digest("hex").slice(0, 12);
+      const legacy = {
+        schemaVersion: 1,
+        goals: [
+          {
+            id: "legacy-1",
+            cwd: cwdA,
+            objective: "old",
+            criteria: [],
+            status: "pursuing",
+            sessionIds: [],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      };
+      await fs.writeFile(path.join(dataDir, `${hash}.json`), JSON.stringify(legacy));
+      const reopened = createGoalStore({ dataDir });
+      const before = (await reopened.list(cwdA))[0]!;
+      expect(before.totalTurnsUsed).toBeUndefined();
+      expect(before.lastKnownTurnsUsed).toBeUndefined();
+
+      await reopened.applyStatus(cwdA, "legacy-1", {
+        status: "pursuing",
+        lastKnownTurnsUsed: 2,
+        turnsDelta: 2,
+        progressed: true,
+      });
+      const after = (await reopened.list(cwdA))[0]!;
+      expect(after.totalTurnsUsed).toBe(2);
+      expect(after.lastKnownTurnsUsed).toBe(2);
+      reopened.dispose();
+    });
+
+    it("throws GoalNotFoundError for unknown id", async () => {
+      await expect(
+        store.applyStatus(cwdA, "nope", {
+          status: "pursuing",
+          lastKnownTurnsUsed: 0,
+          turnsDelta: 0,
+          progressed: false,
+        }),
+      ).rejects.toBeInstanceOf(GoalNotFoundError);
+    });
+  });
+
   describe("judge field", () => {
     it("persists judge on create and update", async () => {
       const g = await store.create(cwdA, { objective: "j", judge: { provider: "p", modelId: "m" } });

@@ -43,6 +43,7 @@ import { createEventLoopSpikeMetrics } from "./eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { decideBudgetHalt } from "./goal-budget-guard.js";
 import { primeGoalSession } from "./goal-session-primer.js";
+import { createGoalStatusProjector } from "./goal-status-projector.js";
 import { createGoalStore } from "./goal-store.js";
 import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
@@ -810,6 +811,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const GOAL_STATUS_MESSAGE = "goal_status";
     const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
     arr.push((msg) => accumulator.handle(msg));
+
+    // Peer consumer: project the live snapshot onto the GoalRecord's durable
+    // status + turn fields so the board/budget survive a reload/restart.
+    // See change: persist-goal-status-and-progress.
+    const statusProjector = createGoalStatusProjector({
+      store: goalStore,
+      lookupSession: (sessionId) => {
+        const s = sessionManager.get(sessionId);
+        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
+      },
+    });
+    arr.push((msg) => statusProjector.handle(msg));
 
     // Dashboard-side budget enforcement (degraded tier): once a linked goal's
     // live turnsUsed reaches GoalRecord.budget.maxTurns, dispatch /goal pause.

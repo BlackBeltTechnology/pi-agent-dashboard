@@ -626,6 +626,17 @@ export interface GoalRecord {
   judge?: GoalJudge;
   /** Bounded per-turn judge verdict history (FIFO, cap `GOAL_VERDICTS_CAP`). */
   verdicts?: GoalVerdict[];
+  /** Latest `turnsUsed` observed from any driver's live loop. Optional; a
+   *  pre-change record backfills on the first snapshot after upgrade.
+   *  See change: persist-goal-status-and-progress. */
+  lastKnownTurnsUsed?: number;
+  /** Cumulative turns consumed across all drivers of this goal (per-driver
+   *  non-negative deltas; the truthful budget denominator). Optional.
+   *  See change: persist-goal-status-and-progress. */
+  totalTurnsUsed?: number;
+  /** Wall-clock ms when `turnsUsed` last strictly increased. Optional.
+   *  See change: persist-goal-status-and-progress. */
+  lastProgressAt?: number;
   /** Sessions opened in service of this goal (drivers + workers, incl. hidden). */
   sessionIds: string[];
   /** Session running the pi-goal-hermes loop, when known. */

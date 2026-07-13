@@ -57,6 +57,21 @@ export interface GoalUpdateBody {
   driverSessionId?: string;
 }
 
+/** Semantic patch the projector hands to `GoalStore.applyStatus`. The store
+ *  owns the cumulative increment so it stays atomic under the write mutex and
+ *  survives restart (delta added onto the durable `totalTurnsUsed`).
+ *  See change: persist-goal-status-and-progress. */
+export interface GoalStatusProjection {
+  /** Mapped durable status (active→pursuing, paused→paused, done→achieved, cleared→cleared). */
+  status: GoalRecordStatus;
+  /** Latest `turnsUsed` observed → `lastKnownTurnsUsed`. */
+  lastKnownTurnsUsed: number;
+  /** Non-negative amount to add to cumulative `totalTurnsUsed`. */
+  turnsDelta: number;
+  /** True when `turnsUsed` strictly increased → stamp `lastProgressAt`. */
+  progressed: boolean;
+}
+
 export interface GoalStoreOptions {
   /** Root dir for goal files. Default `~/.pi/dashboard/goals`. */
   dataDir?: string;
@@ -76,6 +91,11 @@ export interface GoalStore {
   unlinkSession(cwd: string, id: string, sessionId: string): Promise<GoalRecord>;
   /** Append a judge verdict to a goal (FIFO-capped at GOAL_VERDICTS_CAP). */
   appendVerdict(cwd: string, id: string, verdict: GoalVerdict): Promise<GoalRecord>;
+  /** Project a live `goal_status` snapshot onto durable status + turn fields.
+   *  `turnsDelta` (non-negative) is ADDED to the cumulative `totalTurnsUsed`;
+   *  `lastProgressAt` is stamped only when `progressed`. See change:
+   *  persist-goal-status-and-progress. */
+  applyStatus(cwd: string, id: string, projection: GoalStatusProjection): Promise<GoalRecord>;
   subscribe(cb: (cwd: string, payload: { goals: GoalRecord[] }) => void): () => void;
   dispose(): void;
 }
@@ -290,6 +310,31 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     });
   }
 
+  async function applyStatus(
+    cwd: string,
+    id: string,
+    projection: GoalStatusProjection,
+  ): Promise<GoalRecord> {
+    return mutate(cwd, (current) => {
+      const target = findOrThrow(current, id);
+      const now = Date.now();
+      const totalTurnsUsed = (target.totalTurnsUsed ?? 0) + Math.max(0, projection.turnsDelta);
+      const updated: GoalRecord = {
+        ...target,
+        status: projection.status,
+        lastKnownTurnsUsed: projection.lastKnownTurnsUsed,
+        totalTurnsUsed,
+        ...(projection.progressed ? { lastProgressAt: now } : {}),
+        updatedAt: now,
+      };
+      const next: GoalsFile = {
+        schemaVersion: GOALS_SCHEMA_VERSION,
+        goals: current.goals.map((g) => (g.id === id ? updated : g)),
+      };
+      return { next, result: updated };
+    });
+  }
+
   function subscribe(cb: Subscriber): () => void {
     subscribers.add(cb);
     return () => subscribers.delete(cb);
@@ -311,6 +356,7 @@ export function createGoalStore(opts: GoalStoreOptions = {}): GoalStore {
     linkSession,
     unlinkSession,
     appendVerdict,
+    applyStatus,
     subscribe,
     dispose,
   };
