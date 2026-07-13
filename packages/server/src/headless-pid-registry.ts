@@ -3,12 +3,13 @@
  * Tracks PID + cwd at spawn time, links to sessionId when the bridge connects.
  * Persists entries to disk so a restarted server can clean up orphans.
  */
-import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+
 import { EventEmitter } from "node:events";
-import { readJsonFile, writeJsonFile } from "./json-store.js";
-import { killPidWithGroup, isProcessAlive, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { isProcessAlive, killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { readJsonFile, writeJsonFile } from "./json-store.js";
 import { isUnsafeTestHomeScan } from "./test-env-guard.js";
 
 /**
@@ -64,6 +65,14 @@ export interface HeadlessEntry {
    * `dispatch_extension_command` lines without re-deriving the path.
    */
   keeperSockPath?: string;
+  /**
+   * Owning goal id for a supervisor/route goal-driver spawn. Stamped at
+   * `register` time (keyed to the spawn token) so `session_register` can link
+   * the driver to its `GoalRecord` via the strong token path instead of the
+   * racy cwd-FIFO. Round-trips across restart. See change:
+   * add-goal-session-supervisor (C2c).
+   */
+  goalId?: string;
 }
 
 /**
@@ -87,6 +96,7 @@ interface PersistedEntry {
   piPid?: number;
   keeperPid?: number;
   keeperSockPath?: string;
+  goalId?: string;
 }
 
 interface PidFileData {
@@ -127,7 +137,14 @@ export interface HeadlessPidRegistry {
     proc: ChildProcess,
     spawnToken?: string,
     keeperOpts?: KeeperRegisterOptions,
+    goalId?: string,
   ): void;
+  /**
+   * Resolve the owning `goalId` for a linked session (stamped at register by a
+   * goal-driver spawn, keyed to the spawn token). Returns `undefined` for a
+   * non-goal session. See change: add-goal-session-supervisor (C2c).
+   */
+  getGoalId(sessionId: string): string | undefined;
   /**
    * Tier 1 link: find entry by `spawnToken`, set its `sessionId`. Returns
    * `true` on match. The strongest identity — used when the bridge sent
@@ -318,6 +335,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         if (e.piPid !== undefined) out.piPid = e.piPid;
         if (e.keeperPid !== undefined) out.keeperPid = e.keeperPid;
         if (e.keeperSockPath) out.keeperSockPath = e.keeperSockPath;
+        if (e.goalId) out.goalId = e.goalId;
         return out;
       }),
     };
@@ -340,6 +358,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       proc: ChildProcess,
       spawnToken?: string,
       keeperOpts?: KeeperRegisterOptions,
+      goalId?: string,
     ) {
       const entry: HeadlessEntry = {
         pid,
@@ -352,6 +371,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         entry.keeperPid = keeperOpts.keeperPid;
         entry.keeperSockPath = keeperOpts.keeperSockPath;
       }
+      if (goalId) entry.goalId = goalId;
       entries.set(pid, entry);
       proc.on("exit", () => {
         entries.delete(pid);
@@ -415,6 +435,10 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         }
       }
       return false;
+    },
+
+    getGoalId(sessionId: string): string | undefined {
+      return findBySessionId(sessionId)?.goalId;
     },
 
     getPid(sessionId: string): number | undefined {
@@ -552,6 +576,7 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         if (entry.piPid !== undefined) reclaimed.piPid = entry.piPid;
         if (entry.keeperPid !== undefined) reclaimed.keeperPid = entry.keeperPid;
         if (entry.keeperSockPath) reclaimed.keeperSockPath = entry.keeperSockPath;
+        if (entry.goalId) reclaimed.goalId = entry.goalId;
         entries.set(entry.pid, reclaimed);
       }
 

@@ -156,7 +156,7 @@ export function PairingView() {
             {i18nT(
               "auto.pairing_needs_secure_road",
               undefined,
-              "Pairing a remote device needs a secure road (a tunnel or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
+              "Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
             )}
           </p>
         </div>
@@ -164,9 +164,9 @@ export function PairingView() {
           type="button"
           data-testid="pairing-start-tunnel"
           className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
-          onClick={() => navigate("/tunnel-setup")}
+          onClick={() => navigate("/settings/gateway")}
         >
-          {i18nT("auto.start_a_tunnel", undefined, "Start a tunnel")}
+          {i18nT("auto.start_a_tunnel", undefined, "Set up the Gateway")}
         </button>
         <p className="text-xs text-[var(--text-muted)]">
           {i18nT(

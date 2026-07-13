@@ -46,20 +46,20 @@ describe("EditorPane — rail toggle (#6)", () => {
     // Labelled + discoverable.
     expect(toggle.getAttribute("aria-label")).toMatch(/toggle file tree/i);
     expect(toggle.textContent).toContain("Files");
+    // Collapsed by default (no persisted preference) — rail + divider absent.
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("rail-divider")).toBeNull();
+
+    // Reveal → rail + divider present, state persisted true.
+    fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
-
-    // Rail divider visible while shown.
     expect(screen.queryByTestId("rail-divider")).toBeTruthy();
+    expect(localStorage.getItem(`${TREE_VISIBLE_KEY_PREFIX}s1`)).toBe("true");
 
-    // Hide → rail + divider gone, state persisted false.
+    // Hide again → rail + divider gone, state persisted false.
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
     expect(screen.queryByTestId("rail-divider")).toBeNull();
     expect(localStorage.getItem(`${TREE_VISIBLE_KEY_PREFIX}s1`)).toBe("false");
-
-    // Show again.
-    fireEvent.click(toggle);
-    expect(screen.queryByTestId("rail-divider")).toBeTruthy();
-    expect(localStorage.getItem(`${TREE_VISIBLE_KEY_PREFIX}s1`)).toBe("true");
   });
 });

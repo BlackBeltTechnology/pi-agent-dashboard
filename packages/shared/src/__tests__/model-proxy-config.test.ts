@@ -139,6 +139,43 @@ describe("parseModelProxyConfig", () => {
     expect(parseModelProxyConfig({ defaultModel: 42 }).defaultModel).toBeUndefined();
   });
 
+  it("preserves preferredModels order, drops non-string/empty entries", () => {
+    expect(
+      parseModelProxyConfig({
+        preferredModels: ["anthropic/claude-3.5-sonnet", "openai/gpt-4o"],
+      }).preferredModels,
+    ).toEqual(["anthropic/claude-3.5-sonnet", "openai/gpt-4o"]);
+    // mixed garbage: keep only non-empty strings, preserve order
+    expect(
+      parseModelProxyConfig({
+        preferredModels: ["a/b", 42, "", null, "c/d", { x: 1 }],
+      }).preferredModels,
+    ).toEqual(["a/b", "c/d"]);
+    // absent / non-array / all-garbage → omit field
+    expect(parseModelProxyConfig({}).preferredModels).toBeUndefined();
+    expect(parseModelProxyConfig({ preferredModels: "bad" }).preferredModels).toBeUndefined();
+    expect(parseModelProxyConfig({ preferredModels: [42, ""] }).preferredModels).toBeUndefined();
+  });
+
+  it("validates modelAliases as non-empty string→string map", () => {
+    expect(
+      parseModelProxyConfig({
+        modelAliases: { claude: "anthropic/claude-3.5-sonnet", gpt: "openai/gpt-4o" },
+      }).modelAliases,
+    ).toEqual({ claude: "anthropic/claude-3.5-sonnet", gpt: "openai/gpt-4o" });
+    // drop entries whose value is not a non-empty string
+    expect(
+      parseModelProxyConfig({
+        modelAliases: { good: "p/m", bad: 42, empty: "", nul: null },
+      }).modelAliases,
+    ).toEqual({ good: "p/m" });
+    // absent / non-object / all-garbage → omit field
+    expect(parseModelProxyConfig({}).modelAliases).toBeUndefined();
+    expect(parseModelProxyConfig({ modelAliases: "bad" }).modelAliases).toBeUndefined();
+    expect(parseModelProxyConfig({ modelAliases: ["x"] }).modelAliases).toBeUndefined();
+    expect(parseModelProxyConfig({ modelAliases: { bad: 42 } }).modelAliases).toBeUndefined();
+  });
+
   it("preserves logRequests boolean", () => {
     expect(parseModelProxyConfig({ logRequests: true }).logRequests).toBe(true);
     expect(parseModelProxyConfig({ logRequests: "yes" }).logRequests).toBe(false); // falls back

@@ -1,15 +1,17 @@
 /**
  * Git operation REST API routes (localhost-only).
  */
-import type { FastifyInstance } from "fastify";
+
+import fs from "node:fs";
+import { join } from "node:path";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { NetworkGuard } from "./route-deps.js";
-import type { SessionManager } from "../memory-session-manager.js";
+import type { FastifyInstance } from "fastify";
+import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
 import type { BrowserGateway } from "../browser-gateway.js";
 import {
   addWorktree,
   addWorktreeFromPr,
-  orphanCleanup,
   checkoutBranch,
   createPullRequest,
   gitInit,
@@ -18,21 +20,21 @@ import {
   listPullRequests,
   listWorktrees,
   mergeWorktree,
+  orphanCleanup,
   pushBranch,
   readHead,
   removeWorktree,
-  resolveMainPath,
+  resolveConfigRoot,
   stashPop,
   worktreeDiffStat,
 } from "../git-operations.js";
-import { readInitHook, evaluateGate, runInitHook, hookDefHash, type InitProgress, type WorktreeInitHook, type GateResult } from "../worktree-init.js";
-import { mapInitStderrToHint } from "../worktree-init-errors.js";
-import { isTrusted, recordTrust } from "../worktree-init-trust.js";
-import type { WorktreeInitRegistry } from "../worktree-init-registry.js";
-import { activeSessionsUnder, sessionsUnder } from "../active-sessions-in-cwd.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import type { SessionManager } from "../memory-session-manager.js";
 import { safeRealpathSync } from "../resolve-path.js";
-import fs from "node:fs";
+import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../worktree-init.js";
+import { mapInitStderrToHint } from "../worktree-init-errors.js";
+import type { WorktreeInitRegistry } from "../worktree-init-registry.js";
+import { isTrusted, recordTrust } from "../worktree-init-trust.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 export interface GitRoutesDeps {
   networkGuard: NetworkGuard;
@@ -185,18 +187,23 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      if (!isGitRepo(validated.cwd)) {
-        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      // Config root without a git assumption: a non-git dir with
+      // `.pi/settings.json` resolves to itself so its declared hook is read.
+      // See change: support-non-git-init-hook.
+      const configRoot = resolveConfigRoot(validated.cwd);
+      if (!configRoot) {
+        // State ①: no reachable config root at all — truly unconfigured.
+        return { success: true, data: { hasHook: false, configured: false } } satisfies ApiResponse;
       }
-      const repoRoot = resolveMainPath(validated.cwd);
-      if (!repoRoot) {
-        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
-      }
-      const hook = readInitHook(repoRoot);
+      const hook = readInitHook(configRoot);
       if (!hook) {
-        return { success: true, data: { hasHook: false } } satisfies ApiResponse;
+        // No worktreeInit hook. Distinguish state ① (git repo, no
+        // `.pi/settings.json`) from state ③ (configured project, no hook).
+        // See change: distinguish-initialize-actions.
+        const configured = fs.existsSync(join(configRoot, ".pi", "settings.json"));
+        return { success: true, data: { hasHook: false, configured } } satisfies ApiResponse;
       }
-      const trusted = isTrusted(repoRoot, hookDefHash(hook));
+      const trusted = isTrusted(configRoot, hookDefHash(hook));
       // TOFU: do NOT execute the repo-declared `gate` (arbitrary bash) until the
       // hook is trusted. An untrusted hook reports presence only; `needsInit` is
       // unknown until the user confirms. See change: generalize-worktree-init-hook.
@@ -234,22 +241,22 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
-      if (!isGitRepo(validated.cwd)) {
-        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      // Config root without a git assumption; a `null` root means an
+      // unconfigured non-git dir — reuse the existing no-hook envelope, not
+      // `not_a_repo`. See change: support-non-git-init-hook.
+      const configRoot = resolveConfigRoot(validated.cwd);
+      if (!configRoot) {
+        return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
       }
-      const repoRoot = resolveMainPath(validated.cwd);
-      if (!repoRoot) {
-        return { success: false, code: "not_a_repo", error: "unable to resolve git common-dir" } satisfies ApiResponse;
-      }
-      const hook = readInitHook(repoRoot);
+      const hook = readInitHook(configRoot);
       if (!hook) {
         return { success: true, data: { ran: false, skippedReason: "no_hook" } } satisfies ApiResponse;
       }
       const hash = hookDefHash(hook);
       if (typeof body.confirmHash === "string" && body.confirmHash === hash) {
-        recordTrust(repoRoot, hash);
+        recordTrust(configRoot, hash);
       }
-      if (!isTrusted(repoRoot, hash)) {
+      if (!isTrusted(configRoot, hash)) {
         // Echo the hash so the client confirms with `confirmHash` without
         // re-implementing the canonical hash. See change: generalize-worktree-init-hook.
         return { success: false, code: "init_untrusted", data: { hook, hash } } satisfies ApiResponse;

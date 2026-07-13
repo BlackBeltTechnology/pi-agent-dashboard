@@ -1,9 +1,10 @@
 // Default KbStore backend over node:sqlite (Node built-in; FTS5 verified).
 // Zero runtime deps. Requires --experimental-sqlite on current Node.
 // better-sqlite3 is a drop-in fallback behind the same KbStore interface.
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+
+import { mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { Chunk, FileState, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts } from "./types.js";
 
 const DDL = `
@@ -38,7 +39,9 @@ function toMatch(q: string): string {
 
 export class SqliteFtsStore implements KbStore {
   private db: DatabaseSync;
+  readonly dbPath: string;
   constructor(dbPath: string) {
+    this.dbPath = dbPath;
     if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode=WAL");
@@ -63,6 +66,34 @@ export class SqliteFtsStore implements KbStore {
   }
   close() {
     this.db.close();
+  }
+  /** Finalize a temp-path build onto `dest`. WAL ordering is load-bearing:
+   *  TRUNCATE-checkpoint + close BEFORE the rename so the single main file holds
+   *  every committed page; then rename atomically and drop stale sidecars.
+   *  See change: harden-kb-index-failure-atomicity. */
+  finalizeRename(dest: string) {
+    try {
+      this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {}
+    this.db.close();
+    renameSync(this.dbPath, dest);
+    for (const ext of ["-wal", "-shm"]) {
+      try {
+        unlinkSync(this.dbPath + ext);
+      } catch {}
+    }
+  }
+  /** Close and remove this DB file + WAL sidecars — cleanup for a failed run
+   *  that itself created the file (never touches a pre-existing valid DB). */
+  closeAndUnlink() {
+    try {
+      this.db.close();
+    } catch {}
+    for (const ext of ["", "-wal", "-shm"]) {
+      try {
+        unlinkSync(this.dbPath + ext);
+      } catch {}
+    }
   }
 
   getFileState(root: string, path: string): FileState | null {

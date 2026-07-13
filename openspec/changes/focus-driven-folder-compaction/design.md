@@ -1,13 +1,15 @@
 ## Context
 
-`packages/client/src/components/SessionList.tsx` renders one block per directory group. Today the only compaction control is `collapsedGroups` (a `Set<cwd>` persisted to localStorage by `packages/client/src/lib/collapsed-groups.ts`). The chevron toggles membership in that set, and the per-group render branches on `isFolderCollapsed(cwd)` to either show all session cards or none. The folder header (folder name, `GroupGitInfo`, `FolderActionBar`, `SidebarFolderSectionSlot`, `FolderOpenSpecSection`) renders in both states — so even a "collapsed" folder occupies many vertical lines.
+`packages/client/src/components/SessionList.tsx` renders one block per directory group. Today the only compaction control is `collapsedGroups` (a `Set<cwd>` persisted to localStorage by `getCollapsedGroups`/`setCollapsedGroups` in `packages/client/src/lib/session-filter-storage.ts`). The chevron toggles membership in that set, and the per-group render branches on `isFolderCollapsed(cwd)` to either show all session cards or none. Since `condense-collapsed-folder-header` (archived 2026-07-07), collapsed folders already hide heavy header slots (`GroupGitInfo`, `FolderActionBar`, `SidebarFolderSectionSlot`, `FolderOpenSpecSection`, `FolderSpawnButtons`) behind `{!isCollapsed && ...}` — the collapsed header is compact, showing only folder name + `FolderNeedsYouPill` + `FolderStatusRollup`. This proposal's focus-driven model adds compact render modes for *unfocused* folders on top of this already-compact collapsed state.
 
 Sessions in `packages/shared/src/types.ts` already carry every field needed to derive an attention signal:
 - `status: "active" | "idle" | "streaming" | "ended"`
 - `currentTool?: string` — equals `"ask_user"` while an interactive prompt is open
 - `unread?: boolean` — server-managed bit set on attention-worthy events (see change `session-card-unread-stripes`)
 
-The proposal introduces a focused-folder model layered on top of the existing chevron toggle. No protocol change. No new persisted Session field. The only new persistence is an opt-in user-expanded set; the focused-folder identity itself is ephemeral component state.
+The proposal introduces a focused-folder model layered on top of the existing chevron toggle, **gated behind an opt-in global setting `config.folderListMode` (default `"classic"`)**. Classic mode = today's behavior verbatim; Accordion mode enables the focus-driven render branch. One additive server-config field; no protocol/message-shape change and no new persisted Session field. The only new client persistence is an opt-in user-expanded set; the focused-folder identity itself is ephemeral component state.
+
+**Mode gating (Classic is default):** `renderGroup` reads `folderListMode` from config. When `"classic"`, the whole focus-driven branch is skipped and the existing `isFolderCollapsed`-based render runs unchanged — zero behavioral drift for users who never opt in. When `"accordion"`, `resolveGroupRenderMode(...)` governs the four render modes. A secondary `config.folderAttentionPeek` (default `true`) chooses, in Accordion mode, whether unfocused folders show attention cards (`true` → `compactWithAttention`/`compactEmpty` per the table) or always collapse header-only (`false` → force `compactEmpty`). Settings surface: `SelectField` + nested `ToggleField` on Settings → Sessions; see `mockups/accordion-setting.html`.
 
 ## Goals / Non-Goals
 
@@ -85,7 +87,7 @@ A second localStorage key `folder.userExpanded` mirrors the existing `folder.col
 - The folder renders in expanded form (full session list) regardless of focus.
 - The chevron icon flips and a click removes it from the set.
 
-The new helper module is `packages/client/src/lib/user-expanded-groups.ts` mirroring `collapsed-groups.ts` (get/set/prune). The two sets are independent; if a cwd appears in both, `userExpanded` wins (explicit user intent to keep open).
+The new helper module is `packages/client/src/lib/user-expanded-groups.ts` mirroring the collapsed-group helpers in `session-filter-storage.ts` (get/set/prune). The two sets are independent; if a cwd appears in both, `userExpanded` wins (explicit user intent to keep open).
 
 **Alternatives considered:**
 - *Reuse `collapsedGroups` with a tri-state (collapsed/auto/expanded).* Rejected — invalidates existing localStorage payloads on rollout and complicates the prune helper.
@@ -105,12 +107,16 @@ For each group, compute `mode ∈ {expandedFull, expandedToggleHidden, compactWi
 
 Encoded as a pure helper `resolveGroupRenderMode({focused, collapsed, userExpanded, hasAttention}) → GroupRenderMode` so component tests can hit all five rows without mounting the full tree.
 
+**Note (2026-07-13 drift reconciliation)**: The compact modes (`compactWithAttention`, `compactEmpty`) are purely additive — they apply only to unfocused folders outside `userExpanded`. Focused folders keep today's `expandedFull` and `expandedToggleHidden` behaviour unchanged. "Today's behaviour" already includes the compact collapsed-header shipped by `condense-collapsed-folder-header` (heavy slots hidden via `{!isCollapsed && ...}`). The mode matrix adds a new layer on top without altering existing collapse semantics.
+
 ### Decision 6: Compact form keeps the existing header
 
 The compact form for an unfocused folder reuses today's header DOM (folder name, count, pin, `GroupGitInfo`, readme button, `FolderActionBar`, `SidebarFolderSectionSlot`, `FolderOpenSpecSection`). We do NOT shrink the header — only the session-card region changes:
 
 - `compactWithAttention` → renders `<div className="space-y-1 pt-1">…attention cards…</div>`. Cards reuse `<SortableSessionCard>` so drag-to-reorder still works (only attention cards are draggable in this view; rest are hidden).
 - `compactEmpty` → renders a single subdued affordance row: `"N sessions — click to view"` styled like the existing "Show N ended" footer button. Click sets `lastFocusedCwd` (does not change collapse state).
+
+**Drift note (2026-07-13)**: `condense-collapsed-folder-header` already made the COLLAPSED-folder header compact — heavy slots (`GroupGitInfo`, `FolderActionBar`, `SidebarFolderSectionSlot`, `FolderOpenSpecSection`, `FolderSpawnButtons`) are hidden behind `{!isCollapsed && ...}`. This Decision describes the UNFOCUSED (but not collapsed) header, which keeps all slots. The two concepts (collapsed = old binary toggle, unfocused = new attention-driven mode) are orthogonal; both now have compact forms.
 
 **Rationale**: keeping the header constant avoids layout thrash when a folder gains/loses focus; only the body region animates.
 
@@ -139,4 +145,5 @@ When `selectedId` changes (e.g. routing into a session, replay completion, drag-
 
 - Should the "N sessions — click to view" affordance link to expand-without-focus (i.e., add to userExpanded) instead of focus? Current proposal: focus-only; userExpanded is reachable via the chevron once focused.
 - Should `compactWithAttention` cap the number of cards shown (e.g. max 5)? Defer until we observe pathological cases in practice.
+- **Chevron cannot distinguish `expandedFull` causes.** `expandedFull` is reachable three ways (focused+not-collapsed, `userExpanded`, filter-active), all rendering the same down-chevron — a *pinned-open* folder and a *focused* folder look identical, so the user cannot tell why a folder is open. **Punt (2026-07-13):** ship with the shared icon; if user confusion surfaces, add a distinct pinned-open affordance (e.g. a small pin glyph on `userExpanded` folders) in a follow-up. Not blocking.
 - Mobile single-pane layout already shows one folder/session at a time; the focus model is moot there. We keep the rules identical for code simplicity, but the visible benefit is desktop-only.

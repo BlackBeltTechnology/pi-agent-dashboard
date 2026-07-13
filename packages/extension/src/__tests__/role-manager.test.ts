@@ -322,6 +322,96 @@ describe("roles:preset-delete", () => {
   });
 });
 
+describe("roles:get-all builtinRoleNames", () => {
+  it("includes builtinRoleNames equal to DEFAULT_ROLE_NAMES", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = {};
+    await pi.events.emit("roles:get-all", data);
+    expect(data.builtinRoleNames).toEqual([...DEFAULT_ROLE_NAMES]);
+  });
+});
+
+describe("roles:remove", () => {
+  it("purges a custom role from disk and reports success", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { review: "anthropic/haiku" },
+      roleNames: ["review"],
+      rolePresets: [{ name: "cheap", roles: { review: "anthropic/haiku" } }],
+      activePreset: null,
+    }));
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "review" };
+    await pi.events.emit("roles:remove", data);
+    expect(data.success).toBe(true);
+    const after = readFile();
+    expect(after.roles.review).toBeUndefined();
+    expect(after.rolePresets[0].roles.review).toBeUndefined();
+    expect(after.roleNames ?? []).not.toContain("review");
+  });
+
+  it("rejects a built-in role name without writing", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { coding: "anthropic/opus" }, rolePresets: [], activePreset: null,
+    }));
+    const before = readFileSync(CONFIG(), "utf-8");
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "coding" };
+    await pi.events.emit("roles:remove", data);
+    expect(data.success).toBe(false);
+    // No rewrite: built-in guard rejects before save.
+    expect(readFileSync(CONFIG(), "utf-8")).toBe(before);
+  });
+
+  it("rejects a missing / syntactically invalid role name", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    const empty: any = {};
+    await pi.events.emit("roles:remove", empty);
+    expect(empty.success).toBe(false);
+    const bad: any = { role: "a/b" };
+    await pi.events.emit("roles:remove", bad);
+    expect(bad.success).toBe(false);
+    expect(existsSync(CONFIG())).toBe(false);
+  });
+
+  it("reports success (no-op atomic rewrite) for a valid custom name absent from config", async () => {
+    writeFileSync(CONFIG(), JSON.stringify({
+      roles: { coding: "anthropic/opus" }, rolePresets: [], activePreset: null,
+    }));
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "ghost-role" };
+    await pi.events.emit("roles:remove", data);
+    // removeRoleFromSchema is idempotent: the name isn't present, so the write
+    // is a no-op rewrite and the handler still reports success.
+    expect(data.success).toBe(true);
+    expect(readFile().roles).toEqual({ coding: "anthropic/opus" });
+  });
+});
+
+describe("roles:set validation (bridge trust boundary)", () => {
+  it("rejects a syntactically invalid custom role name without writing", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "bad/name", modelId: "anthropic/haiku" };
+    await pi.events.emit("roles:set", data);
+    expect(data.success).toBe(false);
+    expect(existsSync(CONFIG())).toBe(false);
+  });
+
+  it("still accepts a valid custom role name", async () => {
+    const { pi } = makeFakePi();
+    activate(pi);
+    const data: any = { role: "doubt-verifier-1", modelId: "anthropic/haiku" };
+    await pi.events.emit("roles:set", data);
+    expect(data.success).toBe(true);
+    expect(readFile().roles["doubt-verifier-1"]).toBe("anthropic/haiku");
+  });
+});
+
 describe("role:resolve-model (subagents adapter)", () => {
   it("sets probe.resolved to the assigned model for a @role ref", async () => {
     writeFileSync(CONFIG(), JSON.stringify({

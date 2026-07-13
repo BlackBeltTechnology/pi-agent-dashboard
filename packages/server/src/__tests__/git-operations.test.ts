@@ -1,14 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as gitOps from "../git-operations.js";
 import {
-  isGitRepo,
-  getDirtyFiles,
-  listBranches,
   checkoutBranch,
+  getDirtyFiles,
   gitInit,
+  isGitRepo,
+  listBranches,
+  resolveConfigRoot,
+  resolveMainPath,
   stashPop,
 } from "../git-operations.js";
 
@@ -52,6 +55,62 @@ describe("git-operations", () => {
         expect(isGitRepo(plain)).toBe(false);
       } finally {
         rmSync(plain, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("resolveConfigRoot", () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it("git repo → returns resolveMainPath(cwd)", () => {
+      expect(resolveConfigRoot(repo)).toBe(resolveMainPath(repo));
+    });
+
+    it("non-git dir with .pi/settings.json → returns cwd", () => {
+      const plain = mkdtempSync(join(tmpdir(), "cfg-root-"));
+      try {
+        mkdirSync(join(plain, ".pi"), { recursive: true });
+        writeFileSync(join(plain, ".pi", "settings.json"), "{}");
+        expect(resolveConfigRoot(plain)).toBe(plain);
+      } finally {
+        rmSync(plain, { recursive: true, force: true });
+      }
+    });
+
+    it("non-git dir without .pi/settings.json → null", () => {
+      const plain = mkdtempSync(join(tmpdir(), "cfg-root-"));
+      try {
+        expect(resolveConfigRoot(plain)).toBeNull();
+      } finally {
+        rmSync(plain, { recursive: true, force: true });
+      }
+    });
+
+    it("degenerate git (isGitRepo true, resolveMainPath null) → null, no cwd/.pi fallthrough", () => {
+      const plain = mkdtempSync(join(tmpdir(), "cfg-root-"));
+      try {
+        // .pi/settings.json present so a fallthrough to the non-git branch
+        // would wrongly return `plain`; assert it does NOT.
+        mkdirSync(join(plain, ".pi"), { recursive: true });
+        writeFileSync(join(plain, ".pi", "settings.json"), "{}");
+        vi.spyOn(gitOps, "isGitRepo").mockReturnValue(true);
+        vi.spyOn(gitOps, "resolveMainPath").mockReturnValue(null);
+        expect(gitOps.resolveConfigRoot(plain)).toBeNull();
+      } finally {
+        rmSync(plain, { recursive: true, force: true });
+      }
+    });
+
+    it("no upward walk: non-git child of a .pi-bearing parent → null", () => {
+      const parent = mkdtempSync(join(tmpdir(), "cfg-root-"));
+      try {
+        mkdirSync(join(parent, ".pi"), { recursive: true });
+        writeFileSync(join(parent, ".pi", "settings.json"), "{}");
+        const child = join(parent, "child");
+        mkdirSync(child, { recursive: true });
+        expect(resolveConfigRoot(child)).toBeNull();
+      } finally {
+        rmSync(parent, { recursive: true, force: true });
       }
     });
   });

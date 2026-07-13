@@ -45,6 +45,7 @@ Files in this directory. One row per source file.
 | `FolderNeedsYouPill.tsx` | Folder-header "N need you" rollup pill. Counts chat-routed ask_user child sessions; excludes widget-bar via… → see `FolderNeedsYouPill.tsx.AGENTS.md` |
 | `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route + Refresh + Specs/Archive buttons. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
 | `FolderSpawnButtons.tsx` | Stacked spawn buttons in folder header: `+ New Session` (green, always) + `+ New Worktree` (orange, gated by `showWorktree`). Min-height 44px on mobile. Exports `FolderSpawnButtons`. |
+| `Gateway/` | Reusable Gateway (tunnel-providers) UI sections + hosts (dialog + settings page). → see `Gateway/AGENTS.md`. See change: add-tunnel-providers. |
 | `FrontmatterProperties.tsx` | Obsidian-style YAML frontmatter Properties panel. Exports `extractFrontmatter` (leading `---` block parser),… → see `FrontmatterProperties.tsx.AGENTS.md` |
 | `GroupedAttachDialog.tsx` | Grouped attach dialog with pill filters + collapsible sections for OpenSpec change selection. See change: add-openspec-change-grouping. |
 | `ImageLightbox.tsx` | Portal full-screen image overlay with `useZoomPan` (wheel/pointer/touch zoom+pan, 0.25–10x). Closes on Escape + backdrop click via document listeners. Exports `ImageLightbox`. |
@@ -85,7 +86,8 @@ Files in this directory. One row per source file.
 | `PackageInstallConfirmDialog.tsx` | Pre-install confirmation dialog. Exports `PackageInstallConfirmDialog`. Shows source + optional name + scope. → see `PackageInstallConfirmDialog.tsx.AGENTS.md` |
 | `PackageReadmeDialog.tsx` | Dialog fetching + rendering a package README. Exports `PackageReadmeDialog`. → see `PackageReadmeDialog.tsx.AGENTS.md` |
 | `PackageRow.tsx` | Generic installed-package row used across unified packages sections. Exports `PackageRow`, `PackageRowProps`. → see `PackageRow.tsx.AGENTS.md` |
-| `PairingView.tsx` | Settings→Security operator pairing view. Exports `PairingView`. Fetches `GET /api/pair/payload`; renders QR (`qrcode` idiom) + base64url copy-string + fingerprint + 60s TTL countdown + `urls[]`. `no_reachable_endpoint`→empty state (start tunnel + localhost note; never implies plain-http LAN pairs). Typed confirm-code → `approvePairing` (`POST /api/pair/approve`). See change: wire-nonzrok-pairing-view. |
+| `PairLanding.tsx` | Browser `/pair` landing — phone-camera counterpart of the Electron shell `PairView`. Exports `PairLanding`. Decodes payload from `location.hash` (`decodePayloadString`); runs challenge (pin `fingerprint == payload.id`, refuse on mismatch) → redeem → shows confirm code on this phone → poll → `storeDeviceBearer` → `window.location.href="/"`. Error+restart affordance on missing/invalid hash, expired/rejected poll. Same-origin `/api/pair/*` (public routes). D12 desktop typed-approval unchanged. Mounted by `main.tsx` when `pathname === "/pair"` (pre-auth, no WS). See change: make-pairing-qr-camera-scannable. |
+| `PairingView.tsx` | Settings→Security operator pairing view. Exports `PairingView`. Fetches `GET /api/pair/payload`; renders QR (`qrcode` idiom) + base64url copy-string + fingerprint + 60s TTL countdown + `urls[]`. `no_reachable_endpoint`→empty state (start tunnel + localhost note; never implies plain-http LAN pairs). Typed confirm-code → `approvePairing` (`POST /api/pair/approve`). NOTE: still renders a bare-payload (non-scannable) QR + own `encodePayloadString` — not migrated to the scannable deep link (follow-up to make-pairing-qr-camera-scannable). See change: wire-nonzrok-pairing-view. |
 | `PathPicker.tsx` | Reusable keyboard-first path picker with typeahead directory list. → see `PathPicker.tsx.AGENTS.md` |
 | `PiLogo.tsx` | Inline SVG brand mark (geometric Π). Exports `PiLogo`. Props: `size` (default 24), `className`, `title`. → see `PiLogo.tsx.AGENTS.md` |
 | `PinDirectoryDialog.tsx` | Dialog to pin directory (wraps PathPicker) |
@@ -100,9 +102,10 @@ Files in this directory. One row per source file.
 | `PreviewCard.tsx` | Inline chat-message card for `/view` rows. Header: icon (per renderer kind) + target label + `⤢ expand`… → see `PreviewCard.tsx.AGENTS.md` |
 | `PreviewOverlayView.tsx` | Full-viewport shell for overlay routes `/folder/:cwd/view?path=` + `/pi-view?url=`. → see `PreviewOverlayView.tsx.AGENTS.md` |
 | `ProcessList.tsx` | Repurposed as BackgroundProcessesDrawer (filename kept). Renders bridge PGID scan as collapsible drawer under… → see `ProcessList.tsx.AGENTS.md` |
+| `ProjectInitButton.tsx` | Presentational "Set up project" scaffold button (indigo, `mdiFolderPlusOutline`, testid `project-init-btn`). Props `{ cwd, status, onInitializeProject? }`. Renders iff `status.hasHook===false && status.configured===false && !!onInitializeProject` (strict `===false`; absent `configured`/state ③ → nothing). Click → `onInitializeProject(cwd)` spawns interactive project-init session. Split out of `WorktreeInitButton`'s polymorphic no-hook branch. See change: distinguish-initialize-actions. |
 | `ProposeDialog.tsx` | Name-only dialog launching `/skill:openspec-propose`. Exports `ProposeDialog`, `formatProposePrompt(name)`. → see `ProposeDialog.tsx.AGENTS.md` |
 | `ProviderAuthSection.tsx` | Settings section for LLM provider auth. Exports `ProviderAuthSection`. → see `ProviderAuthSection.tsx.AGENTS.md` |
-| `QrCodeDialog.tsx` | Dialog showing tunnel URL as QR code for mobile access. Exports `QrCodeDialog`. → see `QrCodeDialog.tsx.AGENTS.md` |
+| `QrCodeDialog.tsx` | Dialog showing tunnel URL as QR code for mobile access. Exports `QrCodeDialog`. ORPHANED by add-tunnel-providers: `TunnelButton` now opens `Gateway/GatewayDialog` instead; retained (still unit-tested) but no longer mounted. → see `QrCodeDialog.tsx.AGENTS.md` |
 | `QueuePanel.tsx` | Read-only follow-up cycler. Pi ExtensionAPI exposes no queue mutation (verified through pi 0.76.0). → see `QueuePanel.tsx.AGENTS.md` |
 | `RawEventCard.tsx` | Collapsible card showing one raw event in the event log. Exports `RawEventCard`. → see `RawEventCard.tsx.AGENTS.md` |
 | `RecommendedExtensions.tsx` | Panel rendering curated recommended extensions. Exports `RecommendedExtensions`. Props: `scope`, `cwd`. → see `RecommendedExtensions.tsx.AGENTS.md` |
@@ -159,7 +162,7 @@ Files in this directory. One row per source file.
 | `WhatsNewPackageRow.tsx` | Exports `WhatsNewPackageRow` + `WhatsNewPackageRowProps`. → see `WhatsNewPackageRow.tsx.AGENTS.md` |
 | `WorkspaceHeader.tsx` | Exports `WorkspaceHeader`. Header row for workspace container: name (double-click → `InlineRenameInput`),… → see `WorkspaceHeader.tsx.AGENTS.md` |
 | `WorktreeActionsMenu.tsx` | Exports `WorktreeActionsMenu` + `__resetGhAvailableCache`. → see `WorktreeActionsMenu.tsx.AGENTS.md` |
-| `WorktreeInitButton.tsx` | Self-contained Initialize button per directory/worktree row. → see `WorktreeInitButton.tsx.AGENTS.md` |
+| `WorktreeInitButton.tsx` | Hook-run-only amber Initialize button per directory/worktree row. Accepts shared `status`/`onStatusChange` (row-owned probe) or self-probes standalone. → see `WorktreeInitButton.tsx.AGENTS.md` |
 | `WorktreeSpawnDialog.tsx` | Fullscreen `+Worktree` dialog. Lists existing worktrees (one-click `Spawn →`) + create-new form (base picker,… → see `WorktreeSpawnDialog.tsx.AGENTS.md` |
 | `ZoomControls.tsx` | Re-export shim. Re-exports `ZoomControls` from `@blackbelt-technology/pi-dashboard-client-utils/ZoomControls`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
 | `ZrokInstallGuide.tsx` | Exports `ZrokInstallGuide`. Tunnel setup install guide. `useServerOs` fetches `/api/tunnel-status` for… → see `ZrokInstallGuide.tsx.AGENTS.md` |

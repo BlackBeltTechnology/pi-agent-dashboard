@@ -64,7 +64,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { createInitialState, deriveBannerState, findLastUserPrompt, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
+import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/loading-history.js";
@@ -1219,6 +1219,17 @@ export default function App() {
     return ids;
   }, [sessionStates]);
 
+  // Sessions whose last turn returned only reasoning, no answer (non-error
+  // notice). Suppressed when a real error is also present.
+  // See change: fix-gemini-subagent-silent-tool-schema-failure.
+  const noticeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [id, state] of sessionStates) {
+      if (state.notice && !state.lastError) ids.add(id);
+    }
+    return ids;
+  }, [sessionStates]);
+
   // Per-session map of unresolved `bash` toolCalls, consumed by the
   // SessionActivityBar inside each session card's PROCESS subcard.
   // See change: redesign-process-list-activity-bar.
@@ -1322,6 +1333,7 @@ export default function App() {
       editorAvailable={editorAvailable}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
+      noticeSessionIds={noticeSessionIds}
       retrySessionIds={retrySessionIds}
       spawnErrors={spawnErrors}
       onDismissSpawnError={(cwd) => setSpawnErrors((prev) => { const next = new Map(prev); next.delete(cwd); return next; })}
@@ -1584,38 +1596,23 @@ export default function App() {
             <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
-          {/* Unified status banner. Sticky above the command input — ONE
-              composed error-lifecycle surface: a persistent error anchor
-              (lastError) with a live retry sub-status (retryState) on top.
-              Dismiss ✕ is state-dependent inside SessionBanner: abort+clear
-              on a retrying/retryable surface, clear-only on limit-exceeded.
-              See change: unify-error-retry-lifecycle. */}
+          {/* Single-card error-lifecycle surface. Sticky above the command
+              input: ONE card showing the error string plus a live retry
+              sub-line. ✕ (onDismiss) is CLEAR-ONLY — it never aborts. The
+              "Stop (ends the session)" control inside the banner is the sole
+              abort (onAbort), shown only while a retry is in flight.
+              See change: simplify-error-retry-single-card. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onAbort={handleAbort}
-            onRetry={selectedId && !selectedState.isStreaming ? () => {
-              // Retry the last user prompt by re-sending it via send_prompt.
-              // The reducer flags the new user message `retriedFrom` so the
-              // chat view does not render a duplicate bubble. See change:
-              // fix-retry-resends-last-user-message.
-              // Gated on `!isStreaming`: while the (manual or auto) retry turn
-              // is already in flight the error anchor still shows but the
-              // manual Retry control is suppressed to avoid a duplicate send.
-              // See change: unify-error-retry-lifecycle.
-              const last = findLastUserPrompt(selectedState.messages);
-              if (last) handleSendPromptToSession(selectedId, last.text, last.images);
-            } : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear BOTH the error anchor and any live retry sub-status so
-                // the composed surface disappears immediately. On a retrying
-                // dismiss the banner also fired onAbort (handleAbort) — the
-                // bridge will confirm via a synthesized auto_retry_end, but we
-                // clear retryState locally so the amber block does not linger
-                // until that round-trip lands.
-                // See change: unify-error-retry-lifecycle.
+                // Clear-only: drop BOTH the error anchor and any live retry
+                // sub-status locally so the card disappears immediately. This
+                // does NOT abort the session — a live pi retry keeps running.
+                // See change: simplify-error-retry-single-card.
                 if (current?.lastError || current?.retryState) {
                   next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
                 }

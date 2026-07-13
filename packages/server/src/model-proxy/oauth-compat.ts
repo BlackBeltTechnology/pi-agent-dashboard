@@ -18,15 +18,16 @@
 /** Provider → set of model ids unreachable over OAuth credentials. */
 export const OAUTH_INCOMPATIBLE: Record<string, ReadonlySet<string>> = {
   anthropic: new Set([
+    // Legacy pre-4.x snapshots — unreachable over Claude Pro/Max OAuth.
+    // The live registry catalog still ships `claude-3-5-haiku-latest`, so it
+    // stays denied; the other pre-4.x `-latest` aliases are absent from the
+    // 0.80.x catalog and were dropped. See change: filter-oauth-incompatible-models.
     "claude-3-5-haiku-20241022",
     "claude-3-5-haiku-latest",
     "claude-3-5-sonnet-20240620",
     "claude-3-5-sonnet-20241022",
-    "claude-3-5-sonnet-latest",
     "claude-3-7-sonnet-20250219",
-    "claude-3-7-sonnet-latest",
     "claude-3-opus-20240229",
-    "claude-3-opus-latest",
     "claude-3-haiku-20240307",
     "claude-3-sonnet-20240229",
   ]),

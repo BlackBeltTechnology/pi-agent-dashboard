@@ -7,6 +7,12 @@ export default defineConfig({
     environment: "jsdom",
     pool: "forks",
     maxWorkers: "50%",
+    // Headroom for `waitFor`-based assertions (asyncUtilTimeout raised to 5s in
+    // the setup) so a slow-under-contention poll finishes inside the test
+    // budget instead of tripping the 5s default. A genuine hang still fails at
+    // 15s; fast tests finish immediately, unaffected.
+    // See change: fix-flaky-full-suite-tests.
+    testTimeout: 15_000,
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
     // jsdom has no layout/ResizeObserver → TanStack Virtual renders 0 rows.
     // This shim gives the ChatView scroll container a tall viewport so windowed

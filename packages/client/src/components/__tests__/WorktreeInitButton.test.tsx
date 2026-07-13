@@ -9,11 +9,12 @@
  *
  * See change: generalize-worktree-init-hook.
  */
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { WorktreeInitButton } from "../WorktreeInitButton.js";
 import type { WorktreeInitHook } from "../../lib/git-api.js";
+import { WorktreeInitButton } from "../WorktreeInitButton.js";
 
 const { fetchWorktreeInitStatus, runWorktreeInit } = vi.hoisted(() => ({
   fetchWorktreeInitStatus: vi.fn(),
@@ -50,8 +51,15 @@ describe("WorktreeInitButton", () => {
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
   });
 
-  it("hides the button when the repo declares no hook", async () => {
-    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false });
+  it("hides the button when the repo declares no hook (state ①)", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false, configured: false });
+    render(<WorktreeInitButton cwd="/repo" />);
+    await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
+    expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
+  });
+
+  it("hides the button for a configured project with no hook (state ③)", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false, configured: true });
     render(<WorktreeInitButton cwd="/repo" />);
     await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
@@ -99,33 +107,14 @@ describe("WorktreeInitButton", () => {
     await waitFor(() => expect(screen.queryByTestId("worktree-init-btn")).toBeNull());
   });
 
-  // ── Polymorphic no-hook branch (change: project-init-skill-and-profiles) ──
-
-  it("no-hook row shows the project-init Initialize button and routes its click", async () => {
-    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false });
-    const onInitializeProject = vi.fn();
-    render(<WorktreeInitButton cwd="/bare" onInitializeProject={onInitializeProject} />);
-    await waitFor(() => screen.getByTestId("project-init-btn"));
-    // The hook-run button must NOT be present for a no-hook row.
-    expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
-    fireEvent.click(screen.getByTestId("project-init-btn"));
-    expect(onInitializeProject).toHaveBeenCalledWith("/bare");
-  });
-
-  it("no-hook row renders nothing without an onInitializeProject handler", async () => {
-    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false });
+  // The no-hook / scaffold branch moved to `ProjectInitButton`
+  // (change: distinguish-initialize-actions). `WorktreeInitButton` is now
+  // hook-only and never renders a `project-init-btn`.
+  it("never renders a project-init button, even on a no-hook row", async () => {
+    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: false, configured: false });
     render(<WorktreeInitButton cwd="/bare" />);
     await waitFor(() => expect(fetchWorktreeInitStatus).toHaveBeenCalled());
     expect(screen.queryByTestId("project-init-btn")).toBeNull();
     expect(screen.queryByTestId("worktree-init-btn")).toBeNull();
-  });
-
-  it("hook-present row keeps change-A behavior (no project-init button)", async () => {
-    fetchWorktreeInitStatus.mockResolvedValue({ hasHook: true, needsInit: true, trusted: true });
-    const onInitializeProject = vi.fn();
-    render(<WorktreeInitButton cwd="/repo" onInitializeProject={onInitializeProject} />);
-    await waitFor(() => screen.getByTestId("worktree-init-btn"));
-    expect(screen.queryByTestId("project-init-btn")).toBeNull();
-    expect(onInitializeProject).not.toHaveBeenCalled();
   });
 });

@@ -2877,7 +2877,7 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     });
   });
 
-  it("returns error anchor (kind error) for non-USAGE_LIMIT lastError", () => {
+  it("returns error anchor (kind error) for a generic lastError", () => {
     const s = createInitialState();
     s.lastError = { message: "fetch failed: ECONNRESET", timestamp: 1 };
     expect(deriveBannerState(s)).toEqual({
@@ -2885,11 +2885,11 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     });
   });
 
-  it("returns error anchor (kind limit-exceeded) for USAGE_LIMIT_PATTERN match", () => {
+  it("returns error anchor (kind error) — NEVER limit-exceeded — for a billing/quota string", () => {
     const s = createInitialState();
     s.lastError = { message: "monthly_spending_cap exceeded", timestamp: 1 };
     expect(deriveBannerState(s)).toEqual({
-      error: { kind: "limit-exceeded", message: "monthly_spending_cap exceeded" },
+      error: { kind: "error", message: "monthly_spending_cap exceeded" },
     });
   });
 
@@ -2910,23 +2910,23 @@ describe("deriveBannerState (unified SessionBanner selector)", () => {
     });
   });
 
-  it("limit-exceeded kind distinguishes various USAGE_LIMIT_PATTERN matches", () => {
-    const cases: Array<[string, "limit-exceeded" | "error"]> = [
-      ["usage_limit_reached", "limit-exceeded"],
-      ["quota_exceeded", "limit-exceeded"],
-      ["insufficient_quota", "limit-exceeded"],
-      ["credit balance too low", "limit-exceeded"],
-      ["monthly_spending_cap", "limit-exceeded"],
-      ["reset after 12h", "limit-exceeded"],
-      ["fetch failed", "error"],
-      ["tool execution failed", "error"],
-      ["429 too many requests", "error"],
+  it("every error string — billing/quota or generic — resolves to kind error", () => {
+    const cases: string[] = [
+      "usage_limit_reached",
+      "quota_exceeded",
+      "insufficient_quota",
+      "credit balance too low",
+      "monthly_spending_cap",
+      "reset after 12h",
+      "fetch failed",
+      "tool execution failed",
+      "429 too many requests",
     ];
-    for (const [msg, expected] of cases) {
+    for (const msg of cases) {
       const s = createInitialState();
       s.lastError = { message: msg, timestamp: 1 };
       const banner = deriveBannerState(s);
-      expect("error" in banner && banner.error?.kind, msg).toBe(expected);
+      expect("error" in banner && banner.error?.kind, msg).toBe("error");
     }
   });
 });

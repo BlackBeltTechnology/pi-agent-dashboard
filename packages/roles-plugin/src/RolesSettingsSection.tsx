@@ -32,6 +32,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { useUiPrimitive, useSettingsDraftSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
 
 interface ModelInfo {
   provider: string;
@@ -93,6 +94,36 @@ export function computeDirtyRoles(
 }
 
 /**
+ * Pure helper: split the render-set (union of persisted role keys and
+ * pending-only unsaved names, deduped) into built-in vs custom groups.
+ *
+ * - `builtin`: names present in `builtinRoleNames`, ORDERED by
+ *   `builtinRoleNames` (the canonical DEFAULT_ROLE_NAMES order from the
+ *   bridge), not by rolesMap insertion order.
+ * - `custom`: names absent from `builtinRoleNames`, sorted alphabetically
+ *   for a stable render.
+ *
+ * When `builtinRoleNames` is empty (older bridge that doesn't send the field),
+ * every name lands in `custom` and the component renders one flat group.
+ *
+ * Exported for unit testing. See change: add-custom-roles-ui (design D1/D2).
+ */
+export function computeRoleGroups(
+  rolesMap: Record<string, string>,
+  pending: Record<string, string>,
+  builtinRoleNames: string[],
+): { builtin: string[]; custom: string[] } {
+  const union = new Set<string>([
+    ...Object.keys(rolesMap),
+    ...Object.keys(pending),
+  ]);
+  const builtinSet = new Set(builtinRoleNames);
+  const builtin = builtinRoleNames.filter((n) => union.has(n));
+  const custom = [...union].filter((n) => !builtinSet.has(n)).sort();
+  return { builtin, custom };
+}
+
+/**
  * Plugin config shape for the built-ins plugin. Populated by
  * `useMessageHandler` routing `roles_list` and `models_list` WS payloads
  * through `applyPluginConfigUpdate({id: "roles", ...})`.
@@ -102,6 +133,12 @@ interface BuiltinsConfig {
   presets?: Array<{ name: string; roles: Record<string, string> }>;
   activePreset?: string | null;
   models?: ModelInfo[];
+  /**
+   * Built-in (seeded default) role names from the bridge. Absent on older
+   * bridges → `[]` → the grid renders one flat group (back-compat).
+   * See change: add-custom-roles-ui (design D2).
+   */
+  builtinRoleNames?: string[];
 }
 
 function shortModel(fullId: string): string {
@@ -127,6 +164,12 @@ export function BuiltInRolesSettings() {
   const [editingRole, setEditingRole] = useState<string | null>(null);
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetName, setPresetName] = useState("");
+  // Add-custom-role flow: an inline @-prefixed name input that, on a valid
+  // name, opens the model picker scoped to the new name. Nothing persists
+  // until a model is picked and the unified Save flushes it as a role_set.
+  // See change: add-custom-roles-ui (design D1).
+  const [addingRole, setAddingRole] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
 
   // Pending (unsaved) role picks. Key = role name; value = full
   // "provider/id" label as emitted by ui:model-selector. Entry exists
@@ -140,6 +183,7 @@ export function BuiltInRolesSettings() {
   const presets = cfg?.presets ?? [];
   const activePreset = cfg?.activePreset ?? null;
   const models = cfg?.models ?? [];
+  const builtinRoleNames = cfg?.builtinRoleNames ?? [];
 
   // Auto-clean pending entries that match the freshly-arrived server
   // state. Covers Save-ack reconciliation AND external edits to
@@ -280,6 +324,178 @@ export function BuiltInRolesSettings() {
     });
   }
 
+  // Render-set split into Built-in vs Custom groups over the UNION of persisted
+  // role keys and pending-only unsaved names. See change: add-custom-roles-ui.
+  const roleGroups = computeRoleGroups(rolesMap, pending, builtinRoleNames);
+
+  /**
+   * Remove a CUSTOM role. Immediate + confirmed (mirrors preset delete), NOT
+   * staged through the Save buffer — removal is a cross-preset purge, so
+   * coupling it to the model-assignment Save would make a destructive op
+   * silently pending. Any staged pending pick for the role is dropped so it
+   * can't resurrect a just-removed name. See change: add-custom-roles-ui (D3).
+   */
+  function removeCustomRole(role: string) {
+    const ok = typeof window !== "undefined"
+      ? window.confirm(`Remove custom role @${role}? This deletes it from every preset.`)
+      : true;
+    if (!ok) return;
+    setPending((prev) => {
+      if (!(role in prev)) return prev;
+      const { [role]: _drop, ...rest } = prev;
+      return rest;
+    });
+    if (editingRole === role) setEditingRole(null);
+    if (liveSessionId) {
+      dispatch({ type: "role_remove", sessionId: liveSessionId, role });
+    }
+  }
+
+  /** Render one compact role pill (built-in or custom). */
+  const renderRolePill = (role: string) => {
+    const isEditing = editingRole === role;
+    const dirty = role in pending && pending[role] !== rolesMap[role];
+    const assigned = isAssigned(role);
+    const displayLabel = inferProviderForBareId(effective(role), models);
+    // A role is removable (custom) ONLY when the bridge advertised the built-in
+    // set. With an older bridge (`builtinRoleNames` empty) we cannot tell
+    // built-ins from custom, so per the "built-ins permanent" locked decision
+    // NO pill shows × in that back-compat flat-render mode.
+    // See change: add-custom-roles-ui.
+    const isCustom = builtinRoleNames.length > 0 && !builtinRoleNames.includes(role);
+    const mainButton = (
+      <button
+        key={role}
+        data-testid={`roles-row-${role}`}
+        onClick={() => setEditingRole(isEditing ? null : role)}
+        className={`flex items-center gap-2 px-2 py-1 text-left min-w-0 flex-1 transition-all ${
+          isCustom ? "rounded-l" : "rounded"
+        } ${
+          isEditing
+            ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
+            : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]"
+        }`}
+        title={assigned ? displayLabel : `Set a model for @${role}`}
+      >
+        <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--accent-blue)]" : "text-[var(--accent-blue)]/70"}`}>
+          @{role}
+        </span>
+        {assigned ? (
+          <span className="text-[11px] text-[var(--text-muted)] font-mono truncate flex-1">
+            {shortModel(displayLabel)}
+          </span>
+        ) : (
+          <span className="text-[11px] text-[var(--accent-blue)] truncate flex-1">
+            + Add model
+          </span>
+        )}
+        {dirty && (
+          <span
+            data-testid={`roles-row-${role}-dirty`}
+            aria-label="unsaved"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-warning,#f59e0b)] shrink-0"
+          />
+        )}
+      </button>
+    );
+    // Built-in pills are permanent — no × (locked decision). Custom pills wrap
+    // the main button + a separate × (nested <button> is invalid HTML).
+    if (!isCustom) return mainButton;
+    return (
+      <span
+        key={role}
+        className="inline-flex items-stretch overflow-hidden rounded min-w-0"
+      >
+        {mainButton}
+        <button
+          data-testid={`roles-row-${role}-remove`}
+          onClick={(e) => { e.stopPropagation(); removeCustomRole(role); }}
+          className="flex items-center justify-center px-1.5 leading-none text-[12px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--accent-red)] hover:bg-[var(--bg-hover)] transition-colors"
+          aria-label={`Remove custom role @${role}`}
+          title={`Remove custom role @${role}`}
+        >
+          ×
+        </button>
+      </span>
+    );
+  };
+
+  // Add-custom-role control. The set of names a new role must not collide with
+  // is the render union (built-ins + persisted custom + pending). Validation is
+  // the SHARED isValidRoleName helper — identical to the bridge trust boundary.
+  const effectiveNames = Array.from(
+    new Set([...Object.keys(rolesMap), ...Object.keys(pending), ...builtinRoleNames]),
+  );
+  const addValidation = isValidRoleName(newRoleName, effectiveNames);
+  const showAddHint = newRoleName.trim() !== "" && !addValidation.ok;
+
+  function cancelAddRole() {
+    setAddingRole(false);
+    setNewRoleName("");
+  }
+
+  /** On a valid name, open the model picker scoped to the new name (D1). */
+  function confirmAddRole() {
+    if (!addValidation.ok) return;
+    const trimmed = newRoleName.trim();
+    setEditingRole(trimmed);
+    setAddingRole(false);
+    setNewRoleName("");
+  }
+
+  const addRoleControl: React.ReactNode = addingRole ? (
+    <div className="flex flex-col gap-1">
+      <span className="flex items-center gap-1">
+        <span className="text-[11px] font-semibold text-[var(--accent-blue)]/70">@</span>
+        <input
+          autoFocus
+          data-testid="roles-add-custom-input"
+          value={newRoleName}
+          onChange={(e) => setNewRoleName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") confirmAddRole();
+            else if (e.key === "Escape") cancelAddRole();
+          }}
+          placeholder="custom-role-name…"
+          className="w-40 px-2 py-0.5 text-[11px] bg-[var(--bg-tertiary)] border border-[var(--accent-blue)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none"
+        />
+        <button
+          data-testid="roles-add-custom-confirm"
+          disabled={!addValidation.ok}
+          onClick={confirmAddRole}
+          className="text-[11px] text-[var(--accent-blue)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Pick a model for this role"
+        >
+          ✓
+        </button>
+        <button
+          data-testid="roles-add-custom-cancel"
+          onClick={cancelAddRole}
+          className="text-[11px] text-[var(--text-muted)] hover:text-[var(--accent-red)]"
+          aria-label="Cancel add custom role"
+        >
+          ✕
+        </button>
+      </span>
+      {showAddHint && (
+        <span
+          data-testid="roles-add-custom-hint"
+          className="text-[10px] text-[var(--accent-red)]"
+        >
+          ✗ {addValidation.reason}
+        </span>
+      )}
+    </div>
+  ) : (
+    <button
+      data-testid="roles-add-custom"
+      onClick={() => { setAddingRole(true); setNewRoleName(""); }}
+      className="px-2 py-1 text-[11px] rounded text-left bg-[var(--bg-tertiary)] text-[var(--accent-blue)] hover:bg-[var(--bg-hover)] transition-colors"
+    >
+      + Add custom role
+    </button>
+  );
+
   return (
     <section
       data-testid="roles-settings"
@@ -394,53 +610,42 @@ export function BuiltInRolesSettings() {
         )}
       </div>
 
-      {/* Role grid (compact pills). Each pill: @role + effective model
-          (pending overlaid on persisted). Unconfigured roles show an
-          "+ Add model" affordance in accent; the setup banner above is the
-          accompanying error message. Legacy bare-id entries migrated for
-          display via inferProviderForBareId.
-          See change: roles-standalone-defaults-and-local-install-detection. */}
-      <div className="grid grid-cols-2 gap-1">
-        {Object.keys(rolesMap).map((role) => {
-          const isEditing = editingRole === role;
-          const dirty = role in pending && pending[role] !== rolesMap[role];
-          const assigned = isAssigned(role);
-          const displayLabel = inferProviderForBareId(effective(role), models);
-          return (
-            <button
-              key={role}
-              data-testid={`roles-row-${role}`}
-              onClick={() => setEditingRole(isEditing ? null : role)}
-              className={`flex items-center gap-2 px-2 py-1 rounded text-left min-w-0 transition-all ${
-                isEditing
-                  ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
-                  : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]"
-              }`}
-              title={assigned ? displayLabel : `Set a model for @${role}`}
-            >
-              <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--accent-blue)]" : "text-[var(--accent-blue)]/70"}`}>
-                @{role}
-              </span>
-              {assigned ? (
-                <span className="text-[11px] text-[var(--text-muted)] font-mono truncate flex-1">
-                  {shortModel(displayLabel)}
-                </span>
-              ) : (
-                <span className="text-[11px] text-[var(--accent-blue)] truncate flex-1">
-                  + Add model
-                </span>
-              )}
-              {dirty && (
-                <span
-                  data-testid={`roles-row-${role}-dirty`}
-                  aria-label="unsaved"
-                  className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent-warning,#f59e0b)] shrink-0"
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Role grid (compact pills), split into Built-in vs Custom groups.
+          Each pill: @role + effective model (pending overlaid on persisted).
+          Unconfigured roles show an "+ Add model" affordance in accent; the
+          setup banner above is the accompanying error message. Legacy bare-id
+          entries migrated for display via inferProviderForBareId.
+          The render-set is the UNION of persisted role keys and pending-only
+          (unsaved) custom names so an in-flight custom pill shows with its
+          dirty marker before Save.
+          See change: add-custom-roles-ui (design D1/D2). */}
+      {builtinRoleNames.length === 0 ? (
+        <div className="grid grid-cols-2 gap-1">
+          {[...roleGroups.builtin, ...roleGroups.custom].map(renderRolePill)}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div data-testid="roles-group-builtin" className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              Built-in
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              {roleGroups.builtin.map(renderRolePill)}
+            </div>
+          </div>
+          <div data-testid="roles-group-custom" className="space-y-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+              Custom
+            </div>
+            {roleGroups.custom.length > 0 && (
+              <div className="grid grid-cols-2 gap-1">
+                {roleGroups.custom.map(renderRolePill)}
+              </div>
+            )}
+            {addRoleControl}
+          </div>
+        </div>
+      )}
 
       {/* Shared `ui:model-selector` primitive when a role is being edited.
           The primitive emits the full `"<provider>/<id>"` label on select;

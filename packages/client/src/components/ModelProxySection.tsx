@@ -12,7 +12,8 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { Icon } from "@mdi/react";
-import { mdiPlus, mdiTrashCan, mdiClipboardCheckOutline, mdiRefresh, mdiClose } from "@mdi/js";
+import { mdiPlus, mdiTrashCan, mdiClipboardCheckOutline, mdiRefresh, mdiClose, mdiDragVertical } from "@mdi/js";
+import { ModelSelector } from "./ModelSelector.js";
 import {
   listApiKeys,
   createApiKey,
@@ -29,6 +30,8 @@ import { t as i18nT } from "../lib/i18n";
 export interface ModelProxyConfig {
   enabled?: boolean;
   defaultModel?: string;
+  preferredModels?: string[];
+  modelAliases?: Record<string, string>;
   secondPort?: number;
   maxConcurrentStreams?: number;
   perKeyConcurrentStreams?: number;
@@ -40,6 +43,189 @@ interface Props {
   onChange: (patch: ModelProxyConfig) => void;
   /** Set to true when bridge reports @blackbelt-technology/pi-model-proxy is installed in pi settings.json */
   upstreamExtensionDetected?: boolean;
+  /** Registry-available models (`provider/id`), for the ModelSelector + availability pills. */
+  availableModels?: Array<{ provider: string; id: string }>;
+}
+
+// ── Preferred Models editor (change: fix-and-prefer-model-proxy-resolution) ──
+
+interface PreferredModelsEditorProps {
+  value: string[];
+  onChange: (next: string[]) => void;
+  availableModels: Array<{ provider: string; id: string }>;
+  availableSet: Set<string>;
+}
+
+function PreferredModelsEditor({ value, onChange, availableModels, availableSet }: PreferredModelsEditorProps) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const reorder = (from: number, to: number) => {
+    if (from === to || from < 0 || to < 0) return;
+    const next = [...value];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+
+  const remove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+
+  const add = (label: string) => {
+    if (!value.includes(label)) onChange([...value, label]);
+  };
+
+  return (
+    <div data-testid="preferred-models-editor">
+      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+        {i18nT("auto.preferred_models", undefined, "Preferred Models")}{" "}
+        <span className="text-[var(--text-tertiary)]">
+          {i18nT("auto.ordered_fallback_first_available", undefined, "(ordered fallback — first available entry; supersedes Default Model)")}
+        </span>
+      </label>
+      {value.length > 0 && (
+        <div className="bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)] mb-2">
+          {value.map((fqid, idx) => {
+            const slash = fqid.indexOf("/");
+            const prov = slash > 0 ? fqid.slice(0, slash + 1) : "";
+            const rest = slash > 0 ? fqid.slice(slash + 1) : fqid;
+            const isAvail = availableSet.has(fqid);
+            return (
+              <div
+                key={fqid}
+                draggable
+                onDragStart={() => setDragIndex(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => { if (dragIndex != null) reorder(dragIndex, idx); setDragIndex(null); }}
+                onDragEnd={() => setDragIndex(null)}
+                className="flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border-secondary)] last:border-0"
+                data-testid="preferred-model-row"
+              >
+                <span className="text-[var(--text-muted)] cursor-grab flex-none" aria-hidden>
+                  <Icon path={mdiDragVertical} size={0.6} />
+                </span>
+                <span className="text-[11px] text-[var(--text-muted)] w-4 text-right flex-none">{idx + 1}</span>
+                <span className="flex-1 min-w-0 text-xs font-mono truncate">
+                  <span className="text-[var(--text-tertiary)]">{prov}</span>{rest}
+                </span>
+                <span
+                  className={`text-[11px] px-1.5 rounded-full flex-none ${
+                    isAvail
+                      ? "text-[var(--accent-green)] bg-[color-mix(in_srgb,var(--accent-green)_14%,transparent)]"
+                      : "text-[var(--text-muted)] bg-[var(--bg-surface)]"
+                  }`}
+                >
+                  {isAvail ? i18nT("auto.available", undefined, "available") : i18nT("auto.no_credential", undefined, "no credential")}
+                </span>
+                <button
+                  className="text-[var(--text-tertiary)] hover:text-red-400 flex-none"
+                  onClick={() => remove(idx)}
+                  aria-label={i18nT("auto.remove", undefined, "Remove")}
+                  data-testid={`preferred-remove-${idx}`}
+                >
+                  <Icon path={mdiClose} size={0.6} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <ModelSelector
+        models={availableModels}
+        placeholder={i18nT("auto.add_model", undefined, "＋ Add model")}
+        onSelect={add}
+      />
+    </div>
+  );
+}
+
+// ── Model Aliases editor ──
+
+interface AliasEntry { key: string; value: string; }
+
+interface ModelAliasesEditorProps {
+  value: Record<string, string>;
+  onChange: (next: Record<string, string>) => void;
+  availableModels: Array<{ provider: string; id: string }>;
+}
+
+function ModelAliasesEditor({ value, onChange, availableModels }: ModelAliasesEditorProps) {
+  // Local entry list so a partially-typed alias (empty key or value) can exist
+  // without collapsing the map. Committed (dropping empties) on every edit.
+  const [entries, setEntries] = useState<AliasEntry[]>(() =>
+    Object.entries(value).map(([key, val]) => ({ key, value: val })),
+  );
+
+  const commit = (next: AliasEntry[]) => {
+    setEntries(next);
+    const obj: Record<string, string> = {};
+    for (const { key, value: v } of next) {
+      const k = key.trim();
+      if (k && v.trim()) obj[k] = v.trim();
+    }
+    onChange(obj);
+  };
+
+  const setKey = (idx: number, key: string) =>
+    commit(entries.map((e, i) => (i === idx ? { ...e, key } : e)));
+  const setValue = (idx: number, val: string) =>
+    commit(entries.map((e, i) => (i === idx ? { ...e, value: val } : e)));
+  const remove = (idx: number) => commit(entries.filter((_, i) => i !== idx));
+  const addRow = () => setEntries([...entries, { key: "", value: "" }]);
+
+  return (
+    <div data-testid="model-aliases-editor">
+      <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+        {i18nT("auto.model_aliases", undefined, "Model Aliases")}{" "}
+        <span className="text-[var(--text-tertiary)]">
+          {i18nT("auto.alias_short_name_to_model", undefined, "(map a short name to a fully-qualified model)")}
+        </span>
+      </label>
+      {entries.length > 0 && (
+        <div className="bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)] mb-2">
+          {entries.map((e, idx) => (
+            <div
+              key={idx}
+              className="flex items-center gap-2 px-2 py-1.5 border-b border-[var(--border-secondary)] last:border-0"
+              data-testid="alias-row"
+            >
+              <input
+                type="text"
+                className="w-32 flex-none bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-xs font-mono text-[var(--text-primary)]"
+                placeholder={i18nT("auto.alias", undefined, "alias")}
+                value={e.key}
+                onChange={(ev) => setKey(idx, ev.target.value)}
+                data-testid={`alias-key-${idx}`}
+              />
+              <span className="text-[var(--text-muted)] flex-none">→</span>
+              <div className="flex-1 min-w-0">
+                <ModelSelector
+                  current={e.value || undefined}
+                  models={availableModels}
+                  placeholder={i18nT("auto.select_model", undefined, "Select model…")}
+                  onSelect={(label) => setValue(idx, label)}
+                />
+              </div>
+              <button
+                className="text-[var(--text-tertiary)] hover:text-red-400 flex-none"
+                onClick={() => remove(idx)}
+                aria-label={i18nT("auto.remove", undefined, "Remove")}
+                data-testid={`alias-remove-${idx}`}
+              >
+                <Icon path={mdiClose} size={0.6} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={addRow}
+        className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400"
+        data-testid="add-alias-button"
+      >
+        <Icon path={mdiPlus} size={0.6} />
+        {i18nT("auto.add_alias", undefined, "Add alias")}
+      </button>
+    </div>
+  );
 }
 
 // ── Reveal-once banner (task 13.3) ────────────────────────────────────────
@@ -210,7 +396,12 @@ function KeyRow({ entry, onRevoke, onDelete }: KeyRowProps) {
 
 // ── Main section component ────────────────────────────────────────────────
 
-export function ModelProxySection({ config, onChange, upstreamExtensionDetected }: Props) {
+export function ModelProxySection({ config, onChange, upstreamExtensionDetected, availableModels }: Props) {
+  const models = availableModels ?? [];
+  const availableSet = React.useMemo(
+    () => new Set(models.map((m) => `${m.provider}/${m.id}`)),
+    [models],
+  );
   const [keys, setKeys] = useState<ProxyApiKeyEntry[]>([]);
   const [revokedKeys, setRevokedKeys] = useState<ProxyApiKeyEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -348,6 +539,21 @@ export function ModelProxySection({ config, onChange, upstreamExtensionDetected 
               data-testid="default-model-input"
             />
           </div>
+
+          {/* Preferred Models (change: fix-and-prefer-model-proxy-resolution) */}
+          <PreferredModelsEditor
+            value={config.preferredModels ?? []}
+            onChange={(next) => onChange({ ...config, preferredModels: next.length > 0 ? next : undefined })}
+            availableModels={models}
+            availableSet={availableSet}
+          />
+
+          {/* Model Aliases */}
+          <ModelAliasesEditor
+            value={config.modelAliases ?? {}}
+            onChange={(next) => onChange({ ...config, modelAliases: Object.keys(next).length > 0 ? next : undefined })}
+            availableModels={models}
+          />
 
           {/* Second port */}
           <div>

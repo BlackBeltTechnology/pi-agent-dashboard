@@ -1,9 +1,7 @@
 ## Purpose
 
 Renders tool call results in the chat view with specialized per-tool visualizations. Each tool type has a dedicated renderer that understands its arguments and output format.
-
 ## Requirements
-
 ### Requirement: Tool renderer registry
 The client SHALL maintain a registry mapping tool names to renderer components. A `getToolRenderer(toolName)` function SHALL return the specialized renderer for known tools, route any unmapped tool whose name begins with `ctx_` to `CtxToolRenderer`, and otherwise fall back to `GenericToolRenderer`.
 
@@ -296,7 +294,7 @@ The parser SHALL first strip a leading noise line matching the context-mode upgr
 - **THEN** it SHALL return `{ kind: "raw", text }` and SHALL NOT throw
 
 ### Requirement: CtxToolRenderer
-A single `CtxToolRenderer` component SHALL render all `ctx_*` tool calls. It SHALL call `parseCtxResult`, render a per-tool header chip from the parsed struct, and select a body layout by result kind. The renderer SHALL NOT render the tool arguments as raw JSON for the recognized kinds.
+A single `CtxToolRenderer` component SHALL render all `ctx_*` tool calls. It SHALL call `parseCtxResult`, render a per-tool header chip, and select a body layout by result kind. When a result is present the chip and body SHALL be derived from the parsed struct. When no result is present (the call is still running) or the parse degrades to `{ kind: "raw" }`, the chip SHALL be derived from the tool `args` (never the bare tool name), and the running body SHALL preview the pending work from `args`. The renderer SHALL NOT render the tool arguments as raw JSON for the recognized kinds, and the header chip SHALL NOT equal the tool-name subtitle for any recognized `ctx_*` tool.
 
 #### Scenario: Header chip per tool
 - **WHEN** a `ctx_batch_execute` result parses to a batch summary with 6 commands, 31 sections, 5 queries
@@ -336,7 +334,36 @@ A single `CtxToolRenderer` component SHALL render all `ctx_*` tool calls. It SHA
 - **WHEN** the parsed result is `{ kind: "error", variant: "validation", receivedArgs }`
 - **THEN** the card SHALL render an error-styled body with the reason and a collapsible `Received arguments:` block
 
-#### Scenario: Raw fallback still renders a card
-- **WHEN** the parsed result is `{ kind: "raw", text }`
-- **THEN** the card SHALL render the stripped text as a linkified body with the tool-name header
+#### Scenario: Running chip is derived from args, not the tool name
+- **WHEN** a `ctx_batch_execute` tool call is running (`status = "running"`) with no result yet and `args.commands` has 3 entries
+- **THEN** the header chip SHALL read `▦ 3 cmds` (derived from `args.commands.length`)
+- **AND** the chip SHALL NOT equal the `ctx_batch_execute` tool-name subtitle
+
+#### Scenario: Running batch previews its pending commands
+- **WHEN** a `ctx_batch_execute` tool call is running with `args.commands = [{label, command}, …]`
+- **THEN** the running body SHALL list each command's `label` (and command text), not a bare `Running…`
+- **AND** the list SHALL be height-capped with internal scroll
+
+#### Scenario: Running execute previews its code
+- **WHEN** a `ctx_execute` tool call is running with `args.language = "javascript"` and a non-empty `args.code`
+- **THEN** the header chip SHALL read `⚙ javascript`
+- **AND** the running body SHALL render `args.code` in a code block
+
+#### Scenario: Running search previews its queries
+- **WHEN** a `ctx_search` tool call is running with `args.queries` of length 2
+- **THEN** the header chip SHALL read `🔍 2 queries`
+- **AND** the running body SHALL list both `args.queries` entries
+
+### Requirement: Raw fallback still renders a card
+When `parseCtxResult` returns `{ kind: "raw", text }`, the `CtxToolRenderer` SHALL render a card whose header chip is derived from the tool `args` (via the same args-chip path used for the running state) rather than the bare tool name, and whose body is the stripped `text` rendered as linkified output. The card SHALL NOT render `JSON.stringify(args)`.
+
+#### Scenario: Raw fallback renders args-derived chip and linkified body
+- **WHEN** the parsed result is `{ kind: "raw", text }` for a recognized `ctx_*` tool with usable `args`
+- **THEN** the card SHALL render an args-derived header chip (e.g. `▦ N cmds` for `ctx_batch_execute`), distinct from the tool-name subtitle
+- **AND** the card SHALL render the stripped `text` as a linkified body
 - **AND** the card SHALL NOT render `JSON.stringify(args)`
+
+#### Scenario: Raw fallback for an unknown ctx tool falls back to the tool name
+- **WHEN** the parsed result is `{ kind: "raw", text }` for an unmapped `ctx_*` tool with no args-chip mapping
+- **THEN** the card SHALL render the tool name as the header chip and the stripped `text` as a linkified body
+

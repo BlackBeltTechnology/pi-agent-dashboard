@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CtxToolRenderer — running-state fix mockup</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0b;
+    --bg-panel: #121214;
+    --bg-code: #1a1a1d;
+    --text-primary: #e8e8ea;
+    --text-secondary: #b4b4b8;
+    --text-muted: #7a7a80;
+    --text-tertiary: #5a5a60;
+    --border-secondary: #2a2a2e;
+    --accent-green: #7bd88f;
+    --accent-yellow: #d8c14a;
+    --accent-blue: #6ea8fe;
+    --accent-red: #f7768e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 32px 24px 80px;
+    line-height: 1.5;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 28px; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;
+       letter-spacing: 0.06em; margin: 34px 0 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1080px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  .col-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+               font-weight: 600; margin-bottom: 8px; }
+  .col-before .col-label { color: var(--accent-red); }
+  .col-after .col-label { color: var(--accent-green); }
+
+  /* ── one chat tool step, mirrors ToolCallStep + CtxToolRenderer ── */
+  .step {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-secondary);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .step-head {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;
+  }
+  .spinner { color: var(--accent-yellow); font-size: 12px; }
+  .step-title { color: var(--text-primary); font-weight: 500; }
+  .elapsed { color: var(--text-muted); font-size: 11px; }
+
+  .render-body { padding-left: 4px; }
+  .chip-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 7px; border-radius: 5px; font-size: 11px;
+    font-family: ui-monospace, monospace;
+    background: var(--bg-code); color: var(--text-secondary);
+    border: 1px solid var(--border-secondary);
+  }
+  .subtitle { font-size: 10px; color: var(--text-muted); font-family: ui-monospace, monospace; }
+  .running { font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+  /* highlight the duplication problem */
+  .dupe { outline: 1px dashed var(--accent-red); outline-offset: 2px; }
+  .note { font-size: 11px; color: var(--accent-red); margin-top: 6px; }
+  .note-ok { color: var(--accent-green); }
+
+  /* running preview body */
+  .preview { margin-top: 6px; }
+  .preview-head { font-size: 12px; color: var(--text-muted); font-style: italic; margin-bottom: 6px; }
+  .cmd-list { list-style: none; margin: 0; padding: 0; }
+  .cmd-list li {
+    display: flex; gap: 10px; align-items: baseline;
+    font-size: 11.5px; font-family: ui-monospace, monospace; padding: 2px 0;
+  }
+  .cmd-label { color: var(--accent-green); min-width: 118px; flex-shrink: 0; }
+  .cmd-text { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .q-list { list-style: none; margin: 0; padding: 0; }
+  .q-list li { font-size: 11.5px; font-family: ui-monospace, monospace; color: var(--text-secondary); padding: 2px 0; }
+  .q-list li::before { content: "🔍 "; }
+  .code-block {
+    background: var(--bg-code); border-radius: 6px; padding: 8px 10px; margin-top: 4px;
+    font-size: 11.5px; font-family: ui-monospace, monospace; color: var(--text-secondary);
+    white-space: pre; overflow-x: auto;
+  }
+  .code-kw { color: var(--accent-blue); }
+  .code-str { color: var(--accent-green); }
+  a.url { color: var(--accent-blue); text-decoration: none; font-size: 11.5px; font-family: ui-monospace, monospace; }
+
+  .legend { max-width: 1080px; margin: 40px 0 0; font-size: 12px; color: var(--text-muted);
+            border-top: 1px solid var(--border-secondary); padding-top: 16px; }
+  .legend code { background: var(--bg-code); padding: 1px 5px; border-radius: 4px;
+                 font-family: ui-monospace, monospace; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+  <h1>CtxToolRenderer — running-state rendering</h1>
+  <p class="sub">Every <span class="mono">ctx_*</span> tool, caught mid-run (no result yet). Left: current bug. Right: args-derived chip + running preview.</p>
+
+  <!-- ═══════════════ ctx_batch_execute ═══════════════ -->
+  <h2>ctx_batch_execute — the reported case</h2>
+  <div class="grid">
+    <div class="col-before">
+      <div class="col-label">Before — chip duplicates subtitle</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_batch_execute 3 cmds</span>
+          <span class="elapsed">17s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row dupe">
+            <span class="chip mono">ctx_batch_execute</span>
+            <span class="subtitle">ctx_batch_execute</span>
+          </div>
+          <div class="running">Running…</div>
+          <div class="note">chip == subtitle · body says nothing about the 3 commands</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-after">
+      <div class="col-label">After — ▦ chip + pending command list</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_batch_execute 3 cmds</span>
+          <span class="elapsed">17s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row">
+            <span class="chip mono">▦ 3 cmds</span>
+            <span class="subtitle">ctx_batch_execute</span>
+          </div>
+          <div class="preview">
+            <div class="preview-head">⟳ Running…</div>
+            <ul class="cmd-list">
+              <li><span class="cmd-label">find-component</span><span class="cmd-text">grep -rl "Access &amp; QR" packages/client/src</span></li>
+              <li><span class="cmd-label">read-tab-source</span><span class="cmd-text">sed -n '1,60p' AccessTab.tsx</span></li>
+              <li><span class="cmd-label">summarize</span><span class="cmd-text">echo done</span></li>
+            </ul>
+          </div>
+          <div class="note note-ok">chip describes · subtitle names · args.commands[] listed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ ctx_execute ═══════════════ -->
+  <h2>ctx_execute — code visible while running</h2>
+  <div class="grid">
+    <div class="col-before">
+      <div class="col-label">Before</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_execute javascript</span>
+          <span class="elapsed">4s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row dupe">
+            <span class="chip mono">ctx_execute</span>
+            <span class="subtitle">ctx_execute</span>
+          </div>
+          <div class="running">Running…</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-after">
+      <div class="col-label">After — ⚙ lang chip + code preview</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_execute javascript</span>
+          <span class="elapsed">4s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row">
+            <span class="chip mono">⚙ javascript</span>
+            <span class="subtitle">ctx_execute</span>
+          </div>
+          <div class="preview">
+            <div class="preview-head">⟳ Running…</div>
+            <div class="code-block"><span class="code-kw">const</span> files = fs.readdirSync(<span class="code-str">'src'</span>)
+  .filter(f => f.endsWith(<span class="code-str">'.ts'</span>));
+<span class="code-kw">console</span>.log(files.length);</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ ctx_search ═══════════════ -->
+  <h2>ctx_search — queries visible while running</h2>
+  <div class="grid">
+    <div class="col-before">
+      <div class="col-label">Before</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_search 2 queries</span>
+          <span class="elapsed">2s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row dupe">
+            <span class="chip mono">ctx_search</span>
+            <span class="subtitle">ctx_search</span>
+          </div>
+          <div class="running">Running…</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-after">
+      <div class="col-label">After — 🔍 chip + query list</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_search 2 queries</span>
+          <span class="elapsed">2s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row">
+            <span class="chip mono">🔍 2 queries</span>
+            <span class="subtitle">ctx_search</span>
+          </div>
+          <div class="preview">
+            <div class="preview-head">⟳ Running…</div>
+            <ul class="q-list">
+              <li>root cause of duplicate chip</li>
+              <li>running state args fallback</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ ctx_fetch_and_index ═══════════════ -->
+  <h2>ctx_fetch_and_index — target host visible while running</h2>
+  <div class="grid">
+    <div class="col-before">
+      <div class="col-label">Before</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_fetch_and_index https://react.dev/…</span>
+          <span class="elapsed">1s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row dupe">
+            <span class="chip mono">ctx_fetch_and_index</span>
+            <span class="subtitle">ctx_fetch_and_index</span>
+          </div>
+          <div class="running">Running…</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-after">
+      <div class="col-label">After — 🌐 host chip + url</div>
+      <div class="step">
+        <div class="step-head">
+          <span class="spinner">◜</span>
+          <span class="step-title mono">ctx_fetch_and_index https://react.dev/…</span>
+          <span class="elapsed">1s…</span>
+        </div>
+        <div class="render-body">
+          <div class="chip-row">
+            <span class="chip mono">🌐 react.dev</span>
+            <span class="subtitle">ctx_fetch_and_index</span>
+          </div>
+          <div class="preview">
+            <div class="preview-head">⟳ Running…</div>
+            <a class="url" href="#">https://react.dev/reference/react/useEffect</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <strong>Reading the mockup.</strong> Dashed red outline = the duplicated
+    <code>chip == subtitle</code> from the current <code>default: return toolName</code> arm in
+    <code>headerChip()</code>. Right column derives the chip from <code>args</code>
+    (<code>argsChip()</code>) and renders a per-tool <code>RunningPreview</code> body instead of a bare
+    <code>Running…</code>. Parser (<code>parse-ctx-result.ts</code>) stays result-only and untouched.
+    Colors approximate the dashboard dark theme; real card uses live <code>--*</code> tokens.
+  </div>
+</body>
+</html>

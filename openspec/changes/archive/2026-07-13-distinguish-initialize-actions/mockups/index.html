@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Distinguish Initialize — project scaffold vs worktree hook</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --border-subtle: rgba(255,255,255,0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px 80px;
+    background: var(--bg-primary); color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { color: var(--text-primary); font-size: 20px; font-weight: 650; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 32px; max-width: 720px; }
+  h2 { color: var(--text-primary); font-size: 14px; font-weight: 600; margin: 34px 0 4px; letter-spacing: .01em; }
+  .h2sub { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+  .tag { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+  /* folder / directory row */
+  .folder-row {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .folder-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .folder-name { color: var(--text-primary); font-weight: 600; font-size: 13px; }
+  .folder-path { color: var(--text-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .state-badge { margin-left: auto; font-size: 10px; padding: 2px 7px; border-radius: 6px; background: var(--bg-surface); color: var(--text-tertiary); font-weight: 600; letter-spacing:.02em; }
+  .action-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* pills (match real 10px sidebar buttons) */
+  .pill {
+    font-size: 10px; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid var(--border-secondary); color: var(--text-secondary);
+    background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+    white-space: nowrap; font-family: inherit; line-height: 1.4;
+  }
+  .pill .ic { font-size: 11px; line-height: 1; }
+  .pill.cyan  { color:#22d3ee; border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.05); }
+  .pill.bluish{ color:#60a5fa; border-color: rgba(59,130,246,.4); background: rgba(59,130,246,.05); }
+  .pill.ghost { color: var(--text-muted); }
+  .spacer { margin-left: auto; }
+
+  /* the two initialize identities */
+  .pill.amber {           /* worktree-init HOOK — executes repo code */
+    color:#fbbf24; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.06);
+  }
+  .pill.project {         /* project scaffold — new, neutral/primary */
+    color:#818cf8; border-color: rgba(99,102,241,.45); background: rgba(99,102,241,.07);
+  }
+  .pill.wrong { outline: 1px dashed rgba(239,68,68,.55); outline-offset: 2px; }
+
+  .nothing { font-size: 11px; color: var(--text-muted); font-style: italic; padding: 2px 0; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .col-cap { font-size: 11px; font-weight: 600; letter-spacing:.04em; text-transform: uppercase; margin: 0 0 8px; }
+  .col-cap.before { color:#f87171; }
+  .col-cap.after  { color:#4ade80; }
+
+  .note { font-size: 12px; color: var(--text-muted); margin: 8px 0 0; max-width: 760px; }
+  .note b { color: var(--text-tertiary); font-weight: 600; }
+  .bad { color:#f87171; } .good { color:#4ade80; }
+  .divider { height: 1px; background: var(--border-primary); margin: 30px 0 0; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+  /* legend / api table */
+  table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 12px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+  th { color: var(--text-tertiary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing:.03em; }
+  td .mono { color: var(--text-secondary); }
+  .cell-before { color:#f8a; } .cell-after { color:#8e8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>“Initialize” — one button, two meanings → split into two</h1>
+  <p class="sub">The sidebar shows a single amber <b>Initialize</b> for both <i>scaffold a new pi project</i> and <i>run the repo worktree-init hook</i>. And an already-configured project with no hook is <span class="bad">wrongly offered scaffold</span>. This change splits the control by <span class="mono">init-status</span> state.</p>
+
+  <!-- ============ THE THREE STATES ============ -->
+  <div class="cols">
+    <div>
+      <p class="col-cap before">Before — today</p>
+
+      <!-- state 1 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">new-idea</span>
+          <span class="folder-path">~/scratch/new-idea</span>
+          <span class="state-badge">① bare dir</span>
+        </div>
+        <div class="action-bar">
+          <button class="pill amber"><span class="ic">⚙</span> Initialize</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+
+      <!-- state 2 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">my-feature</span>
+          <span class="folder-path">~/proj/wt/my-feature</span>
+          <span class="state-badge">② hook, unprovisioned</span>
+        </div>
+        <div class="action-bar">
+          <button class="pill amber"><span class="ic">⚙</span> Initialize</button>
+          <button class="pill cyan"><span class="ic">▤</span> Terminals(0)</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+
+      <!-- state 3 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">pi-agent-dashboard</span>
+          <span class="folder-path">~/proj/pi-agent-dashboard</span>
+          <span class="state-badge">③ configured, no hook</span>
+        </div>
+        <div class="action-bar">
+          <button class="pill amber wrong"><span class="ic">⚙</span> Initialize</button>
+          <button class="pill cyan"><span class="ic">▤</span> Terminals(3)</button>
+          <button class="pill bluish"><span class="ic">{}</span> Editor</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+      <p class="note"><span class="bad">✕</span> Identical amber pill for ① and ②; you can't tell scaffold from “run repo code”. <span class="bad">✕</span> ③ is already a pi project yet still offers <b>scaffold</b> (dashed red).</p>
+    </div>
+
+    <div>
+      <p class="col-cap after">After — this change</p>
+
+      <!-- state 1 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">new-idea</span>
+          <span class="folder-path">~/scratch/new-idea</span>
+          <span class="state-badge">① bare dir</span>
+        </div>
+        <div class="action-bar">
+          <button class="pill project" data-testid="project-init-btn"><span class="ic">✦</span> Set up project</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+
+      <!-- state 2 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">my-feature</span>
+          <span class="folder-path">~/proj/wt/my-feature</span>
+          <span class="state-badge">② hook, unprovisioned</span>
+        </div>
+        <div class="action-bar">
+          <button class="pill amber" data-testid="worktree-init-btn"><span class="ic">⚙</span> Initialize</button>
+          <button class="pill cyan"><span class="ic">▤</span> Terminals(0)</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+
+      <!-- state 3 -->
+      <div class="folder-row">
+        <div class="folder-head">
+          <span class="folder-name">pi-agent-dashboard</span>
+          <span class="folder-path">~/proj/pi-agent-dashboard</span>
+          <span class="state-badge">③ configured, no hook</span>
+        </div>
+        <div class="action-bar">
+          <span class="nothing">— no initialize control —</span>
+          <button class="pill cyan"><span class="ic">▤</span> Terminals(3)</button>
+          <button class="pill bluish"><span class="ic">{}</span> Editor</button>
+          <span class="spacer"></span>
+          <button class="pill ghost">⚙</button>
+        </div>
+      </div>
+      <p class="note"><span class="good">✓</span> <b>Set up project</b> (indigo, <span class="mono">✦</span>) = scaffold — visually distinct from <span class="good">✓</span> amber <b>Initialize</b> = run repo hook. <span class="good">✓</span> ③ shows nothing — already a project.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ============ DECISION TABLE ============ -->
+  <h2>What each state resolves to</h2>
+  <p class="h2sub">Driven by <span class="mono">GET /api/git/worktree/init-status</span>. New field: <span class="mono">configured</span> (present only when <span class="mono">hasHook:false</span>).</p>
+  <table>
+    <thead>
+      <tr><th>State</th><th>init-status</th><th>Before</th><th>After</th><th>Component</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>① unconfigured</td>
+        <td class="mono">{ hasHook:false,<br>&nbsp;&nbsp;configured:false }</td>
+        <td class="cell-before">amber “Initialize”</td>
+        <td class="cell-after">indigo “Set up project”</td>
+        <td class="mono">ProjectInitButton</td>
+      </tr>
+      <tr>
+        <td>② hook, needs run</td>
+        <td class="mono">{ hasHook:true,<br>&nbsp;&nbsp;needsInit:true }</td>
+        <td class="cell-before">amber “Initialize”</td>
+        <td class="cell-after">amber “Initialize” <span class="tag">(unchanged)</span></td>
+        <td class="mono">WorktreeInitButton</td>
+      </tr>
+      <tr>
+        <td>③ configured, no hook</td>
+        <td class="mono">{ hasHook:false,<br>&nbsp;&nbsp;configured:true }</td>
+        <td class="cell-before"><b class="bad">amber “Initialize” (wrong)</b></td>
+        <td class="cell-after"><b>nothing</b></td>
+        <td class="mono">—</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">Fail-open unchanged: a probe error → <span class="mono">{ hasHook:false }</span> with <span class="mono">configured</span> absent → <b>no button</b> (scaffold requires strict <span class="mono">configured === false</span>).</p>
+</div>
+</body>
+</html>

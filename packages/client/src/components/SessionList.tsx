@@ -171,6 +171,9 @@ interface Props {
   errorSessionIds?: Set<string>;
   /** Set of session IDs currently in a synthesized provider-retry phase (no terminal error). */
   retrySessionIds?: Set<string>;
+  /** Set of session IDs whose last turn was only reasoning (non-error notice).
+   *  See change: fix-gemini-subagent-silent-tool-schema-failure. */
+  noticeSessionIds?: Set<string>;
   /** Per-workspace spawn errors (cwd → detail). See change: spawn-failure-diagnostics. */
   spawnErrors?: Map<string, import("../hooks/useMessageHandler.js").SpawnErrorDetail>;
   /** Dismiss a spawn error for a workspace */
@@ -214,7 +217,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenPiResources, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, terminals, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, onOpenTerminals, onOpenEditor, editorStatuses, editorAvailable, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -770,7 +773,12 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
           <div className="mt-1">
             <FolderSpawnButtons
               spawningDisabled={spawningCwds?.has(group.cwd)}
-              showWorktree={group.sessions.some((s) => !!s.gitBranch) && gitWorktreeEnabled && !!onSpawnSession}
+              // Show unless EVERY session in the folder is a confirmed non-git
+              // (`isGitRepo === false`). `true`/`undefined` keep the button, so
+              // a real repo whose probe timed out / a legacy session never
+              // hides it. NOT gated on `gitBranch` (data-arrival signal).
+              // See change: gate-session-worktree-button-on-git.
+              showWorktree={group.sessions.some((s) => s.isGitRepo !== false) && gitWorktreeEnabled && !!onSpawnSession}
               onSpawnSession={() => {
                 if (isCollapsed) handleToggleCollapse(group.cwd);
                 onSpawnSession?.(group.cwd);
@@ -953,6 +961,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                         onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
                         hasError={errorSessionIds?.has(session.id)}
                         isRetrying={retrySessionIds?.has(session.id)}
+                        hasNotice={noticeSessionIds?.has(session.id)}
                       />
                       {resumeErrors?.get(session.id) && (
                         <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">

@@ -1,0 +1,11 @@
+## 1. Node-stable streaming render
+
+- [x] 1.1 In-place streaming render: while a selection is anchored in the live tail, the tail renders from a frozen `streamingText` snapshot (`streamingTailText = frozenTailText ?? state.streamingText`). The snapshot is a stable string, so `MarkdownContent`'s `React.memo` skips re-render and the committed Text nodes are never replaced per chunk. Measured: baseline 1 tail render/chunk (unchanged), frozen 0/chunk.
+- [x] 1.2 Keep the tail mounted across the streaming→committed swap: the frozen snapshot renders even after `message_end` clears `state.streamingText`, and the committed assistant twin (last row, `role:"assistant"`, `content.startsWith(snapshot)`) is hidden from `displayRows` until the selection collapses, so the anchored node is not detached at turn completion.
+- [x] 1.3 Buffer chunks while a tail selection is held (snapshot frozen on the `isSelecting` false→true edge in a `useLayoutEffect`); flush on the true→false edge (clear snapshot → live text). Non-chunk mutations are never dropped: the committed twin stays in `state.messages` (only hidden from the view) and reappears on collapse; the freeze effect is keyed on `isSelecting` alone so `tool_execution_start`/`message_end` state churn is preserved.
+
+## 2. Validate
+
+- [x] 2.1 Test: selection in the streaming tail survives a chunk append (`ChatView.streaming-tail-selection.test.tsx` — frozen snapshot shown, node stays connected, selection non-collapsed; flush shows latest on collapse). Uses a production-faithful harness (stable `ThemeProvider` above the state owner) so `React.memo` behaves as in the real tree.
+- [x] 2.2 Test: selection survives turn completion (same file — frozen tail mounted across `message_end`, twin hidden → text once, node connected; on collapse tail unmounts, twin revealed → text once, never dropped).
+- [x] 2.3 `performance-optimization`: measured tail `MarkdownContent` renders — baseline (no selection) 5 renders / 5 chunks (1-per-chunk, identical to pre-change); frozen (selection held) 0 renders / 5 chunks (flush fully coalesced). No latency regression: idle path unchanged (freeze effect gated on `isSelecting`, `displayRows` guard short-circuits when `frozenTailText` null); while held the tail render cost drops to zero.

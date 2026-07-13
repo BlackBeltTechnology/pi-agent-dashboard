@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act, cleanup, waitFor } from "@testing-library/react";
 import { ServerSelector } from "../ServerSelector.js";
+import { listKnownServers } from "../../lib/known-servers-api.js";
 
 vi.mock("../../lib/known-servers-api.js", () => ({
   listKnownServers: vi.fn(async () => [
@@ -113,6 +114,46 @@ describe("ServerSelector", () => {
     expect(localEntry.disabled).toBe(true);
     act(() => localEntry.click());
     expect(onSwitch).not.toHaveBeenCalled();
+  });
+
+  it("renders CORS-blocked (not Unreachable) for a LAN host whose probe fails", async () => {
+    // A LAN-IP known server whose cross-origin probe rejects at the transport
+    // layer (opaque) must surface the actionable allowlist hint, not a bare
+    // "Unreachable". See change: fix-remote-connect-cors-gates.
+    // Persistent (not Once) — the component loads known servers on mount AND on
+    // dropdown open. Restored to the default at the end of this test.
+    vi.mocked(listKnownServers).mockResolvedValue([
+      { host: "192.168.16.242", port: 8000, label: "LAN box", addedAt: "2024-01-01T00:00:00Z" },
+    ]);
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("192.168.16.242")) return Promise.reject(new Error("blocked"));
+      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) } as Response);
+    });
+    render(
+      <ServerSelector
+        currentHost="my-pc"
+        currentPort={8000}
+        connected={true}
+        onSwitch={() => {}}
+      />,
+    );
+    // Let the mount-time known-servers load flush so the LAN entry exists
+    // BEFORE opening (the probe effect runs once on open, over current entries).
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    const btn = screen.getByTitle("Switch server");
+    act(() => btn.click());
+    await waitFor(() => {
+      expect(screen.queryAllByText(/CORS-blocked/i).length).toBeGreaterThan(0);
+    });
+    // The LAN entry is disabled and did not render a bare "Unreachable".
+    const lanEntry = screen.getByText("192.168.16.242:8000").closest("button") as HTMLButtonElement;
+    expect(lanEntry.disabled).toBe(true);
+    expect(lanEntry.getAttribute("data-cors-blocked")).toBe("true");
+    vi.mocked(listKnownServers).mockResolvedValue([
+      { host: "my-pc", port: 8000, label: "my-pc", addedAt: "2024-01-01T00:00:00Z" },
+    ]);
   });
 
   it("shows spinner on the entry that matches inFlightSwitchKey", async () => {

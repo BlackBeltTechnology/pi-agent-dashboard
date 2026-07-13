@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
-import { getApiBase } from "../lib/api-context.js";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiOpenInNew } from "@mdi/js";
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { mdiArrowLeft, mdiOpenInNew } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useState } from "react";
+import { getApiBase } from "../lib/api-context.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {
@@ -136,7 +137,7 @@ export function ZrokInstallGuide({ onBack }: Props) {
           <Icon path={mdiArrowLeft} size={0.8} />
         </button>
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-          {i18nT("auto.tunnel_setup_install_zrok", undefined, "Tunnel Setup — Install zrok (")}{osLabel})
+          {i18nT("auto.tunnel_setup_install_zrok", undefined, "Gateway Setup — Install zrok (")}{osLabel})
         </h2>
       </div>
 

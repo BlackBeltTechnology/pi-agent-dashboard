@@ -13,18 +13,24 @@
  *
  * See change: sophisticate-goal-authoring-and-control (tasks 4.1, 4.2).
  */
-import React, { useState } from "react";
+
+import type { GoalBudget, GoalCriterion, GoalJudge } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiClose, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiPlus, mdiClose } from "@mdi/js";
-import type { GoalCriterion, GoalBudget, GoalJudge } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useJudgeModels } from "./useJudgeModels.js";
+import type React from "react";
+import { useState } from "react";
+import { getAutoRespawnDefault } from "./goal-settings.js";
 import { parseModelLabel } from "./goals-api.js";
+import { useJudgeModels } from "./useJudgeModels.js";
 
 export interface GoalFormPayload {
   objective: string;
   criteria?: GoalCriterion[];
   budget?: GoalBudget;
   judge?: GoalJudge;
+  /** Auto-respawn the driver on death (progress-gated, budget/breaker-bounded).
+   *  See change: add-goal-session-supervisor. */
+  autoRespawn?: boolean;
 }
 
 export interface GoalFormProps {
@@ -35,9 +41,11 @@ export interface GoalFormProps {
   onCancel?: () => void;
   /** Executor model label, when known, to flag cross-model judges. */
   executorModel?: string;
+  /** Default for the autoRespawn toggle in create mode (from plugin settings). */
+  autoRespawnDefault?: boolean;
 }
 
-export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, executorModel }: GoalFormProps): React.ReactElement {
+export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, executorModel, autoRespawnDefault }: GoalFormProps): React.ReactElement {
   const { models } = useJudgeModels();
   const [objective, setObjective] = useState(initial?.objective ?? "");
   const [criteria, setCriteria] = useState<string[]>(initial?.criteria?.map((c) => c.text) ?? []);
@@ -47,6 +55,9 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
     initial?.judge ? `${initial.judge.provider}/${initial.judge.modelId}` : "",
   );
   const [selfJudge, setSelfJudge] = useState<boolean>(!!initial?.judge?.sameModel);
+  const [autoRespawn, setAutoRespawn] = useState<boolean>(
+    initial?.autoRespawn ?? autoRespawnDefault ?? getAutoRespawnDefault(),
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -76,6 +87,7 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
       ...(cleanCriteria.length ? { criteria: cleanCriteria.map((text) => ({ text, done: false })) } : {}),
       ...(budget.maxTurns !== undefined || budget.maxSpendUsd !== undefined ? { budget } : {}),
       ...(judge ? { judge } : {}),
+      ...(autoRespawn ? { autoRespawn: true } : {}),
     };
   };
 
@@ -165,6 +177,16 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
           Self-judge (judge with the executor model)
         </label>
       </div>
+
+      <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]">
+        <input
+          data-testid="goal-form-auto-respawn"
+          type="checkbox"
+          checked={autoRespawn}
+          onChange={(e) => setAutoRespawn(e.target.checked)}
+        />
+        Auto-respawn on driver death (bounded by budget + crash-loop breaker)
+      </label>
 
       {err && <div className="text-[10px] text-red-400" data-testid="goal-form-error">{err}</div>}
 

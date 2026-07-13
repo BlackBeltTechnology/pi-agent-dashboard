@@ -49,15 +49,15 @@ When the user clicks **Update** on the managed Node row, download into `<managed
 
 ### Decision 2: `classifyNodeSource(nodePath)` is a pure helper, not a method on the checker
 
-Pure function in `src/shared/platform/classify-node-source.ts`. Takes a node binary path, returns `"managed" | "system" | "bundled-electron"`. Compares `realpathSync(nodePath)` against `~/.pi-dashboard/node/` and against `process.resourcesPath/node/` (when `resourcesPath` is defined).
+Pure function in `packages/shared/src/platform/classify-node-source.ts`. Takes a node binary path, returns `"managed" | "system" | "bundled-electron"`. Compares `realpathSync(nodePath)` against `~/.pi-dashboard/node/` and against `process.resourcesPath/node/` (when `resourcesPath` is defined).
 
-**Why:** Pure helpers live in `src/shared/platform/` (the convention established by `process.ts`, `node-spawn.ts`, etc.). Keeps the checker side-effect-free at the classification layer. Trivially table-testable.
+**Why:** Pure helpers live in `packages/shared/src/platform/` (the convention established by `process.ts`, `node-spawn.ts`, etc.). Keeps the checker side-effect-free at the classification layer. Trivially table-testable.
 
 ### Decision 3: Node runtime appears as a synthetic row in `pi-core-checker.getStatus()`
 
 Inject a single synthetic `PiCorePackage`-shaped entry with `name: "node"`, `displayName: "node (runtime)"`, `installSource: "managed" | "global" | "bundled"` (mapped from `classifyNodeSource`), and `currentVersion` / `latestVersion` populated from `node-runtime-checker.ts`.
 
-**Why:** The existing `PiCoreVersionsSection` UI already handles the row shape, the badge, the Update button, the loading/error states. Adding a synthetic row is a 5-line change in `pi-core-checker.ts` plus one source-mapping helper. Avoids inventing a parallel UI surface for one row. Source-string mapping (`managed → managed`, `system → global`, `bundled-electron → bundled`) keeps the badge taxonomy stable: the existing `local`/`global` pills get a new third value `bundled`.
+**Why:** The existing `UnifiedPackagesSection` UI (replaced the former `PiCoreVersionsSection` under change: consolidate-packages-settings-ui) already handles the row shape, the badge, the Update button, the loading/error states. Adding a synthetic row is a 5-line change in `pi-core-checker.ts` plus one source-mapping helper. Avoids inventing a parallel UI surface for one row. Source-string mapping (`managed → managed`, `system → global`, `bundled-electron → bundled`) keeps the badge taxonomy stable: the existing `local`/`global` pills get a new third value `bundled`.
 
 **Alternatives considered:**
 
@@ -86,7 +86,7 @@ Inject a single synthetic `PiCorePackage`-shaped entry with `name: "node"`, `dis
 
 Progress and completion events use the existing `pi_core_update_progress` / `pi_core_update_complete` channels. The `name` field carries `"node"` instead of an npm package name. Phases gain two new values specific to runtime updates: `"download"` and `"staged"`.
 
-**Why:** Avoids inventing a parallel WS protocol for one row. The client already routes these events to `PiCoreVersionsSection` via the `pi-core-event` DOM event; adding two phase strings is a one-line client change. Tests in `pi-core-updater.test.ts` already cover the channel; runtime-updater tests reuse the same harness.
+**Why:** Avoids inventing a parallel WS protocol for one row. The client already routes these events to `UnifiedPackagesSection` via the `pi-core-event` DOM event; (the section replaced the former `PiCoreVersionsSection` under change: consolidate-packages-settings-ui) adding two phase strings is a one-line client change. Tests in `pi-core-updater.test.ts` already cover the channel; runtime-updater tests reuse the same harness.
 
 ### Decision 7: New REST route, but mirror the existing one
 
@@ -116,7 +116,7 @@ After a successful swap on start, the previous `node-old/` is left on disk. On t
 1. **Predecessor lands first.** `embed-managed-node-runtime` must be in production before this change; otherwise the `managed` source classification has nothing to classify and `node-pending/` has no `node/` to swap with.
 2. **Pure helpers second.** `classifyNodeSource`, `node-runtime-checker.ts`, the staging helper, and the swap helper land with their unit tests. No production code calls them yet.
 3. **Backend wire-up third.** Synthetic row in `pi-core-checker.getStatus()`; new REST route in `pi-core-routes.ts`; updater module wired through `runExclusive`. Server now reports the runtime row but the UI doesn't render it differently yet.
-4. **Frontend wire-up fourth.** `PiCoreVersionsSection` learns the third source badge value, the disabled-button states, the cross-major confirmation dialog, the "Restart to apply" state, and the "Restart now" button. `PiUpdateBadge` updates its count.
+4. **Frontend wire-up fourth.** `UnifiedPackagesSection` (replaced former `PiCoreVersionsSection` under change: consolidate-packages-settings-ui) learns the third source badge value, the disabled-button states, the cross-major confirmation dialog, the "Restart to apply" state, and the "Restart now" button. `PiUpdateBadge` updates its count.
 5. **Swap-on-start fifth.** Hook the swap helper into Electron startup (`packages/electron/src/main.ts`) and the standalone CLI (`packages/server/src/cli.ts`) before the HTTP server starts.
 6. **Doctor sixth.** Doctor checks for stale `node-old/` and surfaces the runtime row's source/version/swap-pending state.
 7. **Rollback strategy.** If the swap mechanic regresses, ship a hotfix that disables the Update button on the runtime row (server-side feature flag in `pi-core-checker.ts`). Pure helpers and download flow stay inert. Already-staged `node-pending/` directories on disk become harmless until the helper re-enables.

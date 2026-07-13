@@ -50,16 +50,20 @@ A Doctor side-by-side comparison on the win32-x64 Electron build of commit `9b76
 - **Filter bundled-node from System Node**: in `runSharedChecks`, after `detectSystemNode()` returns `{ path }`, if `path` resolves under `<resourcesPath>/node/` (case-insensitive on win32), treat as `not-found-on-PATH` and emit the existing warning row. The new `Bundled Node.js` row carries the bundled-node info honestly.
 - **No protocol break for legacy servers**: an attached older server's `/api/health` lacks `launchSource`; the legacy fallback to `starter` covers it (already in task 1b).
 
-### Extended capabilities
+### Extended capabilities (NOT implemented)
+
+> These extended-scope requirements were never implemented. They remain aspirational.
 
 - `doctor-diagnostic`: ADDS a Requirement that `runSharedChecks` SHALL surface bundled-runtime rows (Node, npm, server-code, server-starter) when `resourcesPath` is provided, so the Settings ↔ Doctor surfaces are not divergent.
 - `doctor-diagnostic`: ADDS a Requirement that the `System Node.js` check SHALL NOT report a binary located under `<resourcesPath>/node/` as system Node — that's bundled Node leaking through PATH-injection.
 
-### Extended impact
+### Extended impact (NOT implemented)
 
-- Settings → Diagnostics now shows 12/13 rows (only `Electron <version>` Electron-only).
-- `System Node.js` row honestly reports system Node state (not found / found at a non-bundled path).
-- Electron-side `doctor.ts` becomes thinner (~70 LOC dropped, 1 LOC kept).
+> These impacts were aspirational; they were never realized.
+
+- Settings → Diagnostics would show 12/13 rows (only `Electron <version>` Electron-only). Currently shows 7.
+- `System Node.js` row would honestly report system Node state. Currently can falsely report bundled Node as "System Node".
+- Electron-side `doctor.ts` would become thinner (~70 LOC dropped, 1 LOC kept).
 - Standalone-arm impact: zero (no `resourcesPath` → lifted checks skip, same as before).
 
 ## Capabilities
@@ -76,3 +80,31 @@ A Doctor side-by-side comparison on the win32-x64 Electron build of commit `9b76
 - **Bridge-arm impact**: zero. Bridge installs pi itself via the parent pi process; never reaches the bundle-probe path.
 - **Risk**: low. Each new probe is additive (looks in a new place before falling back to existing logic). False negatives in the existing logic become true positives; no false positives are introduced.
 - **Out of scope**: managing version skew between bundled and PATH installs; auto-cleanup of stale managed dirs; node-pty / native-module probes (covered by GO/NO-GO in `bundle-server.mjs:273`).
+
+## Drift reconciliation — 2026-07-13
+
+### Architecture change
+
+The implementation diverged from this proposal in one material way: instead of a `resourcesPath` parameter + `findBundledPackage` helper, the production code uses **dependency injection** (`deps.detectPi`, `deps.detectOpenSpec` in `runSharedChecks`) and **`tryResolvePkg`** (via `createRequire` for bundled jiti/tsx lookup). This was a simpler, more testable approach that avoided threading `resourcesPath` through the shared/server boundary.
+
+### Delivered items (via the alternative architecture)
+
+| What | How it was done |
+|---|---|
+| Bundle-aware TypeScript loader | `tryResolvePkg("jiti")` / `tryResolvePkg("tsx")` in `doctor-core.ts` (bundled `Resources/server/node_modules/` lookup) |
+| Bundle-aware pi probe | `deps.detectPi()` injected into `runSharedChecks`; `electron/doctor.ts` wires `detectPi()` from local `dependency-detector.ts` |
+| Bundle-aware openspec probe | `deps.detectOpenSpec()` injected into `runSharedChecks`; same wiring pattern |
+| Remediation messages | `SUGGESTIONS` map in `doctor-core.ts` updated with bundle-appropriate text (no "run setup wizard" for Electron users) |
+| Stale Managed-install row | Removed in sibling change `fix-doctor-stale-managed-install-check` (archived) |
+| Doctor skill | Created in sibling change `add-modular-doctor-skill` (archived) |
+| `SECTION_OF` entries for "Bundled Node.js" / "Bundled npm" | Defined in `doctor-core.ts` (line ~359) but still only emitted by `electron/doctor.ts`, not by `runSharedChecks` |
+
+### Items NOT yet delivered
+
+These gaps remain from the original scope:
+
+1. **`electron/doctor.ts` duplicates shared rows.** "Bundled Node.js", "Bundled npm", and "Dashboard server code" are each checked independently in `packages/electron/src/lib/doctor.ts` (lines ~189–260, ~305–330) via their own `getBundledNodePath()` / `getBundledNpmPath()` / filesystem probes. The proposal called for lifting these into `runSharedChecks` so the Electron Doctor and Settings → Diagnostics emit the same canonical rows. Not done — each arm still has its own copy.
+
+2. **`probeServer()` still reads `health.starter`.** `packages/electron/src/lib/doctor.ts` `probeServer()` (line ~262) reads `health.starter` instead of `health.launchSource`. The dashboard server has emitted `health.launchSource` since `eliminate-electron-runtime-install`; the Doctor row shows `"Unknown (old server?)"` on a current server. Proposal task 1b covers this.
+
+3. **Extended scope not implemented.** The 5-row lift (Bundled Node.js, Bundled npm, Bundled Node runtime, Dashboard server code, Server starter) into `runSharedChecks` and the bundled-Node filtering from the System Node check were never started. These were aspirational scope-additions in the proposal that remain future work.

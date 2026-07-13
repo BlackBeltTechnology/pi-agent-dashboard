@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Tags — Overview</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Session Tags — Option A</h1>
+  <p class="sub">Thin manual-labeling layer. User tags editable + persisted (<code>SessionMeta.tags</code>). Execution/phase chips are read-only views of existing <code>openspecPhase</code>.</p>
+  <div class="navlinks">
+    <a class="here">Overview</a>
+    <a href="card-states.html">Card states</a>
+    <a href="filter-in-action.html">Filter in action</a>
+  </div>
+
+  <div class="legend">
+    <span><span class="chip user c-blue">#feature</span> user tag — editable, persisted, colorized</span>
+    <span><span class="chip exec">apply <span class="lock">🔒</span></span> execution — derived, read-only</span>
+  </div>
+
+  <h2>1 · Session card / detail header</h2>
+  <p class="note">Chip strip under the identity line. User chips carry a remove ✕; execution chips are dashed + locked.</p>
+  <div class="card">
+    <div class="card-head">
+      <span class="card-title">add auth middleware</span>
+      <span class="card-status streaming">streaming</span>
+    </div>
+    <div class="card-path">~/proj/api · feat/auth</div>
+    <div class="card-tags chips">
+      <span class="chip user c-blue">#feature <span class="x">✕</span></span>
+      <span class="chip user c-violet">#backend <span class="x">✕</span></span>
+      <span class="chip exec">apply <span class="lock">🔒</span></span>
+      <span class="chip add">+ tag</span>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2>2 · Add-tag popover</h2>
+      <p class="note">Free-form input; autocomplete over the union of all existing tags. New tags allowed (self-healing vocab).</p>
+      <div class="pop">
+        <div class="pop-label">Add tag</div>
+        <input type="text" value="bug" />
+        <div class="ac">
+          <div class="ac-title">Existing</div>
+          <div class="ac-item"><span class="chip user c-rose">#bugfix</span><span class="cnt">12 sessions</span></div>
+          <div class="ac-item"><span class="chip user c-rose">#bug-triage</span><span class="cnt">3 sessions</span></div>
+          <div class="ac-item ac-new">+ Create “bug”</div>
+        </div>
+        <div class="sw-row">
+          <span class="sw-label">Color</span>
+          <span class="chip user c-rose">#bug</span>
+          <span class="sw-auto">auto — hash(name) → palette</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h2>3 · Sidebar tag filter</h2>
+      <p class="note">New chip-filter group, AND-composed with folder + search + Active-only. Execution chips pickable but separated.</p>
+      <div class="sidebar">
+        <div class="sb-row">
+          <input class="sb-input" placeholder="Folder…" />
+          <input class="sb-input" placeholder="Session…" />
+        </div>
+        <label class="sb-toggle"><input type="checkbox" checked /> Active only</label>
+        <div class="sb-group-label">Your tags</div>
+        <div class="chips">
+          <span class="chip user c-blue filter sel">#feature</span>
+          <span class="chip user c-rose filter">#bugfix</span>
+          <span class="chip user c-green filter">#docs</span>
+          <span class="chip user c-violet filter">#backend</span>
+        </div>
+        <div class="sb-group-label">Phase (read-only)</div>
+        <div class="chips">
+          <span class="chip exec filter">proposal</span>
+          <span class="chip exec filter">apply</span>
+          <span class="chip exec filter">verify</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

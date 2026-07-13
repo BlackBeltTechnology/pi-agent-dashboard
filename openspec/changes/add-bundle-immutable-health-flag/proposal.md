@@ -6,8 +6,8 @@ Two client UI gates currently use `launchSource === "electron"` as a **proxy** f
 
 | Site | Intent | Current check |
 |---|---|---|
-| `packages/client/src/App.tsx:962` | Hide pi-core update badge when no writable install target | `launchSource !== "electron"` |
-| `packages/client/src/components/UnifiedPackagesSection.tsx:63` | Hide Core sub-group from the package manager UI | `launchSource === "electron"` |
+| `packages/client/src/App.tsx:1344` | Hide pi-core update badge when no writable install target | `launchSource !== "electron"` |
+| `packages/client/src/components/UnifiedPackagesSection.tsx:90-91` | Hide Core sub-group from the package manager UI | `launchSource === "electron"` |
 
 This conflates two orthogonal concerns:
 
@@ -20,17 +20,18 @@ The proxy works today but leaks the model in three ways:
 - **Documentation honesty** — `docs/service-bootstrap.md#Concepts` explicitly calls out the proxy as a smell. Fixing the contract retires the caveat.
 - **Conceptual asymmetry** — Bridge and Standalone are server-identical (see `docs/service-bootstrap.md#Concepts`). Branching on `launchSource` for a property that is *actually* about install topology pulls them apart for the wrong reason.
 
-The third existing check — `packages/server/src/routes/system-routes.ts:342` gating `/api/electron/reextract` — is **not** a proxy. Its intent is "is the orchestrator Electron?" because the endpoint asks Electron specifically to restart the server. It stays on `launchSource === "electron"`. This proposal does **not** sweep all `launchSource === "electron"` references; it only migrates the two whose intent is install-root immutability.
+The third existing check — `packages/server/src/routes/system-routes.ts:553` gating `/api/electron/reextract` — is **not** a proxy. Its intent is "is the orchestrator Electron?" because the endpoint asks Electron specifically to restart the server. It stays on `launchSource === "electron"`. This proposal does **not** sweep all `launchSource === "electron"` references; it only migrates the two whose intent is install-root immutability.
 
 ## What Changes
 
 - **Health endpoint** — `GET /api/health` SHALL return a new field `bundleImmutable: boolean` alongside the existing `launchSource`, `pid`, `version`, `mode` fields. For this phase, the value is derived deterministically: `bundleImmutable === (launchSource === "electron")`. The contract documented in the spec is "true iff the server's install root is read-only at runtime", and future immutable transports can extend the derivation without breaking call sites.
 - **Client hook** — add `useBundleImmutable()` in `packages/client/src/hooks/` mirroring the shape of `useLaunchSource()`. Caches the value (it never changes for a connected server).
 - **Client gate migration** — replace the two proxy checks:
-  - `App.tsx:962` — `{launchSource !== "electron"` becomes `{!bundleImmutable`.
-  - `UnifiedPackagesSection.tsx:63` — `const hideCoreGroup = launchSource === "electron"` becomes `const hideCoreGroup = bundleImmutable`.
-- **Server-side derivation** — pure helper `computeBundleImmutable(launchSource: LaunchSource): boolean` in `packages/shared/src/launch-source-types.ts`. One-liner today; documented seam for future expansion.
-- **Documentation** — update `docs/service-bootstrap.md#Concepts` to drop the "proxy" caveat and reference `bundleImmutable` as the first-class property. Update `docs/architecture.md:781` to read `bundleImmutable` instead of `launchSource === "electron"`. The "Starter" concept is unchanged — three values, runtime identity, lifecycle ownership.
+  - `App.tsx:1344` — `{launchSource !== "electron"` becomes `{!bundleImmutable`.
+  - `UnifiedPackagesSection.tsx:90-91` — `const hideCoreGroup = launchSource === "electron"` becomes `const hideCoreGroup = bundleImmutable`.
+- **Server-side derivation** — pure helper `computeBundleImmutable(launchSource: LaunchSource): boolean` in `packages/shared/src/dashboard-starter.ts`. One-liner today; documented seam for future expansion.
+  - **Note**: TWO `LaunchSource` types coexist. The helper uses the **flat-string** `LaunchSource` (`"electron" | "standalone" | "bridge"`) defined in `dashboard-starter.ts`, **not** the discriminated union in `packages/shared/src/launch-source-types.ts` (`{ kind: "attach" | "bundled" | "devMonorepo"; … }`). The server imports `parseLaunchSource` from `@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js`; the helper lives alongside it.
+- **Documentation** — update `docs/service-bootstrap.md#Concepts` to drop the "proxy" caveat and reference `bundleImmutable` as the first-class property. Update `docs/architecture.md:884` to read `bundleImmutable` instead of `launchSource === "electron"`. The "Starter" concept is unchanged — three values, runtime identity, lifecycle ownership.
 - **Tests**:
   - Pure-helper unit test for `computeBundleImmutable` covering all 3 starter values.
   - Contract test asserting `GET /api/health` returns `bundleImmutable: true` for Electron, `false` for Bridge and Standalone, in `packages/server/src/__tests__/health-route.test.ts` (extend existing file).
@@ -48,7 +49,7 @@ The third existing check — `packages/server/src/routes/system-routes.ts:342` g
 - **Forward path opened** — adding a Snap/Flatpak/MSIX/container starter later requires updating `computeBundleImmutable` in one place; no call-site sweep. Without this change, every gate has to grow a new disjunct.
 - **Documentation honesty** — `docs/service-bootstrap.md` can drop the "proxy" caveat, and the new mapping table in that doc stays accurate (the `launchSource === "electron"` column becomes `bundleImmutable === true`).
 - **Code impact** — ~60 LOC across:
-  - `packages/shared/src/launch-source-types.ts` — pure helper.
+  - `packages/shared/src/dashboard-starter.ts` — pure helper.
   - `packages/server/src/routes/system-routes.ts` — extend `/api/health` payload.
   - `packages/client/src/hooks/useBundleImmutable.ts` — new hook.
   - `packages/client/src/App.tsx`, `UnifiedPackagesSection.tsx` — 2 line edits.

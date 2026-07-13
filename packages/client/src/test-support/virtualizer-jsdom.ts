@@ -20,6 +20,16 @@
  *
  * See change: virtualize-chat-transcript-tanstack (task 10.2 / test infra).
  */
+import { configure } from "@testing-library/react";
+
+// Under the full parallel suite, CPU oversubscription (pool:"forks",
+// maxWorkers 50%) starves async work, so `waitFor` / `findBy*` polls can exceed
+// their 1000ms default before an effect, mock call, or state update lands — a
+// flake that passes in isolation (EditorFileTree, ...). Raise the global
+// async-util timeout so healthy assertions stop tripping under load; a
+// genuinely missing update still fails, just later.
+// See change: fix-flaky-full-suite-tests.
+configure({ asyncUtilTimeout: 5_000 });
 
 if (typeof window !== "undefined" && !window.ResizeObserver) {
   window.ResizeObserver = class {

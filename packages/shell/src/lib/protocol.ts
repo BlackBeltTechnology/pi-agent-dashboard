@@ -41,9 +41,26 @@ export function bytesToB64url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Decode a copy-string (base64url of the payload JSON) into a payload. */
+/** `pi:pair:v1.<b64>` copy-string prefix (see client `pairing-qr.ts`). */
+const PAYLOAD_PREFIX = "pi:pair:v1.";
+
+/**
+ * Decode any accepted pairing form into a payload:
+ *   - `https://<tls-endpoint>/pair#<payload>` deep link (the camera-scannable
+ *     QR) — take the URL fragment as the payload first
+ *   - `pi:pair:v1.<base64url>` copy-string — strip the prefix
+ *   - bare `<base64url>` or raw `{…}` JSON (legacy / defensive)
+ * So ONE QR serves both the phone camera and an Electron "Scan QR"/paste.
+ * See change: make-pairing-qr-camera-scannable.
+ */
 export function decodePayloadString(raw: string): PairingPayload {
-  const trimmed = raw.trim();
+  let trimmed = raw.trim();
+  // Tolerate the scannable https wrapper: the payload rides the URL fragment.
+  if (/^https?:\/\//i.test(trimmed)) {
+    const hash = new URL(trimmed).hash;
+    trimmed = decodeURIComponent(hash.startsWith("#") ? hash.slice(1) : hash).trim();
+  }
+  if (trimmed.startsWith(PAYLOAD_PREFIX)) trimmed = trimmed.slice(PAYLOAD_PREFIX.length);
   // Accept both a raw JSON string and the base64url-encoded form.
   let json: string;
   if (trimmed.startsWith("{")) {

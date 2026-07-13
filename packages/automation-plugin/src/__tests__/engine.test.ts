@@ -342,7 +342,7 @@ describe("engine run lifecycle", () => {
         calls.push(opts);
         return { success: true, spawnToken: token };
       },
-      abortAutomationRun: async (args) => {
+      abortSpawnedRun: async (args) => {
         terminations.push(args);
         return true;
       },
@@ -442,7 +442,7 @@ describe("session-death finalize + stale-run reaper", () => {
     const terminations: any[] = [];
     const engine = createEngine({
       spawnSession: async () => ({ success: true, spawnToken: "tok" }),
-      abortAutomationRun: async (a) => { terminations.push(a); return true; },
+      abortSpawnedRun: async (a) => { terminations.push(a); return true; },
       listScopes: () => [{ base: repo, scope: "folder" }],
       config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false, maxRunAgeMs }),
       readRoles: () => ({ fast: "m" }),

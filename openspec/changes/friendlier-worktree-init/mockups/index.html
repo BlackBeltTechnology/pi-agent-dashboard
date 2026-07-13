@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Worktree Init — friendlier execution UI</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --bg-code: #1a1a1a;
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --border-subtle: rgba(255,255,255,0.06);
+    --accent-blue: #3b82f6;
+    --accent-green: #22c55e;
+    --accent-yellow: #eab308;
+    --accent-red: #ef4444;
+    --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 40px 24px 80px;
+    background: var(--bg-primary); color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { color: var(--text-primary); font-size: 20px; font-weight: 650; margin: 0 0 4px; }
+  .sub { color: var(--text-muted); font-size: 13px; margin: 0 0 32px; }
+  h2 { color: var(--text-primary); font-size: 14px; font-weight: 600; margin: 34px 0 10px; letter-spacing: .01em; }
+  .tag { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+
+  /* folder row context */
+  .folder-row {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .folder-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .folder-name { color: var(--text-primary); font-weight: 600; font-size: 13px; }
+  .folder-path { color: var(--text-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .action-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* generic tiny pill button (matches real 10px pills) */
+  .pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 7px;
+    border: 1px solid var(--border-secondary); color: var(--text-secondary);
+    background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+    white-space: nowrap; font-family: inherit;
+  }
+  .pill svg { width: 12px; height: 12px; }
+  .pill.cyan  { color:#22d3ee; border-color: rgba(34,211,238,.4); background: rgba(34,211,238,.05); }
+  .pill.blue  { color:#60a5fa; border-color: rgba(59,130,246,.4); background: rgba(59,130,246,.05); }
+  .pill.amber { color:#fbbf24; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.06); }
+  .pill.ghost { color: var(--text-muted); }
+  .spacer { margin-left: auto; }
+
+  /* ===== Variant building blocks ===== */
+
+  /* init chip — the friendly one-line status */
+  .init-chip {
+    display: inline-flex; flex-direction: column; gap: 0;
+    min-width: 260px; max-width: 420px;
+  }
+  .chip-line {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11.5px; border-radius: 8px; padding: 5px 9px;
+    border: 1px solid var(--border-secondary); background: var(--bg-tertiary);
+  }
+  .chip-line.running { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.06); color:#fbbf24; }
+  .chip-line.ok      { border-color: rgba(34,197,94,.35);  background: rgba(34,197,94,.06);  color:#4ade80; }
+  .chip-line.fail    { border-color: rgba(239,68,68,.4);   background: rgba(239,68,68,.07);  color:#f87171; }
+  .chip-title { font-weight: 600; }
+  .chip-meta { color: var(--text-muted); font-weight: 500; }
+  .chip-line.running .chip-meta { color: rgba(251,191,36,.7); }
+
+  /* spinner */
+  .spin { width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(245,158,11,.25); border-top-color:#fbbf24;
+    animation: spin .8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* slim progress bar */
+  .bar { height: 3px; border-radius: 3px; background: rgba(245,158,11,.15); overflow: hidden; margin-top: 6px; }
+  .bar > i { display:block; height:100%; width:40%; border-radius:3px;
+    background: linear-gradient(90deg, transparent, #fbbf24, transparent);
+    animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0%{ transform: translateX(-120%);} 100%{ transform: translateX(320%);} }
+
+  /* ghost last-line preview */
+  .ghost-line {
+    font-size: 11px; color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin-top: 6px; padding-left: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px;
+  }
+  .ghost-line .dim { opacity: .55; }
+
+  /* disclosure log — collapsed by default */
+  details.log { margin-top: 8px; max-width: 460px; }
+  details.log > summary {
+    list-style: none; cursor: pointer; font-size: 11px; color: var(--text-tertiary);
+    display: inline-flex; align-items: center; gap: 4px; user-select: none;
+  }
+  details.log > summary::-webkit-details-marker { display: none; }
+  details.log > summary .chev { transition: transform .15s; }
+  details.log[open] > summary .chev { transform: rotate(90deg); }
+  details.log pre {
+    margin: 6px 0 0; background: var(--bg-code); border: 1px solid var(--border-subtle);
+    border-radius: 8px; padding: 8px 10px; max-height: 200px; overflow: auto;
+    font-size: 10.5px; line-height: 1.55; color: var(--text-tertiary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap;
+  }
+
+  .mini-btn {
+    font-size: 11px; padding: 2px 8px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--border-secondary); background: var(--bg-surface); color: var(--text-secondary);
+    font-family: inherit;
+  }
+  .mini-btn.retry { color:#fbbf24; border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.06); }
+
+  /* baseline (current) block */
+  .baseline pre {
+    margin: 6px 0 0; background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+    border-radius: 6px; padding: 8px 10px; max-height: 160px; overflow: auto;
+    font-size: 10px; line-height: 1.5; color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; max-width: 460px;
+  }
+
+  .session-card {
+    background: var(--bg-secondary); border: 1px solid var(--border-primary);
+    border-radius: 12px; padding: 12px 14px; max-width: 460px;
+  }
+  .session-card.spawning { border-color: rgba(245,158,11,.25); }
+  .sess-badge {
+    margin-left: auto; font-size: 10px; padding: 2px 7px; border-radius: 6px;
+    background: var(--bg-surface); color: var(--text-tertiary); font-weight: 500;
+  }
+  .sess-badge.ok { color:#4ade80; background: rgba(34,197,94,.08); }
+  .init-substate {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; gap: 0; align-items: flex-start;
+  }
+
+  .note { font-size: 12px; color: var(--text-muted); margin: 6px 0 0; max-width: 620px; }
+  .note b { color: var(--text-tertiary); font-weight: 600; }
+  .divider { height: 1px; background: var(--border-primary); margin: 34px 0 0; }
+
+  /* filmstrip (E1) */
+  .filmstrip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .frame { flex: 1 1 210px; min-width: 190px; }
+  .frame-cap { font-size: 10.5px; color: var(--text-muted); margin-bottom: 5px; font-family: ui-monospace, Menlo, monospace; }
+  .arrow { color: var(--text-muted); font-size: 18px; flex: 0 0 auto; }
+
+  /* concurrent stack (E2) */
+  .stack-head { display:flex; align-items:center; gap:8px; padding:10px 12px; background: var(--bg-tertiary); border-bottom:1px solid var(--border-subtle); }
+  .stack-row { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border-subtle); font-size:11.5px; }
+  .stack-row:last-child { border-bottom:none; }
+  .stack-row.fail-row { background: rgba(239,68,68,.05); }
+  .stack-name { color: var(--text-primary); font-weight:600; font-size:11.5px; min-width:74px; }
+  .stack-status.ok { color:#4ade80; } .stack-status.bad { color:#f87171; font-family: ui-monospace, Menlo, monospace; font-size:10.5px; }
+  .dot { width:14px; text-align:center; flex:0 0 auto; font-size:11px; }
+  .dot.ok { color:#4ade80; } .dot.bad { color:#f87171; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--text-muted); margin-top:6px;}
+  .good { color:#4ade80; } .bad { color:#f87171; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Worktree “Initialize” — friendlier execution</h1>
+  <p class="sub">Same folder-action-bar row. Goal: kill the inline wall of monospace; keep progress + failure clarity. Terminal output becomes opt-in.</p>
+
+  <!-- ============ BASELINE ============ -->
+  <h2>0 · Baseline <span class="tag">— what ships today</span></h2>
+  <div class="folder-row baseline">
+    <div class="folder-head">
+      <span class="folder-name">my-feature</span>
+      <span class="folder-path">~/proj/wt/my-feature</span>
+    </div>
+    <div class="action-bar">
+      <button class="pill amber">⚙ Initializing…</button>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <button class="pill blue">{} Editor</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+    <pre>npm WARN deprecated inflight@1.0.6: This module is not supported
+npm WARN deprecated glob@7.2.3: Glob versions prior to v9 are no longer
+added 412 packages, and audited 413 packages in 9s
+found 0 vulnerabilities
+$ pnpm run build
+vite v5.4.2 building for production...
+transforming...
+✓ 214 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.46 kB │ gzip:  0.30 kB</pre>
+  </div>
+  <p class="note"><b>Problem:</b> the running tail (and the failure stderr) render as a full <code>&lt;pre&gt;</code> inside the sidebar row — a scrolling wall of monospace that dominates the panel and reads like a terminal, not a UI.</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ VARIANT A ============ -->
+  <h2>A · Status chip + collapsed log <span class="tag">— recommended</span></h2>
+
+  <div class="tag" style="margin:2px 0 6px">running</div>
+  <div class="folder-row">
+    <div class="folder-head"><span class="folder-name">my-feature</span><span class="folder-path">~/proj/wt/my-feature</span></div>
+    <div class="action-bar">
+      <div class="init-chip">
+        <span class="chip-line running">
+          <span class="spin"></span>
+          <span class="chip-title">Initializing…</span>
+          <span class="chip-meta">· 8s</span>
+        </span>
+        <div class="bar"><i></i></div>
+        <div class="ghost-line"><span class="dim">$</span> pnpm build · transforming 214 modules…</div>
+        <details class="log">
+          <summary><span class="chev">▸</span> View log</summary>
+          <pre>added 412 packages in 9s
+$ pnpm run build
+vite v5.4.2 building for production...
+✓ 214 modules transformed.</pre>
+        </details>
+      </div>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+  </div>
+
+  <div class="tag" style="margin:14px 0 6px">success (chip fades, then row returns to normal)</div>
+  <div class="folder-row">
+    <div class="folder-head"><span class="folder-name">my-feature</span><span class="folder-path">~/proj/wt/my-feature</span></div>
+    <div class="action-bar">
+      <span class="chip-line ok">✓ <span class="chip-title">Initialized</span> <span class="chip-meta">· 12s</span></span>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <button class="pill blue">{} Editor</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+  </div>
+
+  <div class="tag" style="margin:14px 0 6px">failure — compact, actionable, log opt-in</div>
+  <div class="folder-row">
+    <div class="folder-head"><span class="folder-name">my-feature</span><span class="folder-path">~/proj/wt/my-feature</span></div>
+    <div class="action-bar">
+      <div class="init-chip">
+        <span class="chip-line fail">
+          ✕ <span class="chip-title">Init failed</span> <span class="chip-meta">· exit 1 · pnpm install</span>
+          <button class="mini-btn retry" style="margin-left:8px">↻ Retry</button>
+        </span>
+        <details class="log">
+          <summary><span class="chev">▸</span> View log (last 12 lines)</summary>
+          <pre>npm error code ERESOLVE
+npm error ERESOLVE could not resolve
+npm error While resolving: my-feature@0.1.0
+npm error Found: react@18.3.1
+npm error Could not resolve dependency:
+npm error peer react@"^19" from next@15.0.0</pre>
+        </details>
+      </div>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+  </div>
+  <p class="note"><b>Why this works:</b> default state is one friendly line. The <b>last log line</b> gives live progress without the wall. Full log is one click away (<code>&lt;details&gt;</code>, collapsed). Failure leads with a <b>plain-language summary + Retry</b>, not raw stderr.</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ VARIANT B ============ -->
+  <h2>B · Ultra-compact — no ghost line <span class="tag">— tightest footprint</span></h2>
+  <div class="tag" style="margin:2px 0 6px">running</div>
+  <div class="folder-row">
+    <div class="folder-head"><span class="folder-name">my-feature</span><span class="folder-path">~/proj/wt/my-feature</span></div>
+    <div class="action-bar">
+      <span class="chip-line running">
+        <span class="spin"></span><span class="chip-title">Initializing…</span><span class="chip-meta">· 8s</span>
+      </span>
+      <details class="log"><summary><span class="chev">▸</span> log</summary>
+        <pre>$ pnpm run build
+vite building for production...
+✓ 214 modules transformed.</pre></details>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+  </div>
+  <p class="note">Single pill, no progress bar or ghost line — reads like the other action-bar buttons. Progress is implied by the spinner + elapsed timer only. Least visual weight; least feedback.</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ VARIANT C ============ -->
+  <h2>C · Toast / drawer <span class="tag">— row stays pristine</span></h2>
+  <div class="folder-row">
+    <div class="folder-head"><span class="folder-name">my-feature</span><span class="folder-path">~/proj/wt/my-feature</span></div>
+    <div class="action-bar">
+      <button class="pill amber"><span class="spin" style="border-color:rgba(245,158,11,.25);border-top-color:#fbbf24"></span> Initializing…</button>
+      <button class="pill cyan">▤ Terminals(2)</button>
+      <button class="pill blue">{} Editor</button>
+      <span class="spacer"></span>
+      <button class="pill ghost">⚙</button>
+    </div>
+  </div>
+  <div style="margin-top:10px; max-width:420px; margin-left:auto; margin-right:0;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:12px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span class="spin"></span>
+        <span style="color:var(--text-primary); font-weight:600; font-size:13px;">Initializing my-feature</span>
+        <span class="chip-meta" style="margin-left:auto;">8s</span>
+      </div>
+      <div class="ghost-line" style="max-width:100%;"><span class="dim">$</span> pnpm build · transforming 214 modules…</div>
+      <details class="log" open style="margin-top:8px;"><summary><span class="chev">▸</span> View full log</summary>
+        <pre>added 412 packages in 9s
+$ pnpm run build
+✓ 214 modules transformed.</pre></details>
+    </div>
+  </div>
+  <p class="note">Execution lives in a corner toast / slide-out, not the row. Row just shows a spinner pill. Cleanest sidebar, but the detail is detached from the folder it belongs to — and needs new toast plumbing.</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ SPAWN / AUTO-INIT PATH ============ -->
+  <h2>D · Spawn / auto-init path <span class="tag">— today: 100% silent</span></h2>
+  <p class="note" style="margin-bottom:16px;"><b>Current gap:</b> when you spawn a worktree with auto-init ON, <code>maybeAutoInitWorktreeOnSpawn</code> fires the hook but <b>discards its requestId</b> — nothing subscribes, so init runs (and can <b class="bad">fail</b>) with zero feedback. cwd-keying lets the same toast/card pick it up automatically.</p>
+
+  <div class="tag" style="margin:2px 0 6px">D1 · sub-state on the spawning session card <span style="color:var(--accent-green)">— contextual, no floating element</span></div>
+  <div class="session-card spawning">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="spin"></span>
+      <span class="folder-name">my-feature</span>
+      <span class="folder-path">os/add-search</span>
+      <span class="sess-badge">spawning…</span>
+    </div>
+    <div class="init-substate">
+      <span class="chip-line running" style="padding:4px 8px;">
+        <span class="spin"></span><span class="chip-title">Initializing…</span><span class="chip-meta">· 8s</span>
+      </span>
+      <div class="ghost-line"><span class="dim">$</span> pnpm install · resolving dependencies…</div>
+      <details class="log"><summary><span class="chev">▸</span> log</summary>
+        <pre>$ pnpm install
+Progress: resolved 214, reused 210, downloaded 4</pre></details>
+    </div>
+  </div>
+
+  <div class="tag" style="margin:16px 0 6px">D1 · same card — auto-init <b class="bad">failed</b> (the case silently dropped today)</div>
+  <div class="session-card">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="folder-name">my-feature</span>
+      <span class="folder-path">os/add-search</span>
+      <span class="sess-badge ok">ready</span>
+    </div>
+    <div class="init-substate">
+      <span class="chip-line fail" style="padding:4px 8px;">
+        ✕ <span class="chip-title">Auto-init failed</span> <span class="chip-meta">· exit 1 · pnpm install</span>
+        <button class="mini-btn retry" style="margin-left:8px">↻ Retry</button>
+      </span>
+      <details class="log"><summary><span class="chev">▸</span> View log</summary>
+        <pre>npm error ERESOLVE could not resolve
+npm error peer react@"^19" from next@15.0.0</pre></details>
+    </div>
+  </div>
+  <p class="note">Feedback lives on the nascent session card — exactly where the user is looking after spawn. No floating element, no sidebar-row damage. Failure is now <b>visible + retryable</b> instead of a silently-broken worktree.</p>
+
+  <div class="tag" style="margin:18px 0 6px">D2 · same corner toast as C, auto-triggered by spawn</div>
+  <div class="session-card" style="opacity:.85;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="folder-name">my-feature</span><span class="folder-path">os/add-search</span><span class="sess-badge">spawning…</span>
+    </div>
+  </div>
+  <div style="margin-top:10px; max-width:420px; margin-left:auto; margin-right:0;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:12px; padding:12px 14px; box-shadow:0 8px 24px rgba(0,0,0,.5);">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+        <span class="spin"></span>
+        <span style="color:var(--text-primary); font-weight:600; font-size:13px;">Auto-initializing my-feature</span>
+        <span class="chip-meta" style="margin-left:auto;">8s</span>
+      </div>
+      <div class="ghost-line" style="max-width:100%;"><span class="dim">$</span> pnpm install · resolving dependencies…</div>
+    </div>
+  </div>
+  <p class="note">Reuses C's toast unchanged — spawn just registers the run by cwd and the toast appears. Detached from the card, but one surface for every trigger.</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ E1 · SUCCESS FLASH ============ -->
+  <h2>E1 · D1 success flash <span class="tag">— the running → done → settled transition</span></h2>
+  <p class="note" style="margin-bottom:14px;">On done, the chip flips to a green “✓ Initialized” for ~2s so you <b>see</b> it worked, then the init sub-state collapses away and the card settles to a normal ready session. Silent-vanish would leave you unsure init ever ran.</p>
+
+  <div class="filmstrip">
+    <div class="frame">
+      <div class="frame-cap">t+8s · running</div>
+      <div class="session-card spawning" style="max-width:none;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="spin"></span><span class="folder-name">my-feature</span><span class="sess-badge">spawning…</span>
+        </div>
+        <div class="init-substate">
+          <span class="chip-line running" style="padding:4px 8px;"><span class="spin"></span><span class="chip-title">Initializing…</span><span class="chip-meta">· 8s</span></span>
+          <div class="ghost-line"><span class="dim">$</span> pnpm build…</div>
+        </div>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="frame">
+      <div class="frame-cap">t+12s · done <span style="color:var(--accent-green)">(flash 2s)</span></div>
+      <div class="session-card" style="max-width:none; border-color:rgba(34,197,94,.3);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="folder-name">my-feature</span><span class="sess-badge ok">ready</span>
+        </div>
+        <div class="init-substate" style="border-top-color:rgba(34,197,94,.2);">
+          <span class="chip-line ok" style="padding:4px 8px;">✓ <span class="chip-title">Initialized</span> <span class="chip-meta">· 12s</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="frame">
+      <div class="frame-cap">t+14s · settled</div>
+      <div class="session-card" style="max-width:none;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="folder-name">my-feature</span><span class="folder-path">os/add-search</span><span class="sess-badge ok">ready</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:12px;"><b>Failure differs:</b> never auto-collapses — the “✕ Auto-init failed · Retry” sub-state is sticky until dismissed or retried (losing a failure to a 2s timeout would be the worst case).</p>
+
+  <div class="divider"></div>
+
+  <!-- ============ E2 · CONCURRENT STACKING ============ -->
+  <h2>E2 · Concurrent inits stack <span class="tag">— spawn several worktrees at once</span></h2>
+  <p class="note" style="margin-bottom:14px;">cwd is the key, so N runs = N registry entries. Corner surface collapses them into <b>one stack</b> with a summary header; each row is an independent cwd (one still running, one done-fading, one failed-sticky). The per-card D1 sub-state renders in parallel on each session card regardless.</p>
+
+  <div style="max-width:440px; margin-left:auto; margin-right:0;">
+    <div style="background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.5); overflow:hidden;">
+      <div class="stack-head">
+        <span class="spin"></span>
+        <span style="color:var(--text-primary); font-weight:600; font-size:12.5px;">Initializing 3 worktrees</span>
+        <span class="chip-meta" style="margin-left:auto;">1 done · 1 failed</span>
+      </div>
+      <div class="stack-row">
+        <span class="spin"></span>
+        <span class="stack-name">add-search</span>
+        <span class="ghost-line" style="margin:0; flex:1;"><span class="dim">$</span> pnpm install…</span>
+        <span class="chip-meta">8s</span>
+      </div>
+      <div class="stack-row">
+        <span class="dot ok">✓</span>
+        <span class="stack-name">fix-auth</span>
+        <span class="stack-status ok" style="flex:1;">Initialized</span>
+        <span class="chip-meta">· fading</span>
+      </div>
+      <div class="stack-row fail-row">
+        <span class="dot bad">✕</span>
+        <span class="stack-name">refactor-db</span>
+        <span class="stack-status bad" style="flex:1;">exit 1 · pnpm install</span>
+        <button class="mini-btn retry">↻ Retry</button>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:12px;"><b>Header</b> summarizes at a glance; the stack auto-shrinks as runs finish. When the last run settles (all done), the whole stack fades — but any <b>failed</b> row keeps the stack open until cleared. Caps at ~4 visible rows with an <code>+N more</code> overflow.</p>
+
+  <div class="divider"></div>
+  <h2>Trade-offs</h2>
+  <div class="legend">
+    <span><b class="good">A</b> best progress feedback · moderate footprint · recommended</span>
+  </div>
+  <div class="legend"><span><b>B</b> tightest · least feedback · trivial to build</span></div>
+  <div class="legend"><span><b>C</b> pristine row · detached context · new toast plumbing</span></div>
+  <div class="legend"><span><b class="good">D1</b> spawn feedback ON the session card · contextual · needs cwd-keyed runs</span></div>
+  <div class="legend"><span><b>D2</b> spawn feedback via C's toast · one surface all triggers · detached</span></div>
+</div>
+</body>
+</html>

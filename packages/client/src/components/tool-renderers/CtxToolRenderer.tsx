@@ -42,6 +42,36 @@ function headerChip(toolName: string, parsed: CtxResult, args?: Record<string, u
     case "error":
       return `✕ ${parsed.variant} error`;
     default:
+      return argsChip(toolName, args);
+  }
+}
+
+// Chip derived purely from `args`, used when there is no parsed result yet
+// (running) or the parse degraded to `{ kind: "raw" }`. Same emoji vocabulary
+// as the result-state chips, so the header never collides with the tool-name
+// subtitle for a recognized ctx_* tool. Unknown ctx_* → the bare tool name.
+function argsChip(toolName: string, args?: Record<string, unknown>): string {
+  const a = args ?? {};
+  switch (toolName) {
+    case "ctx_batch_execute": {
+      const n = Array.isArray(a.commands) ? a.commands.length : 0;
+      return `▦ ${n} cmds`;
+    }
+    case "ctx_execute":
+    case "ctx_execute_file":
+      return `⚙ ${(a.language as string) ?? "code"}`;
+    case "ctx_search": {
+      const n = Array.isArray(a.queries) ? a.queries.length : 0;
+      return `🔍 ${n} ${n === 1 ? "query" : "queries"}`;
+    }
+    case "ctx_fetch_and_index": {
+      const first = Array.isArray(a.requests) ? (a.requests[0] as { url?: string } | undefined)?.url : undefined;
+      const url = (a.url as string) ?? first ?? (a.source as string);
+      return `🌐 ${url ? hostOf(url) : "fetch"}`;
+    }
+    case "ctx_index":
+      return `🗂 ${(a.source as string) ?? (a.path as string) ?? "index"}`;
+    default:
       return toolName;
   }
 }
@@ -167,6 +197,79 @@ function ErrorCard({
       )}
     </div>
   );
+}
+
+function RunningLabel() {
+  return (
+    <div className="text-xs text-[var(--text-muted)] italic">
+      {i18nT("auto.running", undefined, "Running…")}
+    </div>
+  );
+}
+
+// Preview the pending work from `args` while a ctx_* call is still running,
+// instead of a bare "Running…". Mirrors the result-state body per tool.
+function RunningPreview({ toolName, args }: { toolName: string; args?: Record<string, unknown> }) {
+  const a = args ?? {};
+  switch (toolName) {
+    case "ctx_batch_execute": {
+      const cmds = (Array.isArray(a.commands) ? a.commands : []) as Array<{ label?: string; command?: string }>;
+      if (cmds.length === 0) return <RunningLabel />;
+      return (
+        <ul className="text-[11px] font-mono text-[var(--text-muted)] space-y-0.5">
+          {cmds.map((c, i) => (
+            <li key={i} className="truncate">
+              <span className="text-[var(--text-secondary)]">{c.label}</span>{" "}
+              <span className="text-[var(--text-tertiary)]">{c.command}</span>
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case "ctx_execute":
+    case "ctx_execute_file": {
+      const code = a.code as string | undefined;
+      const language = a.language as string | undefined;
+      const path = a.path as string | undefined;
+      if (!code) return <RunningLabel />;
+      return (
+        <div className="space-y-2">
+          {path && <div className="text-xs font-mono text-[var(--text-secondary)]">{path}</div>}
+          <CodeBlock code={code} language={language} />
+        </div>
+      );
+    }
+    case "ctx_search": {
+      const queries = (Array.isArray(a.queries) ? a.queries : []) as string[];
+      if (queries.length === 0) return <RunningLabel />;
+      return (
+        <ul className="list-disc list-inside text-[11px] font-mono text-[var(--text-secondary)] space-y-0.5">
+          {queries.map((q, i) => (
+            <li key={i} className="truncate">
+              {q}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    case "ctx_fetch_and_index": {
+      const first = Array.isArray(a.requests) ? (a.requests[0] as { url?: string } | undefined)?.url : undefined;
+      const url = (a.url as string) ?? first;
+      if (!url) return <RunningLabel />;
+      return (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-400 hover:underline break-all"
+        >
+          {url}
+        </a>
+      );
+    }
+    default:
+      return <RunningLabel />;
+  }
 }
 
 function CtxBody({
@@ -304,7 +407,9 @@ export function CtxToolRenderer({ toolName, args, status, result, context }: Too
       </div>
 
       {status === "running" && !result && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
+        <div className={bodyCap}>
+          <RunningPreview toolName={toolName} args={args} />
+        </div>
       )}
 
       {result && <CtxBody parsed={parsed} toolName={toolName} args={args} context={context} />}

@@ -16,8 +16,10 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
+import { useInitStatus } from "../hooks/useInitStatus.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { ProjectInitButton } from "./ProjectInitButton.js";
 import { WorktreeInitButton } from "./WorktreeInitButton.js";
 
 interface Props {
@@ -35,9 +37,9 @@ interface Props {
   /** Called when the user confirms cleaning up. Fires hide for each broken session. */
   onCleanUpBroken?: () => void;
   /**
-   * Called when a no-hook directory's Initialize button is clicked. Routed
-   * to spawning an interactive project-init session in `cwd`.
-   * See change: project-init-skill-and-profiles.
+   * Called when an unconfigured directory's "Set up project" button is clicked.
+   * Routed to spawning an interactive project-init session in `cwd`.
+   * See change: project-init-skill-and-profiles, distinguish-initialize-actions.
    */
   onInitializeProject?: (cwd: string) => void;
   onOpenTerminals: () => void;
@@ -69,12 +71,18 @@ export function FolderActionBar({
   const filteredNativeEditors = nativeEditors.filter((e) => e.id !== "vscode" && e.id !== "code");
   const showCleanUp = (brokenSessionCount ?? 0) > 0 && !!onCleanUpBroken;
   const [confirmCleanUpOpen, setConfirmCleanUpOpen] = React.useState(false);
+  // Single shared init-status probe feeds both init buttons (avoids a double
+  // fetch per row). See change: distinguish-initialize-actions.
+  const { status: initStatus, refetch: refetchInitStatus } = useInitStatus(cwd);
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      {/* Initialize — polymorphic: runs the declared hook when one exists,
-          else spawns the interactive project-init scaffolder. */}
-      <WorktreeInitButton cwd={cwd} onInitializeProject={onInitializeProject} />
+      {/* Two monomorphic init controls, each self-gating on the shared probe:
+          - ProjectInitButton: indigo "Set up project" scaffold, state ① only.
+          - WorktreeInitButton: amber "Initialize" hook runner, state ② only.
+          State ③ (configured, no hook) renders neither. */}
+      <ProjectInitButton cwd={cwd} status={initStatus} onInitializeProject={onInitializeProject} />
+      <WorktreeInitButton cwd={cwd} status={initStatus} onStatusChange={refetchInitStatus} />
 
       {/* Terminals(N) */}
       <button

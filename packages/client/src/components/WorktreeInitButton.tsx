@@ -1,8 +1,9 @@
 /**
- * Self-contained "Initialize" button for a directory / worktree row.
+ * "Initialize" button for a directory / worktree row — hook-run only.
  *
- * Probes `GET /api/git/worktree/init-status` lazily for `cwd` and renders
- * an Initialize button iff the row declares a hook AND its gate reports
+ * Probes `GET /api/git/worktree/init-status` (or consumes the row's shared
+ * probe) for `cwd` and renders an Initialize button iff the row declares a
+ * hook AND its gate reports
  * `needsInit`. Clicking runs the hook via `POST /api/git/worktree/init`:
  *   - untrusted hook → trust-confirm dialog naming the gate + run; on
  *     confirm, re-issues with `confirmHash`.
@@ -13,20 +14,24 @@
  *
  * Fail-open: any probe error hides the button.
  *
- * See change: generalize-worktree-init-hook.
+ * The no-hook scaffold branch lives in `ProjectInitButton` now; this button is
+ * strictly the amber, repo-code-executing hook runner.
+ *
+ * See change: generalize-worktree-init-hook, distinguish-initialize-actions.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiCogPlayOutline, mdiAlertCircleOutline } from "@mdi/js";
+
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { mdiAlertCircleOutline, mdiCogPlayOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchWorktreeInitStatus,
   runWorktreeInit,
   type WorktreeInitHook,
   type WorktreeInitStatus,
 } from "../lib/git-api.js";
-import { subscribeInit, type WorktreeInitEvent } from "../lib/worktree-init-bus.js";
 import { t as i18nT } from "../lib/i18n";
+import { subscribeInit, type WorktreeInitEvent } from "../lib/worktree-init-bus.js";
 
 let reqCounter = 0;
 function mintRequestId(): string {
@@ -42,16 +47,21 @@ function describeRun(hook: WorktreeInitHook): string {
 interface Props {
   cwd: string;
   /**
-   * Called when the row declares NO hook (`hasHook: false`) and the user
-   * clicks Initialize. Routes to spawning an interactive project-init session
-   * in `cwd`. When omitted, the no-hook branch renders nothing (back-compat).
-   * See change: project-init-skill-and-profiles.
+   * Shared init-status from the row's single probe. When provided (including
+   * `null` while the row's fetch is in flight), the row owns the probe and this
+   * component does NOT self-fetch. When `undefined`, it self-probes (standalone
+   * use). See change: distinguish-initialize-actions.
    */
-  onInitializeProject?: (cwd: string) => void;
+  status?: WorktreeInitStatus | null;
+  /** Row-provided refetch, invoked after a run flips the gate. */
+  onStatusChange?: () => void;
 }
 
-export function WorktreeInitButton({ cwd, onInitializeProject }: Props) {
-  const [status, setStatus] = useState<WorktreeInitStatus | null>(null);
+export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange }: Props) {
+  const [internalStatus, setInternalStatus] = useState<WorktreeInitStatus | null>(null);
+  // The row owns the probe when it passes a `status` prop (even `null`).
+  const rowOwnsProbe = externalStatus !== undefined;
+  const status = rowOwnsProbe ? externalStatus : internalStatus;
   const [phase, setPhase] = useState<"idle" | "running" | "failed">("idle");
   const [tail, setTail] = useState("");
   const [error, setError] = useState<{ code: string; message: string; stderr?: string } | null>(null);
@@ -59,15 +69,17 @@ export function WorktreeInitButton({ cwd, onInitializeProject }: Props) {
   const reqRef = useRef<string | null>(null);
 
   const refetch = useCallback(() => {
-    return fetchWorktreeInitStatus(cwd).then(setStatus);
-  }, [cwd]);
+    if (onStatusChange) { onStatusChange(); return Promise.resolve(); }
+    return fetchWorktreeInitStatus(cwd).then(setInternalStatus);
+  }, [cwd, onStatusChange]);
 
-  // Lazy per-row probe.
+  // Lazy per-row probe — skipped when the row owns the shared probe.
   useEffect(() => {
+    if (rowOwnsProbe) return;
     let alive = true;
-    fetchWorktreeInitStatus(cwd).then((s) => { if (alive) setStatus(s); });
+    fetchWorktreeInitStatus(cwd).then((s) => { if (alive) setInternalStatus(s); });
     return () => { alive = false; };
-  }, [cwd]);
+  }, [cwd, rowOwnsProbe]);
 
   // Stream progress while a run is in flight.
   useEffect(() => {
@@ -117,26 +129,6 @@ export function WorktreeInitButton({ cwd, onInitializeProject }: Props) {
   // gate hasn't run server-side, so `needsInit` is unknown until the user
   // confirms trust). See change: generalize-worktree-init-hook (#10).
   const showButton = !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
-
-  // Polymorphic no-hook branch: an unconfigured directory (no worktreeInit
-  // hook) shows an Initialize button that spawns the interactive project-init
-  // scaffolder instead of running a hook. See change: project-init-skill-and-profiles.
-  const showProjectInit = !!status && status.hasHook === false && !!onInitializeProject;
-  if (showProjectInit) {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); onInitializeProject?.(cwd); }}
-        data-testid="project-init-btn"
-        className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
-        title={i18nT("auto.initialize_this_directory_scaffold_a", undefined, "Initialize this directory (scaffold a pi project)")}
-      >
-        <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiCogPlayOutline} size={0.5} />
-          Initialize
-        </span>
-      </button>
-    );
-  }
 
   if (!showButton && phase !== "failed" && phase !== "running") return null;
 

@@ -9,10 +9,10 @@
  * See change: add-goals-folder-page (tasks 3.x / 4.x).
  */
 import type {
-  GoalRecord,
-  GoalCriterion,
   GoalBudget,
+  GoalCriterion,
   GoalJudge,
+  GoalRecord,
   GoalRecordStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -72,7 +72,7 @@ export async function fetchGoals(cwd: string, signal?: AbortSignal): Promise<Goa
 
 export async function createGoal(
   cwd: string,
-  body: { objective: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge },
+  body: { objective: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; autoRespawn?: boolean },
 ): Promise<GoalRecord> {
   const res = await fetch(url(cwd), {
     method: "POST",
@@ -85,7 +85,7 @@ export async function createGoal(
 export async function updateGoal(
   cwd: string,
   id: string,
-  body: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus },
+  body: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus; autoRespawn?: boolean },
 ): Promise<GoalRecord> {
   const res = await fetch(url(cwd, `/${encodeURIComponent(id)}`), {
     method: "PATCH",

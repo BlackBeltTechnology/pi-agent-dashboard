@@ -26,8 +26,8 @@ import type {
   Visibility,
 } from "../shared/automation-types.js";
 import {
-  ActionRegistry,
   type ActionCompletion,
+  type ActionRegistry,
   createActionRegistryWithBuiltins,
   normalizeActionKind,
 } from "./action-registry.js";
@@ -35,8 +35,8 @@ import { fileTrigger } from "./file-trigger.js";
 import { interpolate } from "./interpolate.js";
 import { resolveModel } from "./model-resolver.js";
 import {
-  finishRun as storeFinishRun,
   listStaleRunningRuns,
+  finishRun as storeFinishRun,
   startRun as storeStartRun,
 } from "./run-store.js";
 import { createRunner, type Runner } from "./runner.js";
@@ -169,7 +169,7 @@ export interface EngineDeps {
    * false when untrusted/nothing targeted. See change:
    * fix-automation-stop-zombie-runs.
    */
-  abortAutomationRun?: (args: {
+  abortSpawnedRun?: (args: {
     sessionId?: string;
     spawnToken?: string;
     graceful?: boolean;
@@ -555,8 +555,8 @@ export function createEngine(deps: EngineDeps): Engine {
       // is a surviving pi, not a stuck turn). Kills by sessionId when linked,
       // else by spawnToken (the spawn→register window). Attempt the kill
       // BEFORE finalizing so we never finalize a still-running process.
-      if (deps.abortAutomationRun) {
-        await deps.abortAutomationRun({
+      if (deps.abortSpawnedRun) {
+        await deps.abortSpawnedRun({
           ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
           ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
         });
@@ -584,8 +584,8 @@ export function createEngine(deps: EngineDeps): Engine {
       // via the kill ladder in the host hook. Runs AFTER removePending so any
       // self-triggered end signal is a no-op (idempotent). Fire-and-forget —
       // finalization already happened. See change: fix-automation-stop-zombie-runs.
-      if (deps.abortAutomationRun) {
-        void deps.abortAutomationRun({
+      if (deps.abortSpawnedRun) {
+        void deps.abortSpawnedRun({
           sessionId,
           ...(spawnToken ? { spawnToken } : {}),
           graceful: true,
@@ -615,8 +615,8 @@ export function createEngine(deps: EngineDeps): Engine {
       // The session is already gone (WS closed / heartbeat expired). Best-effort
       // hard-kill any surviving process so a hung rpc session cannot linger.
       // Runs after removePending, so a later end signal is a no-op (idempotent).
-      if (deps.abortAutomationRun) {
-        void deps.abortAutomationRun({ sessionId, ...(spawnToken ? { spawnToken } : {}) });
+      if (deps.abortSpawnedRun) {
+        void deps.abortSpawnedRun({ sessionId, ...(spawnToken ? { spawnToken } : {}) });
       }
       log(`[engine] run ${found.runId} finalized on session death (${found.key})`);
     },

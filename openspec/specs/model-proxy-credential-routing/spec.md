@@ -1,7 +1,7 @@
 # model-proxy-credential-routing Specification
 
 ## Purpose
-TBD - created by archiving change filter-oauth-incompatible-models. Update Purpose after archive.
+Rules for matching pi-ai models against the active credential set per provider: OAuth-vs-api-key routability, the hand-maintained per-model `oauthCompatible` override table, and a diagnostic surface exposing why each model is included in or excluded from `/v1/models`.
 ## Requirements
 ### Requirement: Credential-kind aware model filtering
 
@@ -40,6 +40,11 @@ Each model entry in the registry SHALL carry an optional `oauthCompatible: boole
 #### Scenario: Built-in model not in override table defaults to compatible
 - **WHEN** a built-in model id is not present in the override table
 - **THEN** its registry entry SHALL have `oauthCompatible: true` (or omitted, treated as `true`)
+
+#### Scenario: Legacy `-latest` alias in the live catalog stays denied under OAuth
+- **WHEN** the registry's live catalog contains `anthropic/claude-3-5-haiku-latest` (a pre-4.x alias) and only an Anthropic OAuth credential is configured
+- **THEN** the override table SHALL flag it `oauthCompatible: false` and `/v1/models` SHALL NOT list it
+- **NOTE** the override table is maintained against the registry's *live* catalog (the pi-ai copy the proxy resolves via the tool registry) — NOT a standalone `node_modules` enumeration; the two can differ. Verify entries via `GET /api/model-proxy/diagnostics`.
 
 #### Scenario: Custom model can opt out via models.json
 - **WHEN** a custom model entry in `~/.pi/agent/models.json` sets `"oauthCompatible": false`

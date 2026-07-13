@@ -1,5 +1,33 @@
 ## ADDED Requirements
 
+### Requirement: Folder list mode setting (Classic default)
+
+The dashboard SHALL expose a global setting `folderListMode: "classic" | "accordion"` persisted in the server config, defaulting to `"classic"`. A secondary setting `folderAttentionPeek: boolean` SHALL default to `true`.
+
+When `folderListMode` is `"classic"`, the sidebar SHALL render exactly as it did before this change: the focus-driven derivation (`activeCwd`, render-mode resolution, header-body focus split) SHALL NOT apply, and folders SHALL follow the existing binary `collapsedGroups` toggle only. When `folderListMode` is `"accordion"`, the focus-driven behavior in the requirements below SHALL apply.
+
+The config parser SHALL fall back to `"classic"` for any unrecognized `folderListMode` value.
+
+#### Scenario: Classic is the default
+- **WHEN** no `folderListMode` is persisted
+- **THEN** the effective mode SHALL be `"classic"` and the sidebar SHALL render with today's binary-collapse behavior unchanged
+
+#### Scenario: Classic mode ignores focus
+- **WHEN** `folderListMode` is `"classic"` and a session in folder `/foo` is selected
+- **THEN** no folder SHALL be treated as focused and every folder SHALL follow its `collapsedGroups` state only
+
+#### Scenario: Accordion enables focus-driven rendering
+- **WHEN** `folderListMode` is `"accordion"`
+- **THEN** the active-folder derivation and render-mode resolution SHALL govern folder rendering
+
+#### Scenario: Unknown mode falls back to Classic
+- **WHEN** the persisted `folderListMode` is an unrecognized string
+- **THEN** the parser SHALL yield `"classic"`
+
+#### Scenario: Attention peek off forces compact-empty
+- **WHEN** `folderListMode` is `"accordion"` and `folderAttentionPeek` is `false`
+- **THEN** every unfocused, non-user-expanded folder SHALL render `compactEmpty` regardless of attention state
+
 ### Requirement: Active folder derivation
 
 The session sidebar SHALL maintain a single `activeCwd: string | null` value derived from two inputs:
@@ -56,7 +84,7 @@ The chevron handler SHALL call `event.stopPropagation()` to prevent the header-b
 
 ### Requirement: User-expanded override set
 
-A second persisted set `userExpanded: Set<cwd>` SHALL exist alongside the existing `collapsedGroups`. Helper module `packages/client/src/lib/user-expanded-groups.ts` SHALL mirror the API of `collapsed-groups.ts` (`getUserExpanded`, `setUserExpanded`, `pruneStaleUserExpanded`) and SHALL store the set under localStorage key `folder.userExpanded` as a JSON array of cwd strings.
+A second persisted set `userExpanded: Set<cwd>` SHALL exist alongside the existing `collapsedGroups`. Helper module `packages/client/src/lib/user-expanded-groups.ts` SHALL mirror the collapsed-group helpers in `packages/client/src/lib/session-filter-storage.ts` (`getUserExpanded`, `setUserExpanded`, `pruneStaleUserExpanded`) and SHALL store the set under localStorage key `folder.userExpanded` as a JSON array of cwd strings.
 
 When a folder's `cwd` is in `userExpanded`, the folder SHALL render in expanded form (full session list) regardless of `activeCwd` or `collapsedGroups` state. Removing a folder from `userExpanded` SHALL be available via the chevron control.
 
@@ -80,7 +108,7 @@ The set SHALL be pruned of stale `cwd` entries on the same trigger as `pruneStal
 
 ### Requirement: Render-mode resolution
 
-Each folder group SHALL be rendered in one of five modes computed by pure helper `resolveGroupRenderMode({focused, collapsed, userExpanded, hasAttention}) → "expandedFull" | "expandedToggleHidden" | "compactWithAttention" | "compactEmpty"` defined in `packages/client/src/lib/folder-focus.ts`.
+Each folder group SHALL be rendered in one of four modes computed by pure helper `resolveGroupRenderMode({focused, collapsed, userExpanded, hasAttention}) → "expandedFull" | "expandedToggleHidden" | "compactWithAttention" | "compactEmpty"` defined in `packages/client/src/lib/folder-focus.ts`.
 
 The resolution table SHALL be:
 

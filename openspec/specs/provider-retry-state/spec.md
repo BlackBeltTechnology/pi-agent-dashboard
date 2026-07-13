@@ -117,18 +117,22 @@ A session card in the sidebar SHALL render an amber pulsing status dot when its 
 
 ### Requirement: Bridge synthesizes auto_retry_start from observed message_end
 
-The bridge SHALL maintain a per-session retry tracker. When pi emits `message_end` whose `message.role === "assistant"` AND `message.stopReason === "error"` AND `message.errorMessage` matches the pi-coding-agent retryable pattern (`overloaded`, `rate.?limit`, `too many requests`, `429`, `5\d\d`, `service.?unavailable`, `network.?error`, `connection.?error`, `connection.?(refused|lost)`, `fetch failed`, `socket hang up`, `terminated`, `timeout`, `retry delay` etc.), the bridge SHALL forward an additional synthesized `event_forward` with `eventType: "auto_retry_start"` and `data: { attempt: <1-based counter>, maxAttempts: -1, delayMs: -1, errorMessage: <observed errorMessage> }`. The synthesized event SHALL be forwarded immediately after the original `message_end`. The session SHALL be marked as in retry until cleared.
+The bridge SHALL maintain a per-session retry tracker. Retry detection SHALL be derived from OBSERVED pi behavior, NOT from a regex classifier. The bridge SHALL NOT test any `RETRYABLE_PATTERN` / copy of pi's internal `_isRetryableError`.
 
-`maxAttempts: -1` and `delayMs: -1` are sentinels: pi does not expose its retry settings to extensions, so the dashboard SHALL render an indeterminate "retrying…" UI instead of a countdown.
+Rule: when pi emits `message_end` whose `message.role === "assistant"` AND `message.stopReason === "error"`, the bridge SHALL record a pending failure for the session (it does NOT yet know whether pi will retry). When pi subsequently emits a fresh assistant `message_start` for the same agent turn (i.e. before any `agent_end` for that turn and with no intervening user prompt), that observed new attempt SHALL cause the bridge to forward a synthesized `event_forward` with `eventType: "auto_retry_start"` and `data: { attempt: <1-based observed-attempt counter>, maxAttempts: -1, delayMs: -1, errorMessage: <observed errorMessage> }`. The session SHALL be marked as in retry until cleared.
 
-#### Scenario: Retryable assistant error triggers synthesized auto_retry_start
-- **WHEN** the bridge forwards a `message_end` with `message: { role: "assistant", stopReason: "error", errorMessage: "rate limit exceeded" }`
-- **THEN** the bridge SHALL also forward an `event_forward` with `event.eventType === "auto_retry_start"`
-- **AND** the synthesized event SHALL have `data.attempt >= 1`, `data.maxAttempts === -1`, `data.delayMs === -1`, `data.errorMessage === "rate limit exceeded"`
+`maxAttempts: -1` and `delayMs: -1` are sentinels: pi does not expose its retry settings to extensions, so the dashboard SHALL render an indeterminate "retrying…" UI instead of a countdown. During pi's backoff sleep (before the next `message_start`), the surface SHALL show the error without a "retrying…" sub-line; the sub-line appears when the next attempt is observed.
 
-#### Scenario: Non-retryable assistant error does NOT synthesize
-- **WHEN** the bridge forwards a `message_end` with `errorMessage: "prompt is too long: 300000 tokens > 200000 maximum"` (context overflow, not retryable)
-- **THEN** no synthesized `auto_retry_start` SHALL be emitted
+#### Scenario: Observed new attempt after an error triggers synthesized auto_retry_start
+- **GIVEN** the bridge forwarded a `message_end` with `message: { role: "assistant", stopReason: "error", errorMessage: "overloaded" }` (pending failure recorded)
+- **WHEN** the bridge observes a fresh assistant `message_start` for the same agent turn with no intervening user prompt
+- **THEN** the bridge SHALL forward an `event_forward` with `event.eventType === "auto_retry_start"`
+- **AND** the synthesized event SHALL have `data.attempt >= 1`, `data.maxAttempts === -1`, `data.delayMs === -1`, `data.errorMessage === "overloaded"`
+
+#### Scenario: No regex gate on the error message
+- **GIVEN** the bridge forwarded a `message_end` with `errorMessage: "prompt is too long: 300000 tokens > 200000 maximum"` (a string pi will NOT retry)
+- **WHEN** no fresh assistant `message_start` follows (pi ends the turn with `agent_end` error)
+- **THEN** NO `auto_retry_start` SHALL be synthesized (because no new attempt was observed, NOT because a regex rejected the string)
 
 #### Scenario: Successful assistant message_end clears retry tracker and synthesizes auto_retry_end
 - **GIVEN** the bridge previously synthesized `auto_retry_start` for session X
@@ -209,114 +213,6 @@ The scheduler and latch SHALL both cancel/clear if the bridge is unloaded or a n
 - **WHEN** `agent_end` arrives and the bridge flips `isAgentStreaming` to `false`
 - **THEN** the next scheduler tick SHALL observe the transition AND clear the interval
 - **AND** no further scheduler-driven `cachedCtx.abort()` calls SHALL be made
-
-### Requirement: Bridge auto-aborts session on USAGE_LIMIT_PATTERN match in message_end
-
-When the bridge observes a `message_end` event whose `message.role === "assistant"`, `message.stopReason === "error"`, and `message.errorMessage` matches `USAGE_LIMIT_PATTERN` (imported from `packages/shared/src/error-patterns.ts`), the bridge SHALL:
-
-1. Invoke `cachedCtx.abort()` synchronously — this prevents pi from entering its retry sleep for a terminal billing/quota error that will not resolve regardless of retry attempts.
-2. Forward a synthesized `auto_retry_end { success: false, attempt: -1, finalError: <errorMessage> }` event. This routes the unified `SessionBanner` directly to the `limit-exceeded` variant carrying the real provider error.
-
-The auto-abort SHALL run BEFORE the bridge's existing `retryTracker.observeMessageEnd` synth logic. If `RETRYABLE_PATTERN` would also have matched the same `errorMessage` (e.g. providers that emit `"429: usage_limit_reached"`), the `USAGE_LIMIT_PATTERN` branch wins and the retry chain SHALL NOT start.
-
-#### Scenario: Terminal usage-limit error aborts immediately on message_end
-- **WHEN** the bridge processes a `message_end` with `message: { role: "assistant", stopReason: "error", errorMessage: "monthly_spending_cap exceeded for project X" }`
-- **THEN** the bridge SHALL invoke `cachedCtx.abort()` synchronously
-- **AND** the bridge SHALL forward `event_forward { event: { eventType: "auto_retry_end", data: { success: false, attempt: -1, finalError: "monthly_spending_cap exceeded for project X" } } }`
-- **AND** no synthesized `auto_retry_start` SHALL be emitted for this message_end
-- **AND** the dashboard SHALL render the `limit-exceeded` variant
-
-#### Scenario: Transient rate-limit still retries
-- **WHEN** the bridge processes a `message_end` with `errorMessage: "429: rate_limit; try again in 30s"` (matches `RETRYABLE_PATTERN` but NOT `USAGE_LIMIT_PATTERN`)
-- **THEN** the bridge SHALL NOT invoke `cachedCtx.abort()`
-- **AND** the bridge SHALL synthesize and forward `auto_retry_start` as today
-- **AND** the dashboard SHALL render the `retrying` variant
-
-#### Scenario: Combined string (429 + usage_limit) hard-stops
-- **WHEN** the bridge processes a `message_end` with `errorMessage: "429: usage_limit_reached — monthly quota"`
-- **AND** the string matches BOTH `RETRYABLE_PATTERN` (via "429") AND `USAGE_LIMIT_PATTERN` (via "usage_limit_reached")
-- **THEN** `USAGE_LIMIT_PATTERN` SHALL take precedence
-- **AND** the bridge SHALL invoke `cachedCtx.abort()` AND forward the terminal `auto_retry_end{success:false, finalError}`
-
-### Requirement: Bridge synthesizes auto_retry_end on agent_end USAGE_LIMIT match outside retry chain
-
-When the bridge processes an `agent_end` event whose terminal assistant message has `stopReason: "error"` AND `errorMessage` matches `USAGE_LIMIT_PATTERN`, the bridge SHALL forward a synthesized `auto_retry_end { success: false, attempt: -1, finalError: <errorMessage> }` BEFORE forwarding the `agent_end` — **regardless of whether the orderer's pending flag is set**.
-
-This extends the existing "Bridge usage-limit orderer cleans retry-banner → error-banner transition" requirement to also cover the first-attempt-terminal case (where no `auto_retry_start` was ever fired because `RETRYABLE_PATTERN` did not match). Without this requirement, first-attempt terminal billing errors would surface as the generic `error` banner variant instead of `limit-exceeded`.
-
-The orderer's existing `maybeSynthesize` covers the case where a retry chain WAS in flight; this requirement covers the case where it WASN'T. The two paths SHALL be mutually exclusive (if `maybeSynthesize` returned a non-null synth, this branch SHALL NOT also fire).
-
-#### Scenario: First-attempt terminal error routes to limit-exceeded variant
-- **GIVEN** the orderer's `pending` flag is false for the session (no retry chain ever started)
-- **WHEN** `agent_end` arrives with `messages[last]: { stopReason: "error", errorMessage: "insufficient_quota" }`
-- **THEN** the bridge SHALL forward `event_forward { event: { eventType: "auto_retry_end", data: { success: false, attempt: -1, finalError: "insufficient_quota" } } }` BEFORE forwarding the `agent_end`
-- **AND** the dashboard's `lastError` SHALL be set via the auto_retry_end arm to `"insufficient_quota"`
-- **AND** the unified `SessionBanner` SHALL render the `limit-exceeded` variant
-
-#### Scenario: Non-USAGE_LIMIT agent_end error does NOT route to limit-exceeded
-- **GIVEN** the orderer's `pending` flag is false for the session
-- **WHEN** `agent_end` arrives with `messages[last]: { stopReason: "error", errorMessage: "tool execution failed: file not found" }`
-- **THEN** no synthesized `auto_retry_end` SHALL be emitted from this branch
-- **AND** the existing `agent_end` reducer arm SHALL set `lastError` to `"tool execution failed: file not found"`
-- **AND** the unified `SessionBanner` SHALL render the `error` variant (not `limit-exceeded`)
-
-#### Scenario: When orderer.maybeSynthesize already fired, this branch does not double-fire
-- **GIVEN** the orderer's `pending` flag was true (retry chain in flight)
-- **WHEN** `agent_end` arrives with `errorMessage` matching `USAGE_LIMIT_PATTERN`
-- **THEN** the bridge SHALL forward the orderer's synth (existing behavior)
-- **AND** this new branch SHALL NOT additionally synthesize a second `auto_retry_end` for the same `agent_end`
-
-### Requirement: Bridge usage-limit orderer cleans retry-banner → error-banner transition
-
-When the bridge observes an `agent_end` event whose terminal assistant message has `stopReason: "error"` and an `errorMessage` matching the broadened usage-limit pattern, AND the retry tracker reports an in-flight synthesized retry for that session, the bridge SHALL forward a synthesized `auto_retry_end { success: false, attempt: -1, finalError: <errorMessage> }` BEFORE forwarding the `agent_end` event.
-
-The broadened pattern SHALL match all of the following terminal billing/quota error categories observed in production:
-
-```
-/usage[_ ]limit[_ ]reached
- |usage_not_included
- |insufficient_quota
- |credit[_ ]balance
- |quota[_ ]exceeded
- |resource[_ ]exhausted
- |monthly[_ ]limit
- |monthly[_ ]spending[_ ]cap
- |hourly[_ ]limit
- |daily[_ ]limit
- |spending[_ ]cap
- |exceeded[^"]{0,40}(quota|cap|spending)
- |reset after \d+[hms]/i
-```
-
-This SHALL NOT change pi-coding-agent's retry decisions; it only ensures the dashboard's `retryState` clears before `lastError` is set, avoiding a transient frame where both retry-banner and error-banner are visible.
-
-#### Scenario: Usage-limit terminal error orders synthetic end before agent_end
-- **GIVEN** the retry tracker reports an in-flight synthesized retry for session X
-- **WHEN** an `agent_end` event arrives whose last message has `stopReason: "error"` and `errorMessage: "usage_limit_reached: 5000 RPM exceeded"`
-- **THEN** the bridge SHALL forward a synthesized `auto_retry_end` with `success: false` and the error string
-- **AND** the bridge SHALL forward the original `agent_end` immediately after
-
-#### Scenario: Gemini monthly-spending-cap error matches broadened pattern
-- **GIVEN** the retry tracker reports an in-flight synthesized retry for session X
-- **WHEN** an `agent_end` event arrives whose last message has `stopReason: "error"` and `errorMessage` containing `"Your project has exceeded its monthly spending cap"` and `"RESOURCE_EXHAUSTED"` and HTTP code `429`
-- **THEN** the bridge SHALL forward a synthesized `auto_retry_end` with `success: false` and the full error string
-- **AND** the bridge SHALL forward the original `agent_end` immediately after
-
-#### Scenario: OpenAI insufficient_quota matches broadened pattern
-- **GIVEN** the retry tracker reports an in-flight synthesized retry for session X
-- **WHEN** an `agent_end` event arrives whose last message has `errorMessage` containing `"insufficient_quota"`
-- **THEN** the bridge SHALL forward a synthesized `auto_retry_end` with `success: false`
-
-#### Scenario: Anthropic credit-balance error matches broadened pattern
-- **GIVEN** the retry tracker reports an in-flight synthesized retry for session X
-- **WHEN** an `agent_end` event arrives whose last message has `errorMessage` containing `"credit balance"` (e.g. `"Your credit balance is too low to access the API"`)
-- **THEN** the bridge SHALL forward a synthesized `auto_retry_end` with `success: false`
-
-#### Scenario: Non-usage-limit error skips synthesis
-- **GIVEN** an `agent_end` arrives with `errorMessage: "tool execution failed"`
-- **WHEN** the bridge processes it
-- **THEN** no synthesized `auto_retry_end` SHALL be emitted
-- **AND** the `agent_end` SHALL be forwarded unchanged
 
 ### Requirement: Bridge wire-ordering invariant for synthesized retry events
 

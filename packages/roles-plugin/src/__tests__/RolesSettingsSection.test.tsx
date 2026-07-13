@@ -28,6 +28,7 @@ import {
   inferProviderForBareId,
   computeEffectiveRoles,
   computeDirtyRoles,
+  computeRoleGroups,
 } from "../RolesSettingsSection.js";
 
 /**
@@ -303,6 +304,258 @@ describe("BuiltInRolesSettings", () => {
       expect(
         computeDirtyRoles({ a: "x", b: "y" }, { a: "x2", b: "y2" }).sort(),
       ).toEqual(["a", "b"]);
+    });
+  });
+
+  describe("computeRoleGroups", () => {
+    const BUILTINS = ["planning", "coding", "compact", "fast", "vision", "research"];
+
+    it("splits union of rolesMap+pending into built-in vs custom", () => {
+      const groups = computeRoleGroups(
+        { planning: "a/b", coding: "", review: "c/d" },
+        {},
+        BUILTINS,
+      );
+      expect(groups.builtin).toEqual(["planning", "coding"]);
+      expect(groups.custom).toEqual(["review"]);
+    });
+
+    it("orders built-ins by builtinRoleNames, not by rolesMap order", () => {
+      const groups = computeRoleGroups({ fast: "", planning: "" }, {}, BUILTINS);
+      expect(groups.builtin).toEqual(["planning", "fast"]);
+    });
+
+    it("sorts custom names stably (alphabetical)", () => {
+      const groups = computeRoleGroups({ zeta: "", alpha: "" }, {}, BUILTINS);
+      expect(groups.custom).toEqual(["alpha", "zeta"]);
+    });
+
+    it("includes a pending-only custom name in custom", () => {
+      const groups = computeRoleGroups(
+        { planning: "" },
+        { "doubt-verifier-1": "anthropic/haiku" },
+        BUILTINS,
+      );
+      expect(groups.builtin).toEqual(["planning"]);
+      expect(groups.custom).toEqual(["doubt-verifier-1"]);
+    });
+
+    it("dedupes a name present in both rolesMap and pending", () => {
+      const groups = computeRoleGroups(
+        { review: "a/b" },
+        { review: "c/d" },
+        BUILTINS,
+      );
+      expect(groups.custom).toEqual(["review"]);
+    });
+
+    it("treats everything as custom when builtinRoleNames is empty", () => {
+      const groups = computeRoleGroups({ planning: "", coding: "" }, {}, []);
+      expect(groups.builtin).toEqual([]);
+      expect(groups.custom).toEqual(["coding", "planning"]);
+    });
+  });
+
+  describe("built-in / custom grouping (render)", () => {
+    const groupedConfig = {
+      roles: { planning: "anthropic/opus", coding: "", review: "openai/gpt-4o" },
+      presets: [],
+      activePreset: null,
+      builtinRoleNames: ["planning", "coding", "compact", "fast", "vision", "research"],
+      models: [{ provider: "openai", id: "gpt-4o" }],
+    };
+
+    it("renders labelled Built-in and Custom groups", () => {
+      seedConfig(groupedConfig);
+      const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+      expect(getByTestId("roles-group-builtin")).toBeTruthy();
+      expect(getByTestId("roles-group-custom")).toBeTruthy();
+      // review is custom; planning is built-in
+      expect(getByTestId("roles-group-custom").textContent).toContain("review");
+      expect(getByTestId("roles-group-builtin").textContent).toContain("planning");
+    });
+
+    it("renders an existing custom role under the custom group", () => {
+      seedConfig(groupedConfig);
+      const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+      expect(getByTestId("roles-row-review")).toBeTruthy();
+    });
+  });
+
+  describe("add custom role flow", () => {
+    const groupedConfig = {
+      roles: { planning: "anthropic/opus", review: "openai/gpt-4o" },
+      presets: [],
+      activePreset: null,
+      builtinRoleNames: ["planning", "coding", "compact", "fast", "vision", "research"],
+      models: [
+        { provider: "anthropic", id: "claude-3-7-sonnet" },
+        { provider: "openai", id: "gpt-4o" },
+      ],
+    };
+
+    it("reveals a name input, validates live, opens picker, stages pending, no dispatch", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+      fireEvent.click(getByTestId("roles-add-custom"));
+      const input = getByTestId("roles-add-custom-input") as HTMLInputElement;
+
+      // Invalid name → ✗ hint + disabled confirm.
+      fireEvent.change(input, { target: { value: "bad/name" } });
+      expect(getByTestId("roles-add-custom-hint")).toBeTruthy();
+      expect((getByTestId("roles-add-custom-confirm") as HTMLButtonElement).disabled).toBe(true);
+
+      // Collision with a built-in → still invalid.
+      fireEvent.change(input, { target: { value: "planning" } });
+      expect((getByTestId("roles-add-custom-confirm") as HTMLButtonElement).disabled).toBe(true);
+
+      // Valid name → confirm enabled.
+      fireEvent.change(input, { target: { value: "doubt-verifier-1" } });
+      expect((getByTestId("roles-add-custom-confirm") as HTMLButtonElement).disabled).toBe(false);
+
+      // Enter opens the model picker scoped to the new name.
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(getByTestId("roles-model-picker").textContent).toContain("doubt-verifier-1");
+
+      // Selecting a model stages pending; NO dispatch yet.
+      fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
+      expect(send.messages).toEqual([]);
+
+      // New pill renders in the custom group with a dirty marker.
+      expect(getByTestId("roles-row-doubt-verifier-1")).toBeTruthy();
+      expect(getByTestId("roles-row-doubt-verifier-1-dirty")).toBeTruthy();
+      expect(getByTestId("roles-group-custom").textContent).toContain("doubt-verifier-1");
+    });
+
+    it("unified Save flushes one role_set carrying the full provider/id", async () => {
+      const send = makeSend();
+      const sources = new Map<string, RegisteredSource>();
+      seedConfig(groupedConfig);
+      const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn, sources));
+      fireEvent.click(getByTestId("roles-add-custom"));
+      const input = getByTestId("roles-add-custom-input") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "doubt-verifier-x" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.click(getByTestId("roles-model-option-anthropic/claude-3-7-sonnet"));
+      await act(async () => { await sources.get("plugin:roles")!.commit(); });
+      expect(send.messages).toHaveLength(1);
+      expect(send.messages[0]).toMatchObject({
+        type: "role_set",
+        role: "doubt-verifier-x",
+        provider: "anthropic",
+        modelId: "anthropic/claude-3-7-sonnet",
+      });
+    });
+
+    it("Escape cancels the add input and stages nothing", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+      fireEvent.click(getByTestId("roles-add-custom"));
+      const input = getByTestId("roles-add-custom-input") as HTMLInputElement;
+      fireEvent.change(input, { target: { value: "scratch" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(queryByTestId("roles-add-custom-input")).toBeNull();
+      expect(queryByTestId("roles-row-scratch")).toBeNull();
+      expect(send.messages).toEqual([]);
+    });
+
+    it("the ✕ cancel button dismisses the input and stages nothing", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+      fireEvent.click(getByTestId("roles-add-custom"));
+      fireEvent.change(getByTestId("roles-add-custom-input"), { target: { value: "scratch" } });
+      fireEvent.click(getByTestId("roles-add-custom-cancel"));
+      expect(queryByTestId("roles-add-custom-input")).toBeNull();
+      expect(send.messages).toEqual([]);
+    });
+  });
+
+  describe("remove custom role", () => {
+    const groupedConfig = {
+      roles: { planning: "anthropic/opus", review: "openai/gpt-4o" },
+      presets: [],
+      activePreset: null,
+      builtinRoleNames: ["planning", "coding", "compact", "fast", "vision", "research"],
+      models: [
+        { provider: "openai", id: "gpt-4o" },
+        { provider: "openai", id: "gpt-4o-mini" },
+      ],
+    };
+
+    it("renders × on custom pills only, never on built-in pills", () => {
+      seedConfig(groupedConfig);
+      const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+      expect(getByTestId("roles-row-review-remove")).toBeTruthy();
+      expect(queryByTestId("roles-row-planning-remove")).toBeNull();
+    });
+
+    it("renders NO × on any pill when builtinRoleNames is empty (old-bridge back-compat)", () => {
+      // Without the built-in set we can't tell built-ins from custom, so per the
+      // "built-ins permanent" decision nothing is removable in flat mode.
+      seedConfig({
+        roles: { planning: "anthropic/opus", review: "openai/gpt-4o" },
+        presets: [],
+        activePreset: null,
+        models: [{ provider: "openai", id: "gpt-4o" }],
+      });
+      const { queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+      expect(queryByTestId("roles-row-review-remove")).toBeNull();
+      expect(queryByTestId("roles-row-planning-remove")).toBeNull();
+    });
+
+    it("clicking × + confirm dispatches role_remove", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const orig = window.confirm;
+      (window as any).confirm = () => true;
+      try {
+        const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+        fireEvent.click(getByTestId("roles-row-review-remove"));
+        expect(send.messages).toEqual([
+          { type: "role_remove", sessionId: "sess-live", role: "review" },
+        ]);
+      } finally {
+        window.confirm = orig;
+      }
+    });
+
+    it("clicking × + cancel dispatches nothing", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const orig = window.confirm;
+      (window as any).confirm = () => false;
+      try {
+        const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+        fireEvent.click(getByTestId("roles-row-review-remove"));
+        expect(send.messages).toEqual([]);
+      } finally {
+        window.confirm = orig;
+      }
+    });
+
+    it("removing drops any staged pending pick for that role", () => {
+      const send = makeSend();
+      seedConfig(groupedConfig);
+      const orig = window.confirm;
+      (window as any).confirm = () => true;
+      try {
+        const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+        // Stage a dirty pending pick on review (different model).
+        fireEvent.click(getByTestId("roles-row-review"));
+        fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o-mini"));
+        expect(getByTestId("roles-row-review-dirty")).toBeTruthy();
+        // Remove → pending dropped; role_remove dispatched.
+        fireEvent.click(getByTestId("roles-row-review-remove"));
+        expect(queryByTestId("roles-row-review-dirty")).toBeNull();
+        expect(send.messages).toEqual([
+          { type: "role_remove", sessionId: "sess-live", role: "review" },
+        ]);
+      } finally {
+        window.confirm = orig;
+      }
     });
   });
 

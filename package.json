@@ -81,6 +81,7 @@
     "pretest:e2e:ui": "node -e \"process.env.PW_CHANNEL||require('child_process').execSync('playwright install chromium',{stdio:'inherit'})\"",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:chrome": "PW_CHANNEL=chrome playwright test",
+    "test:e2e:perf": "PW_PERF=1 PW_CHANNEL=chrome playwright test chat-render-perf",
     "pretest:e2e:electron": "node -e \"const fs=require('fs');if(process.env.PW_ELECTRON_BINARY||fs.existsSync('packages/electron/out')){process.exit(0)}require('child_process').execSync('npm run -w packages/electron package',{stdio:'inherit'})\"",
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
   },
@@ -100,6 +101,7 @@
     "@earendil-works/pi-ai": "^0.75.5",
     "@playwright/test": "1.61.1",
     "jsdom": "^29.0.2",
+    "jsqr": "^1.4.0",
     "patch-package": "^8.0.1",
     "tsx": "^4.21.0",
     "typescript": "^5.7.0",

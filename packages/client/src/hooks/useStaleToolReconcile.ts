@@ -21,7 +21,12 @@
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useEffect, useRef } from "react";
-import { reduceEvent, type SessionState } from "../lib/event-reducer.js";
+import {
+  hasLaterAssistantInference,
+  reduceEvent,
+  type SessionState,
+  synthesizeSupersededEnd,
+} from "../lib/event-reducer.js";
 
 /**
  * A running tool row is considered stale (candidate for reconcile) once it
@@ -39,9 +44,42 @@ export const RECONCILE_POLL_MS = 5_000;
  */
 export const RECONCILE_REARM_MS = 15_000;
 
+/**
+ * Number of reconcile HTTP 404s a row must accrue before the supersede heal is
+ * allowed to finalize it — i.e. the store demonstrably lacks the result. With
+ * `STALE_TOOL_MS` ≈ 25s and `RECONCILE_REARM_MS` ≈ 15s, two 404s land ≈ 40s in,
+ * so a slow tool that eventually returns 200 heals via the base path first and
+ * never reaches the fallback. See change: fix-stuck-tool-card-superseded-heal.
+ */
+export const SUPERSEDE_MIN_404 = 2;
+
 export interface StaleToolRef {
   sessionId: string;
   toolCallId: string;
+}
+
+/**
+ * Pure scan: every still-`running` tool row eligible for the supersede heal —
+ * recovery is exhausted (≥ `min404` reconcile 404s) AND the transcript proves
+ * completion (`hasLaterAssistantInference`). Terminal rows are never returned,
+ * so a superseded/real completion is never re-healed.
+ * See change: fix-stuck-tool-card-superseded-heal.
+ */
+export function selectSupersededHealTargets(
+  sessionStates: Map<string, SessionState>,
+  min404: number,
+  get404: (key: string) => number,
+): StaleToolRef[] {
+  const out: StaleToolRef[] = [];
+  for (const [sessionId, state] of sessionStates) {
+    for (const [toolCallId, tc] of state.toolCalls) {
+      if (tc.status !== "running") continue;
+      if (get404(`${sessionId}:${toolCallId}`) < min404) continue;
+      if (!hasLaterAssistantInference(state, toolCallId)) continue;
+      out.push({ sessionId, toolCallId });
+    }
+  }
+  return out;
 }
 
 /**
@@ -99,14 +137,22 @@ export function useStaleToolReconcile(
 
   const inFlightRef = useRef<Set<string>>(new Set());
   const lastAttemptRef = useRef<Map<string, number>>(new Map());
+  // Per-row cumulative reconcile 404 count (recovery-exhaustion gate for the
+  // supersede heal) and a heal counter for observability (design D5).
+  const count404Ref = useRef<Map<string, number>>(new Map());
+  const supersedeHealCountRef = useRef(0);
 
   useEffect(() => {
     const reconcile = async (sessionId: string, toolCallId: string, key: string) => {
       try {
         const res = await fetch(`${apiBase}/api/sessions/${sessionId}/tool-result/${toolCallId}`);
-        // 404 / in-flight (or the end event was evicted): leave the row
-        // running and re-arm. Never synthesize a completion.
-        if (!res.ok) return;
+        // 404 / in-flight (or the end event was evicted): count it toward the
+        // supersede-exhaustion gate, leave the row running and re-arm. Never
+        // synthesize a completion from THIS (recovery) path.
+        if (!res.ok) {
+          count404Ref.current.set(key, (count404Ref.current.get(key) ?? 0) + 1);
+          return;
+        }
         const body = await res.json().catch(() => ({}));
         const event = synthesizeToolEndEvent(toolCallId, body, Date.now());
         setSessionStates((prev) => {
@@ -140,6 +186,32 @@ export function useStaleToolReconcile(
         inFlightRef.current.add(key);
         lastAttemptRef.current.set(key, now);
         void reconcile(sessionId, toolCallId, key);
+      }
+
+      // Supersede heal (last resort): finalize rows whose recovery is exhausted
+      // (≥ SUPERSEDE_MIN_404 404s) AND whose completion is proven by a later
+      // assistant inference. Runs AFTER the base probe so a real 200 always
+      // wins. See change: fix-stuck-tool-card-superseded-heal.
+      const healTargets = selectSupersededHealTargets(
+        statesRef.current,
+        SUPERSEDE_MIN_404,
+        (k) => count404Ref.current.get(k) ?? 0,
+      );
+      for (const { sessionId, toolCallId } of healTargets) {
+        setSessionStates((prev) => {
+          const current = prev.get(sessionId);
+          if (!current) return prev;
+          // Re-check under the setter: a real `tool_execution_end` may have
+          // raced in; never clobber it.
+          if (current.toolCalls.get(toolCallId)?.status !== "running") return prev;
+          const next = new Map(prev);
+          next.set(sessionId, reduceEvent(current, synthesizeSupersededEnd(toolCallId, Date.now())));
+          return next;
+        });
+        supersedeHealCountRef.current += 1;
+        console.warn(
+          `[supersede-heal] finalized stuck tool ${sessionId}:${toolCallId} — result unrecoverable, superseded by a later inference (total heals: ${supersedeHealCountRef.current})`,
+        );
       }
     };
 

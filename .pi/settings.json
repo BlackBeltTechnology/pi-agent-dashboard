@@ -11,7 +11,7 @@
     "gate": "test ! -d node_modules || test ! -d .pi/skills/openspec-explore || test ! -f .pi/dashboard/kb/index.db",
     "run": {
       "type": "script",
-      "command": "npm ci && npx openspec init --tools pi --force && npm run build --workspace=@blackbelt-technology/pi-dashboard-kb && NODE_OPTIONS=--experimental-sqlite npx kb index"
+      "command": "(npm ci || npm install) && npx @fission-ai/openspec init --tools pi --force && npm run build --workspace=@blackbelt-technology/pi-dashboard-kb && NODE_OPTIONS=--experimental-sqlite npx kb index"
     }
   }
 }

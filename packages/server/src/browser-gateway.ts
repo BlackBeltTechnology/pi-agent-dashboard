@@ -741,6 +741,14 @@ export function createBrowserGateway(
             });
             break;
           }
+          case "role_remove": {
+            ctx.piGateway.sendToSession(msg.sessionId, {
+              type: "role_remove",
+              sessionId: msg.sessionId,
+              role: (msg as any).role,
+            });
+            break;
+          }
           case "request_roles": {
             ctx.piGateway.sendToSession(msg.sessionId, {
               type: "request_roles",

@@ -14,12 +14,13 @@
  * The dashboard owns the durable `GoalRecord`; live loop state stays in the
  * extension, associated by `goalId`. See change: add-goals-folder-page (design.md).
  */
+
+import type { ApiResponse, GoalBudget, GoalCriterion, GoalJudge, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { GoalNotFoundError, type GoalStore } from "../goal-store.js";
 import type { SessionManager } from "../memory-session-manager.js";
 import type { PreferencesStore } from "../preferences-store.js";
 import type { NetworkGuard } from "./route-deps.js";
-import type { ApiResponse, GoalCriterion, GoalBudget, GoalJudge, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { GoalNotFoundError, type GoalStore } from "../goal-store.js";
 
 export interface GoalRoutesDeps {
   sessionManager: SessionManager;
@@ -36,12 +37,37 @@ export interface GoalRoutesDeps {
     goalId: string,
     opts?: { model?: string },
   ) => Promise<{ success: boolean; message?: string }>;
+  /** Supervisor abort: terminal-status-first + generation-guarded + host kill.
+   *  Called for a terminal/pause status change and on delete so an in-flight
+   *  respawn or live driver is stopped before the record is finalized/removed.
+   *  See change: add-goal-session-supervisor. */
+  abortGoalSupervision?: (
+    cwd: string,
+    goalId: string,
+    terminal: { status: GoalRecordStatus; reason?: string },
+  ) => Promise<void>;
 }
 
+/** Statuses that finalize a goal — a PATCH to any of these routes through the
+ *  supervisor abort so an in-flight respawn / live driver is stopped first. */
+const TERMINAL_OR_PAUSED: ReadonlySet<string> = new Set(["paused", "cleared", "achieved", "failed"]);
+
+/** Durable `statusReason` for a supervisor-routed status change. */
+const ABORT_REASON: Record<string, string> = {
+  paused: "paused by user",
+  cleared: "cleared by user",
+  achieved: "achieved",
+  failed: "failed by user",
+};
+
+// Client-settable statuses. `respawning` is EXCLUDED — supervisor-owned; a direct
+// PATCH could persist it without scheduling a respawn timer or aborting the live
+// driver. `failed`/`respawning` still render (statusMeta), they are just not
+// user-settable. See change: add-goal-session-supervisor.
 const VALID_STATUS: ReadonlySet<string> = new Set(["pursuing", "paused", "achieved", "cleared"]);
 
 export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDeps): void {
-  const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession } = deps;
+  const { sessionManager, preferencesStore, networkGuard, store, applyGoalIdToSession, primeGoalSession, spawnGoalSession, abortGoalSupervision } = deps;
 
   function rejectInvalidCwd(reply: FastifyReply, cwd: string | undefined): cwd is undefined {
     if (!cwd) {
@@ -140,7 +166,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
   // ── POST create ──────────────────────────────────────────────
   fastify.post<{
     Querystring: { cwd?: string };
-    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown };
+    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown; autoRespawn?: unknown };
   }>(
     "/api/folders/goals",
     { preHandler: networkGuard },
@@ -168,12 +194,17 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         reply.code(400);
         return { success: false, error: "judge must be { provider, modelId, sameModel? }" } satisfies ApiResponse;
       }
+      if (body.autoRespawn !== undefined && typeof body.autoRespawn !== "boolean") {
+        reply.code(400);
+        return { success: false, error: "autoRespawn must be a boolean" } satisfies ApiResponse;
+      }
       try {
         const created = await store.create(cwd!, {
           objective,
           ...(criteria !== undefined ? { criteria } : {}),
           ...(budget !== undefined ? { budget } : {}),
           ...(judge !== undefined ? { judge } : {}),
+          ...(body.autoRespawn !== undefined ? { autoRespawn: body.autoRespawn } : {}),
         });
         reply.code(201);
         return { success: true, data: created } satisfies ApiResponse;
@@ -187,7 +218,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
   fastify.patch<{
     Params: { id: string };
     Querystring: { cwd?: string };
-    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown; status?: unknown };
+    Body: { objective?: unknown; criteria?: unknown; budget?: unknown; judge?: unknown; status?: unknown; autoRespawn?: unknown };
   }>(
     "/api/folders/goals/:id",
     { preHandler: networkGuard },
@@ -196,7 +227,14 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (rejectInvalidCwd(reply, cwd)) return;
       const { id } = request.params;
       const body = request.body ?? {};
-      const update: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus } = {};
+      const update: { objective?: string; criteria?: GoalCriterion[]; budget?: GoalBudget; judge?: GoalJudge; status?: GoalRecordStatus; autoRespawn?: boolean } = {};
+      if (body.autoRespawn !== undefined) {
+        if (typeof body.autoRespawn !== "boolean") {
+          reply.code(400);
+          return { success: false, error: "autoRespawn must be a boolean" } satisfies ApiResponse;
+        }
+        update.autoRespawn = body.autoRespawn;
+      }
       if (body.objective !== undefined) {
         if (typeof body.objective !== "string") {
           reply.code(400);
@@ -230,6 +268,28 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       }
       if (judge !== undefined) update.judge = judge;
       try {
+        // A finalize/pause status routes through the supervisor: it bumps
+        // `generation` + writes the terminal status SYNCHRONOUSLY, cancels any
+        // pending respawn, then kills the in-flight/live driver — so the record
+        // is never terminal over a still-running process, and the death from
+        // that kill is a no-op. See change: add-goal-session-supervisor (S6).
+        if (update.status !== undefined && TERMINAL_OR_PAUSED.has(update.status) && abortGoalSupervision) {
+          await abortGoalSupervision(cwd!, id, {
+            status: update.status,
+            reason: ABORT_REASON[update.status] ?? "stopped by user",
+          });
+          // Apply any co-submitted non-status fields (status already written).
+          const { status: _omit, ...rest } = update;
+          if (Object.keys(rest).length > 0) {
+            const updated = await store.update(cwd!, id, rest);
+            return { success: true, data: updated } satisfies ApiResponse;
+          }
+          // Re-fetch the finalized record; 404 if it was concurrently deleted
+          // (never a 200 with no data via a masked non-null assertion).
+          const updated = (await store.list(cwd!)).find((g) => g.id === id);
+          if (!updated) throw new GoalNotFoundError(id);
+          return { success: true, data: updated } satisfies ApiResponse;
+        }
         const updated = await store.update(cwd!, id, update);
         return { success: true, data: updated } satisfies ApiResponse;
       } catch (err) {
@@ -247,6 +307,14 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (rejectInvalidCwd(reply, cwd)) return;
       const { id } = request.params;
       try {
+        // Stop any in-flight respawn / live driver before removing the record.
+        // Best-effort: a supervision-abort failure must not block the delete,
+        // but log it rather than swallow silently.
+        if (abortGoalSupervision) {
+          await abortGoalSupervision(cwd!, id, { status: "cleared", reason: "deleted" }).catch((err) =>
+            console.warn(`[goal-routes] abort before delete failed for ${id}:`, err),
+          );
+        }
         const formerSessionIds = await store.delete(cwd!, id);
         for (const sid of formerSessionIds) applyGoalIdToSession(sid, null);
         return { success: true } satisfies ApiResponse;

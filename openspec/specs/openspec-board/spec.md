@@ -16,11 +16,11 @@ The dashboard SHALL provide a full-page OpenSpec board at the overlay route `/fo
 - **THEN** the app SHALL return to the previous folder/session view
 
 ### Requirement: Group columns
-The board SHALL render one column per OpenSpec group plus an always-present `Ungrouped` column. Each column header SHALL show the group color dot, name, change count, a `＋` new-proposal control, a `⚙` manage control, and a drag grip.
+The board SHALL render an always-present `Ungrouped` column first, followed by one column per OpenSpec group in group order. Each column header SHALL show the group color dot, name, change count, a `＋` new-proposal control, a `⚙` manage control, and a drag grip.
 
 #### Scenario: One column per group
 - **WHEN** the cwd has groups `["In flight", "Backlog"]`
-- **THEN** the board SHALL render columns `In flight`, `Backlog`, and `Ungrouped`
+- **THEN** the board SHALL render columns `Ungrouped`, `In flight`, and `Backlog`
 
 #### Scenario: Empty column
 - **WHEN** a group has no changes

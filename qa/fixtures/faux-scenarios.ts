@@ -83,6 +83,22 @@ export function extractDashboardFragment(systemPrompt: string | undefined): stri
   return idx === -1 ? NO_DASHBOARD_CONTEXT_MARKER : sp.slice(idx);
 }
 
+/**
+ * Marker a flow-agent's system prompt embeds so the faux provider can branch
+ * its reply per agent. The synthetic e2e flow's agent `.md` bodies carry
+ * `[[flow-agent:<name>]]`; the `flow-agent-branch` scenario reads it off
+ * `context.systemPrompt` and echoes a per-agent completion line. Keeps the
+ * fixture as pure data + a factory — no per-spec wiring.
+ * See change: add-flow-plugin-e2e-tests.
+ */
+export const FLOW_AGENT_MARKER = /\[\[flow-agent:([\w-]+)\]\]/;
+
+/** Extract the flow-agent name from a system prompt, or `"unknown"` when absent. Pure. */
+export function flowAgentName(systemPrompt: string | undefined): string {
+  const match = FLOW_AGENT_MARKER.exec(systemPrompt ?? "");
+  return match ? match[1] : "unknown";
+}
+
 /** Assertion hints shared across both test layers. */
 export interface ScenarioExpect {
   /** Substring that MUST appear in the streamed assistant text. */
@@ -211,6 +227,83 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
   return steps;
 }
 
+/**
+ * Tail marker for the `scroll-top-heavy` scenario (change: fix-chat-scroll-to-
+ * top-estimate-drift). The scroll-to-top e2e waits for it to know the transcript
+ * settled at the bottom before climbing.
+ */
+export const SCROLL_TOP_HEAVY_TAIL = "scroll-top-heavy complete";
+
+/**
+ * Top-heavy transcript fixture (change: fix-chat-scroll-to-top-estimate-drift,
+ * task 1.1). The LARGEST rows sit near the TOP — a ~16k-char thinking block, a
+ * ~9k-char assistant text, a ~24k-char bash toolResult, and an inline image —
+ * mirroring the reproducing session (biggest rows ~5th-from-top, under-estimated
+ * 10-50x by the OLD static per-role estimate). `trailingTurns` small turns push
+ * them far above the bottom so scrolling up / scroll-to-top must climb past them.
+ * Gates the content-aware estimate + scroll-to-top convergence that jsdom cannot
+ * reproduce (the scroll-timing / async-image-remeasure race). Tail =
+ * SCROLL_TOP_HEAVY_TAIL.
+ */
+function buildScrollTopHeavy(trailingTurns = 40): FauxResponseStep[] {
+  const hugeThinking = "reasoning about the oversized top rows ".repeat(420); // ~16k chars
+  const hugeText = "This assistant reply is deliberately enormous. ".repeat(190); // ~9k chars
+  const steps: FauxResponseStep[] = [
+    // Turn 0: the biggest text rows + a ~24k-char bash toolResult, all near top.
+    fauxAssistantMessage(
+      [
+        fauxThinking(hugeThinking),
+        fauxText(hugeText),
+        fauxToolCall("bash", {
+          command: 'for i in $(seq 1 800); do echo "scroll-top padding line $i xxxxxxxxxxxxxxxxxxxxxxxx"; done',
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+    // Turn 1: an inline image near the top (async <img> decode -> row remeasure).
+    // Reuses the screenshot inliner: bash writes a PNG + echoes its path; the
+    // bridge attaches a type:"image" block.
+    fauxAssistantMessage(
+      [
+        fauxToolCall("bash", {
+          command:
+            `mkdir -p "$HOME/.agent-browser/tmp" && printf %s '${TINY_PNG_B64}' | base64 -d > "$HOME/.agent-browser/tmp/scroll-top-shot.png" && ` +
+            `echo "Screenshot saved: $HOME/.agent-browser/tmp/scroll-top-shot.png"`,
+        }),
+      ],
+      { stopReason: "toolUse" },
+    ),
+  ];
+  for (let i = 0; i < trailingTurns; i++) {
+    steps.push(
+      fauxAssistantMessage(
+        [fauxText(`trailing turn ${i}`), fauxToolCall("bash", { command: `echo trail-${i}` })],
+        { stopReason: "toolUse" },
+      ),
+    );
+  }
+  steps.push(fauxAssistantMessage([fauxText(SCROLL_TOP_HEAVY_TAIL)]));
+  return steps;
+}
+
+/**
+ * Later-inference marker for the supersede-heal e2e. The second scripted
+ * assistant message (a NEW `message_start`) is the proof-of-completion signal
+ * the supersede heal requires. See change: fix-stuck-tool-card-superseded-heal.
+ */
+export const SUPERSEDE_HEAL_MARKER = "supersede-heal follow-up landed";
+
+/**
+ * Completion marker for the `oversized-turn` scenario. The scenario drives a
+ * bash tool call that emits a large multi-KB output — the kind of oversized,
+ * forwarded event that used to OOM-crash the server inside a single
+ * `JSON.stringify` on the broadcast path. The liveness e2e
+ * (`tests/e2e/oversized-event-liveness.spec.ts`) waits for this text to know the
+ * heavy turn settled, then proves the server stayed up and responsive.
+ * See change: bound-subagent-event-serialization.
+ */
+export const OVERSIZED_TURN_MARKER = "oversized-turn complete";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -315,6 +408,25 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "Alpha" },
   },
 
+  // Copy-surfaces round-trip. Streams an assistant message carrying a GFM table
+  // AND a fenced code block so one render exercises all four copy buttons:
+  //   - table "Copy as Markdown" / "Copy as TSV" (TableWrapper, ref-at-click),
+  //   - code-block "Copy code" (CodeBlockWrapper),
+  //   - message "Copy as plain text" (MessageBubble.getPlainText, ref-at-click).
+  // MarkdownContent is React.memo → a completed message renders exactly once, so
+  // the payloads MUST resolve at click time (post-commit) or copy the empty
+  // string. See change: fix-table-copy-empty-clipboard.
+  "copy-surfaces": {
+    script: [
+      fauxAssistantMessage([
+        fauxText(
+          "Here is a table and some code.\n\n| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |\n\n```js\nconst x = 1;\n```",
+        ),
+      ]),
+    ],
+    expect: { text: "Alice" },
+  },
+
   "thinking-text": {
     script: [
       fauxAssistantMessage([
@@ -381,6 +493,28 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "bash" },
   },
+  // Oversized-event liveness driver (change: bound-subagent-event-serialization).
+  // A bash call emits ~8000 numbered lines (~90 KB raw) — a genuinely large
+  // tool-result event that flows through the real ingest → persist → broadcast
+  // (`JSON.stringify`) path. Before the per-event size ceiling, a payload like a
+  // subagent's full timeline crashed the whole server here with a V8 OOM. The
+  // e2e drives this then asserts /api/health stays 200 and a follow-up turn
+  // round-trips (server alive + responsive). Two-step so the agent TERMINATES
+  // after the tool result.
+  "oversized-turn": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("bash", {
+            command: "seq 1 8000 | sed 's/^/OVERSIZED-/'",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(OVERSIZED_TURN_MARKER)]),
+    ],
+    expect: { text: OVERSIZED_TURN_MARKER },
+  },
   // Fix B end-to-end: bash writes a real PNG + echoes its absolute path; the
   // bridge inlines it as a type:"image" block. Two-step so the agent TERMINATES
   // after the tool result (a single-step tool scenario would loop forever in a
@@ -409,6 +543,18 @@ export const SCENARIOS: Record<string, Scenario> = {
     language: "shell",
     code: "echo hi",
   }),
+  // Running-state render fixture (fix-ctx-running-render). A single
+  // `ctx_batch_execute` call carrying `args.commands`; the e2e DROPS the
+  // tool's `tool_execution_end` WS frame so the card stays RUNNING, proving
+  // the args-derived header chip (`▦ N cmds`) + command-list RunningPreview
+  // render mid-run instead of a bare `Running…` + duplicated tool name.
+  "ctx-batch-running": toolScenario("ctx_batch_execute", {
+    commands: [
+      { label: "list files", command: "echo list-files" },
+      { label: "count lines", command: "echo count-lines" },
+    ],
+    queries: ["find the thing"],
+  }),
   "tool-agent": toolScenario("Agent", {
     subagent_type: "Explore",
     description: "find faux usages",
@@ -432,6 +578,21 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "burst complete" },
   },
 
+  // Supersede-heal fixture (fix-stuck-tool-card-superseded-heal). One bash tool
+  // call (inference #1) followed by a plain-text reply (inference #2 → a LATER
+  // assistant message_start = the completion proof). The e2e DROPS the tool's
+  // `tool_execution_end` WS frame (server→browser drop) and 404s the reconcile
+  // route (store eviction), so the card is unrecoverable yet provably finished
+  // → the client supersede heal must finalize it + badge it. Two steps so the
+  // agent terminates after the follow-up text.
+  "stuck-tool-superseded": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo supersede-probe" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText(SUPERSEDE_HEAL_MARKER)]),
+    ],
+    expect: { text: SUPERSEDE_HEAL_MARKER },
+  },
+
   // Long heterogeneous transcript spanning several viewports (Step B e2e gate).
   // Streams ~120 turns of thinking + text + a distinct bash call, so the
   // transcript is long enough to force a >50px scroll-up and to make TanStack
@@ -439,6 +600,28 @@ export const SCENARIOS: Record<string, Scenario> = {
   // virtualize-chat-transcript-tanstack (task 9.1).
   "long-transcript": {
     script: buildLongTranscript(),
+    expect: { text: LONG_TRANSCRIPT_TAIL },
+  },
+
+  // Top-heavy transcript: the biggest rows (16k thinking, 9k text, 24k bash
+  // toolResult, inline image) sit near the TOP, then ~40 small turns. Gates the
+  // content-aware estimate + scroll-to-top convergence (scroll-up must land on
+  // index 0 without the top receding). See change:
+  // fix-chat-scroll-to-top-estimate-drift.
+  "scroll-top-heavy": {
+    script: buildScrollTopHeavy(),
+    expect: { text: SCROLL_TOP_HEAVY_TAIL },
+  },
+
+  // Navigable variant for the scroll-to-TURN e2e. A faux scenario has ONE user
+  // turn, so only turn 0 is ever assigned a turnIndex; its per-turn stat must
+  // stay inside the client's MAX_TURN_STATS=50 window or the TokenStatsBar
+  // butterfly renders no clickable `turn-bar`. 40 turns keeps turn 0's stat
+  // (and its bar) alive while still pushing turn 0 well off-screen (~80 rows
+  // below). Same tail marker. See change: virtualize-chat-transcript-tanstack
+  // (task 9.3 — off-screen scrollToTurn trigger).
+  "long-transcript-nav": {
+    script: buildLongTranscript(40),
     expect: { text: LONG_TRANSCRIPT_TAIL },
   },
 
@@ -504,6 +687,62 @@ export const SCENARIOS: Record<string, Scenario> = {
       ]),
     ],
     expect: { text: "reasoning burst complete" },
+  },
+
+  // ── Flow / subagent scenario family (L3 activation + render) ─────────────
+  // Per-agent branching by system prompt. Each agent in the synthetic e2e flow
+  // carries `[[flow-agent:<name>]]` in its `.md` body; the flow step wires
+  // `task: "[[faux:flow-agent-branch]] …"` so the agent's rendered user message
+  // selects THIS scenario, and the factory reads the agent's systemPrompt marker
+  // to echo a deterministic per-agent completion line. Drives the REAL pi-flows
+  // engine at L3 with agents resolving to faux/faux-1 (via the faux role-preset).
+  //
+  // A pi-flows agent step terminates by calling the guard's `finish` tool. The
+  // finish schema (mirrored from pi-flows' own extensions/flow-engine/testing.ts
+  // `FinishArgs` — NOT imported, per design D2's hermetic-L2 decision) requires
+  // `{ status, summary, files }` PLUS the agent's declared typed outputs (`note`).
+  // A finish MISSING status/summary/files fails the guard schema (isError) so the
+  // finish-latch never fires and the agent loops forever. The tool name is bare
+  // `finish` (pi-flows only mcp__flows__-prefixes for anthropic-messages models;
+  // faux/faux-1's api is `faux`). No explicit stopReason — mirrors `scriptFinish`.
+  // On success the latch aborts the agent, `flow_agent_complete` fires with the
+  // note in typedOutputs, and the flow advances. See change: add-flow-plugin-e2e-tests.
+  "flow-agent-branch": {
+    script: [
+      (context: FauxContext) =>
+        fauxAssistantMessage([
+          fauxToolCall("finish", {
+            status: "complete",
+            summary: `flow-agent ${flowAgentName(context.systemPrompt)} done`,
+            files: [],
+            note: `flow-agent ${flowAgentName(context.systemPrompt)} done`,
+          }),
+        ]),
+    ],
+    expect: { text: "flow-agent" },
+  },
+
+  // Spawns a REAL subagent via the `Agent` tool, then terminates. The spawned
+  // subagent's prompt embeds a `[[faux:plain-text]]` sentinel so it resolves the
+  // plain-text scenario, replies once, and completes — firing the subagent
+  // lifecycle events (`subagents:created/started/completed`) the subagents-plugin
+  // bridge forwards and its inspector renders. Two steps so the PARENT session
+  // terminates after the subagent returns. See change: add-flow-plugin-e2e-tests.
+  "subagent-spawn": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux subagent probe",
+            prompt: "[[faux:plain-text]] run the faux subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("subagent spawn complete")]),
+    ],
+    expect: { text: "subagent spawn complete" },
   },
 
   // ── Client interactive-renderer matrix (one per ask_user method) ────────

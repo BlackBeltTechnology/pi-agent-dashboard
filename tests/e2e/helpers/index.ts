@@ -26,6 +26,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
+  // run through it). Existing app testid on FlowLaunchDialog's Run button — no
+  // new app testid added. See change: add-flow-plugin-e2e-tests.
+  flowLaunchRun: "flow-launch-run",
   // Chat transcript scroller + its scroll-to-bottom button. The scroller testid
   // is a deliberate exception to "do NOT add app testids for E2E": the windowed
   // transcript needs a stable getScrollElement node, and the virtualization
@@ -33,6 +37,10 @@ export const TESTIDS = {
   // virtualize-chat-transcript-tanstack (task 9.2).
   chatScrollContainer: "chat-scroll-container",
   scrollToBottom: "scroll-to-bottom",
+  // Scroll-to-top control, symmetric to scroll-to-bottom. The estimate-drift
+  // e2e reads it to prove scroll-up converges on index 0. See change:
+  // fix-chat-scroll-to-top-estimate-drift.
+  scrollToTop: "scroll-to-top",
   // TokenStatsBar turn bar — clicking it fires scrollToTurn (jump-to-turn
   // affordance the off-screen scrollToTurn e2e drives). data-turn-index carries
   // the turnIndex. See change: virtualize-chat-transcript-tanstack.
@@ -67,7 +75,29 @@ export function byTestId(page: Page, key: keyof typeof TESTIDS): Locator {
 }
 
 /** Navigate to the dashboard root and wait for the shell to mount. */
+// Track pages that already have the first-launch auto-dismiss handler wired, so
+// repeated gotoDashboard calls don't stack duplicate handlers.
+const firstLaunchHandled = new WeakSet<Page>();
+
+/**
+ * On a fresh/wiped container the first-launch display-preset modal renders
+ * ASYNCHRONOUSLY (once display prefs arrive over /ws), and its backdrop then
+ * intercepts every onboarding/sidebar click. A one-shot check races that
+ * render, so register a Playwright locator handler that auto-clicks the modal's
+ * own scoped "Skip" the moment it appears, before any action. Idempotent and
+ * scoped to the first-launch backdrop testid so no unrelated "Skip" is hit.
+ */
+async function armFirstLaunchDismiss(page: Page): Promise<void> {
+  if (firstLaunchHandled.has(page)) return;
+  firstLaunchHandled.add(page);
+  const backdrop = page.getByTestId("first-launch-display-backdrop");
+  await page.addLocatorHandler(backdrop, async () => {
+    await backdrop.getByRole("button", { name: /^skip$/i }).click();
+  });
+}
+
 export async function gotoDashboard(page: Page): Promise<void> {
+  await armFirstLaunchDismiss(page);
   await page.goto("/");
   await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
 }

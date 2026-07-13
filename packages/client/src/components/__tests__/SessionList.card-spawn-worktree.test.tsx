@@ -134,3 +134,37 @@ describe("SessionList — card +Worktree routing (session-card-plus-session-butt
     expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
   });
 });
+
+describe("SessionList — +Worktree isGitRepo gate (gate-session-worktree-button-on-git)", () => {
+  // Card button (`session-card-spawn-worktree`).
+  it("card +Worktree ABSENT when isGitRepo === false (confirmed non-git)", () => {
+    renderList(makeSession({ isGitRepo: false }));
+    expect(screen.queryByTestId("session-card-spawn-worktree")).toBeNull();
+  });
+
+  it("card +Worktree PRESENT when isGitRepo === true", () => {
+    renderList(makeSession({ isGitRepo: true }));
+    expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
+  });
+
+  it("card +Worktree PRESENT when isGitRepo === undefined (unknown / legacy — no regression)", () => {
+    renderList(makeSession({ isGitRepo: undefined }));
+    expect(screen.getByTestId("session-card-spawn-worktree")).toBeTruthy();
+  });
+
+  // Folder-header button (`folder-spawn-worktree-btn`).
+  it("folder-header +Worktree ABSENT when the only session is isGitRepo === false", () => {
+    renderList(makeSession({ isGitRepo: false }));
+    expect(screen.queryByTestId("folder-spawn-worktree-btn")).toBeNull();
+  });
+
+  it("folder-header +Worktree PRESENT when isGitRepo === true", () => {
+    renderList(makeSession({ isGitRepo: true }));
+    expect(screen.getByTestId("folder-spawn-worktree-btn")).toBeTruthy();
+  });
+
+  it("folder-header +Worktree PRESENT when isGitRepo === undefined (unknown / legacy — no regression)", () => {
+    renderList(makeSession({ isGitRepo: undefined }));
+    expect(screen.getByTestId("folder-spawn-worktree-btn")).toBeTruthy();
+  });
+});

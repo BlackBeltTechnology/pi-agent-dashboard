@@ -22,13 +22,13 @@ describe("CopyButton", () => {
   });
 
   it("renders the provided icon", () => {
-    render(<CopyButton text="hello" icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
+    render(<CopyButton getText={() => "hello"} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
     const btn = screen.getByTitle("Copy");
     expect(btn.querySelector("svg")).not.toBeNull();
   });
 
   it("copies text to clipboard on click", async () => {
-    render(<CopyButton text="hello world" icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
+    render(<CopyButton getText={() => "hello world"} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
 
     await act(async () => {
       fireEvent.click(screen.getByTitle("Copy"));
@@ -38,7 +38,7 @@ describe("CopyButton", () => {
   });
 
   it("shows checkmark feedback after click", async () => {
-    render(<CopyButton text="hello" icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
+    render(<CopyButton getText={() => "hello"} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
 
     await act(async () => {
       fireEvent.click(screen.getByTitle("Copy"));
@@ -58,7 +58,7 @@ describe("CopyButton", () => {
 
   it("handles missing clipboard API gracefully", async () => {
     Object.assign(navigator, { clipboard: undefined });
-    render(<CopyButton text="hello" icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
+    render(<CopyButton getText={() => "hello"} icon={<Icon path={mdiContentCopy} size={0.6} />} title="Copy" />);
 
     // Should not throw
     await act(async () => {

@@ -108,6 +108,16 @@ export interface SessionRegisterMessage {
    * See change: auto-hide-headless-worker-sessions.
    */
   visibilityIntent?: "hidden" | "visible";
+  /**
+   * Tri-state whether the session's cwd is a git repository, computed
+   * synchronously at register time (no `git_info_update` arrival race).
+   * `true` = confirmed git repo, `false` = confirmed non-git (git exited
+   * 128), `undefined` = unknown (probe inconclusive: missing binary,
+   * timeout, signal — never a false negative). Optional/back-compatible;
+   * an absent field is treated as `undefined`.
+   * See change: gate-session-worktree-button-on-git.
+   */
+  isGitRepo?: boolean;
 }
 
 export interface SessionUnregisterMessage {
@@ -216,6 +226,13 @@ export interface GitInfoUpdateMessage {
    * "no change". See change: add-worktree-spawn-dialog.
    */
   gitWorktree?: import("./types.js").GitWorktreeInfo | null;
+  /**
+   * Optional refresh of the tri-state git-repo signal. The bridge only
+   * emits `git_info_update` for a confirmed repo (branch resolved), so this
+   * is `true` when present. `session_register` remains the authority.
+   * See change: gate-session-worktree-button-on-git.
+   */
+  isGitRepo?: boolean;
 }
 
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
@@ -291,6 +308,13 @@ export interface RolesListMessage {
   roles: Record<string, string>;
   presets: Array<{ name: string; roles: Record<string, string> }>;
   activePreset: string | null;
+  /**
+   * Built-in (seeded default) role names, sourced server-side from
+   * DEFAULT_ROLE_NAMES. The client classifies a role as custom iff its name
+   * ∉ builtinRoleNames. Additive; older clients ignore it.
+   * See change: add-custom-roles-ui (design D2).
+   */
+  builtinRoleNames?: string[];
 }
 
 export interface ExtensionUiDismissMessage {
@@ -712,6 +736,18 @@ export interface RolePresetDeleteExtensionMessage {
   presetName: string;
 }
 
+/**
+ * Human-facing removal of a CUSTOM role. Routed to the `roles:remove` handler
+ * which purges the name from the schema, active map, and every preset in one
+ * atomic write. Built-in names are rejected server-side.
+ * See change: add-custom-roles-ui (design D3).
+ */
+export interface RoleRemoveExtensionMessage {
+  type: "role_remove";
+  sessionId: string;
+  role: string;
+}
+
 export interface RequestRolesMessage {
   type: "request_roles";
   sessionId: string;
@@ -863,6 +899,7 @@ export type ServerToExtensionMessage =
   | RolePresetLoadExtensionMessage
   | RolePresetSaveExtensionMessage
   | RolePresetDeleteExtensionMessage
+  | RoleRemoveExtensionMessage
   | RequestRolesMessage
   | UiManagementMessage
   | KillProcessMessage

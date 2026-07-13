@@ -15,8 +15,9 @@ import { registerDashboardContextInjector } from "./dashboard-context-injector.j
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { AbortLatch } from "./abort-latch.js";
-import { UsageLimitOrderer } from "./usage-limit-orderer.js";
-import { USAGE_LIMIT_PATTERN } from "@blackbelt-technology/pi-dashboard-shared/error-patterns.js";
+import { classifyTurnActionability } from "./turn-actionability.js";
+import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
+import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -45,6 +46,7 @@ import { filterHiddenCommands, extractFirstMessage, getCurrentModelString } from
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { runGitPollTick } from "./git-poll.js";
+import { detectIsGitRepo } from "./vcs-info.js";
 import { sendStateSync as _sendStateSync, replaySessionEntries as _replaySessionEntries, handleSessionChange as _handleSessionChange } from "./session-sync.js";
 import { sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, resetReconnectCaches as _resetReconnectCaches } from "./model-tracker.js";
 import { registerFlowEventListeners, FLOW_EVENT_MAP, SUBAGENT_EVENT_MAP, IB_EVENT_MAP } from "./flow-event-wiring.js";
@@ -272,11 +274,17 @@ function initBridge(pi: ExtensionAPI) {
   const dashboardSpawned = prev.dashboardSpawned;
   let promptBus: PromptBus | undefined;
 
-  // Provider-retry synthesis trackers. pi's ExtensionAPI does not expose
-  // `auto_retry_*` events, so the bridge synthesizes them from observed
-  // `message_end` / `agent_end` events. See change: fix-provider-retry-infinite-loop.
+  // Provider-retry synthesis tracker. pi's ExtensionAPI does not expose
+  // `auto_retry_*` events, so the bridge synthesizes them by OBSERVING pi's
+  // own retry behavior (error message_end → fresh assistant message_start →
+  // auto_retry_start). See change: simplify-error-retry-single-card.
   const retryTracker = new RetryTracker();
-  const usageLimitOrderer = new UsageLimitOrderer();
+  // Empty-actionable-turn guard: when a terminal turn is a clean-but-empty
+  // `stop` (thinking-only, no text, no tool call), continue-or-surface instead
+  // of idling silently. Provider-agnostic. See change:
+  // fix-gemini-subagent-silent-tool-schema-failure.
+  const guardConfig = resolveGuardConfig();
+  const emptyActionableGuard = new EmptyActionableGuard(guardConfig.mode, guardConfig.retryCap);
   // Abort latch: keeps a user abort latched so a provider backoff that
   // outlives the 2 s persistent-abort scheduler still stops pi's retry.
   // Set on abort; cleared on a new user prompt or terminal agent_end; honored
@@ -768,6 +776,7 @@ function initBridge(pi: ExtensionAPI) {
             roles: rolesData.roles ?? {},
             presets: rolesData.presets ?? [],
             activePreset: rolesData.activePreset ?? null,
+            builtinRoleNames: rolesData.builtinRoleNames ?? [],
           });
         }
         return;
@@ -784,6 +793,7 @@ function initBridge(pi: ExtensionAPI) {
             roles: rolesData.roles ?? {},
             presets: rolesData.presets ?? [],
             activePreset: rolesData.activePreset ?? null,
+            builtinRoleNames: rolesData.builtinRoleNames ?? [],
           });
         }
         return;
@@ -800,6 +810,7 @@ function initBridge(pi: ExtensionAPI) {
             roles: rolesData.roles ?? {},
             presets: rolesData.presets ?? [],
             activePreset: rolesData.activePreset ?? null,
+            builtinRoleNames: rolesData.builtinRoleNames ?? [],
           });
         }
         return;
@@ -816,6 +827,27 @@ function initBridge(pi: ExtensionAPI) {
             roles: rolesData.roles ?? {},
             presets: rolesData.presets ?? [],
             activePreset: rolesData.activePreset ?? null,
+            builtinRoleNames: rolesData.builtinRoleNames ?? [],
+          });
+        }
+        return;
+      }
+      // Remove a CUSTOM role: purge from schema + active map + every preset.
+      // Built-ins are rejected server-side in the roles:remove handler.
+      // Mirrors the role_set routing block. See change: add-custom-roles-ui.
+      if (msg.type === "role_remove" && pi.events) {
+        const data: any = { role: (msg as any).role };
+        pi.events.emit("roles:remove", data);
+        if (data.success) {
+          const rolesData: any = {};
+          pi.events.emit("roles:get-all", rolesData);
+          connection.send({
+            type: "roles_list",
+            sessionId,
+            roles: rolesData.roles ?? {},
+            presets: rolesData.presets ?? [],
+            activePreset: rolesData.activePreset ?? null,
+            builtinRoleNames: rolesData.builtinRoleNames ?? [],
           });
         }
         return;
@@ -829,6 +861,7 @@ function initBridge(pi: ExtensionAPI) {
           roles: rolesData.roles ?? {},
           presets: rolesData.presets ?? [],
           activePreset: rolesData.activePreset ?? null,
+          builtinRoleNames: rolesData.builtinRoleNames ?? [],
         });
         return;
       }
@@ -1078,15 +1111,10 @@ function initBridge(pi: ExtensionAPI) {
       // double-emit auto_retry_end{success:true}. See change:
       // fix-provider-retry-infinite-loop.
       retryTracker.noteAbort(sessionId);
-      // Intentionally NOT clearing usageLimitOrderer.noteRetryEnd here.
-      // The orderer's `pending` flag MUST survive user-initiated abort
-      // so pi's eventual terminal agent_end can still surface the real
-      // provider errorMessage via the orderer's maybeSynthesize path.
-      // Without this, the user would see no provider context after
-      // pressing Stop on a rate-limit retry — the placeholder
-      // "Aborted by user" used to overwrite the truth, both swallowing
-      // the real error. See change:
-      // unify-status-banner-and-terminal-limit-stop.
+      // pi's eventual terminal agent_end still surfaces the real provider
+      // errorMessage through the reducer's own agent_end error path; the
+      // observe-based tracker only synthesizes retry lifecycle events, never
+      // the settled error. See change: simplify-error-retry-single-card.
     },
     /**
      * Raw cachedCtx.abort() only. Used by the persistent-abort scheduler
@@ -1347,46 +1375,14 @@ function initBridge(pi: ExtensionAPI) {
         // unify-error-retry-lifecycle.
         abortLatch.clear(sessionId);
         // Provider-retry synthesis: forward auto_retry_end BEFORE agent_end
-        // when retries were in flight, so the dashboard's retry banner
-        // clears before the error banner appears. The usage-limit orderer
-        // takes precedence (it carries the actual error string); the retry
-        // tracker handles the non-usage-limit case. See change:
-        // fix-provider-retry-infinite-loop.
-        const orderedSynth = usageLimitOrderer.maybeSynthesize(sessionId, (event as any));
-        if (orderedSynth) {
-          sendSyntheticRetryEvent(orderedSynth.eventType, orderedSynth.data);
-          retryTracker.noteAbort(sessionId); // clear tracker; orderer's event is authoritative
-        } else {
-          // First-attempt terminal USAGE_LIMIT branch: when no retry chain
-          // was in flight (RETRYABLE_PATTERN didn't match) but the terminal
-          // agent_end carries a USAGE_LIMIT_PATTERN error, synthesize the
-          // same auto_retry_end{finalError} the orderer would have produced.
-          // Without this, first-attempt terminal billing errors surface as
-          // the generic `error` banner variant instead of `limit-exceeded`.
-          // Mutually exclusive with the orderer's synth above.
-          // See change: unify-status-banner-and-terminal-limit-stop.
-          const agentMessages = (event as any)?.messages;
-          const lastMsg = Array.isArray(agentMessages) && agentMessages.length > 0
-            ? agentMessages[agentMessages.length - 1] as Record<string, unknown>
-            : undefined;
-          const lastErr = typeof lastMsg?.errorMessage === "string" ? lastMsg.errorMessage : "";
-          const isFirstAttemptTerminalLimit =
-            lastMsg?.stopReason === "error" &&
-            lastErr.length > 0 &&
-            USAGE_LIMIT_PATTERN.test(lastErr);
-
-          if (isFirstAttemptTerminalLimit) {
-            sendSyntheticRetryEvent("auto_retry_end", {
-              success: false,
-              attempt: -1,
-              finalError: lastErr,
-            });
-          } else {
-            const trackerSynth = retryTracker.observeAgentEnd(sessionId, event as any);
-            if (trackerSynth) {
-              sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
-            }
-          }
+        // when a retry chain was in flight, so the dashboard's retry sub-line
+        // clears before the settled error renders. A terminal error pi never
+        // re-attempted (no chain) yields nothing here — the reducer's own
+        // agent_end arm surfaces lastError.
+        // See change: simplify-error-retry-single-card.
+        const trackerSynth = retryTracker.observeAgentEnd(sessionId, event as any);
+        if (trackerSynth) {
+          sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
         }
         // Bridge shadow follow-up queue: the per-entry drain matcher in
         // the `message_start` handler removes each entry as pi delivers it
@@ -1402,6 +1398,57 @@ function initBridge(pi: ExtensionAPI) {
         // ~2s if pi hasn't transitioned yet.
         // See change: rework-mid-turn-prompt-queue (post-smoke fix #3).
         setTimeout(() => drainFollowupQueue(0), 0);
+
+        // Empty-actionable-turn guard: classify this turn's terminal shape.
+        // A thinking-only / empty `stop` (no visible text, no tool call, no
+        // error) would otherwise idle the session silently. Continue-or-
+        // surface instead. Normal / tool-call / truncated / error turns yield
+        // `none` and only reset the guard's per-session counter.
+        // See change: fix-gemini-subagent-silent-tool-schema-failure.
+        {
+          const agentMsgs = (event as any)?.messages;
+          const terminalMsg =
+            Array.isArray(agentMsgs) && agentMsgs.length > 0
+              ? (agentMsgs[agentMsgs.length - 1] as Record<string, unknown>)
+              : undefined;
+          if (terminalMsg?.role === "assistant") {
+            const actionability = classifyTurnActionability(terminalMsg as any);
+            const decision = emptyActionableGuard.observe(sessionId, actionability);
+            if (decision.action === "continue" && decision.nudge) {
+              // Only nudge when nothing else will already re-run the session
+              // (no user/system follow-up pending). A pending entry means the
+              // session is not idling, so the guard can safely no-op.
+              if (bridgeFollowUp.length === 0) {
+                enqueueSystemFollowup(decision.nudge);
+              }
+            } else if (decision.action === "surface") {
+              // Non-error status: the model returned only reasoning. Forward a
+              // structured, non-error notice so the server logs it to
+              // server.log and the dashboard card renders it (distinct from an
+              // error banner).
+              const model =
+                typeof terminalMsg.model === "string"
+                  ? (terminalMsg.model as string)
+                  : undefined;
+              const provider =
+                typeof terminalMsg.provider === "string"
+                  ? (terminalMsg.provider as string)
+                  : undefined;
+              connection.send({
+                type: "event_forward",
+                sessionId,
+                event: {
+                  eventType: "empty_actionable_surface",
+                  timestamp: Date.now(),
+                  data: {
+                    message: decision.reason ?? SURFACE_MESSAGE,
+                    model: provider && model ? `${provider}/${model}` : model,
+                  },
+                },
+              });
+            }
+          }
+        }
 
       }
       // For model_select, enrich the event data with thinkingLevel
@@ -1479,8 +1526,22 @@ function initBridge(pi: ExtensionAPI) {
           // See change: unify-error-retry-lifecycle.
           if (role === "user") {
             abortLatch.clear(sessionId);
+            // A deliberate new user turn resets the empty-actionable guard's
+            // consecutive-continuation counter, so a stale count from a prior
+            // (possibly aborted) empty-actionable chain never shortens the next
+            // unrelated prompt's retry budget.
+            // See change: fix-gemini-subagent-silent-tool-schema-failure.
+            emptyActionableGuard.reset(sessionId);
           } else if (abortLatch.shouldAbort(sessionId)) {
             try { cachedCtx?.abort?.(); } catch { /* idempotent */ }
+          }
+          // Observe-based retry: an assistant message_start that follows an
+          // error message_end in the same turn (no user prompt between) is pi
+          // re-attempting — emit auto_retry_start so the dashboard shows the
+          // live retry sub-line. See change: simplify-error-retry-single-card.
+          if (role !== "user") {
+            const retrySynth = retryTracker.observeMessageStart(sessionId, messageRef as any);
+            if (retrySynth) sendSyntheticRetryEvent(retrySynth.eventType, retrySynth.data);
           }
           if (role === "user") {
             // Per-entry shadow-queue drain matcher: mirror pi's internal
@@ -1553,68 +1614,25 @@ function initBridge(pi: ExtensionAPI) {
         // messages immediately so they precede the deferred message_end
         // send below. See change: chat-markdown-local-images-and-math.
         maybeInlineAssistantImages(event);
-        // Run retry-tracker / usage-limit-orderer SYNCHRONOUSLY here, BEFORE
-        // the handler returns. Both the state update AND the synth event
-        // send must be sync so they land on the wire BEFORE the next
-        // `agent_end` (which pi fires synchronously back-to-back, see
-        // pi-coding-agent agent-session.js:298–331).
+        // Run the retry-tracker SYNCHRONOUSLY here, BEFORE the handler
+        // returns, so any synthesized retry event lands on the wire BEFORE
+        // the next `agent_end` (which pi fires synchronously back-to-back,
+        // see pi-coding-agent agent-session.js:298–331). The message_end
+        // body itself stays deferred for the entryId workaround
+        // (`fix-per-message-fork`); that does not affect retry-state ordering
+        // since the reducer's message_end arm does not touch
+        // retryState/lastError.
         //
-        // Previously these ran inside the setTimeout(0) macrotask intended
-        // for entryId capture, so `agent_end` was processed (and shipped)
-        // BEFORE the synthesizers had marked the retry as in-flight —
-        // leaving the dashboard's `retryState` stuck (yellow + red banners
-        // both visible). The message_end body itself stays deferred for
-        // the entryId workaround (`fix-per-message-fork`); it doesn't
-        // affect retry-state ordering since the reducer's message_end arm
-        // does not touch retryState/lastError.
-        // See change: fix-retry-banner-stuck-on-limit-exceeded.
-        // Terminal billing/quota auto-abort: if this message_end carries a
-        // USAGE_LIMIT_PATTERN match, pi's retry sleep is pointless — the
-        // error won't resolve regardless of how many times we retry. Call
-        // cachedCtx.abort() to short-circuit pi's retry loop, then
-        // synthesize an auto_retry_end{finalError:errorMessage} so the
-        // dashboard routes straight to the limit-exceeded banner variant
-        // carrying the real provider error. Skips the retry-tracker / orderer
-        // pending-set path entirely — there is no retry chain to track.
-        // See change: unify-status-banner-and-terminal-limit-stop.
-        const msgRole = (messageRef as any)?.role;
-        const msgStopReason = (messageRef as any)?.stopReason;
-        const msgErrorMessage = typeof (messageRef as any)?.errorMessage === "string"
-          ? (messageRef as any).errorMessage as string
-          : "";
-        const isTerminalLimit =
-          msgRole === "assistant" &&
-          msgStopReason === "error" &&
-          msgErrorMessage.length > 0 &&
-          USAGE_LIMIT_PATTERN.test(msgErrorMessage);
-
-        if (isTerminalLimit) {
-          try {
-            cachedCtx?.abort?.();
-          } catch (err) {
-            console.warn("[dashboard] cachedCtx.abort threw during terminal-limit auto-abort:", err);
-          }
-          sendSyntheticRetryEvent("auto_retry_end", {
-            success: false,
-            attempt: -1,
-            finalError: msgErrorMessage,
-          });
-          // Intentionally fall through to the deferred message_end body send
-          // below; the message_end itself still goes on the wire (the
-          // reducer's message_end arm doesn't touch retryState/lastError).
-        } else {
-          // Normal path: retry-tracker / orderer state updates SYNCHRONOUSLY,
-          // before the handler returns. See change:
-          // fix-retry-banner-stuck-on-limit-exceeded.
-          const synthetic = retryTracker.observeMessageEnd(sessionId, messageRef as any);
-          if (synthetic) {
-            if (synthetic.eventType === "auto_retry_start") {
-              usageLimitOrderer.noteRetryStart(sessionId);
-            } else {
-              usageLimitOrderer.noteRetryEnd(sessionId);
-            }
-            sendSyntheticRetryEvent(synthetic.eventType, synthetic.data);
-          }
+        // Observe-based: an error message_end records a pending failure and
+        // emits NOTHING (the retry is confirmed only when pi starts a fresh
+        // assistant message_start). A non-error message_end that closes an
+        // in-flight chain emits auto_retry_end{success:true}. Billing/quota
+        // failures flow through this same path — pi treats them as terminal,
+        // so they settle via agent_end with no special-casing.
+        // See change: simplify-error-retry-single-card.
+        const synthetic = retryTracker.observeMessageEnd(sessionId, messageRef as any);
+        if (synthetic) {
+          sendSyntheticRetryEvent(synthetic.eventType, synthetic.data);
         }
         setTimeout(() => {
           if (!isActive() || !sessionReady) return;
@@ -2192,6 +2210,9 @@ function initBridge(pi: ExtensionAPI) {
       firstMessage,
       eventCount,
       ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
+      // Tri-state git-repo signal, computed at register time (authority).
+      // See change: gate-session-worktree-button-on-git.
+      isGitRepo: detectIsGitRepo(ctx.cwd),
       // Fact-forwarding: server decides auto-hide. See change:
       // auto-hide-headless-worker-sessions.
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),
@@ -2260,6 +2281,7 @@ function initBridge(pi: ExtensionAPI) {
           roles: rolesData.roles ?? {},
           presets: rolesData.presets ?? [],
           activePreset: rolesData.activePreset ?? null,
+          builtinRoleNames: rolesData.builtinRoleNames ?? [],
         });
       }
     }

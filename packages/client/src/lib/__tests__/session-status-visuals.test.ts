@@ -26,6 +26,7 @@ const NEEDS_YOU = "bg-[var(--status-needs-you)]";
 const WORKING = "bg-[var(--status-working)] animate-pulse";
 const IDLE = "bg-[var(--status-idle)]";
 const ERROR = "bg-[var(--status-error)]";
+const NOTICE = "bg-[var(--status-notice)]";
 const ENDED = "bg-[var(--bg-surface)]";
 
 function makeSession(overrides: Partial<DashboardSession> = {}): DashboardSession {
@@ -163,6 +164,23 @@ describe("deriveDotColorWithFlags (SessionCard variant)", () => {
   });
   it("isRetrying → working token", () => {
     expect(deriveDotColorWithFlags(makeSession({ status: "idle" }), { isRetrying: true })).toBe(WORKING);
+  });
+  it("hasNotice → notice token (non-error), distinct from error and idle", () => {
+    const c = deriveDotColorWithFlags(makeSession({ status: "idle" }), { hasNotice: true });
+    expect(c).toBe(NOTICE);
+    expect(c).not.toBe(ERROR);
+    expect(c).not.toBe(IDLE);
+  });
+  it("error outranks notice", () => {
+    expect(
+      deriveDotColorWithFlags(makeSession({ status: "idle" }), { hasError: true, hasNotice: true }),
+    ).toBe(ERROR);
+  });
+  it("deriveStatusShape → notice shape with an info icon (not the error ✕)", () => {
+    const shape = deriveStatusShape(makeSession({ status: "idle" }), { hasNotice: true });
+    expect(shape).toBe("notice");
+    expect(statusShapeIcon.notice).toBeTruthy();
+    expect(statusShapeIcon.notice).not.toBe(statusShapeIcon.error);
   });
   it("no flags → falls back to status token", () => {
     expect(deriveDotColorWithFlags(makeSession({ status: "streaming" }), {})).toBe(WORKING);
@@ -355,6 +373,15 @@ describe("deriveRailBgColor", () => {
   });
   it("resuming → working tint", () => {
     expect(deriveRailBgColor(makeSession({ status: "idle", resuming: true }), {}, false)).toBe(mix("--status-working", 40));
+  });
+  it("hasNotice → notice tint 40% (non-error), selected 65%", () => {
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasNotice: true }, false)).toBe(mix("--status-notice", 40));
+    expect(deriveRailBgColor(makeSession({ status: "idle" }), { hasNotice: true }, true)).toBe(mix("--status-notice", 65));
+  });
+  it("error outranks notice on the rail", () => {
+    expect(
+      deriveRailBgColor(makeSession({ status: "idle" }), { hasError: true, hasNotice: true }, false),
+    ).toBe(mix("--status-error", 40));
   });
 
   // Selected: 65% mix

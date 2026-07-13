@@ -14,8 +14,8 @@ import {
 describe("tree-visible persistence", () => {
   beforeEach(() => localStorage.clear());
 
-  it("defaults to visible when nothing persisted", () => {
-    expect(loadTreeVisible("s1")).toBe(true);
+  it("defaults to collapsed when nothing persisted", () => {
+    expect(loadTreeVisible("s1")).toBe(false);
   });
 
   it("round-trips a hidden state", () => {
@@ -24,19 +24,26 @@ describe("tree-visible persistence", () => {
     expect(loadTreeVisible("s1")).toBe(false);
   });
 
+  it("a persisted reveal overrides the collapsed default", () => {
+    saveTreeVisible("s1", true);
+    expect(loadTreeVisible("s1")).toBe(true);
+  });
+
   it("useTreeVisible persists on set and reloads on session change", () => {
     const { result, rerender } = renderHook(({ id }) => useTreeVisible(id), {
       initialProps: { id: "sA" },
     });
-    expect(result.current[0]).toBe(true);
-    act(() => result.current[1](false));
+    // Fresh session with no persisted preference → collapsed by default.
     expect(result.current[0]).toBe(false);
-    expect(loadTreeVisible("sA")).toBe(false);
+    // Reveal the rail, verify it persists for this session.
+    act(() => result.current[1](true));
+    expect(result.current[0]).toBe(true);
+    expect(loadTreeVisible("sA")).toBe(true);
 
-    // Switch sessions → distinct (default) state; back → persisted hidden.
+    // Switch sessions → distinct (collapsed default) state; back → persisted reveal.
     rerender({ id: "sB" });
-    expect(result.current[0]).toBe(true);
-    rerender({ id: "sA" });
     expect(result.current[0]).toBe(false);
+    rerender({ id: "sA" });
+    expect(result.current[0]).toBe(true);
   });
 });

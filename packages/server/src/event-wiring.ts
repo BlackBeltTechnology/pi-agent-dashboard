@@ -2,30 +2,36 @@
  * Event wiring: connects pi gateway events to browser gateway and session management.
  * Extracted from server.ts for clarity.
  */
-import type { SessionManager } from "./memory-session-manager.js";
-import type { EventStore } from "./memory-event-store.js";
-import type { PiGateway } from "./pi-gateway.js";
+
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
+import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { BrowserGateway } from "./browser-gateway.js";
-import type { SessionOrderManager } from "./session-order-manager.js";
-import type { PreferencesStore } from "./preferences-store.js";
-import { resolveOrderKey } from "./resolve-order-key.js";
-import type { PendingForkRegistry } from "./pending-fork-registry.js";
+import { decideDashboardSource } from "./dashboard-source-decision.js";
 import type { DirectoryService } from "./directory-service.js";
 import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./event-status-extraction.js";
 import { composeWorktreePayload } from "./git-worktree-compose.js";
-import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
-import { setCatalogueForSession } from "./provider-catalogue-cache.js";
-import { spawnPiSession } from "./process-manager.js";
-import { classifyProcesses, buildPidIndex } from "./process-classifier.js";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
-import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-attach-naming.js";
-import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
-import { decideDashboardSource } from "./dashboard-source-decision.js";
+import type { EventStore } from "./memory-event-store.js";
+import type { SessionManager } from "./memory-session-manager.js";
+import type { PendingForkRegistry } from "./pending-fork-registry.js";
+import type { PiGateway } from "./pi-gateway.js";
+import type { PreferencesStore } from "./preferences-store.js";
+import { buildPidIndex, classifyProcesses } from "./process-classifier.js";
+import { spawnPiSession } from "./process-manager.js";
+import { attachRenameTarget, isNameAutoSetFromAttachment } from "./proposal-attach-naming.js";
+import { setCatalogueForSession } from "./provider-catalogue-cache.js";
+import { resolveOrderKey } from "./resolve-order-key.js";
+import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
+import type { SessionOrderManager } from "./session-order-manager.js";
+import {
+  buildEmptyActionableLogLine,
+  buildModelErrorLogLine,
+  extractModelTurnError,
+} from "./spawned-turn-log.js";
+import type { ViewedSessionTracker } from "./viewed-session-tracker.js";
 
 /**
  * `true` iff `changeName` appears in the cwd's authoritative OpenSpec poll
@@ -376,44 +382,55 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
     }
 
-    // ── goal-link arm ─────────────────────────────────────────────────
-    // Consume any pending goalId queued by the goal route's spawn path for
-    // this cwd. Stamps `.meta.json#goalId` + in-memory `goalId`, links the
-    // new sessionId into its GoalRecord, and broadcasts the update.
-    // See change: add-goals-folder-page.
-    if (pendingGoalLinkRegistry && goalStore) {
-      const goalId = pendingGoalLinkRegistry.consume(cwd);
-      if (goalId) {
-        const gs = goalStore;
-        // Link in the goal store FIRST; only stamp the session + .meta.json +
-        // broadcast once linking succeeds, so a failed link (e.g. goal
-        // deleted mid-spawn) can't leave session state diverged from the store.
-        gs.linkSession(cwd, goalId, sessionId)
-          .then((updated) => {
-            sessionManager.update(sessionId, { goalId });
-            const session = sessionManager.get(sessionId);
-            if (session?.sessionFile) {
-              try {
-                mergeSessionMeta(session.sessionFile, { goalId });
-              } catch (err) {
-                console.warn(
-                  `[event-wiring] failed to persist goalId to .meta.json for ${sessionId}:`,
-                  err,
-                );
-              }
-            }
-            browserGateway.broadcastSessionUpdated(sessionId, { goalId });
-            // Kick off the pursuit: rename the card to the objective + dispatch
-            // `/goal …` so the pi-goal-hermes loop starts. Without this the
-            // session boots idle and never tries to reach the goal target.
-            primeGoalSession?.(sessionId, updated);
-          })
-          .catch((err) => {
-            console.warn(`[event-wiring] failed to link session ${sessionId} to goal ${goalId}:`, err);
-          });
-      }
-    }
+    // NOTE: goal-driver linking moved to the onEvent `session_register` branch
+    // (after `linkByToken`) so the strong token→goalId path can run — the
+    // registry entry's `sessionId` is only set by `linkByToken`, which fires
+    // AFTER this `onSessionRegistered` callback. See change:
+    // add-goal-session-supervisor (Correlation).
   };
+
+  // Link a goal-driver session to its GoalRecord: stamp in-memory + .meta.json
+  // `goalId`, broadcast, and prime the pursuit. Shared by the token path
+  // (primary) and the cwd-FIFO fallback (legacy). See change:
+  // add-goal-session-supervisor.
+  function linkGoalDriver(sessionId: string, cwd: string, goalId: string): void {
+    if (!goalStore) return;
+    const gs = goalStore;
+    // Replace the driver so a supervisor RESPAWN (dead driver still set) takes
+    // over as the live driver; for a first link this behaves like linkSession.
+    // See change: add-goal-session-supervisor (S5).
+    gs.list(cwd)
+      .then((goals) => {
+        // C2e: clear the OUTGOING driver's in-memory goalId so a late snapshot
+        // from the replaced session can't project onto the goal after handover.
+        const prevDriver = goals.find((g) => g.id === goalId)?.driverSessionId;
+        if (prevDriver && prevDriver !== sessionId) {
+          sessionManager.update(prevDriver, { goalId: undefined });
+        }
+        return gs.replaceDriver(cwd, goalId, sessionId);
+      })
+      .then((updated) => {
+        // Clear any persisted in-flight respawn now the new driver registered.
+        if (updated.inFlightSpawn) void gs.setInFlightSpawn(cwd, goalId, null);
+        sessionManager.update(sessionId, { goalId });
+        const session = sessionManager.get(sessionId);
+        if (session?.sessionFile) {
+          try {
+            mergeSessionMeta(session.sessionFile, { goalId });
+          } catch (err) {
+            console.warn(
+              `[event-wiring] failed to persist goalId to .meta.json for ${sessionId}:`,
+              err,
+            );
+          }
+        }
+        browserGateway.broadcastSessionUpdated(sessionId, { goalId });
+        primeGoalSession?.(sessionId, updated);
+      })
+      .catch((err) => {
+        console.warn(`[event-wiring] failed to link session ${sessionId} to goal ${goalId}:`, err);
+      });
+  }
 
   // Broadcast session ended to browsers when sessions are unregistered
   sessionManager.onUnregister = (sessionId) => {
@@ -496,6 +513,33 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (!replayingSessions.has(sessionId)) {
         const storedEvent = eventStore.getEvent(sessionId, seq) ?? msg.event;
         browserGateway.broadcastEvent(sessionId, seq, storedEvent);
+      }
+
+      // Spawned-session turn-outcome surfacing to server.log (live only).
+      // Two invisible-until-now outcomes get a redacted stdout line:
+      //  1. empty-actionable turn (non-error) — the bridge forwards
+      //     `empty_actionable_surface`; card render rides the broadcast above.
+      //  2. genuine model-turn error — the terminal agent_end assistant
+      //     message carries `stopReason === "error"`.
+      // The empty-actionable case (clean `stop`) never matches the error
+      // extractor, keeping the two paths distinct (spec req).
+      // See change: fix-gemini-subagent-silent-tool-schema-failure.
+      if (!replayingSessions.has(sessionId)) {
+        if (msg.event.eventType === "empty_actionable_surface") {
+          const d = msg.event.data ?? {};
+          console.log(
+            buildEmptyActionableLogLine({
+              sessionId,
+              model: typeof d.model === "string" ? d.model : undefined,
+              message: typeof d.message === "string" ? d.message : "model returned only reasoning, no answer",
+            }),
+          );
+        } else if (msg.event.eventType === "agent_end") {
+          const turnError = extractModelTurnError(msg.event.data ?? {});
+          if (turnError) {
+            console.error(buildModelErrorLogLine({ sessionId, ...turnError }));
+          }
+        }
       }
 
       // Snapshot pre-update fields used by `isUnreadTrigger`. Captured here
@@ -867,6 +911,20 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: auto-hide-headless-worker-sessions.
       sessionManager.update(sessionId, { dataUnavailable: false });
 
+      // Apply + persist the tri-state git-repo signal carried on register.
+      // Register is the authority (arrival-independent, no git_info_update
+      // race); persisting to .meta.json lets sessionFromMeta restore it on
+      // cold start so an ended git-repo session keeps its +Worktree button.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        sessionManager.update(sessionId, { isGitRepo: msg.isGitRepo });
+        if (msg.sessionFile) {
+          try {
+            mergeSessionMeta(msg.sessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
+
       if (msg.sessionFile) {
         for (const other of sessionManager.listAll()) {
           if (other.id !== sessionId && other.sessionFile === msg.sessionFile) {
@@ -916,6 +974,33 @@ export function wireEvents(deps: EventWiringDeps): void {
           );
         }
         browserGateway.headlessPidRegistry.linkSession(sessionId, msg.cwd);
+      }
+
+      // ── goal-driver link (token → cwd-FIFO) ──────────────────────────
+      // PRIMARY: the strong token path. A goal-driver spawn (route or
+      // supervisor respawn) stamped `goalId` onto the registry entry keyed to
+      // its spawn token; `linkByToken` above set the entry's sessionId, so
+      // `getGoalId(sessionId)` now resolves it deterministically — an unrelated
+      // same-cwd session has no goalId on its entry and is never mis-linked.
+      // FALLBACK: the legacy per-cwd FIFO for spawns that carried no token.
+      // See change: add-goal-session-supervisor (Correlation, replaces the
+      // onSessionRegistered cwd-FIFO primary).
+      if (goalStore) {
+        // Guard against a RE-REGISTER of an already-linked driver (bridge WS
+        // blip / dashboard restart while pi survives): the token path
+        // (`getGoalId`) is a non-destructive read that survives the process, so
+        // without this guard `linkGoalDriver` would re-prime `/goal` into a live
+        // conversation on every reconnect. Only link on a genuine handover —
+        // first link or a different driver taking over. The legacy cwd-FIFO is
+        // single-shot so it never re-fires. See change: add-goal-session-supervisor.
+        const alreadyLinked = sessionManager.get(sessionId)?.goalId;
+        const tokenGoalId = browserGateway.headlessPidRegistry.getGoalId(sessionId);
+        if (tokenGoalId) {
+          if (alreadyLinked !== tokenGoalId) linkGoalDriver(sessionId, msg.cwd, tokenGoalId);
+        } else if (pendingGoalLinkRegistry) {
+          const fifoGoalId = pendingGoalLinkRegistry.consume(msg.cwd);
+          if (fifoGoalId && alreadyLinked !== fifoGoalId) linkGoalDriver(sessionId, msg.cwd, fifoGoalId);
+        }
       }
 
       // Resolve the originating browser `requestId` (when known) so the
@@ -1156,6 +1241,18 @@ export function wireEvents(deps: EventWiringDeps): void {
         gitPrNumber: msg.gitPrNumber,
         gitPrUrl: msg.gitPrUrl,
       };
+      // Refresh + persist the tri-state git-repo signal when the bridge
+      // includes it (confirmed repo). Register remains the authority.
+      // See change: gate-session-worktree-button-on-git.
+      if (msg.isGitRepo !== undefined) {
+        gitUpdates.isGitRepo = msg.isGitRepo;
+        const gitSessionFile = sessionManager.get(sessionId)?.sessionFile;
+        if (gitSessionFile) {
+          try {
+            mergeSessionMeta(gitSessionFile, { isGitRepo: msg.isGitRepo });
+          } catch { /* best-effort */ }
+        }
+      }
       if (composedWorktree !== undefined) {
         // Map wire `null` → in-memory `undefined` so the field clears
         // cleanly on the DashboardSession.

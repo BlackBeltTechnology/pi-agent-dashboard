@@ -268,10 +268,10 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       byKey.set(key, list);
     }
     const cols: Array<{ key: string; group: OpenSpecGroup | null; changes: OpenSpecChange[] }> = [];
+    cols.push({ key: UNGROUPED, group: null, changes: orderChangesForGroup(byKey.get(UNGROUPED) ?? [], changeOrder[UNGROUPED]) });
     for (const g of groups) {
       cols.push({ key: g.id, group: g, changes: orderChangesForGroup(byKey.get(g.id) ?? [], changeOrder[g.id]) });
     }
-    cols.push({ key: UNGROUPED, group: null, changes: orderChangesForGroup(byKey.get(UNGROUPED) ?? [], changeOrder[UNGROUPED]) });
     return cols;
   }, [data.changes, groups, changeOrder, cardVisible, resolveGroupKey]);
 

@@ -386,6 +386,7 @@ export function SessionCard({
   onAbortTool,
   hasError,
   isRetrying,
+  hasNotice,
 }: {
   session: DashboardSession;
   selectedId?: string;
@@ -481,6 +482,8 @@ export function SessionCard({
   hasError?: boolean;
   /** True iff a synthesized provider retry is in flight (retryState set, no error yet). */
   isRetrying?: boolean;
+  /** True iff the model returned only reasoning, no answer (non-error notice). */
+  hasNotice?: boolean;
 }) {
   // dnd-kit drag handle props (attributes + listeners) supplied by
   // SortableSessionCard via context. When non-null, the desktop card's left
@@ -497,7 +500,7 @@ export function SessionCard({
   // Also gates the chat-routed `ask_user` → needs-you color in dot/rail.
   // See change: improve-dashboard-attention-routing.
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
-  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying, hasWidgetBarPrompt });
+  const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice });
   // State marker class stays on the <li>; the matching color class drives the
   // compositor-only `.card-stripes-fx` overlay rendered behind card content.
   // See change: throttle-idle-ui-animations.
@@ -521,12 +524,12 @@ export function SessionCard({
   // Non-hue state channel: a shape marker (filled/half/ring/✕) so state is
   // distinguishable without color and under reduced motion.
   // See change: improve-dashboard-attention-routing.
-  const statusShape = deriveStatusShape(session, { hasError, isRetrying, hasWidgetBarPrompt });
+  const statusShape = deriveStatusShape(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice });
   // Status-tinted background color for the left-gutter mosaic rail. The
   // mosaic shape is carved by an SVG mask asset; the gutter element's
   // background-color supplies the colour. Selected cards use the brighter
   // -400 shade. See change: add-session-card-status-mosaic-rail.
-  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt }, isSelected);
+  const railBgClass = deriveRailBgColor(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice }, isSelected);
 
   function handleConfirmRename(name: string) {
     setIsRenaming(false);
@@ -824,8 +827,15 @@ export function SessionCard({
             it via WorktreeSpawnDialog. Gated upstream by gitWorktreeEnabled.
             Hidden when the session is ALREADY a worktree session
             (`session.gitWorktree` set) — spawning a worktree from inside a
-            worktree is redundant. See change: session-card-plus-session-button. */}
-        {onSpawnWorktree && !session.gitWorktree && (
+            worktree is redundant. Also hidden ONLY when the cwd is a
+            confirmed non-git directory (`isGitRepo === false`); `true` and
+            `undefined` (unknown / probe-timed-out / legacy) keep the button
+            so a real repo never loses it. NOT gated on `gitBranch` — that is
+            a data-arrival signal (absent during the register race, on probe
+            failure, and after restart for cold sessions).
+            See changes: session-card-plus-session-button,
+            gate-session-worktree-button-on-git. */}
+        {onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}

@@ -15,7 +15,7 @@
  */
 import React, { useState, useCallback } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CommandInput } from "../components/CommandInput.js";
 
@@ -119,11 +119,13 @@ function pasteImage(textarea: HTMLTextAreaElement, mime = "image/png", bytes = 1
 	fireEvent.paste(textarea, { clipboardData });
 }
 
-async function flushFileReader() {
-	await act(async () => {
-		await new Promise((r) => setTimeout(r, 0));
-		await new Promise((r) => setTimeout(r, 0));
-	});
+// Paste reads the file through a real (async) FileReader, then sets React
+// state on `onload`. A fixed number of macrotask ticks is NOT enough under CPU
+// contention (the full parallel suite), so we poll the DOM until the thumbnail
+// actually lands instead of guessing a tick count. Eliminates the
+// "expected length 1 but got 0" flake. See change: fix-flaky-full-suite-tests.
+async function waitForThumbnails(container: HTMLElement, count: number) {
+	await waitFor(() => expect(getThumbnails(container)).toHaveLength(count));
 }
 
 describe("chat-input pending-image integration", () => {
@@ -140,8 +142,7 @@ describe("chat-input pending-image integration", () => {
 		const { container, getByTestId } = render(<Harness />);
 		const textarea = getTextarea(container);
 		pasteImage(textarea);
-		await flushFileReader();
-		expect(getThumbnails(container)).toHaveLength(1);
+		await waitForThumbnails(container, 1);
 
 		// Simulate /settings: CommandInput unmounts.
 		fireEvent.click(getByTestId("toggle-chat"));
@@ -159,8 +160,7 @@ describe("chat-input pending-image integration", () => {
 
 		// Paste into A.
 		pasteImage(textarea);
-		await flushFileReader();
-		expect(getThumbnails(container)).toHaveLength(1);
+		await waitForThumbnails(container, 1);
 
 		// Switch to B — preview must be empty.
 		fireEvent.click(getByTestId("switch-B"));
@@ -186,7 +186,7 @@ describe("chat-input pending-image integration", () => {
 
 		// Paste in A.
 		pasteImage(textarea);
-		await flushFileReader();
+		await waitForThumbnails(container, 1);
 
 		// A → B → A.
 		fireEvent.click(getByTestId("switch-B"));
@@ -214,8 +214,7 @@ describe("chat-input pending-image integration", () => {
 		const textarea = getTextarea(container);
 
 		pasteImage(textarea);
-		await flushFileReader();
-		expect(getByTestId("map-snapshot").textContent).toBe("A=1");
+		await waitFor(() => expect(getByTestId("map-snapshot").textContent).toBe("A=1"));
 
 		fireEvent.change(textarea, { target: { value: "send it" } });
 		fireEvent.keyDown(textarea, { key: "Enter" });

@@ -75,6 +75,11 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
+  // Supersede heal: this row was finalized locally because its real result was
+  // unrecoverable but a later inference proved it finished. Badge it loudly so
+  // a real result loss is never mistaken for a silent bodyless success.
+  // See change: fix-stuck-tool-card-superseded-heal.
+  const isSuperseded = toolDetails?.healedBy === "superseded";
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
   const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser));
@@ -155,6 +160,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         )}
         <span className="truncate">{getSummary(toolName, args)}</span>
         <ElapsedBadge startedAt={startedAt} duration={duration} />
+        {isSuperseded && (
+          <span
+            data-testid="tool-superseded-badge"
+            className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
+            title={i18nT("auto.result_not_captured_recovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
+          >
+            {i18nT("auto.recovered", undefined, "recovered")}
+          </span>
+        )}
         {status === "running" && onAbort && stopState === "idle" && (
           <span
             role="button"

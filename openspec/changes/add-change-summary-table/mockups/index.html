@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Change Summary Table — overview</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Change Summary Table</h1>
+  <p class="sub">Deterministic, no LLM. Per-turn inline block + pinned running roll-up.</p>
+  <div class="navlinks">
+    <a class="here">Overview</a>
+    <a href="states.html">Edge states →</a>
+  </div>
+
+  <p class="note">
+    Numbers come from data the dashboard already holds — Edit/Write tool events (per-turn)
+    and <code>git diff --numstat HEAD</code> (roll-up). No model call, so counts never lie.
+  </p>
+
+  <div class="legend">
+    <span><span class="glyph mod">●</span> modified</span>
+    <span><span class="glyph add">+</span> added</span>
+    <span><span class="add">+adds</span> <span class="del">−dels</span> per file</span>
+    <span>⧉ open in editor</span>
+  </div>
+
+  <!-- ============ SURFACE 1: per-turn inline block ============ -->
+  <h2>Surface 1 — per-turn inline block (in the chat stream)</h2>
+  <p class="note">Rendered at each assistant turn boundary. Scoped to what <em>that turn</em>
+    changed, grouped by <code>turnIndex</code>. Line counts derived client-side from the
+    Edit/Write <code>oldText</code>/<code>newText</code> payloads — zero network.</p>
+
+  <div class="stream">
+    <div class="msg">
+      <div class="avatar user">U</div>
+      <div class="bubble"><div class="who">you</div>
+        <div class="said">Add numstat enrichment to the session diff payload.</div></div>
+    </div>
+
+    <div class="msg">
+      <div class="avatar bot">pi</div>
+      <div class="bubble">
+        <div class="who">assistant · turn 4</div>
+        <div class="said">Done. Added the optional fields and wired the git call.</div>
+
+        <!-- the per-turn change block -->
+        <div class="turnblock">
+          <div class="cst">
+            <div class="cst-head">
+              <span class="ico">✎</span>
+              <span class="title">Changed this turn</span>
+              <span class="agg">
+                <span class="add">+57</span><span class="del">−9</span>
+                <span class="zero">· 3 files</span>
+              </span>
+              <span class="caret" title="collapse">▾</span>
+            </div>
+
+            <div class="row">
+              <span class="glyph mod">●</span>
+              <span class="path"><span class="dir">packages/server/src/</span>session-diff.ts</span>
+              <span class="count">
+                <span class="add">+42</span><span class="del">−8</span>
+                <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i><i class="n"></i></span>
+                <a class="open" title="Open in editor">⧉</a>
+              </span>
+            </div>
+
+            <div class="row">
+              <span class="glyph add">+</span>
+              <span class="path"><span class="dir">packages/shared/src/</span>diff-types.ts</span>
+              <span class="count">
+                <span class="add">+15</span><span class="del zero">−0</span>
+                <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i></span>
+                <a class="open" title="Open in editor">⧉</a>
+              </span>
+            </div>
+
+            <div class="row">
+              <span class="glyph mod">●</span>
+              <span class="path"><span class="dir">docs/</span>architecture.md</span>
+              <span class="count">
+                <span class="add zero">+0</span><span class="del">−1</span>
+                <span class="bar"><i class="d"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i></span>
+                <a class="open" title="Open in editor">⧉</a>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="turnsep">turn 5</div>
+
+    <div class="msg">
+      <div class="avatar user">U</div>
+      <div class="bubble"><div class="who">you</div>
+        <div class="said">Now render it in the file tree header too.</div></div>
+    </div>
+    <div class="msg">
+      <div class="avatar bot">pi</div>
+      <div class="bubble">
+        <div class="who">assistant · turn 5</div>
+        <div class="said">Updated the tree header.</div>
+        <div class="turnblock">
+          <div class="cst">
+            <div class="cst-head">
+              <span class="ico">✎</span><span class="title">Changed this turn</span>
+              <span class="agg"><span class="add">+11</span><span class="del">−3</span><span class="zero">· 1 file</span></span>
+              <span class="caret">▾</span>
+            </div>
+            <div class="row">
+              <span class="glyph mod">●</span>
+              <span class="path"><span class="dir">packages/client/src/components/</span>DiffFileTree.tsx</span>
+              <span class="count"><span class="add">+11</span><span class="del">−3</span>
+                <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i><i class="n"></i></span>
+                <a class="open">⧉</a></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SURFACE 2: running roll-up ============ -->
+  <h2>Surface 2 — running roll-up (pinned above the composer)</h2>
+  <p class="note">Session-wide <em>net</em> state vs. baseline. Reuses <code>useSessionDiff</code>
+    + the new <code>--numstat</code> fields. Collapsible; each row opens the file. Aggregate
+    is the whole-session shortstat.</p>
+
+  <div class="stream dock">
+    <div class="cst">
+      <div class="cst-head">
+        <span class="pin">📌</span>
+        <span class="title">Session changes</span>
+        <span class="agg">
+          <span class="zero">4 files ·</span><span class="add">+68</span><span class="del">−12</span>
+        </span>
+        <span class="caret">▾</span>
+      </div>
+
+      <div class="row">
+        <span class="glyph mod">●</span>
+        <span class="path"><span class="dir">packages/server/src/</span>session-diff.ts</span>
+        <span class="count"><span class="add">+42</span><span class="del">−8</span>
+          <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="d"></i><i class="n"></i></span>
+          <a class="open">⧉</a></span>
+      </div>
+      <div class="row">
+        <span class="glyph mod">●</span>
+        <span class="path"><span class="dir">packages/client/src/components/</span>DiffFileTree.tsx</span>
+        <span class="count"><span class="add">+11</span><span class="del">−3</span>
+          <span class="bar"><i class="a"></i><i class="a"></i><i class="d"></i><i class="n"></i><i class="n"></i></span>
+          <a class="open">⧉</a></span>
+      </div>
+      <div class="row">
+        <span class="glyph add">+</span>
+        <span class="path"><span class="dir">packages/shared/src/</span>diff-types.ts</span>
+        <span class="count"><span class="add">+15</span><span class="del zero">−0</span>
+          <span class="bar"><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i><i class="a"></i></span>
+          <a class="open">⧉</a></span>
+      </div>
+      <div class="row">
+        <span class="glyph mod">●</span>
+        <span class="path"><span class="dir">docs/</span>architecture.md</span>
+        <span class="count"><span class="add zero">+0</span><span class="del">−1</span>
+          <span class="bar"><i class="d"></i><i class="n"></i><i class="n"></i><i class="n"></i><i class="n"></i></span>
+          <a class="open">⧉</a></span>
+      </div>
+    </div>
+
+    <div class="composer">✎ Message pi…</div>
+  </div>
+
+  <div class="callout">
+    <b>Why two surfaces?</b> The per-turn block is an activity log ("what this turn did").
+    The roll-up is net state ("where the tree stands vs. baseline"). They can differ — see
+    the <a href="states.html">reconciliation state</a>.
+  </div>
+</div>
+</body>
+</html>

@@ -216,95 +216,28 @@ The DEB maker SHALL produce a properly branded Debian package.
 - **THEN** it SHALL include productName "PI Dashboard", description, icon, categories (Development, Utility), and a custom desktop entry with StartupWMClass, Terminal=false, and Keywords
 
 ### Requirement: DMG configuration
-The DMG maker SHALL produce a properly branded macOS disk image whose
-artifact filename uniquely identifies the target architecture, so that
-the GitHub Release can carry per-arch DMG assets without basename
-collision when uploaded by `softprops/action-gh-release@v2` (which
-de-duplicates by basename). The maker's window title MAY remain a
-human-friendly "PI Dashboard" string; only the artifact filename is
-constrained.
+The macOS DMG SHALL be produced by `electron-builder` in `--prepackaged` mode (config: `electron-builder.yml`), NOT by a Forge maker. Its artifact filename SHALL uniquely identify the target architecture so the GitHub Release can carry per-arch DMG assets without basename collision.
 
-#### Scenario: DMG basename includes architecture and version
-- **WHEN** `@electron-forge/maker-dmg` runs on a `darwin/arm64` matrix leg
-- **THEN** the produced DMG basename SHALL match `PI-Dashboard-darwin-arm64-${version}.dmg`
-- **AND WHEN** `@electron-forge/maker-dmg` runs on a `darwin/x64` matrix leg
-- **THEN** the produced DMG basename SHALL match `PI-Dashboard-darwin-x64-${version}.dmg`
-- **AND** the `${version}` token SHALL be the value read from `packages/electron/package.json#version` at config-evaluation time
-- **AND** the maker's `name` config field SHALL be composed in `packages/electron/forge.config.ts` (not via electron-builder-style `${version}` placeholder substitution, which the DMG maker does not support)
+#### Scenario: DMG basename includes version and architecture
+- **WHEN** `electron-builder --mac dmg --prepackaged` runs against a `darwin/arm64` Forge-packaged `.app`
+- **THEN** the produced DMG basename SHALL match `PI-Dashboard-${version}-arm64.dmg` per `electron-builder.yml` `mac.artifactName`
+- **AND WHEN** it runs against a `darwin/x64` `.app`
+- **THEN** the basename SHALL match `PI-Dashboard-${version}-x64.dmg`
+- **AND** `${version}` SHALL be `packages/electron/package.json#version`
 
-#### Scenario: DMG window title remains human-readable
+#### Scenario: DMG icon
 - **WHEN** the DMG is built
-- **THEN** the maker's `title` config field SHALL remain `"PI Dashboard"` so the mounted-volume window title bar shows a friendly string regardless of the verbose artifact filename
-- **AND** the `icon` config field SHALL continue to point at `resources/icon.icns`
+- **THEN** `electron-builder.yml` `mac.icon` SHALL point at `resources/icon.icns`
 
 #### Scenario: GitHub Release contains two distinct DMG assets per release
-- **WHEN** a release tag is pushed AND the publish workflow's `electron` matrix completes both the `darwin/arm64` and `darwin/x64` legs successfully
-- **THEN** the resulting GitHub Release SHALL contain exactly two DMG assets, with distinct basenames identifying their architectures
-- **AND** neither DMG asset SHALL have a basename of `PI Dashboard.dmg` or any other arch-ambiguous form
-- **AND** the existing `softprops/action-gh-release@v2` upload step SHALL NOT need a per-leg rename / staging hop — distinct basenames at maker-output time are sufficient for the upload-by-glob pattern (`electron-*/**/*`) to land both assets cleanly
+- **WHEN** a release tag is pushed AND the publish workflow's `electron` matrix completes both the `darwin/arm64` and `darwin/x64` legs
+- **THEN** the resulting GitHub Release SHALL contain exactly two DMG assets with distinct arch-identifying basenames
+- **AND** neither asset SHALL have an arch-ambiguous basename such as `PI Dashboard.dmg`
 
-#### Scenario: Regression test pins the maker config
+#### Scenario: Config parity test pins the DMG identity
 - **WHEN** the test suite runs in `packages/electron/`
-- **THEN** there SHALL exist a unit test that imports `forge.config.ts` and asserts the resolved DMG maker `name` field, when evaluated with `process.arch === "arm64"`, contains the substring `"darwin-arm64"`, AND when evaluated with `process.arch === "x64"`, contains `"darwin-x64"`
-- **AND** the test SHALL fail CI if a future refactor reintroduces a static name
-
-### Requirement: macos-alias native module readiness on darwin
-
-When the Electron build pipeline runs on `darwin`, the `macos-alias` native module (transitive dep of `@electron-forge/maker-dmg`) MUST have its `build/Release/volume.node` compiled before `electron-forge make` is invoked. The pipeline SHALL self-heal a missing build via `npm rebuild macos-alias`, and SHALL fail with an actionable error message when self-heal is impossible.
-
-#### Scenario: Postinstall succeeds
-
-- **WHEN** `pnpm install` (or `npm install`) runs on darwin AND `macos-alias` is present in the workspace AND Xcode Command Line Tools are installed
-- **THEN** the `packages/electron/postinstall` hook SHALL produce `<macos-alias-dir>/build/Release/volume.node`
-- **AND** SHALL exit zero
-
-#### Scenario: Postinstall on non-darwin host
-
-- **WHEN** the postinstall hook runs on `linux` or `win32`
-- **THEN** the hook SHALL exit zero immediately without attempting to build
-- **AND** SHALL NOT print warnings
-
-#### Scenario: Postinstall fails (no CLT) — non-fatal
-
-- **WHEN** the postinstall hook runs on darwin AND Xcode Command Line Tools are NOT installed AND `npm rebuild macos-alias` fails
-- **THEN** the hook SHALL print a clear suggestion (e.g., "run `xcode-select --install`")
-- **AND** SHALL exit zero (does not block `pnpm install`)
-
-#### Scenario: Build-time gate catches missing native module
-
-- **WHEN** `build-installer.sh` runs on darwin with a make target that produces a DMG AND `volume.node` is not present
-- **THEN** the script SHALL invoke the rebuild routine
-- **AND** if rebuild fails, SHALL exit non-zero before `electron-forge make` runs
-- **AND** SHALL print an actionable message naming `xcode-select --install` as the recovery step
-
-#### Scenario: Build-time gate passes silently when ready
-
-- **WHEN** `build-installer.sh` runs on darwin AND `volume.node` is present
-- **THEN** the script SHALL proceed to `electron-forge make` without printing rebuild output
-
-### Requirement: Doctor diagnostic for DMG prerequisites
-
-The Electron Doctor window SHALL include a darwin-only diagnostic row for the `macos-alias` native module readiness state. The row is a `DoctorCheck` with `name: "macos-alias native module"` and `section: "diagnostics"`. The row SHALL show `status: "ok"` when `volume.node` is present and `status: "warning"` otherwise. The `warning` state SHALL include a non-empty `suggestion` referencing the postinstall command and Xcode CLT. The row SHALL be omitted entirely when `macos-alias` is not installed (e.g. the shipped end-user app), so only contributors with the build toolchain present see it.
-
-#### Scenario: Doctor row on darwin with built native module
-
-- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `<macos-alias-dir>/build/Release/volume.node` exists
-- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", section: "diagnostics", status: "ok" }`
-
-#### Scenario: Doctor row on darwin with missing native module
-
-- **WHEN** Doctor runs on darwin AND `macos-alias` is installed AND `volume.node` does not exist
-- **THEN** the Doctor report SHALL include a row `{ name: "macos-alias native module", status: "warning", suggestion: <non-empty> }`
-
-#### Scenario: Doctor when macos-alias is not installed
-
-- **WHEN** Doctor runs on darwin AND `macos-alias` cannot be resolved
-- **THEN** the report SHALL NOT include the `macos-alias native module` row
-
-#### Scenario: Doctor on non-darwin
-
-- **WHEN** Doctor runs on `linux` or `win32`
-- **THEN** the report SHALL NOT include the `macos-alias native module` row
+- **THEN** `build-config-parity.test.ts` SHALL assert `appId`, `productName`, and `executableName` agree across `forge.config.ts`, `electron-builder.yml`, and `electron-builder-nsis.json`
+- **AND** there SHALL be NO test asserting a `@electron-forge/maker-dmg` resolved `name` field (the maker was removed)
 
 ### Requirement: macOS Catalina support
 The Electron app SHALL support macOS 10.15 (Catalina) and newer.
@@ -314,11 +247,18 @@ The Electron app SHALL support macOS 10.15 (Catalina) and newer.
 - **THEN** it SHALL use Electron 32.x (the last version supporting macOS 10.15)
 
 ### Requirement: Cross-platform build script
-A build script SHALL support building installers for all platforms from a single macOS or Linux host.
+A build script SHALL support building installers for all platforms from a single macOS or Linux host. On the native host it SHALL produce the same artifacts as CI (`.github/workflows/_electron-build.yml`): a macOS DMG (via `electron-forge package` → `electron-builder --mac dmg --prepackaged`) or a Linux `.deb` + AppImage (via `electron-forge make` → `electron-builder --linux AppImage --prepackaged`), each with the `latest-*.yml` + `app-update.yml` update metadata electron-updater requires.
 
-#### Scenario: Native build
-- **WHEN** `npm run electron:build` runs without flags
-- **THEN** it SHALL build an installer for the current platform
+#### Scenario: Native macOS build
+- **WHEN** `npm run electron:build` runs on a darwin host
+- **THEN** `build-installer.sh` SHALL run `electron-forge package --platform=darwin --arch=<host-or-requested-arch>` to produce (and, when `APPLE_IDENTITY` is set, sign) the `.app`
+- **AND** SHALL then run `electron-builder --mac dmg --prepackaged "<.app path>" --config electron-builder.yml` with `CSC_IDENTITY_AUTO_DISCOVERY=false` so the DMG wraps the Forge-signed `.app` without re-signing
+- **AND** SHALL emit the DMG plus `latest-mac.yml` + `app-update.yml` under `out/`
+
+#### Scenario: Native Linux build
+- **WHEN** `npm run electron:build` runs on a linux host
+- **THEN** `build-installer.sh` SHALL run `electron-forge make` for the `.deb` (Forge `maker-deb`)
+- **AND** SHALL run `electron-builder --linux AppImage --prepackaged "<packaged dir>" --config electron-builder.yml` for the AppImage + `latest-linux.yml` + `app-update.yml`
 
 #### Scenario: Docker cross-build for Linux
 - **WHEN** `npm run electron:build -- --linux` runs
@@ -345,7 +285,7 @@ The project SHALL add npm scripts for Electron development and building.
 
 #### Scenario: Electron full build script
 - **WHEN** `npm run electron:build` is run
-- **THEN** it SHALL run the build-installer.sh script which handles client build, server bundling, Node.js download, and `electron-forge make`
+- **THEN** it SHALL run `build-installer.sh` which handles client build, server bundling, Node.js download, `electron-forge package`/`make`, and the `electron-builder --prepackaged` DMG/AppImage step
 
 #### Scenario: Icon generation script
 - **WHEN** `npm run icons` is run from `packages/electron/`

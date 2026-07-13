@@ -7,21 +7,22 @@
  * See change: add-dashboard-model-proxy.
  */
 import crypto from "node:crypto";
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import type { ModelProxyConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { parseModelId } from "@blackbelt-technology/pi-dashboard-shared/model-id.js";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { ConcurrencyError, ConcurrencyTracker } from "../model-proxy/concurrency.js";
 import {
-  convertOpenAIMessages,
-  convertOpenAITools,
-  eventToSSEChunks,
-  eventToNonStreamingResponse,
-  ToolCallIndexTracker,
+  AnthropicBlockTracker,
   convertAnthropicMessages,
   convertAnthropicTools,
-  eventToAnthropicSSE,
+  convertOpenAIMessages,
+  convertOpenAITools,
   eventToAnthropicResponse,
-  AnthropicBlockTracker,
+  eventToAnthropicSSE,
+  eventToNonStreamingResponse,
+  eventToSSEChunks,
+  ToolCallIndexTracker,
 } from "../model-proxy/convert/index.js";
-import { ConcurrencyTracker, ConcurrencyError } from "../model-proxy/concurrency.js";
 import { logRequest, type RequestLogEntry } from "../model-proxy/request-log.js";
 
 export interface ModelProxyRouteDeps {
@@ -34,7 +35,64 @@ export interface ModelProxyRouteDeps {
 export interface ModelProxyRegistry {
   getAvailable(): Promise<any[]>;
   find(provider: string, modelId: string): Promise<any | null>;
+  /**
+   * Walk an ordered list of fully-qualified `provider/id`s, returning the first
+   * entry available in the registry (or null). See change:
+   * fix-and-prefer-model-proxy-resolution.
+   */
+  firstAvailable(preferred: string[]): Promise<any | null>;
   getApiKeyAndHeaders(model: any): Promise<{ apiKey: string; headers: Record<string, string> }>;
+}
+
+/** Outcome of resolving a requested label to a registry model. */
+type ResolveResult =
+  | { ok: true; model: any; label: string }
+  | { ok: false; status: 400 | 404; label: string };
+
+/**
+ * Resolve a requested model to a registry entry (shared by both endpoints).
+ *
+ * Order (spec: Model ID resolution):
+ *   1. label = request.model ?? firstAvailable(preferred) ?? defaultModel
+ *   2. alias expand (exact key match)
+ *   3. parse on first `/` only
+ *   4. registry.find(provider, id)
+ *   5. fallback: firstAvailable(preferred)
+ *   6. else 404 (400 when step 1 yields no label)
+ */
+async function resolveRequestedModel(
+  requestModel: string | undefined,
+  config: ModelProxyConfig,
+  registry: ModelProxyRegistry,
+): Promise<ResolveResult> {
+  const preferred = config.preferredModels ?? [];
+  const aliases = config.modelAliases ?? {};
+
+  // 1. Determine the requested label.
+  let label: string | undefined = requestModel;
+  if (!label) {
+    const pref = preferred.length > 0 ? await registry.firstAvailable(preferred) : null;
+    label = pref ? `${pref.provider}/${pref.id}` : config.defaultModel;
+  }
+  if (!label) return { ok: false, status: 400, label: "" };
+
+  // 2. Alias expansion (whole-label exact match, single pass).
+  if (Object.prototype.hasOwnProperty.call(aliases, label)) {
+    label = aliases[label];
+  }
+
+  // 3. First-slash parse. 4. Exact find.
+  const { provider, modelId } = parseModelId(label);
+  let model = provider ? await registry.find(provider, modelId) : null;
+
+  // 5. Preferred fallback (bare label or miss).
+  if (!model && preferred.length > 0) {
+    model = await registry.firstAvailable(preferred);
+  }
+
+  // 6. Still nothing.
+  if (!model) return { ok: false, status: 404, label };
+  return { ok: true, model, label };
 }
 
 /** Minimal interface for pi-ai's streamSimple. */
@@ -86,19 +144,24 @@ export function registerModelProxyRoutes(
     }
 
     const config = getConfig();
-    const modelId = body.model || config.defaultModel;
-    if (!modelId) {
-      return reply.code(400).send({ error: { message: "model is required", type: "invalid_request_error" } });
-    }
-
     const registry = await getRegistry();
     if (!registry) {
       return reply.code(503).send({ code: "MODEL_PROXY_RUNTIME_MISSING", message: "pi-ai unavailable" });
     }
 
+    const resolved = await resolveRequestedModel(body.model, config, registry);
+    if (!resolved.ok) {
+      if (resolved.status === 400) {
+        return reply.code(400).send({ error: { message: "model is required", type: "invalid_request_error" } });
+      }
+      return reply.code(404).send({ error: { message: `Model not found: ${resolved.label}`, type: "invalid_request_error" } });
+    }
+    const model = resolved.model;
+    const modelId = resolved.label;
+
     const stream = body.stream === true;
     const apiKeyId = (request as any).proxyApiKeyId;
-    const [provider] = modelId.includes("/") ? modelId.split("/", 2) : ["unknown", modelId];
+    const provider = model.provider ?? "unknown";
 
     // Acquire concurrency
     let release: (() => void) | undefined;
@@ -120,13 +183,6 @@ export function registerModelProxyRoutes(
     try {
       const { systemPrompt, messages } = convertOpenAIMessages(body.messages);
       const tools = body.tools ? convertOpenAITools(body.tools) : undefined;
-
-      // Resolve model
-      const [prov, mid] = modelId.includes("/") ? modelId.split("/", 2) : [undefined, modelId];
-      const model = prov ? await registry.find(prov, mid) : null;
-      if (!model) {
-        return reply.code(404).send({ error: { message: `Model not found: ${modelId}`, type: "invalid_request_error" } });
-      }
 
       const creds = await registry.getApiKeyAndHeaders(model);
       const controller = new AbortController();
@@ -213,19 +269,24 @@ export function registerModelProxyRoutes(
     }
 
     const config = getConfig();
-    const modelId = body.model || config.defaultModel;
-    if (!modelId) {
-      return reply.code(400).send({ error: { type: "invalid_request_error", message: "model is required" } });
-    }
-
     const registry = await getRegistry();
     if (!registry) {
       return reply.code(503).send({ code: "MODEL_PROXY_RUNTIME_MISSING", message: "pi-ai unavailable" });
     }
 
+    const resolved = await resolveRequestedModel(body.model, config, registry);
+    if (!resolved.ok) {
+      if (resolved.status === 400) {
+        return reply.code(400).send({ error: { type: "invalid_request_error", message: "model is required" } });
+      }
+      return reply.code(404).send({ error: { type: "invalid_request_error", message: `Model not found: ${resolved.label}` } });
+    }
+    const model = resolved.model;
+    const modelId = resolved.label;
+
     const stream = body.stream === true;
     const apiKeyId = (request as any).proxyApiKeyId;
-    const [provider] = modelId.includes("/") ? modelId.split("/", 2) : ["unknown", modelId];
+    const provider = model.provider ?? "unknown";
 
     let release: (() => void) | undefined;
     try {
@@ -246,12 +307,6 @@ export function registerModelProxyRoutes(
     try {
       const { systemPrompt, messages } = convertAnthropicMessages(body);
       const tools = body.tools ? convertAnthropicTools(body.tools) : undefined;
-
-      const [prov, mid] = modelId.includes("/") ? modelId.split("/", 2) : [undefined, modelId];
-      const model = prov ? await registry.find(prov, mid) : null;
-      if (!model) {
-        return reply.code(404).send({ error: { type: "invalid_request_error", message: `Model not found: ${modelId}` } });
-      }
 
       const creds = await registry.getApiKeyAndHeaders(model);
       const controller = new AbortController();

@@ -3,7 +3,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import { DISPLAY_PRESETS, type DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -15,6 +15,8 @@ import { usePiResources } from "../hooks/usePiResources.js";
 import { useResourceActivation } from "../hooks/useResourceActivation.js";
 import { getApiBase } from "../lib/api-context.js";
 import { useDisplayPrefsContext } from "../lib/DisplayPrefsContext.js";
+import { type BlockEvent, getBlockEvents } from "../lib/gateway-api.js";
+import { suggestTrustEntries } from "../lib/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, setAutoInitWorktreePref } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
 import { LANGUAGE_OPTIONS, type Language, useI18n } from "../lib/i18n.js";
@@ -23,6 +25,7 @@ import { buildPiResourceFileUrl } from "../lib/route-builders.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { InstructionsPage } from "./DirectorySettings/InstructionsPage.js";
+import { GatewayPage } from "./Gateway/GatewayPage.js";
 import { KnownServersSection } from "./KnownServersSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
@@ -260,7 +263,10 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // settings tab — so it is added to the client-side route whitelist only, NOT to
 // the shared VALID_SETTINGS_TABS (which gates the plugin slot contract).
 // See change: directory-settings-page-and-scoped-md-editing.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions"]);
+// `gateway` is a built-in Network-group page (tunnel providers UI), added to
+// the client route whitelist only (not a plugin-claimable slot).
+// See change: add-tunnel-providers.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -713,6 +719,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
       label: t("settings.groupNetwork", undefined, "Network"),
       items: [
         { id: "remote", label: t("settings.remoteServers", undefined, "Remote Servers"), icon: mdiWeb },
+        { id: "gateway", label: t("settings.gateway", undefined, "Gateway"), icon: mdiTunnel },
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
       ],
     },
@@ -889,11 +896,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     <NumberField label={i18nT("auto.idle_seconds_before_shutdown", undefined, "Idle Seconds Before Shutdown")} value={config.shutdownIdleSeconds} onChange={(v) => update((c) => { c.shutdownIdleSeconds = v; })} />
                   )}
                 </Section>
-                <Section title={t("settings.tunnel", undefined, "Tunnel")}>
-                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Zrok Tunnel")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
+                <Section title={t("settings.tunnel", undefined, "Gateway")}>
+                  <ToggleField label={t("settings.enableZrokTunnel", undefined, "Enable Gateway")} value={config.tunnel.enabled} onChange={(v) => update((c) => { c.tunnel.enabled = v; })} />
                   <div className="mt-3 pt-3 border-t border-[var(--border-secondary)] space-y-2">
                     <p className="text-xs text-[var(--text-tertiary)]">
-                      {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public tunnel URL periodically and recycles the tunnel after consecutive failures (e.g. zrok edge returning 502).")}
+                      {i18nT("auto.watchdog_probes_the_public_tunnel_url", undefined, "Watchdog probes the public Gateway URL periodically and recycles it after consecutive failures (e.g. a zrok edge returning 502).")}
                     </p>
                     <ToggleField
                       label={t("settings.enableWatchdog", undefined, "Enable Watchdog")}
@@ -1141,6 +1148,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
               </>
             )}
 
+            {activeTab === "gateway" && <GatewayPage />}
+
             {activeTab === "remote" && (
               <>
                 <ServersTab />
@@ -1152,7 +1161,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
               <>
                 <Section title={t("settings.auth", undefined, "Authentication")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                    {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (tunnel) access. Localhost is always open.")}
+                    {t("settings.authDescription", undefined, "Configure OAuth providers to protect external (Gateway) access. Localhost is always open.")}
                   </p>
                   {["github", "google", "keycloak", "oidc"].map((key) => (
                     <ProviderSection
@@ -1259,6 +1268,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
+                    availableModels={availableModels}
                   />
                 </Section>
                 <SettingsSectionSlot tab="providers" />
@@ -1679,6 +1689,83 @@ export function removeTrustedEntry(current: string[], entry: string): string[] {
   return current.filter((n) => n !== entry);
 }
 
+/**
+ * "This device was refused — Trust this network?" banner (task 7.2). Surfaces
+ * recent guard denials from the anti-poisoning ring buffer; only `trustable`
+ * (non-loopback, non-proxied socket-peer) IPs get a Trust action. A one-click
+ * add appends the exact host (default) or a wider subnet to the trusted list;
+ * the blast-radius warning is stated inline (one entry bypasses auth for every
+ * host it covers). Advisory only — never auto-adds. See change: add-tunnel-providers.
+ */
+function BlockEventTrustBanner({
+  trusted,
+  onTrust,
+}: {
+  trusted: string[];
+  onTrust: (entry: string) => void;
+}) {
+  const [events, setEvents] = useState<BlockEvent[]>([]);
+  // IPs the operator has acted on this session. A wide-subnet trust (e.g.
+  // 10.0.0.0/8) does not contain the exact IP string, so `trusted.includes`
+  // alone would leave the banner up — track the dismissal explicitly.
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    getBlockEvents()
+      .then((evs) => { if (alive) setEvents(evs); })
+      .catch(() => { /* ignore */ });
+    return () => { alive = false; };
+  }, []);
+
+  const trust = (ip: string, entry: string) => {
+    setDismissed((prev) => new Set(prev).add(ip));
+    onTrust(entry);
+  };
+
+  const pending = events.filter((e) => e.trustable && !trusted.includes(e.ip) && !dismissed.has(e.ip));
+  if (pending.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5 mb-2" data-testid="block-event-banner">
+      {pending.map((ev) => {
+        const suggestions = suggestTrustEntries(ev.ip);
+        return (
+          <div
+            key={ev.ip}
+            className="flex flex-wrap items-center gap-2 rounded border border-[#4a3c14] bg-[var(--amber-soft,#3a2e10)] px-2.5 py-1.5"
+            data-testid={`block-event-${ev.ip}`}
+          >
+            <span className="flex-1 text-xs text-[var(--text-secondary)]">
+              <b className="font-mono text-[var(--amber,#e2b24a)]">{ev.ip}</b> refused — not trusted
+              {ev.count > 1 ? ` (${ev.count}×)` : ""}.
+            </span>
+            {suggestions.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                data-testid={`block-event-trust-${s.value}`}
+                title={
+                  s.wide
+                    ? `Grants unauthenticated access to the whole ${s.value} range`
+                    : "Grants unauthenticated access to this exact host"
+                }
+                onClick={() => trust(ev.ip, s.value)}
+                className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${
+                  s.wide
+                    ? "border-[#4a3c14] text-[var(--amber,#e2b24a)] hover:bg-[var(--amber-soft,#3a2e10)]"
+                    : "border-[#23502f] bg-[var(--green-soft,#132d1c)] text-[#5dd67f]"
+                }`}
+              >
+                + Trust {s.wide ? s.value : "host"}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Pure: should the legacy-hint be visible? Exported for tests. */
 export function shouldShowLegacyHint(legacyTrustedNetworks: string[]): boolean {
   return legacyTrustedNetworks.length > 0;
@@ -1746,6 +1833,9 @@ function TrustedNetworksSection({
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
       </p>
+
+      {/* Block-event "Trust this network?" banner (task 7.2). */}
+      <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} />
 
       {bypassHosts.length > 0 && (
         <div className="space-y-1 mb-2" data-testid="trusted-networks-list">

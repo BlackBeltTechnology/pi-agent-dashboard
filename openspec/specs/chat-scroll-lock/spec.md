@@ -1,9 +1,7 @@
 ## Purpose
 
 Defines auto-scroll and scroll-lock behavior for the chat message view: pause auto-scroll when the user scrolls away from the bottom, expose a scroll-to-bottom affordance when locked, and keep auto-scroll robust against multi-batch event replay.
-
 ## Requirements
-
 ### Requirement: Scroll lock when user scrolls up
 The chat view SHALL pause auto-scrolling when the user scrolls away from the bottom of the message list. Auto-scroll SHALL resume only when the user scrolls back to within 50px of the bottom.
 
@@ -31,7 +29,7 @@ The chat view SHALL display a floating button when the user is scroll-locked (no
 - **THEN** the view SHALL smooth-scroll to the bottom AND auto-scroll SHALL resume
 
 ### Requirement: Auto-scroll robust to multi-batch event replay
-When the chat view scrolls programmatically (on session switch in the "near bottom" branch, or when new content arrives while the user is at the bottom), the resulting `onScroll` event SHALL NOT cause the view to register that the user has scrolled away from the bottom. The auto-scroll chase SHALL continue across every subsequent `event_replay` batch until either replay completes or the user performs a real scroll gesture.
+When the chat view scrolls programmatically (on session switch in the "near bottom" branch, or when new content arrives while the user is at the bottom), the resulting `onScroll` event SHALL NOT cause the view to register that the user has scrolled away from the bottom. The auto-scroll chase SHALL continue across every subsequent `event_replay` batch until either replay completes or the user performs a real scroll gesture. The auto-scroll bottom-pin (both the `stickToBottom` follow effect and the virtualizer `onChange` re-pin) SHALL additionally be suspended while an active transcript selection is held, and SHALL resume on selection collapse without clearing the underlying at-bottom follow state.
 
 #### Scenario: Programmatic scroll-to-bottom races a replay batch
 - **GIVEN** the user has switched to a session whose events are not cached on the server
@@ -53,3 +51,10 @@ When the chat view scrolls programmatically (on session switch in the "near bott
 - **WHEN** all `event_replay` batches have been processed
 - **THEN** the chat view SHALL be scrolled to the latest message
 - **AND** the floating scroll-to-bottom button SHALL NOT be visible
+
+#### Scenario: Auto-scroll suspended while selecting, resumed on collapse
+- **GIVEN** the user was at the bottom following a live stream
+- **WHEN** the user holds an active transcript selection while new content streams in
+- **THEN** the view SHALL NOT auto-scroll to the bottom for the lifetime of the selection
+- **AND** when the selection collapses the view SHALL resume following the bottom
+

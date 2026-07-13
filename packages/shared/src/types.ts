@@ -94,6 +94,16 @@ export interface DashboardSession {
    */
   gitWorktreeBase?: string;
   /**
+   * Tri-state whether the session's cwd is a git repository, independent of
+   * branch-info arrival. `true` = confirmed git repo, `false` = confirmed
+   * non-git, `undefined` = unknown (probe inconclusive / legacy session).
+   * Carried on `session_register` (no arrival race), persisted to `.meta.json`,
+   * restored by `sessionFromMeta` on cold start. Used to gate the `+Worktree`
+   * button (hide only on `=== false`).
+   * See change: gate-session-worktree-button-on-git.
+   */
+  isGitRepo?: boolean;
+  /**
    * Server-managed flag set by any of three probe sites: (1) the bridge's
    * 30 s VCS tick (`existsSync(cwd) === false`), (2) the server's session
    * scanner re-probing ended sessions on boot, (3) the `worktree/remove`
@@ -558,8 +568,20 @@ export const GOALS_SCHEMA_VERSION = 1 as const;
 
 /** Durable lifecycle status of a folder-scoped goal. Distinct from the
  *  goal-plugin's live `GoalStatus` ("active"/"done") — this is the dashboard's
- *  owned intent. See change: add-goals-folder-page. */
-export type GoalRecordStatus = "pursuing" | "paused" | "achieved" | "cleared";
+ *  owned intent. See change: add-goals-folder-page.
+ *
+ *  `respawning` = supervisor has no live driver and a respawn is pending
+ *  (backoff delay or spawn in flight) — visible, non-terminal; a goal is NEVER
+ *  `pursuing` without a live driver. `failed` = terminal supervisor verdict
+ *  (crash-loop breaker, or a kill that targeted nothing). Both added by
+ *  See change: add-goal-session-supervisor. */
+export type GoalRecordStatus =
+  | "pursuing"
+  | "paused"
+  | "achieved"
+  | "cleared"
+  | "respawning"
+  | "failed";
 
 /** A single success criterion on a goal. */
 export interface GoalCriterion {
@@ -598,6 +620,38 @@ export interface GoalVerdict {
  *  See change: sophisticate-goal-authoring-and-control. */
 export const GOAL_VERDICTS_CAP = 50 as const;
 
+/** One recorded supervisor respawn attempt. Persisted FIFO on the record so
+ *  the crash-loop breaker + poison counters survive a server restart (the
+ *  counters are DERIVED from this array, never from RAM).
+ *  See change: add-goal-session-supervisor. */
+export interface GoalRespawn {
+  /** Wall-clock ms when the respawn was attempted. */
+  at: number;
+  /** Session id of the driver that died and triggered this respawn. */
+  sessionId: string;
+  /** Why this respawn happened: `"resume"` (continue-mode) or `"fresh"` (re-primed). */
+  reason: "resume" | "fresh";
+  /** Whether the dead driver made progress (strict `turnsUsed` increase) before dying. */
+  madeProgress: boolean;
+}
+
+/** Max retained respawns per GoalRecord (FIFO; oldest dropped past this).
+ *  See change: add-goal-session-supervisor. */
+export const GOAL_RESPAWNS_CAP = 50 as const;
+
+/** In-flight supervisor respawn, persisted so a server restart between spawn
+ *  launch and `session_register` does not double-spawn, and a stale-generation
+ *  completion can kill the orphaned process. See change:
+ *  add-goal-session-supervisor (C2b/C2d). */
+export interface GoalInFlightSpawn {
+  /** Spawn correlation token minted BEFORE launch (host `linkByToken` key). */
+  spawnToken: string;
+  /** `generation` snapshot at launch; a completion under a newer generation is stale. */
+  generation: number;
+  /** Wall-clock ms the spawn launched. */
+  startedAt: number;
+}
+
 /** Folder-scoped goal record. Dashboard owns the durable definition
  *  (objective, criteria, status intent, linked sessions); the
  *  @ricoyudog/pi-goal-hermes extension stays source of truth for live loop
@@ -616,6 +670,47 @@ export interface GoalRecord {
   judge?: GoalJudge;
   /** Bounded per-turn judge verdict history (FIFO, cap `GOAL_VERDICTS_CAP`). */
   verdicts?: GoalVerdict[];
+  /** Latest `turnsUsed` observed from any driver's live loop. Optional; a
+   *  pre-change record backfills on the first snapshot after upgrade.
+   *  See change: persist-goal-status-and-progress. */
+  lastKnownTurnsUsed?: number;
+  /** Cumulative turns consumed across all drivers of this goal (per-driver
+   *  non-negative deltas; the truthful budget denominator). Optional.
+   *  See change: persist-goal-status-and-progress. */
+  totalTurnsUsed?: number;
+  /** Wall-clock ms when `turnsUsed` last strictly increased. Optional.
+   *  Doubles as the crash-loop breaker epoch: no-progress deaths recorded at or
+   *  before this instant do not count toward the breaker (progress bumps it).
+   *  See change: persist-goal-status-and-progress, add-goal-session-supervisor. */
+  lastProgressAt?: number;
+  /** When true, the supervisor auto-respawns a dead driver (progress-gated,
+   *  bounded by the cumulative budget + crash-loop breaker). Defaults from
+   *  `autoRespawnDefault` at create time. Optional; absent = off (legacy
+   *  records load unchanged). See change: add-goal-session-supervisor. */
+  autoRespawn?: boolean;
+  /** Bounded supervisor respawn history (FIFO, cap `GOAL_RESPAWNS_CAP`). The
+   *  breaker + poison counters derive from this so they survive restart.
+   *  See change: add-goal-session-supervisor. */
+  respawns?: GoalRespawn[];
+  /** Monotonic per-goal generation counter. Bumped synchronously on
+   *  clear/pause so a pending backoff timer or in-flight spawn completion
+   *  observes the change and becomes a no-op. See change:
+   *  add-goal-session-supervisor (S6). */
+  generation?: number;
+  /** Durable reason for the current `paused`/`failed` status (e.g. `"session
+   *  ended"`, `"crash loop"`, `"stop failed"`). Surfaced on chip/board when no
+   *  live driver snapshot exists. See change: add-goal-session-supervisor. */
+  statusReason?: string;
+  /** Persisted in-flight respawn, cleared once the new driver registers.
+   *  See change: add-goal-session-supervisor (C2b/C2d). */
+  inFlightSpawn?: GoalInFlightSpawn;
+  /** Cumulative `totalTurnsUsed` captured when the CURRENT driver became the
+   *  driver (link/respawn register). The supervisor classifies a driver death
+   *  as progress iff `totalTurnsUsed` strictly exceeds this. Persisted so the
+   *  signal survives restart; `undefined` = unknown baseline (a death is then
+   *  unknown-progress and does NOT count toward the breaker — C2f).
+   *  See change: add-goal-session-supervisor. */
+  currentDriverBaselineTurns?: number;
   /** Sessions opened in service of this goal (drivers + workers, incl. hidden). */
   sessionIds: string[];
   /** Session running the pi-goal-hermes loop, when known. */

@@ -115,9 +115,22 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @mariozechner/pi-coding-agent openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.80.6 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
+
+# 1.4b Flow-plugin e2e peers (change: add-flow-plugin-e2e-tests). The pi-flows
+# engine + the anthropic-messages bridge peer are BAKED here; test-entrypoint.sh
+# selectively wires them per PI_TEST_PEERS (both|no-am|legacy|bad-registration)
+# so the L3 harness can drive real flows + assert the bridge state machine. Kept
+# non-fatal on version probe, fatal on install, same as the pi install above.
+ARG PI_FLOWS_VERSION=0.3.2
+ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
+RUN npm install -g \
+      "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
+      "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \
+ && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
+         /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages
 
 WORKDIR /app
 

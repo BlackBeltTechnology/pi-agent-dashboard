@@ -68,6 +68,9 @@
   --status-working: var(--accent-yellow);
   --status-idle: var(--accent-green);
   --status-error: var(--accent-red);
+  /* Non-error info: model returned only reasoning, no answer.
+     See change: fix-gemini-subagent-silent-tool-schema-failure. */
+  --status-notice: var(--accent-blue);
 
   /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
      See change: extend-client-utils-state-feedback-primitives. */

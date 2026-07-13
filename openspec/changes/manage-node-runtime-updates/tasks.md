@@ -1,6 +1,6 @@
 ## 1. Pure helpers
 
-- [ ] 1.1 Add `classifyNodeSource(nodePath)` to `src/shared/platform/classify-node-source.ts`. Pure function returning `"managed" | "system" | "bundled-electron"`. Compares `realpathSync(nodePath)` against `<managedDir>/node/` and `process.resourcesPath/node/`. Treats unresolvable paths as `"system"`
+- [ ] 1.1 Add `classifyNodeSource(nodePath)` to `packages/shared/src/platform/classify-node-source.ts`. Pure function returning `"managed" | "system" | "bundled-electron"`. Compares `realpathSync(nodePath)` against `<managedDir>/node/` and `process.resourcesPath/node/`. Treats unresolvable paths as `"system"`. Foundation `embed-managed-node-runtime` (archived) supplies the managed dir — this task builds the classifier on top.
 - [ ] 1.2 Unit-test `classifyNodeSource` table-driven against memfs paths: managed, system, bundled-electron, symlink-resolves-into-managed, unresolvable-path → system
 
 ## 2. Node runtime checker
@@ -34,7 +34,7 @@
 ## 5. PiCoreChecker synthetic row
 
 - [ ] 5.1 Edit `packages/server/src/pi-core-checker.ts::getStatus()` to inject the synthetic Node runtime entry from `node-runtime-checker.getStatus()`, mapping `classifyNodeSource` result to the source taxonomy: `managed → "managed"`, `system → "global"`, `bundled-electron → "bundled"`
-- [ ] 5.2 Update `PiCorePackage` / `PiCoreStatus` types in `src/shared/rest-api.ts` to allow `installSource: "global" | "managed" | "bundled"` (extend the existing union)
+- [ ] 5.2 Update `PiCorePackage` / `PiCoreStatus` types in `packages/shared/src/rest-api.ts` to allow `installSource: "global" | "managed" | "bundled"` (extend the existing union). Currently `"global" | "managed"` only.
 - [ ] 5.3 Update `PiCoreChecker.getStatus()` to include the runtime row in the `updatesAvailable` count
 - [ ] 5.4 Extend `packages/server/src/__tests__/pi-core-checker.test.ts` to assert the synthetic row is present, source mapping is correct for each of the three classify outputs, and the count includes the runtime when `updateAvailable: true`
 
@@ -46,13 +46,15 @@
 
 ## 7. Frontend wire-up
 
-- [ ] 7.1 Update `packages/client/src/components/PiCoreVersionsSection.tsx` to render the synthetic Node runtime row using the existing row component. Source-specific badge values (`local` / `global` / `bundled`)
+The section previously known as `PiCoreVersionsSection` was renamed to `UnifiedPackagesSection` under change: consolidate-packages-settings-ui. All references below use the current name.
+
+- [ ] 7.1 Update `packages/client/src/components/UnifiedPackagesSection.tsx` to render the synthetic Node runtime row using the existing `PackageRow` component. Source-specific badge values (`local` / `global` / `bundled`)
 - [ ] 7.2 Implement disabled-Update-button states with tooltips for `system` and `bundled` sources
 - [ ] 7.3 Implement cross-major confirmation dialog. Triggered when `latestVersion` major ≠ `currentVersion` major. On confirm, POST `{ allowMajor: true }`
 - [ ] 7.4 Implement swap-pending state: on `pi_core_update_complete` with `name: "node"` and `swapPending: true`, replace Update button with "Restart to apply" indicator + "Restart now" button (POSTs `/api/restart`)
 - [ ] 7.5 Update `packages/client/src/components/PiUpdateBadge.tsx` to include the runtime in the count regardless of source (badge counts informational updates, source-disabled rows still bump the count)
 - [ ] 7.6 Wire `pi_core_update_progress` events with `phase: "download"` to a download-progress affordance on the row (re-uses existing progress UI)
-- [ ] 7.7 Component test for `PiCoreVersionsSection` covering: managed enables button, system disables with tooltip, bundled disables with tooltip, swap-pending shows Restart, cross-major shows dialog, within-major skips dialog
+- [ ] 7.7 Component test for `UnifiedPackagesSection` covering: managed enables button, system disables with tooltip, bundled disables with tooltip, swap-pending shows Restart, cross-major shows dialog, within-major skips dialog
 
 ## 8. Doctor integration
 

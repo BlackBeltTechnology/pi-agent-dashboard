@@ -117,6 +117,13 @@ export default async function globalSetup(): Promise<void> {
   const env = {
     ...process.env,
     PI_E2E_SEED: "1",
+    // Flow-plugin e2e peers (change: add-flow-plugin-e2e-tests). The managed
+    // container boots with BOTH peers so the synthetic flow is discoverable +
+    // runnable and the anthropic bridge reaches `active` for the L3 specs
+    // (flow-roundtrip, anthropic-bridge-activation `both`, subagent-inspector).
+    // Variant containers (no-am/legacy/bad-registration) are booted separately
+    // via docker/test-up.sh with PI_TEST_PEERS set (opt-in / manual).
+    PI_TEST_PEERS: process.env.PI_TEST_PEERS ?? "both",
     ANTHROPIC_API_KEY: "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",

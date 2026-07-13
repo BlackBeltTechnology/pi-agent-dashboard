@@ -42,6 +42,7 @@ export const CSS_VAR_KEYS = [
   "--status-working",
   "--status-idle",
   "--status-error",
+  "--status-notice",
 ] as const;
 
 /**
@@ -55,6 +56,9 @@ const statusVars: Record<string, string> = {
   "--status-working": "var(--accent-yellow)",
   "--status-idle": "var(--accent-green)",
   "--status-error": "var(--accent-red)",
+  // Non-error info: model returned only reasoning, no answer.
+  // See change: fix-gemini-subagent-silent-tool-schema-failure.
+  "--status-notice": "var(--accent-blue)",
 };
 
 // ── Base (matches current CSS :root / [data-theme="light"]) ──

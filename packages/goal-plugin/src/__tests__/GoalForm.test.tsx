@@ -6,9 +6,10 @@
  *
  * See change: sophisticate-goal-authoring-and-control.
  */
+
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GoalForm, type GoalFormPayload } from "../client/GoalForm.js";
 
 beforeEach(() => {
@@ -65,5 +66,26 @@ describe("GoalForm", () => {
     fireEvent.click(getByTestId("goal-form-submit"));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     expect(onSubmit.mock.calls[0]![0]).toEqual({ objective: "Just objective" });
+  });
+
+  // ── add-goal-session-supervisor (task 5.2) ────────────────────────
+  it("includes autoRespawn when the toggle is enabled", async () => {
+    const onSubmit = vi.fn(async (_p: GoalFormPayload) => {});
+    const { getByTestId } = render(<GoalForm onSubmit={onSubmit} />);
+    fireEvent.change(getByTestId("goal-form-objective"), { target: { value: "Persistent goal" } });
+    fireEvent.click(getByTestId("goal-form-auto-respawn"));
+    fireEvent.click(getByTestId("goal-form-submit"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ objective: "Persistent goal", autoRespawn: true });
+  });
+
+  it("defaults the autoRespawn toggle from the autoRespawnDefault prop", async () => {
+    const onSubmit = vi.fn(async (_p: GoalFormPayload) => {});
+    const { getByTestId } = render(<GoalForm onSubmit={onSubmit} autoRespawnDefault />);
+    expect((getByTestId("goal-form-auto-respawn") as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(getByTestId("goal-form-objective"), { target: { value: "Inherits default" } });
+    fireEvent.click(getByTestId("goal-form-submit"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ objective: "Inherits default", autoRespawn: true });
   });
 });

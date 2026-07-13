@@ -1,0 +1,26 @@
+name: synthetic
+description: >
+  Synthetic 2-agent e2e flow (faux-driven) for the flow-plugin e2e harness.
+  Discovered by pi-flows as `.pi/flows/flows/e2e/synthetic/flow.yaml` -> command
+  `/e2e:synthetic`. Agents resolve to faux/faux-1 via the faux role-preset
+  (@coding -> faux); each step task carries the `[[faux:flow-agent-branch]]`
+  sentinel so the faux provider replays a per-agent finish() keyed off the
+  agent's system-prompt marker. Exercises the REAL pi-flows engine end-to-end
+  (DAG schedule, agent spawn, model:resolve, finish, blockedBy ordering,
+  flow_* forwarding + render). See change: add-flow-plugin-e2e-tests.
+task_required: false
+max_concurrent: 2
+
+steps:
+  - id: alpha
+    type: agent
+    agent: e2e-alpha
+    task: "[[faux:flow-agent-branch]] synthetic e2e step alpha"
+
+  - id: beta
+    type: agent
+    agent: e2e-beta
+    blockedBy: [alpha]
+    task: "[[faux:flow-agent-branch]] synthetic e2e step beta"
+    inputs:
+      upstream: ${{result.alpha.note}}

@@ -12,19 +12,25 @@ Pi already has a package manager (`DefaultPackageManager` wrapped by `package-ma
 - `git:<url>` / `https://...` → `~/.pi/agent/git/<host>/<path>`
 - absolute / relative path → as-is / relative to settings dir
 
-Installed packages are recorded in `~/.pi/agent/settings.json#packages[]` (global) or `<cwd>/.pi/settings.json#packages[]` (local). The dashboard's `discoverPlugins()` does not consult either — it only globs its own monorepo. Closing that gap is the primary fix.
+Installed packages are recorded in `~/.pi/agent/settings.json#packages[]` (global) or `<cwd>/.pi/settings.json#packages[]` (local).
 
-A second concern is failure visibility. `getPluginStatusStore()` already produces `{ id, enabled, loaded, error?, claims }` and `/api/health.plugins[]` exposes it. No client component renders that data, so a failing plugin disappears silently. Without a Plugins UI surface, encouraging third-party plugins increases the silent-failure surface area unacceptably.
+### Current state (shipped, diverged from proposal)
+
+The dashboard's `discoverPlugins()` does NOT consult `settings.json#packages[]`. It scans three hardcoded directories: workspace `<monorepo>/packages/*/`, user-installed `~/.pi/dashboard/plugins/`, and bundled `resources/plugins/` — in priority order (workspace > user-installed > bundled), dedup by plugin id. This architecture shipped as part of `add-plugin-activation-ui` using `findInstalledPluginsDir()` and `findBundledPluginsDir()` helpers. `clearDiscoveryCache()` exists but has no caller.
+
+The primary gap — integrating the pi-package-resolver seam (`pi-resource-scanner.resolvePackagePath()`) to scan `settings.json#packages[]` entries — remains unimplemented.
+
+Failure visibility: `getPluginStatusStore()` produces `{ id, enabled, loaded, error?, claims }` and `/api/health.plugins[]` exposes it. The `<PluginsSection>` client component (shipped via `add-plugin-activation-ui`) renders this data in Settings → General with status pills, toggles, error display, dependency graph, and missing-requirements inline install.
 
 ## Goals / Non-Goals
 
-**Goals:**
+**Goals (status after drift reconciliation — 2026-07-13):**
 
-- A user running `pi install npm:<plugin>` (or any other pi-installer source) SHALL see the plugin's claims rendered by the dashboard without manual symlinks, dashboard rebuilds, or config edits.
-- The plugin discovery rule SHALL reuse existing pi resolver logic (`resolvePackagePath`); no parallel resolution code.
-- Plugin failures SHALL be visible in the Settings UI (status, error text, claim count, enable/disable toggle).
-- A plugin install / remove / update SHALL invalidate the discovery cache and propagate status to all open browsers; process restart SHALL NOT be required.
-- Local-scope (per-cwd) plugin installs SHALL be detected and surfaced as a documented warning ("local-scope plugins not supported in this release"), not silently ignored.
+- ~~A user running `pi install npm:<plugin>` SHALL see the plugin's claims without manual steps.~~ **NOT IMPLEMENTED** — `discoverPlugins()` does not scan `settings.json#packages[]`. Shipped discovery uses `~/.pi/dashboard/plugins/` which requires a separate install mechanism.
+- ~~The plugin discovery rule SHALL reuse existing pi resolver logic (`resolvePackagePath`).~~ **NOT IMPLEMENTED** — shipped discovery uses hardcoded directory scan via `findInstalledPluginsDir()`/`findBundledPluginsDir()`.
+- ✅ Plugin failures SHALL be visible in the Settings UI. **COMPLETE** — `<PluginsSection>` shipped via `add-plugin-activation-ui` renders status, error text, claims, and enable/disable toggle.
+- ~~A plugin install / remove / update SHALL invalidate the discovery cache and propagate status without restart.~~ **PARTIALLY IMPLEMENTED** — `clearDiscoveryCache()` exists but has no caller; no broadcast mechanism wires it to package operations.
+- ~~Local-scope (per-cwd) plugin installs SHALL be detected and surfaced as a warning.~~ **NOT IMPLEMENTED** — no local-detection logic exists.
 
 **Non-Goals:**
 
@@ -35,36 +41,35 @@ A second concern is failure visibility. `getPluginStatusStore()` already produce
 
 ## Decisions
 
-### Decision 1: Reuse `pi-resource-scanner.resolvePackagePath` rather than inventing a parallel resolver
+### Decision 1: Reuse `pi-resource-scanner.resolvePackagePath` rather than inventing a parallel resolver (**NOT IMPLEMENTED**)
 
-`pi-resource-scanner.ts:193` already maps `npm:` / `git:` / `https://` / absolute / relative entries to filesystem locations. `discoverPlugins()` SHALL import that resolver and apply it to every entry in `~/.pi/agent/settings.json#packages[]`, then look for `pi-dashboard-plugin` in the resolved package's `package.json` (or adjacent `dashboard-plugin.json`).
+**Shipped alternative**: `discoverPlugins()` uses `findInstalledPluginsDir()` (`~/.pi/dashboard/plugins/`) and `findBundledPluginsDir()` (`resources/plugins/`) — a direct-directory-scan approach, not `pi-resource-scanner.resolvePackagePath()`. This was shipped as part of `add-plugin-activation-ui`. The `settings.json#packages[]` scan envisioned here was never wired in.
 
-**Alternative considered**: scanning `node_modules` directly via npm conventions. Rejected — pi may install via git, abs path, or local-path sources. The settings file is the canonical "what's installed" registry; using it keeps the dashboard's view of installed packages aligned with pi's view at all times.
+**Still the right design**: `pi-resource-scanner.ts:193` already maps `npm:` / `git:` / `https://` / absolute / relative entries to filesystem locations. Closing the gap means wiring this resolver into `discoverPlugins()` as a 4th scan source, reusing the existing dedup logic (workspace > installed > bundled > global).
 
-### Decision 2: Phase 1 is global-scope-only with explicit local-scope warning
+### Decision 2: Phase 1 is global-scope-only with explicit local-scope warning (**NOT IMPLEMENTED**)
 
-The dashboard SHALL scan `~/.pi/agent/settings.json#packages[]`. It SHALL NOT scan per-cwd `<cwd>/.pi/settings.json#packages[]` for plugin loading purposes.
-
-However, the discovery routine SHALL inspect known active sessions' cwds and emit a warning entry (`source: "local-detected"`) for any local-installed plugin manifest found. This entry SHALL appear in `/api/health.plugins[]` with `loaded: false, error: "Local-scope plugins are not loaded in this release. Install globally with --scope global to enable."` so users get a clear path forward.
-
-**Alternatives considered**:
-- *Full scope-aware loading (Design B from exploration)* — defers because slot semantics differ between global slots (settings-section, management-modal, toast) and session slots (everything else). Premature without a driving use-case.
-- *Silent ignore* — bad UX. Users who install locally should learn why nothing rendered.
+Neither `~/.pi/agent/settings.json#packages[]` scanning nor local-detection exists in the shipped code. No `source: "global" | "local-detected"` field on any type. This section describes the intended design for the remaining implementation.
 
 The forward path to Phase 2 is documented in **Open Questions**.
 
-### Decision 3: Cache invalidation hooks live in `package-routes.ts`, status broadcast reuses existing channel
+### Decision 3: Cache invalidation hooks live in `package-routes.ts`, status broadcast reuses existing channel (**PARTIALLY IMPLEMENTED**)
+
+`clearDiscoveryCache()` exists in `@blackbelt-technology/dashboard-plugin-runtime/server` (shipped via `add-plugin-activation-ui`). However:
+- No caller triggers it — no hooks in `package-routes.ts`.
+- No `loadServerEntries()` re-run after package ops.
+- No broadcast (of either `plugin_config_update` or new `plugins_changed`) after cache invalidation.
+
+The design below remains valid for the remaining implementation:
 
 After successful `/api/packages/install`, `/api/packages/remove`, or `/api/packages/update` against `scope: "global"`, the route handler SHALL:
 
-1. Call a new `clearDiscoveryCache()` helper exported from `dashboard-plugin-runtime/server`.
+1. Call `clearDiscoveryCache()` (already exists).
 2. Re-run `discoverPlugins()` and `loadServerEntries()` to register newly added plugins.
 3. Update the `PluginStatusStore` for all currently-discovered plugins.
-4. Broadcast `plugin_config_update` (existing event) — or a new `plugins_changed` event — to all subscribed browsers so `usePluginConfig`-style hooks and the new `<PluginsSection>` re-fetch.
+4. Broadcast to all subscribed browsers.
 
-**Alternative considered**: full server restart on plugin install. Rejected — too disruptive, breaks active sessions.
-
-The lighter-weight path (re-discover + re-load entries) only adds plugins; it does NOT hot-swap an existing plugin's code (the React registry is built at Vite time). Removing or updating an existing plugin requires server restart. The UI SHALL surface this constraint with a "restart required" hint on the affected plugin row.
+The lighter-weight path (re-discover + re-load entries) only adds plugins; it does NOT hot-swap an existing plugin's code.
 
 ### Decision 4: Use a new `plugins_changed` broadcast rather than overload `plugin_config_update`
 
@@ -78,15 +83,16 @@ The new `<PluginsSection>` SHALL live in the existing General settings tab so us
 
 **Alternative considered**: a new top-level "Plugins" tab. Rejected — too few plugins today to justify; can promote later.
 
-### Decision 6: Discovery scan order and conflict resolution
+### Decision 6: Discovery scan order and conflict resolution (**ALREADY SHIPPED for 3-dir scan**)
 
-When the same plugin id appears in both `<dashboard-cwd>/packages/*` (workspace) and `~/.pi/agent/settings.json#packages[]` (pi-installed):
+The shipped `discoverPlugins()` scans 3 directories in priority order with dedup by plugin id:
+1. Workspace `<monorepo>/packages/*/` (highest priority)
+2. User-installed `~/.pi/dashboard/plugins/`
+3. Bundled `resources/plugins/` (lowest priority)
 
-- The workspace-local plugin SHALL win.
-- A conflict SHALL be logged at `warn` level: `[plugin-loader] Plugin "<id>" exists in both workspace and pi-install; using workspace version.`
-- The pi-installed plugin SHALL appear in `/api/health.plugins[]` with `loaded: false, error: "Shadowed by workspace plugin of the same id."`
+When the same id appears in multiple directories, the earliest (highest-priority) version wins. The docstring notes: "Earlier search dirs win on ID collisions (monorepo > installed > bundled)."
 
-This matches existing semantics in `registerPluginBridge` (path-conflict detection in `plugin-bridge-register.ts`).
+The same principle extends to the unimplemented `settings.json#packages[]` (4th source, lowest priority): workspace > installed > bundled > global.
 
 ### Decision 7: Trust model is unchanged and explicit
 
@@ -108,14 +114,16 @@ Plugins execute arbitrary React + Node code with the trust level of any pi exten
 
 ## Migration Plan
 
-This change is **additive and backwards-compatible**:
+This change is **additive and backwards-compatible** — once implemented:
 
 - Existing first-party plugins under `packages/*` continue to work unchanged.
 - `/api/health.plugins[]` schema gains a `source` field (additive) — older clients ignoring it still parse correctly.
 - The new `plugins_changed` broadcast is a new message type; older clients ignore unknown types.
 - Local-scope warnings are net-new; no migration of existing data.
 
-**Rollback**: revert is safe. Removing the global-settings scan returns to monorepo-only discovery; no persistent state to clean up. The new UI section can be feature-flagged via a config key (`plugins.uiSection.enabled`) if a staged rollout is preferred — judgment call at implementation time.
+**Rollback**: revert is safe. Removing the global-settings scan returns to the shipped 3-dir discovery; no persistent state to clean up. The UI section (already shipped) is independent.
+
+**Current migration concern**: the shipped `discoverPlugins()` uses `~/.pi/dashboard/plugins/` while the proposed `settings.json#packages[]` scan uses a different directory. To avoid confusion, the implementation should merge the two: a plugin installed via `pi install` and recorded in `settings.json#packages[]` SHALL be found by the new scanner; the `~/.pi/dashboard/plugins/` directory can remain as a legacy user-install path or be deprecated. Forward path documented in drift reconciliation (proposal.md).
 
 ## Open Questions
 

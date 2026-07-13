@@ -1383,6 +1383,17 @@ export interface RolePresetDeleteBrowserMessage {
   presetName: string;
 }
 
+/**
+ * Browser → server: remove a CUSTOM role. Forwarded to the target session
+ * bridge which purges it via the `roles:remove` handler (built-ins rejected
+ * server-side). See change: add-custom-roles-ui.
+ */
+export interface RoleRemoveBrowserMessage {
+  type: "role_remove";
+  sessionId: string;
+  role: string;
+}
+
 export interface RequestRolesBrowserMessage {
   type: "request_roles";
   sessionId: string;
@@ -1494,6 +1505,7 @@ export type BrowserToServerMessage =
   | RolePresetLoadBrowserMessage
   | RolePresetSaveBrowserMessage
   | RolePresetDeleteBrowserMessage
+  | RoleRemoveBrowserMessage
   | RequestRolesBrowserMessage
   | UiManagementBrowserMessage
   | SessionViewBrowserMessage

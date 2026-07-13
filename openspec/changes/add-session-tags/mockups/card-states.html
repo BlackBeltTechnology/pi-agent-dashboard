@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Tags — Card states</title>
+<link rel="stylesheet" href="_tokens.css" />
+</head>
+<body>
+<div class="wrap">
+  <h1>Session Tags — Card states</h1>
+  <p class="sub">The tag-strip lifecycle on a session card / detail header. Resolves Open Decision #1 (edit affordance) and the overflow behaviour.</p>
+  <div class="navlinks">
+    <a href="index.html">Overview</a>
+    <a class="here">Card states</a>
+    <a href="filter-in-action.html">Filter in action</a>
+  </div>
+
+  <div class="cols">
+    <!-- A: untagged -->
+    <div>
+      <h2>A · Untagged (default)</h2>
+      <p class="note">No tags yet → only the ghost "+ tag" affordance. Zero visual weight when unused.</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">fix flaky test</span><span class="card-status idle">idle</span></div>
+        <div class="card-path">~/proj/api · main</div>
+        <div class="card-tags chips"><span class="chip add">+ tag</span></div>
+      </div>
+    </div>
+
+    <!-- B: editing -->
+    <div>
+      <h2>B · Editing (popover open)</h2>
+      <p class="note">Clicking "+ tag" opens the inline popover. Arrow-key nav over autocomplete; Enter commits.</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">fix flaky test</span><span class="card-status idle">idle</span></div>
+        <div class="card-path">~/proj/api · main</div>
+        <div class="card-tags chips">
+          <span class="chip user c-rose">#bugfix <span class="x">✕</span></span>
+          <span class="chip add">+ tag</span>
+        </div>
+        <div class="pop" style="margin-top:10px;">
+          <div class="pop-label">Add tag</div>
+          <input type="text" value="fl" />
+          <div class="ac">
+            <div class="ac-title">Existing</div>
+            <div class="ac-item on"><span class="chip user c-amber">#flaky</span><span class="cnt">4</span></div>
+            <div class="ac-item"><span class="chip user c-teal">#flow</span><span class="cnt">1</span></div>
+            <div class="ac-item ac-new">+ Create “fl”</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- C: tagged + exec -->
+    <div>
+      <h2>C · Tagged + execution chip</h2>
+      <p class="note">User chips (editable) sit before the read-only phase chip. The dashed lock signals "you can't edit this — it's derived."</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">add auth middleware</span><span class="card-status streaming">streaming</span></div>
+        <div class="card-path">~/proj/api · feat/auth</div>
+        <div class="card-tags chips">
+          <span class="chip user c-blue">#feature <span class="x">✕</span></span>
+          <span class="chip user c-violet">#backend <span class="x">✕</span></span>
+          <span class="chip exec">apply <span class="lock">🔒</span></span>
+          <span class="chip add">+ tag</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- D: overflow -->
+    <div>
+      <h2>D · Overflow (many tags)</h2>
+      <p class="note">Cap visible chips on the card; collapse the rest behind "+N". Full set shows in the detail header / on hover.</p>
+      <div class="card">
+        <div class="card-head"><span class="card-title">migrate billing schema</span><span class="card-status ended">ended</span></div>
+        <div class="card-path">~/proj/billing · chore/migrate</div>
+        <div class="card-tags chips">
+          <span class="chip user c-slate">#chore <span class="x">✕</span></span>
+          <span class="chip user c-teal">#db <span class="x">✕</span></span>
+          <span class="chip user c-orange">#risky <span class="x">✕</span></span>
+          <span class="chip more">+2</span>
+          <span class="chip exec">proposal <span class="lock">🔒</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Placement decision (Open Decision #1)</h2>
+  <p class="note">Default: full editable strip lives in the <strong>detail-panel header</strong>; the card shows a compact read view (chips + "+N", "+ tag" opens detail). Cards are already dense — editing inline (state B) is shown for completeness but is the fallback, not the default.</p>
+</div>
+</body>
+</html>

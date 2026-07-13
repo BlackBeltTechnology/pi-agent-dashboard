@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings · API Proxy — preferred models &amp; aliases mockup</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333333;
+    --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-red:#ef4444; --accent-purple:#a855f7; --accent-yellow:#eab308;
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --accent-blue:#2563eb;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.5;
+  }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px;
+    background:var(--bg-secondary); padding:1px 4px; border-radius:3px; color:var(--text-secondary); }
+  .wrap { max-width:640px; margin:0 auto; padding:28px 20px 80px; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }
+  .topbar h1 { font-size:15px; font-weight:600; margin:0; }
+  .theme-toggle { font-size:12px; color:var(--text-tertiary); background:var(--bg-tertiary);
+    border:1px solid var(--border-secondary); border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .panel { background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:10px; padding:18px 18px 20px; }
+  .section-space > * + * { margin-top:16px; }
+
+  .row-between { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+  .section-title { font-size:14px; font-weight:500; color:var(--text-primary); }
+  .desc { font-size:12px; color:var(--text-tertiary); margin:2px 0 0; }
+  .switch { position:relative; display:inline-flex; height:20px; width:36px; border-radius:9999px;
+    background:var(--accent-blue); border:none; cursor:pointer; flex:none; }
+  .switch .knob { position:absolute; top:3px; left:19px; height:14px; width:14px; border-radius:50%;
+    background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.4); }
+
+  label.fld { display:block; font-size:12px; font-weight:500; color:var(--text-secondary); margin-bottom:5px; }
+  label.fld .hint { color:var(--text-tertiary); font-weight:400; }
+  input.txt, input.num {
+    background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:6px;
+    padding:7px 9px; font-size:13px; color:var(--text-primary);
+  }
+  input.txt { width:100%; }
+  input.txt.mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  input.num { width:120px; }
+  input::placeholder { color:var(--text-muted); }
+  input:focus { outline:none; border-color:var(--accent-blue); }
+
+  .divider { height:1px; background:var(--border-primary); margin:20px 0 4px; border:0; }
+  .kicker { font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--text-tertiary); }
+  .new-badge { display:inline-block; font-size:9px; font-weight:700; letter-spacing:.05em; color:var(--accent-green);
+    border:1px solid color-mix(in srgb, var(--accent-green) 45%, transparent); border-radius:4px; padding:1px 5px; margin-left:8px; vertical-align:middle; }
+
+  /* ordered list editor (preferred models) */
+  .list { background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:8px; }
+  .list-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid var(--border-primary); }
+  .list-item:last-child { border-bottom:0; }
+  .ord { font-size:11px; color:var(--text-muted); width:16px; text-align:right; flex:none; }
+  .grip { color:var(--text-muted); cursor:grab; flex:none; font-size:14px; line-height:1; user-select:none; }
+  .pm-name { flex:1; font-size:13px; }
+  .pm-name .prov { color:var(--text-tertiary); }
+  .avail { font-size:11px; padding:1px 7px; border-radius:9999px; flex:none; }
+  .avail.ok { color:var(--accent-green); background:color-mix(in srgb, var(--accent-green) 14%, transparent); }
+  .avail.no { color:var(--text-muted); background:var(--bg-surface); }
+  .x { color:var(--text-tertiary); cursor:pointer; flex:none; background:none; border:0; font-size:15px; line-height:1; padding:0 2px; }
+  .x:hover { color:var(--accent-red); }
+
+  /* model selector trigger (matches ModelSelector.tsx) */
+  .ms-trigger { display:inline-flex; align-items:center; gap:5px; font-size:12px; padding:3px 8px; border-radius:6px;
+    background:var(--bg-surface); border:1px solid var(--border-secondary); color:var(--text-secondary); cursor:pointer; }
+  .ms-trigger:hover { color:var(--text-primary); }
+  .ms-trigger .chev { color:var(--text-muted); }
+  .ms-trigger.add { color:var(--accent-blue); background:none; border:1px dashed var(--border-secondary); }
+  .ms-trigger.val { flex:1; justify-content:space-between; background:var(--bg-tertiary); font-family:ui-monospace,Menlo,monospace; }
+
+  /* model selector dropdown (20rem) */
+  .ms-wrap { position:relative; }
+  .ms-dd { position:absolute; z-index:50; margin-top:6px; width:20rem; max-width:100%;
+    background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.5); overflow:hidden; }
+  .ms-filters { padding:6px 6px 4px; display:flex; flex-direction:column; gap:6px; }
+  .ms-filters .frow { display:flex; gap:6px; }
+  .ms-select, .ms-search { background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:6px;
+    color:var(--text-primary); font-size:12px; padding:5px 8px; }
+  .ms-select { flex:1; }
+  .ms-search { width:100%; }
+  .ms-favs { display:inline-flex; align-items:center; gap:4px; font-size:12px; padding:5px 9px; border-radius:6px;
+    border:1px solid var(--border-primary); background:var(--bg-tertiary); color:var(--text-secondary); cursor:pointer; }
+  .ms-list { max-height:260px; overflow-y:auto; }
+  .ms-group { padding:4px 12px; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-tertiary);
+    background:var(--bg-primary); position:sticky; top:0; }
+  .ms-row { display:flex; align-items:center; gap:8px; padding:6px 12px 6px 8px; cursor:pointer; }
+  .ms-row:hover { background:var(--bg-hover); }
+  .ms-row.sel { background:var(--bg-tertiary); }
+  .ms-row.cur .lbl { color:var(--accent-blue); }
+  .star { flex:none; width:15px; height:15px; }
+  .star.on { color:var(--accent-yellow); } .star.off { color:var(--text-tertiary); }
+  .ms-row .lbl { flex:1; min-width:0; font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--text-secondary);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .caps { display:flex; align-items:center; gap:4px; flex:none; color:var(--text-muted); }
+  .caps svg { width:13px; height:13px; }
+  .ctx { flex:none; font-size:10px; padding:0 5px; border-radius:4px; background:var(--bg-tertiary); color:var(--text-muted); }
+  .ms-foot { border-top:1px solid var(--border-secondary); padding:4px; }
+  .ms-refresh { display:flex; align-items:center; gap:6px; width:100%; font-size:12px; padding:5px 8px; border-radius:6px;
+    background:none; border:0; color:var(--text-secondary); cursor:pointer; }
+  .ms-refresh:hover { background:var(--bg-hover); color:var(--text-primary); }
+
+  /* alias rows */
+  .alias-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--border-primary); }
+  .alias-row:last-of-type { border-bottom:0; }
+  input.txt.alias-key { width:140px; flex:none; }
+  .arrow { color:var(--text-muted); flex:none; font-size:13px; }
+  .alias-val-wrap { flex:1; }
+
+  .add-btn { display:inline-flex; align-items:center; gap:6px; background:none; border:0; cursor:pointer;
+    color:var(--accent-blue); font-size:13px; padding:8px 4px 0; }
+  .add-btn .plus { font-size:15px; line-height:1; }
+  .helprow { font-size:11px; color:var(--text-muted); margin-top:6px; }
+
+  .savebar { margin-top:20px; display:flex; align-items:center; justify-content:flex-end; gap:12px;
+    border-top:1px solid var(--border-primary); padding:16px 0 4px; }
+  .savebar .status { font-size:12px; color:var(--text-tertiary); margin-right:auto; }
+  .btn-primary { background:var(--accent-blue); color:#fff; border:0; border-radius:6px; padding:7px 16px; font-size:13px; font-weight:500; cursor:pointer; }
+  .caption { font-size:11px; color:var(--text-muted); text-align:center; margin-top:26px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Settings · Providers · <span style="color:var(--text-tertiary)">API Proxy</span></h1>
+    <button class="theme-toggle" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark'">Toggle theme</button>
+  </div>
+
+  <div class="panel section-space">
+
+    <!-- Master toggle (existing) -->
+    <div class="row-between">
+      <div>
+        <span class="section-title">API Proxy</span>
+        <p class="desc">Expose OpenAI-compatible <code>/v1/chat/completions</code> and Anthropic-compatible <code>/v1/messages</code> endpoints backed by your configured providers.</p>
+      </div>
+      <button class="switch" aria-label="Enabled"><span class="knob"></span></button>
+    </div>
+
+    <!-- Default model (existing) -->
+    <div>
+      <label class="fld">Default Model <span class="hint">(optional — used when request omits model &amp; no preferred model available)</span></label>
+      <input class="txt mono" type="text" value="anthropic/claude-3-5-sonnet" />
+    </div>
+
+    <hr class="divider" />
+
+    <!-- NEW: Preferred Models -->
+    <div>
+      <span class="kicker">Preferred Models <span class="new-badge">NEW</span></span>
+      <p class="desc" style="margin:2px 0 10px">Ordered fallback. First <em>available</em> entry is used when a request omits <code>model</code> or names an unresolved one. Supersedes Default Model.</p>
+      <div class="list">
+        <div class="list-item">
+          <span class="grip">⠿</span><span class="ord">1</span>
+          <span class="pm-name mono"><span class="prov">anthropic/</span>claude-3-5-sonnet</span>
+          <span class="avail ok">available</span>
+          <button class="x" title="Remove">×</button>
+        </div>
+        <div class="list-item">
+          <span class="grip">⠿</span><span class="ord">2</span>
+          <span class="pm-name mono"><span class="prov">openai/</span>gpt-4o</span>
+          <span class="avail ok">available</span>
+          <button class="x" title="Remove">×</button>
+        </div>
+        <div class="list-item">
+          <span class="grip">⠿</span><span class="ord">3</span>
+          <span class="pm-name mono"><span class="prov">openrouter/anthropic/</span>claude-3.5-sonnet</span>
+          <span class="avail no">no credential</span>
+          <button class="x" title="Remove">×</button>
+        </div>
+      </div>
+
+      <!-- Add via the ModelSelector primitive (dropdown shown open) -->
+      <div class="ms-wrap">
+        <button class="ms-trigger add" style="margin-top:10px"><span class="plus">＋</span> Add model <span class="chev">▾</span></button>
+        <div class="ms-dd">
+          <div class="ms-filters">
+            <div class="frow">
+              <select class="ms-select"><option>All Providers</option></select>
+              <button class="ms-favs">☆ Favs</button>
+            </div>
+            <input class="ms-search" placeholder="Filter models…" value="gpt" />
+          </div>
+          <div class="ms-list">
+            <div class="ms-group">openai</div>
+            <div class="ms-row sel">
+              <svg class="star off" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.5 3.3 1.5-6.3-4.9-4.2 6.4-.5L12 3.5l2.5 6.1 6.4.5-4.9 4.2 1.5 6.3z"/></svg>
+              <span class="lbl">openai/gpt-4o</span>
+              <span class="caps"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5c-5 0-9 4-10 7 1 3 5 7 10 7s9-4 10-7c-1-3-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/></svg></span>
+              <span class="ctx">128k</span>
+            </div>
+            <div class="ms-row">
+              <svg class="star off" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.5 3.3 1.5-6.3-4.9-4.2 6.4-.5L12 3.5l2.5 6.1 6.4.5-4.9 4.2 1.5 6.3z"/></svg>
+              <span class="lbl">openai/gpt-4o-mini</span>
+              <span class="caps"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5c-5 0-9 4-10 7 1 3 5 7 10 7s9-4 10-7c-1-3-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/></svg></span>
+              <span class="ctx">128k</span>
+            </div>
+            <div class="ms-row">
+              <svg class="star on" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-5.5 3.3 1.5-6.3-4.9-4.2 6.4-.5L12 3.5l2.5 6.1 6.4.5-4.9 4.2 1.5 6.3z"/></svg>
+              <span class="lbl">openai/o3</span>
+              <span class="caps"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 3a9 9 0 00-9 9c0 2 .7 3.5 1.8 4.8L5 21l3-1.2A9 9 0 1013 3z"/></svg></span>
+              <span class="ctx">200k</span>
+            </div>
+          </div>
+          <div class="ms-foot"><button class="ms-refresh">⟳ Refresh models</button></div>
+        </div>
+      </div>
+      <div class="helprow" style="margin-top:276px">Drag ⠿ to reorder — order = priority. Add opens the model selector (provider filter, ★ favorites, capability + context badges). Availability reflects the current registry.</div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- NEW: Model Aliases -->
+    <div>
+      <span class="kicker">Model Aliases <span class="new-badge">NEW</span></span>
+      <p class="desc" style="margin:2px 0 10px">Map a short name to a model. Lets callers send <code>claude</code> and route to a specific provider path. The target is picked from the model selector.</p>
+      <div class="list">
+        <div class="alias-row">
+          <input class="txt mono alias-key" type="text" value="claude" />
+          <span class="arrow">→</span>
+          <div class="alias-val-wrap"><button class="ms-trigger val"><span>anthropic/claude-3-5-sonnet</span><span class="chev">▾</span></button></div>
+          <button class="x" title="Remove">×</button>
+        </div>
+        <div class="alias-row">
+          <input class="txt mono alias-key" type="text" value="gpt4" />
+          <span class="arrow">→</span>
+          <div class="alias-val-wrap"><button class="ms-trigger val"><span>openai/gpt-4o</span><span class="chev">▾</span></button></div>
+          <button class="x" title="Remove">×</button>
+        </div>
+        <div class="alias-row">
+          <input class="txt mono alias-key" type="text" placeholder="alias" />
+          <span class="arrow">→</span>
+          <div class="alias-val-wrap"><button class="ms-trigger val" style="color:var(--text-muted)"><span>Select model…</span><span class="chev">▾</span></button></div>
+          <button class="x" title="Remove" style="visibility:hidden">×</button>
+        </div>
+      </div>
+      <button class="add-btn"><span class="plus">＋</span> Add alias</button>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Second port (existing) -->
+    <div>
+      <label class="fld">Second Port <span class="hint">(optional — for clients that hardcode /v1 base URLs)</span></label>
+      <input class="num" type="number" value="9876" />
+    </div>
+
+    <!-- API Keys (existing, summarized) -->
+    <div>
+      <span class="kicker">API Keys</span>
+      <div class="list" style="margin-top:8px">
+        <div class="list-item"><span class="pm-name">default</span><span class="avail no" style="margin-left:auto">all</span><span style="font-size:11px;color:var(--accent-yellow);margin-left:8px">Revoke</span></div>
+        <div style="font-size:12px;color:var(--text-tertiary);padding:10px;border-top:1px solid var(--border-primary)">＋ New API key</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="savebar">
+    <span class="status">Unsaved changes to <code>modelProxy.preferredModels</code>, <code>modelProxy.modelAliases</code></span>
+    <button class="btn-primary">Save</button>
+  </div>
+
+  <p class="caption">Static mockup · change <code>fix-and-prefer-model-proxy-resolution</code> · reuses <code>ModelSelector.tsx</code> · tokens from <code>client/src/index.css</code></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Custom Roles — mockup storyboard</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-hover: rgba(255,255,255,0.06);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --accent-blue: #3b82f6;
+    --accent-red: #ef4444;
+    --accent-warning: #f59e0b;
+    --accent-green: #22c55e;
+    --accent-purple: #a855f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  h1 { color: var(--text-primary); font-size: 20px; margin: 0 0 4px; }
+  h1 + p { margin: 0 0 28px; color: var(--text-muted); font-size: 13px; }
+  .board { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 24px; align-items: start; }
+  .panel-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent-blue); margin: 0 0 8px; font-weight: 700; }
+  .panel-note { font-size: 11px; color: var(--text-muted); margin: 8px 2px 0; }
+
+  /* ---- the Roles settings section (mirrors BuiltInRolesSettings) ---- */
+  .roles {
+    border: 1px solid var(--border-primary);
+    border-radius: 8px; padding: 16px;
+    background: var(--bg-secondary);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .roles-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .roles-head h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary); margin: 0; }
+  .roles-head span { font-size: 10px; color: var(--text-muted); }
+
+  .group-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 4px 0 -2px; display:flex; align-items:center; gap:6px;}
+  .group-label .count { color: var(--text-muted); opacity:.7; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 4px; text-align: left; min-width: 0;
+    background: var(--bg-tertiary); border: none; cursor: pointer;
+    font-family: inherit;
+  }
+  .pill:hover { background: var(--bg-hover); }
+  .pill.editing { background: color-mix(in srgb, var(--accent-blue) 25%, transparent); outline: 2px solid var(--accent-blue); }
+  .pill .role { font-size: 11px; font-weight: 600; color: color-mix(in srgb, var(--accent-blue) 70%, transparent); flex-shrink: 0; }
+  .pill.editing .role { color: var(--accent-blue); }
+  .pill .model { font-size: 11px; color: var(--text-muted); font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .pill .add { font-size: 11px; color: var(--accent-blue); flex: 1; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent-warning); flex-shrink: 0; }
+  .pill .x { margin-left: auto; color: var(--text-muted); font-size: 13px; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 4px; }
+  .pill .x:hover { color: var(--accent-red); background: var(--bg-hover); }
+  .badge-custom { font-size: 9px; padding: 1px 5px; border-radius: 999px; background: color-mix(in srgb, var(--accent-purple) 22%, transparent); color: var(--accent-purple); flex-shrink:0; }
+
+  /* add-role tile / input */
+  .add-tile {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 8px; border-radius: 4px;
+    border: 1px dashed var(--border-secondary); background: transparent; cursor: pointer;
+    color: var(--text-muted); font-size: 11px; font-family: inherit;
+  }
+  .add-tile:hover { color: var(--accent-blue); border-color: var(--accent-blue); }
+  .add-input-wrap { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+  .add-input-row { display: flex; align-items: center; gap: 6px; }
+  .add-input-row .at { color: var(--accent-blue); font-weight: 600; font-size: 12px; }
+  .add-input-row input {
+    flex: 1; padding: 4px 8px; font-size: 12px; font-family: ui-monospace, monospace;
+    background: var(--bg-tertiary); border: 1px solid var(--accent-blue); border-radius: 4px;
+    color: var(--text-primary); outline: none;
+  }
+  .add-input-row input.err { border-color: var(--accent-red); }
+  .add-input-row button { font-size: 12px; background: none; border: none; cursor: pointer; }
+  .btn-ok { color: var(--accent-blue); }
+  .btn-ok:disabled { color: var(--text-muted); opacity:.5; cursor: not-allowed;}
+  .hint { font-size: 10px; color: var(--text-muted); padding-left: 2px; }
+  .hint.err { color: var(--accent-red); }
+  .hint.ok { color: var(--accent-green); }
+
+  /* setup banner */
+  .banner { font-size: 11px; color: var(--accent-warning); border: 1px solid var(--border-secondary); border-radius: 4px; padding: 6px 8px; background: var(--bg-tertiary); }
+
+  /* preset chips */
+  .presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: stretch; overflow: hidden; border-radius: 6px; font-size: 11px; }
+  .chip.active { background: var(--accent-blue); color: #fff; }
+  .chip:not(.active) { background: var(--bg-tertiary); color: var(--text-secondary); }
+  .chip .load { padding: 4px 10px; background: none; border: none; color: inherit; cursor: pointer; font-family: inherit; font-size: 11px; }
+  .chip .del { padding: 0 8px; display: grid; place-items: center; background: none; border: none; color: var(--text-muted); cursor: pointer; }
+  .chip-add { padding: 4px 10px; font-size: 11px; border-radius: 6px; background: var(--bg-tertiary); color: var(--text-muted); border: none; cursor: pointer; font-family: inherit; }
+
+  /* model picker */
+  .picker { border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; background: var(--bg-primary); }
+  .picker .lbl { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+  .picker .lbl b { color: var(--accent-blue); }
+  .picker-field { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; background: var(--bg-tertiary); font-size: 12px; font-family: ui-monospace, monospace; color: var(--text-primary); cursor: pointer; }
+  .picker-field .chev { color: var(--text-muted); }
+  .picker-list { margin-top: 4px; border: 1px solid var(--border-primary); border-radius: 4px; overflow: hidden; }
+  .picker-opt { padding: 6px 8px; font-size: 12px; font-family: ui-monospace, monospace; cursor: pointer; display:flex; gap:8px; align-items:center;}
+  .picker-opt:hover { background: var(--bg-hover); }
+  .picker-opt.sel { background: color-mix(in srgb, var(--accent-blue) 18%, transparent); color: var(--text-primary); }
+  .picker-opt .prov { color: var(--text-muted); }
+
+  /* usage callout */
+  .usage { border: 1px solid var(--border-primary); border-radius: 8px; padding: 16px; background: var(--bg-secondary); font-size: 12px; }
+  .usage h3 { color: var(--text-primary); font-size: 12px; margin: 0 0 8px; }
+  pre { background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 6px; padding: 10px 12px; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-secondary); margin: 6px 0; }
+  .tok-key { color: var(--accent-purple); }
+  .tok-str { color: var(--accent-green); }
+  .tok-com { color: var(--text-muted); }
+  .arrow { color: var(--accent-blue); }
+</style>
+</head>
+<body>
+  <h1>Custom Roles — add your own <code style="color:var(--accent-blue)">@doubt-verifier-1</code>, <code style="color:var(--accent-blue)">@doubt-verifier-x</code></h1>
+  <p>Storyboard mockup · Settings › General › Roles section · dark (studio) theme · not wired to backend</p>
+
+  <div class="board">
+
+    <!-- ============ STATE A: today (baseline) ============ -->
+    <div>
+      <p class="panel-label">A · Today (baseline)</p>
+      <div class="roles">
+        <div class="roles-head"><h3>Roles</h3><span>global role → model assignments</span></div>
+        <div class="presets">
+          <span class="chip active"><button class="load">balanced</button><button class="del">×</button></span>
+          <span class="chip"><button class="load">cheap</button><button class="del">×</button></span>
+          <button class="chip-add">+ Save current as preset</button>
+        </div>
+        <div class="grid">
+          <button class="pill"><span class="role">@planning</span><span class="model">claude-sonnet-4</span></button>
+          <button class="pill"><span class="role">@coding</span><span class="model">gpt-5</span></button>
+          <button class="pill"><span class="role">@compact</span><span class="add">+ Add model</span></button>
+          <button class="pill"><span class="role">@fast</span><span class="model">gemma-4-flash</span></button>
+          <button class="pill"><span class="role">@vision</span><span class="add">+ Add model</span></button>
+          <button class="pill"><span class="role">@research</span><span class="add">+ Add model</span></button>
+        </div>
+      </div>
+      <p class="panel-note">6 hardcoded roles only. No way to add a name. The grid is <code>Object.keys(rolesMap)</code> — a closed set for the human.</p>
+    </div>
+
+    <!-- ============ STATE B: proposed — grouped + add tile ============ -->
+    <div>
+      <p class="panel-label">B · Proposed — Built-in vs Custom groups</p>
+      <div class="roles">
+        <div class="roles-head"><h3>Roles</h3><span>global role → model assignments</span></div>
+        <div class="group-label">Built-in <span class="count">· 6</span></div>
+        <div class="grid">
+          <button class="pill"><span class="role">@planning</span><span class="model">claude-sonnet-4</span></button>
+          <button class="pill"><span class="role">@coding</span><span class="model">gpt-5</span></button>
+          <button class="pill"><span class="role">@compact</span><span class="add">+ Add model</span></button>
+          <button class="pill"><span class="role">@fast</span><span class="model">gemma-4-flash</span></button>
+          <button class="pill"><span class="role">@vision</span><span class="add">+ Add model</span></button>
+          <button class="pill"><span class="role">@research</span><span class="add">+ Add model</span></button>
+        </div>
+        <div class="group-label">Custom <span class="count">· 0</span></div>
+        <div class="grid">
+          <button class="add-tile" style="grid-column:1 / -1">＋ Add custom role</button>
+        </div>
+      </div>
+      <p class="panel-note">Built-in stay grouped &amp; un-deletable. Custom group starts empty with one dashed <b>+ Add custom role</b> affordance.</p>
+    </div>
+
+    <!-- ============ STATE C: naming with live validation ============ -->
+    <div>
+      <p class="panel-label">C · Naming a role (live validation)</p>
+      <div class="roles">
+        <div class="roles-head"><h3>Roles</h3><span>global role → model assignments</span></div>
+        <div class="group-label">Custom <span class="count">· 0</span></div>
+        <div class="grid">
+          <div class="add-input-wrap">
+            <div class="add-input-row">
+              <span class="at">@</span>
+              <input value="doubt-verifier-1" />
+              <button class="btn-ok">✓</button>
+              <button style="color:var(--text-muted)">✕</button>
+            </div>
+            <div class="hint ok">✓ valid · will resolve as <code>@doubt-verifier-1</code></div>
+          </div>
+        </div>
+      </div>
+      <div class="roles" style="margin-top:12px">
+        <div class="group-label">Custom <span class="count">· 0</span></div>
+        <div class="grid">
+          <div class="add-input-wrap">
+            <div class="add-input-row">
+              <span class="at">@</span>
+              <input class="err" value="doubt/verifier 2" />
+              <button class="btn-ok" disabled>✓</button>
+              <button style="color:var(--text-muted)">✕</button>
+            </div>
+            <div class="hint err">✕ no <code>/</code>, spaces, or <code>@</code> — use letters, digits, <code>-</code>, <code>_</code></div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Reserved chars rejected inline: <code>/</code> (provider separator), whitespace, leading <code>@</code>. Duplicate of a built-in name also blocked.</p>
+    </div>
+
+    <!-- ============ STATE D: assign a model to the new role ============ -->
+    <div>
+      <p class="panel-label">D · Assign a model (reuses model picker)</p>
+      <div class="roles">
+        <div class="group-label">Custom <span class="count">· 1</span></div>
+        <div class="grid">
+          <button class="pill editing" style="grid-column:1 / -1">
+            <span class="role">@doubt-verifier-1</span>
+            <span class="add">+ Add model</span>
+            <span class="badge-custom">custom</span>
+            <span class="x">×</span>
+          </button>
+        </div>
+        <div class="picker">
+          <div class="lbl">Assign model to <b>@doubt-verifier-1</b></div>
+          <div class="picker-field"><span>select a model…</span><span class="chev">▾</span></div>
+          <div class="picker-list">
+            <div class="picker-opt sel"><span class="prov">anthropic/</span>claude-haiku-4-5</div>
+            <div class="picker-opt"><span class="prov">openai/</span>gpt-5-mini</div>
+            <div class="picker-opt"><span class="prov">my-google/</span>gemma-4-flash</div>
+          </div>
+        </div>
+      </div>
+      <p class="panel-note">Same <code>ui:model-selector</code> primitive as built-ins. New name + model land together via one <code>role_set</code>, auto-creating the role on disk.</p>
+    </div>
+
+    <!-- ============ STATE E: result — family of custom verifiers ============ -->
+    <div>
+      <p class="panel-label">E · Result — a family of verifiers</p>
+      <div class="roles">
+        <div class="roles-head"><h3>Roles</h3><span>global role → model assignments</span></div>
+        <div class="group-label">Built-in <span class="count">· 6</span></div>
+        <div class="grid">
+          <button class="pill"><span class="role">@planning</span><span class="model">claude-sonnet-4</span></button>
+          <button class="pill"><span class="role">@coding</span><span class="model">gpt-5</span></button>
+          <button class="pill"><span class="role">@fast</span><span class="model">gemma-4-flash</span></button>
+          <button class="pill"><span class="role">@vision</span><span class="add">+ Add model</span></button>
+        </div>
+        <div class="group-label">Custom <span class="count">· 2</span></div>
+        <div class="grid">
+          <button class="pill"><span class="role">@doubt-verifier-1</span><span class="model">claude-haiku-4-5</span><span class="badge-custom">custom</span><span class="x">×</span></button>
+          <button class="pill"><span class="role">@doubt-verifier-x</span><span class="model">claude-opus-4</span><span class="badge-custom">custom</span><span class="x">×</span></button>
+          <button class="add-tile" style="grid-column:1 / -1">＋ Add custom role</button>
+        </div>
+      </div>
+      <p class="panel-note"><code>-1</code> = cheap/fast tier (haiku), <code>-x</code> = max tier (opus). Each custom pill gets a <b>custom</b> badge + <b>×</b> remove. Built-ins never show ×.</p>
+    </div>
+
+    <!-- ============ STATE F: how it gets used ============ -->
+    <div>
+      <p class="panel-label">F · How subagents consume it</p>
+      <div class="usage">
+        <h3>Spawn a subagent bound to a custom role</h3>
+        <pre><span class="tok-com"># Agent tool call — model field is a @role ref</span>
+Agent(
+  subagent_type: <span class="tok-str">"doubt-driven-review"</span>,
+  model: <span class="tok-str">"@doubt-verifier-x"</span>,   <span class="tok-com">// resolves via role:resolve-model</span>
+  prompt: <span class="tok-str">"stress-test this migration…"</span>
+)</pre>
+        <div style="margin:10px 0 4px; color:var(--text-muted)">resolution path</div>
+        <pre>@doubt-verifier-x
+   <span class="arrow">└▶</span> role:resolve-model  <span class="tok-com">(role-manager.ts)</span>
+        <span class="arrow">└▶</span> providers.json#roles["doubt-verifier-x"]
+             <span class="arrow">└▶</span> <span class="tok-str">"anthropic/claude-opus-4"</span>  ✓ spawned</pre>
+        <p class="panel-note" style="margin-top:12px">If the role has no model, <code>probe.reason = "not configured yet"</code> → the harness surfaces an actionable spawn error instead of a silent fail. Unchanged from today.</p>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

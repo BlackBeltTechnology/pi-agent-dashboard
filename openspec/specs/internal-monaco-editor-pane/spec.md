@@ -72,7 +72,11 @@ Closing the last tab SHALL leave the pane in an empty state with a "no files ope
 The pane SHALL render a file-tree browse rail on the left, rooted at the session's
 `cwd`, collapsible via a **labelled, discoverable toggle at the rail↔viewer boundary**
 (not a bare unlabelled icon buried among header actions). Rail visibility SHALL persist
-per session.
+per session. In the **absence of a persisted preference** for a session, the rail SHALL
+default to **collapsed** so the opened viewer fills the pane width; a user's explicit
+toggle SHALL persist per session and override the collapsed default on subsequent opens
+(the rail SHALL NOT re-collapse each time the split reopens once the user has revealed
+it for that session).
 
 The rail SHALL list a directory's entries from a **single tree-listing source of truth**
 returning `{ name: string; isDir: boolean }` per entry, so **hidden directories
@@ -100,6 +104,18 @@ the classifier's viewer kind; clicking a directory SHALL expand/collapse it.
 - **WHEN** the user collapses the rail via the labelled toggle
 - **THEN** the rail hides and the viewer fills the freed width
 - **AND** the collapsed state persists across reload
+
+#### Scenario: Rail defaults to collapsed with no persisted preference
+- **GIVEN** a session with no persisted rail-visibility preference
+- **WHEN** the split content viewer opens (e.g. via `openInSplit`)
+- **THEN** the Files rail SHALL be collapsed and the viewer SHALL fill the pane width
+- **AND** the labelled `[Files]` toggle SHALL remain present so the rail can be revealed
+
+#### Scenario: Revealed rail stays revealed for the session
+- **GIVEN** a session whose split viewer opened with the rail collapsed by default
+- **WHEN** the user reveals the rail via the `[Files]` toggle
+- **THEN** the revealed state SHALL persist for that session across reload
+- **AND** reopening the split for that session SHALL NOT re-collapse the rail
 
 ### Requirement: Pane SHALL dispatch viewers via a kind-based registry
 
@@ -349,3 +365,69 @@ the file untouched. Non-editable markdown (`.markdown`) SHALL remain preview-onl
 - **THEN** the write returns 409 and the changed-on-disk banner appears
 - **AND** the on-disk file is unchanged
 
+### Requirement: File-tree rows SHALL offer a copy-path popup
+
+Each file-tree rail row (both files and directories) SHALL expose a **copy
+affordance** that is hover-revealed: a copy glyph SHALL appear, flush-right on
+the row, when the row is hovered or its popup is open, and SHALL be otherwise
+visually unobtrusive.
+
+Activating the copy glyph SHALL NOT open the file or expand/collapse the
+directory (the glyph's activation SHALL stop propagation to the row). Activating
+the glyph SHALL open a **popup menu anchored to the glyph** offering exactly
+three actions:
+
+- **Copy full path** — the row's absolute path (`cwd` joined with the row's
+  path relative to `cwd`).
+- **Copy relative path** — the row's path relative to the session `cwd`.
+- **Copy file name** — the row's basename.
+
+The popup SHALL display the target absolute path (truncated as needed) as a
+header so the action target is unambiguous. When the popup would overflow the
+rail's bottom edge, it SHALL render above the glyph instead of below.
+
+Selecting an action SHALL copy the corresponding payload to the clipboard using
+`navigator.clipboard.writeText()`, SHALL show a transient ✓ confirmation, and
+SHALL then close the popup. When the Clipboard API is unavailable (e.g. a
+non-secure context), the action SHALL fail silently without throwing, matching
+the existing `CopyButton` behavior.
+
+The popup SHALL be dismissable by clicking outside it, by scrolling the rail, and
+by pressing Escape.
+
+#### Scenario: Copy glyph is hover-revealed and does not open the file
+- **GIVEN** a file-tree row for `src/foo.ts`
+- **WHEN** the user hovers the row
+- **THEN** a copy glyph appears flush-right on the row
+- **WHEN** the user activates the copy glyph
+- **THEN** the copy-path popup opens
+- **AND** `onOpenFile` is NOT invoked for `src/foo.ts`
+
+#### Scenario: Copy full path
+- **GIVEN** a session whose cwd is `/Users/u/proj` and a row for `src/foo.ts`
+- **WHEN** the user activates the copy glyph and selects **Copy full path**
+- **THEN** `/Users/u/proj/src/foo.ts` SHALL be written to the clipboard
+- **AND** a ✓ confirmation SHALL show and the popup SHALL close
+
+#### Scenario: Copy relative path and file name
+- **GIVEN** a session whose cwd is `/Users/u/proj` and a row for `src/foo.ts`
+- **WHEN** the user selects **Copy relative path**
+- **THEN** `src/foo.ts` SHALL be written to the clipboard
+- **WHEN** the user selects **Copy file name**
+- **THEN** `foo.ts` SHALL be written to the clipboard
+
+#### Scenario: Directory rows offer the same copy actions
+- **GIVEN** a directory row for `.git`
+- **WHEN** the user activates its copy glyph and selects **Copy full path**
+- **THEN** the directory's absolute path SHALL be copied
+- **AND** the directory SHALL NOT expand or collapse
+
+#### Scenario: Popup dismissal
+- **GIVEN** an open copy-path popup
+- **WHEN** the user clicks outside it, or scrolls the rail, or presses Escape
+- **THEN** the popup SHALL close without copying anything
+
+#### Scenario: Clipboard unavailable
+- **GIVEN** a context where `navigator.clipboard` is undefined
+- **WHEN** the user selects any copy action
+- **THEN** the action SHALL fail silently without throwing

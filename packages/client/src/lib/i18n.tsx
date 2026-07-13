@@ -531,6 +531,7 @@ const zhCN: Record<string, string> = {
   "auto.scan_to_open_pi_dashboard_or": "扫码打开 PI Dashboard 或安装为应用",
   "auto.scope": "范围",
   "auto.scroll_to_bottom": "滚动到底部",
+  "auto.scroll_to_top": "滚动到顶部",
   "auto.search": "搜索…",
   "auto.search_archived_changes": "搜索已归档变更...",
   "auto.search_changes": "搜索变更...",

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings → Sessions — Folder list mode (mockup)</title>
+<style>
+  /* ---- studio theme tokens (from packages/client/src/index.css) ---- */
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+    --border-subtle:rgba(255,255,255,.06); --border-secondary:rgba(255,255,255,.10);
+    --accent-blue:#3b82f6; --accent-purple:#a855f7; --status-needs-you:var(--accent-purple);
+    --shadow-card:rgba(0,0,0,.4); --elevation-rim:rgba(255,255,255,.10);
+    --status-active:#22c55e; --status-streaming:#3b82f6; --status-idle:#585858;
+  }
+  [data-theme="light"]{
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777; --text-muted:#aaa;
+    --border-subtle:rgba(0,0,0,.06); --border-secondary:rgba(0,0,0,.12);
+    --shadow-card:rgba(0,0,0,.08); --elevation-rim:rgba(255,255,255,.9);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    background:var(--bg-primary);color:var(--text-secondary);font-size:14px;line-height:1.4;}
+  .wrap{display:grid;grid-template-columns:1fr 340px;gap:20px;max-width:1120px;margin:0 auto;padding:20px;}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr;}}
+
+  /* theme toggle */
+  .topbar{max-width:1120px;margin:0 auto;padding:14px 20px 0;display:flex;justify-content:space-between;align-items:center;}
+  .topbar h1{font-size:15px;color:var(--text-primary);margin:0;font-weight:600;}
+  .themebtn{background:var(--bg-tertiary);border:1px solid var(--border-secondary);color:var(--text-tertiary);
+    border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;}
+
+  /* ---- settings panel ---- */
+  .panel{display:grid;grid-template-columns:180px 1fr;background:var(--bg-secondary);
+    border:1px solid var(--border-subtle);border-radius:12px;overflow:hidden;min-height:560px;}
+  .nav{border-right:1px solid var(--border-subtle);padding:12px 8px;background:var(--bg-primary);}
+  .navgroup{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+    padding:10px 8px 4px;}
+  .navitem{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;font-size:13px;
+    color:var(--text-tertiary);cursor:pointer;}
+  .navitem .dot{width:14px;height:14px;border-radius:3px;background:currentColor;opacity:.4;flex:0 0 auto;}
+  .navitem:hover{color:var(--text-secondary);}
+  .navitem.active{background:var(--bg-tertiary);color:var(--text-primary);}
+  .navitem.active .dot{background:var(--accent-blue);opacity:1;}
+
+  .content{padding:22px 26px;overflow:auto;}
+  .sectiontitle{font-size:13px;font-weight:600;color:var(--text-primary);
+    padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--border-subtle);}
+  .field{margin-bottom:18px;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:16px;}
+  .row label{font-size:14px;color:var(--text-secondary);}
+  .hint{margin-top:5px;font-size:12px;color:var(--text-tertiary);max-width:52ch;}
+  .hint code{background:var(--bg-tertiary);border-radius:3px;padding:1px 4px;font-size:11px;color:var(--text-secondary);}
+
+  /* new-field highlight */
+  .new{position:relative;background:var(--bg-primary);border:1px solid rgba(59,130,246,.35);
+    border-radius:10px;padding:14px 16px;box-shadow:0 0 0 3px rgba(59,130,246,.06);}
+  .newbadge{position:absolute;top:-9px;left:12px;background:var(--accent-blue);color:#fff;
+    font-size:9px;font-weight:700;letter-spacing:.06em;padding:2px 7px;border-radius:5px;text-transform:uppercase;}
+
+  /* toggle (mirrors ToggleField) */
+  .toggle{position:relative;width:40px;height:20px;border-radius:999px;border:none;cursor:pointer;
+    background:var(--bg-tertiary);transition:background .15s;flex:0 0 auto;}
+  .toggle.on{background:#2563eb;}
+  .toggle .knob{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;
+    background:#fff;transition:transform .15s;}
+  .toggle.on .knob{transform:translateX(20px);}
+
+  /* select (mirrors SelectField) */
+  select.sel{background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:6px;
+    padding:5px 8px;font-size:13px;color:var(--text-primary);min-width:210px;}
+
+  .muted{opacity:.5;pointer-events:none;}
+  .subfield{margin-top:14px;padding-left:14px;border-left:2px solid var(--border-subtle);}
+
+  /* ---- live sidebar preview ---- */
+  .preview{align-self:start;position:sticky;top:16px;}
+  .previewhdr{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px;}
+  .sidebar{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;padding:8px;
+    display:flex;flex-direction:column;gap:8px;}
+  .folder{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:12px;padding:6px;
+    box-shadow:inset 0 1px 0 var(--elevation-rim),0 2px 4px var(--shadow-card);}
+  .fhead{display:flex;align-items:center;gap:6px;padding:4px 4px;cursor:pointer;}
+  .chev{color:var(--text-muted);font-size:12px;width:12px;text-align:center;}
+  .fname{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;flex:1;min-width:0;}
+  .fname b{color:var(--text-primary);font-size:13px;}
+  .count{font-size:10px;color:var(--text-muted);}
+  .folder.focused{border-color:rgba(59,130,246,.4);box-shadow:inset 0 1px 0 var(--elevation-rim),0 0 0 2px rgba(59,130,246,.12);}
+  .pill{font-size:9px;font-weight:700;color:#fff;background:var(--status-needs-you);border-radius:5px;padding:1px 6px;}
+  .rollup{display:flex;gap:6px;font-size:10px;color:var(--text-tertiary);}
+  .rollup .d{display:inline-flex;align-items:center;gap:3px;}
+  .swatch{width:7px;height:7px;border-radius:50%;display:inline-block;}
+  .cards{display:flex;flex-direction:column;gap:5px;margin-top:5px;}
+  .card{background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:8px;
+    padding:6px 8px;font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;}
+  .card .st{width:7px;height:7px;border-radius:50%;flex:0 0 auto;}
+  .card.attn{border-color:rgba(168,85,247,.4);}
+  .affordance{margin-top:5px;font-size:11px;color:var(--text-tertiary);padding:5px 8px;border-radius:7px;
+    background:var(--bg-secondary);cursor:pointer;text-align:center;border:1px dashed var(--border-secondary);}
+  .heavyslot{margin-top:5px;height:16px;border-radius:6px;background:linear-gradient(90deg,var(--bg-tertiary),transparent);
+    opacity:.5;}
+  .caption{margin-top:10px;font-size:11px;color:var(--text-tertiary);line-height:1.5;}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>Settings · mockup — Folder list mode</h1>
+    <button class="themebtn" id="themeBtn">◐ Toggle theme</button>
+  </div>
+
+  <div class="wrap">
+    <!-- SETTINGS PANEL -->
+    <div class="panel">
+      <nav class="nav">
+        <div class="navgroup">Dashboard</div>
+        <div class="navitem"><span class="dot"></span>General</div>
+        <div class="navitem active"><span class="dot"></span>Sessions</div>
+        <div class="navitem"><span class="dot"></span>Server</div>
+        <div class="navgroup">Network</div>
+        <div class="navitem"><span class="dot"></span>Remote Servers</div>
+        <div class="navitem"><span class="dot"></span>Security</div>
+        <div class="navgroup">Extensions</div>
+        <div class="navitem"><span class="dot"></span>Plugins</div>
+        <div class="navitem"><span class="dot"></span>OpenSpec</div>
+      </nav>
+
+      <div class="content">
+        <div class="sectiontitle">Sessions</div>
+
+        <!-- existing (context, muted) -->
+        <div class="field muted">
+          <div class="row"><label>Put question session first</label>
+            <button class="toggle on"><span class="knob"></span></button></div>
+        </div>
+
+        <!-- NEW SETTING -->
+        <div class="field new">
+          <span class="newbadge">New</span>
+          <div class="row">
+            <label>Folder list mode</label>
+            <select class="sel" id="modeSel">
+              <option value="classic">Classic — manual collapse</option>
+              <option value="accordion" selected>Accordion — focus-driven</option>
+            </select>
+          </div>
+          <p class="hint">
+            <b>Classic</b> — every pinned folder stays fully expanded; the chevron manually collapses one at a time (today's behavior).<br>
+            <b>Accordion</b> — only the folder of the selected session shows full detail. Other folders compact to their header and surface just the sessions that need attention
+            (<code>ask_user</code>, streaming, active, or unread). Click any header to focus that folder.
+          </p>
+
+          <div class="subfield" id="subOpts">
+            <div class="row">
+              <label>Keep unfocused folders showing attention cards</label>
+              <button class="toggle on" id="attnToggle"><span class="knob"></span></button>
+            </div>
+            <p class="hint">When off, unfocused folders collapse to header-only with a
+              <code>N sessions — click to view</code> row (no card peeking). When on, sessions demanding attention still show through.</p>
+          </div>
+        </div>
+
+        <!-- another existing (context, muted) -->
+        <div class="field muted">
+          <div class="row"><label>Put completed session first</label>
+            <button class="toggle"><span class="knob"></span></button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE PREVIEW -->
+    <div class="preview">
+      <div class="previewhdr">Live sidebar preview</div>
+      <div class="sidebar" id="sidebar"></div>
+      <p class="caption" id="caption"></p>
+    </div>
+  </div>
+
+<script>
+  // ---- mock folder/session data ----
+  const folders = [
+    { name:"pi-agent-dashboard", focused:true, sessions:[
+      {t:"fix restart race", st:"streaming", attn:true},
+      {t:"design review", st:"idle", attn:false},
+      {t:"folder accordion", st:"active", attn:true},
+    ]},
+    { name:"hyperframes", focused:false, sessions:[
+      {t:"awaiting input", st:"needs", attn:true},
+      {t:"build docs", st:"idle", attn:false},
+    ]},
+    { name:"kb-extension", focused:false, sessions:[
+      {t:"index symbols", st:"idle", attn:false},
+      {t:"lint pass", st:"idle", attn:false},
+      {t:"changelog", st:"idle", attn:false},
+    ]},
+  ];
+  const stColor = { streaming:"var(--status-streaming)", active:"var(--status-active)",
+    idle:"var(--status-idle)", needs:"var(--status-needs-you)" };
+
+  const sidebar = document.getElementById("sidebar");
+  const caption = document.getElementById("caption");
+  const modeSel = document.getElementById("modeSel");
+  const subOpts = document.getElementById("subOpts");
+  const attnToggle = document.getElementById("attnToggle");
+
+  function card(s){
+    return `<div class="card ${s.attn?'attn':''}"><span class="st" style="background:${stColor[s.st]}"></span>${s.t}</div>`;
+  }
+  function rollup(sessions){
+    const working = sessions.filter(s=>s.st==="streaming"||s.st==="active").length;
+    const idle = sessions.filter(s=>s.st==="idle").length;
+    return `<span class="rollup">
+      ${working?`<span class="d"><span class="swatch" style="background:var(--status-active)"></span>${working}</span>`:''}
+      ${idle?`<span class="d"><span class="swatch" style="background:var(--status-idle)"></span>${idle}</span>`:''}
+    </span>`;
+  }
+
+  function render(){
+    const mode = modeSel.value;              // classic | accordion
+    const attnOn = attnToggle.classList.contains("on");
+    subOpts.classList.toggle("muted", mode!=="accordion");
+
+    sidebar.innerHTML = folders.map(f=>{
+      const needs = f.sessions.some(s=>s.attn);
+      const needsPill = needs ? `<span class="pill">needs you</span>` : "";
+
+      if(mode==="classic"){
+        // every folder fully expanded
+        return `<div class="folder">
+          <div class="fhead"><span class="chev">▾</span>
+            <span class="fname">📂 <b>${f.name}</b> <span class="count">(${f.sessions.length})</span></span>${needsPill}</div>
+          <div class="heavyslot"></div>
+          <div class="cards">${f.sessions.map(card).join("")}</div>
+        </div>`;
+      }
+
+      // ACCORDION
+      if(f.focused){
+        return `<div class="folder focused">
+          <div class="fhead"><span class="chev">▾</span>
+            <span class="fname">📂 <b>${f.name}</b> <span class="count">(${f.sessions.length})</span></span>${needsPill}</div>
+          <div class="heavyslot"></div>
+          <div class="cards">${f.sessions.map(card).join("")}</div>
+        </div>`;
+      }
+      // unfocused
+      const attnCards = f.sessions.filter(s=>s.attn);
+      if(attnOn && attnCards.length){
+        return `<div class="folder">
+          <div class="fhead"><span class="chev">▸</span>
+            <span class="fname">📁 <b>${f.name}</b> <span class="count">(${f.sessions.length})</span></span>${needsPill}${rollup(f.sessions)}</div>
+          <div class="cards">${attnCards.map(card).join("")}</div>
+        </div>`;
+      }
+      // compactEmpty
+      return `<div class="folder">
+        <div class="fhead"><span class="chev">▸</span>
+          <span class="fname">📁 <b>${f.name}</b> <span class="count">(${f.sessions.length})</span></span>${needsPill}${rollup(f.sessions)}</div>
+        <div class="affordance">${f.sessions.length} sessions — click to view</div>
+      </div>`;
+    }).join("");
+
+    caption.textContent = mode==="classic"
+      ? "Classic: all 3 folders fully expanded — 8 cards fill the sidebar before you can scan."
+      : (attnOn
+          ? "Accordion: focused folder shows all cards; unfocused folders show only attention sessions (2 cards) — the rest compact away."
+          : "Accordion (attention off): unfocused folders collapse to a header + \"click to view\" row.");
+  }
+
+  modeSel.addEventListener("change", render);
+  attnToggle.addEventListener("click", ()=>{ attnToggle.classList.toggle("on"); render(); });
+  // allow clicking a preview header to "focus" it (accordion only)
+  sidebar.addEventListener("click", e=>{
+    const fh = e.target.closest(".fhead"); if(!fh || modeSel.value!=="accordion") return;
+    const idx = [...sidebar.querySelectorAll(".folder")].indexOf(fh.parentElement);
+    folders.forEach((f,i)=>f.focused = i===idx); render();
+  });
+
+  document.getElementById("themeBtn").addEventListener("click", ()=>{
+    const h=document.documentElement;
+    h.dataset.theme = h.dataset.theme==="studio" ? "light" : "studio";
+  });
+
+  render();
+</script>
+</body>
+</html>

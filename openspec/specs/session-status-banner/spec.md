@@ -6,41 +6,37 @@ Unified single-banner component (`SessionBanner`) for per-session retry/error/li
 ## Requirements
 ### Requirement: Single banner component with composed error-lifecycle surface
 
-The dashboard SHALL render exactly one banner component (`SessionBanner`) per selected session, mounted sticky above the `CommandInput` (between `ChatView` and `CommandInput`). The banner is a single **error-lifecycle surface** whose contents are derived from a single selector over `SessionState`. Two banner components SHALL NEVER be visible simultaneously for the same session.
+The dashboard SHALL render exactly one banner component (`SessionBanner`) per selected session, mounted sticky above the `CommandInput` (between `ChatView` and `CommandInput`). The banner is a single **error-lifecycle surface** whose contents are derived from a single selector over `SessionState`. Two banner components SHALL NEVER be visible simultaneously for the same session, AND the surface SHALL render as ONE card (a single bordered element), NOT two stacked blocks.
 
-The surface composes an optional **error anchor** (from `lastError`) with an optional **live status sub-line** (from `retryState`), rather than picking one mutually-exclusive variant. The previous "`retrying` wins over `error`" precedence is REPLACED by composition: when both `retryState` and `lastError` are set, the error anchor renders as the persistent header AND the retry status renders as a sub-line within the same surface.
+The surface composes an optional **error anchor** (from `lastError`) with an optional **live retry sub-line** (from `retryState`) WITHIN the same card body: the error message is the header row, the retry status is a sub-line beneath it, and a thin animated indicator on the same card conveys the retrying state. There SHALL NOT be a separate red card and a separate amber card for one failure.
+
+There SHALL be NO `limit-exceeded` surface state. Billing / quota failures render identically to any other error (ordinary error state); no `USAGE_LIMIT_PATTERN` classification is performed.
 
 Surface states:
 
-- **error anchor + retrying sub-line** (red header, amber sub-line): `lastError` set AND `retryState` set. Header shows the error message; sub-line shows attempt count / countdown or indeterminate "retrying…" + a "Stop retrying" action.
-- **retrying only** (amber): `retryState` set, `lastError` undefined (auto-retry before any terminal error). Shows `retryState.reason` + "Stop retrying".
-- **error only** (red): `lastError` set (not matching `USAGE_LIMIT_PATTERN`), `retryState` undefined. Shows message + Retry + Dismiss + copy.
-- **limit-exceeded** (red, 💳): `lastError` set AND matches `USAGE_LIMIT_PATTERN`. Shows message + Dismiss + "Session stopped automatically." hint; NO Retry.
+- **error + retrying** (one card): `lastError` set AND `retryState` set. Header shows the error message; the same card shows a "retrying… (attempt N)" sub-line + the animated indicator + a "Stop (ends the session)" action.
+- **retrying only** (one card): `retryState` set, `lastError` undefined. Shows `retryState.reason` sub-line + animated indicator + "Stop (ends the session)".
+- **error only** (one card, settled): `lastError` set, `retryState` undefined. Shows message + Dismiss + copy. No Stop (pi already stopped) and NO manual retry (pi's in-flight auto-retry is the only retry path).
 - **hidden**: neither field set → nothing rendered.
 
 The error anchor SHALL persist while a retry runs on top of it; the surface SHALL clear only when `lastError` clears (per `error-detection` "Error state cleared on confirmed-good response") and `retryState` is undefined.
 
-#### Scenario: Error anchor persists while retry runs on top
-- **WHEN** `SessionState.lastError = { message: "429 rate limited", timestamp: 0 }` AND `SessionState.retryState = { attempt: 2, maxAttempts: -1, delayMs: -1, reason: "rate limit", startedAt: 0 }`
-- **THEN** the surface SHALL render the error message "429 rate limited" as a persistent header
-- **AND** the surface SHALL render the "retrying… (attempt 2)" status as a sub-line in the SAME banner
-- **AND** a "Stop retrying" action SHALL be present
+#### Scenario: Error and retry render in a single card
+- **WHEN** `SessionState.lastError = { message: "overloaded_error", timestamp: 0 }` AND `SessionState.retryState = { attempt: 2, maxAttempts: -1, delayMs: -1, reason: "overloaded", startedAt: 0 }`
+- **THEN** the surface SHALL render exactly ONE card element containing the error message "overloaded_error"
+- **AND** the SAME card SHALL contain the "retrying… (attempt 2)" sub-line
+- **AND** the surface SHALL NOT render two separate sibling card elements
 
 #### Scenario: Retrying-only when no terminal error yet
 - **WHEN** `SessionState.retryState` is set AND `SessionState.lastError` is undefined
-- **THEN** the surface SHALL render the amber retrying status with `reason`
-- **AND** a "Stop retrying" action SHALL be present
+- **THEN** the surface SHALL render the single card with the retrying sub-line and `reason`
+- **AND** a "Stop (ends the session)" action SHALL be present
 
-#### Scenario: Auto-retry does NOT promote a red error header before terminal failure
-- **GIVEN** `SessionState.retryState` is set from an in-progress auto-retry
-- **AND** `SessionState.lastError` is undefined (no terminal `agent_end(error)` yet)
-- **THEN** the surface SHALL render ONLY the amber retrying sub-line
-- **AND** the surface SHALL NOT render a red error header
-- **AND** a red error header SHALL appear only once `lastError` is set by a terminal `agent_end` with `stopReason: "error"`
-
-#### Scenario: Error-only after retries settle
-- **WHEN** `SessionState.lastError` is set (not USAGE_LIMIT) AND `retryState` is undefined
-- **THEN** the surface SHALL render the error message with Retry + Dismiss + copy
+#### Scenario: Billing error renders as an ordinary error (no limit-exceeded variant)
+- **WHEN** `SessionState.lastError = { message: "usage_limit_reached", timestamp: 1 }` AND `retryState` is undefined
+- **THEN** the surface SHALL render the ordinary settled-error card with message + Dismiss + copy
+- **AND** the surface SHALL NOT render any `limit-exceeded` / 💳 variant
+- **AND** no `USAGE_LIMIT_PATTERN` test SHALL be performed
 
 #### Scenario: Hidden when neither field is set
 - **WHEN** `SessionState.retryState` is undefined AND `SessionState.lastError` is undefined
@@ -50,34 +46,34 @@ The error anchor SHALL persist while a retry runs on top of it; the surface SHAL
 
 A helper `deriveBannerState(state: SessionState): BannerState` SHALL be exported from `packages/client/src/lib/event-reducer.ts`. The selector SHALL be pure (no side effects, deterministic on its input) and SHALL be the sole determinant of what the `SessionBanner` renders. The host component SHALL NOT compute composition or precedence inline.
 
-The selector's return shape SHALL carry BOTH the optional error anchor and the optional retry sub-status (composition), not a single mutually-exclusive variant:
+The selector's return shape SHALL carry BOTH the optional error anchor and the optional retry sub-status (composition). The error kind is a single value `"error"` — there is NO `"limit-exceeded"` kind and the selector SHALL NOT import or reference `USAGE_LIMIT_PATTERN`:
 
 ```ts
 type BannerState =
   | { variant: "hidden" }
   | {
       // present iff lastError set
-      error?: { kind: "error" | "limit-exceeded"; message: string };
+      error?: { kind: "error"; message: string };
       // present iff retryState set
       retry?: { attempt: number; maxAttempts: number; delayMs: number; startedAt: number; reason: string };
     };
 ```
 
-`error.kind` is `"limit-exceeded"` when `USAGE_LIMIT_PATTERN.test(lastError.message)`, else `"error"`. `USAGE_LIMIT_PATTERN` SHALL be imported from `packages/shared/src/error-patterns.ts`. The selector SHALL return `{ variant: "hidden" }` only when BOTH `lastError` and `retryState` are undefined.
+The selector SHALL return `{ variant: "hidden" }` only when BOTH `lastError` and `retryState` are undefined.
 
 #### Scenario: Selector returns hidden for empty state
 - **WHEN** `deriveBannerState({ retryState: undefined, lastError: undefined, … })` is called
 - **THEN** the return SHALL be `{ variant: "hidden" }`
 
 #### Scenario: Selector composes error + retry when both set
-- **WHEN** `deriveBannerState({ retryState: { attempt: 2, maxAttempts: -1, delayMs: -1, reason: "rate limit", startedAt: 0 }, lastError: { message: "429", timestamp: 1 }, … })` is called
-- **THEN** the return SHALL include `error: { kind: "error", message: "429" }`
-- **AND** the return SHALL include `retry: { attempt: 2, … reason: "rate limit" }`
+- **WHEN** `deriveBannerState({ retryState: { attempt: 2, maxAttempts: -1, delayMs: -1, reason: "overloaded", startedAt: 0 }, lastError: { message: "overloaded_error", timestamp: 1 }, … })` is called
+- **THEN** the return SHALL include `error: { kind: "error", message: "overloaded_error" }`
+- **AND** the return SHALL include `retry: { attempt: 2, … reason: "overloaded" }`
 
-#### Scenario: Selector marks limit-exceeded for USAGE_LIMIT match
+#### Scenario: Selector never marks limit-exceeded
 - **WHEN** `deriveBannerState({ retryState: undefined, lastError: { message: "quota_exceeded for org x", timestamp: 1 }, … })` is called
-- **THEN** the return SHALL include `error: { kind: "limit-exceeded", message: "quota_exceeded for org x" }`
-- **AND** the return SHALL NOT include a `retry` field
+- **THEN** the return SHALL include `error: { kind: "error", message: "quota_exceeded for org x" }`
+- **AND** the return SHALL NOT include any `limit-exceeded` kind
 
 ### Requirement: Banner mounts sticky above CommandInput
 
@@ -100,77 +96,37 @@ The legacy `RetryBanner.tsx` component SHALL be removed. The inline `lastError` 
 
 ### Requirement: Banner actions dispatch through existing handlers
 
-The "Stop retrying" action SHALL invoke the same `wrappedHandleAbort` callback the main Stop button uses (snapshotting queues into draft before dispatching the WS `abort`).
+The "Stop (ends the session)" action SHALL be the SINGLE control that aborts the session. It SHALL invoke the same `wrappedHandleAbort` callback the main Stop button uses (snapshotting queues into draft before dispatching the WS `abort`). Its label SHALL make clear it ends the session, so the user is aware the action stops the session. Stop SHALL be present only while a retry is live (`retryState` set); on a settled error-only surface Stop SHALL be omitted (pi has already stopped).
 
-The "Retry" action (error-only sub-state) SHALL invoke `onRetryAfterError`: re-send `findLastUserPrompt(state.messages)` via `send_prompt`.
+There SHALL be NO manual retry control on the settled error surface. pi's in-flight auto-retry is the only retry path; once a turn has terminally errored the session is idle and the user starts a fresh turn by typing a new prompt. The faulty `findLastUserPrompt` → `send_prompt` re-send is removed (it appended a duplicate user turn).
 
-The "Dismiss" (✕) action SHALL be **state-dependent**:
+The "Dismiss" (✕) action SHALL be **clear-only in every state**. It SHALL clear `lastError` and `retryState` locally and SHALL NEVER dispatch an abort. Dismissing a retrying surface hides the card while pi continues its own retry/turn in the background; it does NOT stop the session.
 
-- When the surface carries a `retry` sub-status OR a generic retryable `error` (kind `"error"`), Dismiss ✕ SHALL invoke the abort flow (`wrappedHandleAbort`) AND clear `lastError`. Dismissing a retrying/retryable surface means "stop and clear", so pi SHALL stop retrying — not merely hide the message.
-- When the surface is terminal `limit-exceeded` (pi has already stopped), Dismiss ✕ SHALL only clear `lastError` (no abort needed).
-
-#### Scenario: Stop retrying triggers abort
+#### Scenario: Stop ends the session
 - **GIVEN** the surface carries a `retry` sub-status
-- **WHEN** the user clicks "Stop retrying"
+- **WHEN** the user clicks "Stop (ends the session)"
 - **THEN** the client SHALL invoke `wrappedHandleAbort()` for the selected session
+- **AND** an `abort` message SHALL be dispatched for the session
 
-#### Scenario: Dismiss on retrying surface aborts AND clears
+#### Scenario: Dismiss on a retrying surface clears only and does NOT abort
 - **GIVEN** the surface carries a `retry` sub-status (pi is mid-retry)
 - **WHEN** the user clicks Dismiss (✕)
-- **THEN** the client SHALL invoke `wrappedHandleAbort()` for the session
-- **AND** `SessionState.lastError` SHALL be cleared
-- **AND** pi SHALL NOT continue retrying (per `provider-retry-state` abort-latch)
+- **THEN** `SessionState.lastError` AND `SessionState.retryState` SHALL be cleared locally
+- **AND** the client SHALL NOT invoke `wrappedHandleAbort()`
+- **AND** NO `abort` message SHALL be dispatched
+- **AND** pi SHALL continue its in-flight retry/turn uninterrupted
 
-#### Scenario: Dismiss on limit-exceeded only clears
-- **GIVEN** the surface is in `limit-exceeded` (pi already stopped)
+#### Scenario: Dismiss on a settled error clears only
+- **GIVEN** the surface is settled `error`-only (pi already stopped)
 - **WHEN** the user clicks Dismiss (✕)
 - **THEN** `SessionState.lastError` SHALL be cleared
-- **AND** no abort SHALL be dispatched (nothing is running)
+- **AND** no abort SHALL be dispatched
 
-#### Scenario: Retry on error-only resends last prompt
-- **GIVEN** the surface is `error`-only AND chat history contains a user message "fix the bug"
-- **WHEN** the user clicks "Retry"
-- **THEN** the client SHALL dispatch `send_prompt { text: "fix the bug" }` for the session
-
-### Requirement: Manual retry hides duplicate user bubble in chat view
-
-When the user clicks the "Retry" action on the `error` variant, the resulting new user message in the session SHALL be flagged with `retriedFrom: <previousUserEntryId>` in `SessionState.messages[]`, and the chat view SHALL skip rendering the bubble for the duplicate.
-
-The flag SHALL be set by the reducer when ALL of the following are true:
-
-- A `message_start` event arrives for a user-role message
-- The text content of the new message exactly matches the text of the immediately-preceding user message in `state.messages`
-- The turn between those two user messages ended in `lastError` (i.e. the most recent prior assistant message had `stopReason: "error"` OR an `agent_end` set `lastError`)
-
-The session JSONL on pi's side SHALL retain both user entries unchanged. Only the live chat view in the dashboard collapses the duplicate. Resume / fork of the session SHALL see both entries (no persistent-side dedup).
-
-#### Scenario: Retry button send produces flagged message that does not render
-- **GIVEN** chat history is [user("fix bug"), assistant(stopReason="error")]
-- **AND** the user clicks Retry on the `error` banner
-- **WHEN** the resulting `message_start { role: "user", content: "fix bug" }` event arrives
-- **THEN** the reducer SHALL flag the new `ChatMessage` with `retriedFrom: <entryId of the first "fix bug" message>`
-- **AND** the chat view SHALL render only ONE "fix bug" user bubble
-- **AND** the subsequent assistant response from the retry SHALL render normally below it
-
-#### Scenario: Manual identical re-send after successful turn does NOT dedupe
-- **GIVEN** chat history is [user("ping"), assistant(stopReason="end_turn")]
-- **AND** the user types "ping" again and presses Enter
-- **WHEN** the resulting `message_start { role: "user", content: "ping" }` event arrives
-- **THEN** the reducer SHALL NOT set `retriedFrom` (the preceding turn ended successfully)
-- **AND** the chat view SHALL render both "ping" bubbles
-
-#### Scenario: Different text after error does NOT dedupe
-- **GIVEN** chat history is [user("fix bug"), assistant(stopReason="error")]
-- **AND** the user types "fix the bug" (different text) and sends
-- **WHEN** the resulting `message_start { role: "user", content: "fix the bug" }` event arrives
-- **THEN** the reducer SHALL NOT set `retriedFrom`
-- **AND** the chat view SHALL render both bubbles
-
-#### Scenario: JSONL persistence unchanged by dedup
-- **GIVEN** a session whose JSONL on disk contains [user("X"), assistant(error), user("X"), assistant(success)]
-- **WHEN** the session is resumed in a new dashboard tab
-- **THEN** both user("X") entries SHALL appear in the session's underlying entries
-- **AND** the chat view SHALL still apply the dedup rule on render (showing one bubble) when the second user("X") has `retriedFrom` flagged at message_start time
+#### Scenario: Settled error surface offers no manual retry
+- **GIVEN** the surface is settled `error`-only
+- **THEN** the card SHALL render the message + copy + clear-only Dismiss
+- **AND** the card SHALL NOT render any "Retry" / "Try again" control
+- **AND** no `send_prompt` re-send path SHALL exist for the banner
 
 ### Requirement: Shared error-pattern module
 

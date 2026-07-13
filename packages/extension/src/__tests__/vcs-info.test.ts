@@ -10,13 +10,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { currentBranchOr, headShaOr, remoteUrlOr, prNumberOr, commonDirOr, toplevelOr } = vi.hoisted(() => ({
+const { currentBranchOr, headShaOr, remoteUrlOr, prNumberOr, commonDirOr, toplevelOr, isGitRepo } = vi.hoisted(() => ({
   currentBranchOr: vi.fn(),
   headShaOr: vi.fn(),
   remoteUrlOr: vi.fn(),
   prNumberOr: vi.fn(),
   commonDirOr: vi.fn(),
   toplevelOr: vi.fn(),
+  isGitRepo: vi.fn(),
 }));
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
@@ -26,9 +27,10 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
   prNumberOr,
   commonDirOr,
   toplevelOr,
+  isGitRepo,
 }));
 
-import { gatherGitInfo, detectBranch, detectRemoteUrl, detectPrNumber, detectWorktree } from "../vcs-info.js";
+import { gatherGitInfo, detectBranch, detectRemoteUrl, detectPrNumber, detectWorktree, detectIsGitRepo } from "../vcs-info.js";
 
 describe("git-info", () => {
   beforeEach(() => {
@@ -38,6 +40,50 @@ describe("git-info", () => {
     prNumberOr.mockReset();
     commonDirOr.mockReset();
     toplevelOr.mockReset();
+    isGitRepo.mockReset();
+  });
+
+  describe("detectIsGitRepo", () => {
+    it("returns true when git confirms a work tree", () => {
+      isGitRepo.mockReturnValue({ ok: true, value: true });
+      expect(detectIsGitRepo("/repo")).toBe(true);
+    });
+
+    it("returns false when git succeeds but reports not-a-work-tree", () => {
+      isGitRepo.mockReturnValue({ ok: true, value: false });
+      expect(detectIsGitRepo("/plain")).toBe(false);
+    });
+
+    it("returns false when git exits 128 (definitively not a repo)", () => {
+      isGitRepo.mockReturnValue({
+        ok: false,
+        error: { kind: "exit", code: 128, signal: null, stdout: "", stderr: "not a git repository" },
+      });
+      expect(detectIsGitRepo("/plain")).toBe(false);
+    });
+
+    it("returns undefined when git binary is missing", () => {
+      isGitRepo.mockReturnValue({ ok: false, error: { kind: "not-found", binary: "git" } });
+      expect(detectIsGitRepo("/repo")).toBeUndefined();
+    });
+
+    it("returns undefined when the probe times out", () => {
+      isGitRepo.mockReturnValue({ ok: false, error: { kind: "timeout", timeoutMs: 15000, binary: "git" } });
+      expect(detectIsGitRepo("/slow-mount")).toBeUndefined();
+    });
+
+    it("returns undefined on a spawn failure", () => {
+      isGitRepo.mockReturnValue({ ok: false, error: { kind: "spawn-failure", message: "boom" } });
+      expect(detectIsGitRepo("/repo")).toBeUndefined();
+    });
+
+    it("returns undefined on a non-128 exit code (inconclusive, never false)", () => {
+      isGitRepo.mockReturnValue({
+        ok: false,
+        error: { kind: "exit", code: 129, signal: null, stdout: "", stderr: "" },
+      });
+      expect(detectIsGitRepo("/repo")).toBeUndefined();
+    });
   });
 
   describe("detectBranch", () => {

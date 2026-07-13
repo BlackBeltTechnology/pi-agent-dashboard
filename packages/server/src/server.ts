@@ -18,8 +18,9 @@ import {
   reconcilePluginBridgePackages,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
-import { mergeSessionMeta, isRecoveryCandidate } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { isRecoveryCandidate, mergeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
@@ -28,11 +29,11 @@ import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
 import { registerBearerAuth } from "./bearer-auth.js";
 import { type BrowserGateway, createBrowserGateway } from "./browser-gateway.js";
 import { writeConfigPartial } from "./config-api.js";
+import { isCorsOriginAllowed } from "./cors-origin.js";
 import { registerCsp, resolveCspMode } from "./csp.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { detectCodeServerBinary } from "./editor-detection.js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createEditorManager, type EditorManager } from "./editor-manager.js";
 import { createEditorPidRegistry } from "./editor-pid-registry.js";
 import { handleEditorUpgrade, registerEditorProxy } from "./editor-proxy.js";
@@ -41,8 +42,10 @@ import { startEventLoopSampler } from "./eventloop-sampler.js";
 import { createEventLoopSpikeMetrics } from "./eventloop-spike-metrics.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
 import { decideBudgetHalt } from "./goal-budget-guard.js";
-import { primeGoalSession } from "./goal-session-primer.js";
+import { buildGoalReprime, primeGoalSession } from "./goal-session-primer.js";
+import { createGoalStatusProjector } from "./goal-status-projector.js";
 import { createGoalStore } from "./goal-store.js";
+import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal-verdict-accumulator.js";
 import { keeperOptsFromSpawnResult } from "./headless-pid-registry.js";
 import { createHydrationMetrics } from "./hydration-metrics.js";
@@ -116,6 +119,7 @@ import { registerSessionApi } from "./session-api.js";
 import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
 import { scanAllSessions } from "./session-scanner.js";
+import { mintSpawnToken } from "./spawn-token.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel.js";
@@ -252,6 +256,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const tunnelUrl = getTunnelUrl();
       if (tunnelUrl) urls.push(tunnelUrl);
       urls.push(...(loadConfig().pairing?.publicBaseUrls ?? []));
+      // Test-only (PI_E2E_SEED): expose the loopback http origin so the
+      // Playwright/Docker harness can pair over http://localhost (a genuine
+      // secure context) without TLS. `reachableUrls()` re-gates it behind the
+      // same flag; prod never reaches this branch.
+      // See change: make-pairing-qr-camera-scannable.
+      if (process.env.PI_E2E_SEED === "1") urls.push(`http://localhost:${config.port}`);
       return urls;
     },
   });
@@ -553,6 +563,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: add-goals-folder-page.
   const goalStore = createGoalStore();
   const pendingGoalLinkRegistry = createPendingGoalLinkRegistry();
+  // Goal session supervisor (main-server; owns GoalStore). Assigned below once
+  // browserGateway/spawn deps exist, then rides `dispatchPluginSessionEnded`.
+  // See change: add-goal-session-supervisor.
+  let goalSupervisor: GoalSupervisor | undefined;
 
   // Process-local instrumentation for session hydration. The same instance is
   // shared with the directory-service (records per `loadSessionEvents`) and the
@@ -787,6 +801,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     }
   }
   function dispatchPluginSessionEnded(sessionId: string): void {
+    // Ride the existing death fanout for the goal supervisor (main-server; it
+    // owns GoalStore, unlike the goal plugin). C2a: subscribe here, never
+    // reassign sessionManager.onUnregister. See change: add-goal-session-supervisor.
+    if (goalSupervisor) void goalSupervisor.onDriverDeath(sessionId);
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
@@ -810,6 +828,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     const GOAL_STATUS_MESSAGE = "goal_status";
     const arr = pluginPiHandlers.get(GOAL_STATUS_MESSAGE) ?? [];
     arr.push((msg) => accumulator.handle(msg));
+
+    // Peer consumer: project the live snapshot onto the GoalRecord's durable
+    // status + turn fields so the board/budget survive a reload/restart.
+    // See change: persist-goal-status-and-progress.
+    const statusProjector = createGoalStatusProjector({
+      store: goalStore,
+      lookupSession: (sessionId) => {
+        const s = sessionManager.get(sessionId);
+        return s ? { goalId: s.goalId, cwd: s.cwd } : null;
+      },
+    });
+    arr.push((msg) => statusProjector.handle(msg));
 
     // Dashboard-side budget enforcement (degraded tier): once a linked goal's
     // live turnsUsed reaches GoalRecord.budget.maxTurns, dispatch /goal pause.
@@ -838,8 +868,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         .list(cwd)
         .then((goals) => {
           const goal = goals.find((g) => g.id === goalId);
+          // Budget on CUMULATIVE turns (design D3): respawns accumulate onto
+          // `totalTurnsUsed`, so a fresh driver's low per-session count cannot
+          // reset/defeat the cap. Fall back to the live per-session count for a
+          // legacy record with no cumulative yet, and take the max to be robust
+          // against a projector write that lags this same snapshot.
+          // See change: add-goal-session-supervisor.
+          const cumulativeTurns = Math.max(goal?.totalTurnsUsed ?? 0, turnsUsed);
           const decision = decideBudgetHalt(
-            { status: "active", turnsUsed },
+            { status: "active", turnsUsed: cumulativeTurns },
             goal?.budget,
           );
           if (decision.halt && decision.command) {
@@ -947,40 +984,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   //     silently omitting CORS headers and letting the browser enforce its
   //     own same-origin policy.
   const corsAllowedOrigins = config.corsAllowedOrigins ?? [];
+  const corsTrustedNetworks = config.resolvedTrustedNetworks ?? [];
   await fastify.register(cors, {
+    // Decision extracted to a pure, unit-tested helper (cors-origin.ts) so the
+    // security-critical allow/deny logic is tested against the REAL code, not a
+    // hand-mirrored copy. Trusted-network origins are allowed for LAN-to-LAN
+    // switching; the `null`-origin refusal and unknown-origin rejection stand.
+    // On mismatch return `cb(null, false)` (no CORS headers) rather than an
+    // Error — the latter makes @fastify/cors 500 same-origin module-script
+    // requests. See change: fix-remote-connect-cors-gates.
     origin: (origin, cb) => {
-      // Same-origin navigation (no Origin header) — always allow.
-      if (!origin) return cb(null, true);
-      // Opaque-origin documents (sandboxed live-server iframe WITHOUT
-      // allow-same-origin, D7) send the literal `Origin: null`. Never echo an
-      // ACAO for it, so the embedded untrusted app cannot call dashboard APIs
-      // even cross-origin. See change: improve-content-editor (§6.5).
-      if (origin === "null") return cb(null, false);
-      try {
-        const u = new URL(origin);
-        const host = u.hostname;
-        // Loopback — any port.
-        if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1") {
-          return cb(null, true);
-        }
-        // Active zrok tunnel URL — checked dynamically so URL rotation is
-        // picked up without a server restart.
-        const tunnelUrl = getTunnelUrl();
-        if (tunnelUrl && origin === tunnelUrl) return cb(null, true);
-        // Any *.share.zrok.io host — covers the brief window between a new
-        // reservation being created and the in-memory `activeTunnelUrl`
-        // being populated, plus any other zrok share the user points at us.
-        if (host.endsWith(".share.zrok.io")) return cb(null, true);
-        // Neutral static PWA shell (D1/D8): trusted by default so the shell
-        // works without per-server config. CORS (who may READ responses) is
-        // distinct from auth (bearer token), so this weakens nothing.
-        if (origin === "https://pi-dashboard.dev") return cb(null, true);
-      } catch { /* ignore URL parse errors */ }
-      // Explicitly configured origins.
-      if (corsAllowedOrigins.includes(origin)) return cb(null, true);
-      // Unknown cross-origin request — don't emit CORS headers, but don't
-      // 500 either. Browser will block the request for us.
-      cb(null, false);
+      const allowed = isCorsOriginAllowed(origin ?? undefined, {
+        configuredOrigins: corsAllowedOrigins,
+        trustedNetworks: corsTrustedNetworks,
+        getTunnelUrl,
+      });
+      cb(null, allowed);
     },
     credentials: true,
   });
@@ -1104,11 +1123,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     store: goalStore,
     applyGoalIdToSession,
     primeGoalSession: primeGoalSessionImpl,
+    // Route clear/pause/delete through the supervisor (assigned just below,
+    // before the server listens). See change: add-goal-session-supervisor.
+    abortGoalSupervision: (cwd, goalId, terminal) =>
+      goalSupervisor ? goalSupervisor.abort(cwd, goalId, terminal) : Promise.resolve(),
     spawnGoalSession: async (cwd, goalId, opts) => {
+      // PRIMARY correlation: mint the spawn token up front and stamp `goalId`
+      // onto the registry entry keyed to it, so `session_register` links via
+      // the strong token path (getGoalId). The cwd-FIFO enqueue stays only as
+      // a legacy fallback for bridges that don't echo the token.
+      // See change: add-goal-session-supervisor (Correlation).
+      const spawnToken = mintSpawnToken();
       pendingGoalLinkRegistry.enqueue(cwd, goalId);
       try {
         const result = await spawnPiSession(cwd, {
           strategy: "headless",
+          spawnToken,
           ...(opts?.model ? { model: opts.model } : {}),
         });
         if (result.process && result.pid) {
@@ -1116,8 +1146,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             result.pid,
             cwd,
             result.process,
-            result.spawnToken,
+            result.spawnToken ?? spawnToken,
             keeperOptsFromSpawnResult(result),
+            goalId,
           );
         }
         // On spawn failure, drop the goalId we just enqueued so it can't be
@@ -1130,7 +1161,75 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
   });
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes });
+
+  // ── Goal session supervisor ─────────────────────────────────────
+  // Rides the death fanout (dispatchPluginSessionEnded, wired above) and adds
+  // goal PURSUIT policy: progress-gated auto-respawn, crash-loop breaker,
+  // cumulative budget. Host owns the mechanism (spawn/token-correlate/kill/
+  // resume). See change: add-goal-session-supervisor.
+  const spawnGoalDriver = async (req: GoalDriverSpawnRequest): Promise<{ success: boolean; message?: string }> => {
+    // Fresh spawns re-prime with a verdict summary dispatched on register.
+    if (req.reason === "fresh" && req.reprime) {
+      pendingInitialPromptRegistry.enqueue(req.cwd, req.reprime);
+    }
+    pendingGoalLinkRegistry.enqueue(req.cwd, req.goalId);
+    try {
+      const result = await spawnPiSession(req.cwd, {
+        strategy: "headless",
+        spawnToken: req.spawnToken,
+        ...(req.reason === "resume" && req.sessionFile
+          ? { sessionFile: req.sessionFile, mode: "continue" as const }
+          : {}),
+      });
+      if (result.process && result.pid) {
+        browserGateway.headlessPidRegistry.register(
+          result.pid,
+          req.cwd,
+          result.process,
+          result.spawnToken ?? req.spawnToken,
+          keeperOptsFromSpawnResult(result),
+          req.goalId,
+        );
+      }
+      if (!result.success) {
+        pendingGoalLinkRegistry.consume(req.cwd);
+        if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
+      }
+      return { success: result.success, ...(result.message ? { message: result.message } : {}) };
+    } catch (err) {
+      pendingGoalLinkRegistry.consume(req.cwd);
+      if (req.reason === "fresh" && req.reprime) pendingInitialPromptRegistry.consume(req.cwd);
+      return { success: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  };
+  goalSupervisor = createGoalSupervisor({
+    store: goalStore,
+    isSessionLive: (sessionId) => {
+      const s = sessionManager.get(sessionId);
+      return !!s && s.status !== "ended";
+    },
+    resolveSessionFile: (sessionId) => sessionManager.get(sessionId)?.sessionFile,
+    spawnDriver: spawnGoalDriver,
+    killByToken: (token) => browserGateway.headlessPidRegistry.killByToken(token),
+    killBySession: (sessionId) => browserGateway.headlessPidRegistry.killBySessionId(sessionId),
+    buildReprime: (goal) => buildGoalReprime(goal),
+    // Respawn spawns force strategy:"headless" (spawnGoalDriver); the dashboard
+    // always spawns headless, so RPC control is available. See change:
+    // add-goal-session-supervisor (C2j).
+    headlessAvailable: () => true,
+    log: (msg, meta) => console.error(msg, meta ?? ""),
+  });
+  // Boot-time reconcile: classify any pursuing/respawning goal whose driver did
+  // not re-register after a restart. DEFERRED past a reconnect grace window so
+  // live drivers re-register first (else every restart would falsely see all
+  // drivers dead and respawn them). See change: add-goal-session-supervisor (S10).
+  const GOAL_BOOT_RECONCILE_DELAY_MS = 30_000;
+  const bootReconcileTimer = setTimeout(() => {
+    goalSupervisor?.reconcileOnBoot().catch((err) => console.error("[goal-supervisor] boot reconcile failed", err));
+  }, GOAL_BOOT_RECONCILE_DELAY_MS);
+  bootReconcileTimer.unref?.();
+
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -1696,7 +1795,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Hard path kills by sessionId, falling back to spawnToken for
               // a run spawned but not yet registered.
               // See change: fix-automation-stop-zombie-runs.
-              abortAutomationRun: async ({ sessionId, spawnToken, graceful }) => {
+              abortSpawnedRun: async ({ sessionId, spawnToken, graceful }) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 const reg = browserGateway.headlessPidRegistry;
@@ -1804,18 +1903,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return;
         }
 
-        if (request.url === "/ws") {
-          browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
-            browserGateway.wss.emit("connection", ws, request);
-          });
-        } else if (request.url?.startsWith("/ws/terminal/")) {
-          terminalGateway.handleUpgrade(request, socket, head);
-        } else if (request.url?.startsWith("/editor/")) {
-          handleEditorUpgrade(editorManager, request, socket, head);
-        } else if (request.url?.startsWith("/live/")) {
-          handleLiveServerUpgrade(liveServerManager, request, socket, head);
-        } else {
-          socket.destroy();
+        // Route on the already-computed `scope` (the single source of truth
+        // for "which gateway"), NOT on `request.url` — the raw URL carries the
+        // `?ticket=` query a paired device appends (F6), so an exact-match on
+        // "/ws" would destroy the authorized upgrade. `routeScopeForUrl` strips
+        // the query, so scope stays query-string-safe by construction and
+        // auth-scope + routing-scope cannot drift.
+        switch (scope) {
+          case "browser":
+            browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
+              browserGateway.wss.emit("connection", ws, request);
+            });
+            break;
+          case "terminal":
+            terminalGateway.handleUpgrade(request, socket, head);
+            break;
+          case "editor":
+            handleEditorUpgrade(editorManager, request, socket, head);
+            break;
+          case "live":
+            handleLiveServerUpgrade(liveServerManager, request, socket, head);
+            break;
+          default:
+            socket.destroy();
         }
       });
 
@@ -2072,6 +2182,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
       metaPersistence.flushAll();
       metaPersistence.dispose();
+      // Cancel the deferred boot reconcile + dispose supervisor (pending backoff
+      // timers) so a create/stop cycle in one process leaves no stale timer.
+      // See change: add-goal-session-supervisor.
+      clearTimeout(bootReconcileTimer);
+      goalSupervisor?.dispose();
       pendingForkRegistry.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();

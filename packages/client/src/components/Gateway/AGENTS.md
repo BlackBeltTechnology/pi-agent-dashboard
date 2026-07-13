@@ -1,0 +1,14 @@
+# DOX — packages/client/src/components/Gateway
+
+Reusable Gateway (tunnel-providers) UI sections + two hosts. User-facing label
+"Gateway"; the wire keeps `tunnel`. Composed by the Gateway settings page and
+the tabbed Gateway dialog. See change: add-tunnel-providers.
+
+| File | Purpose |
+|------|---------|
+| `GatewayDialog.tsx` | Tabbed **Gateway** dialog (task 9.3): Setup / Access & QR (default) / Security. Reads `tunnel.provider`/`mode` via `GET /api/config`, persists via `PUT /api/config` (`tunnel` deep-merged). Composes the four sections; Security tab cross-refs the Security page. Exports `GatewayDialog`. |
+| `GatewayEndpoints.tsx` | "Accessible at" tagged endpoint list (kind pill + TLS/no-TLS badge + copy) + **Add HTTPS URL** control (task 6.4). Add path: re-read config → `appendPublicBaseUrl` → PUT FULL `pairing` (shallow-overwrite) → refetch. Client https/wss gate is UX-only. Exports `GatewayEndpoints`. |
+| `GatewayPage.tsx` | **Gateway** settings page (task 9.2) under Network nav. Full-width host: provider/mode, connect-a-device (QR first), accessible-at, setup guide, Security cross-ref. Self-manages provider/mode via GET/PUT config. Exports `GatewayPage`. |
+| `GatewayPairQR.tsx` | Connect-a-device — **one QR at a time via a network selector** (radio group over `pairingEps ++ linkEps`). Default = public TLS pairing endpoint (`pairingEps[0]`), else first link (`linkEps[0]`). Selected drives one `QrCanvas`: pairing → camera-scannable `https://<selected-tls>/pair#pi:pair:v1.<b64>` deep link (`encodePairingQrUrl` from `lib/pairing-qr.ts`, landing base = the SELECTED endpoint's url; payload in FRAGMENT, one-time code out of logs); link → bare `selected.url`. Copy-string stays bare `pi:pair:v1.…` (`encodePayloadString`) for Electron paste. Payload TLS-only `{v,id,code,urls[]}` re-guarded by `guardPairingUrls`. Context panel swaps by `isPairingEligible(selected)`: pairing controls (copy-string, expiry, fp, confirm input, Approve D12) vs. link note. Selector is `role=radiogroup` + per-row `role=radio`/`aria-checked`, roving tabIndex, arrow-key nav, Space/Enter commit; ●/○ non-colour cue. `QrCanvas` exposes `data-qr-text` for tests. Exports `GatewayPairQR`. See change: add-gateway-qr-network-selector. See change: make-pairing-qr-camera-scannable. |
+| `GatewayProviderSection.tsx` | Provider + mode segmented controls. Mode gated by the provider matrix (`supportsMode`); switching provider auto-selects a valid mode. Exports `GatewayProviderSection`. |
+| `GatewaySetupGuide.tsx` | Per-provider setup steps (D3): install=copy-paste; auth-token/activate=field+button → `runEnrollStep` (`POST /api/tunnel/enroll`, validated param); browser-auth/external=link. Exports `GatewaySetupGuide`. |

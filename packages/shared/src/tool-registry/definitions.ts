@@ -153,6 +153,54 @@ const INSTALL_HINTS: Record<string, InstallHints> = {
       url: "https://docs.zrok.io/docs/guides/install/linux/",
     },
   },
+  ngrok: {
+    docsAnchor: "install-ngrok",
+    darwin: {
+      commands: { brew: "brew install ngrok" },
+      url: "https://ngrok.com/download",
+    },
+    win32: {
+      commands: { choco: "choco install ngrok", scoop: "scoop install ngrok" },
+      url: "https://ngrok.com/download",
+    },
+    linux: {
+      commands: {
+        snap: "sudo snap install ngrok",
+        script: "curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && echo 'deb https://ngrok-agent.s3.amazonaws.com buster main' | sudo tee /etc/apt/sources.list.d/ngrok.list && sudo apt update && sudo apt install ngrok",
+      },
+      url: "https://ngrok.com/download",
+    },
+  },
+  tailscale: {
+    docsAnchor: "install-tailscale",
+    darwin: {
+      commands: { brew: "brew install tailscale" },
+      url: "https://tailscale.com/download/macos",
+    },
+    win32: {
+      commands: { winget: "winget install --id Tailscale.Tailscale -e", choco: "choco install tailscale" },
+      url: "https://tailscale.com/download/windows",
+    },
+    linux: {
+      commands: { script: "curl -fsSL https://tailscale.com/install.sh | sh" },
+      url: "https://tailscale.com/download/linux",
+    },
+  },
+  "zerotier-cli": {
+    docsAnchor: "install-zerotier",
+    darwin: {
+      commands: { brew: "brew install --cask zerotier-one" },
+      url: "https://www.zerotier.com/download/",
+    },
+    win32: {
+      commands: { choco: "choco install zerotier-one" },
+      url: "https://www.zerotier.com/download/",
+    },
+    linux: {
+      commands: { script: "curl -s https://install.zerotier.com | sudo bash" },
+      url: "https://www.zerotier.com/download/",
+    },
+  },
 };
 
 function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
@@ -680,6 +728,12 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   registry.register(npxBinaryDef(deps));
   registry.register(binaryDef("git", deps));
   registry.register(binaryDef("zrok", deps));
+  // Alternative tunnel/gateway providers. Optional; each provider's
+  // detectBinary()/isEnrolled() gate whether it can be selected.
+  // See change: add-tunnel-providers.
+  registry.register(binaryDef("ngrok", deps));
+  registry.register(binaryDef("tailscale", deps));
+  registry.register(binaryDef("zerotier-cli", deps));
   // GitHub CLI — used by the worktree-lifecycle `pr` endpoint.
   // Optional; if missing the endpoint returns code `gh_not_found`.
   // See change: add-worktree-lifecycle-actions.
