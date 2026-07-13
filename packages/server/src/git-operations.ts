@@ -635,8 +635,58 @@ export function resolveConfigRoot(cwd: string): string | null {
 }
 
 /**
+ * Guarded residual-dir sweep. Deletes a leftover physical directory at a
+ * removed worktree path ONLY when every safety condition holds:
+ *   - the path exists on disk (else no-op → `false`);
+ *   - its resolved realpath is strictly INSIDE `<mainPath>/.worktrees/`
+ *     (symlink-resolved via the parent dir + basename, so a symlinked
+ *     `.worktrees/<name>` pointing outside cannot escape the subtree);
+ *   - it is not the `.worktrees/` root itself and never the main checkout.
+ *
+ * Returns `true` when a directory was removed, `false` on any refusal or
+ * no-op. Destructive by design — the guard is the core safety control.
+ * See change: sweep-worktree-residual-on-remove.
+ */
+export function sweepResidualWorktreeDir(mainPath: string, cwd: string): boolean {
+  if (!fs.existsSync(cwd)) return false;
+  const worktreesRoot = path.join(mainPath, ".worktrees");
+  // Resolve symlinks. The target may itself be a symlink, so resolve its
+  // PARENT dir (real) + append the basename, then realpath the whole thing
+  // when it resolves to a real entry. This defeats a symlinked leaf that
+  // points outside the subtree.
+  let realTarget: string;
+  let realRoot: string;
+  try {
+    realTarget = fs.realpathSync(cwd);
+    if (!fs.existsSync(worktreesRoot)) return false;
+    realRoot = fs.realpathSync(worktreesRoot);
+  } catch {
+    return false;
+  }
+  const realMain = (() => {
+    try { return fs.realpathSync(mainPath); } catch { return path.resolve(mainPath); }
+  })();
+  // Never the main checkout, never the .worktrees root.
+  if (realTarget === realMain || realTarget === realRoot) return false;
+  // Must be strictly inside the .worktrees/ subtree.
+  const rootWithSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  if (!realTarget.startsWith(rootWithSep)) return false;
+  try {
+    fs.rmSync(realTarget, { recursive: true, force: true });
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/**
  * `git worktree remove [--force] <cwd>` invoked from the parent repo.
  * Stderr is mapped to a stable code.
+ *
+ * On git-confirmed removal, sweeps any residual physical directory that
+ * survives at the worktree path (a kb husk recreated during removal) —
+ * hard-guarded to the parent repo's `.worktrees/` subtree. Never runs on a
+ * git failure. See change: sweep-worktree-residual-on-remove.
  */
 export function removeWorktree(opts: {
   cwd: string;
@@ -659,6 +709,9 @@ export function removeWorktree(opts: {
     const stderr = String(err?.stderr ?? err?.message ?? "");
     return { ok: false, code: mapRemoveStderr(stderr), stderr };
   }
+  // Belt-and-suspenders: git reported success but a live kb handle may have
+  // recreated the dir. Sweep it, guarded to `.worktrees/`.
+  sweepResidualWorktreeDir(mainPath, cwd);
   return { ok: true, data: { removed: true } };
 }
 

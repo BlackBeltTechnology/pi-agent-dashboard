@@ -189,4 +189,4 @@ export default function kbExtension(pi: ExtensionAPI): void {
   });
 }
 
-export { createReindexState, getKb, scheduleReindex, acknowledgeRows, decideNudge, nudgeText, closeKb, reindexNow } from "./reindex.js";
+export { createReindexState, getKb, scheduleReindex, acknowledgeRows, decideNudge, nudgeText, closeKb, closeKbForCwd, reindexNow } from "./reindex.js";

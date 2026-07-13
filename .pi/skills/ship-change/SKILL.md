@@ -160,6 +160,17 @@ cd "$parent"   # main checkout
 git worktree remove .worktrees/os-<change>        # add --force only if dirty + intended
 git worktree prune
 git branch -d os/<change> 2>/dev/null || true     # usually already gone via --delete-branch
+
+# Sweep any residual husk `git worktree prune` leaves behind. `prune` only
+# drops git's admin metadata — a kb DB handle can recreate `.worktrees/<name>`
+# after remove, leaving an orphan dir. Guarded: parent-repo `.worktrees/` only,
+# only when the path is gone from `git worktree list`.
+wt=".worktrees/os-<change>"
+if [ -d "$wt" ] && ! git worktree list --porcelain | grep -qF "$(cd "$wt" 2>/dev/null && pwd)"; then
+  case "$(cd "$wt" && pwd)" in
+    "$parent/.worktrees/"*) rm -rf "$wt" ;;   # confined to the .worktrees/ subtree
+  esac
+fi
 ```
 
 Fallback (worktree busy with active pi sessions):
