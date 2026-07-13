@@ -48,6 +48,7 @@ If `health-probe` says "not-running" → server isn't up. Check `server.log` for
 | `EADDRINUSE` on start | Concurrent spawn from multiple pi sessions | Harmless — losing process exits silently. Check log. |
 | Bridge connects then disconnects | `server_restarting` broadcast active, or version skew | grep `server_restarting` in server.log; check `/api/health` for version |
 | Blank page in browser | Vite not running in dev mode (silent fallback to prod build); or auth blocking | Check `/api/health.mode`; check `auth` settings |
+| New session won't start / yellow `spawn_register_timeout`, no card | `pi` crashed at startup (bad extension) OR host overload | See `references/known-issues.md` → "New session won't start" — manual `pi --mode rpc` run splits crash vs overload |
 | `Cannot connect to dashboard server` on Electron boot | `launchDashboardServer` fell back to `process.execPath` (Electron GUI binary) | See `references/known-issues.md` → "Electron Node bin selection" |
 | Fastify crashes immediately | Bad Node version (22.0–22.17.x or 24.1–24.2.x per nodejs/node#58515) | `node --version` — must be ≥ 22.18.0 |
 
@@ -74,6 +75,10 @@ Patterns + per-package vitest configs + watch mode are documented in [`reference
 ## When the UI is the problem
 
 This skill stops at "the server says X but the UI shows Y". For visual debugging — verifying layouts, screenshotting, hunting console errors, testing responsive breakpoints — switch to the **`browser`** skill (shipped by the dashboard bridge extension to every session). Quick pointer: see [`references/ui-debug.md`](references/ui-debug.md).
+
+## When you must verify a change without touching the live server
+
+The live `:8000` server runs MAIN-repo code — `/api/restart` never loads worktree edits, and a careless `npm run build` **leaks** into `packages/client/dist` (what live serves). To verify a UI/worktree change or serve a review mockup in full isolation (temp `HOME`, non-8000 ports, `PI_DASHBOARD_NO_MDNS=1`), see [`references/isolated-verification.md`](references/isolated-verification.md).
 
 ## Log file locations
 

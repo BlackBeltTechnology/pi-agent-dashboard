@@ -18,7 +18,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `code-review/references/` | Language guides + architecture/performance/security review references |
 | `code-review/SKILL.md` | Skill: comprehensive code review with severity labels |
 | `component-architecture/SKILL.md` | Reusable component patterns: folder structure (`ui/layout/sections/cards/forms/shared/seo`),… → see `component-architecture/SKILL.md.AGENTS.md` |
-| `debug-dashboard/references/known-issues.md` | Known-issue catalogue distilled from `docs/faq.md`: server won't start (Electron Node bin fallback… → see `debug-dashboard/references/known-issues.md.AGENTS.md` |
+| `debug-dashboard/references/isolated-verification.md` | Isolated UI/worktree verification. Live :8000 runs MAIN-repo code; `npm run build` leaks to `packages/client/dist`. Temp HOME + non-8000 ports + `PI_DASHBOARD_NO_MDNS=1`. Mockup-serve + worktree-harness recipe. |
+| `debug-dashboard/references/known-issues.md` | Known-issue catalogue distilled from `docs/faq.md`: server won't start (Electron Node bin fallback… + new-session spawn_register_timeout (pi-crash vs overload split) → see `debug-dashboard/references/known-issues.md.AGENTS.md` |
 | `debug-dashboard/references/log-locations.md` | Persistent file map. `~/.pi/dashboard/`: `server.log` (append, timestamped banners, grep recipes),… → see `debug-dashboard/references/log-locations.md.AGENTS.md` |
 | `debug-dashboard/references/test-failure-triage.md` | Vitest failure triage. Golden rule tee→grep (`npm test 2>&1 | tee /tmp/pi-test.log`), standard greps,… → see `debug-dashboard/references/test-failure-triage.md.AGENTS.md` |
 | `debug-dashboard/references/ui-debug.md` | Pointer to `browser` skill for UI/visual debugging. Symptom routing table:… → see `debug-dashboard/references/ui-debug.md.AGENTS.md` |
@@ -31,6 +32,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `document-converter/SKILL.md` | NL-triggered document conversion. Ingest PDF/DOCX/PPTX/XLSX→md for kb; produce md→DOCX/PDF templated. Routes to packages/document-converter facade. See change: document-converter. |
 | `edit-flow/SKILL.md` | Skill: create/edit pi-flows flows + agents via `flow_agents` + `flow_write`. → see `edit-flow/SKILL.md.AGENTS.md` |
 | `faq-mine/SKILL.md` | Skill: mine `docs/faq.md` from README.md + evergreen `docs/*.md`. → see `faq-mine/SKILL.md.AGENTS.md` |
+| `fix-worktree-opsx-skills-not-created/SKILL.md` | Skill. Fix worktree missing generated openspec-* (opsx) skills. `worktreeInit` must call `npx @fission-ai/openspec init`; bare `openspec` = squatted 0.0.0 npm stub that inits nothing. |
+| `frontend-mockup-loop-dashboard/SKILL.md` | Skill. Dashboard adapter over frontend-mockup-loop. Binds 7-step loop to `packages/client` sources, theme-system tokens (4 themes), isolated-verification, `openspec/changes/<name>/mockups/`. |
 | `implement/references/code-discipline.md` | Reference: expands AGENTS.md "Code Instructions" 5 rules with worked examples. → see `implement/references/code-discipline.md.AGENTS.md` |
 | `implement/references/rebuild-matrix.md` | Reference: full 3-component rebuild matrix. Per-component recipes — extension `npm run… → see `implement/references/rebuild-matrix.md.AGENTS.md` |
 | `implement/scripts/check-mode.ts` | Print dashboard mode ("dev"/"production") via `GET /api/health`. → see `implement/scripts/check-mode.ts.AGENTS.md` |
@@ -88,9 +91,11 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `pi-dashboard/references/slash-commands.md` | Reference catalog of every `/dashboard:*` slash command with args and LLM-free vs LLM-bound classification. Naming grammar `/dashboard:<resource>-<verb>[-<modifier>]`. |
 | `pi-dashboard/scripts/dashboard-api.sh` | Helper script with port auto-detection + auth |
 | `pi-dashboard/SKILL.md` | Bundled skill: monitor + control dashboard from any pi session. → see `pi-dashboard/SKILL.md.AGENTS.md` |
+| `pre-scaffold-openspec-coherence-check/SKILL.md` | Skill. Pre-scaffold checks before new openspec change: archive sweep, active sweep, current-code verify, slot-props contract, registry check. Avoid re-proposing archived work. |
 | `release-cut/SKILL.md` | Cuts new release: promotes `## [Unreleased]` in CHANGELOG → dated section, bumps every workspace… → see `release-cut/SKILL.md.AGENTS.md` |
 | `release-revoke/SKILL.md` | `release-revoke` skill. Reverts a release: deletes GitHub Release, removes git tag (local + origin), `npm… → see `release-revoke/SKILL.md.AGENTS.md` |
 | `responsive-mobile-first/SKILL.md` | Mobile-first responsive patterns: sticky headers, mobile drawer, floating CTA, responsive grids, touch… → see `responsive-mobile-first/SKILL.md.AGENTS.md` |
+| `run-dashboard-e2e-local-changes/SKILL.md` | Skill. Run Playwright E2E vs `docker/` harness reflecting LOCAL changes. `docker compose -f docker/compose.yml build` FIRST (test-up.sh omits `--build`). Seed env `PI_E2E_SEED=1`. |
 | `scenario-design/references/technique-cheatsheet.md` | How-to per design/resilience technique with repo examples. EP: split input classes (invalid too). → see `scenario-design/references/technique-cheatsheet.md.AGENTS.md` |
 | `scenario-design/references/test-plan-schema.md` | Exact `test-plan.md` layout. Header: stage + generated date. Soft-gate clarification banner. → see `scenario-design/references/test-plan-schema.md.AGENTS.md` |
 | `scenario-design/SKILL.md` | Drafts adversarial real-life test scenarios from OpenSpec change spec. → see `scenario-design/SKILL.md.AGENTS.md` |
