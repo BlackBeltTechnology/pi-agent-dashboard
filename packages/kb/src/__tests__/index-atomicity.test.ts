@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runIndexAtomic } from "../index-run.js";
+import { runIndexAtomic, sweepOrphanTemps } from "../index-run.js";
 import { SqliteFtsStore } from "../sqlite-store.js";
 
 let root: string;
@@ -86,6 +86,17 @@ describe("kb index atomicity (§1, §2)", () => {
     await runIndexAtomic({ dbPath, sources: [{ id: "docs", dir: d }] });
     expect(existsSync(orphan)).toBe(false);
     expect(existsSync(dbPath)).toBe(true);
+  });
+
+  it("§2.5 sweep skips a temp whose PID is a live process (concurrent peer)", () => {
+    mkdirSync(join(root, ".pi/dashboard/kb"), { recursive: true });
+    const live = `${dbPath}.tmp-${process.pid}`; // our own pid = definitely alive
+    const dead = `${dbPath}.tmp-99999`;
+    writeFileSync(live, "peer-active");
+    writeFileSync(dead, "stale");
+    sweepOrphanTemps(dbPath);
+    expect(existsSync(live)).toBe(true); // live peer's temp preserved
+    expect(existsSync(dead)).toBe(false); // stale orphan removed
   });
 });
 

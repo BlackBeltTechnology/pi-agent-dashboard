@@ -191,8 +191,7 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       explicit,
     });
     console.log(`indexed ${s.scanned} files (${s.changed} changed, ${s.deleted} deleted, ${s.chunks} chunks) in ${(performance.now() - t).toFixed(0)}ms`);
-    const counter = openStore(cfg);
-    try { console.log(JSON.stringify(counter.counts())); } finally { counter.close(); }
+    console.log(JSON.stringify(s.counts));
     return;
   }
 

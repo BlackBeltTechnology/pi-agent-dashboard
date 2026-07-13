@@ -15,6 +15,8 @@ import { basename, dirname, join } from "node:path";
 import { type IndexOptions, type IndexStats, indexSource } from "./indexer.js";
 import { SqliteFtsStore } from "./sqlite-store.js";
 
+type StoreCounts = ReturnType<SqliteFtsStore["counts"]>;
+
 export interface AtomicIndexSource {
   id: string;
   dir: string;
@@ -27,8 +29,21 @@ export interface RunIndexAtomicOpts {
   explicit?: boolean;
 }
 
+/** True if `pid` names a live process (existence probe via signal 0). EPERM =
+ *  alive but not ours; ESRCH = dead. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+}
+
 /** Remove stale `<dbPath>.tmp-*` orphans (+ WAL sidecars) left by a prior
- *  SIGKILL'd first-index run, so temp husks do not accumulate. */
+ *  SIGKILL'd first-index run, so temp husks do not accumulate. A temp file whose
+ *  PID names a LIVE process belongs to a concurrent peer run and is left alone —
+ *  unlinking it would break that peer's finalize `rename`. */
 export function sweepOrphanTemps(dbPath: string): void {
   const dir = dirname(dbPath);
   const prefix = `${basename(dbPath)}.tmp-`;
@@ -39,7 +54,11 @@ export function sweepOrphanTemps(dbPath: string): void {
     return;
   }
   for (const e of entries) {
-    if (e.startsWith(prefix)) {
+    if (!e.startsWith(prefix)) continue;
+    // filename is `<base>.tmp-<pid>` or a `-wal`/`-shm` sidecar of it.
+    const pid = Number(e.slice(prefix.length).split(/[.-]/)[0]);
+    if (Number.isInteger(pid) && pid > 0 && isProcessAlive(pid)) continue; // live peer
+    {
       try {
         unlinkSync(join(dir, e));
       } catch {}
@@ -47,7 +66,7 @@ export function sweepOrphanTemps(dbPath: string): void {
   }
 }
 
-export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexStats> {
+export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexStats & { counts: StoreCounts }> {
   const { dbPath, sources, indexOpts, explicit } = opts;
 
   // D3: an explicit --source dir that does not exist is a typo → hard error,
@@ -56,6 +75,12 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
     for (const s of sources) {
       if (!existsSync(s.dir)) throw new Error(`kb index: --source directory does not exist: ${s.dir}`);
     }
+  }
+
+  // Every configured source dir absent → nothing indexable. Checked BEFORE any
+  // store is opened so a first index never creates a temp husk in this case.
+  if (!sources.some((s) => existsSync(s.dir))) {
+    throw new Error("kb index: no configured source directory exists");
   }
 
   sweepOrphanTemps(dbPath);
@@ -67,23 +92,20 @@ export async function runIndexAtomic(opts: RunIndexAtomicOpts): Promise<IndexSta
   let ok = false;
   try {
     const total: IndexStats = { scanned: 0, changed: 0, deleted: 0, chunks: 0 };
-    let anyPresent = false;
     for (const s of sources) {
       const st = await indexSource(store, { root: s.id, dir: s.dir }, indexOpts ?? {});
-      if (!st.missing) anyPresent = true;
       total.scanned += st.scanned;
       total.changed += st.changed;
       total.deleted += st.deleted;
       total.chunks += st.chunks;
     }
-    // Every configured source dir was absent → nothing indexable is an error
-    // (§1.1). On a first index this leaves no husk; on an existing DB the prior
-    // valid index is preserved by the failure branch below.
-    if (!anyPresent) throw new Error("kb index: no configured source directory exists");
+    // Read counts from the still-open store so callers never need a second
+    // openStore() connection just to report them (keeps `index` off openStore).
+    const counts = store.counts();
     if (preexisting) store.close();
     else store.finalizeRename(dbPath);
     ok = true;
-    return total;
+    return { ...total, counts };
   } finally {
     if (!ok) {
       // Only a run that CREATED the file cleans it up; an existing valid DB is
