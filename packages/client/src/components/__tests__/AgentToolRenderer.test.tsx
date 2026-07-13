@@ -5,7 +5,7 @@
  */
 
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState, type SubagentState } from "../../lib/event-reducer.js";
@@ -104,7 +104,14 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(screen.getByText(/No detail available yet/i)).toBeTruthy();
   });
 
-  it("popout opens a ui:dialog (not a new browser tab) when agentId is present", () => {
+  // These three tests OPEN the ui:dialog, whose body mounts the full
+  // SubagentDetailView subtree via a portal. They are `async` and use
+  // `findByRole`/`waitFor` (both act-wrapped) so React's concurrent scheduler
+  // flushes and the portal unmounts WITHIN the test — otherwise a deferred
+  // scheduler task can fire after the vitest worker tears jsdom down and leak
+  // a "window is not defined" unhandled error under full-suite concurrency.
+  // See change: fix-subagent-live-detail-reliability (D4).
+  it("popout opens a ui:dialog (not a new browser tab) when agentId is present", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
     render(wrapInProviders(
       <AgentToolRenderer
@@ -118,32 +125,19 @@ describe("AgentToolRenderer — expand + popout", () => {
     // No dialog before activation.
     expect(screen.queryByRole("dialog")).toBeNull();
     // Title changed to "Open subagent detail" — the popout now opens the
-    // shell ui:dialog primitive. See change: fix-subagent-live-detail-reliability (D4).
+    // shell ui:dialog primitive.
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
     // A dialog opens…
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(await screen.findByRole("dialog")).toBeTruthy();
     // …and NO new browser tab/window is opened.
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
-  });
-
-  it("detail dialog dismisses on Esc", () => {
-    render(wrapInProviders(
-      <AgentToolRenderer
-        toolName="Agent"
-        args={{ subagent_type: "Explore" }}
-        status="running"
-        context={makeContext(sessionWithAgent("abc123"), "sess_42")}
-        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
-      />
-    ));
-    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
-    expect(screen.getByRole("dialog")).toBeTruthy();
+    // Tear the portal down within the test (flush the scheduler).
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("detail dialog dismisses on overlay click", () => {
+  it("detail dialog dismisses on Esc", async () => {
     render(wrapInProviders(
       <AgentToolRenderer
         toolName="Agent"
@@ -154,11 +148,27 @@ describe("AgentToolRenderer — expand + popout", () => {
       />
     ));
     fireEvent.click(screen.getByTitle(/Open subagent detail/i));
-    const dialog = screen.getByRole("dialog");
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("detail dialog dismisses on overlay click", async () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore" }}
+        status="running"
+        context={makeContext(sessionWithAgent("abc123"), "sess_42")}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    const dialog = await screen.findByRole("dialog");
     // The overlay is the sibling before the dialog panel; click it to dismiss.
     const overlay = dialog.parentElement!.querySelector(".absolute.inset-0") as HTMLElement;
     fireEvent.click(overlay);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("popout button is disabled when agentId is missing (no dialog opens)", () => {

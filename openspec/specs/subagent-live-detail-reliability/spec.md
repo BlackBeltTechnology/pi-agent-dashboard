@@ -25,7 +25,7 @@ Subagent lifecycle frames (`subagent_created`/`subagent_started`/`subagent_compl
 
 ### Requirement: Client can resync a running subagent's timeline
 
-The dashboard SHALL provide a path to recover the current timeline of a still-running subagent after a detected gap or reconnect, without waiting for the subagent to complete. On reconnect (or on opening the detail surface for a running subagent whose `entries[]` is empty), the client SHALL request the latest known snapshot for that `agentId`, and the bridge SHALL respond with the most recent full `AgentDetails` snapshot it holds for that running subagent.
+The dashboard SHALL provide a path to recover the current timeline of a still-running subagent after a detected gap or reconnect, without waiting for the subagent to complete. On reconnect (or on opening the detail surface for a running subagent whose `entries[]` is empty), the client SHALL request the latest known snapshot for that `agentId`, and the bridge SHALL respond with the most recent full `AgentDetails` snapshot it holds for that running subagent. The retained running-subagent snapshots SHALL be bounded to the same 64-agent limit as the pending buffer (latest-wins, drop-oldest), so resync storage cannot grow unbounded.
 
 #### Scenario: Resync after reconnect repopulates a running subagent
 

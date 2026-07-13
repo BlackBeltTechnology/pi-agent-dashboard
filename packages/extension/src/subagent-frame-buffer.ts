@@ -49,6 +49,8 @@ export interface SubagentFrameStats {
   flushed: number;
   /** Not-ready frames that could not be buffered (no `agentId`). */
   droppedNoAgentId: number;
+  /** Frames/snapshots evicted because the 64-agent bound was exceeded. */
+  overflowEvicted: number;
   /** Resync requests received. */
   resyncRequests: number;
   /** Resync requests answered with a snapshot. */
@@ -68,6 +70,7 @@ export class SubagentFrameBuffer {
     buffered: 0,
     flushed: 0,
     droppedNoAgentId: 0,
+    overflowEvicted: 0,
     resyncRequests: 0,
     resyncServed: 0,
     resyncNoop: 0,
@@ -85,12 +88,33 @@ export class SubagentFrameBuffer {
   }
 
   /**
+   * Evict the oldest-inserted keys from `map` until it fits `maxAgents`.
+   * Each eviction is real data loss, so it bumps the overflow counter.
+   */
+  private evictToBound(map: Map<string, SubagentFrame>): void {
+    while (map.size > this.maxAgents) {
+      const oldest = map.keys().next().value;
+      if (oldest === undefined) break;
+      map.delete(oldest);
+      this.stats.overflowEvicted += 1;
+    }
+  }
+
+  /**
    * Update the running-subagent snapshot map. Called for every subagent frame
    * regardless of ready state so a resync can always return current state.
+   * Bounded to `maxAgents` with the same latest-wins / drop-oldest policy as
+   * `pending`, so retained resync snapshots cannot grow unbounded.
    */
   private track(channel: string, agentId: string, data: Record<string, unknown>): void {
-    if (TERMINAL_CHANNELS.has(channel)) this.snapshots.delete(agentId);
-    else this.snapshots.set(agentId, { channel, data });
+    if (TERMINAL_CHANNELS.has(channel)) {
+      this.snapshots.delete(agentId);
+      return;
+    }
+    // Re-insert to move this agent to the most-recent position, then bound.
+    this.snapshots.delete(agentId);
+    this.snapshots.set(agentId, { channel, data });
+    this.evictToBound(this.snapshots);
   }
 
   /**
@@ -119,11 +143,7 @@ export class SubagentFrameBuffer {
     // Re-insert to move this agent to the most-recent position (emission order).
     this.pending.delete(agentId);
     this.pending.set(agentId, { channel, data });
-    while (this.pending.size > this.maxAgents) {
-      const oldest = this.pending.keys().next().value;
-      if (oldest === undefined) break;
-      this.pending.delete(oldest);
-    }
+    this.evictToBound(this.pending);
     this.stats.buffered += 1;
     return true;
   }

@@ -1037,6 +1037,12 @@ function initBridge(pi: ExtensionAPI) {
         }
       } catch { /* probe failure non-fatal */ }
       replaySessionEntries();
+      // Flush subagent frames buffered while the socket was down (D1). Unlike
+      // session_start, a transient WS reconnect keeps `sessionReady` true, so
+      // the intercept routes those frames into the per-agent buffer; drain them
+      // now that the transport is open again. See change:
+      // fix-subagent-live-detail-reliability.
+      flushPendingSubagentFrames();
       // Re-send pending PromptBus requests so dashboard dialogs survive browser refresh.
       // Synchronous within this tick to prevent TUI respond() from interleaving.
       // Client-side dedup by requestId prevents double-rendering.
@@ -1803,12 +1809,16 @@ function initBridge(pi: ExtensionAPI) {
       try {
         const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
         if (SubagentFrameBuffer.isSubagentChannel(channel)) {
-          // Subagent frames are reconcilable state, not fire-and-forget. When
-          // ready, forward live AND retain the snapshot for resync; when not
-          // ready (reconnect / discovery / /reload), buffer the latest frame
-          // per agent instead of dropping it — flushed on re-register.
+          // Subagent frames are reconcilable state, not fire-and-forget. Forward
+          // live only when the session is ready AND the transport is actually
+          // open; otherwise buffer the latest frame per agent (latest-wins,
+          // bounded) instead of letting it fall into the shared FIFO ring.
+          // `sessionReady` stays true across a transient WS drop, so gating on
+          // `connection.isConnected` routes reconnect-window frames into the
+          // per-agent buffer (flushed on session_start AND onReconnect) rather
+          // than risking eviction from the shared ring.
           // See change: fix-subagent-live-detail-reliability (D1/D2).
-          if (sessionReady && isActive()) {
+          if (sessionReady && isActive() && connection.isConnected) {
             sendEventForward(channel, eventData);
             subagentFrameBuffer.markForwarded(channel, eventData);
           } else if (!subagentFrameBuffer.buffer(channel, eventData)) {

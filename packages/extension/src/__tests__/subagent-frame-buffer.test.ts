@@ -67,6 +67,15 @@ describe("D1 — buffer while not ready, flush on re-register", () => {
     expect(ids).toEqual(["a", "c"]);
   });
 
+  it("counts capacity evictions in stats.overflowEvicted", () => {
+    const buf = new SubagentFrameBuffer(2);
+    buf.buffer("subagents:started", frame("a"));
+    buf.buffer("subagents:started", frame("b"));
+    buf.buffer("subagents:started", frame("c")); // evicts "a" from pending + snapshots
+    // One eviction from pending + one from snapshots for the same overflow.
+    expect(buf.stats.overflowEvicted).toBe(2);
+  });
+
   it("cannot buffer a frame without an agentId (counts as dropped)", () => {
     const buf = new SubagentFrameBuffer();
     expect(buf.buffer("subagents:started", { details: {} })).toBe(false);
@@ -113,6 +122,17 @@ describe("D2 — resync responder", () => {
     buf.markForwarded("subagents:completed", frame("a", [1, 2]));
     expect(buf.resync("a")).toBeUndefined();
     expect(buf.stats.resyncNoop).toBe(1);
+  });
+
+  it("bounds retained snapshots to maxAgents (drop-oldest), keeping newest", () => {
+    const buf = new SubagentFrameBuffer(2);
+    // Three running agents forwarded live → snapshots must not exceed 2.
+    buf.markForwarded("subagents:started", frame("a", [1]));
+    buf.markForwarded("subagents:started", frame("b", [1]));
+    buf.markForwarded("subagents:started", frame("c", [1])); // evicts oldest "a"
+    expect(buf.resync("a")).toBeUndefined(); // oldest evicted
+    expect(buf.resync("b")).toBeDefined();
+    expect(buf.resync("c")).toBeDefined();
   });
 });
 

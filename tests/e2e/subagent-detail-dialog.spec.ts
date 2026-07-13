@@ -41,7 +41,9 @@ test.describe("subagent detail dialog (D4)", () => {
     const popout = page.getByRole("button", { name: "Popout" }).first();
     const toggles = page.getByRole("button", { name: /Explore: faux subagent probe/i });
     for (let i = 0; i < (await toggles.count()); i++) {
-      if (await popout.count()) break;
+      // Break on VISIBILITY, not DOM presence: the Popout button may exist in a
+      // collapsed tool-burst-group but stay hidden until the group is expanded.
+      if (await popout.isVisible().catch(() => false)) break;
       await toggles.nth(i).click();
     }
     await expect(popout).toBeVisible({ timeout: 30_000 });

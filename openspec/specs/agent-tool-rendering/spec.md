@@ -142,6 +142,7 @@ The `AgentToolRenderer` detail affordance SHALL open the subagent timeline in th
 
 #### Scenario: Detail affordance disabled without an agent id
 
-- **WHEN** the subagent card has no resolved `agentId` yet
+- **WHEN** the subagent card has no resolved `agentId` yet (or no resolved session state to render the timeline)
 - **THEN** the detail/popout affordance SHALL be disabled and SHALL NOT open a dialog
+- **AND** both `agentId` and the session state SHALL be resolved before the affordance is enabled
 
