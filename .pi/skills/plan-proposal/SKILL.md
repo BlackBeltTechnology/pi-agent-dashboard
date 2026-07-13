@@ -13,11 +13,17 @@ existing skills — it does **not** reimplement them. Twin of `ship-it`, which o
 the implementation phase inside the worktree. The two split at the **git-worktree
 boundary**, which is also the **interactive/headless line**.
 
-```
-   PLANNING (develop, human present)          │ boundary │ IMPLEMENTATION (worktree)
-   new/ff/continue → doubt-review →           │ commit + │ ship-it
-   scenario-design + category-fold + manifest │ spawn wt │
-   ── plan-proposal (this skill) ──           │          │ ── ship-it ──
+```mermaid
+flowchart LR
+  subgraph Planning ["PLANNING — develop, human present"]
+    A["new/ff/continue"] --> B["doubt-review"]
+    B --> C["scenario-design + category-fold + manifest"]
+    C --> D["plan-proposal (this skill)"]
+  end
+  D -->|"boundary: commit + spawn worktree"| E["ship-it"]
+  subgraph Implementation ["IMPLEMENTATION — worktree"]
+    E
+  end
 ```
 
 ## Hard constraint — main session only (never a subagent)

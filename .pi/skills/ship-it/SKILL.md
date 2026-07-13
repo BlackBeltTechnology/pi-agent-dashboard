@@ -13,10 +13,13 @@ worktree**. Twin of `plan-proposal` (which runs the planning phase on `develop`)
 Composes existing skills — `openspec-apply-change`, the docker harness, and
 `ship-change` — and adds the wiring they lack. Runnable **headless**.
 
-```
-   PLANNING (develop) │ boundary │ IMPLEMENTATION (worktree, this skill)
-   plan-proposal      │ spawn wt │ apply → docker-harness test → ship-change
-                      │◄─────────┤ reverse: SHIP_IT_BLOCKED.md on design issue
+```mermaid
+flowchart LR
+  P["plan-proposal (develop)"] -->|"boundary: spawn worktree"| S
+  subgraph Worktree ["IMPLEMENTATION — worktree (this skill)"]
+    S["ship-it"] --> A["apply"] --> T["docker-harness test"] --> C["ship-change"]
+  end
+  S -.->|"reverse: SHIP_IT_BLOCKED.md on design issue"| P
 ```
 
 Pure decision logic lives in `scripts/` and is unit-tested:
@@ -70,7 +73,7 @@ Wrap the whole run so teardown ALWAYS happens (red test, abort, or a partial
 cleanup() { docker/test-down.sh || true; }
 trap cleanup EXIT
 docker/test-up.sh -d --build            # allocates + records .pi-test-harness.json
-port=$(sed -n 's/.*"dashboardPort"[: ]*\([0-9]*\).*/\1/p' .pi-test-harness.json)
+port=$(jq -r '.dashboardPort' .pi-test-harness.json)   # jq is present in the harness env
 # run the relevant suite against $port:
 PW_E2E_USE_RUNNING=1 npm run test:e2e   # L3; or the L1/L2 suite for other levels
 ```

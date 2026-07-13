@@ -21,10 +21,14 @@ const STRONG_MATCHER_RE =
 // Matchers that assert almost nothing — a common way to "pass" a broken test.
 const PERMISSIVE_MATCHER_RE =
   /(\.toBeDefined\b|\.toBeTruthy\b|\.toBeFalsy\b|\.toBeUndefined\b|\.toBeNull\b|\.not\.toThrow\b)/;
-const EXPECT_RE = /\bexpect\s*\(/g;
 
+// Global regex kept local to countExpects (via matchAll) so no shared lastIndex
+// state can leak into a future .test()/.exec() call.
 const countExpects = (lines: string[]): number =>
-  lines.reduce((n, l) => n + (l.match(EXPECT_RE)?.length ?? 0), 0);
+  lines.reduce(
+    (n, l) => n + [...l.matchAll(/\bexpect\s*\(/g)].length,
+    0,
+  );
 
 /** Parse a unified diff into its added / removed body lines (payload only). */
 function splitDiff(diff: string): { added: string[]; removed: string[] } {
