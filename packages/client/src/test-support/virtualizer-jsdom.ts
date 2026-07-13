@@ -20,7 +20,20 @@
  *
  * See change: virtualize-chat-transcript-tanstack (task 10.2 / test infra).
  */
-import { configure } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// Global RTL cleanup: unmount every rendered tree after each test so React's
+// concurrent scheduler can't flush work AFTER the vitest fork's jsdom teardown
+// (`ReferenceError: window is not defined` in performWorkOnRootViaSchedulerTask
+// → the run exits 1 even when every assertion passed). ~40 client specs render
+// without their own cleanup; test-file scheduling under pool:forks shifts which
+// one is active when the leaked work fires, so a per-file fix is whack-a-mole.
+// No client spec renders in `beforeAll`, so no test relies on cross-`it` tree
+// persistence — a global unmount is safe. See change: friendlier-worktree-init.
+afterEach(() => {
+  cleanup();
+});
 
 // Under the full parallel suite, CPU oversubscription (pool:"forks",
 // maxWorkers 50%) starves async work, so `waitFor` / `findBy*` polls can exceed
