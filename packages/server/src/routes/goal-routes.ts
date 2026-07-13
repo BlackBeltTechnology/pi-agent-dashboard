@@ -52,6 +52,14 @@ export interface GoalRoutesDeps {
  *  supervisor abort so an in-flight respawn / live driver is stopped first. */
 const TERMINAL_OR_PAUSED: ReadonlySet<string> = new Set(["paused", "cleared", "achieved", "failed"]);
 
+/** Durable `statusReason` for a supervisor-routed status change. */
+const ABORT_REASON: Record<string, string> = {
+  paused: "paused by user",
+  cleared: "cleared by user",
+  achieved: "achieved",
+  failed: "failed by user",
+};
+
 // Client-settable statuses. `respawning` is EXCLUDED — supervisor-owned; a direct
 // PATCH could persist it without scheduling a respawn timer or aborting the live
 // driver. `failed`/`respawning` still render (statusMeta), they are just not
@@ -266,21 +274,20 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
         // is never terminal over a still-running process, and the death from
         // that kill is a no-op. See change: add-goal-session-supervisor (S6).
         if (update.status !== undefined && TERMINAL_OR_PAUSED.has(update.status) && abortGoalSupervision) {
-          const REASON: Record<string, string> = {
-            paused: "paused by user",
-            cleared: "cleared by user",
-            achieved: "achieved",
-            failed: "failed by user",
-          };
           await abortGoalSupervision(cwd!, id, {
             status: update.status,
-            reason: REASON[update.status] ?? "stopped by user",
+            reason: ABORT_REASON[update.status] ?? "stopped by user",
           });
           // Apply any co-submitted non-status fields (status already written).
           const { status: _omit, ...rest } = update;
-          const updated = Object.keys(rest).length > 0
-            ? await store.update(cwd!, id, rest)
-            : (await store.list(cwd!)).find((g) => g.id === id)!;
+          if (Object.keys(rest).length > 0) {
+            const updated = await store.update(cwd!, id, rest);
+            return { success: true, data: updated } satisfies ApiResponse;
+          }
+          // Re-fetch the finalized record; 404 if it was concurrently deleted
+          // (never a 200 with no data via a masked non-null assertion).
+          const updated = (await store.list(cwd!)).find((g) => g.id === id);
+          if (!updated) throw new GoalNotFoundError(id);
           return { success: true, data: updated } satisfies ApiResponse;
         }
         const updated = await store.update(cwd!, id, update);
@@ -301,8 +308,12 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       const { id } = request.params;
       try {
         // Stop any in-flight respawn / live driver before removing the record.
+        // Best-effort: a supervision-abort failure must not block the delete,
+        // but log it rather than swallow silently.
         if (abortGoalSupervision) {
-          await abortGoalSupervision(cwd!, id, { status: "cleared", reason: "deleted" }).catch(() => {});
+          await abortGoalSupervision(cwd!, id, { status: "cleared", reason: "deleted" }).catch((err) =>
+            console.warn(`[goal-routes] abort before delete failed for ${id}:`, err),
+          );
         }
         const formerSessionIds = await store.delete(cwd!, id);
         for (const sid of formerSessionIds) applyGoalIdToSession(sid, null);
