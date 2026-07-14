@@ -2,9 +2,7 @@
 
 ## Purpose
 Track and surface child processes spawned by pi sessions. The bridge extension scans its own child processes (and grandchildren via leaf-only filtering), tags PGIDs, filters out short-lived noise and self-spawned dashboard infrastructure, and forwards a stable change-driven `process_list` to the dashboard. The session card renders the list with a stable row floor and overflow tail so the card footer height does not bounce as processes appear and disappear.
-
 ## Requirements
-
 ### Requirement: Process scanner detects child processes of pi session
 The `process-scanner` module SHALL export a `scanChildProcesses(parentPid: number, trackedPgids: Set<number>, minElapsedMs?: number, options?: ScanOptions)` function that returns an array of `ChildProcessInfo` objects. Each object SHALL contain `pid` (number), `pgid` (number), `command` (string, the full args from `ps`), and `elapsedMs` (number, milliseconds since process start).
 
@@ -163,20 +161,24 @@ The bridge SHALL maintain a `selfSpawnedPgids: Set<number>` on `BridgeContext`, 
 - **THEN** the bridge SHALL add the keeper's PID to `selfSpawnedPgids` before any further use
 
 ### Requirement: Client renders the PGID scan as a collapsible drawer
-The client-side `ProcessList` (renamed semantically to "BackgroundProcessesDrawer," filename unchanged) SHALL render the bridge's PGID scan as a collapsible drawer beneath the activity bar, replacing today's always-expanded list with skeleton padding.
+The client-side background-process list SHALL contribute its inventory to the PROCESS subcard's single collapsible summary line instead of rendering its own separate `⚠ N background processes` summary row. When collapsed, background processes SHALL be represented by a background-count segment in the unified line; their individual killable rows SHALL appear in the expanded body below the in-flight bash rows. The per-row `✕` PGID-kill verb and the overflow tail SHALL be unchanged.
 
-#### Scenario: Drawer collapsed shows only summary row
-- **GIVEN** the drawer receives 3 processes and `expanded === false`
-- **WHEN** it renders
-- **THEN** it SHALL render a single summary row with text `"⚠ 3 background processes"` and a chevron indicator
-- **AND** it SHALL NOT render any individual process rows
-- **AND** clicking the summary row SHALL invoke `onToggle`
+#### Scenario: Collapsed line shows the background-count segment
+- **GIVEN** one background process and no in-flight bash tools
+- **WHEN** the summary line renders collapsed
+- **THEN** it SHALL show a background indicator with count `⚠ 1`
+- **AND** it SHALL NOT render a separate standalone drawer summary row
 
-#### Scenario: Drawer expanded shows rows
-- **GIVEN** the drawer receives 3 processes and `expanded === true`
-- **WHEN** it renders
-- **THEN** it SHALL render the summary row plus 3 process rows
-- **AND** each process row SHALL retain today's truncated command, elapsed time, and ✕ kill button
+#### Scenario: Expanded body lists killable background rows
+- **GIVEN** the collapsed summary line with background processes present
+- **WHEN** the user expands the line
+- **THEN** each background process SHALL render a row with its command and a `✕` control
+- **AND** activating `✕` SHALL invoke `killProcess(pgid)` (unchanged)
+
+#### Scenario: Bash and background counts coexist in one line
+- **GIVEN** two in-flight bash tools and one background process
+- **WHEN** the summary line renders collapsed
+- **THEN** it SHALL show both a `2 running` segment and a `⚠ 1` segment in the single line
 
 ### Requirement: Drawer per-row ✕ continues to invoke PGID kill
 The per-row ✕ button in the drawer SHALL continue to call `onKill(pgid)` (SIGTERM→SIGKILL via the existing `force_kill` path). It SHALL NOT be confused with the activity bar's stop verb.
@@ -284,3 +286,4 @@ The client `ProcessList` SHALL render each process row using the server-supplied
 #### Scenario: Backward-compatible fallback
 - **WHEN** a row has no `kind` or `label` field
 - **THEN** the row SHALL render the raw `command` string and the existing kill affordance, unchanged
+

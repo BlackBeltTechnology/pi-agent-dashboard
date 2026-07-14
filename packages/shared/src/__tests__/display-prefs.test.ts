@@ -98,6 +98,23 @@ describe("mergeDisplayPrefs", () => {
     // missing key inherits the global value
     expect(mergeDisplayPrefs(global, {}).changeSummaryTable).toBe(true);
   });
+
+  it("defaults reserveProcessLineAtIdle off in simple/standard, on in everything", () => {
+    expect(DISPLAY_PRESETS.simple.reserveProcessLineAtIdle).toBe(false);
+    expect(DISPLAY_PRESETS.standard.reserveProcessLineAtIdle).toBe(false);
+    expect(DISPLAY_PRESETS.everything.reserveProcessLineAtIdle).toBe(true);
+  });
+
+  it("applies reserveProcessLineAtIdle override precedence (on beats global off)", () => {
+    expect(mergeDisplayPrefs(global, { reserveProcessLineAtIdle: true }).reserveProcessLineAtIdle).toBe(true);
+    // missing key inherits the global value
+    expect(mergeDisplayPrefs(global, {}).reserveProcessLineAtIdle).toBe(false);
+    // explicit false beats global on
+    expect(
+      mergeDisplayPrefs({ ...global, reserveProcessLineAtIdle: true }, { reserveProcessLineAtIdle: false })
+        .reserveProcessLineAtIdle,
+    ).toBe(false);
+  });
 });
 
 describe("toolCallPrefKey", () => {

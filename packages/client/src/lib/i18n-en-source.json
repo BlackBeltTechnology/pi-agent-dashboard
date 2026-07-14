@@ -132,6 +132,8 @@
   "connection.connected": "Connected",
   "common.consider": ".\n          Consider",
   "common.contextUsageBar": "Context usage bar",
+  "common.reserveProcessLineAtIdle": "Reserve process line at idle",
+  "settings.reserveProcessLineAtIdle": "Reserve process line at idle",
   "common.continue": "Continue",
   "settings.controlsHowAggressivelyTheServerPolls": "Controls how aggressively the server polls",
   "common.controlsWhich": "Controls which",

@@ -334,28 +334,32 @@ The session card SHALL disable its resume button and show tooltip "session's dir
 - **AND** the tooltip SHALL read "session's directory no longer exists"
 
 ### Requirement: PROCESS subcard composition
-The PROCESS subcard SHALL render two stacked surfaces in order: `<SessionActivityBar />` above `<BackgroundProcessesDrawer />`. The subcard SHALL be hidden when both surfaces have nothing to render.
+The PROCESS subcard SHALL present its in-flight bash activity and background-process inventory through a single collapsible summary line of fixed height, so that starting or finishing a tool does not change the subcard's collapsed height. The subcard SHALL NOT render a variable stack of always-open rows whose count changes the card height.
 
-#### Scenario: Both surfaces empty hides subcard
-- **GIVEN** the activity bar has zero in-flight bash tools AND the drawer receives zero processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL NOT render (zero DOM nodes for that section)
+The subcard's presence at idle SHALL be governed by the `reserveProcessLineAtIdle` display preference (effective value from `useDisplayPrefs(session.id)`).
 
-#### Scenario: Only activity bar non-empty
-- **GIVEN** the activity bar has 1 in-flight bash tool AND the drawer receives zero processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar visible and the drawer absent
+#### Scenario: Collapsed height invariant across tool count
+- **GIVEN** the PROCESS summary line is collapsed
+- **WHEN** the number of in-flight bash tools changes between 0, 1, and 3
+- **THEN** the collapsed subcard height SHALL remain unchanged
 
-#### Scenario: Only drawer non-empty (pure-orphan)
-- **GIVEN** the activity bar has zero in-flight bash tools AND the drawer receives 2 processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar absent and the drawer visible and expanded by default
+#### Scenario: Idle with reservation off hides the subcard
+- **GIVEN** no in-flight bash tools and no background processes
+- **AND** effective `reserveProcessLineAtIdle` is `false`
+- **WHEN** the PROCESS subcard renders
+- **THEN** it SHALL render nothing (returns null)
 
-#### Scenario: Both surfaces non-empty
-- **GIVEN** the activity bar has 1 in-flight bash tool AND the drawer receives 2 processes
-- **WHEN** the session card renders
-- **THEN** the PROCESS subcard SHALL render with the activity bar above and the drawer below
-- **AND** the drawer SHALL be collapsed by default
+#### Scenario: Idle with reservation on shows one reserved line
+- **GIVEN** no in-flight bash tools and no background processes
+- **AND** effective `reserveProcessLineAtIdle` is `true`
+- **WHEN** the PROCESS subcard renders
+- **THEN** it SHALL render exactly one reserved summary line with an idle indicator
+
+#### Scenario: Expanding reveals the full body
+- **GIVEN** the collapsed summary line with one or more in-flight bash tools and/or background processes
+- **WHEN** the user activates (clicks) the summary line
+- **THEN** it SHALL expand in place to show every in-flight bash row followed by every background-process row
+- **AND** the expand/collapse state SHALL persist per session via the existing process-drawer collapse persistence
 
 ### Requirement: Per-session drawer toggle state
 The session card SHALL own per-session client state for the drawer's user-overridden expansion. The override SHALL persist for the lifetime of the client session and SHALL take precedence over the contextual default.
