@@ -2,9 +2,71 @@
  * Client-side git API helpers for the BranchPicker / BranchSwitchDialog.
  */
 import type { ActiveWorktreeInit } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { GitBranchesResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GitBranchesResult, GitChangedFile, GitCommitResult, GitStashPopResult, PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getApiBase } from "./api-context.js";
 import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
+
+// ── Uncommitted-indicator + commit (session-uncommitted-indicator-and-commit) ─
+
+/** GET /api/git/status — fresh working-tree dirtiness + drift. Null on failure. */
+export async function fetchGitStatus(cwd: string): Promise<GitStatus | null> {
+  try {
+    const json = await fetchJson(`${getApiBase()}/api/git/status?cwd=${encodeURIComponent(cwd)}`);
+    return json.success ? (json.data as GitStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/git/changed-files — file list for the commit dialog picker. */
+export async function fetchChangedFiles(cwd: string): Promise<GitChangedFile[]> {
+  const json = await fetchJson(`${getApiBase()}/api/git/changed-files?cwd=${encodeURIComponent(cwd)}`);
+  if (!json.success) throw new Error(json.error ?? "failed to list changed files");
+  return json.data as GitChangedFile[];
+}
+
+export type CommitResult =
+  | { ok: true; data: GitCommitResult }
+  | { ok: false; code: string; error: string };
+
+/** POST /api/git/commit — stage + commit the selected files. */
+export async function commitFiles(params: {
+  cwd: string;
+  message: string;
+  files: string[];
+}): Promise<CommitResult> {
+  try {
+    const { json } = await fetchJsonResponse(`${getApiBase()}/api/git/commit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (json.success) return { ok: true, data: json.data as GitCommitResult };
+    return { ok: false, code: json.code ?? "commit-failed", error: json.error ?? "commit failed" };
+  } catch (err: any) {
+    return { ok: false, code: "network_failure", error: err?.message ?? "network failure" };
+  }
+}
+
+/** POST /api/git/commit-draft — AI-drafted message. Empty string → manual entry. */
+export async function draftCommitMessage(params: {
+  cwd: string;
+  files: string[];
+  sessionId: string;
+}): Promise<{ message: string; source: string }> {
+  try {
+    const json = await fetchJson(`${getApiBase()}/api/git/commit-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (json.success) return json.data as { message: string; source: string };
+    return { message: "", source: "stub" };
+  } catch {
+    return { message: "", source: "stub" };
+  }
+}
 
 export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
   const json = await fetchJson(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`);

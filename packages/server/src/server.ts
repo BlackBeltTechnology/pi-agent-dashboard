@@ -28,6 +28,7 @@ import Fastify from "fastify";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth-plugin.js";
 import { registerBearerAuth } from "./bearer-auth.js";
 import { type BrowserGateway, createBrowserGateway } from "./browser-gateway.js";
+import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 import { isCorsOriginAllowed } from "./cors-origin.js";
 import { registerCsp, resolveCspMode } from "./csp.js";
@@ -614,6 +615,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
   });
 
+  // Relay for AI-drafted commit messages (bridge fork-subagent ↔ HTTP).
+  // See change: add-session-uncommitted-indicator-and-commit.
+  const commitDraftRelay = createCommitDraftRelay();
+
   // Create event store with pinning callback and configurable limits
   const eventStore = createMemoryEventStore(
     (sessionId) =>
@@ -899,6 +904,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginSessionEnded,
     metaPersistence,
     liveEpoch,
+    commitDraftRelay,
   });
 
   // Auto-shutdown idle timer
@@ -1005,7 +1011,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const networkGuard = createNetworkGuard(config.resolvedTrustedNetworks ?? [], { localToken });
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
-  registerGitRoutes(fastify, { networkGuard, sessionManager, browserGateway, worktreeInitRegistry });
+  registerGitRoutes(fastify, {
+    networkGuard, sessionManager, browserGateway, worktreeInitRegistry,
+    sendToSession: (id, msg) => piGateway.sendToSession(id, msg),
+    commitDraftRelay,
+  });
 
   // Browser channel for worktree-init event subscriptions. The dialog
   // sends `worktree_init_subscribe { requestId }` over its existing ws

@@ -1,0 +1,9 @@
+@blackbelt-technology/pi-dashboard-distill-session-knowledge
+Copyright (c) BlackBelt Technology
+
+This product is licensed under the MIT License (see package "license" field).
+
+This package contains only the pi skill (SKILL.md) for the
+session-knowledge distillation discipline. The mining engine ships separately
+as @blackbelt-technology/pi-dashboard-session-distiller (a runtime dependency).
+All source is original work; no third-party source is bundled.

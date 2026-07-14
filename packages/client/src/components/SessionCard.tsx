@@ -28,19 +28,22 @@ export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useDisplayPrefs } from "../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
 import { useMobile } from "../hooks/useMobile.js";
 import type { DetectedEditor } from "../lib/editor-api.js";
 import { formatRelativeTime, formatTokens } from "../lib/format.js";
+import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../lib/git-status-cache.js";
 import { t as i18nT } from "../lib/i18n";
 import { useOpenSpecConfig } from "../lib/openspec-config-api.js";
 import { selectBadgeTimestamp } from "../lib/session-card-time.js";
 import { getSessionDisplayName } from "../lib/session-display-name.js";
+import { useCommitDialog } from "./CommitDialog.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { CwdGonePill } from "./CwdGonePill.js";
+import { GitDirtyPill } from "./GitDirtyPill.js";
 import { InlineRenameInput } from "./InlineRenameInput.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
@@ -131,6 +134,15 @@ export function TokenStats({ session }: { session: DashboardSession }) {
 }
 
 export function GitInfo({ session }: { session: DashboardSession }) {
+  const dirtyStatus = useGitStatus(session.cwd, session.gitStatus);
+  const { open: openCommitDialog } = useCommitDialog();
+  // On-demand fresh read on mount/focus so the pill is not up-to-30s stale.
+  useEffect(() => { void refreshGitStatus(session.cwd); }, [session.cwd]);
+  // Fold each broadcast into the shared per-cwd cache so the folder header and
+  // a solo card at the same path converge on one value.
+  useEffect(() => {
+    if (session.gitStatus) setCachedGitStatus(session.cwd, session.gitStatus);
+  }, [session.cwd, session.gitStatus]);
   if (!session.gitBranch) return null;
 
   return (
@@ -157,6 +169,7 @@ export function GitInfo({ session }: { session: DashboardSession }) {
       )}
       <WorktreePill session={session} />
       <CwdGonePill session={session} />
+      <GitDirtyPill status={dirtyStatus} onClick={() => openCommitDialog(session.cwd, session.id)} />
     </div>
   );
 }
@@ -213,9 +226,35 @@ interface GroupGitInfoProps {
    */
   folderBranch?: string | null;
   onBranchClick?: () => void;
+  /**
+   * Folder-head working-tree status (from the folder-head poll). Rendered as
+   * ONE dirty/drift pill + Commit action for all same-cwd sessions, never
+   * duplicated on the child cards. See change:
+   * add-session-uncommitted-indicator-and-commit.
+   */
+  folderStatus?: GitStatus;
 }
 
-export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick }: GroupGitInfoProps) {
+export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folderStatus }: GroupGitInfoProps) {
+  // Folder status: prefer the explicit folder-head value, else any same-cwd
+  // session's broadcast (all share one tree → identical). One on-demand read
+  // per cwd erases staleness; no per-session redundancy.
+  const seededStatus = folderStatus ?? sessions.find((s) => s.gitStatus)?.gitStatus;
+  const dirtyStatus = useGitStatus(cwd, seededStatus);
+  const { open: openCommitDialog } = useCommitDialog();
+  // The dirty pill + Commit live on the folder header ONLY for GROUPED
+  // same-cwd sessions (2+). For a solo session the header still renders (its
+  // branch), but the pill belongs to the card's own `GitInfo` — rendering it
+  // here too would duplicate it. Worktree sessions have a distinct cwd → own
+  // 1-session group → card pill. See change:
+  // add-session-uncommitted-indicator-and-commit.
+  const showFolderPill = sessions.length > 1;
+  // Seed AI-draft from any session sharing this cwd.
+  const anySessionId = sessions[0]?.id ?? "";
+  useEffect(() => { void refreshGitStatus(cwd); }, [cwd]);
+  useEffect(() => {
+    if (seededStatus) setCachedGitStatus(cwd, seededStatus);
+  }, [cwd, seededStatus]);
   const session = sessions.find((s) => s.gitBranch);
   const cached = branchCache.get(cwd);
   const [fetchedBranch, setFetchedBranch] = useState<string | null>(cached?.branch ?? null);
@@ -312,6 +351,20 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick }: Gro
             <span>#{prNumber}</span>
           )}
         </>
+      )}
+      {showFolderPill && (
+        <GitDirtyPill status={dirtyStatus} onClick={() => openCommitDialog(cwd, anySessionId)} />
+      )}
+      {showFolderPill && (dirtyStatus?.dirtyCount ?? 0) > 0 && (
+        <button
+          type="button"
+          data-testid="group-commit-btn"
+          onClick={(e) => { e.stopPropagation(); openCommitDialog(cwd, anySessionId); }}
+          className="text-[10px] text-blue-400 hover:underline"
+          title={i18nT("auto.commit_changes", undefined, "Commit changes")}
+        >
+          {i18nT("auto.commit", undefined, "Commit")}
+        </button>
       )}
     </div>
   );

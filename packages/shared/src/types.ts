@@ -29,6 +29,35 @@ export interface GitWorktreeInfo {
   base?: string;
 }
 
+/**
+ * Working-tree dirtiness + upstream drift for a cwd, parsed from one
+ * `git status --porcelain=v2 --branch` call. Keyed by cwd, not by session:
+ * sessions sharing a cwd share one working tree, so this state is identical
+ * for all of them. Absent = legacy bridge / inconclusive probe; the client
+ * renders no dirty pill.
+ *
+ * `dirtyCount` = staged + unstaged + untracked FILES (not hunks). A file
+ * that is both staged and has further unstaged edits counts once toward
+ * `dirtyCount` but is reflected in both `staged` and `unstaged`.
+ * `ahead`/`behind` are 0 when there is no upstream.
+ *
+ * See change: add-session-uncommitted-indicator-and-commit.
+ */
+export interface GitStatus {
+  /** Distinct changed files: staged ∪ unstaged ∪ untracked. */
+  dirtyCount: number;
+  /** Files with staged changes (index differs from HEAD). */
+  staged: number;
+  /** Files with unstaged changes (worktree differs from index). */
+  unstaged: number;
+  /** Untracked files. */
+  untracked: number;
+  /** Commits ahead of upstream (0 when no upstream). */
+  ahead: number;
+  /** Commits behind upstream (0 when no upstream). */
+  behind: number;
+}
+
 /** A dashboard session representing a connected pi instance */
 export interface DashboardSession {
   id: string;
@@ -69,6 +98,15 @@ export interface DashboardSession {
   gitBranchUrl?: string;
   gitPrNumber?: number;
   gitPrUrl?: string;
+  /**
+   * Working-tree dirtiness + upstream drift, sourced hybrid: passive
+   * broadcast on the bridge's 30 s VCS tick (`git_info_update`) plus an
+   * on-demand `GET /api/git/status` refresh. Keyed conceptually by cwd
+   * (sessions sharing a cwd share one tree). Absent = legacy bridge /
+   * inconclusive probe; the client renders no dirty pill.
+   * See change: add-session-uncommitted-indicator-and-commit.
+   */
+  gitStatus?: GitStatus;
   /**
    * pi-coding-agent version the session is actually running, reported by the
    * bridge from inside pi's own process. Absent on older bridges and until the

@@ -1,0 +1,10 @@
+@blackbelt-technology/pi-dashboard-session-distiller
+Copyright (c) BlackBelt Technology
+
+This product is licensed under the MIT License (see package "license" field).
+
+The session-knowledge distillation discipline (anchor every lesson to an
+objective signal, promote only cross-session recurrences, route to
+skill_manage / memory / docs) was designed and implemented originally in the
+pi-agent-dashboard monorepo. All source in this package is original work; no
+third-party source is bundled.

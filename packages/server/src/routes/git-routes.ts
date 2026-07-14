@@ -13,7 +13,11 @@ import {
   addWorktree,
   addWorktreeFromPr,
   checkoutBranch,
+  commitFiles,
   createPullRequest,
+  GitCommitError,
+  getChangedFiles,
+  getGitStatus,
   gitInit,
   isGitRepo,
   listBranches,
@@ -41,6 +45,14 @@ export interface GitRoutesDeps {
   /** Optional — worktree lifecycle endpoints need this to enumerate active sessions + broadcast cwdMissing. */
   sessionManager?: SessionManager;
   browserGateway?: BrowserGateway;
+  /**
+   * Optional — sends `git_commit_draft` to the owning bridge for the AI-draft
+   * relay. When absent the commit-draft route returns a stub.
+   * See change: add-session-uncommitted-indicator-and-commit.
+   */
+  sendToSession?: (sessionId: string, msg: any) => boolean;
+  /** Optional — correlates the async draft reply. See same change. */
+  commitDraftRelay?: import("../commit-draft-relay.js").CommitDraftRelay;
   /**
    * Optional — enables worktree-init progress streaming to the
    * originating browser. When absent, the init hook still runs but
@@ -81,7 +93,7 @@ async function evaluateGateCached(checkoutPath: string, hook: WorktreeInitHook):
 }
 
 export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps) {
-  const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry } = deps;
+  const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry, sendToSession, commitDraftRelay } = deps;
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/git/branches",
     { preHandler: networkGuard },
@@ -140,6 +152,140 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       } catch (err: any) {
         return { success: false, error: err.message ?? "init failed" } satisfies ApiResponse;
       }
+    },
+  );
+
+  // ── Uncommitted-indicator + commit (session-uncommitted-indicator-and-commit) ──
+
+  // On-demand fresh working-tree status for a cwd (erases broadcast staleness
+  // on card/folder focus + right after a commit).
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/git/status",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd(request.query.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (!isGitRepo(validated.cwd)) {
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      }
+      const status = getGitStatus(validated.cwd);
+      if (!status) {
+        return { success: false, code: "git_failed", error: "failed to read git status" } satisfies ApiResponse;
+      }
+      return { success: true, data: status } satisfies ApiResponse;
+    },
+  );
+
+  // Changed-file list for the commit dialog's picker.
+  fastify.get<{ Querystring: { cwd?: string } }>(
+    "/api/git/changed-files",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd(request.query.cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (!isGitRepo(validated.cwd)) {
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
+      }
+      try {
+        const files = await getChangedFiles(validated.cwd);
+        return { success: true, data: files } satisfies ApiResponse;
+      } catch (err: any) {
+        return { success: false, code: "git_failed", error: err?.message ?? "failed to list changed files" } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // Commit a chosen subset of files. argv staging + `git commit -F -` stdin
+  // (no shell interpolation of the message). On success broadcasts fresh
+  // status to every session sharing the cwd so their pill updates at once.
+  fastify.post<{ Body: { cwd?: string; message?: string; files?: string[] } }>(
+    "/api/git/commit",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { cwd, message, files } = request.body ?? {};
+      const validated = validateCwd(cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      if (typeof message !== "string" || !Array.isArray(files)) {
+        reply.code(400);
+        return { success: false, code: "bad_request", error: "message and files[] required" } satisfies ApiResponse;
+      }
+      try {
+        const result = await commitFiles({ cwd: validated.cwd, message, files });
+        // Broadcast fresh status to sessions sharing this cwd.
+        if (sessionManager && browserGateway) {
+          const fresh = getGitStatus(validated.cwd);
+          if (fresh) {
+            for (const s of sessionManager.listAll()) {
+              if (safeRealpathSync(s.cwd) === validated.cwd) {
+                sessionManager.update(s.id, { gitStatus: fresh });
+                browserGateway.broadcastSessionUpdated(s.id, { gitStatus: fresh });
+              }
+            }
+          }
+        }
+        return { success: true, data: result } satisfies ApiResponse;
+      } catch (err: any) {
+        if (err instanceof GitCommitError) {
+          reply.code(err.code === "path-escape" || err.code === "no-files" || err.code === "empty-message" ? 400 : 409);
+          return { success: false, code: err.code, error: err.message } satisfies ApiResponse;
+        }
+        return { success: false, code: "commit-failed", error: err?.message ?? "commit failed" } satisfies ApiResponse;
+      }
+    },
+  );
+
+  // AI-drafted commit message. Relays to the owning bridge's fork-subagent
+  // and awaits the result (stub on timeout / no bridge).
+  fastify.post<{ Body: { cwd?: string; files?: string[]; sessionId?: string } }>(
+    "/api/git/commit-draft",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const { cwd, files, sessionId } = request.body ?? {};
+      const validated = validateCwd(cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      // Every file must be a non-empty string (the diff is built per path).
+      if (
+        !Array.isArray(files) ||
+        files.length === 0 ||
+        !files.every((f) => typeof f === "string" && f.length > 0) ||
+        typeof sessionId !== "string"
+      ) {
+        reply.code(400);
+        return { success: false, code: "bad_request", error: "sessionId and non-empty files[] required" } satisfies ApiResponse;
+      }
+      // The draft is seeded from the named session's context, so the session
+      // must exist and its working tree must be the cwd being committed — a
+      // client cannot pair an arbitrary sessionId with a foreign cwd.
+      if (sessionManager) {
+        const sess = sessionManager.get(sessionId);
+        if (!sess || safeRealpathSync(sess.cwd) !== validated.cwd) {
+          reply.code(400);
+          return { success: false, code: "bad_request", error: "sessionId does not match cwd" } satisfies ApiResponse;
+        }
+      }
+      if (!commitDraftRelay || !sendToSession) {
+        // Feature not wired — degrade to manual entry.
+        return { success: true, data: { message: "", source: "stub" } } satisfies ApiResponse;
+      }
+      const result = await commitDraftRelay.request({
+        sessionId,
+        cwd: validated.cwd,
+        files,
+        send: (msg) => sendToSession(sessionId, msg),
+      });
+      return { success: true, data: result } satisfies ApiResponse;
     },
   );
 

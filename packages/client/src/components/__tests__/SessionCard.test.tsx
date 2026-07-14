@@ -578,6 +578,38 @@ describe("GroupGitInfo", () => {
     expect(screen.getByTestId("git-init-btn")).toBeTruthy();
     expect(screen.getByText("Init git")).toBeTruthy();
   });
+
+  // ── dirty pill gate: header pill ONLY for grouped (2+) sessions ──────────
+  // See change: add-session-uncommitted-indicator-and-commit.
+  const dirty = { dirtyCount: 3, staged: 1, unstaged: 2, untracked: 0, ahead: 0, behind: 0 };
+
+  it("solo session: no dirty pill on the folder header (pill lives on the card)", () => {
+    const sessions = [makeSession({ gitBranch: "main", gitStatus: dirty })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="main" />);
+    expect(screen.queryByTestId("git-dirty-pill")).toBeNull();
+    expect(screen.queryByTestId("group-commit-btn")).toBeNull();
+  });
+
+  it("grouped (2+) sessions: ONE dirty pill + Commit in the folder header", () => {
+    const sessions = [
+      makeSession({ id: "a", gitBranch: "main", gitStatus: dirty }),
+      makeSession({ id: "b", gitBranch: "main", gitStatus: dirty }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="main" />);
+    expect(screen.getAllByTestId("git-dirty-pill")).toHaveLength(1);
+    expect(screen.getByTestId("group-commit-btn")).toBeTruthy();
+  });
+
+  it("grouped but clean+in-sync: no pill, no Commit", () => {
+    const clean = { dirtyCount: 0, staged: 0, unstaged: 0, untracked: 0, ahead: 0, behind: 0 };
+    const sessions = [
+      makeSession({ id: "a", gitBranch: "main", gitStatus: clean }),
+      makeSession({ id: "b", gitBranch: "main", gitStatus: clean }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="main" />);
+    expect(screen.queryByTestId("git-dirty-pill")).toBeNull();
+    expect(screen.queryByTestId("group-commit-btn")).toBeNull();
+  });
 });
 
 // ── Subcard structure (redesign-session-card-subcards) ────────────────────────

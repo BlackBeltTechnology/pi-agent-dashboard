@@ -28,6 +28,7 @@ import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
+import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
@@ -255,6 +256,7 @@ function initBridge(pi: ExtensionAPI) {
   let lastGitBranch: string | undefined;
   let lastGitPrNumber: number | undefined;
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog
+  let lastGitStatusJson: string | undefined; // see change: add-session-uncommitted-indicator-and-commit
   let lastCwdMissing: boolean | undefined; // see change: add-worktree-lifecycle-actions
   let lastSessionName: string | undefined;
   let cachedHasUI: boolean | undefined = prev.hasUI;
@@ -1083,6 +1085,12 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // AI-draft fork-subagent wiring (see change:
+    // add-session-uncommitted-indicator-and-commit). Both degrade silently
+    // to the draft ladder's lower rungs when unavailable.
+    getSessionContextText: () => buildSessionContextText(cachedCtx),
+    runDraftAgent: (seed: string, cwd: string) =>
+      runForkSubagentDraft(seed, cwd, () => cachedCtx?.model),
     // Mirror server attach/detach pushes into BridgeContext.attachedChange so
     // the before_agent_start injector exposes it. See change:
     // inject-session-context-into-agent.
@@ -1301,6 +1309,7 @@ function initBridge(pi: ExtensionAPI) {
       lastSessionFile, lastSessionDir, lastFirstMessage,
       lastGitBranch, lastGitPrNumber, lastSessionName,
       lastGitWorktreeJson,
+      lastGitStatusJson,
       lastCwdMissing,
       hasRegisteredOnce,
       dashboardSpawned,
@@ -1323,6 +1332,7 @@ function initBridge(pi: ExtensionAPI) {
     lastGitPrNumber = bc.lastGitPrNumber;
     lastSessionName = bc.lastSessionName;
     lastGitWorktreeJson = bc.lastGitWorktreeJson;
+    lastGitStatusJson = bc.lastGitStatusJson;
     lastCwdMissing = bc.lastCwdMissing;
     hasRegisteredOnce = bc.hasRegisteredOnce;
   }

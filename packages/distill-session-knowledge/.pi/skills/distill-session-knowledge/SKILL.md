@@ -10,7 +10,9 @@ infrastructure — routes into `skill_manage`, the `memory` tool, and `docs/`
 (indexed by context-mode FTS5). Dry-run by default; nothing is written until you
 review the plan and explicitly apply.
 
-Orchestrator package: `packages/session-distiller/` (private workspace).
+Engine: the published `@blackbelt-technology/pi-dashboard-session-distiller`
+package, invoked through its `distill-session-knowledge` bin (this skill package
+declares it as a runtime dependency).
 
 ## When to use
 
@@ -22,7 +24,7 @@ Orchestrator package: `packages/session-distiller/` (private workspace).
 
 1. **Dry-run the miner** (no writes) for this project:
    ```bash
-   npx tsx packages/session-distiller/src/main.ts --cwd "$(git rev-parse --show-toplevel)"
+   npx --no distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)"
    ```
    Add `--n <k>` to change the recurrence threshold (default 3). Add `--json` to
    emit the full routing plan as JSON for programmatic review.
@@ -39,7 +41,7 @@ Orchestrator package: `packages/session-distiller/` (private workspace).
 3. **Apply** once the plan looks right — persists the watermark + below-threshold
    candidates store and prints the final plan:
    ```bash
-   npx tsx packages/session-distiller/src/main.ts --cwd "$(git rev-parse --show-toplevel)" --apply --json
+   npx --no distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)" --apply --json
    ```
 
 4. **Execute the routed writes** from the plan, using your tools (this is the
@@ -64,6 +66,7 @@ Orchestrator package: `packages/session-distiller/` (private workspace).
 
 ## Verification
 
-- `cd packages/session-distiller && npx vitest run` — 46 unit tests green.
-- Dry-run prints a plan and mutates nothing (no watermark advance).
+- `npx --no distill-session-knowledge --cwd "$(pwd)"` prints a routing plan and
+  mutates nothing (dry-run default; no watermark advance).
+- Re-running the dry-run over the same corpus yields the same plan (idempotent).
 - After apply + routed writes, `ctx_search` returns a freshly distilled doc.

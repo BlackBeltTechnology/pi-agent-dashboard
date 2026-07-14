@@ -25,6 +25,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `fixtures/sample-git/doc.pdf` | Binary PDF in git sample fixture. Non-text payload for diff/preview coverage. |
 | `fixtures/sample-git/hello.txt` | Plain file content for git fixture. See change: docker-test-harness. |
 | `fixtures/sample-git/logo.png` | Binary PNG in git sample fixture. Non-text payload for diff/preview coverage. |
+| `fixtures/sample-git/notes.md` | Second tracked markdown file in the git fixture. Writable via `/api/file/write` (markdown-only) so the uncommitted-indicator E2E can dirty TWO files and commit a subset. See change: add-session-uncommitted-indicator-and-commit. |
 | `fixtures/sample-git/README.md` | Plain file content for git fixture (README). See change: docker-test-harness. |
 | `fixtures/sample-hook-fail/.pi/settings.json` | E2E fixture: FAILING `worktreeInit` hook. gate `test ! -f .never-created` (always needsInit), run script echoes stderr + `exit 3`. Feeds failed-sticky + Retry assertions. Materialized as git repo by test-entrypoint.sh. See change: friendlier-worktree-init. |
 | `fixtures/sample-hook-fail/README.md` | Doc for the failing hook fixture. See change: friendlier-worktree-init. |

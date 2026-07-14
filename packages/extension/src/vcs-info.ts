@@ -8,7 +8,7 @@
  */
 import path from "node:path";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import type { GitWorktreeInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { GitStatus, GitWorktreeInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildGitLinks, type GitLinks } from "./git-link-builder.js";
 
 export interface GitInfo {
@@ -111,6 +111,18 @@ export function detectWorktree(cwd: string): GitWorktreeInfo | undefined {
   const mainPath = path.dirname(commonDirAbs);
   const name = path.basename(cwd);
   return { mainPath, name };
+}
+
+/**
+ * Gather working-tree dirtiness + upstream drift for `cwd` via one
+ * `git status --porcelain=v2 --branch` call. Returns `undefined` on an
+ * inconclusive probe (git missing, not a repo, timeout) so the broadcast
+ * omits the field rather than sending a false all-clean status.
+ * See change: add-session-uncommitted-indicator-and-commit.
+ */
+export function gatherGitStatus(cwd: string): GitStatus | undefined {
+  const res = git.gitStatusV2({ cwd });
+  return res.ok ? res.value : undefined;
 }
 
 /** Gather all git info for a directory. Returns undefined if not a git repo. */

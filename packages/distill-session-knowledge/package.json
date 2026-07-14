@@ -1,0 +1,36 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-distill-session-knowledge",
+  "version": "0.5.4",
+  "description": "Pi skill: offline-mine pi session JSONL logs into reusable, verified knowledge (skills, memory, docs)",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/distill-session-knowledge"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "pi-session",
+    "session-mining",
+    "knowledge-distillation",
+    "pi-dashboard"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/distill-session-knowledge"
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "README.md",
+    "NOTICE"
+  ],
+  "dependencies": {
+    "@blackbelt-technology/pi-dashboard-session-distiller": "^0.5.4"
+  }
+}

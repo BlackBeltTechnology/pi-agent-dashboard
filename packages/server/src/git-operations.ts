@@ -4,7 +4,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execFileAsync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, execFileAsync, execSync, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 // Self-namespace import so `resolveConfigRoot` calls `isGitRepo`/`resolveMainPath`
 // through the module's live exports — lets tests stub them (internal lexical
 // references are otherwise un-spyable). See change: support-non-git-init-hook.
@@ -61,6 +64,214 @@ export function getDirtyFiles(cwd: string): string[] {
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => line.slice(3)); // strip 2 status chars + space
+}
+
+/**
+ * Fresh working-tree dirtiness + upstream drift for `cwd`. Reuses the shared
+ * porcelain-v2 parser so the on-demand server read matches the bridge
+ * broadcast byte-for-byte. Returns `undefined` on an inconclusive probe
+ * (git missing, not a repo, timeout). See change:
+ * add-session-uncommitted-indicator-and-commit.
+ */
+export function getGitStatus(cwd: string): GitStatus | undefined {
+  const res = gitStatusV2({ cwd });
+  return res.ok ? res.value : undefined;
+}
+
+/**
+ * Error thrown by `commitFiles` carrying a stable machine-readable `code`
+ * so the route can surface it to the dialog without string-matching stderr.
+ */
+export class GitCommitError extends Error {
+  constructor(
+    public code:
+      | "not-a-repo"
+      | "path-escape"
+      | "no-files"
+      | "empty-message"
+      | "stage-failed"
+      | "commit-failed",
+    message: string,
+  ) {
+    super(message);
+    this.name = "GitCommitError";
+  }
+}
+
+/**
+ * Resolve each repo-relative `file` against `cwd` and confirm it stays inside
+ * `cwd`. Rejects absolute paths and `..` traversal that would escape the
+ * working tree, AND root-equivalent inputs (`""`, `"."`, cwd itself) that would
+ * resolve to `git add -- .` and stage the WHOLE tree instead of a chosen file.
+ * Returns the sanitized repo-relative paths (normalized) for use in the
+ * `git add -- <paths>` argv. Throws `GitCommitError` (`path-escape`) on the
+ * first offender. See change:
+ * add-session-uncommitted-indicator-and-commit (security-hardening).
+ */
+export function assertPathsInside(cwd: string, files: string[]): string[] {
+  const root = path.resolve(cwd);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  return files.map((f) => {
+    const abs = path.resolve(root, f);
+    // Root-equivalent (empty / "." / cwd itself) would stage everything — the
+    // picker always supplies concrete file paths, so reject it explicitly.
+    if (abs === root) {
+      throw new GitCommitError("path-escape", `path resolves to the repo root, not a file: ${JSON.stringify(f)}`);
+    }
+    if (!abs.startsWith(rootWithSep)) {
+      throw new GitCommitError("path-escape", `path escapes cwd: ${f}`);
+    }
+    // Return the path relative to cwd so the argv is stable regardless of
+    // how the client expressed it. `--` in the git argv still guards against
+    // a leading-dash path being read as a flag.
+    return path.relative(root, abs);
+  });
+}
+
+/** Spawn git with an argv (no shell) and optional stdin. Never interpolates. */
+function runGitCapture(
+  args: string[],
+  cwd: string,
+  stdin?: string,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let child: ChildProcess;
+    try {
+      child = spawn("git", args, {
+        cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    let settled = false;
+    const done = (fn: () => void) => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
+    // Timeout: SIGTERM, then SIGKILL escalation, then reject so a wedged git
+    // never leaves the promise pending forever.
+    const timer = setTimeout(() => {
+      try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 2_000);
+      done(() => reject(new Error(`git timed out after ${GIT_TIMEOUT}ms: git ${args[0]}`)));
+    }, GIT_TIMEOUT);
+    child.stdout?.on("data", (c: Buffer) => { stdout += c.toString("utf-8"); });
+    child.stderr?.on("data", (c: Buffer) => { stderr += c.toString("utf-8"); });
+    child.on("error", (err) => { done(() => reject(err)); });
+    child.on("close", (code) => {
+      done(() => resolve({ code: code ?? -1, stdout, stderr }));
+    });
+    if (stdin !== undefined) {
+      child.stdin?.end(stdin);
+    } else {
+      child.stdin?.end();
+    }
+  });
+}
+
+/**
+ * Stage the selected `files` and commit them with `message`.
+ *
+ * Security invariants (security-hardening):
+ *   - argv arrays only — NO shell, so metacharacters in paths cannot execute.
+ *   - message via `git commit -F -` stdin — never interpolated into a command
+ *     string; multi-line bodies and `$()`/backticks are committed verbatim.
+ *   - every path is `assertPathsInside(cwd)`-guarded before staging.
+ *
+ * Stages ONLY the selected paths (`git add -- <files>`), then commits the
+ * index. Because staging is scoped to the chosen files, unselected changes
+ * stay in the working tree. Returns `{ commitHash, subject }`.
+ *
+ * See change: add-session-uncommitted-indicator-and-commit.
+ */
+export async function commitFiles(opts: {
+  cwd: string;
+  message: string;
+  files: string[];
+}): Promise<GitCommitResult> {
+  const { cwd, message, files } = opts;
+  if (!self.isGitRepo(cwd)) throw new GitCommitError("not-a-repo", "cwd is not a git repository");
+  if (files.length === 0) throw new GitCommitError("no-files", "no files selected");
+  if (message.trim().length === 0) throw new GitCommitError("empty-message", "commit message is empty");
+
+  const safePaths = assertPathsInside(cwd, files);
+
+  const staged = await runGitCapture(["add", "--", ...safePaths], cwd);
+  if (staged.code !== 0) {
+    throw new GitCommitError("stage-failed", staged.stderr.trim() || "git add failed");
+  }
+
+  const committed = await runGitCapture(["commit", "-F", "-", "--", ...safePaths], cwd, message);
+  if (committed.code !== 0) {
+    throw new GitCommitError("commit-failed", committed.stderr.trim() || "git commit failed");
+  }
+
+  const head = await runGitCapture(["rev-parse", "HEAD"], cwd);
+  const subjectRes = await runGitCapture(["log", "-1", "--pretty=%s"], cwd);
+  return {
+    commitHash: head.stdout.trim(),
+    subject: subjectRes.stdout.trim(),
+  };
+}
+
+/**
+ * List changed files (staged, unstaged, untracked) with per-file line
+ * additions/deletions for the commit dialog picker. Parses
+ * `git status --porcelain=v2 --branch` for the file set + state, and
+ * `git diff --numstat` (HEAD, then untracked via /dev/null) for counts.
+ * Untracked files report their full line count as additions.
+ * See change: add-session-uncommitted-indicator-and-commit.
+ */
+export async function getChangedFiles(cwd: string): Promise<GitChangedFile[]> {
+  const statusRes = await runGitCapture(["status", "--porcelain=v2", "--branch"], cwd);
+  // Propagate a real git failure instead of masking it as "no changes". A
+  // clean tree still exits 0 with empty stdout → `[]` below.
+  if (statusRes.code !== 0) {
+    throw new GitCommitError("not-a-repo", statusRes.stderr.trim() || "git status failed");
+  }
+
+  const files: GitChangedFile[] = [];
+  for (const line of statusRes.stdout.split("\n")) {
+    if (line.length === 0) continue;
+    const kind = line[0];
+    if (kind === "?") {
+      files.push({ path: line.slice(2), state: "untracked" });
+      continue;
+    }
+    if (kind === "1" || kind === "2" || kind === "u") {
+      const parts = line.split(" ");
+      const xy = parts[1] ?? "..";
+      // Fixed field count before the path: 8 for `1`, 9 for `2` (rename
+      // score), 10 for `u` (three stage hashes). For renames the path field
+      // is `<newPath>\t<origPath>` — take the new path before the tab. Paths
+      // may contain spaces, so rejoin the remaining tokens.
+      const skip = kind === "1" ? 8 : kind === "2" ? 9 : 10;
+      const p = parts.slice(skip).join(" ").split("\t")[0];
+      const staged = xy[0] !== ".";
+      files.push({ path: p, state: staged ? "staged" : "unstaged" });
+    }
+  }
+
+  // Diffstat counts (best-effort; picker still works without them).
+  const numstat = await runGitCapture(["diff", "HEAD", "--numstat"], cwd);
+  if (numstat.code === 0) {
+    const counts = new Map<string, { additions: number; deletions: number }>();
+    for (const line of numstat.stdout.split("\n")) {
+      if (!line) continue;
+      const [add, del, ...rest] = line.split("\t");
+      const p = rest.join("\t");
+      counts.set(p, {
+        additions: add === "-" ? 0 : parseInt(add, 10) || 0,
+        deletions: del === "-" ? 0 : parseInt(del, 10) || 0,
+      });
+    }
+    for (const f of files) {
+      const c = counts.get(f.path);
+      if (c) { f.additions = c.additions; f.deletions = c.deletions; }
+    }
+  }
+  return files;
 }
 
 export interface BranchInfo {

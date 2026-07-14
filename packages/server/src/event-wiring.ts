@@ -175,6 +175,12 @@ export interface EventWiringDeps {
    */
   metaPersistence?: import("./meta-persistence.js").MetaPersistence;
   liveEpoch?: number;
+  /**
+   * Settles pending `/api/git/commit-draft` requests when the bridge replies
+   * with `git_commit_draft_result`. See change:
+   * add-session-uncommitted-indicator-and-commit.
+   */
+  commitDraftRelay?: import("./commit-draft-relay.js").CommitDraftRelay;
 }
 
 /**
@@ -209,6 +215,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     dispatchPluginRawEvent,
     metaPersistence,
     liveEpoch,
+    commitDraftRelay,
   } = deps;
 
   // Once-per-activation guard for the eager liveness marker: maps sessionId
@@ -1241,6 +1248,13 @@ export function wireEvents(deps: EventWiringDeps): void {
         gitPrNumber: msg.gitPrNumber,
         gitPrUrl: msg.gitPrUrl,
       };
+      // Working-tree dirtiness + drift (broadcast half of the hybrid).
+      // Omitted by the bridge on an inconclusive probe, so a missing field
+      // leaves the last known status untouched rather than clearing it.
+      // See change: add-session-uncommitted-indicator-and-commit.
+      if (msg.gitStatus !== undefined) {
+        gitUpdates.gitStatus = msg.gitStatus;
+      }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
       // See change: gate-session-worktree-button-on-git.
@@ -1266,6 +1280,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       sessionManager.update(sessionId, gitUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, gitUpdates);
       maybeRekeyOrder(sessionId, oldOrderKey);
+    }
+
+    if (msg.type === "git_commit_draft_result") {
+      // Bridge replied to a `/api/git/commit-draft` relay. Settle the pending
+      // HTTP request. See change: add-session-uncommitted-indicator-and-commit.
+      commitDraftRelay?.resolve(msg);
     }
 
     if (msg.type === "cwd_missing") {

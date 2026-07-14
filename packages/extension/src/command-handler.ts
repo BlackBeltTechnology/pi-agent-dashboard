@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
   ServerToExtensionMessage,
@@ -12,6 +13,7 @@ import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/to
 import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
+import { draftCommitMessage } from "./commit-draft.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
@@ -291,6 +293,16 @@ export function createCommandHandler(
   sessionIdOrGetter: string | (() => string),
   options?: {
     getModelRegistry?: () => any;
+    /**
+     * Ephemeral fork-subagent driver for AI-drafted commit messages: run one
+     * throwaway in-memory agent turn on `seed` and resolve with the assistant
+     * text. Wired from bridge.ts (has model/registry/authStorage). Absent →
+     * the draft ladder falls to the deterministic stub. Never appends to the
+     * visible conversation. See change: add-session-uncommitted-indicator-and-commit.
+     */
+    runDraftAgent?: (seed: string, cwd: string) => Promise<string>;
+    /** Compact text of the live session context for the draft seed. */
+    getSessionContextText?: () => string | undefined;
     setThinkingLevel?: (level: string) => void;
     getThinkingLevel?: () => string | undefined;
     shutdown?: () => void;
@@ -685,6 +697,39 @@ export function createCommandHandler(
             sessionId,
             query: msg.query,
             files,
+          };
+        }
+
+        case "git_commit_draft": {
+          // AI-draft a commit message from the session's own context + the
+          // staged diff, via an ephemeral fork-subagent. Never touches the
+          // visible conversation. Always resolves (worst case: stub).
+          // See change: add-session-uncommitted-indicator-and-commit.
+          const draftMsg = msg as {
+            requestId: string; cwd: string; files: string[];
+          };
+          const cwd = draftMsg.cwd || options?.getCwd?.() || process.cwd();
+          // Guard against a malformed payload: `files` must be an array of
+          // strings before we map over it. Coerce to a safe empty list so the
+          // draft ladder falls to its deterministic stub rather than throwing.
+          const draftFiles = Array.isArray(draftMsg.files)
+            ? draftMsg.files.filter((f): f is string => typeof f === "string")
+            : [];
+          const result = await draftCommitMessage({
+            files: draftFiles,
+            buildDiff: () =>
+              draftFiles.map((f) => diffOr({ cwd, path: f })).join("\n"),
+            buildContext: () => options?.getSessionContextText?.(),
+            runAgent: options?.runDraftAgent
+              ? (seed) => options.runDraftAgent!(seed, cwd)
+              : undefined,
+          });
+          return {
+            type: "git_commit_draft_result",
+            sessionId,
+            requestId: draftMsg.requestId,
+            message: result.message,
+            source: result.source,
           };
         }
 
