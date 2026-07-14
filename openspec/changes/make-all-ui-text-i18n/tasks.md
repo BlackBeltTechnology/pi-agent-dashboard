@@ -9,7 +9,7 @@
 ## 2. Zone 1 — client strings (~466)
 
 - [x] 2.1 Migrate `auto.*` + flat legacy keys to structured keys (codemod + review); update call sites. (`LEGACY_ALIASES` kept populated as a robustness backstop rather than emptied — no `auto.*` remains in any dictionary; deviation noted.)
-- [ ] 2.2 Wrap zero-coverage files: 6 Gateway components, `PairLanding`, `OpenSpecStepper`, `OpenSpecActivityBadge`.
+- [x] 2.2 Wrap zero-coverage files: 6 Gateway components, `PairLanding`, `OpenSpecStepper`, `OpenSpecActivityBadge` (96 keys, zh+hu).
 - [x] 2.3 Wrap client hooks (`useInstalledPackages`, `useMessageHandler`, `useImagePaste`, `useMainSpecsReader`, +9 more) — 23 keys.
 - [x] 2.4 Wrap `lib/` displayed strings (`format`, `session-status-visuals`, `themes`, `gateway-setup`, `gateway-api`, `editor-api`, `tool-summary`) — 36 keys.
 - [x] 2.5 Wrap remaining leaks in i18n-aware components (`SettingsPanel`, `SessionCard`, `SpawnErrorBanner`, `WorktreeActionsMenu`, `SessionOpenSpecActions`) — 74 keys. (Other components with residual leaks flagged by lint remain follow-up.)
@@ -20,14 +20,14 @@
 - [x] 3.1 Add optional `i18nCatalog?` (named export) + `PluginI18nCatalog` type to the plugin registration type (`packages/shared/src/dashboard-plugin/manifest-types.ts`); generated registry imports+wires it.
 - [x] 3.2 Runtime: `registerPluginCatalog(id, catalog)` prefixes keys with `plugin.<id>.` into `dictionaries[lang]`; `t`+`language` on `PluginContextValue` (shell-wired); scoped `useT`/`useLanguage` hooks auto-prefix.
 - [x] 3.3 Tests: plugin catalog merge + scoped useT (namespacing, no collision, language switch, missing-catalog fallback) — client i18n.test.ts + runtime plugin-i18n.test.tsx.
-- [ ] 3.4 Author `zh-CN` + `hu` catalog and wrap strings per plugin: `flows-plugin` (22 files, largest), `automation-plugin`, `goal-plugin`, `kb-plugin`, `roles-plugin`, `subagents-plugin`, `dashboard-plugin-runtime`, `flows-anthropic-bridge-plugin`.
+- [~] 3.4 Per-plugin catalogs. DONE: `roles-plugin` reference (22 keys, full end-to-end incl. validator `i18nCatalog` passthrough fix). FOLLOW-UP: `flows-plugin`, `automation-plugin`, `goal-plugin`, `kb-plugin`, `subagents-plugin`, `dashboard-plugin-runtime`, `flows-anthropic-bridge-plugin` (same pattern: src/i18n.ts `catalog` + `useT` + `i18nCatalog` manifest field).
 - [~] 3.5 roles-plugin clean + wired. Remaining 7 plugins are follow-up (see 3.4).
 
 ## 4. Zone 3 — server/extension code-mapping (~65)
 
-- [ ] 4.1 Shared: add `code?: string` + `vars?` to user-facing error/result/status shapes (retain `message?` as fallback).
-- [ ] 4.2 Client: `err.<domain>.<code>` map + resolver `t(errKey, vars, serverMessage)`; unknown code → show `serverMessage`, never a bare code.
-- [ ] 4.3 Add codes to high-visibility emit sites first: `browser-handlers/session-action-handler.ts` (10), `model-proxy-routes.ts` (5).
+- [x] 4.1 Shared: `code?`+`vars?` on resume_result, spawn_result, spawn_error, force_kill_result (`message?` retained as fallback).
+- [x] 4.2 Client: `lib/server-error.ts` (`errKeyForCode` + `resolveServerMessage`); unknown code shows `serverMessage`, never a bare code (tested).
+- [~] 4.3 Codes on `session-action-handler.ts` resume/force_kill sites + `err.resume.*` keys. FOLLOW-UP: `model-proxy-routes.ts` (5).
 - [ ] 4.4 (Follow-up) Add codes to `git-operations.ts`, `provider-probe.ts`, `pi-core-updater.ts`, extension emit sites. Contract + resolver ready (4.1/4.2); mechanical tagging remains.
 - [~] 4.5 Authored `err.*` keys for spawn-failure codes + `err.resume.*` + `err.git.not_a_repo` (zh+hu). Remaining code families (auth-gate, git-routes, …) are follow-up.
 - [ ] 4.6 (Deferred/optional) tag `doctor-core.ts` (25 message/detail) — developer panel, lower priority.
