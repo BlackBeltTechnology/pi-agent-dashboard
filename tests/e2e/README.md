@@ -24,6 +24,20 @@ screenshots). It owns rendered-UI behaviour assertions.
   npx playwright install chromium
   ```
 
+### Troubleshooting: bundled download fails (CDN timeout)
+
+If `npx playwright install chromium` fails with `Download failure, code=1` /
+`TLSSocket … emitRequestTimeout` (proxy, firewall, offline, or a flaky
+Playwright CDN), do **not** keep retrying the bundled download. Two escapes:
+
+- **Use the system browser** (preferred when Chrome/Edge is installed) — skips
+  the download entirely: `npm run test:e2e:chrome` (= `PW_CHANNEL=chrome
+  playwright test`). Same Blink engine, so CDP/WS routing specs still pass. See
+  the `PW_CHANNEL` section below.
+- **Point at a reachable mirror** when you genuinely need bundled Chromium (CI
+  parity, WebKit/Firefox later): `PLAYWRIGHT_DOWNLOAD_HOST=<mirror> npx
+  playwright install chromium`.
+
 ## Run
 
 ```bash
