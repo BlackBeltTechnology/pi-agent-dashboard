@@ -30,7 +30,6 @@ import {
 	mdiBookOpenPageVariant,
 	mdiChevronDown,
 	mdiChevronRight,
-	mdiCloseCircle,
 	mdiPuzzleOutline,
 	mdiTextBoxOutline,
 } from "@mdi/js";
@@ -41,6 +40,7 @@ import { usePackageOperations } from "../hooks/usePackageOperations.js";
 import { t as i18nT } from "../lib/i18n";
 import { computeDestIdentity } from "../lib/installed-list-helpers.js";
 import { classifySource, isSourceOverride } from "../lib/package-classifier.js";
+import { PackagePartialSuccessBanner } from "./PackagePartialSuccessBanner.js";
 import { PackageRow } from "./PackageRow.js";
 
 interface Props {
@@ -224,12 +224,19 @@ export function InstalledPackagesList({
 											: undefined
 									}
 									onMove={() => handleMove(pkg)}
+									publishedVariantSource={pkg.publishedVariantSource}
+									publishedVariantVersion={pkg.publishedVariantVersion}
+									onResetToNpm={
+										pkg.publishedVariantSource
+											? () => operations.resetToNpm(pkg.source, { scope, cwd })
+											: undefined
+									}
 									currentScope={scope}
 									moveDisabledReason={moveDisabledReason}
 									testId={`installed-pkg-row-${pkg.source.replace(/[^a-z0-9]/gi, "-")}`}
 								/>
 								{moveState?.phase === "partial-success" && (
-									<PartialSuccessBanner
+									<PackagePartialSuccessBanner
 										state={moveState}
 										onCleanup={() => operations.remove(pkg.source)}
 										onDismiss={() => operations.clearMove(moveState.moveId)}
@@ -317,40 +324,4 @@ function ResourceLeaf({
 	);
 }
 
-function PartialSuccessBanner({
-	state,
-	onCleanup,
-	onDismiss,
-}: {
-	state: { source: string; fromScope: "global" | "local"; message: string };
-	onCleanup: () => void;
-	onDismiss: () => void;
-}) {
-	return (
-		<div
-			className="mt-1 ml-2 px-2 py-1 rounded border border-amber-500/40 bg-amber-500/5 text-[10px] flex items-start gap-2"
-			data-testid="installed-pkg-partial-success"
-		>
-			<Icon path={mdiAlertCircle} size={0.45} className="text-amber-400 flex-shrink-0 mt-0.5" />
-			<div className="flex-1 min-w-0">
-				<div className="text-amber-400 font-medium">{i18nT("common.movePartiallySucceeded", undefined, "Move partially succeeded")}</div>
-				<div className="text-[var(--text-muted)] truncate" title={state.message}>
-					{i18nT("packages.installedAtDestinationButFailedTo", undefined, "Installed at destination but failed to remove from")} {state.fromScope}: {state.message}
-				</div>
-			</div>
-			<button
-				onClick={onCleanup}
-				className="text-[var(--accent-primary)] hover:underline whitespace-nowrap"
-			>
-				{i18nT("common.cleanupOrigin", undefined, "Cleanup origin")}
-			</button>
-			<button
-				onClick={onDismiss}
-				className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-				aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
-			>
-				<Icon path={mdiCloseCircle} size={0.45} />
-			</button>
-		</div>
-	);
-}
+

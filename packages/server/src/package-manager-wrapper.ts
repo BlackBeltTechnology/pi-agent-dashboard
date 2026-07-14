@@ -7,20 +7,21 @@
  * (`resolveModule("pi-coding-agent")`). All strategy chains, caching,
  * and diagnostic trails live there — see change: consolidate-tool-resolution.
  */
+
+import * as crypto from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as crypto from "node:crypto";
-import { computeIdentity, parseSourceKind } from "./package-source-helpers.js";
-import {
-  getDefaultRegistry,
-  ModuleResolutionError,
-  type ToolRegistry,
-  type Resolution,
-} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
   getDefaultSubprocessAdapter,
   type SubprocessAdapter,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/subprocess-adapter.js";
+import {
+  getDefaultRegistry,
+  ModuleResolutionError,
+  type Resolution,
+  type ToolRegistry,
+} from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { computeIdentity, parseSourceKind } from "./package-source-helpers.js";
 
 /**
  * Resolve a command name through the tool registry's executor API.
@@ -152,7 +153,7 @@ export function diagnosePiPackageManager(registry: ToolRegistry = getDefaultRegi
 export { ModuleResolutionError };
 
 export type PackageScope = "global" | "local";
-export type PackageAction = "install" | "remove" | "update" | "move";
+export type PackageAction = "install" | "remove" | "update" | "move" | "reset";
 
 export interface OperationRequest {
   action: "install" | "remove" | "update";
@@ -167,6 +168,21 @@ export interface OperationRequest {
  * `docs/packages.md` “Package Filtering” section.
  */
 export type PackageEntry = string | { source: string; [k: string]: unknown };
+
+/**
+ * Reset-to-npm operation request. Install `publishedSource` (`npm:<name>`)
+ * FIRST, then remove the local/git `source` entry — both in the same scope.
+ * See change: reset-override-to-npm.
+ */
+export interface ResetRequest {
+	/** The local/git `packages[]` entry to drop after a successful install. */
+	source: string;
+	/** The canonical published spec to install (`npm:<name>` or git URL). */
+	publishedSource: string;
+	scope: PackageScope;
+	/** Required when scope is local. */
+	cwd?: string;
+}
 
 /** Move operation request. See change: unify-package-management-ui. */
 export interface MoveRequest {
@@ -317,6 +333,40 @@ export class PackageManagerWrapper {
   }
 
   /**
+   * Reset a source-override package back to its canonical published spec.
+   * Install `publishedSource` FIRST; only on success remove the local/git
+   * `source` entry — both in the same scope. Modeled on `move()` (install-
+   * new + remove-old), swapping source-kind instead of scope.
+   *
+   * Returns resetId synchronously. Single-flight via `this.busy`. Emits
+   * exactly one `package_operation_complete` with `action: "reset"` and
+   * `moveId = resetId` (reuses the composite-op grouping + partial-success
+   * protocol so the client move-tracker path consumes it unchanged).
+   * See change: reset-override-to-npm.
+   */
+  async reset(req: ResetRequest): Promise<string> {
+    if (this.busy) {
+      throw new PackageOperationBusyError();
+    }
+    if (!req.source || typeof req.source !== "string") {
+      throw new InvalidResetRequestError("source must be a non-empty string");
+    }
+    if (!req.publishedSource || typeof req.publishedSource !== "string") {
+      throw new InvalidResetRequestError("publishedSource must be a non-empty string");
+    }
+    if (req.scope === "local" && !req.cwd) {
+      throw new InvalidResetRequestError("cwd required when scope is local");
+    }
+
+    const resetId = crypto.randomUUID();
+    this.busy = true;
+    this.executeReset(resetId, req).catch(() => {
+      // errors handled inside executeReset
+    });
+    return resetId;
+  }
+
+  /**
    * List configured packages for a scope.
    */
   async listInstalled(scope: PackageScope, cwd?: string) {
@@ -461,6 +511,74 @@ export class PackageManagerWrapper {
         this.busy = false;
         this.onComplete?.(result);
       }
+    }
+  }
+
+  /**
+   * Execute a reset. Holds the busy lock across both phases. Install-first;
+   * on install failure the local entry is left intact and the op reports
+   * failure. On remove failure after a good install it reports partial
+   * success. Emits exactly one complete event with `action: "reset"`.
+   */
+  private async executeReset(resetId: string, req: ResetRequest): Promise<void> {
+    const result: OperationResult = {
+      operationId: resetId,
+      action: "reset",
+      source: req.source,
+      scope: req.scope,
+      success: false,
+      moveId: resetId,
+    };
+
+    try {
+      // Phase 1: install the published spec. Throws on failure (moveId set),
+      // which short-circuits to catch — the local entry is never removed.
+      const installReq: OperationRequest = {
+        action: "install",
+        source: req.publishedSource,
+        scope: req.scope,
+        cwd: req.scope === "local" ? req.cwd : undefined,
+      };
+      await this.executeOperation(crypto.randomUUID(), installReq, resetId);
+
+      // Phase 2: remove the local/git entry. Failure → partial success.
+      try {
+        const removeReq: OperationRequest = {
+          action: "remove",
+          source: req.source,
+          scope: req.scope,
+          cwd: req.scope === "local" ? req.cwd : undefined,
+        };
+        await this.executeOperation(crypto.randomUUID(), removeReq, resetId);
+      } catch (removeErr: any) {
+        result.partialSuccess = {
+          installed: true,
+          removed: false,
+          removeError: removeErr?.message ?? String(removeErr),
+        };
+      }
+
+      result.success = true;
+      this.invalidatePackageManager(req.cwd);
+
+      if (this.reloadSessions) {
+        try {
+          const count = await this.reloadSessions();
+          (result as any).sessionsReloaded = count;
+        } catch (err) {
+          console.error("[package-manager] session reload failed:", err);
+        }
+      }
+    } catch (err: any) {
+      if (err instanceof ModuleResolutionError) {
+        result.error = err.message;
+        result.diagnostics = err.resolution;
+      } else {
+        result.error = err?.message ?? String(err);
+      }
+    } finally {
+      this.busy = false;
+      this.onComplete?.(result);
     }
   }
 
@@ -663,6 +781,13 @@ export class AlreadyAtDestinationError extends Error {
   constructor(public source: string, public destScope: PackageScope) {
     super(`Package already installed at ${destScope} scope: ${source}`);
     this.name = "AlreadyAtDestinationError";
+  }
+}
+
+export class InvalidResetRequestError extends Error {
+  constructor(reason: string) {
+    super(`Invalid reset request: ${reason}`);
+    this.name = "InvalidResetRequestError";
   }
 }
 

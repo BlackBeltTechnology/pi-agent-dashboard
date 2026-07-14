@@ -633,9 +633,9 @@ export interface BootstrapTicketCompleteMessage {
 export interface PackageOperationCompleteMessage {
   type: "package_operation_complete";
   operationId: string;
-  /** Optional move grouping id; set on every event of a composite move op. */
+  /** Optional composite grouping id; set on every event of a composite move/reset op. */
   moveId?: string;
-  action: "install" | "remove" | "update" | "move";
+  action: "install" | "remove" | "update" | "move" | "reset";
   source: string;
   scope: "global" | "local";
   success: boolean;
