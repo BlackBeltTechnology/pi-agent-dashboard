@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useRef } from "react";
-import { usePopoverFlip } from "../usePopoverFlip.js";
+import { chooseHorizontalAlign, usePopoverFlip } from "../usePopoverFlip.js";
 
 /**
  * Build a fake trigger ref whose `getBoundingClientRect` returns a rect placing
@@ -121,6 +121,78 @@ describe("usePopoverFlip", () => {
       usePopoverFlip(ref, { open: true, estimatedWidth: 256 }),
     );
     expect(result.current.alignRight).toBe(false);
+  });
+
+  it("picks the side with more visible area when both alignments overflow", () => {
+    // estimatedWidth (300) exceeds viewport (200) on both sides.
+    setViewportWidth(200);
+    // Trigger near the left → left-align keeps more of the panel on-screen.
+    const refLeft = makeRef(100, 130, 20, 80);
+    const { result: leftBias } = renderHook(() =>
+      usePopoverFlip(refLeft, { open: true, estimatedWidth: 300 }),
+    );
+    expect(leftBias.current.alignRight).toBe(false);
+
+    // Trigger near the right → right-align keeps more visible.
+    const refRight = makeRef(100, 130, 120, 180);
+    const { result: rightBias } = renderHook(() =>
+      usePopoverFlip(refRight, { open: true, estimatedWidth: 300 }),
+    );
+    expect(rightBias.current.alignRight).toBe(true);
+  });
+});
+
+describe("chooseHorizontalAlign", () => {
+  it("returns true when estimated width is unknown or non-positive", () => {
+    expect(
+      chooseHorizontalAlign({
+        triggerRight: 50,
+        triggerLeft: 10,
+        viewportWidth: 100,
+        estimatedWidth: Infinity,
+      }),
+    ).toBe(true);
+    expect(
+      chooseHorizontalAlign({
+        triggerRight: 50,
+        triggerLeft: 10,
+        viewportWidth: 100,
+        estimatedWidth: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it("prefers right-align on a visible-area tie when both sides overflow", () => {
+    // rightVisible = leftVisible = 150 → rightVisible >= leftVisible
+    expect(
+      chooseHorizontalAlign({
+        triggerRight: 150,
+        triggerLeft: 50,
+        viewportWidth: 200,
+        estimatedWidth: 300,
+      }),
+    ).toBe(true);
+  });
+
+  it("selects the larger visible side when both alignments overflow", () => {
+    // left-biased trigger
+    expect(
+      chooseHorizontalAlign({
+        triggerRight: 80,
+        triggerLeft: 20,
+        viewportWidth: 200,
+        estimatedWidth: 300,
+      }),
+    ).toBe(false);
+    // right-biased trigger
+    expect(
+      chooseHorizontalAlign({
+        triggerRight: 180,
+        triggerLeft: 120,
+        viewportWidth: 200,
+        estimatedWidth: 300,
+      }),
+    ).toBe(true);
   });
 });
 

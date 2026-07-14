@@ -66,8 +66,18 @@ const CLOSED_STATE: PopoverFlipState = {
 };
 
 /**
- * Pure horizontal placement: prefer right-align (legacy) unless that would
- * place any part of the popover left of the viewport margin.
+ * Pure horizontal placement helper.
+ *
+ * Prefers right-align (legacy `right-0`) unless that would place any part of
+ * the popover left of the viewport margin. When both alignments overflow,
+ * picks the side with the larger on-screen visible width; ties prefer right.
+ *
+ * @param opts.triggerRight - Trigger's `getBoundingClientRect().right`
+ * @param opts.triggerLeft - Trigger's `getBoundingClientRect().left`
+ * @param opts.viewportWidth - `window.innerWidth`
+ * @param opts.estimatedWidth - Popover width in px (`Infinity` / non-positive → always right-align)
+ * @param opts.edgeMargin - Horizontal margin from the viewport edge (default 8)
+ * @returns `true` for `right-0`, `false` for `left-0`
  */
 export function chooseHorizontalAlign(opts: {
   triggerRight: number;
@@ -94,6 +104,18 @@ export function chooseHorizontalAlign(opts: {
   return rightVisible >= leftVisible;
 }
 
+/**
+ * Measure a trigger and return viewport-safe popover placement.
+ *
+ * Attaches passive `resize`/`scroll` listeners only while `options.open` is
+ * true. Vertical: default down, flip up near the bottom with clamped
+ * `maxHeight`. Horizontal: when `estimatedWidth` is set, choose `alignRight`
+ * so a left-edge trigger does not hang a fixed-width panel off-screen.
+ *
+ * @param triggerRef - Ref to the trigger element (button/anchor)
+ * @param options - Open flag plus optional size/threshold overrides
+ * @returns `{ flipUp, maxHeight, alignRight }` — closed state when `open` is false
+ */
 export function usePopoverFlip(
   triggerRef: React.RefObject<HTMLElement | null>,
   options: PopoverFlipOptions,
