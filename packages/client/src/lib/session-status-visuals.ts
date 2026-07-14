@@ -14,6 +14,7 @@
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { t } from "./i18n";
 import {
   mdiApplicationOutline,
   mdiCircle,
@@ -71,10 +72,10 @@ export const sourceIcons: Record<string, string> = {
 
 export const sourceLabels: Record<string, string> = {
   tui: "TUI",
-  dashboard: "Headless",
+  dashboard: t("common.headless", undefined, "Headless"),
   tmux: "tmux",
   zed: "Zed",
-  terminal: "Terminal",
+  terminal: t("common.terminal", undefined, "Terminal"),
 };
 
 /**

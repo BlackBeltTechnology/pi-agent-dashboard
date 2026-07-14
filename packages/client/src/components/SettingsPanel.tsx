@@ -342,7 +342,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack }: {
         return; // socket closed on exit → restart underway
       }
       const data = await res.json().catch(() => ({ ok: true }));
-      if (data && data.ok === false) throw new Error(data.error || "Restart failed");
+      if (data && data.ok === false) throw new Error(data.error || i18nT("settings.restartFailed", undefined, "Restart failed"));
     },
     {
       confirm: "ws",
@@ -1737,7 +1737,7 @@ function BlockEventTrustBanner({
             data-testid={`block-event-${ev.ip}`}
           >
             <span className="flex-1 text-xs text-[var(--text-secondary)]">
-              <b className="font-mono text-[var(--amber,#e2b24a)]">{ev.ip}</b> refused — not trusted
+              <b className="font-mono text-[var(--amber,#e2b24a)]">{ev.ip}</b> {i18nT("settings.ipRefusedNotTrusted", undefined, "refused — not trusted")}
               {ev.count > 1 ? ` (${ev.count}×)` : ""}.
             </span>
             {suggestions.map((s) => (
@@ -1747,8 +1747,8 @@ function BlockEventTrustBanner({
                 data-testid={`block-event-trust-${s.value}`}
                 title={
                   s.wide
-                    ? `Grants unauthenticated access to the whole ${s.value} range`
-                    : "Grants unauthenticated access to this exact host"
+                    ? i18nT("settings.trustWholeRangeTitle", { range: s.value }, "Grants unauthenticated access to the whole {range} range")
+                    : i18nT("settings.trustExactHostTitle", undefined, "Grants unauthenticated access to this exact host")
                 }
                 onClick={() => trust(ev.ip, s.value)}
                 className={`rounded border px-2 py-0.5 text-[11px] font-semibold ${
@@ -2402,7 +2402,7 @@ function TestPill({ state }: { state: TestState }) {
         className="flex items-center gap-1.5 text-xs text-green-400"
         data-testid="test-pill"
         data-state="ok"
-        title={state.sample.length > 0 ? `Sample: ${state.sample.join(", ")}` : undefined}
+        title={state.sample.length > 0 ? i18nT("settings.sampleModels", { list: state.sample.join(", ") }, "Sample: {list}") : undefined}
       >
         <Icon path={mdiCheckCircle} size={0.5} />
         {label}

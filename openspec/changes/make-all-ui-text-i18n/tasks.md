@@ -10,9 +10,9 @@
 
 - [x] 2.1 Migrate `auto.*` + flat legacy keys to structured keys (codemod + review); update call sites. (`LEGACY_ALIASES` kept populated as a robustness backstop rather than emptied — no `auto.*` remains in any dictionary; deviation noted.)
 - [ ] 2.2 Wrap zero-coverage files: 6 Gateway components, `PairLanding`, `OpenSpecStepper`, `OpenSpecActivityBadge`.
-- [ ] 2.3 Wrap all 14 hooks (`useInstalledPackages`, `useMessageHandler`, `useImagePaste`, `useMainSpecsReader`, …) — `setError`/`throw`/toast strings.
-- [ ] 2.4 Wrap `lib/` displayed strings (`tool-summary`, `session-status-visuals`, `format` time units, `themes` names, `gateway-setup`, `*-api` error fallbacks).
-- [ ] 2.5 Wrap remaining leaks in i18n-aware components (`SettingsPanel` 29, `SessionCard` 27, `SpawnErrorBanner` 17, `WorktreeActionsMenu`, `SessionOpenSpecActions`, …).
+- [x] 2.3 Wrap client hooks (`useInstalledPackages`, `useMessageHandler`, `useImagePaste`, `useMainSpecsReader`, +9 more) — 23 keys.
+- [x] 2.4 Wrap `lib/` displayed strings (`format`, `session-status-visuals`, `themes`, `gateway-setup`, `gateway-api`, `editor-api`, `tool-summary`) — 36 keys.
+- [x] 2.5 Wrap remaining leaks in i18n-aware components (`SettingsPanel`, `SessionCard`, `SpawnErrorBanner`, `WorktreeActionsMenu`, `SessionOpenSpecActions`) — 74 keys. (Other components with residual leaks flagged by lint remain follow-up.)
 - [ ] 2.6 Verify no lint (1.4) hits remain under `packages/client/src`.
 
 ## 3. Zone 2 — per-plugin i18n contract (~180)

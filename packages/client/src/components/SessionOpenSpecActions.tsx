@@ -67,11 +67,11 @@ function ActionButton({ label, icon, onClick, testId, disabled, title, variant =
 // for OpenSpec action gating + tooltips.
 export function buildOpenSpecTooltips(args: { attached: string | null; state: ChangeState | null; streaming: boolean }): { explore?: string; archive?: string } {
   const { attached, state, streaming } = args;
-  const explore = attached ? "Detach proposal to explore freely" : undefined;
+  const explore = attached ? i18nT("openspec.detachToExplore", undefined, "Detach proposal to explore freely") : undefined;
   let archive: string | undefined;
-  if (streaming) archive = "Session is streaming";
-  else if (!attached) archive = "Attach a change to archive";
-  else if (state !== ChangeState.COMPLETE) archive = "Complete tasks first";
+  if (streaming) archive = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
+  else if (!attached) archive = i18nT("openspec.attachToArchive", undefined, "Attach a change to archive");
+  else if (state !== ChangeState.COMPLETE) archive = i18nT("openspec.completeTasksFirst", undefined, "Complete tasks first");
   return { explore, archive };
 }
 
@@ -108,8 +108,8 @@ function ReplaceProposalDialog({
       open
       testId="replace-proposal-dialog"
       title={i18nT("openspec.replaceAttachedProposal", undefined, "Replace attached proposal?")}
-      message={`This session is attached to “${session.attachedProposal}”, but the agent is now working on a different change.`}
-      confirmLabel={`Replace with ${committedTarget}`}
+      message={i18nT("openspec.attachedDivergedMessage", { proposal: session.attachedProposal }, "This session is attached to “{proposal}”, but the agent is now working on a different change.")}
+      confirmLabel={i18nT("openspec.replaceWith", { target: committedTarget }, "Replace with {target}")}
       body={
         diverged ? (
           <div
@@ -210,8 +210,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     <Confirm
       open
       title={i18nT("openspec.bulkArchiveChanges", undefined, "Bulk archive changes?")}
-      message="Bulk archive all completed changes?"
-      confirmLabel="Bulk Archive"
+      message={i18nT("openspec.bulkArchiveAllMessage", undefined, "Bulk archive all completed changes?")}
+      confirmLabel={i18nT("openspec.bulkArchive", undefined, "Bulk Archive")}
       onConfirm={() => {
         onBulkArchive?.();
         setBulkArchiveConfirm(false);
@@ -241,10 +241,10 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     ].map((c) => {
       const state = deriveChangeState(c);
       const stateLabels: Record<string, string> = {
-        PLANNING: "Planning",
-        READY: "Ready to implement",
-        IMPLEMENTING: `Implementing — ${c.completedTasks}/${c.totalTasks} tasks`,
-        COMPLETE: `Complete — ${c.completedTasks}/${c.totalTasks} tasks`,
+        PLANNING: i18nT("openspec.statePlanning", undefined, "Planning"),
+        READY: i18nT("openspec.stateReady", undefined, "Ready to implement"),
+        IMPLEMENTING: i18nT("openspec.stateImplementing", { completed: c.completedTasks, total: c.totalTasks }, "Implementing — {completed}/{total} tasks"),
+        COMPLETE: i18nT("openspec.stateComplete", { completed: c.completedTasks, total: c.totalTasks }, "Complete — {completed}/{total} tasks"),
       };
       const desc = stateLabels[state] || c.status;
       const artifactNames = c.artifacts.map(a => a.id).join(", ");
@@ -266,7 +266,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             onClick={(e) => { e.stopPropagation(); setAttachPickerOpen(true); }}
             className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:border-blue-500/50 disabled:opacity-40"
           >
-            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{changes.length === 0 ? "No changes" : "Attach change..."}
+            <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{changes.length === 0 ? i18nT("openspec.noChanges", undefined, "No changes") : i18nT("openspec.attachChange", undefined, "Attach change...")}
           </button>
           {!isEnded && (
             <>
@@ -331,7 +331,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             title={i18nT("openspec.attachOpenspecChange2", undefined, "Attach OpenSpec Change")}
             options={changeOptions}
             placeholder={i18nT("common.searchChanges", undefined, "Search changes...")}
-            emptyMessage="No changes available"
+            emptyMessage={i18nT("openspec.noChangesAvailable", undefined, "No changes available")}
             onSelect={(value) => {
               setAttachingName(value);
               onAttach(value);
@@ -402,14 +402,14 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
                 onClick={() => setExploreOpen(true)}
                 testId="explore-btn"
                 disabled={true /* attached path always disables Explore */}
-                title={actionsDisabled ? "Session is streaming" : tips.explore}
+                title={actionsDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : tips.explore}
                 variant="info"
               />
             )}
             {state === ChangeState.PLANNING && (
               <>
                 {wf("continue") && <ActionButton label={i18nT("common.continue", undefined, "Continue")} icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
-                {wf("ff") && <ActionButton label="FF" icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
+                {wf("ff") && <ActionButton label={i18nT("openspec.ff", undefined, "FF")} icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
               </>
             )}
             {wf("apply") && (state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
@@ -465,8 +465,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <Confirm
           open
           title={i18nT("openspec.archiveChange", undefined, "Archive change?")}
-          message={`Archive "${attached}"?`}
-          confirmLabel="Archive"
+          message={i18nT("openspec.archiveConfirmMessage", { name: attached }, 'Archive "{name}"?')}
+          confirmLabel={i18nT("openspec.archive", undefined, "Archive")}
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveConfirm(false);
@@ -479,8 +479,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           open
           testId="archive-anyway-confirm"
           title={i18nT("openspec.archiveAnyway2", undefined, "Archive anyway?")}
-          message={`${uncheckedCount} of ${change.totalTasks} tasks are unchecked. Archive anyway?`}
-          confirmLabel="Archive anyway"
+          message={i18nT("openspec.archiveAnywayMessage", { unchecked: uncheckedCount, total: change.totalTasks }, "{unchecked} of {total} tasks are unchecked. Archive anyway?")}
+          confirmLabel={i18nT("openspec.archiveAnyway", undefined, "Archive anyway")}
           onConfirm={() => {
             onSendPrompt(`/skill:openspec-archive-change ${attached}`);
             setArchiveAnywayConfirm(false);

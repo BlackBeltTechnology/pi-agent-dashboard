@@ -15,6 +15,7 @@ import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData,
 import { useCallback, useEffect, useRef } from "react";
 import type { DiscoveredServerInfo } from "../components/ServerSelector.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/coalesce-live-events.js";
+import { t } from "../lib/i18n";
 import { isVisibleCwd } from "../lib/cwd-visibility.js";
 import { addInteractiveRequest, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/event-reducer.js";
 import { encodeFolderPath } from "../lib/folder-encoding.js";
@@ -670,7 +671,7 @@ export function useMessageHandler(
           });
           setResumeErrors((prev) => {
             const next = new Map(prev);
-            next.set(msg.sessionId, msg.message ?? "Resume failed");
+            next.set(msg.sessionId, msg.message ?? t("session.resumeFailed", undefined, "Resume failed"));
             return next;
           });
           // Drop the pending-spawn entry on failure so a stale entry can't
@@ -688,7 +689,7 @@ export function useMessageHandler(
           // toast via the existing spawn-result slot.
           // See change: fix-fork-empty-session-silent-timeout.
           if (msg.code === "FORK_DEGRADED_TO_NEW") {
-            setSpawnResult({ success: true, message: msg.message ?? "Started a fresh session." });
+            setSpawnResult({ success: true, message: msg.message ?? t("session.startedFresh", undefined, "Started a fresh session.") });
           }
           // For continue mode, the same sessionId is reused — navigate now
           // since session_added might not fire (status update only).
@@ -711,7 +712,7 @@ export function useMessageHandler(
           setSpawnErrors((prev) => {
             const next = new Map(prev);
             if (!next.has(msg.cwd)) {
-              next.set(msg.cwd, { kind: "error", message: msg.message ?? "+Session failed" });
+              next.set(msg.cwd, { kind: "error", message: msg.message ?? t("session.spawnFailed", undefined, "+Session failed") });
             }
             return next;
           });

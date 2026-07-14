@@ -2,6 +2,8 @@
  * Named color themes, each with dark and light CSS variable maps.
  */
 
+import { t } from "./i18n";
+
 export interface ThemeDefinition {
   id: string;
   name: string;
@@ -592,15 +594,15 @@ const withStatus = (vars: Record<string, string>): Record<string, string> => ({
 });
 
 export const THEMES: ThemeDefinition[] = [
-  { id: "base", name: "Base", dark: withStatus(baseDark), light: withStatus(baseLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "dracula", name: "Dracula", dark: withStatus(draculaDark), light: withStatus(draculaLight), syntaxDark: "dracula", syntaxLight: "oneLight" },
-  { id: "nord", name: "Nord", dark: withStatus(nordDark), light: withStatus(nordLight), syntaxDark: "nord", syntaxLight: "oneLight" },
-  { id: "github", name: "GitHub", dark: withStatus(githubDark), light: withStatus(githubLight), syntaxDark: "ghcolors", syntaxLight: "ghcolors" },
-  { id: "catppuccin", name: "Catppuccin", dark: withStatus(catppuccinDark), light: withStatus(catppuccinLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "tokyo-night", name: "Tokyo Night", dark: withStatus(tokyoNightDark), light: withStatus(tokyoNightLight), syntaxDark: "nightOwl", syntaxLight: "oneLight" },
-  { id: "rose-pine", name: "Rosé Pine", dark: withStatus(rosePineDark), light: withStatus(rosePineLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
-  { id: "solarized", name: "Solarized", dark: withStatus(solarizedDark), light: withStatus(solarizedLight), syntaxDark: "solarizedDarkAtom", syntaxLight: "solarizedlight" },
-  { id: "gruvbox", name: "Gruvbox", dark: withStatus(gruvboxDark), light: withStatus(gruvboxLight), syntaxDark: "gruvboxDark", syntaxLight: "gruvboxLight" },
+  { id: "base", name: t("themes.base", undefined, "Base"), dark: withStatus(baseDark), light: withStatus(baseLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "dracula", name: t("themes.dracula", undefined, "Dracula"), dark: withStatus(draculaDark), light: withStatus(draculaLight), syntaxDark: "dracula", syntaxLight: "oneLight" },
+  { id: "nord", name: t("themes.nord", undefined, "Nord"), dark: withStatus(nordDark), light: withStatus(nordLight), syntaxDark: "nord", syntaxLight: "oneLight" },
+  { id: "github", name: t("themes.github", undefined, "GitHub"), dark: withStatus(githubDark), light: withStatus(githubLight), syntaxDark: "ghcolors", syntaxLight: "ghcolors" },
+  { id: "catppuccin", name: t("themes.catppuccin", undefined, "Catppuccin"), dark: withStatus(catppuccinDark), light: withStatus(catppuccinLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "tokyo-night", name: t("themes.tokyoNight", undefined, "Tokyo Night"), dark: withStatus(tokyoNightDark), light: withStatus(tokyoNightLight), syntaxDark: "nightOwl", syntaxLight: "oneLight" },
+  { id: "rose-pine", name: t("themes.rosePine", undefined, "Rosé Pine"), dark: withStatus(rosePineDark), light: withStatus(rosePineLight), syntaxDark: "oneDark", syntaxLight: "oneLight" },
+  { id: "solarized", name: t("themes.solarized", undefined, "Solarized"), dark: withStatus(solarizedDark), light: withStatus(solarizedLight), syntaxDark: "solarizedDarkAtom", syntaxLight: "solarizedlight" },
+  { id: "gruvbox", name: t("themes.gruvbox", undefined, "Gruvbox"), dark: withStatus(gruvboxDark), light: withStatus(gruvboxLight), syntaxDark: "gruvboxDark", syntaxLight: "gruvboxLight" },
 ];
 
 export function getTheme(id: string): ThemeDefinition | undefined {

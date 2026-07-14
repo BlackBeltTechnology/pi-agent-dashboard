@@ -25,12 +25,13 @@ import {
   mdiWeb,
   mdiWrenchOutline,
 } from "@mdi/js";
+import { t } from "./i18n";
 
 export const toolSummaries: Record<string, (args?: Record<string, unknown>) => string> = {
-  read: (args) => `Read ${args?.path ?? "file"}`,
+  read: (args) => `Read ${args?.path ?? t("common.file", undefined, "file")}`,
   bash: (args) => `$ ${String(args?.command ?? "")}`,
-  edit: (args) => `Edit ${args?.path ?? "file"}`,
-  write: (args) => `Write ${args?.path ?? "file"}`,
+  edit: (args) => `Edit ${args?.path ?? t("common.file", undefined, "file")}`,
+  write: (args) => `Write ${args?.path ?? t("common.file", undefined, "file")}`,
   grep: (args) => `Grep ${args?.pattern ?? ""}`,
   glob: (args) => `Glob ${args?.pattern ?? args?.glob ?? ""}`.trim(),
   find: (args) => `Find ${args?.glob ?? ""}`,

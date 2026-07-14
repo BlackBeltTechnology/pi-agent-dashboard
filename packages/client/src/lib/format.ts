@@ -2,6 +2,8 @@
  * Formatting utilities for session card display.
  */
 
+import { t } from "./i18n";
+
 /** Format token count: 12400 → "12.4k", 500 → "500" */
 export function formatTokens(value: number): string {
   if (!value || isNaN(value)) return "0";
@@ -11,6 +13,15 @@ export function formatTokens(value: number): string {
 }
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAY_KEYS = [
+  "time.weekday.sunday",
+  "time.weekday.monday",
+  "time.weekday.tuesday",
+  "time.weekday.wednesday",
+  "time.weekday.thursday",
+  "time.weekday.friday",
+  "time.weekday.saturday",
+];
 
 /** Pad a number to 2 digits */
 function pad2(n: number): string {
@@ -44,12 +55,13 @@ export function formatMessageTime(ts: number, now?: number): string {
     return time;
   }
   if (tsTime >= startOfYesterday) {
-    return `Yesterday ${time}`;
+    return t("time.yesterday", { time }, "Yesterday {time}");
   }
   // Up to 6 days ago
   const sixDaysAgo = startOfToday - 6 * 86_400_000;
   if (tsTime >= sixDaysAgo) {
-    return `${WEEKDAYS[date.getDay()]} ${time}`;
+    const day = date.getDay();
+    return `${t(WEEKDAY_KEYS[day], undefined, WEEKDAYS[day])} ${time}`;
   }
   // Full date
   return `${date.getFullYear()}-${pad2m(date.getMonth() + 1)}-${pad2m(date.getDate())} ${time}`;

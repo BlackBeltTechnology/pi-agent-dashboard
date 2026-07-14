@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getApiBase } from "../lib/api-context.js";
 import type { EnrichedRecommendedExtension } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { t } from "../lib/i18n";
 
 export interface UseRecommendedExtensionsResult {
   recommended: EnrichedRecommendedExtension[];
@@ -32,11 +33,11 @@ export function useRecommendedExtensions(): UseRecommendedExtensionsResult {
       if (body.success) {
         setRecommended(body.data?.recommended ?? []);
       } else {
-        setError(body.error ?? "Failed to fetch recommended extensions");
+        setError(body.error ?? t("packages.recommendedFetchFailed", undefined, "Failed to fetch recommended extensions"));
       }
     } catch (err: any) {
       if (!mountedRef.current) return;
-      setError(err.message ?? "Network error");
+      setError(err.message ?? t("common.networkError", undefined, "Network error"));
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }

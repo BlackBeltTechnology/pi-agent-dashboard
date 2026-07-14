@@ -3,6 +3,7 @@
  */
 import { getApiBase } from "./api-context.js";
 import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
+import { t } from "./i18n";
 
 export function isLocalhost(): boolean {
   const hostname = window.location.hostname;
@@ -38,6 +39,6 @@ export async function openEditor(
     });
     return json;
   } catch (err: any) {
-    return { success: false, error: err.message ?? "Network error" };
+    return { success: false, error: err.message ?? t("err.network", undefined, "Network error") };
   }
 }

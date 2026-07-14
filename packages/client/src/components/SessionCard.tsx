@@ -189,7 +189,7 @@ export function GitInfo({ session }: { session: DashboardSession }) {
 export function WorktreePill({ session }: { session: DashboardSession }) {
   const wt = session.gitWorktree;
   if (!wt) return null;
-  const title = wt.base ? `created from ${wt.base}` : "git worktree";
+  const title = wt.base ? i18nT("worktree.createdFrom", { base: wt.base }, "created from {base}") : i18nT("worktree.gitWorktree", undefined, "git worktree");
   return (
     <span
       data-testid="worktree-pill"
@@ -313,7 +313,7 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
         <button
           onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
           className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
-          title={showInitGit ? "Initialize git repository" : "Git branches"}
+          title={showInitGit ? i18nT("git.initializeRepo", undefined, "Initialize git repository") : i18nT("git.gitBranches", undefined, "Git branches")}
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
@@ -395,7 +395,7 @@ export function EditorButtons({
             onOpen(editor.id);
           }}
           className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-blue-400 hover:border-blue-500/50"
-          title={`Open in ${editor.name}`}
+          title={i18nT("session.openInEditor", { editor: editor.name }, "Open in {editor}")}
         >
           <span className="inline-flex items-center gap-0.5">{editorIcons[editor.id] ?? <Icon path={mdiOpenInNew} size={0.5} />} {editor.name}</span>
         </button>
@@ -618,7 +618,7 @@ export function SessionCard({
           </span>
           <span
             className="text-[11px] text-[var(--text-muted)] flex-shrink-0"
-            title={`Started ${new Date(session.startedAt).toLocaleString()}`}
+            title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
           >
             {formatRelativeTime(now - selectBadgeTimestamp(session))}
           </span>
@@ -641,7 +641,7 @@ export function SessionCard({
               <span
                 data-testid="queue-count-badge"
                 className="flex-shrink-0 inline-flex items-center px-1.5 py-0 text-[10px] rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30"
-                title={`${totalQueued} queued message${totalQueued === 1 ? "" : "s"}`}
+                title={i18nT("session.queuedMessages", { count: totalQueued }, `${totalQueued} queued message${totalQueued === 1 ? "" : "s"}`)}
               >
                 {totalQueued}
               </span>
@@ -668,7 +668,7 @@ export function SessionCard({
           <div
             className="mt-1 flex items-center gap-1 text-[11px] text-blue-400"
             data-testid="mobile-card-attached-chip"
-            title={`Attached: ${session.attachedProposal}`}
+            title={i18nT("session.attachedProposal", { proposal: session.attachedProposal }, "Attached: {proposal}")}
           >
             <Icon path={mdiPaperclip} size={0.4} />
             <span className="truncate">{session.attachedProposal}</span>
@@ -796,7 +796,7 @@ export function SessionCard({
         )}
         <span
           className="text-[10px] text-[var(--text-muted)]"
-          title={`Started ${new Date(session.startedAt).toLocaleString()}`}
+          title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
         >
           {formatRelativeTime(now - selectBadgeTimestamp(session))}
         </span>
@@ -826,13 +826,13 @@ export function SessionCard({
               e.stopPropagation();
               if (session.closing) return;
               if (session.status === "streaming") {
-                if (!window.confirm("Session is currently running. Exit anyway?")) return;
+                if (!window.confirm(i18nT("session.exitWhileRunningConfirm", undefined, "Session is currently running. Exit anyway?"))) return;
               }
               onShutdown(session.id);
             }}
             disabled={session.closing}
             className="text-[var(--text-muted)] hover:text-red-400 p-0.5 flex-shrink-0 disabled:cursor-default disabled:hover:text-[var(--text-muted)]"
-            title={session.closing ? "Closing…" : "Exit pi session"}
+            title={session.closing ? i18nT("session.closing", undefined, "Closing…") : i18nT("session.exitPiSession", undefined, "Exit pi session")}
             data-testid="session-close-btn"
           >
             <Icon path={session.closing ? mdiLoading : mdiClose} size={0.5} className={session.closing ? "animate-spin" : undefined} />
@@ -855,7 +855,7 @@ export function SessionCard({
                 onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
                 disabled={session.resuming || session.cwdMissing === true}
                 className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={session.cwdMissing ? "session's directory no longer exists" : "Resume session (continue same session)"}
+                title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.resumeTitle", undefined, "Resume session (continue same session)")}
               >
                 <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("session.resume", undefined, "Resume")}
               </button>
@@ -864,7 +864,7 @@ export function SessionCard({
               onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
               disabled={session.resuming || session.cwdMissing === true}
               className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={session.cwdMissing ? "session's directory no longer exists" : "Fork session (new session from this point)"}
+              title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.forkTitle", undefined, "Fork session (new session from this point)")}
             >
               <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("session.fork", undefined, "Fork")}
             </button>
@@ -878,7 +878,7 @@ export function SessionCard({
             onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
             disabled={!!session.cwdMissing}
             className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? "session's directory no longer exists" : "+Session clean sibling in same folder"}
+            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnSiblingTitle", undefined, "+Session clean sibling in same folder")}
             data-testid="session-card-spawn-sibling"
           >
             <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("session.session", undefined, "Session")}
@@ -901,7 +901,7 @@ export function SessionCard({
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}
             className="text-[9px] px-1 py-px rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? "session's directory no longer exists" : "Create git worktree + spawn session inside it"}
+            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create git worktree + spawn session inside it")}
             data-testid="session-card-spawn-worktree"
           >
             <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("worktree.worktree", undefined, "Worktree")}
@@ -1142,7 +1142,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
           onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
           className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
           data-testid="background-drawer-chip"
-          aria-label={`${processes.length} background processes — tap to view`}
+          aria-label={i18nT("session.backgroundProcessesTapToView", { count: processes.length }, "{count} background processes — tap to view")}
         >
           ⚠ {processes.length}
         </button>
