@@ -31,7 +31,7 @@
 - [ ] 4.4 Add codes to `git-operations.ts`, `provider-probe.ts`, `pi-core-updater.ts`, extension emit sites.
 - [ ] 4.5 Author `err.*` keys for the ~34% that already ship codes (`auth-gate`, `spawn-preflight`, `process-manager`, `git-routes`).
 - [ ] 4.6 (Deferred/optional) tag `doctor-core.ts` (25 message/detail) — developer panel, lower priority.
-- [ ] 4.7 Tests: a Zone-3 emitted `{code,vars}` renders translated in `zh-CN`/`hu`; un-mapped code falls back to English `message`.
+- [x] 4.7 Tests: server-error.test.ts — coded `{code,vars}` renders translated; un-mapped code falls back to English `message`.
 
 ## 5. Translations — completeness
 

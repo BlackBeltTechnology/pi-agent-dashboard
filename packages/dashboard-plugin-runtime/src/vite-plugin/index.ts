@@ -216,13 +216,18 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     }
     const namedRefs = [
       ...new Set(
-        [
-          ...entry.manifest.claims.flatMap(c => [c.component, c.predicate, c.shouldRender]),
-          // i18n catalog export (aliased per-plugin below to avoid collisions).
-          entry.manifest.i18nCatalog,
-        ].filter((c): c is string => Boolean(c)),
+        entry.manifest.claims
+          .flatMap(c => [c.component, c.predicate, c.shouldRender])
+          .filter((c): c is string => Boolean(c)),
       ),
     ];
+    // i18n catalog export is imported aliased per-plugin (`<name> as <id>_catalog`)
+    // so two plugins can both export `catalog` without a name collision.
+    const catalogRef = entry.manifest.i18nCatalog;
+    const catalogAlias = catalogRef
+      ? `${entry.manifest.id.replace(/[^a-zA-Z0-9_$]/g, "_")}_catalog`
+      : undefined;
+    if (catalogRef && catalogAlias) namedRefs.push(`${catalogRef} as ${catalogAlias}`);
 
     if (namedRefs.length === 0) continue;
 
@@ -294,7 +299,8 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     }
     lines.push("    ],");
     if (manifest.i18nCatalog) {
-      lines.push(`    catalog: ${manifest.i18nCatalog},`);
+      const catalogAlias = `${manifest.id.replace(/[^a-zA-Z0-9_$]/g, "_")}_catalog`;
+      lines.push(`    catalog: ${catalogAlias},`);
     }
     lines.push("  },");
   }

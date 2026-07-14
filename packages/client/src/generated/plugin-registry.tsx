@@ -4,7 +4,7 @@ import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, Automat
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { FolderKbSection, KbSettingsClaim } from "@blackbelt-technology/pi-dashboard-kb-plugin";
-import { BuiltInRolesSettings } from "@blackbelt-technology/pi-dashboard-roles-plugin";
+import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
@@ -221,11 +221,13 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "tab": "general"
             }
         ],
-        "client": "./src/index.tsx"
+        "client": "./src/index.tsx",
+        "i18nCatalog": "catalog"
     },
     claims: [
       { pluginId: "roles", priority: 100, slot: "settings-section", tab: "general", Component: BuiltInRolesSettings },
     ],
+    catalog: roles_catalog,
   },
   {
     manifest: {

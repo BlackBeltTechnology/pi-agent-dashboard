@@ -8,3 +8,4 @@
  * See change: fix-pi-flows-end-to-end (Group 5).
  */
 export { BuiltInRolesSettings } from "./RolesSettingsSection.js";
+export { catalog } from "./i18n.js";
