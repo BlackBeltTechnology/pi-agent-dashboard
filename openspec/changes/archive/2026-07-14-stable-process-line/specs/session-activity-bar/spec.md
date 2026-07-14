@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Activity bar contributes to the unified summary line
+### Requirement: Activity bar renders unresolved bash toolCalls
 The session activity bar SHALL contribute the agent's in-flight `bash` tool calls to the PROCESS subcard's single collapsible summary line rather than rendering as an independent always-open stack of rows. When collapsed, the running bash tools SHALL be represented by the primary running command and a running-count segment; the individual abortable rows SHALL appear in the expanded body.
 
 #### Scenario: Collapsed line shows the primary running command

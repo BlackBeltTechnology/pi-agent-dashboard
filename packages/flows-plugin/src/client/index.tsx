@@ -68,21 +68,12 @@ export {
 
 import { registerPromptComponent } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { getFlowsUiStateSnapshot } from "./FlowsUiStateContext.js";
-import { installFlowsAvailabilitySubscriber } from "./flowsAvailability.js";
 
 // Register the `flow-question` prompt component type so the shell knows to
 // route flow-tagged prompts to the widget-bar placement instead of inline
 // chat. Idempotent under HMR — `registerPromptComponent` replaces prior
 // entries without throwing. See change: route-flow-asks-to-upper-slot.
 registerPromptComponent({ type: "flow-question", placement: "widget-bar" });
-
-// Install the per-session flows-availability subscriber once at module
-// load. The subscriber populates the sync cache that
-// `shouldRenderFlowsSubcard` reads. Idempotent (guarded inside the
-// installer). See change: add-flows-subcard (design.md Decision 3 —
-// module-level subscriber breaks the chicken-and-egg cycle between
-// the predicate and the component it gates).
-installFlowsAvailabilitySubscriber();
 
 export type { FlowsUiActions, FlowsUiState } from "./FlowsUiStateContext.js";
 export {getFlowsUiStateSnapshot, 

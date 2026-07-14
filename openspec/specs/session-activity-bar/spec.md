@@ -3,26 +3,27 @@
 ## Purpose
 
 Surface the agent's in-flight `bash` tool calls as a prominent, abortable row at the top of the session card's PROCESS subcard. Driven by the client-side event reducer's unresolved-toolCall set. Replaces the conflated semantics of today's PGID-only ProcessList ✕ button with a dedicated "stop what the agent is doing" verb.
-
 ## Requirements
-
 ### Requirement: Activity bar renders unresolved bash toolCalls
-The session activity bar SHALL render one row per unresolved `bash` toolCall associated with the session, sourced from the client-side event reducer.
+The session activity bar SHALL contribute the agent's in-flight `bash` tool calls to the PROCESS subcard's single collapsible summary line rather than rendering as an independent always-open stack of rows. When collapsed, the running bash tools SHALL be represented by the primary running command and a running-count segment; the individual abortable rows SHALL appear in the expanded body.
 
-#### Scenario: No bash tools in flight
-- **GIVEN** the event reducer reports zero unresolved `bash` toolCalls for the session
-- **WHEN** the activity bar component renders
-- **THEN** the component SHALL render nothing (returns null)
+#### Scenario: Collapsed line shows the primary running command
+- **GIVEN** two unresolved `bash` toolCalls (`"npm run build"` newest, `"tsc --noEmit"`)
+- **WHEN** the summary line renders collapsed
+- **THEN** it SHALL show the newest command `"npm run build"` and a `2 running` count segment
+- **AND** it SHALL NOT render two separate always-open rows
 
-#### Scenario: One bash tool in flight
-- **GIVEN** the event reducer reports exactly one unresolved `bash` toolCall with command `"npm test"` started 12s ago
-- **WHEN** the activity bar component renders
-- **THEN** the component SHALL render one row containing the play indicator, the command string `"npm test"`, the elapsed time `12s`, and a stop button
+#### Scenario: Expanded body lists each abortable bash row
+- **GIVEN** the collapsed summary line with two unresolved `bash` toolCalls
+- **WHEN** the user expands the line
+- **THEN** each `bash` toolCall SHALL render its own row with command, elapsed time, and a stop control
+- **AND** activating a stop control SHALL invoke the session abort path (unchanged from prior behaviour)
 
-#### Scenario: Non-bash tools are excluded
-- **GIVEN** the event reducer reports unresolved `read`, `write`, and `interactiveUi` toolCalls but zero `bash` toolCalls
-- **WHEN** the activity bar component renders
-- **THEN** the component SHALL render nothing
+#### Scenario: No bash in flight contributes no running segment
+- **GIVEN** zero unresolved `bash` toolCalls
+- **WHEN** the summary line renders
+- **THEN** the running-count segment SHALL be absent
+- **AND** the primary-command slot SHALL show the idle or background-process indicator instead
 
 ### Requirement: Stop button invokes the abort path, not PGID kill
 The activity bar's stop button SHALL invoke `abortToolCall(toolCallId)` (or the session-level abort fallback when no per-toolCall abort exists), and SHALL NOT invoke any PGID kill path.
@@ -75,3 +76,4 @@ The activity bar SHALL format elapsed times using the same `formatElapsed(ms)` h
 - **GIVEN** a toolCall started 2m 14s ago
 - **WHEN** the row renders
 - **THEN** the elapsed cell SHALL contain text `"2m 14s"`
+

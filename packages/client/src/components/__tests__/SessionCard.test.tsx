@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, renderHook } from "@testing-library/react";
-import React from "react";
-import { SessionCard, GroupGitInfo, branchCache } from "../SessionCard.js";
-import { useSessionActions } from "../../hooks/useSessionActions.js";
-import { PluginContextProvider, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import type React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useSessionActions } from "../../hooks/useSessionActions.js";
+import { DisplayPrefsProvider } from "../../lib/DisplayPrefsContext.js";
+import { branchCache, GroupGitInfo, SessionCard } from "../SessionCard.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
   useMobile: vi.fn(() => false),
@@ -664,18 +666,31 @@ describe("SessionCard subcard structure", () => {
     expect(screen.queryByText("PROCESS")).toBeNull();
   });
 
-  // ── PROCESS subcard four-state matrix ──────────────────────────────────
-  // See change: redesign-process-list-activity-bar (Mermaid state machine).
-  // States: Hidden / ActiveOnly / OrphansOnly / Both.
-  describe("PROCESS subcard composition (redesign-process-list-activity-bar)", () => {
+  // ── PROCESS subcard unified summary line (stable-process-line) ──────────
+  // The activity bar + background-process drawer fold into ONE fixed-height
+  // line. Collapsed height is invariant across tool count (the core goal).
+  describe("PROCESS subcard unified line (stable-process-line)", () => {
     const proc = { pid: 123, pgid: 123, command: "vitest --watch", elapsedMs: 60_000 } as any;
     const bashTool = { toolCallId: "tc-1", command: "npm test", startedAt: Date.now() - 5000 };
 
-    it("Hidden: empty activity + empty drawer → no PROCESS subcard", () => {
-      const session = makeSession();
-      render(
+    /** Render inside a DisplayPrefsProvider with an explicit reserve-at-idle. */
+    function renderCard(ui: React.ReactElement, reserveAtIdle = false) {
+      return render(
+        <DisplayPrefsProvider
+          value={{
+            global: { ...DISPLAY_PRESETS.standard, reserveProcessLineAtIdle: reserveAtIdle },
+            getSessionOverride: () => undefined,
+          }}
+        >
+          {ui}
+        </DisplayPrefsProvider>,
+      );
+    }
+
+    it("Hidden: empty activity + empty drawer + reserve OFF → no PROCESS subcard", () => {
+      renderCard(
         <SessionCard
-          session={session}
+          session={makeSession()}
           {...defaultProps}
           processes={[]}
           onKillProcess={() => {}}
@@ -686,11 +701,10 @@ describe("SessionCard subcard structure", () => {
       expect(screen.queryByText("PROCESS")).toBeNull();
     });
 
-    it("ActiveOnly: activity bar visible, drawer absent", () => {
-      const session = makeSession();
-      const { queryByTestId } = render(
+    it("ActiveOnly collapsed: one summary line with the running command + pill, no expanded rows", () => {
+      const { getByTestId, queryByTestId } = renderCard(
         <SessionCard
-          session={session}
+          session={makeSession()}
           {...defaultProps}
           processes={[]}
           onKillProcess={() => {}}
@@ -699,34 +713,19 @@ describe("SessionCard subcard structure", () => {
         />,
       );
       expect(screen.getByText("PROCESS")).toBeTruthy();
-      expect(queryByTestId("session-activity-bar")).toBeTruthy();
-      expect(queryByTestId("background-drawer")).toBeNull();
-      expect(queryByTestId("background-drawer-summary")).toBeNull();
-    });
-
-    it("OrphansOnly: drawer visible AND collapsed by default (no stored choice)", () => {
-      const session = makeSession();
-      const { getByTestId, queryByTestId } = render(
-        <SessionCard
-          session={session}
-          {...defaultProps}
-          processes={[proc]}
-          onKillProcess={() => {}}
-          inflightBashTools={[]}
-          onAbortTool={() => {}}
-        />,
-      );
-      expect(screen.getByText("PROCESS")).toBeTruthy();
+      const line = getByTestId("process-summary-line");
+      expect(line.getAttribute("aria-expanded")).toBe("false");
+      expect(line.textContent).toContain("npm test");
+      expect(getByTestId("process-counts-pill").textContent).toContain("1 running");
+      // Collapsed → no expanded body, no per-tool rows.
+      expect(queryByTestId("process-expanded-body")).toBeNull();
       expect(queryByTestId("session-activity-bar")).toBeNull();
-      // See change: persist-process-drawer-collapse — default is collapsed.
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("stored processDrawerCollapsed=false renders the drawer expanded", () => {
-      const session = makeSession({ processDrawerCollapsed: false });
-      const { getByTestId } = render(
+    it("OrphansOnly collapsed: line reads N background processes, no pill", () => {
+      const { getByTestId, queryByTestId } = renderCard(
         <SessionCard
-          session={session}
+          session={makeSession()}
           {...defaultProps}
           processes={[proc]}
           onKillProcess={() => {}}
@@ -734,29 +733,18 @@ describe("SessionCard subcard structure", () => {
           onAbortTool={() => {}}
         />,
       );
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("true");
+      const line = getByTestId("process-summary-line");
+      expect(line.getAttribute("aria-expanded")).toBe("false");
+      expect(line.textContent).toContain("1 background process");
+      // bg-only: the line text carries the count, so no separate pill.
+      expect(queryByTestId("process-counts-pill")).toBeNull();
+      expect(queryByTestId("background-drawer")).toBeNull();
     });
 
-    it("stored processDrawerCollapsed=true renders the drawer collapsed", () => {
-      const session = makeSession({ processDrawerCollapsed: true });
-      const { getByTestId } = render(
+    it("Both collapsed: pill shows running AND background counts", () => {
+      const { getByTestId } = renderCard(
         <SessionCard
-          session={session}
-          {...defaultProps}
-          processes={[proc]}
-          onKillProcess={() => {}}
-          inflightBashTools={[]}
-          onAbortTool={() => {}}
-        />,
-      );
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
-    });
-
-    it("Both: activity bar visible AND drawer collapsed by default", () => {
-      const session = makeSession();
-      const { getByTestId } = render(
-        <SessionCard
-          session={session}
+          session={makeSession()}
           {...defaultProps}
           processes={[proc]}
           onKillProcess={() => {}}
@@ -764,18 +752,33 @@ describe("SessionCard subcard structure", () => {
           onAbortTool={() => {}}
         />,
       );
-      expect(screen.getByText("PROCESS")).toBeTruthy();
+      const pill = getByTestId("process-counts-pill").textContent ?? "";
+      expect(pill).toContain("1 running");
+      expect(pill).toContain("⚠1");
+    });
+
+    it("expanded (processDrawerCollapsed=false): reveals activity rows + bg drawer", () => {
+      const { getByTestId } = renderCard(
+        <SessionCard
+          session={makeSession({ processDrawerCollapsed: false })}
+          {...defaultProps}
+          processes={[proc]}
+          onKillProcess={() => {}}
+          inflightBashTools={[bashTool]}
+          onAbortTool={() => {}}
+        />,
+      );
+      expect(getByTestId("process-summary-line").getAttribute("aria-expanded")).toBe("true");
+      expect(getByTestId("process-expanded-body")).toBeTruthy();
       expect(getByTestId("session-activity-bar")).toBeTruthy();
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
+      expect(getByTestId("background-drawer")).toBeTruthy();
     });
 
     it("toggle flips optimistically AND persists via onSetProcessDrawerCollapsed", () => {
       const onSetProcessDrawerCollapsed = vi.fn();
-      // Stored expanded (collapsed=false); user clicks to collapse.
-      const session = makeSession({ processDrawerCollapsed: false });
-      const { getByTestId } = render(
+      const { getByTestId } = renderCard(
         <SessionCard
-          session={session}
+          session={makeSession({ processDrawerCollapsed: false })}
           {...defaultProps}
           processes={[proc]}
           onKillProcess={() => {}}
@@ -784,19 +787,16 @@ describe("SessionCard subcard structure", () => {
           onAbortTool={() => {}}
         />,
       );
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("true");
-      fireEvent.click(getByTestId("background-drawer-summary"));
-      // Optimistic local flip: now collapsed.
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
-      // Persisted the new collapsed value server-side.
+      expect(getByTestId("process-summary-line").getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(getByTestId("process-summary-line"));
+      expect(getByTestId("process-summary-line").getAttribute("aria-expanded")).toBe("false");
       expect(onSetProcessDrawerCollapsed).toHaveBeenCalledWith(true);
     });
 
     it("reconciles when the authoritative processDrawerCollapsed changes (other client)", () => {
-      const session = makeSession({ processDrawerCollapsed: true });
-      const { getByTestId, rerender } = render(
+      const { getByTestId, rerender } = renderCard(
         <SessionCard
-          session={session}
+          session={makeSession({ processDrawerCollapsed: true })}
           {...defaultProps}
           processes={[proc]}
           onKillProcess={() => {}}
@@ -804,27 +804,29 @@ describe("SessionCard subcard structure", () => {
           onAbortTool={() => {}}
         />,
       );
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("false");
-      // A broadcast from another client flips it to expanded.
+      expect(getByTestId("process-summary-line").getAttribute("aria-expanded")).toBe("false");
       rerender(
-        <SessionCard
-          session={makeSession({ processDrawerCollapsed: false })}
-          {...defaultProps}
-          processes={[proc]}
-          onKillProcess={() => {}}
-          inflightBashTools={[]}
-          onAbortTool={() => {}}
-        />,
+        <DisplayPrefsProvider
+          value={{ global: { ...DISPLAY_PRESETS.standard }, getSessionOverride: () => undefined }}
+        >
+          <SessionCard
+            session={makeSession({ processDrawerCollapsed: false })}
+            {...defaultProps}
+            processes={[proc]}
+            onKillProcess={() => {}}
+            inflightBashTools={[]}
+            onAbortTool={() => {}}
+          />
+        </DisplayPrefsProvider>,
       );
-      expect(getByTestId("background-drawer-summary").getAttribute("aria-expanded")).toBe("true");
+      expect(getByTestId("process-summary-line").getAttribute("aria-expanded")).toBe("true");
     });
 
-    it("activity bar stop button invokes onAbortTool with toolCallId", () => {
+    it("stop button (in the expanded body) invokes onAbortTool with toolCallId", () => {
       const onAbortTool = vi.fn();
-      const session = makeSession();
-      const { getByTestId } = render(
+      const { getByTestId } = renderCard(
         <SessionCard
-          session={session}
+          session={makeSession({ processDrawerCollapsed: false })}
           {...defaultProps}
           inflightBashTools={[bashTool]}
           onAbortTool={onAbortTool}
@@ -832,6 +834,72 @@ describe("SessionCard subcard structure", () => {
       );
       fireEvent.click(getByTestId("session-activity-stop"));
       expect(onAbortTool).toHaveBeenCalledWith("tc-1");
+    });
+
+    // ── Core-goal regression (task 5.4) ──────────────────────────────────
+    // Collapsed subcard structure MUST NOT depend on the in-flight tool
+    // count: exactly one summary line, zero per-tool rows, for 0/1/3 tools.
+    // reserve-at-idle ON so the 0-tool case still renders (else it unmounts).
+    it.each([
+      ["zero tools", [] as any[]],
+      ["one tool", [{ toolCallId: "t0", command: "cmd-0", startedAt: Date.now() }]],
+      [
+        "three tools",
+        [
+          { toolCallId: "t0", command: "cmd-0", startedAt: Date.now() },
+          { toolCallId: "t1", command: "cmd-1", startedAt: Date.now() },
+          { toolCallId: "t2", command: "cmd-2", startedAt: Date.now() },
+        ],
+      ],
+    ])("collapsed height invariant — %s → 1 line, 0 rows", (_label, tools) => {
+      const { getByTestId, queryAllByTestId, queryByTestId } = renderCard(
+        <SessionCard
+          session={makeSession()}
+          {...defaultProps}
+          processes={[]}
+          onKillProcess={() => {}}
+          inflightBashTools={tools as any}
+          onAbortTool={() => {}}
+        />,
+        true,
+      );
+      // Exactly one collapsed line; no expanded body; no per-tool rows.
+      expect(getByTestId("process-summary-line")).toBeTruthy();
+      expect(queryByTestId("process-expanded-body")).toBeNull();
+      expect(queryAllByTestId("session-activity-row").length).toBe(0);
+    });
+
+    // ── Idle-reservation pref gating (task 5.5) ──────────────────────────
+    it("reserve OFF + both empty → subcard is null (unmounts, may reflow)", () => {
+      renderCard(
+        <SessionCard
+          session={makeSession()}
+          {...defaultProps}
+          processes={[]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+        false,
+      );
+      expect(screen.queryByTestId("process-summary-line")).toBeNull();
+      expect(screen.queryByText("PROCESS")).toBeNull();
+    });
+
+    it("reserve ON + both empty → reserved idle line renders", () => {
+      const { getByTestId } = renderCard(
+        <SessionCard
+          session={makeSession()}
+          {...defaultProps}
+          processes={[]}
+          onKillProcess={() => {}}
+          inflightBashTools={[]}
+          onAbortTool={() => {}}
+        />,
+        true,
+      );
+      expect(screen.getByText("PROCESS")).toBeTruthy();
+      expect(getByTestId("process-summary-line").textContent).toContain("idle");
     });
   });
 

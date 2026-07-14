@@ -1,4 +1,4 @@
-import { mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiOpenInNew, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiOpenInNew, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api-context.js";
@@ -43,14 +43,15 @@ import { getSessionDisplayName } from "../lib/session-display-name.js";
 import { useCommitDialog } from "./CommitDialog.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { CwdGonePill } from "./CwdGonePill.js";
-import { GitDirtyPill } from "./GitDirtyPill.js";
-import { InlineRenameInput } from "./InlineRenameInput.js";
-import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
+import { CollapseSummary } from "./collapse-summary.js";
+import { GitDirtyPill } from "./GitDirtyPill.js";
+import { InlineRenameInput } from "./InlineRenameInput.js";
+import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { type ProcessEntry, ProcessList } from "./ProcessList.js";
-import { SessionActivityBar } from "./SessionActivityBar.js";
+import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
@@ -1022,6 +1023,7 @@ export function SessionCard({
         collapsed={session.processDrawerCollapsed}
         onSetCollapsed={onSetProcessDrawerCollapsed}
         onNavigateToSession={onSelect}
+        reserveAtIdle={prefs.reserveProcessLineAtIdle}
       />
 
       {/* FLOWS subcard — plugin slot only.
@@ -1089,31 +1091,92 @@ interface ProcessSubcardProps {
   onSetCollapsed?: (collapsed: boolean) => void;
   /** Focus/scroll to a referenced session (for `sub-session` rows). */
   onNavigateToSession?: (sessionId: string) => void;
+  /**
+   * Effective `reserveProcessLineAtIdle` pref. When true the desktop subcard
+   * renders a reserved `⏵ idle` line even when both surfaces are empty, so the
+   * grid never reflows. Mobile ignores it.
+   */
+  reserveAtIdle?: boolean;
 }
 
 /**
- * Desktop PROCESS subcard — stacks SessionActivityBar above the
- * BackgroundProcessesDrawer (ProcessList). Subcard hides only when BOTH
- * surfaces have nothing to render.
+ * Compose the stable-width counts pill for the collapsed process line:
+ * `N running`, `⚠M`, or both joined by ` · `. Returns null when neither
+ * segment applies. Pure; exported for unit tests.
+ * See change: stable-process-line.
  */
-function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession }: ProcessSubcardProps) {
+export function formatCountsPill(running: number, bg: number): string | null {
+  const segs: string[] = [];
+  if (running > 0) segs.push(`${running} running`);
+  if (bg > 0) segs.push(`⚠${bg}`);
+  return segs.length > 0 ? segs.join(" · ") : null;
+}
+
+/**
+ * Desktop PROCESS subcard — ONE fixed-height summary line that folds the
+ * in-flight bash activity and the background-process drawer together. Collapsed
+ * height is invariant across tool count (the core goal of stable-process-line):
+ * the line shows the newest running command + a counts pill + elapsed, or
+ * `⚠ M background process(es)`, or `⏵ idle`. Expanding reveals the activity
+ * rows (each `⏹` → session abort) then the bg-process rows (each `✕` → PGID
+ * kill). Expand state persists per session via `useDrawerExpansion`.
+ *
+ * Unmounts (returns null) only when both surfaces are empty AND `reserveAtIdle`
+ * is false. See change: stable-process-line.
+ */
+function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession, reserveAtIdle }: ProcessSubcardProps) {
   const hasActivity = activity.length > 0;
   const hasProcesses = processes.length > 0;
   const { expanded, onToggle } = useDrawerExpansion(collapsed, onSetCollapsed);
-  if (!hasActivity && !hasProcesses) return null;
+  if (!hasActivity && !hasProcesses && !reserveAtIdle) return null;
+
+  const primary = activity[0];
+  // Pill only when a bash is running — in the bg-only case the line text already
+  // carries the count, so a `⚠M` pill would duplicate it.
+  const pill = hasActivity ? formatCountsPill(activity.length, processes.length) : null;
+
+  let lineIcon = mdiPlay;
+  let lineIconClass = "text-green-400";
+  let lineText: string;
+  if (primary) {
+    lineText = truncateCommand(primary.command, 60);
+  } else if (hasProcesses) {
+    lineIcon = mdiAlertOutline;
+    lineIconClass = "text-amber-500/80";
+    lineText = i18nT(
+      "session.backgroundProcessCount",
+      { count: processes.length },
+      `${processes.length} background process${processes.length === 1 ? "" : "es"}`,
+    );
+  } else {
+    lineText = i18nT("session.processIdle", undefined, "idle");
+  }
+
   return (
     <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")}>
-      {hasActivity && onAbortTool ? (
-        <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} />
-      ) : null}
-      {hasProcesses && onKill ? (
-        <ProcessList
-          processes={[...processes]}
-          onKill={onKill}
-          expanded={expanded}
-          onToggle={onToggle}
-          onNavigateToSession={onNavigateToSession}
-        />
+      <CollapseSummary expanded={expanded} onToggle={onToggle} testId="process-summary-line">
+        <Icon path={lineIcon} size={0.4} className={`${lineIconClass} flex-shrink-0`} />
+        <span className="text-[var(--text-secondary)] truncate flex-1" title={primary?.command ?? lineText}>
+          {lineText}
+        </span>
+        {pill ? (
+          <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] tabular-nums" data-testid="process-counts-pill">
+            [{pill}]
+          </span>
+        ) : null}
+        {primary ? (
+          <span className="flex-shrink-0 text-[var(--text-tertiary)]">{formatElapsed(now - primary.startedAt)}</span>
+        ) : null}
+      </CollapseSummary>
+      {expanded && (hasActivity || hasProcesses) ? (
+        <div className="mt-1.5 space-y-0.5" data-testid="process-expanded-body">
+          {hasActivity && onAbortTool ? (
+            <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} />
+          ) : null}
+          {hasProcesses && onKill ? (
+            <ProcessList processes={[...processes]} onKill={onKill} onNavigateToSession={onNavigateToSession} />
+          ) : null}
+        </div>
       ) : null}
     </SessionSubcard>
   );
@@ -1161,8 +1224,6 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
             <ProcessList
               processes={[...processes]}
               onKill={onKill}
-              expanded={true}
-              onToggle={() => { /* always expanded in the sheet */ }}
               compact
               onNavigateToSession={onNavigateToSession}
             />
