@@ -20,6 +20,9 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../lib/event-reducer.js";
 import { formatMessageTime } from "../lib/format.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../lib/group-tool-bursts.js";
+import { buildTurnSummaries, type TurnSummary } from "../lib/lineDelta.js";
+import { ChangeSummaryBlock } from "./ChangeSummaryBlock.js";
+import { useOptionalSplitWorkspace } from "./SplitWorkspaceContext.js";
 import type { ToolCallGroup } from "../lib/group-tool-calls.js";
 import { t as i18nT } from "../lib/i18n";
 import { BashOutputCard } from "./BashOutputCard.js";
@@ -284,6 +287,29 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // Effective display prefs for this session (configurable-chat-display).
   const prefs = useDisplayPrefs(sessionId);
   const showDebugTools = prefs.debugTools;
+
+  // Per-turn change-summary blocks (change: add-change-summary-table). Derived
+  // client-side from the raw (unfiltered) Edit/Write events so counts are
+  // independent of tool-call display filters; gated on the `changeSummaryTable`
+  // display pref. Memoized on message identity (performance-optimization).
+  const splitWs = useOptionalSplitWorkspace();
+  const openDiffFile = useCallback(
+    (relPath: string) => splitWs?.openDiffTab(relPath),
+    [splitWs],
+  );
+  const turnSummaries = useMemo(
+    () => (prefs.changeSummaryTable ? buildTurnSummaries(state.messages) : []),
+    [state.messages, prefs.changeSummaryTable],
+  );
+  const { anchoredSummaries, tailSummary } = useMemo(() => {
+    const anchored = new Map<string, TurnSummary>();
+    let tail: TurnSummary | null = null;
+    for (const s of turnSummaries) {
+      if (s.boundaryUserMessageId) anchored.set(s.boundaryUserMessageId, s);
+      else tail = s;
+    }
+    return { anchoredSummaries: anchored, tailSummary: tail };
+  }, [turnSummaries]);
   const prevSessionRef = useRef(sessionId);
   const isMobile = useMobile();
   // Pause the streaming bubble's glow/shimmer when it scrolls off-screen.
@@ -759,13 +785,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
 
         if (msg.role === "user") {
+          // Per-turn change block for the turn that ENDS at this user message
+          // (change: add-change-summary-table). Renders above the bubble that
+          // starts the next turn; the in-progress turn renders at the tail.
+          const changeBlock = anchoredSummaries.get(msg.id) ? (
+            <ChangeSummaryBlock summary={anchoredSummaries.get(msg.id)!} onOpenFile={openDiffFile} />
+          ) : null;
           // Skill invocations render as a distinct collapsible card so chat
           // doesn't show walls of expanded skill body. Plain user messages
           // continue to render as the existing blue bubble.
           // See change: render-skill-invocations-collapsibly.
           if (msg.skill) {
             return (
-              <div key={msg.id} className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+              <React.Fragment key={msg.id}>
+              {changeBlock}
+              <div className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
                 {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
                 <div className={bubbleMax}>
                   {msg.images && msg.images.length > 0 && (
@@ -782,10 +816,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                   />
                 </div>
               </div>
+              </React.Fragment>
             );
           }
           return (
-            <div key={msg.id} className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
+            <React.Fragment key={msg.id}>
+            {changeBlock}
+            <div className="mt-4 mb-4 flex flex-col items-end" {...(msg.turnIndex != null ? { "data-turn": msg.turnIndex } : {})}>
               {msg.streamingBehavior && <StreamingBehaviorBadge behavior={msg.streamingBehavior} />}
               <div className={`bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
                 {msg.images && msg.images.length > 0 && (
@@ -802,6 +839,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 )}
               </div>
             </div>
+            </React.Fragment>
           );
         }
 
@@ -1008,6 +1046,15 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           between yellow + red is impossible by construction — the selector
           picks exactly one variant. See change:
           unify-status-banner-and-terminal-limit-stop. */}
+
+      {/* In-progress turn change summary (change: add-change-summary-table):
+          the final turn has no following user message to anchor above, so its
+          block renders at the stream tail. */}
+      {tailSummary && (
+        <div className="mx-4">
+          <ChangeSummaryBlock summary={tailSummary} onOpenFile={openDiffFile} />
+        </div>
+      )}
 
       {/* Inline-chat steering: pending steer entries render here as user-style
           bubbles, positioned at the bottom of the chat list. Once pi drains

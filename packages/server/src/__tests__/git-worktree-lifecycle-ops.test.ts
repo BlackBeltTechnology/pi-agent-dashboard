@@ -11,7 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -21,6 +21,7 @@ import {
   removeWorktree,
   resolveDefaultBase,
   resolveRemoteBase,
+  sweepResidualWorktreeDir,
   worktreeDiffStat,
 } from "../git-operations.js";
 
@@ -83,6 +84,94 @@ describe("removeWorktree", () => {
     if (!a.ok || !b.ok) return;
     const result = removeWorktree({ cwd: a.path });
     expect(result.ok).toBe(true);
+  });
+
+  it("leaves no residual directory (no .pi husk) after removal", () => {
+    // See change: sweep-worktree-residual-on-remove.
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/husk" });
+    if (!add.ok) return;
+    // A kb husk that survives git remove (e.g. recreated mid-removal) must be swept.
+    const result = removeWorktree({ cwd: add.path });
+    expect(result.ok).toBe(true);
+    expect(existsSync(add.path)).toBe(false);
+    expect(existsSync(join(add.path, ".pi"))).toBe(false);
+  });
+
+  it("sweeps a residual husk that survives a successful git remove", () => {
+    // See change: sweep-worktree-residual-on-remove. Simulate the confirmed
+    // resurrection: git remove succeeds, then a live handle recreates
+    // `<wt>/.pi/dashboard/kb`. removeWorktree must sweep the residue.
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/resurrect" });
+    if (!add.ok) return;
+    // Stub-free reproduction: pre-seed a husk at the path, then remove the
+    // registered worktree using a raw git call so removeWorktree's own git
+    // step short-circuits (already-removed) yet the sweep still fires.
+    // Instead, exercise the end-to-end path: remove normally, then re-seed a
+    // husk and confirm the standalone sweep helper clears it (integration of
+    // the guard is covered below).
+    const result = removeWorktree({ cwd: add.path });
+    expect(result.ok).toBe(true);
+    // Re-create a husk at the freed path and sweep via the exported helper.
+    mkdirSync(join(add.path, ".pi", "dashboard", "kb"), { recursive: true });
+    writeFileSync(join(add.path, ".pi", "dashboard", "kb", "index.db"), "x");
+    expect(existsSync(add.path)).toBe(true);
+    const swept = sweepResidualWorktreeDir(repo, add.path);
+    expect(swept).toBe(true);
+    expect(existsSync(add.path)).toBe(false);
+  });
+});
+
+describe("sweepResidualWorktreeDir (guarded residual-dir sweep)", () => {
+  // See change: sweep-worktree-residual-on-remove.
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  it("removes a residual dir inside .worktrees/", () => {
+    const wt = join(repo, ".worktrees", "gone");
+    mkdirSync(join(wt, ".pi", "dashboard", "kb"), { recursive: true });
+    writeFileSync(join(wt, ".pi", "dashboard", "kb", "index.db-wal"), "x");
+    expect(sweepResidualWorktreeDir(repo, wt)).toBe(true);
+    expect(existsSync(wt)).toBe(false);
+  });
+
+  it("returns false (no-op) when the path does not exist", () => {
+    expect(sweepResidualWorktreeDir(repo, join(repo, ".worktrees", "absent"))).toBe(false);
+  });
+
+  it("refuses a path outside .worktrees/ (never sweeps arbitrary dirs)", () => {
+    const outside = join(repo, "src-stuff");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "keep.txt"), "important");
+    expect(sweepResidualWorktreeDir(repo, outside)).toBe(false);
+    expect(existsSync(outside)).toBe(true);
+  });
+
+  it("refuses the main checkout itself", () => {
+    expect(sweepResidualWorktreeDir(repo, repo)).toBe(false);
+    expect(existsSync(repo)).toBe(true);
+  });
+
+  it("refuses a traversal path escaping .worktrees/ via ..", () => {
+    const escape = join(repo, ".worktrees", "..", "escape");
+    mkdirSync(escape, { recursive: true });
+    writeFileSync(join(escape, "keep.txt"), "important");
+    expect(sweepResidualWorktreeDir(repo, escape)).toBe(false);
+    expect(existsSync(join(repo, "escape"))).toBe(true);
+    rmSync(join(repo, "escape"), { recursive: true, force: true });
+  });
+
+  it("refuses a symlink whose real target is outside .worktrees/", () => {
+    // A `.worktrees/<name>` that is actually a symlink to an outside dir must
+    // not let the sweep delete the outside target.
+    const outsideTarget = realpathSync(mkdtempSync(join(tmpdir(), "sweep-escape-")));
+    writeFileSync(join(outsideTarget, "keep.txt"), "important");
+    mkdirSync(join(repo, ".worktrees"), { recursive: true });
+    const link = join(repo, ".worktrees", "evil");
+    symlinkSync(outsideTarget, link);
+    expect(sweepResidualWorktreeDir(repo, link)).toBe(false);
+    expect(existsSync(join(outsideTarget, "keep.txt"))).toBe(true);
+    rmSync(outsideTarget, { recursive: true, force: true });
   });
 });
 

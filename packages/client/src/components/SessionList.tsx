@@ -33,6 +33,8 @@ import { selectedCardScrollFingerprint } from "../lib/session-list-scroll.js";
 import { floatAskUserFirst } from "../lib/session-status-visuals.js";
 import { resolveWorkspaceFolderReorder, resolveWorkspaceReorder, sameTypeClosestCenter } from "../lib/sidebar-dnd.js";
 import { truncatePathMiddle } from "../lib/truncate-path.js";
+import { allTagsInUse } from "./tags/all-tags.js";
+import { TagFilterGroup } from "./tags/TagFilterGroup.js";
 import { useEditors } from "../lib/use-editors.js";
 import { AddToWorkspaceMenu } from "./AddToWorkspaceMenu.js";
 import { BranchSwitchDialog } from "./BranchSwitchDialog.js";
@@ -318,6 +320,11 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
   // are filled. See change: pin-and-search-sessions (design D1 revised).
   const [workspaceFilter, setWorkspaceFilter] = useState("");
   const [sessionSearch, setSessionSearch] = useState("");
+  // Tag + phase filter axes. Kept as TWO SEPARATE sets so a user tag named
+  // `apply` and an openspecPhase of `apply` never collide. OR-within each
+  // axis; AND-across axes and with folder/search. See change: add-session-tags.
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set());
   // Per-folder "show ended" expansion state. Ended sessions are collapsed
   // by default inside each folder; a minimal `Show N ended` row at the
   // bottom toggles. State is keyed by cwd; absent = collapsed (default).
@@ -560,18 +567,74 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
     }
   }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onResume, onResumeKeepPosition]);
 
+  // Tag/phase axes derived flags + the per-session predicate. OR-within each
+  // axis; AND-across. Empty axis = inert. See change: add-session-tags.
+  const wantTag = selectedTags.size > 0;
+  const wantPhase = selectedPhases.size > 0;
+  const anyTagFilterActive = wantTag || wantPhase;
+  const passesTagAxes = useCallback(
+    (s: DashboardSession): boolean => {
+      if (wantTag) {
+        const tags = s.tags ?? [];
+        if (!tags.some((t) => selectedTags.has(t))) return false;
+      }
+      if (wantPhase) {
+        if (!s.openspecPhase || !selectedPhases.has(s.openspecPhase)) return false;
+      }
+      return true;
+    },
+    [wantTag, wantPhase, selectedTags, selectedPhases],
+  );
+
+  // Union of tags in use (autocomplete + sidebar filter group) and the phases
+  // actually present. Recompute only when the session list changes.
+  const allTags = useMemo(() => allTagsInUse(sessions), [sessions]);
+  const phasesInUse = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sessions) if (s.openspecPhase) set.add(s.openspecPhase);
+    return [...set].sort();
+  }, [sessions]);
+
+  const toggleSelectedTag = useCallback((tag: string) => {
+    setSelectedTags((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  }, []);
+  const toggleSelectedPhase = useCallback((phase: string) => {
+    setSelectedPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(phase)) next.delete(phase);
+      else next.add(phase);
+      return next;
+    });
+  }, []);
+  const clearTagFilters = useCallback(() => {
+    setSelectedTags(new Set());
+    setSelectedPhases(new Set());
+  }, []);
+
   /**
    * Decide whether a folder should be visible given the active filters.
    * Workspace filter matches against folder path; session filter matches
-   * against any session title within the folder. Both are AND'd when set.
+   * against any session title within the folder; the tag/phase axes match
+   * against session tags / openspecPhase. All AND'd when set. When any
+   * session-level narrowing axis (search OR tag/phase) is active, the folder
+   * is visible only when at least one session passes ALL of them (ended
+   * included). See change: add-session-tags.
    */
   function folderMatchesFilters(group: DirectoryGroup): boolean {
     const wf = workspaceFilter.trim().toLowerCase();
     const sf = sessionSearch.trim().toLowerCase();
     const folderHit = wf.length === 0 || group.cwd.toLowerCase().includes(wf);
     if (!folderHit) return false;
-    if (sf.length === 0) return true;
-    return filterByQuery(group.sessions, sf).length > 0;
+    const needsSessionMatch = sf.length > 0 || anyTagFilterActive;
+    if (!needsSessionMatch) return true;
+    let pool = sf.length > 0 ? filterByQuery(group.sessions, sf) : group.sessions;
+    if (anyTagFilterActive) pool = pool.filter(passesTagAxes);
+    return pool.length > 0;
   }
 
   /**
@@ -580,7 +643,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
    * `collapsedGroups` set still controls behavior at rest.
    */
   function isFolderCollapsed(cwd: string): boolean {
-    if (workspaceFilter.length > 0 || sessionSearch.length > 0) return false;
+    if (workspaceFilter.length > 0 || sessionSearch.length > 0 || anyTagFilterActive) return false;
     return collapsedGroups.has(cwd);
   }
 
@@ -817,9 +880,12 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             //   5. Pin partition (§7) is applied to whichever buckets are
             //      currently rendered.
             // See change: pin-and-search-sessions §8.
-            const matched = sessionSearch.length > 0
+            let matched = sessionSearch.length > 0
               ? filterByQuery(group.sessions, sessionSearch)
               : group.sessions;
+            // Tag/phase axes narrow the in-folder set identically to search.
+            // See change: add-session-tags.
+            if (anyTagFilterActive) matched = matched.filter(passesTagAxes);
             // Flat-merge mode: when session-search is active AND no
             // folder filter is typed, don't apply the active-first sort —
             // ended results stay inline with active so the user sees
@@ -854,7 +920,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             );
             const showEnded =
               endedSessions.length > 0 &&
-              (endedExpanded.has(group.cwd) || sessionSearch.length > 0);
+              (endedExpanded.has(group.cwd) || sessionSearch.length > 0 || anyTagFilterActive);
             const visibleSessions = flatMergeMode
               ? sortSessionsByOrder(matched, order) // mixed-status, flat stored order
               : (showEnded
@@ -863,7 +929,7 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             // Empty-state: search query active but nothing matched in
             // this folder. Still rendered inline so the user can clear
             // and recover.
-            if (sessionSearch.length > 0 && matched.length === 0) {
+            if ((sessionSearch.length > 0 || anyTagFilterActive) && matched.length === 0) {
               return (
                 <div
                   className="text-xs text-[var(--text-muted)] italic px-2 py-2 select-none"
@@ -899,7 +965,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               firstEndedIdx >= 0 &&
               endedExpanded.has(group.cwd) &&
               sessionSearch.length === 0 &&
-              workspaceFilter.length === 0;
+              workspaceFilter.length === 0 &&
+              !anyTagFilterActive;
             return (
               <SortableContext items={allIds} strategy={verticalListSortingStrategy}>
                 {allIds.map((id, idx) => {
@@ -987,12 +1054,13 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               already expanded them, or when a search query is active
               (search auto-expands ended). Click toggles. */}
           {(() => {
-            const matched = sessionSearch.length > 0
+            let matched = sessionSearch.length > 0
               ? filterByQuery(group.sessions, sessionSearch)
               : group.sessions;
+            if (anyTagFilterActive) matched = matched.filter(passesTagAxes);
             const endedCount = matched.filter((s) => s.status === "ended").length;
             if (endedCount === 0) return null;
-            if (sessionSearch.length > 0) return null; // auto-expanded
+            if (sessionSearch.length > 0 || anyTagFilterActive) return null; // auto-expanded
             const expanded = endedExpanded.has(group.cwd);
             return (
               <button
@@ -1067,6 +1135,44 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
             {t("common.hidden", undefined, "Hidden")}
           </ToggleButton>
         </div>
+        {/* Tag + phase filter groups. Two SEPARATE selection sets (no user-tag
+            vs phase collision). Phase chips write no session state.
+            See change: add-session-tags. */}
+        {(allTags.length > 0 || phasesInUse.length > 0) && (
+          <div className="px-3 pb-2" data-testid="tag-filter-bar">
+            <TagFilterGroup
+              label={t("sessionList.yourTags", undefined, "Your tags")}
+              tags={allTags}
+              selected={selectedTags}
+              onToggle={toggleSelectedTag}
+              tone="user"
+            />
+            <TagFilterGroup
+              label={t("sessionList.phaseReadOnly", undefined, "Phase (read-only)")}
+              tags={phasesInUse}
+              selected={selectedPhases}
+              onToggle={toggleSelectedPhase}
+              tone="exec"
+            />
+            {anyTagFilterActive && (
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={clearTagFilters}
+                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+                  data-testid="clear-tag-filters"
+                >
+                  {t("sessionList.clearTags", undefined, "Clear tags")}
+                </button>
+                {!sessions.some(passesTagAxes) && (
+                  <span className="text-[10px] text-[var(--text-muted)] italic" data-testid="tag-filter-no-match">
+                    {t("sessionList.zeroMatch", undefined, "0 match")}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div ref={listRef} className="flex-1 overflow-y-auto">
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
@@ -1113,8 +1219,8 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
                               {t("sessionList.emptyWorkspace", undefined, "Empty workspace. Use \"+ Add to workspace\" on a folder's actions to assign it here.")}
                             </div>
                           )}
-                          <SortableContext items={ws.folders.map((f) => f.cwd)} strategy={verticalListSortingStrategy}>
-                            {ws.folders.map((folder) => (
+                          <SortableContext items={ws.folders.filter((f) => !anyTagFilterActive || folderMatchesFilters(f)).map((f) => f.cwd)} strategy={verticalListSortingStrategy}>
+                            {ws.folders.filter((folder) => !anyTagFilterActive || folderMatchesFilters(folder)).map((folder) => (
                               <SortableWorkspaceFolder key={`ws-${ws.id}-f-${folder.cwd}`} id={folder.cwd} wsId={ws.id}>
                                 <div className="relative">
                                   {renderGroup(folder, folder.pinned, true)}
@@ -1169,11 +1275,16 @@ export function SessionList({ sessions, selectedId, onSelect, contextUsageMap, o
               currently working in.
               See change: pin-and-search-sessions. */}
           {visibleTopUnpinned
-            .filter((g) =>
-              workspaceFilter.length > 0
+            .filter((g) => {
+              // Tag/phase active: folder visible iff ≥1 session passes ALL active
+              // narrowing axes (path + search + tag/phase), ENDED included — so an
+              // ended-only tag match still reveals the folder, and zero-match
+              // folders are hidden (no empty shell). See change: add-session-tags.
+              if (anyTagFilterActive) return folderMatchesFilters(g);
+              return workspaceFilter.length > 0
                 ? folderMatchesFilters(g)
-                : g.sessions.some((s) => s.status !== "ended")
-            )
+                : g.sessions.some((s) => s.status !== "ended");
+            })
             .map((group) => renderGroupWithWorkspaceMenu(group, false))}
         </ul>
         </DndContext>

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, fireEvent, act } from "@testing-library/react";
-import React from "react";
-import { CommandInput, shouldWalkFileQuery } from "../CommandInput.js";
 import type { CommandInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, fireEvent, render } from "@testing-library/react";
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
+import { CommandInput, shouldWalkFileQuery } from "../CommandInput.js";
 
 describe("shouldWalkFileQuery (min-3-char guard)", () => {
   it("fires for a bare @ (empty query, top-level listing)", () => {
@@ -902,6 +902,7 @@ describe("CommandInput stale-closure regression (controlled mode, prop-ref chang
 
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+
 afterEach(() => cleanup());
 
 describe("CommandInput — input stays enabled mid-turn (mid-turn-prompt-queue)", () => {
@@ -1011,3 +1012,192 @@ describe("CommandInput — steering delivery mode keyboard shortcuts", () => {
 // StatusBar via the `actions` slot. See StatusBar.test.tsx for the new
 // regression test. Original strip-mount tests removed.
 // See change: redesign-session-card-and-composer (statusbar-inline).
+
+// ===========================================================================
+// redesign-prompt-input (v2 composer): morphing button, Steer|Queue, footer,
+// ＋ attach menu, mobile overflow, resting footprint.
+// ===========================================================================
+
+describe("CommandInput v2 — morphing action button (T1)", () => {
+  it("idle + empty draft: single disabled send affordance, no stop", () => {
+    const { container } = renderInput({ sessionStatus: "idle" });
+    const send = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(send).not.toBeNull();
+    expect(send.disabled).toBe(true);
+    expect(container.querySelector('[data-testid="stop-button"]')).toBeNull();
+  });
+
+  it("idle + text: enabled send affordance that sends", () => {
+    const { container, onSend } = renderInput({ draft: "hello", onDraftChange: vi.fn() });
+    const send = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+    fireEvent.click(send);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, "steer");
+  });
+
+  it("streaming (with onAbort): morphs to a single stop button, no send button", () => {
+    const { container } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onForceKill: vi.fn() });
+    expect(container.querySelector('[data-testid="stop-button"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="send-button"]')).toBeNull();
+  });
+
+  it("streaming: second press escalates stop → force-stop", () => {
+    const onAbort = vi.fn();
+    const onForceKill = vi.fn();
+    const { container } = renderInput({ sessionStatus: "streaming", onAbort, onForceKill });
+    fireEvent.click(container.querySelector('[data-testid="stop-button"]')!);
+    expect(onAbort).toHaveBeenCalledOnce();
+    const force = container.querySelector('[data-testid="force-stop-button"]');
+    expect(force).not.toBeNull();
+    fireEvent.click(force!);
+    expect(onForceKill).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-testid="killing-button"]')).not.toBeNull();
+  });
+
+  it("every action-button state (send/stop/force/killing) carries an aria-label", () => {
+    // send
+    const send = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    expect(send.container.querySelector('[data-testid="send-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    cleanup();
+    // stop → force → killing
+    const { container } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onForceKill: vi.fn() });
+    expect(container.querySelector('[data-testid="stop-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    fireEvent.click(container.querySelector('[data-testid="stop-button"]')!);
+    expect(container.querySelector('[data-testid="force-stop-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    fireEvent.click(container.querySelector('[data-testid="force-stop-button"]')!);
+    expect(container.querySelector('[data-testid="killing-button"]')!.getAttribute("aria-label")).toBeTruthy();
+  });
+});
+
+describe("CommandInput v2 — Steer|Queue delivery control (T1)", () => {
+  it("defaults to Steer: Enter sends delivery=steer", () => {
+    const { textarea, onSend } = renderInput({ draft: "go", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("go", undefined, "steer");
+  });
+
+  it("Queue selected routes Enter to followUp", () => {
+    const { textarea, onSend, getByTestId } = renderInput({ draft: "later", onDraftChange: vi.fn() });
+    fireEvent.click(getByTestId("delivery-queue"));
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("later", undefined, "followUp");
+  });
+
+  it("Steer selected routes Enter to steer (after toggling back)", () => {
+    const { textarea, onSend, getByTestId } = renderInput({ draft: "now", onDraftChange: vi.fn() });
+    fireEvent.click(getByTestId("delivery-queue"));
+    fireEvent.click(getByTestId("delivery-steer"));
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("now", undefined, "steer");
+  });
+
+  it("Alt+Enter is followUp regardless of Steer selection", () => {
+    const { textarea, onSend } = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    fireEvent.keyDown(textarea, { key: "Enter", altKey: true });
+    expect(onSend).toHaveBeenCalledWith("x", undefined, "followUp");
+  });
+});
+
+describe("CommandInput v2 — footer hint line + footprint (T1/T5)", () => {
+  it("T5: footer is hidden at rest (unfocused, empty draft)", () => {
+    const { container } = renderInput({ sessionStatus: "idle" });
+    expect(container.querySelector('[data-testid="composer-footer"]')).toBeNull();
+  });
+
+  it("footer is revealed on focus", () => {
+    const { container, textarea } = renderInput();
+    expect(container.querySelector('[data-testid="composer-footer"]')).toBeNull();
+    fireEvent.focus(textarea);
+    expect(container.querySelector('[data-testid="composer-footer"]')).not.toBeNull();
+  });
+
+  it("footer shows when a draft is present even while unfocused", () => {
+    const { container } = renderInput({ draft: "typed", onDraftChange: vi.fn() });
+    expect(container.querySelector('[data-testid="composer-footer"]')).not.toBeNull();
+  });
+
+  it("shows a context-left indicator only when context data is client-side", () => {
+    const withData = renderInput({ draft: "x", onDraftChange: vi.fn(), contextUsage: { tokens: 20000, contextWindow: 100000 } });
+    const el = withData.container.querySelector('[data-testid="composer-context-left"]');
+    expect(el).not.toBeNull();
+    expect(el!.textContent).toContain("80%");
+    cleanup();
+    const noData = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    expect(noData.container.querySelector('[data-testid="composer-context-left"]')).toBeNull();
+  });
+});
+
+describe("CommandInput v2 — ＋ attach menu (T1)", () => {
+  it("opens with image, file, and preview entries", () => {
+    const { getByTestId, queryByTestId } = renderInput();
+    expect(queryByTestId("attach-menu")).toBeNull();
+    fireEvent.click(getByTestId("attach-button"));
+    expect(getByTestId("attach-menu")).toBeTruthy();
+    expect(getByTestId("attach-image")).toBeTruthy();
+    expect(getByTestId("attach-file")).toBeTruthy();
+    expect(getByTestId("attach-preview")).toBeTruthy();
+  });
+
+  it("Preview inline seeds the /view local-interception path on an empty draft", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-preview"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("/view ");
+  });
+
+  it("Preview inline does NOT clobber a non-empty draft (data-loss guard)", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.change(textarea, { target: { value: "my draft" } });
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-preview"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("my draft");
+  });
+
+  it("Attach file seeds @ (empty draft → bare @)", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-file"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("@");
+  });
+
+  it("Attach file seeds @ at a token boundary on a non-empty draft", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-file"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("hello @");
+  });
+});
+
+describe("CommandInput v2 — mobile adaptation (T4)", () => {
+  it("persistent toolbar row exposes ＋, model, ⋯, and the action button", () => {
+    const { getByTestId } = renderInput({
+      onSelectModel: vi.fn(),
+      models: [{ provider: "anthropic", id: "claude-4" }],
+      onOpenInlineTerminal: vi.fn(),
+    });
+    expect(getByTestId("attach-button")).toBeTruthy();
+    expect(getByTestId("model-selector-button")).toBeTruthy();
+    expect(getByTestId("overflow-button")).toBeTruthy();
+    expect(getByTestId("send-button")).toBeTruthy();
+  });
+
+  it("⋯ overflow hosts thinking, delivery, and terminal controls", () => {
+    const { getByTestId } = renderInput({
+      onSelectThinkingLevel: vi.fn(),
+      onOpenInlineTerminal: vi.fn(),
+    });
+    fireEvent.click(getByTestId("overflow-button"));
+    const menu = getByTestId("overflow-menu");
+    expect(menu.querySelector('[data-testid="thinking-level-button"]')).not.toBeNull();
+    expect(menu.querySelector('[data-testid="delivery-control"]')).not.toBeNull();
+    expect(menu.querySelector('[data-testid="open-inline-terminal-button"]')).not.toBeNull();
+  });
+
+  it("the action button meets the 44px touch-target minimum", () => {
+    const { container } = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    const send = container.querySelector('[data-testid="send-button"]') as HTMLElement;
+    expect(send.className).toContain("min-w-[44px]");
+    expect(send.className).toContain("min-h-[44px]");
+  });
+});

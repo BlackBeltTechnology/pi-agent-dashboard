@@ -185,6 +185,11 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.toolGroupDefaultCollapsed !== "boolean") {
     out = { ...out, toolGroupDefaultCollapsed: false };
   }
+  // Legacy prefs predating the change-summary block default it ON, matching
+  // the standard/everything presets. See change: add-change-summary-table.
+  if (typeof out.changeSummaryTable !== "boolean") {
+    out = { ...out, changeSummaryTable: true };
+  }
   return out;
 }
 
@@ -486,6 +491,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         reasoningAutoCollapseMs: 30000,
         keepReasoningOpenUntilTurnEnds: false,
         toolGroupDefaultCollapsed: false,
+        changeSummaryTable: false,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -500,6 +506,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
           partial.keepReasoningOpenUntilTurnEnds ?? base.keepReasoningOpenUntilTurnEnds,
         toolGroupDefaultCollapsed:
           partial.toolGroupDefaultCollapsed ?? base.toolGroupDefaultCollapsed,
+        changeSummaryTable: partial.changeSummaryTable ?? base.changeSummaryTable,
       };
       displayPrefs = merged;
       scheduleSave();

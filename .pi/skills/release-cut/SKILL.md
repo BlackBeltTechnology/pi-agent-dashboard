@@ -4,8 +4,9 @@ description: >
   Cut a new pi-agent-dashboard release. Promotes `## [Unreleased]` in
   CHANGELOG.md to a versioned section, bumps all workspace package.json
   versions per SemVer, commits, tags `v<version>`, and pushes — which
-  triggers the Release workflow that publishes **8 npm packages** (root +
-  shared/extension/server/web/image-fit/kb/kb-extension via `npm publish -ws --include-workspace-root`)
+  triggers the Release workflow that publishes **10 npm packages** (root +
+  shared/extension/server/web/image-fit/kb/kb-extension +
+  session-distiller/distill-session-knowledge via `npm publish -ws --include-workspace-root`)
   and the Electron artifacts
   and creates a GitHub Release (published automatically for production
   tags `vX.Y.Z`; draft for pre-release tags `vX.Y.Z-rc.N`). Use when the user says "cut a
@@ -166,6 +167,14 @@ locally keeps the commit honest. See change: fix-release-lockfile-drift.
 > synchronise them at bump time so the published tarballs have consistent
 > metadata. CI's `publish.yml` runs `sync-versions.js` defensively too, but
 > running it locally keeps the commit honest.
+
+> **Skew guard for `distill-session-knowledge` → `session-distiller`.** The
+> thin skill package `@blackbelt-technology/pi-dashboard-distill-session-knowledge`
+> deps on the engine `@blackbelt-technology/pi-dashboard-session-distiller`.
+> Both are non-private, so `npm publish -ws` publishes them in the SAME run
+> (engine first — `-ws` walks in topological/dependency order) and
+> `sync-versions.js` pins the dep specifier to the just-cut version. Never
+> publish one without the other; that is what prevents cross-package skew.
 
 Verify with:
 ```bash

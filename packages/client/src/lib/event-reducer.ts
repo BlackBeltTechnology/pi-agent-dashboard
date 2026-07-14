@@ -281,7 +281,13 @@ function readSubagentDetails(
 ): Partial<SubagentState> {
   if (!details) return {};
   const out: Partial<SubagentState> = {};
-  if (Array.isArray(details.entries)) {
+  // D3 empty-array overwrite guard: only replace `entries` when the incoming
+  // array is non-empty. An incoming `[]` (initial subagent_started, or a
+  // late/reordered frame) omits the key so the `...spread` merge preserves any
+  // already-populated timeline. Entries only ever grow within a run, so a
+  // legitimate transition to zero entries never occurs.
+  // See change: fix-subagent-live-detail-reliability (D3).
+  if (Array.isArray(details.entries) && details.entries.length > 0) {
     out.entries = details.entries as SubagentTimelineEntry[];
   }
   if (typeof details.activity === "string") out.activity = details.activity;

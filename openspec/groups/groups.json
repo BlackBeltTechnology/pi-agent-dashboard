@@ -8,21 +8,21 @@
       "order": 0
     },
     {
-      "id": "electrun-execution",
-      "name": "Electrun execution",
-      "color": "#a855f7",
-      "order": 1
-    },
-    {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
+      "order": 1
+    },
+    {
+      "id": "kowledge-base",
+      "name": "Kowledge Base",
+      "color": "#f97316",
       "order": 2
     },
     {
-      "id": "sdasdasd",
-      "name": "Later",
-      "color": "#eab308",
+      "id": "electrun-execution",
+      "name": "Electrun execution",
+      "color": "#a855f7",
       "order": 3
     },
     {
@@ -50,11 +50,11 @@
     "unify-pi-core-into-package-queue": "future",
     "spec-file-git-history-header": "future",
     "skip-rpc-probes-in-event-forwarder": "future",
-    "focus-driven-folder-compaction": "sdasdasd",
+    "focus-driven-folder-compaction": "next-phase",
     "add-server-push-notifications": "future",
     "add-capacitor-mobile-shell": "future",
     "windows-authenticode-signing": "electrun-execution",
-    "manage-node-runtime-updates": "next-phase",
+    "manage-node-runtime-updates": "electrun-execution",
     "add-extension-ui-rjsf-form": "ui-extensions",
     "new-spec-spawn": "future",
     "accordion-workspace-folders": "future",
@@ -78,7 +78,7 @@
     "add-end-user-docs": "next-phase",
     "add-release-video-pipeline": "future",
     "add-connector-layer": "next-phase",
-    "macos-notarization": "next-phase",
+    "macos-notarization": "electrun-execution",
     "add-server-keypair-pairing": "ui",
     "fix-local-electron-dmg-build": "ui",
     "reopen-sessions-after-shutdown": "ui",
@@ -108,7 +108,7 @@
     "preserve-chat-selection-during-churn": "ui",
     "fix-gemini-subagent-silent-tool-schema-failure": "ui",
     "fix-and-prefer-model-proxy-resolution": "ui",
-    "add-kb-code-symbol-index": "next-phase",
+    "add-kb-code-symbol-index": "kowledge-base",
     "instrument-event-store-trim": "ui",
     "support-non-git-init-hook": "ui",
     "fix-remote-connect-cors-gates": "ui",
@@ -120,55 +120,44 @@
     "chat-copy-fidelity-intercept": "ui",
     "copy-file-path": "ui",
     "add-goal-session-supervisor": "ui",
-    "add-automatic-session-kb-index": "ui",
-    "add-kb-semantic-annotation-plane": "ui",
+    "add-automatic-session-kb-index": "kowledge-base",
+    "add-kb-semantic-annotation-plane": "kowledge-base",
     "add-modular-doctor-skill": "ui",
-    "memory-retrieval-injection": "ui",
-    "fix-flaky-full-suite-tests": "ui"
+    "memory-retrieval-injection": "kowledge-base",
+    "fix-flaky-full-suite-tests": "ui",
+    "add-lora-dataset-export-skill": "kowledge-base",
+    "fix-ticketed-ws-upgrade-routing": "ui",
+    "harden-kb-index-failure-atomicity": "ui",
+    "distinguish-initialize-actions": "ui",
+    "friendlier-worktree-init": "ui",
+    "fix-list-models-empty-on-unhydrated-registry": "ui",
+    "add-openspec-pipeline-orchestrators": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
-      "add-lora-dataset-export-skill"
+      "sweep-worktree-residual-on-remove",
+      "add-session-tags",
+      "add-change-summary-table",
+      "add-session-uncommitted-indicator-and-commit"
+    ],
+    "kowledge-base": [
+      "add-lora-dataset-export-skill",
+      "add-automatic-session-kb-index",
+      "add-kb-code-symbol-index",
+      "add-kb-semantic-annotation-plane",
+      "memory-retrieval-injection"
     ],
     "ui": [
-      "copy-file-path",
-      "memory-retrieval-injection",
-      "add-modular-doctor-skill",
-      "fix-flaky-full-suite-tests",
-      "add-kb-semantic-annotation-plane",
-      "add-automatic-session-kb-index",
-      "add-goal-session-supervisor"
+      "friendlier-worktree-init",
+      "fix-list-models-empty-on-unhydrated-registry",
+      "add-openspec-pipeline-orchestrators"
     ],
     "next-phase": [
-      "add-kb-code-symbol-index",
       "add-connector-layer",
       "add-end-user-docs",
       "add-hyperframes-skills",
       "external-dashboard-plugins",
-      "macos-notarization",
-      "manage-node-runtime-updates"
-    ],
-    "sdasdasd": [
       "focus-driven-folder-compaction"
-    ],
-    "ui-extensions": [
-      "add-extension-ui-a11y-baseline",
-      "add-extension-ui-action-result-contract",
-      "add-extension-ui-module-lifecycle",
-      "add-extension-ui-rjsf-form",
-      "add-extension-ui-safety-bounds",
-      "pi-flows-adopt-extension-ui"
-    ],
-    "electrun-execution": [
-      "add-bundle-immutable-health-flag",
-      "add-bundle-mode-marker",
-      "add-package-health-cleanup",
-      "electron-platform-extraction",
-      "fix-doctor-bundle-aware-probes",
-      "server-launch-smoke-suite",
-      "windows-authenticode-signing",
-      "retire-rpc-keeper-when-dispatchcommand-available"
-    ],
-    "future": []
+    ]
   }
 }

@@ -1,14 +1,35 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-session-distiller",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.5.4",
   "description": "Offline miner: distill reusable artifacts from pi session JSONL logs",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/session-distiller"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-session",
+    "session-mining",
+    "knowledge-distillation",
+    "pi-dashboard"
+  ],
   "exports": {
     "./*.js": "./src/*.ts",
     "./*": "./src/*"
   },
   "bin": {
     "distill-session-knowledge": "bin/distill.mjs"
-  }
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "NOTICE"
+  ]
 }

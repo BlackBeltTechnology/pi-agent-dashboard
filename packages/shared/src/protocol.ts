@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { DashboardEvent, CommandInfo, FlowInfo, SessionSource, ImageContent, FileEntry, TurnUsage, ContextUsage, ModelInfo, ProviderInfo, PiSessionInfo, OpenSpecPhase, RoleInfo, ExtensionUiModule, DecoratorDescriptor } from "./types.js";
+import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 /**
  * Bridge -> server: mirror of pi's native steering + follow-up queues, forwarded
@@ -233,6 +233,13 @@ export interface GitInfoUpdateMessage {
    * See change: gate-session-worktree-button-on-git.
    */
   isGitRepo?: boolean;
+  /**
+   * Working-tree dirtiness + upstream drift for the session's cwd, gathered
+   * on the same 30 s VCS tick from `git status --porcelain=v2 --branch`.
+   * Absent on older bridges and when the probe is inconclusive.
+   * See change: add-session-uncommitted-indicator-and-commit.
+   */
+  gitStatus?: import("./types.js").GitStatus;
 }
 
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
@@ -577,6 +584,7 @@ export type ExtensionToServerMessage =
   | PiVersionUpdateMessage
   | PluginPiMessage
   | QueueUpdateToServerMessage
+  | GitCommitDraftResultMessage
   | PromptReceivedToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
@@ -909,6 +917,48 @@ export type ServerToExtensionMessage =
   | RemoveFollowupEntryToExtensionMessage
   | PromoteFollowupEntryToExtensionMessage
   | AttachProposalChangedExtensionMessage
-  | PluginEmitEventExtensionMessage;
+  | PluginEmitEventExtensionMessage
+  | GitCommitDraftMessage
+  | SubagentResyncRequestExtensionMessage;
+
+/**
+ * Server → extension: request an AI-drafted commit message. The bridge builds
+ * `git diff HEAD -- <files>`, seeds an ephemeral in-memory fork-subagent with
+ * the live session context, prompts once, and replies with
+ * `git_commit_draft_result` carrying the same `requestId`. The visible
+ * conversation is never appended to. See change:
+ * add-session-uncommitted-indicator-and-commit.
+ */
+export interface GitCommitDraftMessage {
+  type: "git_commit_draft";
+  sessionId: string;
+  /** Correlates the async reply back to the pending HTTP request. */
+  requestId: string;
+  cwd: string;
+  /** Repo-relative files chosen for the commit. */
+  files: string[];
+}
+
+/** Extension → server: the drafted commit message for `requestId`. */
+export interface GitCommitDraftResultMessage {
+  type: "git_commit_draft_result";
+  sessionId: string;
+  requestId: string;
+  message: string;
+  /** Which ladder rung produced the message. */
+  source: "fork-subagent" | "diff-only" | "stub";
+}
+
+/**
+ * Server → extension: forward a browser resync request to the owning bridge.
+ * The bridge replies with the latest retained `AgentDetails` snapshot of the
+ * running subagent as a synthetic `subagent_started` `event_forward`, or no-ops
+ * for an unknown/finished agent. See change: fix-subagent-live-detail-reliability (D2).
+ */
+export interface SubagentResyncRequestExtensionMessage {
+  type: "subagent_resync_request";
+  sessionId: string;
+  agentId: string;
+}
 
 

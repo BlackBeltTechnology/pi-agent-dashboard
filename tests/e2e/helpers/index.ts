@@ -56,9 +56,36 @@ export const TESTIDS = {
   // Polymorphic Initialize on a no-hook folder row → spawns the interactive
   // project-init scaffolder. See change: project-init-skill-and-profiles.
   projectInitBtn: "project-init-btn",
+  // Worktree-init hook feedback surfaces (folder row). See change:
+  // friendlier-worktree-init.
+  worktreeInitBtn: "worktree-init-btn",
+  worktreeInitChip: "worktree-init-chip",
+  worktreeInitError: "worktree-init-error",
+  worktreeInitRetry: "worktree-init-retry",
+  worktreeInitLog: "worktree-init-log",
+  worktreeInitGhost: "worktree-init-ghost",
   // Git branch indicator on a session card — renders once the bridge reports
   // session.gitBranch (proves git status read from the repo). Scenario 5.2.
   gitBranchBtn: "git-branch-btn",
+  // Uncommitted-indicator + commit-from-card (change:
+  // add-session-uncommitted-indicator-and-commit). Pill + drift chips render
+  // on the card `GitInfo` (solo/worktree) or the folder-header `GroupGitInfo`
+  // (grouped 2+). The CommitDialog is placement-agnostic.
+  gitDirtyPill: "git-dirty-pill",
+  gitDirtyCount: "git-dirty-count",
+  gitAhead: "git-ahead",
+  gitBehind: "git-behind",
+  groupCommitBtn: "group-commit-btn",
+  commitDialog: "commit-dialog",
+  commitFileList: "commit-file-list",
+  commitSelectAll: "commit-select-all",
+  commitSubject: "commit-subject",
+  commitBody: "commit-body",
+  commitAiDraft: "commit-ai-draft",
+  commitDraftUnavailable: "commit-draft-unavailable",
+  commitSubmit: "commit-submit",
+  commitCancel: "commit-cancel",
+  commitError: "commit-error",
   // Terminal (scenario 5.4). open-inline-terminal-button lives in the selected
   // session's composer (CommandInput); terminal-card mounts in the chat stream.
   terminalCard: "terminal-card",
@@ -254,4 +281,84 @@ export async function sendPrompt(page: Page, text: string): Promise<void> {
   await composer.fill(text);
   const send = byTestId(page, "sendButton");
   await send.click();
+}
+
+// ── Git working-tree helpers (uncommitted-indicator + commit E2E) ────────────
+// Drive the dashboard's OWN same-origin REST from the page context. The
+// dashboard is localhost-gated (no auth header), so a page-context `fetch`
+// authenticates identically to the app's own calls. Used only to SET UP git
+// state (dirty / read / clean); the pill + dialog + commit are driven through
+// the real UI. See change: add-session-uncommitted-indicator-and-commit.
+
+interface GitStatusShape {
+  dirtyCount: number; staged: number; unstaged: number;
+  untracked: number; ahead: number; behind: number;
+}
+
+// The dashboard's REST envelope is `{ success, data?, error? }` (ApiResponse),
+// carried inside a wrapper with the HTTP status so callers can distinguish an
+// auth/guard rejection from a legit `success:false`.
+async function apiJson<T>(
+  page: Page,
+  path: string,
+  init?: RequestInit,
+): Promise<{ status: number; success?: boolean; data?: T; error?: string }> {
+  return page.evaluate(
+    async ([p, i]) => {
+      const res = await fetch(p as string, (i as RequestInit) ?? undefined);
+      let body: Record<string, unknown> = {};
+      try { body = await res.json(); } catch { /* non-JSON */ }
+      return { status: res.status, ...body };
+    },
+    [path, init] as const,
+  );
+}
+
+/** GET /api/git/status?cwd= — fresh working-tree counts (null on failure). */
+export async function readGitStatus(page: Page, cwd: string): Promise<GitStatusShape | null> {
+  const json = await apiJson<GitStatusShape>(page, `/api/git/status?cwd=${encodeURIComponent(cwd)}`);
+  return json.success && json.data ? json.data : null;
+}
+
+/** GET /api/git/changed-files?cwd= — the picker's file list. */
+export async function readChangedFiles(page: Page, cwd: string): Promise<Array<{ path: string; state: string }>> {
+  const json = await apiJson<Array<{ path: string; state: string }>>(
+    page, `/api/git/changed-files?cwd=${encodeURIComponent(cwd)}`);
+  return json.success && json.data ? json.data : [];
+}
+
+/**
+ * Dirty a tracked markdown file by appending `marker`. Reads the current
+ * content + mtime (`/api/file/md-read`), then writes back with the append
+ * (`/api/file/write`) — the endpoint's optimistic-concurrency contract.
+ * Only markdown targets in scope are writable, so the sample-git fixture
+ * exposes `README.md` + `notes.md`.
+ */
+export async function dirtyMarkdown(page: Page, cwd: string, relPath: string, marker: string): Promise<void> {
+  const read = await apiJson<{ content: string; mtime: number }>(
+    page, `/api/file/md-read?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(relPath)}`);
+  if (!read.success || !read.data) {
+    throw new Error(`md-read failed for ${relPath} (HTTP ${read.status}): ${read.error ?? "unknown"}`);
+  }
+  const body = JSON.stringify({ cwd, path: relPath, content: `${read.data.content}\n${marker}\n`, mtime: read.data.mtime });
+  const write = await apiJson(page, "/api/file/write", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body,
+  });
+  if (!write.success) {
+    throw new Error(`md-write failed for ${relPath} (HTTP ${write.status}): ${write.error ?? "unknown"}`);
+  }
+}
+
+/**
+ * Commit every currently-changed file so the tree returns to CLEAN — spec
+ * isolation (specs share one container + fixture repo). No-op when clean.
+ */
+export async function cleanupCommit(page: Page, cwd: string): Promise<void> {
+  const files = await readChangedFiles(page, cwd);
+  if (files.length === 0) return;
+  await apiJson(page, "/api/git/commit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, message: "test cleanup", files: files.map((f) => f.path) }),
+  });
 }

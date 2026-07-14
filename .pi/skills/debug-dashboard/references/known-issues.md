@@ -46,6 +46,37 @@ pi-dashboard start
 
 `pi-dashboard stop` kills processes holding the port via `lsof`, not just the PID file — so stale PIDs don't block it.
 
+## New session won't start (spawn_register_timeout)
+
+### Symptom — "+ New session" yields a yellow timeout banner, no session card ever renders
+
+`/api/session/spawn` returns success (the RPC keeper launched) but `activeSessions` never increments. **Success from the spawn API means ONLY the keeper launched — it does NOT mean `pi` started.** Two root causes, distinguished by one manual `pi` run.
+
+**Reproduce + isolate:**
+```bash
+# 1. Spawn and poll activeSessions for ~40s
+curl -s -o /tmp/sp.json -X POST http://localhost:8000/api/session/spawn -d '{"cwd":"<repo>"}'
+watch -n2 'curl -s http://localhost:8000/api/health | jq .server.activeSessions'
+
+# 2. Read the keeper log for that spawn (transport id from /tmp/sp.json)
+#    ~/.pi/dashboard/sessions/keeper-<transport>.log
+#    'pi exited code=1 ... elapsed=NNNNms' == pi crashed at startup (extension/config), NOT overload.
+
+# 3. Capture pi's crash reason directly (keeper output-capture is OFF by default):
+NODE=~/.pi-dashboard/node/bin/node
+CLI=node_modules/@earendil-works/pi-coding-agent/dist/cli.js
+( echo '' | timeout 8 "$NODE" "$CLI" --mode rpc ) >/tmp/o 2>/tmp/e; echo exit=$?; head /tmp/e
+```
+
+**Branch on the manual exit code:**
+- **exit=1 + `Failed to load extension`** → an enabled extension is incompatible with the bundled pi. Note the package + the missing module. Check `~/.pi/agent/settings.json` for enabled `npm:<ext>` and `~/.pi/agent/npm/package.json` for the pinned version + install mtime (correlate with when spawns started failing). Fix: pin a known-working version in `~/.pi/agent/npm/package.json`, then `npm install --legacy-peer-deps` (the tree has conflicting peers; plain install fails). Pin EXACTLY (not `^`) so it can't auto-upgrade back to a broken `latest`. Re-run the manual pi check (expect exit=0), then a real dashboard spawn (expect `activeSessions` +1 within ~5s).
+- **exit=0 (no crash)** → it's host overload, not a crash. Count real pi procs, group cwds via `lsof`, check `uptime` load + server RSS via `/api/health`. Look for runaway burst-spawns (many `rpc-keeper/keeper.cjs` under one parent pi pid, started within ~60s). Kill keeper subtrees with SIGTERM (the keeper stops its child; killing only the child triggers a respawn). Optionally raise `spawnRegisterTimeoutMs` (default 30000, clamp 5000–120000) in `~/.pi/dashboard/config.json`.
+
+**Pitfalls:**
+- Killing a pi child PID alone is futile — the RPC keeper respawns it. Kill the keeper parent (`rpc-keeper/keeper.cjs`) instead.
+- UUIDv7 session ids sharing an 8-char prefix (e.g. `019ef4c7-e291` / `019ef4c7-e292`) are DISTINCT sessions spawned ms apart, not duplicates — don't chase a phantom dup bug.
+- The `[dashboard] failed to flip ctx.hasUI` stderr line is a non-fatal bridge warning; pi still exits 0 — not the crash cause.
+
 ## Bridge won't connect
 
 ### Symptom — Bridge connects then immediately disconnects

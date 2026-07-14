@@ -14,16 +14,19 @@ Files in this directory. One row per source file.
 | `BranchListbox.tsx` | Presentational branch list. Splits local/remote with separator. Current-branch `●` marker. Remote badge. → see `BranchListbox.tsx.AGENTS.md` |
 | `BranchPicker.tsx` | Typeahead branch picker with keyboard navigation. Delegates row rendering + keyboard nav to `BranchListbox`. → see `BranchPicker.tsx.AGENTS.md` |
 | `BranchSwitchDialog.tsx` | Modal dialog for git branch switch. Exports `BranchSwitchDialog`. → see `BranchSwitchDialog.tsx.AGENTS.md` |
+| `ChangeSummaryBlock.tsx` | Per-turn change-summary block in chat stream. Collapses to `N files · +X −Y`. Gated on `displayPrefs.changeSummaryTable`. Deltas via `buildTurnSummaries`. See change: add-change-summary-table. |
 | `ChatView.tsx` | `msg.view` rows render as `<PreviewCard target={msg.view}>` (right-aligned, `bubbleMax` width) BEFORE… → see `ChatView.tsx.AGENTS.md` |
 | `ChatViewMenu.tsx` | Discord-style ⚙ View popover mounted in chat toolbar. Edits per-session `displayPrefsOverride` via… → see `ChatViewMenu.tsx.AGENTS.md` |
 | `CloseWorktreeDialog.tsx` | Confirms worktree removal. Handles `active_sessions` guard: shuts listed sessions down then retries with… → see `CloseWorktreeDialog.tsx.AGENTS.md` |
 | `CollapsedToolGroup.tsx` | Renders collapsed group of repeated tool calls. Exports `CollapsedToolGroup`. Expanded view iterates `group.rendered` — `toolResult`→`ToolCallStep`; `thinking`/non-empty `assistant`→inline text (`data-testid=collapsed-group-narration`); empty/separator skipped. Count badge = `group.messages` (toolResult-only). See change: collapse-tool-calls-across-narration. → see `CollapsedToolGroup.tsx.AGENTS.md` |
 | `CommandFeedbackCard.tsx` | Inline card showing slash-command execution feedback. Exports `CommandFeedbackCard`. Status map `started`/`completed`/`error` → icon + color + label. Shows `message` only on `error`. |
 | `CommandInput.tsx` | Chat composer textarea + autocomplete. Exports `CommandInput`, `parseViewCommand`, `shouldWalkFileQuery`,… → see `CommandInput.tsx.AGENTS.md` |
-| `ComposerSessionActions.tsx` | Composer-side session-action strip. Hosts OpenSpec stepper + action buttons + Git groups. Hidden when no session selected. See change: redesign-session-card-and-composer. |
+| `CommitDialog.tsx` | Placement-agnostic commit dialog (`cwd` + `sessionId`). File picker (checkbox + `+/−`, select-all/none), subject+body, AI-draft button (empty draft → "unavailable" note), Commit gated on ≥1 file + subject. Exports `CommitDialog`, `CommitDialogProvider`, `useCommitDialog`. Provider mounts ONE instance at app root; surfaces call `open(cwd, sessionId)`. `onCommitted(shortHash, cwd)` → toast + `refreshGitStatus`. Calls `commitFiles`/`draftCommitMessage`/`fetchChangedFiles` (git-api). See change: add-session-uncommitted-indicator-and-commit. |
+| `ComposerSessionActions.tsx` | Composer-side session-action strip. Hosts OpenSpec artifact chips + action buttons + Git groups. Hidden when no session selected. Gating/slots unchanged; relocated from StatusBar to a context strip ABOVE the composer card (App wiring). See change: redesign-session-card-and-composer, redesign-prompt-input. |
 | `ConnectionStatusBanner.tsx` | Disconnection banner: appears only after active WebSocket has been non-`OPEN` for &gt;3s continuously; hidden… → see `ConnectionStatusBanner.tsx.AGENTS.md` |
 | `ContextUsageBar.tsx` | Progress bar showing context-window usage. Exports `ContextUsageBar`. → see `ContextUsageBar.tsx.AGENTS.md` |
 | `CopyButton.tsx` | Clipboard copy button with copied-state check icon. Exports `CopyButton`. Calls `navigator.clipboard.writeText`; resets state after 1500ms. Fails silently when Clipboard API unavailable. |
+| `CountBadges.tsx` | Shared `+adds −dels` count badges. See change: add-change-summary-table. |
 | `CwdGonePill.tsx` | Red `cwd gone` pill next to `WorktreePill` when `session.cwdMissing`. See change: add-worktree-lifecycle-actions. |
 | `DashboardSpawnButtons.tsx` | Sidebar spawn-button stack. Exports `DashboardSpawnButtons`. → see `DashboardSpawnButtons.tsx.AGENTS.md` |
 | `DiagnosticsSection.tsx` | Settings → Diagnostics. Fetches `/api/doctor`. Groups by section in fixed order, omits empty sections (no n/a… → see `DiagnosticsSection.tsx.AGENTS.md` |
@@ -47,6 +50,7 @@ Files in this directory. One row per source file.
 | `FolderSpawnButtons.tsx` | Stacked spawn buttons in folder header: `+ New Session` (green, always) + `+ New Worktree` (orange, gated by `showWorktree`). Min-height 44px on mobile. Exports `FolderSpawnButtons`. |
 | `Gateway/` | Reusable Gateway (tunnel-providers) UI sections + hosts (dialog + settings page). → see `Gateway/AGENTS.md`. See change: add-tunnel-providers. |
 | `FrontmatterProperties.tsx` | Obsidian-style YAML frontmatter Properties panel. Exports `extractFrontmatter` (leading `---` block parser),… → see `FrontmatterProperties.tsx.AGENTS.md` |
+| `GitDirtyPill.tsx` | Shared dirty/drift indicator on both git surfaces (`GitInfo` card, `GroupGitInfo` header). `● N` amber pill = uncommitted files; `↑A`/`↓B` chips when non-zero. Whole pill is a button → opens commit dialog. Hidden when clean + in sync AND when `status` absent. Exports `GitDirtyPill`. See change: add-session-uncommitted-indicator-and-commit. |
 | `GroupedAttachDialog.tsx` | Grouped attach dialog with pill filters + collapsible sections for OpenSpec change selection. See change: add-openspec-change-grouping. |
 | `ImageLightbox.tsx` | Portal full-screen image overlay with `useZoomPan` (wheel/pointer/touch zoom+pan, 0.25–10x). Closes on Escape + backdrop click via document listeners. Exports `ImageLightbox`. |
 | `ImagePreviewStrip.tsx` | Pasted-image thumbnail grid + error banner shared by `CommandInput` and `ExploreDialog`. → see `ImagePreviewStrip.tsx.AGENTS.md` |
@@ -121,6 +125,7 @@ Files in this directory. One row per source file.
 | `SessionActivityBar.tsx` | Pure component. Renders one row per unresolved `bash` toolCall: `⏵ <command> <elapsed> [⏹]`. → see `SessionActivityBar.tsx.AGENTS.md` |
 | `SessionBanner.tsx` | Composed session-status banner. Error anchor (red) + retry sub-line (amber) in one surface, driven by… → see `SessionBanner.tsx.AGENTS.md` |
 | `SessionCard.tsx` | Gates both `<ContextUsageBar>` mounts on `useDisplayPrefs(session.id).contextUsageBar` → see `SessionCard.tsx.AGENTS.md` |
+| `SessionDiffContext.tsx` | `SessionDiffProvider` — one `useSessionDiff` per session, shared by rail/diff-tab/takeover; refreshes on edit signal. See change: add-change-summary-table. |
 | `SessionHeader.tsx` | Session chat header (desktop + mobile). Renders name/rename (`InlineRenameInput`), model, thinking level, pi… → see `SessionHeader.tsx.AGENTS.md` |
 | `SessionList.tsx` | Main sidebar session list. DnD-ordered (`@dnd-kit`) pinned/unpinned + workspace tiers, folder grouping,… → see `SessionList.tsx.AGENTS.md` |
 | `SessionOpenSpecActions.tsx` | OpenSpec action panel for a session (attach/detach, New/Propose/Explore, Continue/FF/Apply/Verify/Archive,… → see `SessionOpenSpecActions.tsx.AGENTS.md` |
@@ -141,7 +146,7 @@ Files in this directory. One row per source file.
 | `SplitWorkspace.tsx` | Pure layout. Chat slot alone when closed; chat+divider+editor when open. Horizontal desktop / vertical stack mobile. Flex-grow from ratio. See change: split-editor-workspace. |
 | `SplitWorkspaceContext.tsx` | Per-session provider. Lifts `useSplitState`+`useEditorPaneState`. → see `SplitWorkspaceContext.tsx.AGENTS.md` |
 | `StatePill.tsx` | Color-coded OpenSpec ChangeState pill (`PLANNING`=zinc, `READY`=blue, `IMPLEMENTING`=amber, `COMPLETE`=green)… → see `StatePill.tsx.AGENTS.md` |
-| `StatusBar.tsx` | Forwards favorites + onToggleFavorite props to ModelSelector → see `StatusBar.tsx.AGENTS.md` |
+| `StatusBar.tsx` | Working-status label ONLY; null when idle. Model row retired; model/thinking moved to composer toolbar → see `StatusBar.tsx.AGENTS.md`. See change: redesign-prompt-input. |
 | `TasksPopover.tsx` | Modal popover listing parseable tasks from an attached change's `tasks.md`, grouped by heading, native… → see `TasksPopover.tsx.AGENTS.md` |
 | `TerminalCard.tsx` | Sidebar terminal card. Cyan border, console icon, name (`InlineRenameInput` rename), relative age,… → see `TerminalCard.tsx.AGENTS.md` |
 | `TerminalsView.tsx` | Tabbed terminal content area for a cwd. Filters ephemeral terminals. → see `TerminalsView.tsx.AGENTS.md` |
@@ -162,7 +167,9 @@ Files in this directory. One row per source file.
 | `WhatsNewPackageRow.tsx` | Exports `WhatsNewPackageRow` + `WhatsNewPackageRowProps`. → see `WhatsNewPackageRow.tsx.AGENTS.md` |
 | `WorkspaceHeader.tsx` | Exports `WorkspaceHeader`. Header row for workspace container: name (double-click → `InlineRenameInput`),… → see `WorkspaceHeader.tsx.AGENTS.md` |
 | `WorktreeActionsMenu.tsx` | Exports `WorktreeActionsMenu` + `__resetGhAvailableCache`. → see `WorktreeActionsMenu.tsx.AGENTS.md` |
-| `WorktreeInitButton.tsx` | Hook-run-only amber Initialize button per directory/worktree row. Accepts shared `status`/`onStatusChange` (row-owned probe) or self-probes standalone. → see `WorktreeInitButton.tsx.AGENTS.md` |
+| `WorktreeInitButton.tsx` | Hook-run-only Initialize control per directory/worktree row. Accepts shared `status`/`onStatusChange` (row-owned probe) or self-probes standalone. friendlier-worktree-init: store-driven — reads `useInitRun(cwd)`, renders `WorktreeInitChip` (running/done/failed) instead of raw `<pre>`; labels "Review & trust changes" when `needsInit:false && trusted:false` (hook edited); subscribes by cwd. See change: friendlier-worktree-init. → see `WorktreeInitButton.tsx.AGENTS.md` |
+| `WorktreeInitChip.tsx` | Presentational worktree-init status chip (variant A/D1). running → `⚙ Initializing… · {elapsed}` + slim indeterminate bar + ghost lastLine + collapsed `<details>` log; done → green `✓ Initialized`; failed → red `✕ {label} · {code}` + Retry + opt-in log (sticky). `variant` manual/auto. Reused by button, session-card sub-state, stack. See change: friendlier-worktree-init. |
+| `WorktreeInitStack.tsx` | Concurrent-init corner surface (variant E2). Reads `useAllInitRuns()`; renders only for ≥ 2 runs. Summary header + ≤ 4 rows (`+N more`) per cwd; failed row holds it open with Dismiss (`initStore.dismiss`). See change: friendlier-worktree-init. |
 | `WorktreeSpawnDialog.tsx` | Fullscreen `+Worktree` dialog. Lists existing worktrees (one-click `Spawn →`) + create-new form (base picker,… → see `WorktreeSpawnDialog.tsx.AGENTS.md` |
 | `ZoomControls.tsx` | Re-export shim. Re-exports `ZoomControls` from `@blackbelt-technology/pi-dashboard-client-utils/ZoomControls`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
 | `ZrokInstallGuide.tsx` | Exports `ZrokInstallGuide`. Tunnel setup install guide. `useServerOs` fetches `/api/tunnel-status` for… → see `ZrokInstallGuide.tsx.AGENTS.md` |

@@ -36,6 +36,13 @@ export interface BridgeContext {
    * See change: add-worktree-spawn-dialog.
    */
   lastGitWorktreeJson: string | undefined;
+  /**
+   * Last serialized `GitStatus` snapshot sent via `git_info_update`, or
+   * `undefined` when nothing sent yet. Compared each VCS tick so the
+   * dirty/drift counts re-broadcast only on change.
+   * See change: add-session-uncommitted-indicator-and-commit.
+   */
+  lastGitStatusJson: string | undefined;
   lastSessionName: string | undefined;
   /**
    * `true` once the bridge's VCS tick has observed `existsSync(cwd) === false`

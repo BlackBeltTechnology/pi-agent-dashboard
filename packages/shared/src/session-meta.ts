@@ -16,6 +16,14 @@ export interface SessionMeta {
   attachedProposal?: string | null;
   hidden?: boolean;
 
+  /**
+   * User-owned, free-form tags for classifying a session. Normalized on write
+   * (trim/lowercase/dedupe/cap — see `normalizeTags`). Absent field reads as
+   * untagged. Bridges SHALL NOT send this — it is dashboard-owned.
+   * See change: add-session-tags.
+   */
+  tags?: string[];
+
   // Cached identity & state (from .jsonl header / bridge)
   cwd?: string;
   status?: string;

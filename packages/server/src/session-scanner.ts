@@ -84,6 +84,9 @@ function sessionFromMeta(
     sessionFile,
     sessionDir,
     hidden: meta.hidden ?? false,
+    // Restore user-owned tags so a tagged session stays tagged across restarts.
+    // See change: add-session-tags.
+    tags: meta.tags,
     firstMessage: meta.firstMessage,
     attachedProposal: meta.attachedProposal,
     displayPrefsOverride: meta.displayPrefsOverride,

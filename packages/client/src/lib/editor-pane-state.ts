@@ -137,7 +137,7 @@ function keyFor(sessionId: string): string {
 }
 
 const VALID_VIEWERS: ReadonlySet<string> = new Set([
-  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "binary-warn",
+  "monaco", "image", "pdf", "markdown", "html", "mermaid", "video", "audio", "live-server", "diff", "binary-warn",
 ]);
 
 /** True only for well-formed persisted state; rejects corrupt/partial blobs. */

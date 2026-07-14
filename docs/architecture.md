@@ -760,6 +760,19 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 2. `gatherGitInfo`: emits `git_info_update` only when branch/PR change.
 3. Server forwards update via `session_updated` to subscribed browsers.
 
+### Working-tree status + commit from card
+1. Bridge gathers working-tree status on the SAME 30s VCS tick — no new polling loop. `gatherGitStatus(cwd)` runs `git status --porcelain=v2 --branch`, shared `parseGitStatusV2` parses into `GitStatus { dirtyCount, staged, unstaged, untracked, ahead, behind }`.
+2. `sendGitInfoIfChanged` includes `gitStatus` in `git_info_update`; deduped via `lastGitStatusJson`. Inconclusive probe omits `gitStatus`, leaves last value.
+3. Server `event-wiring.ts` merges `gitStatus` from `git_info_update` onto session, broadcasts `session_updated`.
+4. Hybrid delivery, keyed by cwd (not session): passive broadcast above PLUS on-demand `GET /api/git/status?cwd=` (`getGitStatus`, reuses `parseGitStatusV2`) on card/folder focus + right after commit. Client `git-status-cache.ts` (`useGitStatus(cwd, fallback)`) keys by cwd — folder header + solo card at same path share one entry.
+5. Commit: `POST /api/git/commit { cwd, message, files[] }` → `commitFiles` stages selected paths with argv (`git add -- <files>`, NO shell), commits via `git commit -F -` reading message from STDIN (injection-proof; multi-line body verbatim). Every path `assertPathsInside(cwd)`-guarded; errors carry stable codes via `GitCommitError`. On success route broadcasts fresh `gitStatus` to every session sharing cwd.
+6. `GET /api/git/changed-files?cwd=` feeds commit dialog picker (porcelain-v2 + `--numstat`).
+7. AI-drafted message: `POST /api/git/commit-draft { cwd, files, sessionId }` → `commit-draft-relay.ts` sends `git_commit_draft { requestId }` to owning bridge, awaits `git_commit_draft_result`. Bridge (`commit-draft.ts` ladder + `commit-draft-agent.ts`) seeds ephemeral in-memory `AgentSession` (`SessionManager.inMemory`, `tools:[]`) with live session context + staged diff, prompts once, captures assistant text, disposes it — visible conversation gets NO new turn. Fallback ladder: fork-subagent (full context) → diff-only one-shot → deterministic stub; timeout at each rung so dialog never hangs.
+8. UI: shared `GitDirtyPill` (`● N` amber pill + `↑A ↓B` chips; hidden when clean and in sync) mounts on per-card `GitInfo` and folder-header `GroupGitInfo`; never duplicated on suppressed child cards in a group. Pill is button opening placement-agnostic `CommitDialog` (`CommitDialogProvider`/`useCommitDialog`, one instance at app root). Post-commit toast `Committed <shortHash>`.
+9. Grouped same-cwd sessions: one working tree = one commit; commit action offered at folder level, not per card.
+
+See change: add-session-uncommitted-indicator-and-commit.
+
 ### Git Polling (legacy entry, see VCS Polling above)
 1. Bridge polls git info every 30s (`vcs-info.ts`): branch, remote URL, PR number
 2. Changes are sent to the server only when values differ from last poll
@@ -953,7 +966,13 @@ The dashboard provides a GitHub-style file diff viewer for sessions. It shows wh
 
 **UI**: Split-pane content-area view (replaces ChatView when active). Left panel shows a two-level file tree — files with status indicators, expandable to show individual change events with timestamps and assistant message context. Right panel renders diffs via `@git-diff-view/react` with `@git-diff-view/lowlight` syntax highlighting. Supports split/unified diff modes and a file content view toggle.
 
-**Entry point**: "Changed Files" button in SessionHeader (only visible when Write/Edit tool events exist). Works for both active and ended sessions.
+**Numstat counts**: session-diff payload carries optional per-file `additions`/`deletions` + top-level `totalAdditions`/`totalDeletions` from `git diff --numstat --relative HEAD`. Absent for non-git or binary files. `DiffFileTree` shows per-file `+adds −dels` + aggregate `summed` header. See change: add-change-summary-table.
+
+**Per-turn change-summary block**: deterministic (no LLM). `ChangeSummaryBlock` renders in chat stream per turn, client-derived from Edit/Write events via `buildTurnSummaries` (`lib/lineDelta.ts`, jsdiff `structuredPatch`). Default expanded; collapses to `N files · +X −Y`. Gated on `displayPrefs.changeSummaryTable` (simple off; standard/everything on). See change: add-change-summary-table.
+
+**Changes rail + diff tab**: Changed Files integrate as a Changes section atop the editor-pane rail (`ChangesRailSection`). Per-file diff opens as a `diff` viewer tab (`DiffViewer`, virtual `diff:<relPath>` path). `SessionDiffProvider` shares one fetch across rail, diff-tab, and takeover. See change: add-change-summary-table.
+
+**Entry point**: SessionHeader `ChangedFilesChip` calls `openChanges()` (Changes rail); only visible when Write/Edit tool events exist. `/session/:id/diff` takeover retained as fallback. Works for both active and ended sessions.
 
 ### Internal Monaco editor pane (v1 read-only)
 
@@ -982,6 +1001,8 @@ v2–v4 follow-on (pin-to-split, create-file, edit-with-conflicts) deferred to s
 Content search: `GET /api/grep` → `rg` preferred, bounded JS fallback. Filename search: bridge `list_files` walk (`.gitignore`-aware, softened budget).
 
 Changed-on-disk: browser `watch_files` (open files only) → `file-watch-manager` `fs.watch` → `file_changed` broadcast → per-tab banner (Refresh, no auto-reload). Torn down on disconnect.
+
+Rail = vertical stack: `ChangesRailSection` (Changes) above the project tree. `openChanges()` reveals it (`changesRevealSignal`); `openDiffTab()` opens a `diff:` viewer tab. See change: add-change-summary-table.
 
 ### Directory Settings + scoped markdown editing
 

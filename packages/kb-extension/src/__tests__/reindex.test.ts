@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 import { indexSource } from "@blackbelt-technology/pi-dashboard-kb";
+import { existsSync } from "node:fs";
 import {
   createReindexState, reindexNow, decideNudge, nudgeText, acknowledgeRows, getKb, closeKb,
+  closeKbForCwd,
 } from "../reindex.js";
 
 // Build a temp project with a KB config so reindex logic can open a real store.
@@ -64,6 +66,68 @@ describe("reindex Job 1: edit .md → index reflects change", () => {
     expect(a.chunks).toBeGreaterThan(0);
     closeKb(state);
     rmSync(big, { recursive: true, force: true });
+  });
+});
+
+describe("cwd removal: kb store does not resurrect the directory (husk regression)", () => {
+  // Reproduces the confirmed husk mechanism: a live kb store holds
+  // `<cwd>/.pi/dashboard/kb/index.db` open; the worktree dir is deleted
+  // (git worktree remove); the next reindex tick's `mkdirSync` in the store
+  // constructor RE-CREATES the dir by path → orphan husk. See change:
+  // sweep-worktree-residual-on-remove.
+
+  it("reindexNow after cwd removal is a no-op and never recreates the dir", async () => {
+    const dir = setupProject();
+    const state = createReindexState();
+    await reindexNow(state, dir); // cold index — opens + caches the store
+
+    // Simulate `git worktree remove`: the entire worktree dir vanishes.
+    rmSync(dir, { recursive: true, force: true });
+    expect(existsSync(dir)).toBe(false);
+
+    // Force a cache-MISS so the next tick would construct a fresh store — this
+    // is the resurrection vector: `new SqliteFtsStore` does mkdirSync(recursive)
+    // and recreates `<cwd>/.pi/dashboard/kb` by path.
+    state.kb.get(dir)?.store.close();
+    state.kb.delete(dir);
+
+    // A subsequent reindex tick MUST NOT recreate the directory.
+    const result = await reindexNow(state, dir);
+    expect(result).toEqual({ changed: 0, chunks: 0 });
+    expect(existsSync(dir)).toBe(false); // husk NOT resurrected
+    expect(state.kb.has(dir)).toBe(false); // no fresh store cached
+    closeKb(state);
+  });
+
+  it("getKb on a removed cwd (cache miss) refuses to recreate the dir", async () => {
+    const dir = setupProject();
+    const state = createReindexState();
+    await reindexNow(state, dir);
+    state.kb.get(dir)?.store.close();
+    state.kb.delete(dir);
+    rmSync(dir, { recursive: true, force: true });
+
+    expect(() => getKb(state, dir)).toThrow(/removed|cwd/i);
+    expect(existsSync(dir)).toBe(false);
+    closeKb(state);
+  });
+
+  it("closeKbForCwd evicts only the target cwd, leaving others open", async () => {
+    const a = setupProject();
+    const b = setupProject();
+    const state = createReindexState();
+    await reindexNow(state, a);
+    await reindexNow(state, b);
+    expect(state.kb.has(a)).toBe(true);
+    expect(state.kb.has(b)).toBe(true);
+
+    closeKbForCwd(state, a);
+    expect(state.kb.has(a)).toBe(false);
+    expect(state.kb.has(b)).toBe(true);
+
+    closeKb(state);
+    rmSync(a, { recursive: true, force: true });
+    rmSync(b, { recursive: true, force: true });
   });
 });
 

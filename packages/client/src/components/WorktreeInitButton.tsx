@@ -1,29 +1,31 @@
 /**
- * "Initialize" button for a directory / worktree row — hook-run only.
+ * "Initialize" control for a directory / worktree row — hook-run only.
  *
  * Probes `GET /api/git/worktree/init-status` (or consumes the row's shared
- * probe) for `cwd` and renders an Initialize button iff the row declares a
- * hook AND its gate reports
- * `needsInit`. Clicking runs the hook via `POST /api/git/worktree/init`:
- *   - untrusted hook → trust-confirm dialog naming the gate + run; on
- *     confirm, re-issues with `confirmHash`.
- *   - progress streams to a live tail (via the worktree-init bus).
- *   - failure renders a spawn-error-style card (code + stderr/log tail).
- *   - success re-fetches init-status; the gate flips and the button
- *     disappears.
+ * probe) and renders a control when the row declares a hook AND either the gate
+ * reports `needsInit` OR the hook is untrusted. The control labels itself by
+ * reason (folder-action-bar spec):
+ *   - `needsInit === true`                    → "Initialize"
+ *   - `needsInit === false && trusted === false` → "Review & trust changes"
+ *     (the hook was edited after last trust; granting trust clears the control
+ *     without running an init when the gate is already satisfied)
  *
- * Fail-open: any probe error hides the button.
+ * Execution feedback comes from the cwd-keyed `worktree-init-store` (shared with
+ * auto-on-spawn + refresh): a friendly `WorktreeInitChip` (status + elapsed +
+ * ghost last-line + opt-in log) replaces the old raw `<pre>` wall. Failure is
+ * sticky + retryable; success flashes then collapses via the store.
  *
- * The no-hook scaffold branch lives in `ProjectInitButton` now; this button is
- * strictly the amber, repo-code-executing hook runner.
+ * Untrusted hooks first show a trust-confirm dialog; on confirm the run
+ * re-issues with `confirmHash`. Fail-open: any probe error hides the control.
  *
- * See change: generalize-worktree-init-hook, distinguish-initialize-actions.
+ * See change: generalize-worktree-init-hook, distinguish-initialize-actions,
+ * friendlier-worktree-init.
  */
 
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
-import { mdiAlertCircleOutline, mdiCogPlayOutline } from "@mdi/js";
+import { mdiCogPlayOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchWorktreeInitStatus,
   runWorktreeInit,
@@ -31,12 +33,8 @@ import {
   type WorktreeInitStatus,
 } from "../lib/git-api.js";
 import { t as i18nT } from "../lib/i18n";
-import { subscribeInit, type WorktreeInitEvent } from "../lib/worktree-init-bus.js";
-
-let reqCounter = 0;
-function mintRequestId(): string {
-  return `winit-${Date.now()}-${reqCounter++}`;
-}
+import { initStore, useInitRun } from "../lib/worktree-init-store.js";
+import { WorktreeInitChip } from "./WorktreeInitChip.js";
 
 function describeRun(hook: WorktreeInitHook): string {
   return hook.run.type === "script"
@@ -62,11 +60,8 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
   // The row owns the probe when it passes a `status` prop (even `null`).
   const rowOwnsProbe = externalStatus !== undefined;
   const status = rowOwnsProbe ? externalStatus : internalStatus;
-  const [phase, setPhase] = useState<"idle" | "running" | "failed">("idle");
-  const [tail, setTail] = useState("");
-  const [error, setError] = useState<{ code: string; message: string; stderr?: string } | null>(null);
   const [confirm, setConfirm] = useState<{ hook: WorktreeInitHook; hash: string } | null>(null);
-  const reqRef = useRef<string | null>(null);
+  const run = useInitRun(cwd);
 
   const refetch = useCallback(() => {
     if (onStatusChange) { onStatusChange(); return Promise.resolve(); }
@@ -81,94 +76,66 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
     return () => { alive = false; };
   }, [cwd, rowOwnsProbe]);
 
-  // Stream progress while a run is in flight.
+  // When a run reaches `done`, re-probe so the gate flips and the control hides.
+  const wasDone = useRef(false);
   useEffect(() => {
-    if (phase !== "running" || !reqRef.current) return;
-    const unsub = subscribeInit(reqRef.current, (ev: WorktreeInitEvent) => {
-      if (ev.type === "worktree_init_progress") {
-        setTail(ev.line);
-      } else if (ev.type === "worktree_init_done") {
-        setPhase("idle");
-        setTail("");
-        void refetch();
-      } else if (ev.type === "worktree_init_failed") {
-        setPhase("failed");
-        setError({ code: ev.code, message: ev.message, stderr: ev.stderr });
-      }
-    });
-    return unsub;
-  }, [phase, refetch]);
+    if (run?.phase === "done" && !wasDone.current) { wasDone.current = true; void refetch(); }
+    if (!run || run.phase === "running") wasDone.current = false;
+  }, [run, refetch]);
 
   const doRun = useCallback(async (confirmHash?: string) => {
-    const requestId = mintRequestId();
-    reqRef.current = requestId;
-    setError(null);
-    setTail("");
-    setPhase("running");
+    initStore.startRun(cwd);
     try {
-      const res = await runWorktreeInit({ cwd, requestId, confirmHash });
+      const res = await runWorktreeInit({ cwd, confirmHash });
       if (res.ok) {
-        setPhase("idle");
-        void refetch();
+        // ran:false (already_initialized / no_hook) has no ws terminal event —
+        // resolve the optimistic run here; a real run's done arrives via ws.
+        if (!res.ran) { initStore.dismiss(cwd); void refetch(); }
+        else initStore.markDone(cwd);
       } else if (res.untrusted) {
-        // Hold until the user confirms; pause the running phase.
-        setPhase("idle");
+        initStore.dismiss(cwd);
         setConfirm({ hook: res.hook, hash: res.hash });
       } else {
-        setPhase("failed");
-        setError({ code: res.code, message: res.error, stderr: res.stderr });
+        initStore.markFailed(cwd, res.code, res.error, res.stderr);
       }
     } catch (err) {
-      // Network / JSON failure — surface it instead of staying stuck "running".
-      setPhase("failed");
-      setError({ code: "network_failure", message: err instanceof Error ? err.message : "init failed" });
+      initStore.markFailed(cwd, "network_failure", err instanceof Error ? err.message : "init failed");
     }
   }, [cwd, refetch]);
 
-  // Show when init is needed, OR when a hook exists but isn't trusted yet (the
-  // gate hasn't run server-side, so `needsInit` is unknown until the user
-  // confirms trust). See change: generalize-worktree-init-hook (#10).
+  // Show when init is needed, OR when a hook exists but isn't trusted yet.
   const showButton = !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
+  // Re-trust label: hook edited (trusted:false) but gate already satisfied.
+  const reTrust = !!status && status.hasHook === true && status.trusted === false && status.needsInit === false;
+  const label = reTrust ? "Review & trust changes" : "Initialize";
 
-  if (!showButton && phase !== "failed" && phase !== "running") return null;
+  // Live run feedback takes over the row while a run is in flight / terminal.
+  if (run) {
+    return (
+      <WorktreeInitChip
+        run={run}
+        variant="manual"
+        onRetry={run.phase === "failed" ? () => { void doRun(); } : undefined}
+      />
+    );
+  }
+
+  if (!showButton) return null;
 
   return (
     <div className="inline-flex flex-col gap-1">
       <button
+        type="button"
         onClick={(e) => { e.stopPropagation(); void doRun(); }}
-        disabled={phase === "running"}
         data-testid="worktree-init-btn"
-        className={`text-[10px] px-1.5 py-0.5 rounded border ${
-          phase === "running"
-            ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-60 cursor-not-allowed"
-            : "text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
-        }`}
+        className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
         title={i18nT("auto.initialize_this_checkout_run_its_declared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCogPlayOutline} size={0.5} />
-          {phase === "running" ? "Initializing…" : "Initialize"}
+          {label}
         </span>
       </button>
-
-      {phase === "running" && tail && (
-        <pre
-          data-testid="worktree-init-tail"
-          className="text-[10px] whitespace-pre-wrap bg-[var(--bg-tertiary)] p-2 rounded border border-[var(--border-subtle)] max-h-40 overflow-auto font-mono"
-        >{tail}</pre>
-      )}
-
-      {phase === "failed" && error && (
-        <div className="text-[11px]" data-testid="worktree-init-error">
-          <div className="text-red-300 inline-flex items-center gap-1">
-            <Icon path={mdiAlertCircleOutline} size={0.5} />
-            <span className="font-mono">{error.code}</span>: {error.message}
-          </div>
-          {error.stderr && (
-            <pre className="mt-1 text-[10px] whitespace-pre-wrap bg-[var(--bg-tertiary)] p-2 rounded border border-[var(--border-subtle)] max-h-32 overflow-auto">{error.stderr}</pre>
-          )}
-        </div>
-      )}
 
       {confirm && (
         <Confirm

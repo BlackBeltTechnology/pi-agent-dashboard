@@ -31,8 +31,8 @@
 // URL from being inserted as text into the textarea.
 // ---------------------------------------------------------------------------
 
-import { useCallback, useState } from "react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useCallback, useState } from "react";
 
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB base64
 export const SUPPORTED_IMAGE_TYPES = new Set([
@@ -60,6 +60,12 @@ export interface UseImagePasteResult {
 	removeImage: (index: number) => void;
 	/** Clear everything — call after a successful send. */
 	clearImages: () => void;
+	/**
+	 * Ingest image files chosen from a file picker (the `＋` attach-image
+	 * entry). Shares the exact validation + append path as `handlePaste`.
+	 * See change: redesign-prompt-input.
+	 */
+	addFiles: (files: FileList | File[]) => void;
 }
 
 export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult {
@@ -90,6 +96,33 @@ export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult 
 		[isControlled, opts],
 	);
 
+	// Shared ingest path for a single image blob — used by paste AND the
+	// file-picker `addFiles`. Validates MIME + size, then appends.
+	const ingestBlob = useCallback((blob: Blob, mimeType: string) => {
+		if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
+			setImageError(`Unsupported image type: ${mimeType}. Use JPEG, PNG, GIF, or WebP.`);
+			setTimeout(() => setImageError(null), 3000);
+			return;
+		}
+		const reader = new FileReader();
+		reader.onload = () => {
+			const dataUrl = reader.result as string;
+			const base64 = dataUrl.split(",")[1];
+			if (!base64) return;
+			if (base64.length > MAX_IMAGE_SIZE) {
+				setImageError("Image too large (max 10MB)");
+				setTimeout(() => setImageError(null), 3000);
+				return;
+			}
+			writeImages((prev) => [...prev, { type: "image", data: base64, mimeType }]);
+		};
+		reader.onerror = () => {
+			setImageError("Failed to read image");
+			setTimeout(() => setImageError(null), 3000);
+		};
+		reader.readAsDataURL(blob);
+	}, [writeImages]);
+
 	const handlePaste = useCallback((e: React.ClipboardEvent) => {
 		const items = e.clipboardData.items;
 		for (const item of items) {
@@ -99,33 +132,22 @@ export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult 
 			// Capture mimeType eagerly — DataTransferItem may become invalid
 			// after the event handler returns.
 			const mimeType = item.type;
+			const blob = item.getAsFile();
+			if (!blob) continue;
+			ingestBlob(blob, mimeType);
+		}
+	}, [ingestBlob]);
 
-			if (!SUPPORTED_IMAGE_TYPES.has(mimeType)) {
-				setImageError(`Unsupported image type: ${mimeType}. Use JPEG, PNG, GIF, or WebP.`);
+	const addFiles = useCallback((files: FileList | File[]) => {
+		for (const file of Array.from(files)) {
+			if (!file.type.startsWith("image/")) {
+				setImageError(`Unsupported image type: ${file.type || "unknown"}. Use JPEG, PNG, GIF, or WebP.`);
 				setTimeout(() => setImageError(null), 3000);
 				continue;
 			}
-
-			const blob = item.getAsFile();
-			if (!blob) continue;
-
-			const reader = new FileReader();
-			reader.onload = () => {
-				const dataUrl = reader.result as string;
-				const base64 = dataUrl.split(",")[1];
-				if (!base64) return;
-
-				if (base64.length > MAX_IMAGE_SIZE) {
-					setImageError("Image too large (max 10MB)");
-					setTimeout(() => setImageError(null), 3000);
-					return;
-				}
-
-				writeImages((prev) => [...prev, { type: "image", data: base64, mimeType }]);
-			};
-			reader.readAsDataURL(blob);
+			ingestBlob(file, file.type);
 		}
-	}, [writeImages]);
+	}, [ingestBlob]);
 
 	const removeImage = useCallback((index: number) => {
 		writeImages((prev) => prev.filter((_, i) => i !== index));
@@ -136,5 +158,5 @@ export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult 
 		setImageError(null);
 	}, [writeImages]);
 
-	return { pendingImages, imageError, handlePaste, removeImage, clearImages };
+	return { pendingImages, imageError, handlePaste, removeImage, clearImages, addFiles };
 }

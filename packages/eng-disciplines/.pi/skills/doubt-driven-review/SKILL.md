@@ -123,39 +123,37 @@ After the single-model review in Step 3 above, but before RECONCILE, pause and a
 
 This question is mandatory in every interactive doubt cycle — even on artifacts that feel low-stakes. The user — not the agent — decides whether the cost is worth it. The agent's job is to surface the choice.
 
-**Preferred path in Pi: spawn a subagent with a cross-model override.** Pi's `Agent` tool takes a `model` param (`"@role"`, `"provider/model-id"`, or a bare id). Spawn a fresh-context reviewer on a *different-architecture* model than the author (a colder model, or `"@role"` if a role alias points at one). This is cleaner than a CLI: no shell-escaping hazard (ARTIFACT passes as a prompt string, never through a shell), isolated context by construction, and the subagent can open repo files to verify the author's code claims.
+**Preferred path in Pi: spawn a subagent on a `@propose-review-N` role.** Pi's `Agent` tool takes a `model` param. Use a **role ref** (`@propose-review-1`, `@propose-review-2`, … `@propose-review-x`) — NOT a raw `provider/model-id`. Role refs resolve through the supported `model:resolve` handler and inherit the parent session's live registry, so a curated reviewer (including a custom-provider model) actually spawns. A raw `provider/model-id` bypasses that path; for a custom provider the child can build a registry that lacks the provider → **empty output** (the exact failure this role series exists to avoid). A subagent is cleaner than a CLI regardless: no shell-escaping hazard (ARTIFACT passes as a prompt string, never through a shell), isolated context by construction, and the subagent can open repo files to verify the author's code claims.
 
 ```
 Agent(
   subagent_type: "Explore",           # or any read-capable label
-  model: "<provider/model-id>",        # the cross-model override
+  model: "@propose-review-1",                  # a curated cross-model reviewer role
   description: "Cross-model adversarial review",
   prompt: "<adversarial prompt> + ARTIFACT + CONTRACT"   # NO CLAIM, NO reasoning
 )
 ```
 
-**Choosing the reviewer model — from the *accessible* set, not a guess.** "Accessible" means credentialed and SDK-reachable right now, not merely named in config. Do not hand-pick a `provider/model-id` from memory or from `~/.pi/agent/providers.json#roles` — a role alias may not be SDK-invocable and the subagent returns empty output. Instead, enumerate what is actually reachable, then pick from that list:
+**Choosing the reviewer — walk the `@propose-review-N` role series.** The operator pre-configures a numbered series of reviewer roles (`propose-review-1`, `propose-review-2`, … `propose-review-x` in `~/.pi/agent/providers.json#roles`, editable via the `update_roles` tool or the dashboard Roles panel), each pointing at a **different-architecture** model than the author and verified reachable. Order matters: put cross-model reviewers first and any same-family-as-usual-author model (e.g. an Anthropic model when the author is typically Claude) **last**, so it only fires as the final fallback. The skill does not hand-pick or fuzzy-match a catalogue — it walks the series in order:
 
-1. **Enumerate the accessible catalogue** (first source that answers wins):
-   - Dashboard REST: `GET /api/models` (reachable-filtered) — or `GET /v1/models` with a `pi-proxy-...` Bearer key. Rows are already credential-filtered (`getAvailable()`), so every id returned is by definition accessible.
-   - pi CLI: `pi --list-models [search]`.
-   - Never parse `providers.json` / `models.json` by hand — they hold no reachable-model inventory and fail silently.
-2. **Prefer a different *architecture family* than the author.** Identify the author's family first, then pick any *other* family from the list — the goal is a reviewer that does not share the author's blind spots. (Author is Claude → pick non-Anthropic; author is GPT → Claude is a fine reviewer; etc.) Strong reasoning families that make good adversarial reviewers — match these **name substrings** (no provider prefix) against your accessible set, newest version wins:
-   - `claude-opus` / `claude-sonnet` (Anthropic)
-   - `gpt-5` / `gpt-5-codex` (OpenAI)
-   - `deepseek-v4-pro` (DeepSeek)
-   - `kimi-k2` (Moonshot)
-   - `qwen3-plus` / `qwen3.x-plus` (Qwen)
-   - `glm-5` (Zhipu / GLM)
-   - `minimax-m2` (MiniMax)
-   - `mimo-v2` (Xiaomi MiMo)
+1. Start at `@propose-review-1`. Skip any role whose architecture family matches the author's (author is Claude → skip a `propose-review-N` that maps to `claude-*`) — a reviewer that shares the author's family shares its blind spots.
+2. **Probe before the real prompt** with a trivial prompt (`"Reply with exactly: OK"`). Non-empty → use that role for the adversarial pass. Empty, or a resolution error → advance to `@propose-review-2`, `@propose-review-3`, … until one probes clean.
+3. If no `@propose-review-N` role resolves (none configured, or all probe empty) **and the session is interactive**, offer to configure one on the spot — see *Bootstrap a reviewer role* below — before giving up. Only when the user declines, or the context is non-interactive, treat subagent cross-model as unavailable (Step 3) — offer CLI / manual / skip. Never substitute a raw `provider/model-id`; that is the path that fails silently for custom providers.
 
-   These are families, not a fixed allowlist — resolve the concrete id by fuzzy-matching the substring against the enumerated accessible list (e.g. `gpt-5` → whatever `gpt-5.x` is live). Include the author's own family in the list only so you can *exclude* it; pick from the rest. A reasoning-capable model is preferred for adversarial review; the enumerate step above reports each row's `reasoning`/`input` flags.
-3. **Probe the resolved id before the real prompt** (see prerequisite #1 below). If it returns empty, it was not truly accessible — pick the next family from the list.
+> **Seeding the series (one-time).** Assign each `propose-review-N` role a reachable, different-architecture model, cross-model reviewers first and any same-family fallback last — e.g. `propose-review-1 → opencode-go/glm-5.2`, `propose-review-2 → deepseek/deepseek-v4-pro`, `propose-review-3 → anthropic/claude-opus-4-8` (Opus last). Enumerate reachable ids with `pi --list-models` or dashboard `GET /api/models` when deciding what to assign; assign via `update_roles`.
+
+> **Bootstrap a reviewer role (interactive, when the series is empty or unreachable).** On a machine where no `@propose-review-N` role is set — or none resolves — do NOT jump straight to CLI / skip. Configure one live:
+> 1. **Enumerate the reachable set** with the `list_models` tool (or `pi --list-models` / dashboard `GET /api/models`). Keep only credentialed rows (`excludedReason: null`); prefer `reasoning: true`.
+> 2. **Drop the author's own architecture family** (author is Claude → exclude `anthropic/*` / `claude-*`) so the reviewer does not share the author's blind spots.
+> 3. **Ask the user to choose** via `ask_user` (method `select`), offering a handful of the strongest different-family candidates from the enumerated set (do not auto-pick).
+> 4. **Assign it via the role API** — the `update_roles` tool: `set_role`, `role: "propose-review-1"` (or the next free `propose-review-N` slot), `ref: "<chosen provider/model-id>"`. This persists to `providers.json#roles`, so the choice carries to every future session; never hand-edit the file.
+> 5. **Probe then spawn** on the freshly-assigned `@propose-review-N` (same `"Reply with exactly: OK"` gate).
+>
+> Interactive only — never enumerate-and-ask in CI / `/loop` / autonomous runs; there, skip per the non-interactive rule below.
 
 Prerequisite + fallback (verify, do not assume):
-1. The target provider/model must be reachable by the Agent SDK, not merely present as a role alias. A model listed only under `~/.pi/agent/providers.json#roles` may NOT be SDK-invocable — a subagent spawned on it can return **empty output**. The correct provider prefix also matters (a cloud-hosted variant of a model often needs a different prefix than the direct-API one). Probe first with a trivial prompt ("Reply with exactly: OK"); empty return = wrong id or provider not SDK-configured — try the alternate prefix before giving up.
-2. If the subagent path returns empty, surface it explicitly (per Step 3 below) and fall back to an external review CLI or manual review. Do NOT silently proceed single-model.
+1. A `@propose-review-N` role must be **configured AND reachable**. An unconfigured role, or one pointing at a non-reachable id, makes the spawn return **empty output**. Probe first (`"Reply with exactly: OK"`); empty → advance to the next `@propose-review-N`, never proceed on the empty one. (This series is preferred precisely because a role ref resolves through the parent's live registry; a raw `provider/model-id` can silently miss a custom provider.)
+2. If the whole `@propose-review-N` series is exhausted with no clean probe, surface it explicitly (per Step 3 below) and fall back to an external review CLI or manual review. Do NOT silently proceed single-model, and do NOT substitute a raw `provider/model-id`.
 3. Pass ARTIFACT + CONTRACT + adversarial prompt only — same rule as every cross-model path. No CLAIM.
 
 **Step 2: If the user picks a CLI — verify, then invoke**
@@ -187,7 +185,7 @@ A read-only sandbox is the load-bearing detail: a doubt artifact may itself cont
 
 **Step 3: If the subagent-model path or CLI is unavailable or fails**
 
-Surface the failure explicitly. Offer: try the other path (subagent ↔ CLI), run it manually, or skip. A subagent spawned on a role-only model returning **empty output**, or a CLI failing to load (`dyld`/missing lib), both count as failures — announce them. Do not silently fall back to single-model — the user should know cross-model didn't happen.
+Surface the failure explicitly. Offer: try the other path (subagent ↔ CLI), run it manually, or skip. A `@propose-review-N` series exhausted with every role probing **empty**, or a CLI failing to load (`dyld`/missing lib), both count as failures — announce them. Do not silently fall back to single-model — the user should know cross-model didn't happen.
 
 **Step 4: If the user skips**
 
@@ -273,7 +271,7 @@ After applying doubt-driven development:
 - [ ] The reviewer's prompt was adversarial ("find issues"), not validating ("is it good")
 - [ ] Findings were classified against the artifact text (not rubber-stamped) using the precedence: contract misread / actionable / trade-off / noise
 - [ ] A stop condition was met (trivial findings, 3 cycles, or user override)
-- [ ] In interactive mode, cross-model was **explicitly offered** to the user (regardless of artifact stakes) and the response was acknowledged in the output. When run, the preferred Pi path (subagent with a `model` override on a different-architecture model) was tried first; an empty return from a role-only or wrong-prefix model id was surfaced as a failure, not silently swallowed
-- [ ] When cross-model ran, the reviewer id was chosen from the **enumerated accessible set** (`GET /api/models` / `pi --list-models`), not hand-picked from a role alias, and was a different architecture family than the author (per the family substrings in Cross-model escalation)
+- [ ] In interactive mode, cross-model was **explicitly offered** to the user (regardless of artifact stakes) and the response was acknowledged in the output. When run, the preferred Pi path (subagent on a `@propose-review-N` reviewer role) was tried first; an empty probe advanced to the next role in the series, and a fully-exhausted series was surfaced as a failure, not silently swallowed
+- [ ] When cross-model ran, the reviewer was selected by walking the `@propose-review-1..@propose-review-x` role series (probe-gated), each a different architecture family than the author — not a hand-picked raw `provider/model-id`. When the series was empty/unreachable in an interactive session, a role was bootstrapped first: `list_models` → `ask_user` selection → `update_roles` `set_role`, before any CLI/skip fallback
 - [ ] In non-interactive mode, cross-model was skipped and the skip was announced
 - [ ] Any external CLI invocation was preceded by a PATH check, a working-binary test, syntax confirmation with the user, and explicit authorization to run

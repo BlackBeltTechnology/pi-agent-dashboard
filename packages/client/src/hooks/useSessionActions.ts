@@ -380,6 +380,18 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "unhide_session", sessionId });
   }, [send, setSessions]);
 
+  // Optimistic tag write: mirror the new array locally, then send
+  // set_session_tags (server normalizes + rebroadcasts). See change: add-session-tags.
+  const handleSetSessionTags = useCallback((sessionId: string, tags: string[]) => {
+    setSessions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(sessionId);
+      if (existing) next.set(sessionId, { ...existing, tags });
+      return next;
+    });
+    send({ type: "set_session_tags", sessionId, tags });
+  }, [send, setSessions]);
+
   const handleCreateTerminal = useCallback((cwd: string) => {
     pendingTerminalCwdRef.current = cwd;
     send({ type: "create_terminal", cwd });
@@ -433,7 +445,7 @@ export function useSessionActions(deps: SessionActionDeps) {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession,
+    handleHideSession, handleUnhideSession, handleSetSessionTags,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,

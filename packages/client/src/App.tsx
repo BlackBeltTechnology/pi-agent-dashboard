@@ -8,6 +8,7 @@ import { ArchiveBrowserView } from "./components/ArchiveBrowserView.js";
 import { ChatView, type ChatViewHandle } from "./components/ChatView.js";
 import { ChatViewMenu } from "./components/ChatViewMenu.js";
 import { CommandInput } from "./components/CommandInput.js";
+import { CommitDialogProvider } from "./components/CommitDialog.js";
 import { ComposerSessionActions } from "./components/ComposerSessionActions.js";
 import { ConnectionStatusBanner } from "./components/ConnectionStatusBanner.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -28,22 +29,24 @@ import { PiUpdateBadge } from "./components/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/PluginStalenessBanner.js";
 import { PreviewOverlayView } from "./components/PreviewOverlayView.js";
 import { QueuePanel } from "./components/QueuePanel.js";
+import { RecoveryOfferHost } from "./components/RecoveryOfferHost.js";
 import { ResizableSidebar } from "./components/ResizableSidebar.js";
 import { ServerSelector } from "./components/ServerSelector.js";
 import { SessionBanner } from "./components/SessionBanner.js";
 import { SessionHeader } from "./components/SessionHeader.js";
 import { SessionList } from "./components/SessionList.js";
+import { allTagsInUse } from "./components/tags/all-tags.js";
 import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
-import { RecoveryOfferHost } from "./components/RecoveryOfferHost.js";
-import { clearRecoveryOffer } from "./lib/recovery-offer-bus.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
+import { SessionDiffProvider } from "./components/SessionDiffContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
 import { TokenStatsBar } from "./components/TokenStatsBar.js";
+import { WorktreeInitStack } from "./components/WorktreeInitStack.js";
 import { WorktreeSpawnDialog } from "./components/WorktreeSpawnDialog.js";
 import { ZrokInstallGuide } from "./components/ZrokInstallGuide.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
@@ -53,11 +56,11 @@ import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
 import { useLaunchSource } from "./hooks/useLaunchSource.js";
 import { useMessageHandler } from "./hooks/useMessageHandler.js";
-import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useMobile } from "./hooks/useMobile.js";
 import { useOpenSpecReader } from "./hooks/useOpenSpecReader.js";
 import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
+import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/auto-init-worktree.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
@@ -66,6 +69,8 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/draft-storage.js";
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/folder-encoding.js";
+import { fetchActiveInits } from "./lib/git-api.js";
+import { refreshGitStatus } from "./lib/git-status-cache.js";
 import { goBack as goBackAction } from "./lib/history-back.js";
 import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/loading-history.js";
 import { extractUserPromptHistory } from "./lib/message-history.js";
@@ -79,6 +84,7 @@ import {
 } from "./lib/nav-tracker.js";
 import { useOpenSpecConfig } from "./lib/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/plugins-api.js";
+import { clearRecoveryOffer } from "./lib/recovery-offer-bus.js";
 import { rehydrateSession } from "./lib/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
 import { replayCache } from "./lib/replay-cache.js";
@@ -94,7 +100,8 @@ import {
 import { performServerSwitch } from "./lib/server-switch.js";
 import { openStagingSocket } from "./lib/staging-socket.js";
 import { useEditors } from "./lib/use-editors.js";
-import { setInitSender } from "./lib/worktree-init-bus.js";
+import { resendActiveCwdSubscriptions, setInitSender } from "./lib/worktree-init-bus.js";
+import { initStore } from "./lib/worktree-init-store.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -309,6 +316,22 @@ export default function App() {
     setInitSender(send);
     return () => setInitSender(null);
   }, [send]);
+  // Boot rehydration: seed the cwd-keyed init store from the server's
+  // active-inits registry so a refresh mid-run keeps streaming and a refresh
+  // just-after-terminal shows done-flash / failed-sticky. Runs once the socket
+  // is open so `seed`'s re-subscribe reaches the server.
+  // See change: friendlier-worktree-init.
+  useEffect(() => {
+    if (status !== "connected") return;
+    let alive = true;
+    // Re-attach cwd subscriptions the reconnect dropped, then reconcile state
+    // with the server's authoritative registry.
+    resendActiveCwdSubscriptions();
+    // Reconcile (not seed): an EMPTY snapshot must still prune a stale running
+    // chip left by a run that finished + evicted while the ws was down.
+    void fetchActiveInits().then((runs) => { if (alive) initStore.reconcile(runs); });
+    return () => { alive = false; };
+  }, [status]);
   // Drives the slot-registry enable filter from /api/health.plugins[] +
   // plugin_config_update broadcasts. The returned `startedAt` is also
   // consumed inside the Plugins tab via this same hook re-call, so we don't
@@ -472,7 +495,11 @@ export default function App() {
   // See change: redesign-openspec-board.
   const [boardWorktreeForChange, setBoardWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
-  const [rolesMap, setRolesMap] = useState<Map<string, RoleInfo>>(new Map());
+  // Write-only: the last reader (StatusBar's deprecated `roles` prop) was
+  // removed in `redesign-prompt-input`; roles UI lives in the roles settings
+  // plugin. `setRolesMap` still consumes server role events. Full excision of
+  // this state chain (incl. useMessageHandler) is a separate cleanup.
+  const [, setRolesMap] = useState<Map<string, RoleInfo>>(new Map());
   const [spawnResult, setSpawnResult] = useState<{ success: boolean; message: string } | null>(null);
   const [spawnErrors, setSpawnErrors] = useState<Map<string, import("./hooks/useMessageHandler.js").SpawnErrorDetail>>(new Map());
   const [resumeErrors, setResumeErrors] = useState<Map<string, string>>(new Map());
@@ -835,6 +862,20 @@ export default function App() {
     if (selectedId && !subscribedRef.current.has(selectedId) && status === "connected") {
       subscribedRef.current.add(selectedId);
       const sid = selectedId;
+      // Resync running subagents whose live timeline is empty: a reconnect gap
+      // may have swallowed their frames downstream of the bridge, so pull the
+      // latest snapshot instead of waiting for completion. No-op server-side
+      // for unknown/finished agents. See change: fix-subagent-live-detail-reliability (D2).
+      {
+        const st = sessionStates.get(sid);
+        if (st) {
+          for (const sub of st.subagents.values()) {
+            if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
+              send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
+            }
+          }
+        }
+      }
       // Send subscribe with the resolved cursor, enter LOADING, and request
       // models if missing. Extracted so the cache-rehydrate path can call it
       // after the async IndexedDB read resolves.
@@ -908,6 +949,18 @@ export default function App() {
   const selectedImages = (selectedId ? pendingImagesMap.get(selectedId) : undefined) ?? (EMPTY_IMAGES as ImageContent[]);
   const selectedHistory = useMemo(
     () => extractUserPromptHistory(selectedState.messages),
+    [selectedState.messages],
+  );
+  // Monotonic edit/write count for the selected session — drives the shared
+  // session-diff refetch (change: add-change-summary-table).
+  const diffChangeSignal = useMemo(
+    () =>
+      selectedState.messages.reduce(
+        (n, m) =>
+          n +
+          (m.role === "toolResult" && /^(edit|write)$/i.test(m.toolName ?? "") ? 1 : 0),
+        0,
+      ),
     [selectedState.messages],
   );
 
@@ -1039,7 +1092,8 @@ export default function App() {
     editors: selectedCwd ? editorMap.get(selectedCwd) ?? [] : [],
     sessionId: selectedId,
     session: selectedId ? sessionStates.get(selectedId) : undefined,
-  }), [selectedCwd, editorMap, selectedId, sessionStates]);
+    send,
+  }), [selectedCwd, editorMap, selectedId, sessionStates, send]);
 
   const contextUsageMap = useMemo(
     () => buildContextUsageMap(sessionStates, sessions),
@@ -1067,7 +1121,7 @@ export default function App() {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession,
+    handleHideSession, handleUnhideSession, handleSetSessionTags,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
@@ -1250,6 +1304,11 @@ export default function App() {
     send({ type: "abort", sessionId });
   }, [send]);
 
+  // Union of all tags in use across sessions — feeds TagEditor autocomplete
+  // (card + detail) and the sidebar tag filter group. Recomputes only when the
+  // session list changes. See change: add-session-tags.
+  const allTags = useMemo(() => allTagsInUse(Array.from(sessions.values())), [sessions]);
+
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
@@ -1416,6 +1475,8 @@ export default function App() {
         session={sessions.get(selectedId)}
         state={selectedState}
         onRename={handleRenameSession}
+        allTags={allTags}
+        onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
         showBack
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
@@ -1620,32 +1681,26 @@ export default function App() {
               });
             } : undefined}
           />
-          <StatusBar
-            model={selectedState.model ?? selectedSession?.model}
-            models={modelsMap.get(selectedId)}
-            favorites={favoriteModels}
-            onToggleFavorite={(label, makeFavorite) =>
-              send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
-            }
-            roles={rolesMap.get(selectedId)}
-            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
-            status={selectedState.status}
-            currentTool={selectedState.currentTool}
-            streamingText={selectedState.streamingText || undefined}
-            onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
-            leading={selectedSession && selectedCwd ? (
-              <>
-                <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
-                {selectedId && (
-                  <ChatViewMenu
-                    sessionId={selectedId}
-                    currentOverride={selectedSession?.displayPrefsOverride}
-                    send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
-                  />
-                )}
-              </>
-            ) : undefined}
-            actions={selectedSession ? (
+          {/* Context strip above the composer card: OpenSpec refresh + View
+              menu + session-action groups (relocated from the retired
+              StatusBar model row). See change: redesign-prompt-input. */}
+          {selectedSession && (
+            <div
+              className="flex items-center gap-2 flex-wrap px-3 pt-2 text-xs"
+              data-testid="composer-context-strip"
+            >
+              {selectedCwd && (
+                <>
+                  <StatusBarRefreshButton cwd={selectedCwd} onRefresh={handleOpenSpecRefresh} />
+                  {selectedId && (
+                    <ChatViewMenu
+                      sessionId={selectedId}
+                      currentOverride={selectedSession?.displayPrefsOverride}
+                      send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
+                    />
+                  )}
+                </>
+              )}
               <ComposerSessionActions
                 session={selectedSession}
                 changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
@@ -1658,30 +1713,12 @@ export default function App() {
                 showGitInfo={true}
                 openspecConfig={openspecConfig}
               />
-            ) : undefined}
-            onSelectModel={(modelStr) => {
-              const slashIdx = modelStr.indexOf("/");
-              if (slashIdx > 0) {
-                const provider = modelStr.slice(0, slashIdx);
-                const modelId = modelStr.slice(slashIdx + 1);
-                send({ type: "set_model", sessionId: selectedId, provider, modelId });
-              }
-            }}
-            onSelectThinkingLevel={(level) => {
-              send({ type: "set_thinking_level", sessionId: selectedId, level });
-            }}
-            onRoleSet={(role, modelId) => {
-              send({ type: "role_set", sessionId: selectedId, role, modelId });
-            }}
-            onPresetLoad={(presetName) => {
-              send({ type: "role_preset_load", sessionId: selectedId, presetName });
-            }}
-            onPresetSave={(presetName) => {
-              send({ type: "role_preset_save", sessionId: selectedId, presetName });
-            }}
-            onPresetDelete={(presetName) => {
-              send({ type: "role_preset_delete", sessionId: selectedId, presetName });
-            }}
+            </div>
+          )}
+          <StatusBar
+            status={selectedState.status}
+            currentTool={selectedState.currentTool}
+            streamingText={selectedState.streamingText || undefined}
           />
           {/* Pi-native follow-up queue — DISPLAY-ONLY (cycle with ↑/↓).
               Mutation controls (clear / edit / promote / remove) removed:
@@ -1723,6 +1760,26 @@ export default function App() {
             }}
             onOpenInlineTerminal={selectedId && selectedCwd ? () => handleOpenInlineTerminal(selectedId, selectedCwd) : undefined}
             sessionMessages={selectedState.messages}
+            model={selectedState.model ?? selectedSession?.model}
+            models={modelsMap.get(selectedId)}
+            favorites={favoriteModels}
+            onToggleFavorite={(label, makeFavorite) =>
+              send({ type: makeFavorite ? "favorite_model" : "unfavorite_model", label })
+            }
+            thinkingLevel={selectedState.thinkingLevel ?? selectedSession?.thinkingLevel}
+            onSelectModel={(modelStr) => {
+              const slashIdx = modelStr.indexOf("/");
+              if (slashIdx > 0) {
+                const provider = modelStr.slice(0, slashIdx);
+                const modelId = modelStr.slice(slashIdx + 1);
+                send({ type: "set_model", sessionId: selectedId, provider, modelId });
+              }
+            }}
+            onSelectThinkingLevel={(level) => {
+              send({ type: "set_thinking_level", sessionId: selectedId, level });
+            }}
+            onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
+            contextUsage={selectedContextUsage}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
           {selectedSession && <ContentInlineFooterSlot session={selectedSession} />}
@@ -1851,6 +1908,7 @@ export default function App() {
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
+      <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`); void refreshGitStatus(cwd); }}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}
@@ -1905,11 +1963,14 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} />
-            {children}
+            <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
+              {children}
+            </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
       </ShellSessionsProvider>
       </PluginContextProvider>
+      </CommitDialogProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>
   );
@@ -1934,6 +1995,7 @@ export default function App() {
           inFlightSwitch={inFlightSwitchKey !== null}
         />
         <Toast messages={toastMessages} onDismiss={dismissToast} />
+        <WorktreeInitStack />
         <SpawnErrorToastHost />
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
@@ -2051,6 +2113,10 @@ export default function App() {
   return apiProvider(
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
+      {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
+          (mobile branch above) so desktop also surfaces it. See change:
+          friendlier-worktree-init. */}
+      <WorktreeInitStack />
       <div className="hidden md:flex">
         <ResizableSidebar sidebar={sidebar}>
           {sessionList}

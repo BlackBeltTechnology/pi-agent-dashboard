@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveMainPath } from "../git-operations.js";
 import { registerGitRoutes } from "../routes/git-routes.js";
 import { hookDefHash, type WorktreeInitHook } from "../worktree-init.js";
+import { createWorktreeInitRegistry } from "../worktree-init-registry.js";
 import { recordTrust } from "../worktree-init-trust.js";
 
 function git(cmd: string, cwd: string) {
@@ -280,6 +281,64 @@ describe("non-git dir — POST /api/git/worktree/init", () => {
     expect(body.data.ran).toBe(true);
     expect(existsSync(join(dir, "RAN_MARKER"))).toBe(true);
   });
+});
+
+// ── active-inits endpoint (change: friendlier-worktree-init) ──────────
+describe("GET /api/git/worktree/active-inits", () => {
+  async function makeAppWithRegistry(registry: ReturnType<typeof createWorktreeInitRegistry>) {
+    const app = Fastify({ logger: false });
+    registerGitRoutes(app, { networkGuard: async () => {}, worktreeInitRegistry: registry });
+    await app.ready();
+    return app;
+  }
+
+  it("empty when no registry is wired", async () => {
+    const app = await makeApp();
+    const res = await app.inject({ method: "GET", url: "/api/git/worktree/active-inits" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toEqual({ runs: [] });
+    await app.close();
+  });
+
+  it("reflects a running run", async () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/w/a", 1000);
+    const app = await makeAppWithRegistry(reg);
+    const res = await app.inject({ method: "GET", url: "/api/git/worktree/active-inits" });
+    expect(res.json().data.runs).toEqual([{ cwd: "/w/a", phase: "running", startedAt: 1000 }]);
+    await app.close();
+  });
+
+  it("reflects a terminal run within TTL", async () => {
+    const reg = createWorktreeInitRegistry();
+    reg.startRun("/w/b");
+    reg.finishRun("/w/b", "failed", "script_nonzero_exit");
+    const app = await makeAppWithRegistry(reg);
+    const res = await app.inject({ method: "GET", url: "/api/git/worktree/active-inits" });
+    expect(res.json().data.runs[0]).toEqual(
+      expect.objectContaining({ cwd: "/w/b", phase: "failed", code: "script_nonzero_exit" }),
+    );
+    await app.close();
+  });
+
+  it("POST /init registers a terminal entry visible via active-inits", async () => {
+    const reg = createWorktreeInitRegistry();
+    const app = await makeAppWithRegistry(reg);
+    const hook = scriptHook("test ! -d node_modules", ":");
+    repo = makeHookRepo(hook);
+    await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/init",
+      payload: { cwd: repo, confirmHash: hookDefHash(hook) },
+    });
+    const res = await app.inject({ method: "GET", url: "/api/git/worktree/active-inits" });
+    const run = res.json().data.runs.find((r: { cwd: string }) => r.cwd === repo);
+    expect(run?.phase).toBe("done");
+    await app.close();
+  });
+
+  let repo: string;
+  afterEach(() => { if (repo) rmSync(repo, { recursive: true, force: true }); });
 });
 
 describe("worktree-init endpoints — off-loopback", () => {

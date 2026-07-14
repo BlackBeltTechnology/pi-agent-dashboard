@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-eng-disciplines",
-  "version": "0.5.6",
-  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger. Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills and NousResearch's hermes-agent (both MIT).",
+  "version": "0.5.7",
+  "description": "Cross-cutting engineering-discipline skills for pi sessions — interview-me, doubt-driven-review, code-simplification, security-hardening, performance-optimization, observability-instrumentation, systematic-debugging, node-inspect-debugger, scenario-design (ISTQB test-scenario design). Orthogonal to the openspec pipeline; triggers retargeted to avoid spec/plan/build/ship/review collisions. Adapted from Addy Osmani's agent-skills and NousResearch's hermes-agent (both MIT).",
   "type": "module",
   "repository": {
     "type": "git",
@@ -24,7 +24,9 @@
     "refactoring",
     "debugging",
     "root-cause",
-    "node-inspect"
+    "node-inspect",
+    "test-design",
+    "scenario-design"
   ],
   "pi": {
     "skills": [
@@ -35,7 +37,8 @@
       ".pi/skills/performance-optimization",
       ".pi/skills/observability-instrumentation",
       ".pi/skills/systematic-debugging",
-      ".pi/skills/node-inspect-debugger"
+      ".pi/skills/node-inspect-debugger",
+      ".pi/skills/scenario-design"
     ]
   },
   "files": [

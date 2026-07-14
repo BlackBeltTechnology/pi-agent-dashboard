@@ -698,3 +698,11 @@ mark.markdown-search-highlight-active {
   .board-crumb-dim { display: none; }
   .board-column { flex: 1 1 100%; }
 }
+
+/* ── Worktree-init progress bar (indeterminate slide) ─────────
+   See change: friendlier-worktree-init. Drives the slim bar in
+   WorktreeInitChip's running state. */
+@keyframes wtinit-slide {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
