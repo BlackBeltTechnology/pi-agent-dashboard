@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pi Composer v2 — prompt input redesign mock</title>
+<style>
+/* ── Real dashboard tokens (packages/client/src/index.css) ─────────────── */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --accent-primary:#3b82f6; --link:#60a5fa;
+  --status-needs-you:var(--accent-purple); --status-working:var(--accent-yellow);
+  --status-idle:var(--accent-green); --status-error:var(--accent-red);
+  --focus-ring:var(--accent-primary);
+  --shadow-card:rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+  --text-muted:#aaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-primary:#2563eb; --link:#2563eb; --shadow-card:rgba(0,0,0,.12);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg-primary); color:var(--text-secondary);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:32px 20px 80px;
+}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+h1{color:var(--text-primary);font-size:22px;margin:0 0 4px}
+.sub{color:var(--text-tertiary);font-size:13px;margin:0 0 24px}
+.wrap{max-width:920px;margin:0 auto}
+.panel{margin:0 0 40px}
+.panel > h2{
+  color:var(--text-primary);font-size:14px;font-weight:600;margin:0 0 4px;
+  display:flex;align-items:center;gap:8px
+}
+.panel > .note{color:var(--text-muted);font-size:12px;margin:0 0 12px}
+.tag{
+  font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+  padding:2px 6px;border-radius:5px;border:1px solid var(--border-secondary);
+  color:var(--text-tertiary)
+}
+.tag.new{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 45%,transparent);background:color-mix(in srgb,var(--accent-green) 8%,transparent)}
+
+/* ── The composer card ────────────────────────────────────────────────── */
+.chat-frame{
+  background:var(--bg-secondary);border:1px solid var(--border-primary);
+  border-radius:14px;padding:14px;box-shadow:0 8px 30px var(--shadow-card)
+}
+
+/* session-context strip (OpenSpec / git / status) sits above the card */
+.ctx-strip{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:0 2px 8px;font-size:10px
+}
+.ctx-label{font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted);margin-right:2px}
+.chip{
+  display:inline-flex;align-items:center;gap:3px;font-size:10px;
+  padding:2px 7px;border-radius:6px;border:1px solid var(--border-secondary);
+  color:var(--text-secondary);background:transparent;cursor:pointer
+}
+.chip .glyph{font-size:8px;opacity:.9}
+.chip.done{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 45%,transparent);background:color-mix(in srgb,var(--accent-green) 8%,transparent)}
+.chip.current{color:var(--accent-orange);border-color:color-mix(in srgb,var(--accent-orange) 45%,transparent);background:color-mix(in srgb,var(--accent-orange) 8%,transparent)}
+.chip.todo{color:var(--text-muted)}
+.chip.info{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent);background:color-mix(in srgb,var(--accent-blue) 6%,transparent)}
+.divider{width:1px;height:12px;background:var(--border-secondary);margin:0 3px}
+
+/* the actual composer container */
+.composer{
+  background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+  border-radius:12px;padding:10px 10px 8px;transition:border-color .15s,box-shadow .15s
+}
+.composer.focused{
+  border-color:color-mix(in srgb,var(--accent-primary) 60%,transparent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-primary) 22%,transparent)
+}
+.composer.streaming{border-color:color-mix(in srgb,var(--accent-yellow) 45%,transparent)}
+
+/* attachments chip row */
+.attach-row{display:flex;gap:8px;flex-wrap:wrap;padding:2px 2px 10px}
+.thumb{
+  position:relative;width:52px;height:52px;border-radius:8px;overflow:hidden;
+  border:1px solid var(--border-secondary);background:var(--bg-surface);
+  display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text-tertiary)
+}
+.thumb .x{
+  position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;
+  background:var(--bg-surface);border:1px solid var(--border-secondary);
+  color:var(--text-secondary);font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer
+}
+.attach-file{
+  display:inline-flex;align-items:center;gap:6px;height:52px;padding:0 12px;border-radius:8px;
+  border:1px solid var(--border-secondary);background:var(--bg-surface);color:var(--text-secondary);font-size:12px
+}
+
+/* textarea */
+.ta{
+  display:block;width:100%;min-height:24px;border:0;outline:0;resize:none;
+  background:transparent;color:var(--text-primary);font:14px/1.55 inherit;
+  padding:6px 6px 10px
+}
+.ta.placeholder{color:var(--text-muted)}
+.ta .cmd{color:var(--link)} .ta .at{color:var(--accent-green)} .ta .bang{color:var(--accent-orange)}
+.caret{display:inline-block;width:1px;height:16px;background:var(--accent-primary);vertical-align:-3px;animation:blink 1.1s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* inner toolbar */
+.toolbar{display:flex;align-items:center;gap:6px;padding:2px 2px 0}
+.toolbar .spacer{flex:1}
+.tbtn{
+  display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;border-radius:8px;
+  border:1px solid transparent;background:transparent;color:var(--text-secondary);
+  font-size:12px;cursor:pointer;white-space:nowrap
+}
+.tbtn:hover{background:var(--bg-hover)}
+.tbtn .ic{font-size:15px;line-height:1;opacity:.9}
+.tbtn .car{font-size:9px;opacity:.6;margin-left:1px}
+.tbtn.round{width:30px;justify-content:center;padding:0;font-size:16px}
+.mdi{width:1em;height:1em;display:inline-block;vertical-align:-.125em;fill:currentColor}
+.tbtn.round .mdi{width:18px;height:18px}
+.send .mdi{width:18px;height:18px}
+.tbtn.model{color:var(--text-primary)}
+.tbtn.model .ic{color:var(--accent-primary)}
+
+/* delivery segmented control */
+.seg{display:inline-flex;border:1px solid var(--border-secondary);border-radius:8px;overflow:hidden;height:30px}
+.seg button{
+  border:0;background:transparent;color:var(--text-tertiary);font-size:11px;padding:0 10px;cursor:pointer;display:inline-flex;align-items:center;gap:4px
+}
+.seg button.on{background:color-mix(in srgb,var(--accent-primary) 18%,transparent);color:var(--text-primary)}
+.seg button.on.queue{background:color-mix(in srgb,var(--accent-purple) 20%,transparent)}
+
+/* action button (send / stop / force) */
+.send{
+  width:34px;height:34px;border-radius:9px;border:0;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;font-size:17px;color:#fff;
+  background:var(--accent-primary)
+}
+.send:disabled{opacity:.4;cursor:not-allowed}
+.send.stop{background:var(--accent-red)}
+.send.force{background:var(--accent-orange);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.55}}
+
+/* footer hint line */
+.footer{
+  display:flex;align-items:center;gap:0;padding:8px 4px 0;font-size:11px;color:var(--text-muted);flex-wrap:wrap
+}
+.footer .k{color:var(--text-tertiary)}
+.footer kbd{
+  font-family:ui-monospace,monospace;font-size:10px;background:var(--bg-surface);
+  border:1px solid var(--border-secondary);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--text-secondary)
+}
+.footer .dot{margin:0 8px;opacity:.5}
+.footer .spacer{flex:1}
+.ctxbudget{display:inline-flex;align-items:center;gap:6px}
+.bar{width:60px;height:4px;border-radius:2px;background:var(--bg-surface);overflow:hidden}
+.bar > i{display:block;height:100%;background:var(--accent-green);border-radius:2px}
+.bar.warn > i{background:var(--accent-orange)}
+
+/* dropdown menus (slash / at) */
+.menu{
+  margin-top:8px;background:var(--bg-secondary);border:1px solid var(--border-subtle);
+  border-radius:12px;overflow:hidden;box-shadow:0 12px 40px var(--shadow-card)
+}
+.menu .mhead{
+  font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted);
+  padding:8px 12px 4px;background:var(--bg-code)
+}
+.mrow{
+  display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:13px;cursor:pointer;border-left:2px solid transparent
+}
+.mrow:hover{background:var(--bg-hover)}
+.mrow.sel{background:var(--bg-tertiary);border-left-color:var(--accent-primary)}
+.mrow .badge{
+  font-size:9px;padding:1px 5px;border-radius:4px;border:1px solid var(--border-secondary);
+  color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em
+}
+.mrow .badge.ext{color:var(--accent-yellow);border-color:color-mix(in srgb,var(--accent-yellow) 40%,transparent)}
+.mrow .badge.skill{color:var(--accent-purple);border-color:color-mix(in srgb,var(--accent-purple) 40%,transparent)}
+.mrow .badge.local{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent)}
+.mrow .name{color:var(--link)} .mrow .name.file{color:var(--accent-green)} .mrow .name.url{color:#22d3ee}
+.mrow .args{color:var(--text-muted);font-size:11px}
+.mrow .desc{color:var(--text-tertiary);font-size:12px;margin-left:auto;text-align:right;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .ic{width:16px;text-align:center;opacity:.85}
+
+/* ＋ attach popover */
+.pop{
+  margin-top:8px;width:230px;background:var(--bg-secondary);border:1px solid var(--border-subtle);
+  border-radius:12px;overflow:hidden;box-shadow:0 12px 40px var(--shadow-card)
+}
+.pop .prow{display:flex;align-items:center;gap:10px;padding:9px 12px;font-size:13px;color:var(--text-secondary);cursor:pointer}
+.pop .prow:hover{background:var(--bg-hover)}
+.pop .prow .ic{font-size:15px;width:18px;text-align:center;opacity:.9}
+.pop .prow small{margin-left:auto;color:var(--text-muted);font-size:10px}
+
+/* annotation callouts */
+.anno{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:6px}
+.anno li{font-size:12px;color:var(--text-tertiary);padding-left:22px;position:relative}
+.anno li b{color:var(--text-secondary);font-weight:600}
+.anno li::before{content:attr(data-n);position:absolute;left:0;top:0;width:16px;height:16px;border-radius:50%;background:var(--bg-surface);border:1px solid var(--border-secondary);color:var(--text-tertiary);font-size:9px;display:flex;align-items:center;justify-content:center}
+
+/* theme toggle */
+.toolbar-top{position:fixed;top:14px;right:18px;display:flex;gap:6px;z-index:20}
+.toolbar-top button{
+  font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border-secondary);
+  background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer
+}
+.legend{border-top:1px solid var(--border-primary);margin-top:8px;padding-top:14px}
+.legend h2{color:var(--text-primary);font-size:14px;margin:0 0 10px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:680px){.cols{grid-template-columns:1fr}}
+.k2{font-size:12px;color:var(--text-tertiary);line-height:1.7}
+.k2 b{color:var(--text-secondary)}
+.k2 .sw{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+</style>
+</head>
+<body>
+<div class="toolbar-top">
+  <button onclick="document.documentElement.dataset.theme='dark'">Dark</button>
+  <button onclick="document.documentElement.dataset.theme='light'">Light</button>
+</div>
+
+<div class="wrap">
+  <h1>pi Composer v2</h1>
+  <p class="sub">Prompt-input redesign — adapts Codex CLI · ChatGPT · Gemini composer patterns to the dashboard. All colours are live <span class="mono">--var</span> tokens from <span class="mono">index.css</span>. Toggle theme, top-right.</p>
+
+  <!-- ══════════════ STATE 1: IDLE / EMPTY ══════════════ -->
+  <section class="panel">
+    <h2>1 · Idle &amp; empty <span class="tag new">default</span></h2>
+    <p class="note">Session-context strip on top (OpenSpec/Git/status). One unified card. Model &amp; thinking live inside the toolbar now — StatusBar row retired.</p>
+    <div class="chat-frame">
+      <div class="ctx-strip">
+        <span class="ctx-label">OpenSpec</span>
+        <span class="chip info">◒ Explore</span>
+        <span class="chip done"><span class="glyph">✓</span>P</span>
+        <span class="chip done"><span class="glyph">✓</span>D</span>
+        <span class="chip current"><span class="glyph">◒</span>S</span>
+        <span class="chip todo">T 0/12</span>
+        <span class="divider"></span>
+        <span class="ctx-label">Git</span>
+        <span class="chip">⎇ feat/redesign-composer ▾</span>
+      </div>
+      <div class="composer">
+        <div class="ta placeholder">Message pi…&nbsp;&nbsp;<span style="opacity:.7">/ command · @ file · ! shell</span></div>
+        <div class="toolbar">
+          <button class="tbtn round" title="Attach">＋</button>
+          <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+          <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+          <div class="seg" title="Delivery mode — steer interrupts, queue waits for the turn to end">
+            <button class="on">⚑ Steer</button>
+            <button class="queue">⧉ Queue</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="tbtn round" title="Open inline terminal (!!)"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+          <button class="send" disabled title="Send (⏎)"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="k"><kbd>⏎</kbd> send</span><span class="dot">·</span>
+        <span class="k"><kbd>⇧⏎</kbd> newline</span><span class="dot">·</span>
+        <span class="k"><kbd>/</kbd> commands</span><span class="dot">·</span>
+        <span class="k"><kbd>@</kbd> files</span><span class="dot">·</span>
+        <span class="k"><kbd>!</kbd> shell</span>
+        <span class="spacer"></span>
+        <span class="ctxbudget" title="Context window remaining"><span class="bar"><i style="width:82%"></i></span> 82% context</span>
+      </div>
+    </div>
+    <ul class="anno">
+      <li data-n="1"><b>Send disabled</b> while empty (mirrors ChatGPT/Gemini — arrow greys until text).</li>
+      <li data-n="2"><b>Delivery segmented control</b> surfaces the hidden <span class="mono">Alt+Enter → followUp</span> as a visible <b>Steer | Queue</b> toggle (adapts Codex approval chip).</li>
+      <li data-n="3"><b>Footer hint line + context budget</b> lifted from Codex/Gemini CLI (<span class="mono">100% context left · ? for shortcuts</span>).</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ STATE 2: TYPING + SLASH MENU ══════════════ -->
+  <section class="panel">
+    <h2>2 · Slash-command menu <span class="tag">/</span></h2>
+    <p class="note">Grouped &amp; syntax-rich (Codex <span class="mono">/model</span> style): source badge, argument hint, right-aligned description. Builtin / dashboard-local / extension / skill sources kept from today.</p>
+    <div class="chat-frame">
+      <div class="composer focused">
+        <div class="ta"><span class="cmd">/sk</span><span class="caret"></span></div>
+        <div class="menu">
+          <div class="mhead">Dashboard-local</div>
+          <div class="mrow sel"><span class="ic" style="color:var(--accent-blue)">◉</span><span class="name">/view</span> <span class="args">&lt;@file | url&gt;</span><span class="badge local">local</span><span class="desc">Preview a file or URL inline</span></div>
+          <div class="mhead">Built-in</div>
+          <div class="mrow"><span class="ic">▤</span><span class="name">/compact</span><span class="badge">builtin</span><span class="desc">Compact session context</span></div>
+          <div class="mrow"><span class="ic">↻</span><span class="name">/reload</span><span class="badge">builtin</span><span class="desc">Reload extensions, skills, prompts</span></div>
+          <div class="mhead">Skills</div>
+          <div class="mrow"><span class="ic">🛠</span><span class="name">/skill:openspec-apply-change</span> <span class="args">&lt;name&gt;</span><span class="badge skill">skill</span><span class="desc">Implement tasks from a change</span></div>
+          <div class="mrow"><span class="ic">🛠</span><span class="name">/skill:ship-it</span><span class="badge skill">skill</span><span class="desc">Build · test · land in worktree</span></div>
+        </div>
+        <div class="toolbar">
+          <button class="tbtn round">＋</button>
+          <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+          <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+          <div class="seg"><button class="on">⚑ Steer</button><button class="queue">⧉ Queue</button></div>
+          <span class="spacer"></span>
+          <button class="tbtn round"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+          <button class="send" title="Send (⏎)"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="k"><kbd>↑↓</kbd> navigate</span><span class="dot">·</span>
+        <span class="k"><kbd>⇥/⏎</kbd> select</span><span class="dot">·</span>
+        <span class="k"><kbd>esc</kbd> dismiss</span>
+        <span class="spacer"></span>
+        <span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82% context</span>
+      </div>
+    </div>
+    <ul class="anno">
+      <li data-n="1"><b>Menu opens over the card</b>, flips above/below by viewport (keeps <span class="mono">usePopoverFlip</span>).</li>
+      <li data-n="2"><b>Argument hints</b> (<span class="mono">&lt;name&gt;</span>, <span class="mono">&lt;@file | url&gt;</span>) — new; teaches command shape à la Codex.</li>
+      <li data-n="3"><b>Source badges</b> reuse today's <span class="mono">source</span> field (builtin/local/skill/extension).</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ STATE 3: @ FILE / URL MENU + ATTACHMENTS ══════════════ -->
+  <section class="panel">
+    <h2>3 · <span class="tag">@</span> mention menu &amp; attachments</h2>
+    <p class="note">Files + URLs unified in one menu (kept from today). Attachment chip row shows pasted images &amp; picked files as removable chips inside the card.</p>
+    <div class="chat-frame">
+      <div class="composer focused">
+        <div class="attach-row">
+          <div class="thumb">🖼<span class="x">✕</span></div>
+          <div class="thumb">🖼<span class="x">✕</span></div>
+          <div class="attach-file">📄 architecture.md <span style="opacity:.6;cursor:pointer">✕</span></div>
+        </div>
+        <div class="ta">Compare <span class="at">@packages/client/src/components/Comm</span><span class="caret"></span></div>
+        <div class="menu">
+          <div class="mhead">Files · packages/client/src/components</div>
+          <div class="mrow sel"><span class="ic">📄</span><span class="name file">CommandInput.tsx</span><span class="desc">…/components/CommandInput.tsx</span></div>
+          <div class="mrow"><span class="ic">📄</span><span class="name file">CommandInput.tsx.AGENTS.md</span><span class="desc">…/components/CommandInput.tsx.AGENTS.md</span></div>
+          <div class="mrow"><span class="ic">📁</span><span class="name file">interactive-renderers/</span><span class="desc">…/components/interactive-renderers/</span></div>
+          <div class="mhead">URLs · from this conversation</div>
+          <div class="mrow"><span class="ic">🌐</span><span class="name url">developers.openai.com</span><span class="desc">https://developers.openai.com/codex/cli/features</span></div>
+        </div>
+        <div class="toolbar">
+          <button class="tbtn round">＋</button>
+          <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+          <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+          <div class="seg"><button class="on">⚑ Steer</button><button class="queue">⧉ Queue</button></div>
+          <span class="spacer"></span>
+          <button class="tbtn round"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+          <button class="send" title="Send (⏎)"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="k"><kbd>⏎</kbd> send</span><span class="dot">·</span><span class="k">2 images · 1 file attached</span>
+        <span class="spacer"></span>
+        <span class="ctxbudget"><span class="bar"><i style="width:74%"></i></span> 74% context</span>
+      </div>
+    </div>
+    <ul class="anno">
+      <li data-n="1"><b>Attachment chips inside the card</b> (ChatGPT/Gemini) — reuses <span class="mono">ImagePreviewStrip</span> data, restyled + adds file chips.</li>
+      <li data-n="2"><b>URL pool</b> from <span class="mono">extractRecentUrls(sessionMessages)</span> stays — just re-grouped under a header.</li>
+    </ul>
+  </section>
+
+  <!-- ══════════════ STATE 4: ＋ ATTACH POPOVER ══════════════ -->
+  <section class="panel">
+    <h2>4 · <span class="tag new">new</span> ＋ attach menu</h2>
+    <p class="note">Replaces the paste-only flow (adapts ChatGPT/Gemini <span class="mono">＋</span>). Explicit entry points for image, file, screenshot, and <span class="mono">/view</span> preview.</p>
+    <div class="chat-frame">
+      <div class="composer focused">
+        <div class="ta placeholder">Message pi…</div>
+        <div class="pop" style="margin-left:2px">
+          <div class="prow"><span class="ic">🖼</span> Attach image <small>paste ⌘V</small></div>
+          <div class="prow"><span class="ic">📄</span> Attach file <small>@ path</small></div>
+          <div class="prow"><span class="ic">🖥</span> Screenshot region</div>
+          <div class="prow"><span class="ic">👁</span> Preview inline <small>/view</small></div>
+        </div>
+        <div class="toolbar">
+          <button class="tbtn round" style="background:var(--bg-hover)">＋</button>
+          <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+          <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+          <div class="seg"><button class="on">⚑ Steer</button><button class="queue">⧉ Queue</button></div>
+          <span class="spacer"></span>
+          <button class="tbtn round"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+          <button class="send" disabled><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+        </div>
+      </div>
+      <div class="footer"><span class="k">Drop files anywhere on the card to attach</span><span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82% context</span></div>
+    </div>
+  </section>
+
+  <!-- ══════════════ STATE 5: STREAMING → STOP → FORCE ══════════════ -->
+  <section class="panel">
+    <h2>5 · Streaming — one morphing action button</h2>
+    <p class="note">Today's 4-button row (send · stop-after · stop · force) collapses to <b>one morphing button</b> + a slim stop-after affordance. Input stays enabled to queue mid-turn.</p>
+    <div class="cols">
+      <div>
+        <div class="chat-frame">
+          <div class="composer streaming">
+            <div class="ta placeholder">Queue another message…</div>
+            <div class="toolbar">
+              <button class="tbtn round">＋</button>
+              <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+              <span class="spacer"></span>
+              <button class="tbtn" title="Stop after this turn — finish, then end cleanly">◐ after turn</button>
+              <button class="send stop" title="Stop (Esc)">■</button>
+            </div>
+          </div>
+          <div class="footer">
+            <span class="k" style="color:var(--accent-yellow)">⚡ Running tool: bash…</span>
+            <span class="spacer"></span>
+            <span class="ctxbudget"><span class="bar warn"><i style="width:38%"></i></span> 38% context</span>
+          </div>
+        </div>
+        <div class="k2" style="margin-top:8px"><b>Streaming:</b> ▶ becomes ■ stop (red). Stop-after-turn is a text affordance, not a 4th icon.</div>
+      </div>
+      <div>
+        <div class="chat-frame">
+          <div class="composer streaming">
+            <div class="ta placeholder">Queue another message…</div>
+            <div class="toolbar">
+              <button class="tbtn round">＋</button>
+              <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+              <span class="spacer"></span>
+              <span class="k2" style="color:var(--text-muted);font-size:11px">stopping…</span>
+              <button class="send force" title="Force-stop — kill the process">⚠</button>
+            </div>
+          </div>
+          <div class="footer">
+            <span class="k" style="color:var(--accent-orange)">Abort sent — press again to force-kill</span>
+            <span class="spacer"></span>
+            <span class="ctxbudget"><span class="bar warn"><i style="width:38%"></i></span> 38%</span>
+          </div>
+        </div>
+        <div class="k2" style="margin-top:8px"><b>Second press:</b> ■ escalates to ⚠ force (orange, pulsing) — mirrors today's <span class="mono">stopState: aborting → killing</span>.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ STATE 6: PENDING / ERROR ══════════════ -->
+  <section class="panel">
+    <h2>6 · Pending prompt &amp; paste error</h2>
+    <div class="cols">
+      <div>
+        <div class="chat-frame">
+          <div class="composer">
+            <div class="ta placeholder" style="color:var(--text-tertiary)">Sending… <span style="opacity:.7">(Esc to cancel)</span></div>
+            <div class="toolbar">
+              <button class="tbtn round" style="opacity:.4">＋</button>
+              <button class="tbtn model" style="opacity:.4"><span class="ic">⌘</span>gpt-5-codex</button>
+              <span class="spacer"></span>
+              <button class="send stop" title="Cancel pending">■</button>
+            </div>
+          </div>
+          <div class="footer"><span class="k">Prompt queued — waiting for delivery</span><span class="spacer"></span></div>
+        </div>
+        <div class="k2" style="margin-top:8px"><b>pendingPrompt &amp;&amp; !streaming:</b> input disabled, Esc cancels (kept from today).</div>
+      </div>
+      <div>
+        <div class="chat-frame">
+          <div class="composer">
+            <div style="display:flex;align-items:center;gap:8px;padding:2px 4px 8px;color:var(--accent-red);font-size:12px">
+              <span>⚠</span> Only image files can be pasted (got: application/pdf)
+            </div>
+            <div class="ta placeholder">Message pi…</div>
+            <div class="toolbar">
+              <button class="tbtn round">＋</button>
+              <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+              <span class="spacer"></span>
+              <button class="send" disabled><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+            </div>
+          </div>
+          <div class="footer"><span class="k"><kbd>⏎</kbd> send</span><span class="spacer"></span></div>
+        </div>
+        <div class="k2" style="margin-top:8px"><b>Paste error banner</b> inline above textarea (kept from <span class="mono">useImagePaste</span>).</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ LEGEND ══════════════ -->
+  <section class="panel legend">
+    <h2>What changed vs. today — mapping</h2>
+    <div class="cols">
+      <div class="k2">
+        <p><b>Kept (behaviour unchanged):</b></p>
+        <span class="sw" style="background:var(--accent-green)"></span> <span class="mono">/</span> command &amp; <span class="mono">@</span> file/URL autocomplete<br>
+        <span class="sw" style="background:var(--accent-green)"></span> <span class="mono">usePopoverFlip</span> viewport-flip menu<br>
+        <span class="sw" style="background:var(--accent-green)"></span> history recall (↑/↓ when empty)<br>
+        <span class="sw" style="background:var(--accent-green)"></span> <span class="mono">/view</span> local interception<br>
+        <span class="sw" style="background:var(--accent-green)"></span> image paste + preview strip<br>
+        <span class="sw" style="background:var(--accent-green)"></span> stop → force-stop escalation<br>
+        <span class="sw" style="background:var(--accent-green)"></span> mid-turn queue (input stays enabled)
+      </div>
+      <div class="k2">
+        <p><b>New / moved (from references):</b></p>
+        <span class="sw" style="background:var(--accent-blue)"></span> unified rounded container <span style="color:var(--text-muted)">(all 3)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> model + thinking pulled into toolbar <span style="color:var(--text-muted)">(ChatGPT/Gemini)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> <span class="mono">＋</span> attach menu <span style="color:var(--text-muted)">(ChatGPT/Gemini)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> Steer|Queue delivery control <span style="color:var(--text-muted)">(Codex approvals)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> one morphing send/stop button <span style="color:var(--text-muted)">(ChatGPT/Gemini)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> footer hints + context budget <span style="color:var(--text-muted)">(Codex/Gemini CLI)</span><br>
+        <span class="sw" style="background:var(--accent-blue)"></span> slash arg-hints + grouping <span style="color:var(--text-muted)">(Codex /model)</span>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

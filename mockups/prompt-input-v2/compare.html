@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pi Composer v2 — height compare · chat window · mobile</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-purple:#a855f7; --accent-orange:#f97316;
+  --accent-primary:#3b82f6; --link:#60a5fa; --shadow-card:rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5; --text-primary:#1a1a1a; --text-secondary:#444;
+  --text-tertiary:#777; --text-muted:#aaa; --text-faint:#d0d0d0; --border-primary:#e0e0e0;
+  --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06); --accent-primary:#2563eb; --link:#2563eb; --shadow-card:rgba(0,0,0,.12);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-secondary);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:28px 20px 80px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+h1{color:var(--text-primary);font-size:22px;margin:0 0 4px}
+.sub{color:var(--text-tertiary);font-size:13px;margin:0 0 26px}
+.wrap{max-width:1180px;margin:0 auto}
+.panel{margin:0 0 44px}
+.panel>h2{color:var(--text-primary);font-size:15px;font-weight:600;margin:0 0 4px}
+.panel>.note{color:var(--text-muted);font-size:12px;margin:0 0 14px}
+.toolbar-top{position:fixed;top:14px;right:18px;display:flex;gap:6px;z-index:30}
+.toolbar-top button{font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer}
+
+/* ── shared composer atoms ───────────────────────────────── */
+.composer{background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:12px;padding:10px 10px 8px}
+.composer.focused{border-color:color-mix(in srgb,var(--accent-primary) 60%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent-primary) 22%,transparent)}
+.composer.streaming{border-color:color-mix(in srgb,var(--accent-yellow) 45%,transparent)}
+.ta{display:block;width:100%;min-height:24px;border:0;outline:0;resize:none;background:transparent;color:var(--text-primary);font:14px/1.55 inherit;padding:6px 6px 10px}
+.ta.placeholder{color:var(--text-muted)}
+.ta .cmd{color:var(--link)} .ta .at{color:var(--accent-green)}
+.toolbar{display:flex;align-items:center;gap:6px;padding:2px 2px 0}
+.toolbar .spacer{flex:1}
+.tbtn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 9px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;white-space:nowrap}
+.tbtn:hover{background:var(--bg-hover)}
+.tbtn .ic{font-size:15px;opacity:.9}.tbtn .car{font-size:9px;opacity:.6}
+.tbtn.round{width:30px;justify-content:center;padding:0;font-size:16px}
+.tbtn.model{color:var(--text-primary)}.tbtn.model .ic{color:var(--accent-primary)}
+.seg{display:inline-flex;border:1px solid var(--border-secondary);border-radius:8px;overflow:hidden;height:30px}
+.seg button{border:0;background:transparent;color:var(--text-tertiary);font-size:11px;padding:0 10px;cursor:pointer}
+.seg button.on{background:color-mix(in srgb,var(--accent-primary) 18%,transparent);color:var(--text-primary)}
+.send{width:34px;height:34px;border-radius:9px;border:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:17px;color:#fff;background:var(--accent-primary)}
+.send:disabled{opacity:.4}.send.stop{background:var(--accent-red)}
+.footer{display:flex;align-items:center;padding:8px 4px 0;font-size:11px;color:var(--text-muted);flex-wrap:wrap}
+.footer kbd{font-family:ui-monospace,monospace;font-size:10px;background:var(--bg-surface);border:1px solid var(--border-secondary);border-bottom-width:2px;border-radius:4px;padding:0 5px;color:var(--text-secondary)}
+.footer .dot{margin:0 8px;opacity:.5}.footer .spacer{flex:1}
+.ctxbudget{display:inline-flex;align-items:center;gap:6px}
+.bar{width:60px;height:4px;border-radius:2px;background:var(--bg-surface);overflow:hidden}.bar>i{display:block;height:100%;background:var(--accent-green)}
+.ctx-strip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 2px 8px;font-size:10px}
+.ctx-label{font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted)}
+.chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;padding:2px 7px;border-radius:6px;border:1px solid var(--border-secondary);color:var(--text-secondary)}
+.chip.done{color:var(--accent-green);border-color:color-mix(in srgb,var(--accent-green) 45%,transparent);background:color-mix(in srgb,var(--accent-green) 8%,transparent)}
+.chip.current{color:var(--accent-orange);border-color:color-mix(in srgb,var(--accent-orange) 45%,transparent);background:color-mix(in srgb,var(--accent-orange) 8%,transparent)}
+.chip.todo{color:var(--text-muted)} .chip.info{color:var(--accent-blue);border-color:color-mix(in srgb,var(--accent-blue) 40%,transparent);background:color-mix(in srgb,var(--accent-blue) 6%,transparent)}
+.divider{width:1px;height:12px;background:var(--border-secondary);margin:0 3px}
+
+/* ── faithful CURRENT composer (CommandInput + StatusBar) ── */
+.cur-status{display:flex;align-items:center;justify-content:space-between;padding:4px 16px;border-top:1px solid var(--border-primary);font-size:12px}
+.cur-status .grp{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cur-mbtn{display:inline-flex;align-items:center;gap:4px;color:var(--text-muted);font-size:12px}
+.cur-mbtn .mono{color:var(--text-secondary)}
+.cur-actions{display:flex;align-items:center;gap:4px}
+.cur-input{display:flex;gap:8px;padding:12px;border-top:1px solid var(--border-primary)}
+.cur-ta{flex:1;min-height:38px;background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-radius:8px;padding:8px 16px;font-size:13px;color:var(--text-muted)}
+.cur-term{width:36px;height:38px;align-self:flex-end;background:var(--bg-tertiary);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary)}
+.cur-send{min-width:44px;min-height:44px;align-self:flex-end;background:#2563eb;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;opacity:.5}
+
+/* height compare */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+@media(max-width:820px){.cmp{grid-template-columns:1fr}}
+.cmp .col{border:1px dashed var(--border-secondary);border-radius:12px;padding:0;overflow:hidden;background:var(--bg-secondary)}
+.cmp .col > .caphdr{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:12px;color:var(--text-tertiary);border-bottom:1px solid var(--border-primary)}
+.cmp .col .measure{font-family:ui-monospace,monospace;font-size:12px}
+.cmp .region{position:relative}
+.cmp .region::after{content:"↕ "attr(data-h)"px";position:absolute;top:50%;right:8px;transform:translateY(-50%);font-family:ui-monospace,monospace;font-size:10px;color:var(--accent-primary);background:var(--bg-primary);border:1px solid var(--border-secondary);border-radius:4px;padding:1px 5px}
+.readout{margin-top:16px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px}
+.stat{border:1px solid var(--border-secondary);border-radius:10px;padding:10px 14px;background:var(--bg-secondary)}
+.stat .n{font-family:ui-monospace,monospace;font-size:20px;color:var(--text-primary)}
+.stat .l{font-size:11px;color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.05em}
+.stat.delta .n{color:var(--accent-orange)}
+
+/* ── chat window frames ─────────────────────────────────── */
+.device{background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:16px;overflow:hidden;box-shadow:0 12px 40px var(--shadow-card)}
+.desktop{max-width:1000px;margin:0 auto}
+.win-top{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border-primary);font-size:12px;color:var(--text-tertiary);background:var(--bg-code)}
+.dots{display:flex;gap:5px}.dots i{width:10px;height:10px;border-radius:50%;background:var(--border-secondary);display:block}
+.win-title{color:var(--text-secondary)}
+.win-title b{color:var(--text-primary)}
+.win-right{margin-left:auto;display:flex;gap:8px;align-items:center;color:var(--text-muted)}
+.chat-body{padding:18px;display:flex;flex-direction:column;gap:16px;overflow:auto}
+.desktop .chat-body{height:440px}
+.msg{max-width:82%}
+.msg .who{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:4px}
+.msg.user{align-self:flex-end;text-align:right}
+.bub{display:inline-block;padding:10px 13px;border-radius:12px;font-size:13px;line-height:1.5;color:var(--text-primary)}
+.msg.user .bub{background:color-mix(in srgb,var(--accent-primary) 16%,transparent);border:1px solid color-mix(in srgb,var(--accent-primary) 30%,transparent);border-bottom-right-radius:4px;text-align:left}
+.msg.ai .bub{background:var(--bg-tertiary);border:1px solid var(--border-secondary);border-bottom-left-radius:4px}
+.tool{align-self:flex-start;max-width:82%;font-family:ui-monospace,monospace;font-size:12px;background:var(--bg-code);border:1px solid var(--border-secondary);border-radius:10px;overflow:hidden}
+.tool .th{display:flex;align-items:center;gap:6px;padding:6px 10px;color:var(--accent-green);border-bottom:1px solid var(--border-secondary);background:color-mix(in srgb,var(--accent-green) 6%,transparent)}
+.tool .tb{padding:8px 10px;color:var(--text-tertiary);white-space:pre-wrap}
+.composer-region{border-top:1px solid var(--border-primary);background:var(--bg-secondary);padding:12px 14px}
+
+/* mobile */
+/* mobile: captioned phone grid */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:26px 22px;align-items:start;max-width:920px}
+.mcell{display:flex;flex-direction:column;gap:10px}
+.phone{width:100%;max-width:340px;height:660px;margin:0 auto;border-radius:34px;border:9px solid #0c0c0c;background:var(--bg-primary);overflow:hidden;position:relative;box-shadow:0 18px 50px var(--shadow-card)}
+[data-theme="light"] .phone{border-color:#1a1a1a}
+.phone .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:110px;height:22px;background:#0c0c0c;border-radius:0 0 14px 14px;z-index:5}
+[data-theme="light"] .phone .notch{background:#1a1a1a}
+.phone-inner{height:100%;display:flex;flex-direction:column;position:relative}
+.phone .win-top{padding-top:24px}
+.phone .chat-body{flex:1}
+.phone .composer-region{padding:8px 10px 10px}
+.phone-cap{text-align:center;font-size:12px;color:var(--text-tertiary);line-height:1.5}
+.phone-cap b{display:block;color:var(--text-primary);font-size:13px;margin-bottom:1px}
+/* mobile composer adaptation: single-row toolbar, 44px send, overflow menu */
+.m-toolbar{display:flex;align-items:center;gap:6px}
+.m-toolbar .tbtn{height:36px}
+.m-send{width:44px;height:44px}.m-send .mdi{width:20px;height:20px}
+/* bottom sheet (＋ attach/tools) */
+.scrim{position:absolute;inset:0;background:var(--bg-overlay);z-index:8}
+:root{--bg-overlay:rgba(0,0,0,.6)}[data-theme="light"]{--bg-overlay:rgba(0,0,0,.3)}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:9;background:var(--bg-secondary);border-top:1px solid var(--border-primary);border-radius:18px 18px 0 0;padding:8px 10px calc(10px + 4px)}
+.sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--border-secondary);margin:2px auto 8px}
+.sheet .shead{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--text-muted);padding:6px 8px 2px}
+.sheet .srow{display:flex;align-items:center;gap:12px;padding:12px 8px;font-size:14px;color:var(--text-primary);border-radius:10px}
+.sheet .srow:active{background:var(--bg-hover)}
+.sheet .srow .mdi{width:20px;height:20px;color:var(--text-secondary)}
+.sheet .srow small{margin-left:auto;color:var(--text-muted);font-size:11px}
+/* overflow popover (⋯) */
+.ovf{position:absolute;left:8px;right:8px;bottom:104px;z-index:9;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:12px;box-shadow:0 12px 40px var(--shadow-card);overflow:hidden}
+.ovf .orow{display:flex;align-items:center;gap:10px;padding:11px 12px;font-size:13px;color:var(--text-secondary)}
+.ovf .orow + .orow{border-top:1px solid var(--border-primary)}
+.ovf .orow .mdi{width:17px;height:17px}
+.ovf .orow .val{margin-left:auto;color:var(--text-primary);display:inline-flex;align-items:center;gap:6px}
+.mrules{border:1px solid var(--border-secondary);border-radius:12px;background:var(--bg-secondary);padding:16px 18px;margin-top:8px}
+.mrules h3{margin:0 0 10px;font-size:13px;color:var(--text-primary)}
+.mrules ul{margin:0;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:8px 22px}
+@media(max-width:680px){.mrules ul{grid-template-columns:1fr}}
+.mrules li{font-size:12px;color:var(--text-tertiary);line-height:1.5;padding-left:20px;position:relative}
+.mrules li::before{content:"";position:absolute;left:4px;top:6px;width:6px;height:6px;border-radius:2px;background:var(--accent-primary)}
+.mrules li b{color:var(--text-secondary)}
+.mrules code{font-family:ui-monospace,monospace;color:var(--link);font-size:11px}
+</style>
+</head>
+<body>
+<div class="toolbar-top">
+  <button onclick="document.documentElement.dataset.theme='dark'">Dark</button>
+  <button onclick="document.documentElement.dataset.theme='light'">Light</button>
+</div>
+<div class="wrap">
+  <h1>pi Composer v2 — footprint &amp; layout</h1>
+  <p class="sub">Live self-measuring comparison + full chat window + mobile. Heights below are read from <span class="mono">getBoundingClientRect()</span> at load, both columns at equal width.</p>
+
+  <!-- ═════════ HEIGHT COMPARE ═════════ -->
+  <section class="panel">
+    <h2>Footprint: current vs v2</h2>
+    <p class="note">Idle state, no images, no queue. Both measured at the same width. "Composer region" = everything from the model row / context strip down to the bottom edge.</p>
+    <div class="cmp">
+      <!-- CURRENT -->
+      <div class="col">
+        <div class="caphdr"><span>CURRENT — CommandInput + StatusBar</span><span class="measure" id="cur-tag">…</span></div>
+        <div class="region" id="cur-region">
+          <div class="cur-status">
+            <div class="grp">
+              <span style="color:var(--text-muted)">↻</span>
+              <span class="divider"></span>
+              <span class="cur-mbtn">⌘ <span class="mono">gpt-5-codex</span> ▾</span>
+              <span class="cur-mbtn">◇ medium ▾</span>
+              <span class="divider"></span>
+              <span class="cur-actions">
+                <span class="ctx-label">OpenSpec</span>
+                <span class="chip info">◒ Explore</span>
+                <span class="chip done">✓P</span><span class="chip done">✓D</span><span class="chip current">◒S</span><span class="chip todo">T 0/12</span>
+              </span>
+            </div>
+          </div>
+          <div class="cur-input">
+            <div class="cur-ta">Message, /command, !shell, or @file…</div>
+            <div class="cur-term"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></div>
+            <div class="cur-send">▶</div>
+          </div>
+        </div>
+      </div>
+      <!-- V2 -->
+      <div class="col">
+        <div class="caphdr"><span>v2 — unified card</span><span class="measure" id="v2-tag">…</span></div>
+        <div class="region" id="v2-region">
+          <div style="padding:12px 12px 10px">
+            <div class="ctx-strip">
+              <span class="ctx-label">OpenSpec</span>
+              <span class="chip info">◒ Explore</span>
+              <span class="chip done">✓P</span><span class="chip done">✓D</span><span class="chip current">◒S</span><span class="chip todo">T 0/12</span>
+            </div>
+            <div class="composer">
+              <div class="ta placeholder">Message pi…&nbsp;&nbsp;<span style="opacity:.7">/ · @ · !</span></div>
+              <div class="toolbar">
+                <button class="tbtn round">＋</button>
+                <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+                <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+                <div class="seg"><button class="on">⚑ Steer</button><button>⧉ Queue</button></div>
+                <span class="spacer"></span>
+                <button class="tbtn round"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+                <button class="send" disabled><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+              </div>
+            </div>
+            <div class="footer">
+              <span><kbd>⏎</kbd> send</span><span class="dot">·</span><span><kbd>⇧⏎</kbd> newline</span><span class="dot">·</span><span><kbd>/</kbd> <kbd>@</kbd> <kbd>!</kbd></span>
+              <span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="readout">
+      <div class="stat"><div class="n" id="s-cur">–</div><div class="l">current</div></div>
+      <div class="stat"><div class="n" id="s-v2">–</div><div class="l">v2</div></div>
+      <div class="stat delta"><div class="n" id="s-add">–</div><div class="l">added px</div></div>
+      <div class="stat delta"><div class="n" id="s-pct">–</div><div class="l">taller by</div></div>
+      <div class="mobcap" style="max-width:360px">The extra height buys: the footer hint line, context budget, the <code>＋</code> attach menu, an in-composer model/thinking, and the <code>Steer|Queue</code> control — all previously absent or hidden.</div>
+    </div>
+    <p class="note" id="minimal-note" style="margin-top:12px"></p>
+  </section>
+
+  <!-- ═════════ DESKTOP CHAT WINDOW ═════════ -->
+  <section class="panel">
+    <h2>Desktop chat window</h2>
+    <p class="note">v2 composer pinned to the bottom of a real conversation. ~1000px content width.</p>
+    <div class="device desktop">
+      <div class="win-top">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="win-title"><b>redesign-prompt-input</b> · ~/Project/pi-agent-dashboard</span>
+        <span class="win-right"><span class="chip done">✓ idle</span> 82% ctx</span>
+      </div>
+      <div class="chat-body">
+        <div class="msg user"><div class="who">you</div><div class="bub">Compare <span class="at">@packages/client/src/components/CommandInput.tsx</span> with the Codex composer and tell me what's missing.</div></div>
+        <div class="msg ai"><div class="who">pi · gpt-5-codex</div><div class="bub">Three gaps: no footer key-hints, model lives in a separate row, and the send/stop controls are four separate buttons. Let me read the file.</div></div>
+        <div class="tool"><div class="th">▸ read · CommandInput.tsx</div><div class="tb">export function CommandInput({ commands, onSend, … }: Props) {
+  const isWorking = sessionStatus === "streaming" || retrying === true;
+  …</div></div>
+        <div class="msg ai"><div class="who">pi · gpt-5-codex</div><div class="bub">Confirmed. The 4-button row can collapse to one morphing action button. Want me to draft the change?</div></div>
+      </div>
+      <div class="composer-region">
+        <div class="ctx-strip">
+          <span class="ctx-label">OpenSpec</span><span class="chip info">◒ Explore</span>
+          <span class="chip done">✓P</span><span class="chip done">✓D</span><span class="chip current">◒S</span><span class="chip todo">T 0/12</span>
+          <span class="divider"></span><span class="ctx-label">Git</span><span class="chip">⎇ feat/redesign-composer ▾</span>
+        </div>
+        <div class="composer focused">
+          <div class="ta">Draft the change — call it <span class="cmd">redesign-prompt-input</span><span style="display:inline-block;width:1px;height:15px;background:var(--accent-primary);vertical-align:-3px"></span></div>
+          <div class="toolbar">
+            <button class="tbtn round">＋</button>
+            <button class="tbtn model"><span class="ic">⌘</span>gpt-5-codex<span class="car">▾</span></button>
+            <button class="tbtn"><span class="ic">◇</span>medium<span class="car">▾</span></button>
+            <div class="seg"><button class="on">⚑ Steer</button><button>⧉ Queue</button></div>
+            <span class="spacer"></span>
+            <button class="tbtn round"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg></button>
+            <button class="send"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+          </div>
+        </div>
+        <div class="footer">
+          <span><kbd>⏎</kbd> send</span><span class="dot">·</span><span><kbd>⇧⏎</kbd> newline</span><span class="dot">·</span><span><kbd>/</kbd> commands</span><span class="dot">·</span><span><kbd>@</kbd> files</span><span class="dot">·</span><span><kbd>!</kbd> shell</span>
+          <span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82% context</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════ MOBILE ═════════ -->
+  <section class="panel">
+    <h2>Mobile (360-wide viewport)</h2>
+    <p class="note">At phone width the toolbar keeps only <b>＋ · model · ⋯ · send</b>. Everything else folds into two surfaces, shown below: the <code>＋</code> bottom-sheet (attach + tools) and the <code>⋯</code> overflow (thinking · delivery · terminal).</p>
+    <div class="mgrid">
+
+      <!-- 1 · idle -->
+      <div class="mcell">
+        <div class="phone"><div class="notch"></div><div class="phone-inner">
+          <div class="win-top"><span class="dots"><i></i><i></i><i></i></span><span class="win-title"><b>redesign-prompt-input</b></span><span class="win-right">82%</span></div>
+          <div class="chat-body">
+            <div class="msg user"><div class="who">you</div><div class="bub">what's missing vs Codex?</div></div>
+            <div class="msg ai"><div class="who">pi</div><div class="bub">No footer hints, model in its own row, four stop buttons. Draft it?</div></div>
+          </div>
+          <div class="composer-region">
+            <div class="ctx-strip" style="padding-bottom:6px">
+              <span class="chip info">◒ Explore</span><span class="chip done">✓P</span><span class="chip done">✓D</span><span class="chip current">◒S</span><span class="chip todo">T</span>
+            </div>
+            <div class="composer focused">
+              <div class="ta placeholder">Message pi…</div>
+              <div class="m-toolbar">
+                <button class="tbtn round">＋</button>
+                <button class="tbtn model" style="flex:1;min-width:0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">gpt-5-codex</span><span class="car">▾</span></button>
+                <button class="tbtn round" title="more">⋯</button>
+                <button class="send m-send" disabled title="Send"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button>
+              </div>
+            </div>
+            <div class="footer" style="padding-top:6px"><span><kbd>⏎</kbd> send · <kbd>/</kbd> <kbd>@</kbd> <kbd>!</kbd></span><span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82%</span></div>
+          </div>
+        </div></div>
+        <div class="phone-cap"><b>1 · Idle</b>＋ · model (fills) · ⋯ · send. Send disabled until text.</div>
+      </div>
+
+      <!-- 2 · + attach sheet -->
+      <div class="mcell">
+        <div class="phone"><div class="notch"></div><div class="phone-inner">
+          <div class="win-top"><span class="dots"><i></i><i></i><i></i></span><span class="win-title"><b>redesign-prompt-input</b></span><span class="win-right">82%</span></div>
+          <div class="chat-body">
+            <div class="msg user"><div class="who">you</div><div class="bub">what's missing vs Codex?</div></div>
+          </div>
+          <div class="composer-region">
+            <div class="composer"><div class="ta placeholder">Message pi…</div>
+              <div class="m-toolbar"><button class="tbtn round" style="background:var(--bg-hover)">＋</button><button class="tbtn model" style="flex:1;min-width:0"><span>gpt-5-codex</span><span class="car">▾</span></button><button class="tbtn round">⋯</button><button class="send m-send" disabled><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button></div>
+            </div>
+          </div>
+          <div class="scrim"></div>
+          <div class="sheet">
+            <div class="grab"></div>
+            <div class="shead">Attach</div>
+            <div class="srow"><svg class="mdi" viewBox="0 0 24 24"><path d="M8.5,13.5L11,16.5L14.5,12L19,18H5M21,19V5C21,3.89 20.1,3 19,3H5A2,2 0 0,0 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19Z"/></svg> Photo<small>paste ⌘V</small></div>
+            <div class="srow"><svg class="mdi" viewBox="0 0 24 24"><path d="M13,9V3.5L18.5,9M6,2C4.89,2 4,2.89 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6Z"/></svg> File<small>@ path</small></div>
+            <div class="srow"><svg class="mdi" viewBox="0 0 24 24"><path d="M4,6H20V16H4M20,18A2,2 0 0,0 22,16V6C22,4.89 21.1,4 20,4H4C2.89,4 2,4.89 2,6V16A2,2 0 0,0 4,18H0V20H24V18H20Z"/></svg> Screenshot</div>
+            <div class="shead">Tools</div>
+            <div class="srow"><svg class="mdi" viewBox="0 0 24 24"><path d="M14.19,14.19L6,18L9.81,9.81L18,6M12,10.9A1.1,1.1 0 0,0 10.9,12A1.1,1.1 0 0,0 12,13.1A1.1,1.1 0 0,0 13.1,12A1.1,1.1 0 0,0 12,10.9M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2Z"/></svg> Explore</div>
+            <div class="srow"><svg class="mdi" viewBox="0 0 24 24"><path d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/></svg> Preview inline<small>/view</small></div>
+          </div>
+        </div></div>
+        <div class="phone-cap"><b>2 · ＋ bottom-sheet</b>Attach (photo · file · screenshot) + Tools. Thumb-reachable.</div>
+      </div>
+
+      <!-- 3 · overflow menu -->
+      <div class="mcell">
+        <div class="phone"><div class="notch"></div><div class="phone-inner">
+          <div class="win-top"><span class="dots"><i></i><i></i><i></i></span><span class="win-title"><b>redesign-prompt-input</b></span><span class="win-right">82%</span></div>
+          <div class="chat-body">
+            <div class="msg user"><div class="who">you</div><div class="bub">draft it, but queue it after this turn</div></div>
+          </div>
+          <div class="composer-region">
+            <div class="ovf">
+              <div class="orow"><svg class="mdi" viewBox="0 0 24 24"><path d="M12,3A9,9 0 0,0 3,12H0L4,16L8,12H5A7,7 0 0,1 12,5A7,7 0 0,1 19,12A7,7 0 0,1 12,19C10.5,19 9.1,18.5 8,17.6L6.6,19.1C8.1,20.3 10,21 12,21A9,9 0 0,0 21,12A9,9 0 0,0 12,3M11,7V13L15.7,15.9L16.5,14.6L12.5,12.2V7"/></svg> Thinking<span class="val">medium <span class="car">▾</span></span></div>
+              <div class="orow">Delivery<span class="val"><span class="seg" style="height:26px"><button class="on" style="font-size:10px">⚑ Steer</button><button style="font-size:10px">⧉ Queue</button></span></span></div>
+              <div class="orow"><svg class="mdi" viewBox="0 0 24 24"><path d="M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z"/></svg> Inline terminal<span class="val">!!</span></div>
+            </div>
+            <div class="composer focused"><div class="ta">draft it, queue it<span style="display:inline-block;width:1px;height:15px;background:var(--accent-primary);vertical-align:-3px"></span></div>
+              <div class="m-toolbar"><button class="tbtn round">＋</button><button class="tbtn model" style="flex:1;min-width:0"><span>gpt-5-codex</span><span class="car">▾</span></button><button class="tbtn round" style="background:var(--bg-hover)">⋯</button><button class="send m-send"><svg class="mdi" viewBox="0 0 24 24"><path d="M3 20V14L11 12L3 10V4L22 12Z"/></svg></button></div>
+            </div>
+            <div class="footer" style="padding-top:6px"><span><kbd>⏎</kbd> send</span><span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:82%"></i></span> 82%</span></div>
+          </div>
+        </div></div>
+        <div class="phone-cap"><b>3 · ⋯ overflow</b>Thinking · delivery · terminal. Pops above the toolbar.</div>
+      </div>
+
+      <!-- 4 · streaming -->
+      <div class="mcell">
+        <div class="phone"><div class="notch"></div><div class="phone-inner">
+          <div class="win-top"><span class="dots"><i></i><i></i><i></i></span><span class="win-title"><b>redesign-prompt-input</b></span><span class="win-right" style="color:var(--accent-yellow)">⚡ working</span></div>
+          <div class="chat-body">
+            <div class="msg user"><div class="who">you</div><div class="bub">draft it, queue it</div></div>
+            <div class="msg ai"><div class="who">pi</div><div class="bub">Creating the proposal.</div></div>
+            <div class="tool"><div class="th">▸ write · proposal.md</div><div class="tb">## Why
+The composer scatters controls.</div></div>
+          </div>
+          <div class="composer-region">
+            <div class="composer streaming">
+              <div class="ta placeholder">Queue another message…</div>
+              <div class="m-toolbar">
+                <button class="tbtn round">＋</button>
+                <button class="tbtn round" title="more">⋯</button>
+                <button class="tbtn" style="font-size:11px;gap:4px"><svg class="mdi" viewBox="0 0 24 24"><path d="M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M9,9H15V15H9V9Z"/></svg>after turn</button>
+                <span class="spacer"></span>
+                <button class="send stop m-send" title="Stop"><svg class="mdi" viewBox="0 0 24 24"><path d="M18,18H6V6H18V18Z"/></svg></button>
+              </div>
+            </div>
+            <div class="footer" style="padding-top:6px"><span style="color:var(--accent-yellow)">⚡ Running: bash…</span><span class="spacer"></span><span class="ctxbudget"><span class="bar"><i style="width:38%;background:var(--accent-orange)"></i></span> 38%</span></div>
+          </div>
+        </div></div>
+        <div class="phone-cap"><b>4 · Streaming</b>Send morphs to ■ stop. Input stays open to queue.</div>
+      </div>
+
+    </div>
+
+    <div class="mrules">
+      <h3>Mobile adaptation rules</h3>
+      <ul>
+        <li><b>Persistent row</b> = <code>＋</code> · model (flex-fills) · <code>⋯</code> · send. Nothing else stays inline.</li>
+        <li><b>Send / stop ≥ 44px</b> (WCAG 2.5.5), always thumb-reachable at the row's right edge.</li>
+        <li><b><code>＋</code> = bottom-sheet</b>: attach (photo · file · screenshot) + tools (Explore · Preview).</li>
+        <li><b><code>⋯</code> = overflow</b>: thinking level · <code>Steer | Queue</code> delivery · inline terminal.</li>
+        <li><b>Context strip</b> collapses to chips-only, no group labels.</li>
+        <li><b>Footer</b> condenses to one line and drops the <code>newline</code> hint; context budget stays.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+  function measure(){
+    const cur = document.getElementById('cur-region').getBoundingClientRect().height;
+    const v2  = document.getElementById('v2-region').getBoundingClientRect().height;
+    const c = Math.round(cur), v = Math.round(v2);
+    const add = v - c;
+    const pct = Math.round((add / c) * 100);
+    document.getElementById('cur-tag').textContent = c + 'px';
+    document.getElementById('v2-tag').textContent  = v + 'px';
+    document.getElementById('cur-region').dataset.h = c;
+    document.getElementById('v2-region').dataset.h = v;
+    document.getElementById('s-cur').textContent = c + 'px';
+    document.getElementById('s-v2').textContent  = v + 'px';
+    document.getElementById('s-add').textContent = '+' + add + 'px';
+    document.getElementById('s-pct').textContent = '+' + pct + '%';
+    document.getElementById('minimal-note').innerHTML =
+      'Note: the context strip + footer are optional rows. A <b>minimal</b> v2 (no OpenSpec strip, footer hidden until first keypress) lands within ~10–15% of today — the +' + pct + '% figure is the <i>fully-loaded</i> state shown here.';
+  }
+  requestAnimationFrame(()=>requestAnimationFrame(measure));
+  window.addEventListener('resize', measure);
+</script>
+</body>
+</html>
