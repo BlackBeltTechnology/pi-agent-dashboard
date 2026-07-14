@@ -30,34 +30,25 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isValidRoleName } from "@blackbelt-technology/pi-dashboard-shared/role-name-validation.js";
+import {
+  DEFAULT_ROLE_NAMES,
+  overlayDefaultRoles,
+  type RoleConfig,
+  type RolePreset,
+} from "@blackbelt-technology/pi-dashboard-shared/role-overlay.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 // -- Types ----------------------------------------------------------------
-
-export interface RolePreset {
-  name: string;
-  roles: Record<string, string>;
-}
-
-export interface RoleConfig {
-  roles: Record<string, string>;
-  rolePresets: RolePreset[];
-  activePreset: string | null;
-  /**
-   * User-added role names beyond DEFAULT_ROLE_NAMES. Persisted so an added
-   * role surfaces as an empty slot everywhere even before a model is assigned.
-   * See change: add-agent-role-model-tools (design D5, task 3.1).
-   */
-  roleNames?: string[];
-  /**
-   * Removal markers for DEFAULT role names the user removed, so the read-time
-   * overlay does NOT re-inject them. User-added names need no marker (dropping
-   * them from `roleNames` removes them from the effective schema).
-   */
-  removedRoles?: string[];
-}
+//
+// The role-overlay primitives (`DEFAULT_ROLE_NAMES`, `overlayDefaultRoles`) and
+// the `RoleConfig`/`RolePreset` types now live in
+// `@blackbelt-technology/pi-dashboard-shared/role-overlay.js` (single source of
+// truth, shared with the server's read-only `GET /api/roles`). Re-exported here
+// so existing importers of `role-manager` keep resolving.
+export { DEFAULT_ROLE_NAMES, overlayDefaultRoles };
+export type { RoleConfig, RolePreset };
 
 // -- Config path ----------------------------------------------------------
 
@@ -133,40 +124,6 @@ export function saveRoleConfig(roleConfig: RoleConfig): void {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
   writeFileSync(tmp, JSON.stringify(full, null, 2));
   renameSync(tmp, path);
-}
-
-// -- Default roles --------------------------------------------------------
-//
-// Dashboard-owned canonical role-name set. Roles ownership moved off
-// pi-flows (change: adopt-model-resolve-handler-and-roles-ownership), so the
-// dashboard owns the default names too rather than depending on pi-flows
-// being installed. Mirrors pi-flows' `KNOWN_MODEL_ROLES`.
-//
-// See change: roles-standalone-defaults-and-local-install-detection.
-export const DEFAULT_ROLE_NAMES = [
-  "planning",
-  "coding",
-  "compact",
-  "fast",
-  "vision",
-  "research",
-] as const;
-
-/**
- * Overlay the default role names onto an assigned-roles map for DISPLAY.
- * Assigned values win; default names absent from `roles` appear with an
- * empty (unconfigured) value. Non-default assigned roles are preserved.
- *
- * Used by `roles:get-all` so the Roles table is never an empty dead
- * end on a fresh install. NOT used by `role:resolve-model` (which reports
- * the raw assigned map as `probe.available`).
- */
-export function overlayDefaultRoles(
-  roles: Record<string, string>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const name of DEFAULT_ROLE_NAMES) out[name] = "";
-  return { ...out, ...roles };
 }
 
 /**

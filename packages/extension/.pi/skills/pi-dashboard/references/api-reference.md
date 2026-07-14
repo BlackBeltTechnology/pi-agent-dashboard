@@ -208,6 +208,12 @@ List the dashboard's reachable model catalogue (model-introspection surface). Un
 - `200`: `{ "object": "list", "data": [{ "id": "provider/modelId", "provider", "reasoning?", "input?", "contextWindow?", "maxTokens?", "cost?", "excludedReason?" }] }` (capability/cost metadata only — never credentials)
 - `503`: model runtime (pi-ai) unavailable
 
+### `GET /api/roles`
+Session-less, READ-ONLY view of the global role → model slice of `~/.pi/agent/providers.json`. No active pi session required. The assigned map is overlaid with the canonical `DEFAULT_ROLE_NAMES` (assigned wins; unconfigured defaults appear as empty strings). Network-guarded like `GET /api/providers`. There is NO `PUT`/mutating `/api/roles` route — provisioning is deployment-owned; this is a pure read that never creates or writes the file.
+
+**Responses:**
+- `200`: `{ "roles": { "<role>": "provider/modelId" | "" }, "rolePresets": [{ "name", "roles" }], "activePreset": string | null, "builtinRoleNames": ["planning","coding","compact","fast","vision","research"] }` (missing/malformed file → empty `roles` with defaults overlaid, `rolePresets: []`, `activePreset: null`)
+
 ### `POST /api/session/:id/model`
 Set the model for a session.
 

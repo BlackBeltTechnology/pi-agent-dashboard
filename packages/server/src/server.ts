@@ -110,6 +110,7 @@ import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-r
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
+import { registerRolesRoutes } from "./routes/roles-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
@@ -1405,6 +1406,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     broadcast: (msg) => browserGateway.broadcast(msg),
   });
   registerProviderRoutes(fastify, { networkGuard, piGateway, browserGateway, port: config.port });
+  registerRolesRoutes(fastify, { networkGuard });
 
   // ── Model Proxy ───────────────────────────────────────────────────
   {
