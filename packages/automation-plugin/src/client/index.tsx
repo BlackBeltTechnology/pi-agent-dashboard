@@ -15,6 +15,7 @@
  *
  * See change: add-automation-plugin.
  */
+export { catalog } from "../i18n.js";
 export { isAutomationRun } from "./predicates.js";
 export { AutomationBadge } from "./AutomationBadge.js";
 export { FolderAutomationSection } from "./FolderAutomationSection.js";

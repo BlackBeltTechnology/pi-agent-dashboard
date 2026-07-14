@@ -11,6 +11,10 @@
 
 // Existing presentation components — still used directly by App.tsx
 // during the cutover (Part H removes those call sites).
+// i18n catalog — merged under `plugin.flows.*` by the shell via the
+// manifest's `i18nCatalog: "catalog"` declaration. See change: make-all-ui-text-i18n.
+export { catalog } from "../i18n.js";
+
 export { FlowDashboard } from "./FlowDashboard.js";
 export { FlowAgentCard } from "./FlowAgentCard.js";
 export { FlowAgentDetail } from "./FlowAgentDetail.js";

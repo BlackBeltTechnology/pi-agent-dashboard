@@ -17,6 +17,7 @@
  * add-kb-folder-slot.
  */
 
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
 import { mdiArrowRight, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -39,6 +40,7 @@ export function deriveKbRowState(stats: KbStats | null): RowState | "loading" {
 }
 
 export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
+  const t = useT();
   const cwd = folder?.cwd;
   const [, navigate] = useLocation();
   const { stats, reindex, reindexError, error } = useKbStats(cwd);
@@ -53,7 +55,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
   const state = clientError != null ? "error" : deriveKbRowState(stats);
   const chunks = stats?.chunks ?? 0;
   const files = stats?.files ?? 0;
-  const countTip = `${files} files · ${chunks} chunks`;
+  const countTip = t("countTip", { files, chunks }, `${files} files · ${chunks} chunks`);
   const openSettings = (e: React.MouseEvent): void => {
     e.stopPropagation();
     navigate(kbSettingsUrl(cwd));
@@ -69,9 +71,9 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
     : state === "indexing" || state === "not-indexed" ? "text-teal-400"
     : "text-[var(--text-tertiary)]";
   const labelTitle =
-    state === "error" ? (clientError ?? stats?.lastError ?? "Reindex failed — open KB settings")
-    : state === "not-indexed" ? "Not indexed — open KB settings to define sources"
-    : `${countTip} — open KB settings`;
+    state === "error" ? (clientError ?? stats?.lastError ?? t("titleErrorFallback", undefined, "Reindex failed — open KB settings"))
+    : state === "not-indexed" ? t("titleNotIndexed", undefined, "Not indexed — open KB settings to define sources")
+    : t("titlePopulated", { tip: countTip }, `${countTip} — open KB settings`);
 
   return (
     <div
@@ -88,19 +90,19 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
         >
           <span data-testid="folder-kb-count">
             {state === "error" ? (
-              "KB · index failed"
+              t("labelIndexFailed", undefined, "KB · index failed")
             ) : state === "indexing" ? (
-              <>KB · indexing… <span className="tabular-nums">{files.toLocaleString()}</span> files</>
+              <>{t("labelIndexing", undefined, "KB · indexing…")} <span className="tabular-nums">{files.toLocaleString()}</span> {t("labelFiles", undefined, "files")}</>
             ) : state === "not-indexed" ? (
-              "KB · not indexed"
+              t("labelNotIndexed", undefined, "KB · not indexed")
             ) : (
               <>
-                KB · <span className="text-[var(--text-secondary)] tabular-nums">{chunks.toLocaleString()}</span> chunks
+                {t("labelKbPrefix", undefined, "KB ·")} <span className="text-[var(--text-secondary)] tabular-nums">{chunks.toLocaleString()}</span> {t("labelChunks", undefined, "chunks")}
                 {state === "stale" && (
                   <>
                     {" · "}
                     <span className="text-amber-400 font-bold" data-testid="folder-kb-stale">
-                      {stats?.staleCount} stale
+                      {t("labelStale", { count: stats?.staleCount ?? 0 }, `${stats?.staleCount} stale`)}
                     </span>
                   </>
                 )}
@@ -116,7 +118,7 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
             data-testid="folder-kb-retry"
             className="text-[10px] px-1.5 py-0.5 rounded border text-red-400 border-red-500/40 bg-red-500/5 hover:border-red-500/70"
           >
-            <Icon path={mdiRefresh} size={0.4} className="inline mr-0.5" />Retry
+            <Icon path={mdiRefresh} size={0.4} className="inline mr-0.5" />{t("retry", undefined, "Retry")}
           </button>
         ) : state === "indexing" ? (
           <Icon path={mdiRefresh} size={0.5} className="text-teal-400 animate-spin" />
@@ -125,16 +127,16 @@ export function FolderKbSection({ folder }: { folder: FolderDescriptor }): React
             onClick={doReindex}
             data-testid="folder-kb-index-now"
             className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70"
-            title="Build the KB for this folder"
+            title={t("titleBuildKb", undefined, "Build the KB for this folder")}
           >
-            Index now
+            {t("indexNow", undefined, "Index now")}
           </button>
         ) : (
           <button
             onClick={doReindex}
             data-testid="folder-kb-reindex"
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-            title={state === "stale" ? `Reindex ${stats?.staleCount} changed files` : "Reindex now"}
+            title={state === "stale" ? t("titleReindexStale", { count: stats?.staleCount ?? 0 }, `Reindex ${stats?.staleCount} changed files`) : t("titleReindexNow", undefined, "Reindex now")}
           >
             <Icon path={mdiRefresh} size={0.5} />
           </button>

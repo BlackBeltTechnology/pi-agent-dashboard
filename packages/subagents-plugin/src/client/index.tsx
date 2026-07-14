@@ -28,3 +28,5 @@ export type { SubagentPopoutClaimProps } from "./SubagentPopoutClaim.js";
 export { SubagentsSettings } from "./SubagentsSettings.js";
 
 export type { SubagentTimelineEntry, SubagentState } from "./types.js";
+
+export { catalog } from "../i18n.js";

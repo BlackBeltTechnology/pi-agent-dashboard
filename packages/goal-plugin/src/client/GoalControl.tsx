@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { Icon } from "@mdi/react";
 import { mdiPause, mdiOpenInNew } from "@mdi/js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useSessionEvents, sendPluginAction } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSessionEvents, sendPluginAction, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { deriveSnapshot } from "./goal-state.js";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
 import { goalDetailUrl } from "./goals-api.js";
@@ -25,6 +25,7 @@ export function GoalControl({
 }: {
   session: DashboardSession;
 }): React.ReactElement | null {
+  const t = useT();
   const [, navigate] = useLocation();
   const events = useSessionEvents(session.id);
   if (!session.goalId || !session.cwd) return null;
@@ -38,7 +39,15 @@ export function GoalControl({
     <span
       data-testid="goal-control"
       className="inline-flex items-center gap-1 text-[9px] px-1.5 py-px rounded border border-indigo-500/30 text-indigo-400"
-      title={snap ? `Goal ${snap.status} · ${turns}${verdict ? ` · ${verdict}` : ""}` : "Open this session's goal"}
+      title={
+        snap
+          ? t(
+              "goalStatusTooltip",
+              { status: snap.status, turns, verdict: verdict ? ` · ${verdict}` : "" },
+              `Goal ${snap.status} · ${turns}${verdict ? ` · ${verdict}` : ""}`,
+            )
+          : t("openSessionGoal", undefined, "Open this session's goal")
+      }
     >
       <span>⚑ {turns}{verdict ? ` · ${verdict}` : ""}</span>
       {active && (
@@ -46,7 +55,7 @@ export function GoalControl({
           data-testid="goal-control-pause"
           onClick={(e) => { e.stopPropagation(); sendPluginAction(GOAL_PLUGIN_ID, session.id, "pause", undefined); }}
           className="hover:text-amber-300"
-          title="Pause loop"
+          title={t("pauseLoop", undefined, "Pause loop")}
         >
           <Icon path={mdiPause} size={0.45} />
         </button>
@@ -55,7 +64,7 @@ export function GoalControl({
         data-testid="goal-control-link"
         onClick={(e) => { e.stopPropagation(); navigate(goalDetailUrl(session.cwd, session.goalId!)); }}
         className="hover:text-indigo-300"
-        title="Open this session's goal"
+        title={t("openSessionGoal", undefined, "Open this session's goal")}
       >
         <Icon path={mdiOpenInNew} size={0.45} />
       </button>

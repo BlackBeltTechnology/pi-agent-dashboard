@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Icon } from "@mdi/react";
 import { mdiPlay } from "@mdi/js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // GateSlot is a slot CONSUMER and aggregateGateState is a pure helper —
 // neither qualifies as a primitive. Direct import. See add-plugin-ui-primitive-
 // registry Decision 4.
@@ -24,6 +24,7 @@ export function FlowLaunchDialog({
   /** Phase-2 decorator host — used to gate the Run button when an extension declares the flow unavailable. */
   session?: Pick<DashboardSession, "uiDecorators">;
 }) {
+  const t = useT();
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   // Phase-2 (`add-extension-ui-decorations`): aggregate any `gate` decorators
   // targeting this flowId. Most-restrictive-wins: any `available: false`
@@ -45,7 +46,7 @@ export function FlowLaunchDialog({
     <Dialog
       open
       onClose={onCancel}
-      title={`Run Flow: ${flowName}`}
+      title={t("runFlowTitle", { flowName }, `Run Flow: ${flowName}`)}
       size="md"
       testId="flow-launch-dialog"
     >
@@ -60,7 +61,7 @@ export function FlowLaunchDialog({
           type="text"
           value={task}
           onChange={(e) => setTask(e.target.value)}
-          placeholder="Describe the task (optional)..."
+          placeholder={t("taskPlaceholder", undefined, "Describe the task (optional)...")}
           className="w-full px-3 py-2 text-sm bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-lg text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50"
         />
         <Dialog.Footer>
@@ -76,7 +77,7 @@ export function FlowLaunchDialog({
             }`}
             data-testid="flow-launch-run"
           >
-            <Icon path={mdiPlay} size={0.45} className="inline mr-0.5" />Run
+            <Icon path={mdiPlay} size={0.45} className="inline mr-0.5" />{t("run", undefined, "Run")}
           </button>
         </Dialog.Footer>
       </form>

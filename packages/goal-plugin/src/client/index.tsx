@@ -13,3 +13,4 @@ export { GoalsBoardClaim } from "./GoalsBoardClaim.js";
 export { GoalDetailClaim } from "./GoalDetailClaim.js";
 export { hasGoal } from "./predicates.js";
 export { deriveSnapshot } from "./goal-state.js";
+export { catalog } from "../i18n.js";

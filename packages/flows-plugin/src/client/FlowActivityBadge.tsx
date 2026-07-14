@@ -10,6 +10,7 @@
  * See change: fix-flows-plugin-polish (A5).
  */
 import React, { type ReactNode } from "react";
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Icon } from "@mdi/react";
 import { mdiLoading, mdiCheckCircle, mdiAlertCircle, mdiStopCircle, mdiStop } from "@mdi/js";
 import type { FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -37,6 +38,7 @@ export function FlowActivityBadge({
   status,
   onAbort,
 }: FlowActivityBadgeProps) {
+  const t = useT();
   const { icon, color } = statusConfig[status ?? "running"] ?? statusConfig.running;
   const isRunning = status === "running";
 
@@ -57,10 +59,10 @@ export function FlowActivityBadge({
           type="button"
           onClick={(e) => { e.stopPropagation(); onAbort(); }}
           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors flex-shrink-0"
-          title="Abort running flow"
+          title={t("abortRunningFlow", undefined, "Abort running flow")}
         >
           <Icon path={mdiStop} size={0.4} />
-          Abort
+          {t("abort", undefined, "Abort")}
         </button>
       )}
     </div>

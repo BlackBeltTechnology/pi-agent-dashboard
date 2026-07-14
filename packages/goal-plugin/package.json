@@ -36,6 +36,7 @@
   "pi-dashboard-plugin": {
     "id": "goal",
     "displayName": "Goal",
+    "i18nCatalog": "catalog",
     "priority": 100,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",

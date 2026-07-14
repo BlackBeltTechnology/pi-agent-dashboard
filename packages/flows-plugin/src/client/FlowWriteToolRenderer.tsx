@@ -11,7 +11,7 @@
  */
 import React, { useMemo, useState } from "react";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { parseFlowYaml, flowToMermaid } from "./flow-yaml-parse.js";
 
 interface FlowWriteResult {
@@ -44,6 +44,7 @@ export function FlowWriteToolRenderer({
   status?: "running" | "complete" | "error";
   result?: string;
 }) {
+  const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
   const [showYaml, setShowYaml] = useState(false);
 
@@ -82,7 +83,7 @@ export function FlowWriteToolRenderer({
       {/* Mermaid snapshot from args */}
       {written && mermaidMd && (
         <div className="mt-2">
-          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">Flow graph</div>
+          <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">{t("flowGraph", undefined, "Flow graph")}</div>
           <MarkdownContent content={mermaidMd} />
         </div>
       )}
@@ -90,7 +91,7 @@ export function FlowWriteToolRenderer({
       {/* Validation failure — diagnostics verbatim */}
       {isError && (
         <div className="mt-2">
-          <div className="text-[10px] uppercase tracking-wide text-red-400 mb-1">Result</div>
+          <div className="text-[10px] uppercase tracking-wide text-red-400 mb-1">{t("result", undefined, "Result")}</div>
           <pre className="font-mono text-[11px] text-red-400 whitespace-pre-wrap">
             {diagnostics.length > 0 ? diagnostics.join("\n") : (parsed?.error ?? "Unknown error")}
           </pre>

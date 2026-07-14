@@ -14,6 +14,7 @@
  * See change: sophisticate-goal-authoring-and-control (tasks 4.1, 4.2).
  */
 
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { GoalBudget, GoalCriterion, GoalJudge } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiClose, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -45,7 +46,8 @@ export interface GoalFormProps {
   autoRespawnDefault?: boolean;
 }
 
-export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, executorModel, autoRespawnDefault }: GoalFormProps): React.ReactElement {
+export function GoalForm({ initial, submitLabel, onSubmit, onCancel, executorModel, autoRespawnDefault }: GoalFormProps): React.ReactElement {
+  const t = useT();
   const { models } = useJudgeModels();
   const [objective, setObjective] = useState(initial?.objective ?? "");
   const [criteria, setCriteria] = useState<string[]>(initial?.criteria?.map((c) => c.text) ?? []);
@@ -99,7 +101,7 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
     try {
       await onSubmit(payload);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to save goal");
+      setErr(e instanceof Error ? e.message : t("failedToSave", undefined, "Failed to save goal"));
     } finally {
       setBusy(false);
     }
@@ -111,13 +113,13 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
   return (
     <div className="space-y-3" data-testid="goal-form">
       <div>
-        <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">Objective</label>
+        <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">{t("objective", undefined, "Objective")}</label>
         <input
           autoFocus
           data-testid="goal-form-objective"
           value={objective}
           onChange={(e) => setObjective(e.target.value)}
-          placeholder="Goal objective…"
+          placeholder={t("objectivePlaceholder", undefined, "Goal objective…")}
           className={fieldCls}
           onKeyDown={(e) => { if (e.key === "Enter") void submit(); if (e.key === "Escape") onCancel?.(); }}
         />
@@ -125,17 +127,17 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
 
       <div>
         <div className="flex items-center gap-2">
-          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] flex-1">Acceptance criteria</label>
+          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] flex-1">{t("acceptanceCriteria", undefined, "Acceptance criteria")}</label>
           <button data-testid="goal-form-add-criterion" onClick={addCriterion} className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-0.5">
-            <Icon path={mdiPlus} size={0.4} />Add
+            <Icon path={mdiPlus} size={0.4} />{t("add", undefined, "Add")}
           </button>
         </div>
-        {criteria.length === 0 && <div className="text-[10px] text-[var(--text-muted)] mt-1">No criteria — the judge uses the objective alone.</div>}
+        {criteria.length === 0 && <div className="text-[10px] text-[var(--text-muted)] mt-1">{t("noCriteria", undefined, "No criteria — the judge uses the objective alone.")}</div>}
         <div className="space-y-1 mt-1">
           {criteria.map((c, i) => (
             <div key={i} className="flex items-center gap-1" data-testid="goal-form-criterion">
-              <input value={c} onChange={(e) => setCriterion(i, e.target.value)} placeholder={`Criterion ${i + 1}`} className={fieldCls} />
-              <button onClick={() => removeCriterion(i)} className="text-[var(--text-tertiary)] hover:text-red-400" title="Remove" data-testid="goal-form-remove-criterion">
+              <input value={c} onChange={(e) => setCriterion(i, e.target.value)} placeholder={t("criterionPlaceholder", { n: i + 1 }, `Criterion ${i + 1}`)} className={fieldCls} />
+              <button onClick={() => removeCriterion(i)} className="text-[var(--text-tertiary)] hover:text-red-400" title={t("remove", undefined, "Remove")} data-testid="goal-form-remove-criterion">
                 <Icon path={mdiClose} size={0.5} />
               </button>
             </div>
@@ -145,36 +147,36 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
 
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">Max turns</label>
+          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">{t("maxTurns", undefined, "Max turns")}</label>
           <input data-testid="goal-form-max-turns" type="number" min="1" value={maxTurns} onChange={(e) => setMaxTurns(e.target.value)} placeholder="20" className={fieldCls} />
         </div>
         <div>
-          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">Max spend ($)</label>
+          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)]">{t("maxSpend", undefined, "Max spend ($)")}</label>
           <input data-testid="goal-form-max-spend" type="number" min="0" step="0.01" value={maxSpendUsd} onChange={(e) => setMaxSpendUsd(e.target.value)} placeholder="—" className={fieldCls} />
         </div>
       </div>
 
       <div>
         <div className="flex items-center gap-2">
-          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] flex-1">Judge model</label>
+          <label className="text-[10px] uppercase font-semibold text-[var(--text-tertiary)] flex-1">{t("judgeModel", undefined, "Judge model")}</label>
           {judgeLabel && (
             <span
               data-testid="goal-form-judge-badge"
               className={`text-[9px] px-1.5 py-px rounded-full border ${crossModel ? "text-indigo-300 border-indigo-500/50 bg-indigo-500/10" : "text-amber-300 border-amber-500/50 bg-amber-500/10"}`}
             >
-              {crossModel ? "cross-model" : "self-judge"}
+              {crossModel ? t("crossModel", undefined, "cross-model") : t("selfJudge", undefined, "self-judge")}
             </span>
           )}
         </div>
         <select data-testid="goal-form-judge" value={judgeLabel} onChange={(e) => setJudgeLabel(e.target.value)} className={fieldCls}>
-          <option value="">Extension default</option>
+          <option value="">{t("extensionDefault", undefined, "Extension default")}</option>
           {models.map((m) => (
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
         <label className="flex items-center gap-1.5 mt-1.5 text-[11px] text-[var(--text-secondary)]">
           <input data-testid="goal-form-self-judge" type="checkbox" checked={selfJudge} disabled={!judgeLabel} onChange={(e) => setSelfJudge(e.target.checked)} />
-          Self-judge (judge with the executor model)
+          {t("selfJudgeLabel", undefined, "Self-judge (judge with the executor model)")}
         </label>
       </div>
 
@@ -185,7 +187,7 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
           checked={autoRespawn}
           onChange={(e) => setAutoRespawn(e.target.checked)}
         />
-        Auto-respawn on driver death (bounded by budget + crash-loop breaker)
+        {t("autoRespawnLabel", undefined, "Auto-respawn on driver death (bounded by budget + crash-loop breaker)")}
       </label>
 
       {err && <div className="text-[10px] text-red-400" data-testid="goal-form-error">{err}</div>}
@@ -197,11 +199,11 @@ export function GoalForm({ initial, submitLabel = "Create", onSubmit, onCancel, 
           onClick={() => void submit()}
           className="text-xs px-2.5 py-1 rounded border border-indigo-500/40 text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 disabled:opacity-50"
         >
-          {submitLabel}
+          {submitLabel ?? t("create", undefined, "Create")}
         </button>
         {onCancel && (
           <button data-testid="goal-form-cancel" onClick={onCancel} className="text-xs px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
-            Cancel
+            {t("cancel", undefined, "Cancel")}
           </button>
         )}
       </div>

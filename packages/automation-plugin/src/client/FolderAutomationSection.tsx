@@ -13,6 +13,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Icon } from "@mdi/react";
 import { mdiRefresh, mdiArrowRight } from "@mdi/js";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
@@ -30,6 +31,7 @@ export function FolderAutomationSection({
   const [creating, setCreating] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [, setLocation] = useLocation();
+  const t = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -63,12 +65,12 @@ export function FolderAutomationSection({
             setLocation(`/folder/${encodeFolderPath(folder.cwd)}/automations`);
           }}
           className="flex items-center gap-1 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase hover:text-blue-400"
-          title="Open automation board"
+          title={t("openBoardTitle", undefined, "Open automation board")}
         >
           <span>
-            Automations ({automations.length})
+            {t("automations", undefined, "Automations")} ({automations.length})
             {invalid > 0 && (
-              <span className="ml-1 text-[var(--danger,#ef4444)]" title={`${invalid} invalid`}>
+              <span className="ml-1 text-[var(--danger,#ef4444)]" title={t("invalidTitle", { count: invalid }, `${invalid} invalid`)}>
                 ⚠ {invalid}
               </span>
             )}
@@ -81,7 +83,7 @@ export function FolderAutomationSection({
             setReloadKey((k) => k + 1);
           }}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-          title="Refresh"
+          title={t("refresh", undefined, "Refresh")}
           data-testid="folder-automation-refresh"
         >
           <Icon path={mdiRefresh} size={0.5} />
@@ -95,7 +97,7 @@ export function FolderAutomationSection({
           className="text-[10px] px-1.5 py-0.5 rounded border text-blue-400 border-blue-500/40 bg-blue-500/5 hover:text-blue-300 hover:border-blue-500/70"
           data-testid="folder-automation-new-btn"
         >
-          + New
+          {t("new", undefined, "+ New")}
         </button>
       </div>
 

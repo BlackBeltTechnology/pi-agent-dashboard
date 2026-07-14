@@ -32,6 +32,7 @@
   "pi-dashboard-plugin": {
     "id": "automation",
     "displayName": "Automations",
+    "i18nCatalog": "catalog",
     "priority": 100,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",

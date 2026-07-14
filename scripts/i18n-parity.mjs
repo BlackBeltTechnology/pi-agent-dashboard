@@ -50,18 +50,29 @@ const core = new Set([...zh, ...hu]);
 report("zh-CN (core)", core, zh);
 report("hu (core)", core, hu);
 
-// Plugins: each plugin's zh-CN and hu blocks must have identical key sets.
+// Plugins: import each plugin's `catalog` (robust vs. regex-parsing an object
+// literal whose values contain arbitrary translated text). Each plugin's
+// per-language blocks must have identical key sets.
+const { createJiti } = await import("jiti");
+const jiti = createJiti(import.meta.url, { interopDefault: true });
 for (const file of pluginCatalogs) {
-  const src = fs.readFileSync(file, "utf8");
   const id = file.replace(/.*packages\//, "").split("/")[0];
-  const zhBlock = keysFromObjectLiteral(src, '"zh-CN"');
-  // hu block starts after the zh block; approximate by searching for `hu:` / "hu"
-  const huIdx = Math.max(src.indexOf("\n  hu:"), src.indexOf('"hu"'));
-  const huBlock = huIdx >= 0 ? keysFromObjectLiteral(src.slice(huIdx)) : new Set();
-  const ref = new Set([...zhBlock, ...huBlock]);
+  let catalog;
+  try {
+    const mod = await jiti.import(file);
+    catalog = mod.catalog ?? mod.default?.catalog ?? mod.default;
+  } catch (e) {
+    failed = true;
+    console.error(`\u2717 ${id}: failed to import catalog (${e.message})`);
+    continue;
+  }
+  if (!catalog || typeof catalog !== "object") continue;
+  const langs = Object.keys(catalog);
+  const ref = new Set(langs.flatMap((l) => Object.keys(catalog[l] ?? {})));
   if (ref.size === 0) continue;
-  report(`${id} zh-CN`, ref, zhBlock);
-  report(`${id} hu`, ref, huBlock);
+  for (const lang of langs) {
+    report(`${id} ${lang}`, ref, new Set(Object.keys(catalog[lang] ?? {})));
+  }
 }
 
 if (failed) {
