@@ -190,6 +190,11 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.changeSummaryTable !== "boolean") {
     out = { ...out, changeSummaryTable: true };
   }
+  // Legacy prefs predating the reserved process line default it OFF, matching
+  // the simple/standard presets. See change: stable-process-line.
+  if (typeof out.reserveProcessLineAtIdle !== "boolean") {
+    out = { ...out, reserveProcessLineAtIdle: false };
+  }
   return out;
 }
 
@@ -492,6 +497,7 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         keepReasoningOpenUntilTurnEnds: false,
         toolGroupDefaultCollapsed: false,
         changeSummaryTable: false,
+        reserveProcessLineAtIdle: false,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -507,6 +513,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         toolGroupDefaultCollapsed:
           partial.toolGroupDefaultCollapsed ?? base.toolGroupDefaultCollapsed,
         changeSummaryTable: partial.changeSummaryTable ?? base.changeSummaryTable,
+        reserveProcessLineAtIdle:
+          partial.reserveProcessLineAtIdle ?? base.reserveProcessLineAtIdle,
       };
       displayPrefs = merged;
       scheduleSave();
