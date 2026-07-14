@@ -322,7 +322,8 @@ export function PackageRow({
 									)}
 									{canResetToNpm && (
 										<button
-											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] flex items-center gap-1.5"
+											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+											disabled={busy}
 											onClick={() => { setMenuOpen(false); setResetConfirmOpen(true); }}
 											data-testid={testId ? `${testId}-reset-to-published` : undefined}
 										>

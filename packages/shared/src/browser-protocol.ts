@@ -642,9 +642,11 @@ export interface PackageOperationCompleteMessage {
   error?: string;
   /** Number of sessions reloaded (only on success). */
   sessionsReloaded?: number;
-  /** Set on a move op when install succeeded but remove failed.
-   * Indicates the package now exists in BOTH scopes; UI should surface
-   * a recovery action (POST /api/packages/remove against fromScope). */
+  /** Set on a composite move OR reset op when install succeeded but remove
+   * failed. Move: the package now exists in BOTH scopes. Reset: the published
+   * spec installed but the local/git entry is still registered. Either way the
+   * UI should surface a recovery action (POST /api/packages/remove of the
+   * still-present entry). */
   partialSuccess?: {
     installed: boolean;
     removed: boolean;

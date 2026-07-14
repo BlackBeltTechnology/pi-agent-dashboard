@@ -37,15 +37,19 @@ function row(overrides: Partial<InstalledPackage>): InstalledPackage {
 }
 
 describe("resolvePublishedVariant", () => {
-	it("recommended local override → manifest npm source (offline, no lookup)", async () => {
+	it("recommended local override → manifest npm source resolves even when the version lookup throws", async () => {
+		// Source resolution is offline (manifest); the version lookup is
+		// best-effort — a throwing/offline registry must NOT break resolution,
+		// it just yields no version.
 		const out = await resolvePublishedVariant(row({}), {
 			manifest: MANIFEST,
 			lookupNpm: async () => {
-				throw new Error("must not hit network for source resolution");
+				throw new Error("registry offline");
 			},
 			readName: () => undefined,
 		});
 		expect(out?.source).toBe("npm:pi-web-access");
+		expect(out?.version).toBeUndefined();
 	});
 
 	it("recommended path enriches version best-effort when the registry answers", async () => {
