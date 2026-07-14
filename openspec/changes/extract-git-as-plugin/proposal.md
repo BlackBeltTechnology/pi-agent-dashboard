@@ -42,9 +42,20 @@ None. This change is a refactor that uses `dashboard-shell-slots` and `dashboard
 
 - Existing git capability specs (e.g. `git-branch-selector`, `git-info-display`, `git-platform-detection` if they exist; final list confirmed during implementation) — their main spec files in `openspec/specs/` move under `packages/git-plugin/specs/` and become plugin-internal documentation.
 
+## Coordination with `add-session-uncommitted-indicator-and-commit`
+
+`add-session-uncommitted-indicator-and-commit` (implemented in core) lands the uncommitted-indicator + commit-from-card feature on exactly the files this extraction moves. **The git-plugin extraction MUST carry the commit feature along** — move these self-contained, plugin-ready artifacts into `packages/git-plugin/`:
+
+- Client: `packages/client/src/components/GitDirtyPill.tsx`, `CommitDialog.tsx` (+ `CommitDialogProvider`/`useCommitDialog`), `packages/client/src/lib/git-status-cache.ts`, and the `fetchGitStatus`/`fetchChangedFiles`/`commitFiles`/`draftCommitMessage` helpers in `git-api.ts`.
+- Server: `getGitStatus`/`getChangedFiles`/`commitFiles`/`assertPathsInside`/`GitCommitError` in `git-operations.ts`, the `/api/git/{status,changed-files,commit,commit-draft}` routes in `git-routes.ts`, and `commit-draft-relay.ts`.
+- Bridge: `commit-draft.ts` + `commit-draft-agent.ts`, the `git_commit_draft` case in `command-handler.ts`, and the `gitStatus` half of `sendGitInfoIfChanged`/`gatherGitStatus`.
+- Shared: `GitStatus` (`types.ts`), the commit/status/draft response types (`rest-api.ts`), the `git_commit_draft`/`git_commit_draft_result` protocol messages, and `parseGitStatusV2`/`GIT_STATUS_V2` (`platform/git.ts`).
+
+The `GitDirtyPill` mounts on both the per-card `GitInfo` slot and the folder-header `GroupGitInfo` slot; the extraction's slot wiring must preserve both mount points and the placement-agnostic `CommitDialog`.
+
 ## Impact
 
-- `packages/client/src/components/SessionCard.tsx` — `GitInfo` + `GroupGitInfo` + `branchCache` removed (~80 LOC); replaced by slot consumers `<SessionCardBadgeSlot/>` and `<SidebarFolderSectionSlot/>`.
+- `packages/client/src/components/SessionCard.tsx` — `GitInfo` + `GroupGitInfo` + `branchCache` removed (~80 LOC); replaced by slot consumers `<SessionCardBadgeSlot/>` and `<SidebarFolderSectionSlot/>`. Carries the `GitDirtyPill` + Commit button (see coordination note above).
 - `packages/client/src/components/SessionList.tsx` — `GroupGitInfo` import + `BranchSwitchDialog` mount removed; replaced by slot consumers.
 - `packages/client/src/components/MobileActionMenu.tsx` — git block removed (~20 LOC).
 - `packages/client/src/components/FileDiffView.tsx` — unchanged; continues to consume session-diff.ts output and renders without git-plugin in degraded mode (no syntax highlighting from git diff).
