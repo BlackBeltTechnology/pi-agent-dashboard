@@ -36,7 +36,7 @@ describe("draftCommitMessage ladder", () => {
   const buildDiff = () => "diff --git a/x b/x";
 
   it("rung 1: fork-subagent with context", async () => {
-    const runAgent = vi.fn(async () => "feat: add thing");
+    const runAgent = vi.fn(async (_seed: string) => "feat: add thing");
     const res = await draftCommitMessage({
       files: ["x.ts"], buildDiff, buildContext: () => "ctx", runAgent,
     });
@@ -45,7 +45,7 @@ describe("draftCommitMessage ladder", () => {
   });
 
   it("rung 2: diff-only when no context", async () => {
-    const runAgent = vi.fn(async () => "fix: y");
+    const runAgent = vi.fn(async (_seed: string) => "fix: y");
     const res = await draftCommitMessage({
       files: ["x.ts"], buildDiff, buildContext: () => undefined, runAgent,
     });
