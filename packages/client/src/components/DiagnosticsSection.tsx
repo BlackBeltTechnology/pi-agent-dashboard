@@ -21,6 +21,7 @@ import { getApiBase } from "../lib/api-context.js";
 import type { DoctorCheck, DoctorReport } from "../lib/doctor-api.js";
 import { DoctorFetchError, fetchDoctorReport } from "../lib/doctor-api.js";
 import { t as i18nT } from "../lib/i18n";
+import { resolveServerMessage } from "../lib/server-error.js";
 import { DialogPortal } from "./DialogPortal.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 
@@ -301,7 +302,9 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
                       </span>
                       <span className="text-sm font-semibold text-slate-100">{c.name}</span>
                     </div>
-                    <div className="text-sm text-slate-300">{c.message}</div>
+                    <div className="text-sm text-slate-300">
+                      {resolveServerMessage({ code: c.code, vars: c.vars, message: c.message })}
+                    </div>
                     {c.detail ? (
                       <pre className="mt-1 text-[11px] text-slate-500 whitespace-pre-wrap break-words font-mono max-h-32 overflow-auto">
                         {c.detail}

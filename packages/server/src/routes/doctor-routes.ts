@@ -173,6 +173,7 @@ export function registerDoctorRoutes(fastify: FastifyInstance, deps: DoctorRoute
         section: "diagnostics",
         status: "error",
         message: "Unexpected internal failure",
+        code: "doctor.unexpected_internal_failure", // See change: make-all-ui-text-i18n
         detail: `${e.message}\n${(e.stack || "").split("\n").slice(0, 4).join("\n")}`,
         suggestion:
           "Check `~/.pi-dashboard/doctor.log` on the server, then file an issue with the captured error.",

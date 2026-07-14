@@ -16,8 +16,8 @@ import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOut
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api-context.js";
-import { useI18n } from "../../lib/i18n";
 import { fileIcon } from "../../lib/file-icon.js";
+import { useI18n } from "../../lib/i18n";
 
 interface EditorFileTreeProps {
   cwd: string;

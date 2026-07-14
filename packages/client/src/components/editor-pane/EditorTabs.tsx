@@ -10,9 +10,9 @@
 import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
-import { useI18n } from "../../lib/i18n";
 import type { OpenFile } from "../../lib/editor-pane-state.js";
 import { fileIcon } from "../../lib/file-icon.js";
+import { useI18n } from "../../lib/i18n";
 
 interface EditorTabsProps {
   openFiles: OpenFile[];
