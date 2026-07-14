@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: Background-process drawer folds into the unified summary line
+### Requirement: Client renders the PGID scan as a collapsible drawer
 The client-side background-process list SHALL contribute its inventory to the PROCESS subcard's single collapsible summary line instead of rendering its own separate `⚠ N background processes` summary row. When collapsed, background processes SHALL be represented by a background-count segment in the unified line; their individual killable rows SHALL appear in the expanded body below the in-flight bash rows. The per-row `✕` PGID-kill verb and the overflow tail SHALL be unchanged.
 
 #### Scenario: Collapsed line shows the background-count segment

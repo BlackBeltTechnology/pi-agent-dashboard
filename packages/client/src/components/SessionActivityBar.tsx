@@ -20,10 +20,12 @@
  *
  * See change: redesign-process-list-activity-bar.
  */
-import React from "react";
-import { Icon } from "@mdi/react";
+
 import { mdiPlay, mdiStopCircleOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import type { InflightBashTool } from "../hooks/useInflightBashTools.js";
+import { splitOverflow } from "./collapse-summary.js";
 
 /** Visible row cap. Excess rows collapse into a `+N more ⏵` chip.
  *  Decided in design.md Decision 6 (concurrent-bash ceiling). */
@@ -33,7 +35,7 @@ export const MAX_VISIBLE = 2;
  *  literal string referenced from session-activity-bar/spec.md. */
 export const STOP_TOOLTIP = "Stop this tool (lets the agent continue)";
 
-function formatElapsed(ms: number): string {
+export function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
@@ -44,7 +46,7 @@ function formatElapsed(ms: number): string {
   return `${hours}h ${remainMinutes.toString().padStart(2, "0")}m`;
 }
 
-function truncateCommand(command: string, maxLen = 60): string {
+export function truncateCommand(command: string, maxLen = 60): string {
   if (command.length <= maxLen) return command;
   return command.slice(0, maxLen - 1) + "…";
 }
@@ -63,12 +65,9 @@ interface SessionActivityBarProps {
 export function SessionActivityBar({ tools, onAbort, now, compact }: SessionActivityBarProps) {
   if (tools.length === 0) return null;
 
-  const visible = tools.slice(0, MAX_VISIBLE);
-  const overflowCount = Math.max(0, tools.length - MAX_VISIBLE);
-  const overflowTitle = tools
-    .slice(MAX_VISIBLE)
-    .map((t) => t.command)
-    .join("\n");
+  const { visible, overflow } = splitOverflow(tools, MAX_VISIBLE);
+  const overflowCount = overflow.length;
+  const overflowTitle = overflow.map((t) => t.command).join("\n");
 
   const containerCls = compact
     ? "space-y-0.5"

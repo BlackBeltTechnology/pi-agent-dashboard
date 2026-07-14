@@ -546,6 +546,31 @@ describe("preferences-store", () => {
       expect(merged.changeSummaryTable).toBe(false);
       store.dispose();
     });
+
+    it("backfills reserveProcessLineAtIdle to false for a legacy displayPrefs file", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: {
+          tokenStatsBar: true,
+          contextUsageBar: true,
+          reasoning: false,
+          toolResults: true,
+          turnMetadata: true,
+          debugTools: false,
+          toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+        },
+      }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getDisplayPrefs()?.reserveProcessLineAtIdle).toBe(false);
+      store.dispose();
+    });
+
+    it("PATCH omitting reserveProcessLineAtIdle preserves the stored value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setDisplayPrefs({ reserveProcessLineAtIdle: true });
+      const merged = store.setDisplayPrefs({ reasoning: true });
+      expect(merged.reserveProcessLineAtIdle).toBe(true);
+      store.dispose();
+    });
   });
 
   describe("openspec update signatures", () => {

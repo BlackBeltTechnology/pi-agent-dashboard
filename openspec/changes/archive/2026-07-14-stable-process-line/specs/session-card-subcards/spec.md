@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: PROCESS subcard reserves stable height via one summary line
+### Requirement: PROCESS subcard composition
 The PROCESS subcard SHALL present its in-flight bash activity and background-process inventory through a single collapsible summary line of fixed height, so that starting or finishing a tool does not change the subcard's collapsed height. The subcard SHALL NOT render a variable stack of always-open rows whose count changes the card height.
 
 The subcard's presence at idle SHALL be governed by the `reserveProcessLineAtIdle` display preference (effective value from `useDisplayPrefs(session.id)`).
