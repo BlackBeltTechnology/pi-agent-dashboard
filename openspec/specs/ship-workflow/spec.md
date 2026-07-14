@@ -1,7 +1,8 @@
-# ship-workflow
+# ship-workflow Specification
 
-## MODIFIED Requirements
-
+## Purpose
+TBD - created by archiving change integrate-develop-before-ship-gate. Update Purpose after archive.
+## Requirements
 ### Requirement: develop integration precedes the strongest ship gate
 
 The ship workflow SHALL integrate `origin/develop` into the change's worktree
@@ -47,3 +48,4 @@ validates the tree that the PR ships.
 - **WHEN** the resolution recipes do not fully apply
 - **THEN** the merge is aborted, the workflow STOPs and reports
 - **AND** no PR is opened
+
