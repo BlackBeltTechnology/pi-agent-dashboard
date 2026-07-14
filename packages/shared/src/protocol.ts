@@ -265,6 +265,26 @@ export interface SessionNameUpdateMessage {
   type: "session_name_update";
   sessionId: string;
   name: string;
+  /**
+   * Provenance of this name change, when the bridge can attribute it.
+   * `"auto"` = the bridge's automatic topic-naming applied it; `"user"` =
+   * an in-pi rename the bridge did not originate. Absent = unattributed
+   * (server keeps existing provenance). See change: add-auto-session-naming.
+   */
+  nameSource?: "auto" | "user";
+}
+
+/**
+ * Bridge → server: automatic session naming failed. Carries a human-readable
+ * `reason`; the server forwards it to browser subscribers as a one-shot toast
+ * and logs one line. Emitted once per session for hard-config errors
+ * (`@fast` unconfigured / OAuth-only-unauthable); transient model errors are
+ * silent. See change: add-auto-session-naming.
+ */
+export interface AutoNameErrorMessage {
+  type: "auto_name_error";
+  sessionId: string;
+  reason: string;
 }
 
 /**
@@ -585,6 +605,7 @@ export type ExtensionToServerMessage =
   | PluginPiMessage
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
+  | AutoNameErrorMessage
   | PromptReceivedToServerMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
@@ -881,6 +902,19 @@ export interface PluginEmitEventExtensionMessage {
   data: Record<string, unknown>;
 }
 
+/**
+ * Server → extension: broadcast the current value of bridge-relevant global
+ * preferences. Sent to a bridge on register (initial state) and to all bridges
+ * whenever the value changes (`piGateway.broadcast`). The bridge gates its
+ * automatic session naming on `autoNameSessions`. See change:
+ * add-auto-session-naming.
+ */
+export interface PreferencesUpdateExtensionMessage {
+  type: "preferences_update";
+  /** Global auto-naming toggle; bridge attempts naming only when true. */
+  autoNameSessions: boolean;
+}
+
 export type ServerToExtensionMessage =
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
@@ -918,6 +952,7 @@ export type ServerToExtensionMessage =
   | PromoteFollowupEntryToExtensionMessage
   | AttachProposalChangedExtensionMessage
   | PluginEmitEventExtensionMessage
+  | PreferencesUpdateExtensionMessage
   | GitCommitDraftMessage
   | SubagentResyncRequestExtensionMessage;
 

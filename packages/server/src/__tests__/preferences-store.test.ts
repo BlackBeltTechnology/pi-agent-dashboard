@@ -50,6 +50,38 @@ describe("preferences-store", () => {
     store.dispose();
   });
 
+  // ── add-auto-session-naming ─────────────────────────────────────────
+  describe("autoNameSessions", () => {
+    it("defaults to true when the field is absent", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [] }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(true);
+      store.dispose();
+    });
+
+    it("defaults to true when the file is missing", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(true);
+      store.dispose();
+    });
+
+    it("reads a persisted false value", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ autoNameSessions: false }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getAutoNameSessions()).toBe(false);
+      store.dispose();
+    });
+
+    it("persists a toggled value", () => {
+      const store = createPreferencesStore(filePath);
+      store.setAutoNameSessions(false);
+      store.flush();
+      const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(raw.autoNameSessions).toBe(false);
+      store.dispose();
+    });
+  });
+
   it("should pin and unpin directories", () => {
     const store = createPreferencesStore(filePath);
     store.pinDirectory("/a");

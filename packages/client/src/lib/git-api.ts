@@ -284,6 +284,29 @@ export async function setAutoInitWorktreePref(value: boolean): Promise<boolean> 
   return json?.autoInitWorktreeOnSpawn === true;
 }
 
+/**
+ * GET /api/preferences/auto-name. Fail-safe: returns `true` (the default-ON
+ * behaviour) on any error. See change: add-auto-session-naming.
+ */
+export async function fetchAutoNameSessionsPref(): Promise<boolean> {
+  try {
+    const json = await fetchJson(`${getApiBase()}/api/preferences/auto-name`);
+    return json?.autoNameSessions !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** PATCH /api/preferences/auto-name. Returns the persisted value. */
+export async function setAutoNameSessionsPref(value: boolean): Promise<boolean> {
+  const json = await fetchJson(`${getApiBase()}/api/preferences/auto-name`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  return json?.autoNameSessions !== false;
+}
+
 export interface WorktreeInitRanOk {
   ok: true;
   ran: boolean;

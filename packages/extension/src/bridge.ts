@@ -25,9 +25,10 @@ import {
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
+import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
+import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
@@ -48,7 +49,7 @@ import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
-import { activate as activateRoleManager } from "./role-manager.js";
+import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
@@ -259,6 +260,13 @@ function initBridge(pi: ExtensionAPI) {
   let lastGitStatusJson: string | undefined; // see change: add-session-uncommitted-indicator-and-commit
   let lastCwdMissing: boolean | undefined; // see change: add-worktree-lifecycle-actions
   let lastSessionName: string | undefined;
+  // ── add-auto-session-naming ────────────────────────────────────────────
+  // Global auto-naming toggle, relayed by the server via `preferences_update`.
+  // Default true so a bridge that registers before the first push still names.
+  let autoNameSessions = true;
+  let autoNamer: AutoNamer | undefined;
+  // Lazily-loaded pi-ai streamSimple (null = load attempted and failed).
+  let piAiStreamSimple: StreamSimpleFn | null | undefined;
   let cachedHasUI: boolean | undefined = prev.hasUI;
   let cachedModelRegistry: any | undefined = prev.modelRegistry;
   let cachedCtx: any | undefined = prev.ctx;
@@ -742,6 +750,14 @@ function initBridge(pi: ExtensionAPI) {
             // See change: replace-hardcoded-provider-lists.
             connection.send({ type: "providers_list", sessionId, providers: buildProviderCatalogue() });
           } catch (err) { console.error("[dashboard] models_list push failed:", err); }
+        }
+        return;
+      }
+      // Auto-naming toggle relay: store the pushed value so the namer gates on
+      // the current preference. See change: add-auto-session-naming.
+      if (msg.type === "preferences_update") {
+        if (typeof (msg as any).autoNameSessions === "boolean") {
+          autoNameSessions = (msg as any).autoNameSessions;
         }
         return;
       }
@@ -1342,6 +1358,57 @@ function initBridge(pi: ExtensionAPI) {
   function replaySessionEntries() { _replaySessionEntries(syncBc()); }
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
+
+  // ── add-auto-session-naming ──────────────────────────────────────────────
+  // Lazily acquire pi-ai's streamSimple the way the server's model-proxy does.
+  async function loadStreamSimple(): Promise<StreamSimpleFn | undefined> {
+    if (piAiStreamSimple !== undefined) return piAiStreamSimple ?? undefined;
+    try {
+      const mod: any = await import("@earendil-works/pi-ai");
+      piAiStreamSimple = (mod.streamSimple as StreamSimpleFn) ?? null;
+    } catch {
+      piAiStreamSimple = null;
+    }
+    return piAiStreamSimple ?? undefined;
+  }
+
+  // One namer per bridge (a bridge is a single pi session). Built lazily so it
+  // captures the live `cachedCtx` / `cachedModelRegistry` at call time.
+  function getAutoNamer(): AutoNamer {
+    if (autoNamer) return autoNamer;
+    autoNamer = createAutoNamer({
+      getAutoNameSessions: () => autoNameSessions,
+      resolveFastModel: () => lookupRole("@fast"),
+      getRegistry: () => cachedModelRegistry,
+      loadStreamSimple,
+      getTranscript: () => ({
+        firstUserMsg: extractFirstMessage(cachedCtx),
+        firstAssistantReply: extractFirstAssistantReply(cachedCtx),
+      }),
+      applyName: (title: string) => {
+        try { pi.setSessionName(title); } catch { /* ignore */ }
+        lastSessionName = title; // suppress the redundant plain name_update poll
+        connection.send({ type: "session_name_update", sessionId, name: title, nameSource: "auto" });
+      },
+      reportUserRename: (name: string) => {
+        connection.send({ type: "session_name_update", sessionId, name, nameSource: "user" });
+      },
+      emitError: (reason: string) => {
+        connection.send({ type: "auto_name_error", sessionId, reason });
+      },
+    });
+    return autoNamer;
+  }
+
+  // Run one naming attempt after a terminal turn. Observing the current name
+  // first catches a pre-existing / in-pi rename (external → permanent "user"
+  // lockout) before attempting to auto-name.
+  function runAutoNameOnTurnEnd(): void {
+    if (!autoNameSessions) return;
+    const namer = getAutoNamer();
+    namer.onObservedName(pi.getSessionName() ?? "");
+    void namer.maybeName();
+  }
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
@@ -1423,6 +1490,10 @@ function initBridge(pi: ExtensionAPI) {
         if (trackerSynth) {
           sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
         }
+        // Automatic session topic-naming: attempt on each terminal turn until
+        // the first success (or a permanent lockout). Non-blocking; all errors
+        // are handled inside the namer. See change: add-auto-session-naming.
+        runAutoNameOnTurnEnd();
         // Bridge shadow follow-up queue: the per-entry drain matcher in
         // the `message_start` handler removes each entry as pi delivers it
         // (mirrors pi's internal `_processAgentEvent`). No bulk clear here
