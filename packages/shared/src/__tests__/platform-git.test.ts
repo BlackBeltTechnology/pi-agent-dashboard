@@ -124,6 +124,7 @@ describe("GIT_RECIPES registry", () => {
       "GIT_DIFF",
       "GIT_HEAD_SHA",
       "GIT_IS_REPO",
+      "GIT_NUMSTAT",
       "GIT_REMOTE_URL",
       "GIT_STATUS_PORCELAIN",
       "GIT_STATUS_V2",

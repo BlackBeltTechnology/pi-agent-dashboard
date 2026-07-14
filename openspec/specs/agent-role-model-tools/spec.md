@@ -11,6 +11,8 @@ Each row SHALL carry the `toModelInfo` projection including the `custom?: boolea
 
 The tool SHALL be fully DECOUPLED from the role subsystem: it SHALL NOT read `providers.json#roles` and SHALL succeed even when the role slice is missing or malformed. Each row SHALL be `{ ref, provider, id, custom?, reasoning, input, contextWindow, cost }`, where `ref` is the exact `"provider/modelId"` literal accepted by `update_roles` `set_role` and parsed by `model:resolve`.
 
+The tool result SHALL additionally carry a `registryReady: boolean` discriminator so that an empty `models` array is never ambiguous between "the in-process registry is not yet hydrated" and "the registry is hydrated but exposes no reachable models". `registryReady` SHALL be `false` if and only if the tool's registry accessor (`getRegistry()` / `cachedModelRegistry`) is absent (falsy) at invocation time; otherwise `registryReady` SHALL be `true`. When `registryReady` is `false`, the result SHALL include a non-empty `reason` string explaining the registry is not yet hydrated and that the caller may retry, and `models` SHALL be `[]`. When `registryReady` is `true`, `reason` SHALL be omitted (or `null`) and `models` SHALL be the reachability-filtered catalogue (possibly `[]` when no provider has resolved credentials). The `registryReady` and `reason` fields SHALL be additive and backward-compatible: consumers that read only `models` SHALL be unaffected. The `annotated` mode SHALL obey the identical discriminator — a falsy registry under `annotated: true` SHALL also yield `registryReady: false` with an empty `models` and a `reason`, never a silent empty catalogue.
+
 #### Scenario: list_models returns assignable refs
 
 - **WHEN** an agent invokes `list_models`
@@ -38,6 +40,36 @@ The tool SHALL be fully DECOUPLED from the role subsystem: it SHALL NOT read `pr
 - **THEN** `mycustom` models SHALL be absent
 - **WHEN** an agent invokes `list_models` with `annotated`
 - **THEN** `mycustom` models SHALL be present each carrying `excludedReason: "no-credential"`
+
+#### Scenario: Absent registry reports registryReady false with a reason (not a silent empty)
+
+- **GIVEN** the in-process registry accessor is falsy (the session's `cachedModelRegistry` has not been captured from `ctx.modelRegistry` yet — the spawn-before-discovery window)
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL be `{ models: [], registryReady: false, reason: <non-empty string> }`
+- **AND** the `reason` SHALL indicate the registry is not yet hydrated and the caller may retry
+- **AND** the tool SHALL NOT throw
+
+#### Scenario: Hydrated-but-empty registry reports registryReady true
+
+- **GIVEN** the registry accessor returns a registry whose `getAvailable()` is `[]` (no provider has resolved credentials)
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL be `{ models: [], registryReady: true }`
+- **AND** `reason` SHALL be omitted or `null`
+- **AND** the empty result SHALL be reported as a true "no reachable models" answer, distinguishable from the absent-registry case
+
+#### Scenario: Populated registry is unchanged and reports registryReady true
+
+- **GIVEN** the registry accessor returns a registry whose `getAvailable()` yields one or more models
+- **WHEN** an agent invokes `list_models`
+- **THEN** the result SHALL carry `registryReady: true` and the full `models` array with the pre-existing row shape
+- **AND** a consumer reading only `models` SHALL observe no behavioral change
+
+#### Scenario: Annotated mode obeys the same discriminator on an absent registry
+
+- **GIVEN** the in-process registry accessor is falsy
+- **WHEN** an agent invokes `list_models` with `annotated: true`
+- **THEN** the result SHALL be `{ models: [], registryReady: false, reason: <non-empty string> }`
+- **AND** SHALL NOT return a silent empty catalogue as if every known model were unknown
 
 ### Requirement: The dashboard SHALL register a `list_roles` agent tool
 

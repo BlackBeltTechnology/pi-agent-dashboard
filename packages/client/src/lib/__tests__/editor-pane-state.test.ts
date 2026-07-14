@@ -30,6 +30,15 @@ describe("editorPaneReducer", () => {
     expect(s.activeIndex).toBe(0);
   });
 
+  it("a diff tab and a monaco tab for the same file coexist (virtual path)", () => {
+    // change: add-change-summary-table — `diff:<path>` never collides with the
+    // monaco tab of the same real file (dedup is by full path).
+    let s = editorPaneReducer(EMPTY_PANE_STATE, { type: "openFile", path: "src/a.ts", viewer: "monaco" });
+    s = editorPaneReducer(s, { type: "openFile", path: "diff:src/a.ts", viewer: "diff" });
+    expect(s.openFiles.map((f) => f.path)).toEqual(["src/a.ts", "diff:src/a.ts"]);
+    expect(s.openFiles.map((f) => f.viewer)).toEqual(["monaco", "diff"]);
+  });
+
   it("openFile expands the ancestor dir chain (#5)", () => {
     const s = editorPaneReducer(EMPTY_PANE_STATE, {
       type: "openFile",
@@ -135,6 +144,17 @@ describe("persistence", () => {
     localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}weird`, JSON.stringify({ openFiles: "nope" }));
     expect(loadEditorPaneState("weird")).toEqual(EMPTY_PANE_STATE);
     spy.mockRestore();
+  });
+
+  it("retains a persisted diff tab across reload (VALID_VIEWERS includes diff)", () => {
+    // change: add-change-summary-table — diff tabs must survive reload.
+    const state: EditorPaneState = {
+      openFiles: [{ path: "diff:src/a.ts", viewer: "diff", addedAt: 1 }],
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    saveEditorPaneState("diffsess", state);
+    expect(loadEditorPaneState("diffsess")).toEqual(state);
   });
 });
 

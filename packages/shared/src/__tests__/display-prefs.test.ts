@@ -86,6 +86,18 @@ describe("mergeDisplayPrefs", () => {
       mergeDisplayPrefs({ ...global, toolGroupDefaultCollapsed: true }, {}).toolGroupDefaultCollapsed,
     ).toBe(true);
   });
+
+  it("defaults changeSummaryTable off in simple, on in standard/everything", () => {
+    expect(DISPLAY_PRESETS.simple.changeSummaryTable).toBe(false);
+    expect(DISPLAY_PRESETS.standard.changeSummaryTable).toBe(true);
+    expect(DISPLAY_PRESETS.everything.changeSummaryTable).toBe(true);
+  });
+
+  it("applies changeSummaryTable override precedence (off beats global on)", () => {
+    expect(mergeDisplayPrefs(global, { changeSummaryTable: false }).changeSummaryTable).toBe(false);
+    // missing key inherits the global value
+    expect(mergeDisplayPrefs(global, {}).changeSummaryTable).toBe(true);
+  });
 });
 
 describe("toolCallPrefKey", () => {

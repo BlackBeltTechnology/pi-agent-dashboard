@@ -1,6 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { extractFileChanges } from "../session-diff.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", () => ({
+  numstatOr: vi.fn(() => ""),
+  diffOr: vi.fn(() => ""),
+  statusPorcelainOr: vi.fn(() => ""),
+}));
+vi.mock("../git-operations.js", () => ({ isGitRepo: vi.fn(() => true) }));
+
+import { extractFileChanges, gitNumstat, enrichWithGitDiff } from "../session-diff.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { isGitRepo } from "../git-operations.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/diff-types.js";
 
 function makeEvent(eventType: string, timestamp: number, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp, data: { type: eventType, ...data } };
@@ -134,5 +145,98 @@ describe("extractFileChanges", () => {
   it("should return empty array for empty events", () => {
     const result = extractFileChanges([], cwd);
     expect(result).toHaveLength(0);
+  });
+});
+
+describe("gitNumstat parser", () => {
+  beforeEach(() => {
+    vi.mocked(git.numstatOr).mockReset();
+  });
+
+  it("parses tab-separated adds/dels/path rows", () => {
+    vi.mocked(git.numstatOr).mockReturnValue("1\t2\tsrc/a.ts\n5\t3\tsrc/b.ts\n");
+    const map = gitNumstat("/project");
+    expect(map.get("src/a.ts")).toEqual({ additions: 1, deletions: 2 });
+    expect(map.get("src/b.ts")).toEqual({ additions: 5, deletions: 3 });
+  });
+
+  it("omits binary rows reporting `-`", () => {
+    vi.mocked(git.numstatOr).mockReturnValue("-\t-\timg.png\n2\t0\tsrc/a.ts\n");
+    const map = gitNumstat("/project");
+    expect(map.has("img.png")).toBe(false);
+    expect(map.get("src/a.ts")).toEqual({ additions: 2, deletions: 0 });
+  });
+
+  it("skips blank and malformed lines", () => {
+    vi.mocked(git.numstatOr).mockReturnValue("\ngarbage\n3\t4\tsrc/c.ts\n");
+    const map = gitNumstat("/project");
+    expect(map.size).toBe(1);
+    expect(map.get("src/c.ts")).toEqual({ additions: 3, deletions: 4 });
+  });
+
+  it("returns empty map for empty output", () => {
+    vi.mocked(git.numstatOr).mockReturnValue("");
+    expect(gitNumstat("/project").size).toBe(0);
+  });
+});
+
+describe("enrichWithGitDiff numstat counts", () => {
+  const files: FileDiffEntry[] = [
+    { path: "src/a.ts", changes: [] },
+    { path: "src/b.ts", changes: [] },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(isGitRepo).mockReset().mockReturnValue(true);
+    vi.mocked(git.diffOr).mockReset().mockReturnValue("");
+    vi.mocked(git.statusPorcelainOr).mockReset().mockReturnValue("");
+    vi.mocked(git.numstatOr).mockReset().mockReturnValue("");
+  });
+
+  it("attaches per-file counts and aggregate totals", () => {
+    vi.mocked(git.numstatOr).mockReturnValue("1\t2\tsrc/a.ts\n5\t3\tsrc/b.ts\n");
+    const { enrichedFiles, isGitRepo: isRepo, totalAdditions, totalDeletions } =
+      enrichWithGitDiff("/project", files);
+    expect(isRepo).toBe(true);
+    expect(enrichedFiles[0]).toMatchObject({ path: "src/a.ts", additions: 1, deletions: 2 });
+    expect(enrichedFiles[1]).toMatchObject({ path: "src/b.ts", additions: 5, deletions: 3 });
+    expect(totalAdditions).toBe(6);
+    expect(totalDeletions).toBe(5);
+  });
+
+  it("excludes binary files from per-file counts and totals", () => {
+    const withBinary: FileDiffEntry[] = [
+      { path: "img.png", changes: [] },
+      { path: "src/a.ts", changes: [] },
+    ];
+    vi.mocked(git.numstatOr).mockReturnValue("-\t-\timg.png\n2\t0\tsrc/a.ts\n");
+    const { enrichedFiles, totalAdditions, totalDeletions } =
+      enrichWithGitDiff("/project", withBinary);
+    expect(enrichedFiles[0].additions).toBeUndefined();
+    expect(enrichedFiles[0].deletions).toBeUndefined();
+    expect(enrichedFiles[1]).toMatchObject({ additions: 2, deletions: 0 });
+    expect(totalAdditions).toBe(2);
+    expect(totalDeletions).toBe(0);
+  });
+
+  it("omits all count fields for a non-git repo", () => {
+    vi.mocked(isGitRepo).mockReturnValue(false);
+    const { enrichedFiles, isGitRepo: isRepo, totalAdditions, totalDeletions } =
+      enrichWithGitDiff("/project", files);
+    expect(isRepo).toBe(false);
+    expect(enrichedFiles[0].additions).toBeUndefined();
+    expect(totalAdditions).toBeUndefined();
+    expect(totalDeletions).toBeUndefined();
+  });
+
+  it("succeeds with counts absent when the git repo check throws", () => {
+    vi.mocked(isGitRepo).mockImplementation(() => {
+      throw new Error("corrupt repo");
+    });
+    const { enrichedFiles, isGitRepo: isRepo, totalAdditions } =
+      enrichWithGitDiff("/project", files);
+    expect(isRepo).toBe(false);
+    expect(enrichedFiles).toEqual(files);
+    expect(totalAdditions).toBeUndefined();
   });
 });

@@ -107,6 +107,8 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
                 files={data.files}
                 selection={selection}
                 onSelect={handleSelect}
+                totalAdditions={data.totalAdditions}
+                totalDeletions={data.totalDeletions}
               />
             ) : selectedFile && selection ? (
               <DiffPanel file={selectedFile} selection={selection} sessionId={sessionId} />
@@ -124,6 +126,8 @@ export function FileDiffView({ sessionId, onBack }: FileDiffViewProps) {
                 files={data.files}
                 selection={selection}
                 onSelect={handleSelect}
+                totalAdditions={data.totalAdditions}
+                totalDeletions={data.totalDeletions}
               />
             </ResizableTreePanel>
             <div className="flex-1 min-w-0 overflow-hidden">

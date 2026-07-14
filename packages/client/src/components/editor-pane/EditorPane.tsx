@@ -22,6 +22,7 @@ import { SplitDivider } from "../SplitDivider.js";
 import { useSplitWorkspace } from "../SplitWorkspaceContext.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
 import { EditorFileTree } from "./EditorFileTree.js";
+import { ChangesRailSection } from "./ChangesRailSection.js";
 import { EditorSearchPanel } from "./EditorSearchPanel.js";
 import { EditorTabs } from "./EditorTabs.js";
 import { viewerRegistry } from "./viewer-registry.js";
@@ -189,14 +190,19 @@ export function EditorPane() {
       <div ref={rowRef} className="flex min-h-0 flex-1">
         {treeVisible && (
           <>
-            <div className="shrink-0" style={{ width: railWidth }}>
-              <EditorFileTree
-                cwd={cwd}
-                treeOpenRoots={state.treeOpenRoots}
-                onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
-                onOpenFile={(relPath) => openInSplit(relPath)}
-                activePath={activePath}
-              />
+            <div className="shrink-0 flex min-h-0 flex-col" style={{ width: railWidth }}>
+              {/* Changes section pinned atop the project-tree rail (change:
+                  add-change-summary-table). Absent when no changes. */}
+              <ChangesRailSection activePath={activePath} />
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <EditorFileTree
+                  cwd={cwd}
+                  treeOpenRoots={state.treeOpenRoots}
+                  onToggleRoot={(relPath) => dispatch({ type: "toggleTreeRoot", relPath })}
+                  onOpenFile={(relPath) => openInSplit(relPath)}
+                  activePath={activePath}
+                />
+              </div>
             </div>
             <SplitDivider
               orientation="h"

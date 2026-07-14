@@ -35,11 +35,13 @@ import { ServerSelector } from "./components/ServerSelector.js";
 import { SessionBanner } from "./components/SessionBanner.js";
 import { SessionHeader } from "./components/SessionHeader.js";
 import { SessionList } from "./components/SessionList.js";
+import { allTagsInUse } from "./components/tags/all-tags.js";
 import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/SplitWorkspaceContext.js";
+import { SessionDiffProvider } from "./components/SessionDiffContext.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { TerminalsView } from "./components/TerminalsView.js";
 import { Toast, useToast } from "./components/Toast.js";
@@ -945,6 +947,18 @@ export default function App() {
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
   );
+  // Monotonic edit/write count for the selected session — drives the shared
+  // session-diff refetch (change: add-change-summary-table).
+  const diffChangeSignal = useMemo(
+    () =>
+      selectedState.messages.reduce(
+        (n, m) =>
+          n +
+          (m.role === "toolResult" && /^(edit|write)$/i.test(m.toolName ?? "") ? 1 : 0),
+        0,
+      ),
+    [selectedState.messages],
+  );
 
   // Debounced persistence for drafts. When the map changes, diff against the
   // previous snapshot and flush writes/deletes after a short idle window so we
@@ -1103,7 +1117,7 @@ export default function App() {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession,
+    handleHideSession, handleUnhideSession, handleSetSessionTags,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
@@ -1286,6 +1300,11 @@ export default function App() {
     send({ type: "abort", sessionId });
   }, [send]);
 
+  // Union of all tags in use across sessions — feeds TagEditor autocomplete
+  // (card + detail) and the sidebar tag filter group. Recomputes only when the
+  // session list changes. See change: add-session-tags.
+  const allTags = useMemo(() => allTagsInUse(Array.from(sessions.values())), [sessions]);
+
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
@@ -1452,6 +1471,8 @@ export default function App() {
         session={sessions.get(selectedId)}
         state={selectedState}
         onRename={handleRenameSession}
+        allTags={allTags}
+        onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
         showBack
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}
@@ -1942,7 +1963,9 @@ export default function App() {
             }}
           >
             <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} />
-            {children}
+            <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
+              {children}
+            </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>
       </ShellSessionsProvider>

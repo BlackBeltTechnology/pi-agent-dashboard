@@ -44,6 +44,12 @@ export interface SplitWorkspaceContextValue {
   openInSplit: (relPath: string, line?: number) => void;
   /** Open a loopback dev-server URL in the `live-server` split viewer (auto-launched). */
   openLiveTarget: (url: string) => void;
+  /** Open a file's diff as a `diff:<relPath>` viewer tab (coexists with its monaco tab). */
+  openDiffTab: (relPath: string) => void;
+  /** Open the split and reveal the Changes section in the pane rail. */
+  openChanges: () => void;
+  /** Bumps whenever `openChanges()` fires so the rail section expands + scrolls into view. */
+  changesRevealSignal: number;
   /** Pending scroll target for the pane, or `null`. */
   pendingScroll: PendingScroll | null;
   /** Clear the pending scroll once the pane has honoured it. */
@@ -125,6 +131,24 @@ export function SplitWorkspaceProvider({
     [dispatch, updateSplit],
   );
 
+  // Diff tabs open under a virtual `diff:<relPath>` path (mirrors `live:<url>`)
+  // so they never collide with the monaco tab of the same real file (the
+  // reducer dedups by full path). See change: add-change-summary-table.
+  const openDiffTab = useCallback(
+    (relPath: string) => {
+      if (!relPath) return;
+      dispatch({ type: "openFile", path: `diff:${relPath}`, viewer: "diff" });
+      updateSplit({ open: true });
+    },
+    [dispatch, updateSplit],
+  );
+
+  const [changesRevealSignal, setChangesRevealSignal] = useState(0);
+  const openChanges = useCallback(() => {
+    updateSplit({ open: true });
+    setChangesRevealSignal((n) => n + 1);
+  }, [updateSplit]);
+
   const toggleSplit = useCallback(() => updateSplit({ open: !split.open }), [split.open, updateSplit]);
   const consumePendingScroll = useCallback(() => setPendingScroll(null), []);
 
@@ -165,6 +189,9 @@ export function SplitWorkspaceProvider({
       dispatch,
       openInSplit,
       openLiveTarget,
+      openDiffTab,
+      openChanges,
+      changesRevealSignal,
       pendingScroll,
       consumePendingScroll,
       fileResults,
@@ -172,7 +199,7 @@ export function SplitWorkspaceProvider({
       changedFiles,
       clearChanged,
     }),
-    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
+    [sessionId, cwd, split, updateSplit, toggleSplit, paneState, dispatch, openInSplit, openLiveTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

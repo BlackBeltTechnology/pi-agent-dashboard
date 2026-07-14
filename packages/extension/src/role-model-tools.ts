@@ -81,6 +81,35 @@ export function buildModelRows(registry: any, annotated: boolean): ModelRow[] {
   });
 }
 
+// ── list_models result envelope (registry-readiness discriminator) ──────────
+
+export interface ModelsResult {
+  models: ModelRow[];
+  /** false iff the in-process registry is absent (not yet hydrated). */
+  registryReady: boolean;
+  /** Present only when registryReady === false. */
+  reason?: string;
+}
+
+/**
+ * Wrap `buildModelRows` in the readiness envelope. A falsy registry (the
+ * spawn-before-discovery window) yields `registryReady: false` + a `reason`
+ * instead of a silent empty catalogue, so an empty `models` is never ambiguous
+ * between "registry not hydrated" (retry) and "registry hydrated, no reachable
+ * models" (true answer). Additive/backward-compatible: consumers reading only
+ * `models` are unaffected. See change: fix-list-models-empty-on-unhydrated-registry.
+ */
+export function buildModelsResult(registry: any, annotated: boolean): ModelsResult {
+  if (!registry) {
+    return {
+      models: [],
+      registryReady: false,
+      reason: "model registry not yet hydrated in this session; retry shortly",
+    };
+  }
+  return { models: buildModelRows(registry, annotated), registryReady: true };
+}
+
 // ── Registration ─────────────────────────────────────────────────────────────
 
 export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDeps): void {
@@ -89,7 +118,7 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     name: "list_models",
     label: "List Models",
     description:
-      "List the assignable model catalogue from this session's registry — the exact set the human Model Selector shows (including custom providers). Each row carries a `ref` (\"provider/id\") assignable via update_roles. Pass `annotated: true` to also include models excluded for lack of credentials (each with an `excludedReason`). Independent of roles — works even when no roles are configured.",
+      "List the assignable model catalogue from this session's registry — the exact set the human Model Selector shows (including custom providers). Each row carries a `ref` (\"provider/id\") assignable via update_roles. Pass `annotated: true` to also include models excluded for lack of credentials (each with an `excludedReason`). Independent of roles — works even when no roles are configured. The result also carries `registryReady`: when `false` the in-process registry is not yet hydrated (empty `models` + a `reason`) — retry shortly, do NOT conclude no models exist. When `registryReady` is `true` and `models` is unexpectedly empty, try `annotated: true` to reveal `no-credential`/`oauth-incompatible` exclusions.",
     parameters: Type.Object({
       annotated: Type.Optional(
         Type.Boolean({
@@ -100,10 +129,10 @@ export function registerRoleModelTools(pi: ExtensionAPI, deps: RoleModelToolsDep
     }),
     async execute(_id: any, params: any, _signal: any, _onUpdate: any, _ctx: any) {
       const annotated = params?.annotated === true;
-      const models = buildModelRows(deps.getRegistry(), annotated);
+      const result = buildModelsResult(deps.getRegistry(), annotated);
       return {
-        content: [{ type: "text", text: JSON.stringify({ models }, null, 2) }],
-        details: { models },
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        details: result,
       };
     },
   });

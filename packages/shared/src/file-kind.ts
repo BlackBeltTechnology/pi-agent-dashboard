@@ -20,6 +20,10 @@ export type ViewerKind =
   | "video"
   | "audio"
   | "live-server"
+  // Opened explicitly (never returned by `fileKind()`), like `live-server`.
+  // Diff tabs open under a virtual `diff:<relPath>` path so they coexist with
+  // a monaco tab of the same file. See change: add-change-summary-table.
+  | "diff"
   | "binary-warn";
 
 /** Coarse semantic file class. */

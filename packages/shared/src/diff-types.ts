@@ -30,6 +30,16 @@ export interface FileDiffEntry {
   changes: FileChangeEvent[];
   /** Aggregate git diff (unified format) when available */
   gitDiff?: string;
+  /**
+   * Added lines vs HEAD from `git diff --numstat HEAD`. Absent for
+   * non-git / git-error / binary files. Non-negative integer.
+   */
+  additions?: number;
+  /**
+   * Deleted lines vs HEAD from `git diff --numstat HEAD`. Absent for
+   * non-git / git-error / binary files. Non-negative integer.
+   */
+  deletions?: number;
 }
 
 /** Response from GET /api/session-diff */
@@ -52,4 +62,14 @@ export interface SessionDiffResponse {
    * Human-readable label for `diffBase` (e.g. "HEAD"). Optional.
    */
   baseLabel?: string;
+  /**
+   * Sum of `additions` across all files with numstat counts. Absent for
+   * non-git / git-error. Excludes binary/omitted files.
+   */
+  totalAdditions?: number;
+  /**
+   * Sum of `deletions` across all files with numstat counts. Absent for
+   * non-git / git-error. Excludes binary/omitted files.
+   */
+  totalDeletions?: number;
 }

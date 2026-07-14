@@ -81,6 +81,8 @@ export function registerSessionRoutes(
           vcsKind: result.vcsKind,
           diffBase: result.diffBase,
           baseLabel: result.baseLabel,
+          totalAdditions: result.totalAdditions,
+          totalDeletions: result.totalDeletions,
         },
       } satisfies ApiResponse;
     },
