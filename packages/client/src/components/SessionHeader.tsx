@@ -18,6 +18,8 @@ import { SearchableSelectDialog, type SelectOption } from "./SearchableSelectDia
 import { SplitToggleButton } from "./SplitToggleButton.js";
 import { FooterSegmentSlot } from "./extension-ui/FooterSegmentSlot.js";
 import { ArtifactLettersButton } from "./openspec-helpers.js";
+import { TagChip } from "./tags/TagChip.js";
+import { TagEditor } from "./tags/TagEditor.js";
 import { t as i18nT } from "../lib/i18n";
 
 interface Props {
@@ -46,6 +48,12 @@ interface Props {
    *  session.sessionFile is set. Mobile path uses mobileActions.onResume.
    *  See change: resume-button-in-session-header. */
   onResume?: (mode: "continue" | "fork") => void;
+  /** Union of all tags in use across sessions, for TagEditor autocomplete.
+   *  See change: add-session-tags. */
+  allTags?: string[];
+  /** Replace the session's full user-tag list. When set, the desktop header
+   *  renders the editable tag strip. See change: add-session-tags. */
+  onSetTags?: (tags: string[]) => void;
   /** Mobile action menu props (only used on mobile) */
   mobileActions?: {
     editors?: DetectedEditor[];
@@ -281,7 +289,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume }: Props) {
+export function SessionHeader({ session, state, onRename, showBack, onBack, mobileActions, commands, onSendPrompt, openspecChanges, onAttachProposal, onDetachProposal, hasFileChanges, onOpenDiffView, onRefresh, onReadArtifact, onOpenExtensionModulePicker, onResume, allTags, onSetTags }: Props) {
   const [now, setNow] = useState(Date.now());
   const [isRenaming, setIsRenaming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -411,6 +419,14 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />
+      {/* Editable user-tag strip + read-only phase chip (D5: detail-header
+          primary). See change: add-session-tags. */}
+      {onSetTags && (
+        <div className="flex items-center gap-1.5">
+          <TagEditor tags={session.tags ?? []} allTags={allTags ?? []} onChange={onSetTags} />
+          {session.openspecPhase && <TagChip label={session.openspecPhase} variant="exec" />}
+        </div>
+      )}
       {/* OpenSpec + Flow buttons */}
       <span className="flex-1" />
       {/* Split/unsplit editor toggle (self-contained; no-op without a session). */}

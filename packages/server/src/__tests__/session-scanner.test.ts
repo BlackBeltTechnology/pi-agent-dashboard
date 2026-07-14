@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { scanAllSessions } from "../session-scanner.js";
+import path from "node:path";
 import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { scanAllSessions } from "../session-scanner.js";
 
 // Mock extractSessionStats to avoid needing real JSONL content with usage data
 vi.mock("../session-stats-reader.js", () => ({
@@ -326,6 +326,29 @@ describe("session-scanner", () => {
 
     const result = scanAllSessions(tmpDir);
     expect(result.sessions[0].isGitRepo).toBeUndefined();
+  });
+
+  it("restores tags from meta on cold start", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_tags-id.jsonl", { id: "tags-id", cwd: "/test" });
+    writeSessionMeta(sf, {
+      cwd: "/test",
+      status: "ended",
+      tags: ["feature", "backend"],
+      cachedAt: Date.now() + 10000,
+    });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions[0].tags).toEqual(["feature", "backend"]);
+  });
+
+  it("leaves tags undefined for a legacy sidecar lacking the field", () => {
+    const dir = createSessionDir("--test-cwd--");
+    const sf = createJsonl(dir, "2026-03-30T21-39-43-034Z_notags-id.jsonl", { id: "notags-id", cwd: "/legacy" });
+    writeSessionMeta(sf, { cwd: "/legacy", status: "ended", cachedAt: Date.now() + 10000 });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions[0].tags).toBeUndefined();
   });
 
   it("should set hidden from meta", () => {

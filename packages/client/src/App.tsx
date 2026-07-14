@@ -34,6 +34,7 @@ import { ServerSelector } from "./components/ServerSelector.js";
 import { SessionBanner } from "./components/SessionBanner.js";
 import { SessionHeader } from "./components/SessionHeader.js";
 import { SessionList } from "./components/SessionList.js";
+import { allTagsInUse } from "./components/tags/all-tags.js";
 import { SessionSplitView, SplitRouteSync } from "./components/SessionSplitView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import { SpawnErrorToastHost } from "./components/SpawnErrorToastHost.js";
@@ -1114,7 +1115,7 @@ export default function App() {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
     handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
-    handleHideSession, handleUnhideSession,
+    handleHideSession, handleUnhideSession, handleSetSessionTags,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
     handleListFiles,
@@ -1297,6 +1298,11 @@ export default function App() {
     send({ type: "abort", sessionId });
   }, [send]);
 
+  // Union of all tags in use across sessions — feeds TagEditor autocomplete
+  // (card + detail) and the sidebar tag filter group. Recomputes only when the
+  // session list changes. See change: add-session-tags.
+  const allTags = useMemo(() => allTagsInUse(Array.from(sessions.values())), [sessions]);
+
   const sessionList = (
     <SessionList
       sessions={Array.from(sessions.values())}
@@ -1463,6 +1469,8 @@ export default function App() {
         session={sessions.get(selectedId)}
         state={selectedState}
         onRename={handleRenameSession}
+        allTags={allTags}
+        onSetTags={selectedId ? (tags) => handleSetSessionTags(selectedId, tags) : undefined}
         showBack
         onBack={goBack}
         onResume={selectedId ? (mode) => handleResumeSession(selectedId, mode) : undefined}

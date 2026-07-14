@@ -66,7 +66,7 @@ export function buildOpenSpecConnectSnapshot(
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "./browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "./browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "./browser-handlers/session-action-handler.js";
-import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleUnhideSession } from "./browser-handlers/session-meta-handler.js";
+import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "./browser-handlers/session-meta-handler.js";
 import { handleSubscribe } from "./browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "./browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "./pending-resume-registry.js";
@@ -580,6 +580,9 @@ export function createBrowserGateway(
             break;
           case "set_session_process_drawer":
             handleSetSessionProcessDrawer(msg, ctx);
+            break;
+          case "set_session_tags":
+            handleSetSessionTags(msg, ctx);
             break;
           case "fetch_content":
             handleFetchContent(msg, ctx);

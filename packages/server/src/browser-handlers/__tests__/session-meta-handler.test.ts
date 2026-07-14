@@ -2,10 +2,10 @@
  * Tests for handleAttachProposal / handleDetachProposal.
  * See change: fix-mobile-attach-proposal-display.
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createMemorySessionManager, type SessionManager } from "../../memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
+import { handleAttachProposal, handleDetachProposal, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -185,6 +185,56 @@ describe("handleSetSessionProcessDrawer", () => {
     );
     expect(broadcasts).toEqual([]);
     expect(metaCalls).toEqual([]);
+  });
+});
+
+describe("handleSetSessionTags", () => {
+  let mgr: SessionManager;
+  beforeEach(() => {
+    mgr = createMemorySessionManager();
+  });
+
+  it("sets tags → updates session + broadcasts session_updated with updates.tags", () => {
+    registerSession(mgr, "s1");
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleSetSessionTags(
+      { type: "set_session_tags", sessionId: "s1", tags: ["feature", "backend"] } as any,
+      ctx,
+    );
+
+    expect(mgr.get("s1")!.tags).toEqual(["feature", "backend"]);
+    expect(broadcasts).toEqual([
+      { type: "session_updated", sessionId: "s1", updates: { tags: ["feature", "backend"] } },
+    ]);
+  });
+
+  it("empty array → session becomes untagged", () => {
+    registerSession(mgr, "s1", { tags: ["feature"] });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleSetSessionTags({ type: "set_session_tags", sessionId: "s1", tags: [] } as any, ctx);
+
+    expect(mgr.get("s1")!.tags).toEqual([]);
+    expect(broadcasts[0].updates).toEqual({ tags: [] });
+  });
+
+  it("normalizes + clamps unnormalized / over-cap input before persist", () => {
+    registerSession(mgr, "s1");
+    const { ctx, broadcasts } = makeCtx(mgr);
+    const long = "x".repeat(200);
+    const many = Array.from({ length: 50 }, (_, i) => `Tag${i}`);
+
+    handleSetSessionTags(
+      { type: "set_session_tags", sessionId: "s1", tags: ["Feature", "feature", "  ", long, ...many] } as any,
+      ctx,
+    );
+
+    const tags = mgr.get("s1")!.tags!;
+    expect(tags).toHaveLength(12); // capped to MAX_TAGS
+    expect(tags[0]).toBe("feature"); // trimmed + lowercased + deduped
+    expect(tags.every((t) => t.length <= 32)).toBe(true); // truncated to MAX_TAG_LEN
+    expect(broadcasts[0].updates.tags).toEqual(tags);
   });
 });
 

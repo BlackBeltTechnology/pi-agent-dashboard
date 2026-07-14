@@ -118,6 +118,7 @@ import { registerSessionApi } from "./session-api.js";
 import { discoverAndBroadcastSessions } from "./session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session-order-manager.js";
 import { scanAllSessions } from "./session-scanner.js";
+import { sessionToMeta } from "./session-to-meta.js";
 import { mintSpawnToken } from "./spawn-token.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal-gateway.js";
 import { createTerminalManager, type TerminalManager } from "./terminal-manager.js";
@@ -327,54 +328,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log(`[dashboard] Session scan: ${scanResult.sessions.length} sessions, ${scanResult.cacheUpdates} cache updates`);
   }
 
-  // Save per-session .meta.json on any change
+  // Save per-session .meta.json on any change. The meta payload is an EXPLICIT
+  // field enumeration (`sessionToMeta`) written as a FULL overwrite — omitting a
+  // field there wipes it on the next unrelated save. See change: add-session-tags.
   sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
-    metaPersistence.save(session.sessionFile, {
-      source: session.source,
-      name: session.name,
-      attachedProposal: session.attachedProposal,
-      displayPrefsOverride: session.displayPrefsOverride,
-      processDrawerCollapsed: session.processDrawerCollapsed,
-      hidden: session.hidden,
-      cwd: session.cwd,
-      status: session.status,
-      startedAt: session.startedAt,
-      endedAt: session.endedAt,
-      model: session.model,
-      thinkingLevel: session.thinkingLevel,
-      tokensIn: session.tokensIn,
-      tokensOut: session.tokensOut,
-      cacheRead: session.cacheRead,
-      cacheWrite: session.cacheWrite,
-      cost: session.cost,
-      contextTokens: session.contextTokens ?? undefined,
-      contextWindow: session.contextWindow,
-      firstMessage: session.firstMessage,
-      // Persist unread bit so it survives server restart.
-      // See change: session-card-unread-stripes.
-      unread: session.unread,
-      // Persist the worktree base ref so the WORKSPACE-subcard pill can
-      // render `created from <base>` after restart. The field is only set
-      // when a session was spawned via the dashboard's worktree dialog.
-      // See change: add-worktree-spawn-dialog.
-      gitWorktreeBase: session.gitWorktreeBase,
-      // Persist the owning goal id so the session-card goal chip resolves its
-      // goal after restart. MUST be listed here because this save does a full
-      // .meta.json overwrite (not a merge) — omitting it wipes the field set
-      // by event-wiring / goal routes. See change: add-goals-folder-page.
-      goalId: session.goalId,
-      // Persist the grouping-relevant worktree parentage so a rebooted
-      // (bridge-less) scan can collapse this session under its parent repo.
-      // Only the subset `resolveSessionGroupPath` needs is stored; volatile
-      // probe state (worktree base) is excluded.
-      // See change: fix-cold-start-worktree-session-grouping.
-      gitWorktree: session.gitWorktree
-        ? { mainPath: session.gitWorktree.mainPath, name: session.gitWorktree.name }
-        : undefined,
-      cachedAt: Date.now(),
-    });
+    metaPersistence.save(session.sessionFile, sessionToMeta(session));
     // Order-map key for this session: the RESOLVED group path (parent repo
     // for worktree sessions), the same key the client reads.
     // See change: simplify-session-card-ordering.

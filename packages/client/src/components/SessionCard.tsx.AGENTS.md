@@ -4,3 +4,5 @@ Gates both `<ContextUsageBar>` mounts on `useDisplayPrefs(session.id).contextUsa
  Session card container gains neutral panel bevel `shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)]` (desktop + mobile), replacing `shadow-md`; session-name span gains `font-semibold` (weight 600) both layouts. Selected-card treatment untouched (bevel on shared className, `isSelected` ternary only swaps border/tint/ring). No added color. See change: add-panel-elevation-system.
 
 Accepts `hasNotice?: boolean` prop; threads into `deriveDotColorWithFlags`/`deriveStatusShape`/`deriveRailBgColor` flags. Renders non-error `notice` status ("model returned only reasoning, no answer") distinct from error. See change: fix-gemini-subagent-silent-tool-schema-failure.
+
+Renders compact read-only `<TagStrip tags phase={openspecPhase}>` (user chips + `+N` overflow + read-only phase chip) after the OpenSpec activity badge, in both mobile-compact and desktop layouts. See change: add-session-tags.

@@ -152,6 +152,12 @@ export interface DashboardSession {
   sessionFile?: string;
   sessionDir?: string;
   hidden?: boolean;
+  /**
+   * User-owned, free-form tags mirrored from `SessionMeta.tags`. Bridges
+   * SHALL NOT send this — it is dashboard-owned, set via `set_session_tags`.
+   * See change: add-session-tags.
+   */
+  tags?: string[];
   firstMessage?: string;
   dataUnavailable?: boolean;
   /**

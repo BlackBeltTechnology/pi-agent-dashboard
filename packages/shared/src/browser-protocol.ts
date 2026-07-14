@@ -67,6 +67,17 @@ export interface SetSessionProcessDrawerBrowserMessage {
   collapsed: boolean;
 }
 
+/**
+ * Browser → server: replace a session's full user-owned tag list. The server
+ * normalizes the list (`normalizeTags`) before persist. Whole-array replace
+ * (last-write-wins). See change: add-session-tags.
+ */
+export interface SetSessionTagsBrowserMessage {
+  type: "set_session_tags";
+  sessionId: string;
+  tags: string[];
+}
+
 // ── Server → Browser ────────────────────────────────────────────────
 
 export interface SessionAddedMessage {
@@ -1528,6 +1539,7 @@ export type BrowserToServerMessage =
   | WorktreeInitUnsubscribeMessage
   | SetSessionDisplayPrefsBrowserMessage
   | SetSessionProcessDrawerBrowserMessage
+  | SetSessionTagsBrowserMessage
   | InjectViewMessageBrowserMessage
   | RecoveryDismissMessage
   | SubagentResyncRequestBrowserMessage

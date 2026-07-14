@@ -51,6 +51,7 @@ import { SessionActivityBar } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
+import { TagStrip } from "./tags/TagStrip.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 import { WorktreeActionsMenu } from "./WorktreeActionsMenu.js";
 
@@ -637,6 +638,13 @@ export function SessionCard({
             }
           />
         ) : null}
+        {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
+            phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
+        {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+          <div className="mt-1">
+            <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+          </div>
+        ) : null}
         {/* PROCESS subcard (mobile compact) — activity bar + drawer.
             See change: redesign-process-list-activity-bar. */}
         <MobileProcessSubcard
@@ -880,6 +888,14 @@ export function SessionCard({
               : undefined
           }
         />
+      ) : null}
+
+      {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
+          phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
+      {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+        <div className="mt-1 px-1">
+          <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+        </div>
       ) : null}
 
       {/* Subcard stack — see change: redesign-session-card-subcards.
