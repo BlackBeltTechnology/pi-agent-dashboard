@@ -128,7 +128,7 @@ import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { DisplayPrefsProvider } from "./lib/DisplayPrefsContext.js";
-import { useI18n } from "./lib/i18n.js";
+import { registerPluginCatalog, useI18n } from "./lib/i18n.js";
 import { SessionAssetsProvider } from "./lib/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/selectViewedSessionId.js";
@@ -164,6 +164,10 @@ for (const entry of PLUGIN_REGISTRY) {
   for (const claim of entry.claims) {
     _pluginRegistry.addClaim(claim);
   }
+  // Merge each plugin's i18n catalog under plugin.<id>.* so plugin surfaces
+  // resolve via the plugin-context `t`. Idempotent; language-partitioned.
+  // See change: make-all-ui-text-i18n.
+  registerPluginCatalog(entry.manifest.id, entry.catalog);
 }
 
 // Feed plugin `shell-overlay-route` claims into the back-target classifier so
@@ -303,7 +307,7 @@ function PiResourceFileRoute({
 const EMPTY_STEERING: string[] = [];
 
 export default function App() {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   // Pause all CSS animations while the window is hidden to the tray /
   // backgrounded, so the renderer + GPU stop continuous compositing.
   // See change: throttle-idle-ui-animations.
@@ -1931,6 +1935,8 @@ export default function App() {
         connectionStatus={
           status === "connected" || status === "connecting" ? status : "disconnected"
         }
+        t={t}
+        language={language}
       >
       <ShellSessionsProvider value={sessions}>
         <ErrorBoundary fallback={

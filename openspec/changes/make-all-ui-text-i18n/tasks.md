@@ -17,9 +17,9 @@
 
 ## 3. Zone 2 — per-plugin i18n contract (~180)
 
-- [ ] 3.1 Add optional `i18n?: { catalog }` to the plugin registration type (`packages/shared/src/dashboard-plugin/*`).
-- [ ] 3.2 Runtime: `mergePluginCatalog(id, catalog)` prefixes keys with `plugin.<id>.` into `dictionaries[lang]`; expose `t` + `language` on `SlotContextValue`; provide auto-prefixing scoped `t`.
-- [ ] 3.3 Tests: plugin catalog merge (namespacing, no collision, language switch re-merge, missing-catalog fallback to source).
+- [x] 3.1 Add optional `i18nCatalog?` (named export) + `PluginI18nCatalog` type to the plugin registration type (`packages/shared/src/dashboard-plugin/manifest-types.ts`); generated registry imports+wires it.
+- [x] 3.2 Runtime: `registerPluginCatalog(id, catalog)` prefixes keys with `plugin.<id>.` into `dictionaries[lang]`; `t`+`language` on `PluginContextValue` (shell-wired); scoped `useT`/`useLanguage` hooks auto-prefix.
+- [x] 3.3 Tests: plugin catalog merge + scoped useT (namespacing, no collision, language switch, missing-catalog fallback) — client i18n.test.ts + runtime plugin-i18n.test.tsx.
 - [ ] 3.4 Author `zh-CN` + `hu` catalog and wrap strings per plugin: `flows-plugin` (22 files, largest), `automation-plugin`, `goal-plugin`, `kb-plugin`, `roles-plugin`, `subagents-plugin`, `dashboard-plugin-runtime`, `flows-anthropic-bridge-plugin`.
 - [ ] 3.5 Verify lint (1.4) clean across all plugin packages.
 

@@ -31,6 +31,8 @@ export {
   usePluginRouter,
   usePluginConfig,
   usePluginLogger,
+  useT,
+  useLanguage,
 } from "./plugin-context.js";
 export type { InteractiveUiRequestSnapshot, SubagentStateSnapshot } from "./plugin-context.js";
 export type { PluginContextProviderProps, PluginLogger, PluginRouter } from "./plugin-context.js";

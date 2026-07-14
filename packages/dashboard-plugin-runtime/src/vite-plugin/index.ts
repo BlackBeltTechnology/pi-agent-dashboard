@@ -216,9 +216,11 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
     }
     const namedRefs = [
       ...new Set(
-        entry.manifest.claims
-          .flatMap(c => [c.component, c.predicate, c.shouldRender])
-          .filter((c): c is string => Boolean(c)),
+        [
+          ...entry.manifest.claims.flatMap(c => [c.component, c.predicate, c.shouldRender]),
+          // i18n catalog export (aliased per-plugin below to avoid collisions).
+          entry.manifest.i18nCatalog,
+        ].filter((c): c is string => Boolean(c)),
       ),
     ];
 
@@ -258,6 +260,8 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
   lines.push("export interface RegistryEntry {");
   lines.push("  manifest: PluginManifest;");
   lines.push("  claims: ClaimEntry[];");
+  lines.push("  /** Plugin i18n catalog (unprefixed keys). Merged under plugin.<id>.* by the shell. */");
+  lines.push("  catalog?: import(\"@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js\").PluginI18nCatalog;");
   lines.push("}");
   lines.push("");
   lines.push("export const PLUGIN_REGISTRY: RegistryEntry[] = [");
@@ -289,6 +293,9 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       );
     }
     lines.push("    ],");
+    if (manifest.i18nCatalog) {
+      lines.push(`    catalog: ${manifest.i18nCatalog},`);
+    }
     lines.push("  },");
   }
 

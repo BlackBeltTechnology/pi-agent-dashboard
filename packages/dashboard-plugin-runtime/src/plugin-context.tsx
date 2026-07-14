@@ -153,6 +153,16 @@ export interface PluginContextValue {
   pluginRouter: PluginRouter;
   /** WebSocket connection (used internally for subscriptions). */
   ws?: WebSocket | null;
+  /**
+   * Translate a fully-qualified catalog key in the active language. Wired by
+   * the shell from the client i18n runtime. Plugins should prefer the scoped
+   * {@link useT} hook, which auto-prefixes `plugin.<id>.`. Falls back to the
+   * call-site English when no translation exists (never throws).
+   * See change: make-all-ui-text-i18n.
+   */
+  t?: (key: string, vars?: Record<string, string | number>, fallback?: string) => string;
+  /** The active UI language code (e.g. "en", "zh-CN", "hu"). */
+  language?: string;
 }
 
 const PluginReactContext = createContext<PluginContextValue | null>(null);
@@ -165,6 +175,37 @@ interface CurrentPluginContextValue {
 const CurrentPluginContext = createContext<CurrentPluginContextValue | null>(null);
 
 // ── Public hooks (called from plugin component code) ─────────────────────────
+
+/**
+ * @public — scoped translator for plugin slot contributions. Auto-prefixes the
+ * calling plugin's `plugin.<id>.` namespace so plugin code writes
+ * `t("launch.title", vars, "Launch")` and it resolves `plugin.<id>.launch.title`
+ * in the active language. Degrades to the call-site English fallback when the
+ * shell has not wired a translator or the key is missing. Never throws.
+ */
+export function useT(): (
+  key: string,
+  vars?: Record<string, string | number>,
+  fallback?: string,
+) => string {
+  const outer = useContext(PluginReactContext);
+  const current = useContext(CurrentPluginContext);
+  const pluginId = current?.pluginId;
+  return (key, vars, fallback) => {
+    const scoped = pluginId ? `plugin.${pluginId}.${key}` : key;
+    if (outer?.t) return outer.t(scoped, vars, fallback);
+    // No shell translator wired: interpolate the fallback locally.
+    const template = fallback ?? key;
+    if (!vars) return template;
+    return template.replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
+  };
+}
+
+/** @public — the active UI language code, or "en" when unwired. */
+export function useLanguage(): string {
+  const outer = useContext(PluginReactContext);
+  return outer?.language ?? "en";
+}
 
 /** @public — called only from plugin slot contributions */
 export function usePluginConfig<T = Record<string, unknown>>(): T {
@@ -398,6 +439,14 @@ export interface PluginContextProviderProps {
   send?: (message: unknown) => void | Promise<void>;
   pluginRouter?: PluginRouter;
   ws?: WebSocket | null;
+  /**
+   * Active-language translator wired by the shell from the client i18n
+   * runtime. Exposed to plugins via {@link useT}. See change:
+   * make-all-ui-text-i18n.
+   */
+  t?: (key: string, vars?: Record<string, string | number>, fallback?: string) => string;
+  /** Active UI language code. Exposed via {@link useLanguage}. */
+  language?: string;
 }
 
 // Per-plugin config store (in-memory, keyed by plugin id)
@@ -468,6 +517,8 @@ export function PluginContextProvider({
   useSessionSubagents: useSessionSubagentsProp,
   connectionStatus,
   ws,
+  t: tProp,
+  language: languageProp,
 }: PluginContextProviderProps) {
   const resolvedRegistry = registry ?? createSlotRegistry();
 
@@ -539,6 +590,8 @@ export function PluginContextProvider({
     send,
     pluginRouter,
     ws,
+    t: tProp,
+    language: languageProp,
   };
 
   return <PluginReactContext.Provider value={value}>{children}</PluginReactContext.Provider>;
