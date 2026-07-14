@@ -42,7 +42,7 @@ export function ExploreDialog({ changeName, onSend, onClose }: Props) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={i18nT("auto.what_do_you_want_to_explore", undefined, "What do you want to explore? Paste a screenshot to include it.")}
+          placeholder={i18nT("common.whatDoYouWantToExplore", undefined, "What do you want to explore? Paste a screenshot to include it.")}
           className="w-full h-48 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] resize-none focus:outline-none focus:border-blue-500"
           autoFocus
           data-testid="explore-textarea"
@@ -52,7 +52,7 @@ export function ExploreDialog({ changeName, onSend, onClose }: Props) {
         <Dialog.Footer>
           <Dialog.Cancel onClick={onClose} testId="explore-cancel" />
           <Dialog.Action onClick={handleSend} disabled={!text.trim()} testId="explore-send">
-            <Icon path={mdiCompassOutline} size={0.5} className="inline mr-0.5" />{i18nT("auto.explore", undefined, "Explore")}
+            <Icon path={mdiCompassOutline} size={0.5} className="inline mr-0.5" />{i18nT("common.explore", undefined, "Explore")}
           </Dialog.Action>
         </Dialog.Footer>
     </Dialog>

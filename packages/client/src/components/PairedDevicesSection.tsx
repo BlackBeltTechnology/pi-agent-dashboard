@@ -11,7 +11,7 @@ import { t as i18nT } from "../lib/i18n";
 import { listPairedDevices, type PairedDeviceView, revokePairedDevice } from "../lib/paired-devices-api.js";
 
 function formatLastSeen(iso: string | null): string {
-  if (!iso) return i18nT("auto.never_seen", undefined, "never");
+  if (!iso) return i18nT("common.neverSeen", undefined, "never");
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
@@ -52,7 +52,7 @@ export function PairedDevicesSection() {
   };
 
   if (loading) {
-    return <div className="text-sm text-[var(--text-muted)]">{i18nT("auto.loading_2", undefined, "Loading...")}</div>;
+    return <div className="text-sm text-[var(--text-muted)]">{i18nT("status.loading2", undefined, "Loading...")}</div>;
   }
 
   return (
@@ -60,7 +60,7 @@ export function PairedDevicesSection() {
       {error && <div className="text-sm text-[var(--danger,#ef4444)]">{error}</div>}
       {devices.length === 0 ? (
         <div className="text-sm text-[var(--text-muted)] py-1">
-          {i18nT("auto.no_paired_devices", undefined, "No paired devices. Pair a phone from the pairing view (QR / copy-string).")}
+          {i18nT("common.noPairedDevices", undefined, "No paired devices. Pair a phone from the pairing view (QR / copy-string).")}
         </div>
       ) : (
         <ul className="space-y-1">
@@ -73,7 +73,7 @@ export function PairedDevicesSection() {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm">{d.label}</div>
                 <div className="text-xs text-[var(--text-muted)]">
-                  {i18nT("auto.last_seen", undefined, "last seen")}: {formatLastSeen(d.lastSeen)}
+                  {i18nT("common.lastSeen", undefined, "last seen")}: {formatLastSeen(d.lastSeen)}
                 </div>
               </div>
               {confirmId === d.id ? (
@@ -84,20 +84,20 @@ export function PairedDevicesSection() {
                     disabled={revoking === d.id}
                     onClick={() => handleRevoke(d.id)}
                   >
-                    {i18nT("auto.confirm_revoke", undefined, "Confirm revoke")}
+                    {i18nT("common.confirmRevoke", undefined, "Confirm revoke")}
                   </button>
                   <button
                     type="button"
                     className="text-xs text-[var(--text-muted)] hover:underline"
                     onClick={() => setConfirmId(null)}
                   >
-                    {i18nT("auto.cancel", undefined, "Cancel")}
+                    {i18nT("common.cancel", undefined, "Cancel")}
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
-                  title={i18nT("auto.revoke_device", undefined, "Revoke device")}
+                  title={i18nT("common.revokeDevice", undefined, "Revoke device")}
                   className="shrink-0 text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
                   onClick={() => setConfirmId(d.id)}
                 >

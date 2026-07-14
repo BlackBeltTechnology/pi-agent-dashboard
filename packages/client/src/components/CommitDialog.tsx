@@ -95,20 +95,20 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
   };
 
   return (
-    <Dialog open onClose={onClose} title={i18nT("auto.commit_changes", undefined, "Commit changes")} size="lg" testId="commit-dialog">
+    <Dialog open onClose={onClose} title={i18nT("common.commitChanges", undefined, "Commit changes")} size="lg" testId="commit-dialog">
       {/* File picker */}
       {loading ? (
-        <p className="text-xs text-[var(--text-muted)]">{i18nT("auto.loading_changes", undefined, "Loading changes…")}</p>
+        <p className="text-xs text-[var(--text-muted)]">{i18nT("status.loadingChanges", undefined, "Loading changes…")}</p>
       ) : loadError ? (
         <p className="text-xs text-red-400" data-testid="commit-load-error">{loadError}</p>
       ) : files.length === 0 ? (
-        <p className="text-xs text-[var(--text-muted)]" data-testid="commit-no-changes">{i18nT("auto.no_changes", undefined, "No changes to commit.")}</p>
+        <p className="text-xs text-[var(--text-muted)]" data-testid="commit-no-changes">{i18nT("common.noChanges", undefined, "No changes to commit.")}</p>
       ) : (
         <div className="space-y-1">
           <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-            <span>{selected.size} / {files.length} {i18nT("auto.selected", undefined, "selected")}</span>
+            <span>{selected.size} / {files.length} {i18nT("common.selected", undefined, "selected")}</span>
             <button type="button" data-testid="commit-select-all" className="hover:text-[var(--text-secondary)]" onClick={selectAllNone}>
-              {allSelected ? i18nT("auto.select_none", undefined, "Select none") : i18nT("auto.select_all", undefined, "Select all")}
+              {allSelected ? i18nT("common.selectNone", undefined, "Select none") : i18nT("common.selectAll", undefined, "Select all")}
             </button>
           </div>
           <ul className="max-h-48 overflow-y-auto space-y-0.5" data-testid="commit-file-list">
@@ -133,7 +133,7 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
       {/* Message */}
       <div className="space-y-1 mt-2">
         <div className="flex items-center justify-between">
-          <label className="text-[11px] text-[var(--text-muted)]">{i18nT("auto.message", undefined, "Message")}</label>
+          <label className="text-[11px] text-[var(--text-muted)]">{i18nT("session.message", undefined, "Message")}</label>
           <button
             type="button"
             data-testid="commit-ai-draft"
@@ -141,7 +141,7 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
             onClick={onDraft}
             disabled={drafting || selected.size === 0}
           >
-            {drafting ? i18nT("auto.drafting", undefined, "Drafting…") : i18nT("auto.ai_draft", undefined, "AI draft")}
+            {drafting ? i18nT("common.drafting", undefined, "Drafting…") : i18nT("common.aiDraft", undefined, "AI draft")}
           </button>
         </div>
         <input
@@ -149,7 +149,7 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
           data-testid="commit-subject"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          placeholder={i18nT("auto.subject_line", undefined, "Subject line")}
+          placeholder={i18nT("common.subjectLine", undefined, "Subject line")}
           maxLength={100}
           className="w-full px-2 py-1 text-xs rounded bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]"
         />
@@ -158,13 +158,13 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
           data-testid="commit-body"
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder={i18nT("auto.body_optional", undefined, "Body (optional)")}
+          placeholder={i18nT("common.bodyOptional", undefined, "Body (optional)")}
           rows={3}
           className="w-full px-2 py-1 text-xs rounded bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] resize-y"
         />
         {draftUnavailable && (
           <p className="text-[10px] text-[var(--text-muted)]" data-testid="commit-draft-unavailable">
-            {i18nT("auto.ai_draft_unavailable", undefined, "AI draft unavailable — enter a message manually.")}
+            {i18nT("common.aiDraftUnavailable", undefined, "AI draft unavailable — enter a message manually.")}
           </p>
         )}
       </div>
@@ -176,7 +176,7 @@ export function CommitDialog({ cwd, sessionId, onClose, onCommitted }: CommitDia
       <Dialog.Footer>
         <Dialog.Cancel onClick={onClose} testId="commit-cancel" />
         <Dialog.Action onClick={onCommit} disabled={!canCommit} testId="commit-submit">
-          {committing ? i18nT("auto.committing", undefined, "Committing…") : i18nT("auto.commit", undefined, "Commit")}
+          {committing ? i18nT("common.committing", undefined, "Committing…") : i18nT("git.commit", undefined, "Commit")}
         </Dialog.Action>
       </Dialog.Footer>
     </Dialog>

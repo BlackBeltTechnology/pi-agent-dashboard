@@ -62,7 +62,7 @@ export function ConnectionStatusBanner({
         className="w-full bg-amber-500/15 border-b border-amber-500/40 text-amber-200 px-4 py-2 text-sm flex items-center justify-between gap-2"
       >
         <span className="truncate">
-          <strong>{i18nT("auto.network_not_allowed", undefined, "Network not allowed")}</strong>
+          <strong>{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</strong>
           {networkDenied.hint ? <> — {networkDenied.hint}</> : null}
         </span>
         {onOpenServers && (
@@ -70,7 +70,7 @@ export function ConnectionStatusBanner({
             onClick={onOpenServers}
             className="shrink-0 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
           >
-            {i18nT("auto.settings_servers", undefined, "Settings → Servers")}
+            {i18nT("settings.settingsServers", undefined, "Settings → Servers")}
           </button>
         )}
       </div>
@@ -85,14 +85,14 @@ export function ConnectionStatusBanner({
       className="w-full bg-amber-500/15 border-b border-amber-500/40 text-amber-200 px-4 py-2 text-sm flex items-center justify-between gap-2"
     >
       <span className="truncate">
-        {i18nT("auto.disconnected_from", undefined, "Disconnected from")} <strong>{currentServerHost}</strong>{i18nT("auto.retrying", undefined, ". Retrying…")}
+        {i18nT("connection.disconnectedFrom", undefined, "Disconnected from")} <strong>{currentServerHost}</strong>{i18nT("status.retrying", undefined, ". Retrying…")}
       </span>
       {onOpenServerSelector && (
         <button
           onClick={onOpenServerSelector}
           className="shrink-0 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
         >
-          {i18nT("auto.switch_server", undefined, "Switch server")}
+          {i18nT("connection.switchServer", undefined, "Switch server")}
         </button>
       )}
     </div>

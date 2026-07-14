@@ -180,12 +180,12 @@ function MessageBubble({ content, className, timestamp, entryId, onFork, context
         {timestamp != null && (
           <span className="text-[10px] text-[var(--text-tertiary)] mr-auto">{formatMessageTime(timestamp)}</span>
         )}
-        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")} />
-        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")} />
+        <CopyButton getText={() => content} icon={<Icon path={mdiContentCopy} size={0.6} />} title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")} />
+        <CopyButton getText={getPlainText} icon={<Icon path={mdiTextBox} size={0.6} />} title={i18nT("common.copyAsPlainText", undefined, "Copy as plain text")} />
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
-            title={i18nT("auto.fork_from_here", undefined, "Fork from here")}
+            title={i18nT("session.forkFromHere", undefined, "Fork from here")}
             className="p-0.5 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
           >
             <Icon path={mdiSourceFork} size={0.6} />
@@ -1068,7 +1068,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           <div className={`relative bg-blue-500/10 border border-blue-500/20 border-l-2 border-l-blue-400 rounded-xl shadow-md px-4 py-2 ${bubbleMax}`}>
             <div className="flex items-center gap-1.5 mb-1 text-[10px] uppercase tracking-wider text-blue-400/80 font-medium">
               <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-              {i18nT("auto.steering", undefined, "Steering")}
+              {i18nT("session.steering", undefined, "Steering")}
             </div>
             <MarkdownContent content={steerText} />
           </div>
@@ -1121,7 +1121,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             className="flex flex-col gap-3 px-4 py-3"
             aria-busy="true"
             role="status"
-            aria-label={i18nT("auto.loading_conversation", undefined, "Loading conversation…")}
+            aria-label={i18nT("status.loadingConversation", undefined, "Loading conversation…")}
             data-testid="chat-history-skeleton"
           >
             <Skeleton variant="bubble" count={3} />
@@ -1129,9 +1129,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         ) : (
           <div className="flex items-center justify-center h-full">
             <EmptyState
-              title={i18nT("auto.no_messages_yet", undefined, "No messages yet")}
+              title={i18nT("session.noMessagesYet", undefined, "No messages yet")}
               body={i18nT(
-                "auto.no_messages_yet_body",
+                "session.noMessagesYetBody",
                 undefined,
                 "Send a prompt below to start the conversation.",
               )}
@@ -1145,7 +1145,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         data-testid="scroll-to-top"
         onClick={scrollToTop}
         className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
-        title={i18nT("auto.scroll_to_top", undefined, "Scroll to top")}
+        title={i18nT("common.scrollToTop", undefined, "Scroll to top")}
       >
         <Icon path={mdiChevronUp} size={0.8} className="text-[var(--text-secondary)]" />
       </button>
@@ -1155,7 +1155,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         data-testid="scroll-to-bottom"
         onClick={scrollToBottom}
         className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-full p-2 shadow-lg hover:bg-[var(--bg-surface)] transition-colors"
-        title={i18nT("auto.scroll_to_bottom", undefined, "Scroll to bottom")}
+        title={i18nT("common.scrollToBottom", undefined, "Scroll to bottom")}
       >
         <Icon path={mdiChevronDown} size={0.8} className="text-[var(--text-secondary)]" />
       </button>

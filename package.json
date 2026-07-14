@@ -55,6 +55,8 @@
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
+    "i18n:parity": "node scripts/i18n-parity.mjs",
+    "i18n:lint": "node scripts/i18n-lint.mjs",
     "lint": "tsc --noEmit",
     "lint:biome": "biome lint .",
     "fix:changed": "biome check --changed --write",

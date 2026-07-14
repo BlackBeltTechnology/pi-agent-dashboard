@@ -113,7 +113,7 @@ export function PreviewBody({
       return <HtmlPreview target={target} />;
     case "pdf":
       return (
-        <Suspense fallback={<div className="text-[var(--text-muted)] text-sm p-2">{i18nT("auto.loading_pdf_viewer", undefined, "Loading PDF viewer…")}</div>}>
+        <Suspense fallback={<div className="text-[var(--text-muted)] text-sm p-2">{i18nT("status.loadingPdfViewer", undefined, "Loading PDF viewer…")}</div>}>
           <PdfPreview target={target} />
         </Suspense>
       );
@@ -145,8 +145,8 @@ export function PreviewCard({ target }: Props) {
         <button
           className="p-1 rounded hover:bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           onClick={() => navigate(expandUrl)}
-          title={i18nT("auto.expand", undefined, "Expand")}
-          aria-label={i18nT("auto.expand_preview", undefined, "Expand preview")}
+          title={i18nT("common.expand", undefined, "Expand")}
+          aria-label={i18nT("common.expandPreview", undefined, "Expand preview")}
           data-testid="preview-expand"
         >
           <Icon path={mdiOpenInNew} size={0.7} />

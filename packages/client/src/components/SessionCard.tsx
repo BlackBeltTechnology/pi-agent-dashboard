@@ -65,7 +65,7 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
 
   if (session.resuming) {
-    return <span className="text-yellow-400">{i18nT("auto.resuming", undefined, "Resuming…")}</span>;
+    return <span className="text-yellow-400">{i18nT("common.resuming", undefined, "Resuming…")}</span>;
   }
 
   if (session.status === "ended") return null;
@@ -73,7 +73,7 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("auto.needs_you", undefined, "Needs you")}</span>;
+    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
   }
 
   if (session.currentTool) {
@@ -81,13 +81,13 @@ export function ActivityIndicator({ session }: { session: DashboardSession }) {
   }
 
   if (session.status === "streaming") {
-    return <span className="text-[var(--status-working)]">{i18nT("auto.thinking", undefined, "Thinking…")}</span>;
+    return <span className="text-[var(--status-working)]">{i18nT("session.thinking", undefined, "Thinking…")}</span>;
   }
 
   if (session.status === "idle" || session.status === "active") {
     // Turn-finished passive state: distinct "Idle" label, never "Waiting for
     // input". See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--text-tertiary)]">{i18nT("auto.idle", undefined, "Idle")}</span>;
+    return <span className="text-[var(--text-tertiary)]">{i18nT("status.idle", undefined, "Idle")}</span>;
   }
 
   return null;
@@ -317,7 +317,7 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
-          {showInitGit && <span className="text-[10px]">{i18nT("auto.init_git", undefined, "Init git")}</span>}
+          {showInitGit && <span className="text-[10px]">{i18nT("git.initGit", undefined, "Init git")}</span>}
         </button>
       </div>
     );
@@ -328,7 +328,7 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
       <button
         onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
         className="flex items-center gap-1 hover:text-blue-400 transition-colors"
-        title={i18nT("auto.switch_branch", undefined, "Switch branch")}
+        title={i18nT("git.switchBranch", undefined, "Switch branch")}
         data-testid="git-branch-btn"
       >
         <Icon path={mdiSourceBranch} size={0.5} />
@@ -361,9 +361,9 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
           data-testid="group-commit-btn"
           onClick={(e) => { e.stopPropagation(); openCommitDialog(cwd, anySessionId); }}
           className="text-[10px] text-blue-400 hover:underline"
-          title={i18nT("auto.commit_changes", undefined, "Commit changes")}
+          title={i18nT("common.commitChanges", undefined, "Commit changes")}
         >
-          {i18nT("auto.commit", undefined, "Commit")}
+          {i18nT("git.commit", undefined, "Commit")}
         </button>
       )}
     </div>
@@ -789,7 +789,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
             className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5 flex-shrink-0"
-            title={i18nT("auto.rename_session", undefined, "Rename session")}
+            title={i18nT("session.renameSession", undefined, "Rename session")}
           >
             <Icon path={mdiPencilOutline} size={0.45} />
           </button>
@@ -805,7 +805,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onUnhide(session.id); }}
             className="text-[var(--text-tertiary)] hover:text-green-400 p-0.5 flex-shrink-0"
-            title={i18nT("auto.show_session", undefined, "Show session")}
+            title={i18nT("session.showSession", undefined, "Show session")}
             data-testid="session-unhide-btn"
           >
             <Icon path={mdiEyeOutline} size={0.45} />
@@ -814,7 +814,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onHide(session.id); }}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-muted)] p-0.5 flex-shrink-0"
-            title={i18nT("auto.hide_session", undefined, "Hide session")}
+            title={i18nT("session.hideSession", undefined, "Hide session")}
             data-testid="session-hide-btn"
           >
             <Icon path={mdiEyeOffOutline} size={0.45} />
@@ -857,7 +857,7 @@ export function SessionCard({
                 className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
                 title={session.cwdMissing ? "session's directory no longer exists" : "Resume session (continue same session)"}
               >
-                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("auto.resume", undefined, "Resume")}
+                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("session.resume", undefined, "Resume")}
               </button>
             )}
             <button
@@ -866,7 +866,7 @@ export function SessionCard({
               className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
               title={session.cwdMissing ? "session's directory no longer exists" : "Fork session (new session from this point)"}
             >
-              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("auto.fork", undefined, "Fork")}
+              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("session.fork", undefined, "Fork")}
             </button>
           </>
         )}
@@ -881,7 +881,7 @@ export function SessionCard({
             title={session.cwdMissing ? "session's directory no longer exists" : "+Session clean sibling in same folder"}
             data-testid="session-card-spawn-sibling"
           >
-            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("auto.session", undefined, "Session")}
+            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("session.session", undefined, "Session")}
           </button>
         )}
         {/* +Worktree — create git worktree (if needed) + spawn session inside
@@ -904,7 +904,7 @@ export function SessionCard({
             title={session.cwdMissing ? "session's directory no longer exists" : "Create git worktree + spawn session inside it"}
             data-testid="session-card-spawn-worktree"
           >
-            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("auto.worktree", undefined, "Worktree")}
+            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("worktree.worktree", undefined, "Worktree")}
           </button>
         )}
       </div>
@@ -1157,7 +1157,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
             className="bg-[var(--bg-secondary)] rounded-t-lg p-4 w-full max-w-lg border-t border-[var(--border-secondary)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">{i18nT("auto.background_processes", undefined, "Background processes")}</h3>
+            <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">{i18nT("common.backgroundProcesses", undefined, "Background processes")}</h3>
             <ProcessList
               processes={[...processes]}
               onKill={onKill}

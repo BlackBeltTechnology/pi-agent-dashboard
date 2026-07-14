@@ -1,14 +1,14 @@
 ## 1. i18n infrastructure (foundation)
 
-- [ ] 1.1 Add `hu` to `Language`, `LANGUAGE_OPTIONS` (`{ value: "hu", label: "Magyar" }`), and `normalizeLanguage` (`hu`, `hu-hu`, `hu-*`) in `packages/client/src/lib/i18n.tsx`.
-- [ ] 1.2 Define the structured-namespace taxonomy (D1) and add a `LEGACY_ALIASES` map so existing `auto.*`/flat keys keep resolving during migration.
-- [ ] 1.3 Add a catalog-parity dev script (D6): every key in the source set exists in `zh-CN` and `hu`; fail on gaps.
-- [ ] 1.4 Add an i18n lint (audit ripgrep patterns) that flags hardcoded JSX text / `placeholder|aria-label|title|alt` / user-facing `throw`/`message:` not wrapped in `t()`.
-- [ ] 1.5 Tests: unit-test `t()` fallback order (key → fallback → key), `normalizeLanguage("hu-HU")`, and interpolation for all three languages.
+- [x] 1.1 Add `hu` to `Language`, `LANGUAGE_OPTIONS` (`{ value: "hu", label: "Magyar" }`), and `normalizeLanguage` (`hu`, `hu-hu`, `hu-*`) in `packages/client/src/lib/i18n.tsx`.
+- [x] 1.2 Define the structured-namespace taxonomy (D1) and add a `LEGACY_ALIASES` map so existing `auto.*`/flat keys keep resolving during migration.
+- [x] 1.3 Add a catalog-parity dev script (D6): every key in the source set exists in `zh-CN` and `hu`; fail on gaps.
+- [x] 1.4 Add an i18n lint (audit ripgrep patterns) that flags hardcoded JSX text / `placeholder|aria-label|title|alt` / user-facing `throw`/`message:` not wrapped in `t()`.
+- [x] 1.5 Tests: unit-test `t()` fallback order (key → fallback → key), `normalizeLanguage("hu-HU")`, and interpolation for all three languages.
 
 ## 2. Zone 1 — client strings (~466)
 
-- [ ] 2.1 Migrate `auto.*` + flat legacy keys to structured keys (codemod + review); update call sites; remove `LEGACY_ALIASES` once green.
+- [x] 2.1 Migrate `auto.*` + flat legacy keys to structured keys (codemod + review); update call sites. (`LEGACY_ALIASES` kept populated as a robustness backstop rather than emptied — no `auto.*` remains in any dictionary; deviation noted.)
 - [ ] 2.2 Wrap zero-coverage files: 6 Gateway components, `PairLanding`, `OpenSpecStepper`, `OpenSpecActivityBadge`.
 - [ ] 2.3 Wrap all 14 hooks (`useInstalledPackages`, `useMessageHandler`, `useImagePaste`, `useMainSpecsReader`, …) — `setError`/`throw`/toast strings.
 - [ ] 2.4 Wrap `lib/` displayed strings (`tool-summary`, `session-status-visuals`, `format` time units, `themes` names, `gateway-setup`, `*-api` error fallbacks).

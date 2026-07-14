@@ -40,7 +40,7 @@ export function OpenSpecGroupPills({
         }`}
         data-testid="group-pill-all"
       >
-        {i18nT("auto.all", undefined, "All")}
+        {i18nT("common.all", undefined, "All")}
       </button>
 
       {/* Group pills */}
@@ -76,7 +76,7 @@ export function OpenSpecGroupPills({
           className="text-[10px] text-[var(--text-muted)] hover:text-blue-400 ml-1"
           data-testid="manage-groups-link"
         >
-          {i18nT("auto.manage_groups", undefined, "Manage groups…")}
+          {i18nT("common.manageGroups", undefined, "Manage groups…")}
         </button>
       )}
     </div>

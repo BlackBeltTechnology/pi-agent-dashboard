@@ -62,7 +62,7 @@ export function TerminalCard({ terminal, selectedId, onSelect, onClose, onRename
               <button
                 onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
                 className="p-0.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                title={i18nT("auto.rename_terminal", undefined, "Rename terminal")}
+                title={i18nT("terminal.renameTerminal", undefined, "Rename terminal")}
               >
                 <Icon path={mdiPencilOutline} size={0.45} />
               </button>
@@ -71,7 +71,7 @@ export function TerminalCard({ terminal, selectedId, onSelect, onClose, onRename
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(terminal.id); }}
                 className="p-0.5 text-[var(--text-tertiary)] hover:text-red-400"
-                title={i18nT("auto.close_terminal_sigterm", undefined, "Close terminal (SIGTERM)")}
+                title={i18nT("terminal.closeTerminalSigterm", undefined, "Close terminal (SIGTERM)")}
               >
                 <Icon path={mdiClose} size={0.45} />
               </button>

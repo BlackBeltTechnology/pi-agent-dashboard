@@ -36,8 +36,8 @@ export function SpawnErrorToastHost() {
             type="button"
             onClick={() => dismissSpawnErrorToast(e.id)}
             className="text-red-300/70 hover:text-red-100 flex-shrink-0 leading-none"
-            aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
-            title={i18nT("auto.dismiss", undefined, "Dismiss")}
+            aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
+            title={i18nT("common.dismiss", undefined, "Dismiss")}
           >
             ×
           </button>

@@ -141,7 +141,7 @@ export function BranchCombobox({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={handleFilterKeyDown}
-            placeholder={i18nT("auto.filter_branches", undefined, "Filter branches…")}
+            placeholder={i18nT("git.filterBranches", undefined, "Filter branches…")}
             data-testid={testid ? `${testid}-filter` : undefined}
             className="w-full bg-[var(--bg-tertiary)] rounded px-2 py-1 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
           />

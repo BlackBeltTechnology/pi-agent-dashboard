@@ -26,7 +26,7 @@ export default function DiffViewer({ path }: ViewerProps) {
   if (!ctx) {
     return (
       <div className="flex h-full items-center justify-center text-[var(--text-tertiary)] text-sm">
-        {i18nT("auto.diff_unavailable", undefined, "Diff unavailable")}
+        {i18nT("common.diffUnavailable", undefined, "Diff unavailable")}
       </div>
     );
   }
@@ -38,8 +38,8 @@ export default function DiffViewer({ path }: ViewerProps) {
     return (
       <div className="flex h-full items-center justify-center text-[var(--text-tertiary)] text-sm">
         {isLoading
-          ? i18nT("auto.loading_diff", undefined, "Loading diff…")
-          : i18nT("auto.no_changes_for_file", undefined, "No changes for this file")}
+          ? i18nT("status.loadingDiff", undefined, "Loading diff…")
+          : i18nT("common.noChangesForFile", undefined, "No changes for this file")}
       </div>
     );
   }

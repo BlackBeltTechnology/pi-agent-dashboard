@@ -175,7 +175,7 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
         <button
           onClick={handleClose}
           className="text-[var(--text-tertiary)] hover:text-red-400 transition-colors px-1"
-          title={i18nT("auto.close_terminal_sigterm", undefined, "Close terminal (SIGTERM)")}
+          title={i18nT("terminal.closeTerminalSigterm", undefined, "Close terminal (SIGTERM)")}
         >
           <Icon path={mdiClose} size={0.6} />
         </button>

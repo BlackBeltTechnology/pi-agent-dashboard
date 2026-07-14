@@ -148,8 +148,8 @@ export function ToastSlot({ sessions }: { sessions: Map<string, DashboardSession
           <button
             onClick={() => handleDismiss(t.key)}
             className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] flex-shrink-0"
-            title={i18nT("auto.dismiss", undefined, "Dismiss")}
-            aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+            title={i18nT("common.dismiss", undefined, "Dismiss")}
+            aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
           >
             ×
           </button>

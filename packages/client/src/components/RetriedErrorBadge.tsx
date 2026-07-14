@@ -45,7 +45,7 @@ export function RetriedErrorBadge({
           className="flex items-center gap-1.5 px-2 py-0.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] mb-1"
         >
           <Icon path={mdiChevronDown} size={0.6} />
-          <span>{i18nT("auto.hide_failed_attempt", undefined, "Hide failed attempt")}</span>
+          <span>{i18nT("status.hideFailedAttempt", undefined, "Hide failed attempt")}</span>
         </button>
         <ToolCallStep
           toolName={toolName}
@@ -71,7 +71,7 @@ export function RetriedErrorBadge({
     >
       <Icon path={mdiAlertCircleOutline} size={0.6} className="text-red-400/80" />
       <span>
-        <span className="font-mono">{toolName}</span> {i18nT("auto.failed_retried", undefined, "failed — retried")}
+        <span className="font-mono">{toolName}</span> {i18nT("status.failedRetried", undefined, "failed — retried")}
       </span>
       <Icon path={mdiChevronRight} size={0.55} />
     </button>

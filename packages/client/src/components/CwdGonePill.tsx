@@ -13,10 +13,10 @@ export function CwdGonePill({ session }: { session: DashboardSession }) {
   return (
     <span
       data-testid="cwd-gone-pill"
-      title={i18nT("auto.session_s_directory_no_longer_exists", undefined, "session's directory no longer exists")}
+      title={i18nT("folders.sessionSDirectoryNoLongerExists", undefined, "session's directory no longer exists")}
       className="inline-flex items-center px-1.5 py-px rounded-full text-[9px] uppercase tracking-wider border border-red-500/60 text-red-300 bg-red-500/10"
     >
-      {i18nT("auto.cwd_gone", undefined, "cwd gone")}
+      {i18nT("common.cwdGone", undefined, "cwd gone")}
     </span>
   );
 }

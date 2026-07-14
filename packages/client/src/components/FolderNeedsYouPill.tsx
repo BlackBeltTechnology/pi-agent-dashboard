@@ -77,12 +77,12 @@ export function FolderNeedsYouPill({
           data-testid="folder-needs-you-pill"
           data-needs-you-count={count}
           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium text-[var(--status-needs-you)] border border-[color-mix(in_srgb,var(--status-needs-you)_45%,transparent)] bg-[color-mix(in_srgb,var(--status-needs-you)_12%,transparent)] hover:bg-[color-mix(in_srgb,var(--status-needs-you)_20%,transparent)] cursor-pointer shrink-0"
-          title={i18nT("auto.n_need_you", { count }, `${count} need you`)}
-          aria-label={i18nT("auto.n_need_you", { count }, `${count} need you`)}
+          title={i18nT("common.nNeedYou", { count }, `${count} need you`)}
+          aria-label={i18nT("common.nNeedYou", { count }, `${count} need you`)}
         >
           <Icon path={mdiCommentQuestion} size={0.5} />
           <span>{count}</span>
-          <span className="hidden sm:inline">{i18nT("auto.need_you", undefined, "need you")}</span>
+          <span className="hidden sm:inline">{i18nT("common.needYou", undefined, "need you")}</span>
         </button>
       )}
     </>

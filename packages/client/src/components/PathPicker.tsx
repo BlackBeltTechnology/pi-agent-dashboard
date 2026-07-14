@@ -415,28 +415,28 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
             <input
               ref={newFolderInputRef}
               type="text"
-              placeholder={i18nT("auto.new_folder_name", undefined, "New folder name")}
+              placeholder={i18nT("folders.newFolderName", undefined, "New folder name")}
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={handleNewFolderKeyDown}
               className="flex-1 bg-transparent outline-none"
-              aria-label={i18nT("auto.new_folder_name", undefined, "New folder name")}
+              aria-label={i18nT("folders.newFolderName", undefined, "New folder name")}
             />
           </div>
         )}
         {loading && (
-          <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("auto.loading", undefined, "Loading…")}</div>
+          <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.loading2", undefined, "Loading…")}</div>
         )}
         {denial && (
           <div className="px-3 py-2 text-sm text-amber-400 flex flex-col gap-1.5">
-            <span className="font-medium">{i18nT("auto.network_not_allowed", undefined, "Network not allowed")}</span>
+            <span className="font-medium">{i18nT("common.networkNotAllowed", undefined, "Network not allowed")}</span>
             {denial.hint && <span className="text-amber-300/90">{denial.hint}</span>}
             {onOpenServers && (
               <button
                 onClick={onOpenServers}
                 className="self-start mt-0.5 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 text-xs font-medium cursor-pointer"
               >
-                {i18nT("auto.settings_servers", undefined, "Settings → Servers")}
+                {i18nT("settings.settingsServers", undefined, "Settings → Servers")}
               </button>
             )}
           </div>
@@ -475,7 +475,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     onClick={() => handleItemClick(item)}
                   >
                     <span>＋</span>
-                    <span className="flex-1 truncate">{i18nT("auto.create_2", undefined, "Create \"")}{item.name}{i18nT("auto.here", undefined, "\" here")}</span>
+                    <span className="flex-1 truncate">{i18nT("common.create2", undefined, "Create \"")}{item.name}{i18nT("common.here", undefined, "\" here")}</span>
                   </div>
                 );
               }
@@ -491,19 +491,19 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                   <span className="text-[var(--text-secondary)]">📁</span>
                   <span className="flex-1 truncate">{entry.name}</span>
                   {entry.isGit && (
-                    <span className="text-xs text-green-400" title={i18nT("auto.git_repo", undefined, "git repo")}>git</span>
+                    <span className="text-xs text-green-400" title={i18nT("git.gitRepo", undefined, "git repo")}>git</span>
                   )}
                   {entry.isPi && (
-                    <span className="text-xs text-cyan-400" title={i18nT("auto.pi_project", undefined, "pi project")}>pi</span>
+                    <span className="text-xs text-cyan-400" title={i18nT("common.piProject", undefined, "pi project")}>pi</span>
                   )}
                 </div>
               );
             })}
             {filtered.length === 0 && !createHereAvailable && entries.length === 0 && partial === "" && (
-              <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("auto.no_subdirectories", undefined, "No subdirectories")}</div>
+              <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.noSubdirectories", undefined, "No subdirectories")}</div>
             )}
             {filtered.length === 0 && !createHereAvailable && partial !== "" && (
-              <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("auto.no_matches", undefined, "No matches")}</div>
+              <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("common.noMatches", undefined, "No matches")}</div>
             )}
           </>
         )}
@@ -513,7 +513,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           onClick={onCancel}
           className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         >
-          {i18nT("auto.cancel", undefined, "Cancel")}
+          {i18nT("common.cancel", undefined, "Cancel")}
         </button>
         <button
           onClick={() => {
@@ -522,7 +522,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           }}
           className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-secondary)]"
         >
-          {i18nT("auto.new_folder", undefined, "＋ New folder")}
+          {i18nT("folders.newFolder", undefined, "＋ New folder")}
         </button>
         <button
           onClick={() => {
@@ -534,7 +534,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           disabled={!inputValue.trim()}
           className="px-4 py-2 rounded text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50"
         >
-          {i18nT("auto.select", undefined, "Select")}
+          {i18nT("common.select", undefined, "Select")}
         </button>
       </div>
     </div>

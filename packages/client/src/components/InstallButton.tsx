@@ -16,7 +16,7 @@ export function InstallButton({ canInstall, isInstalled, prompt }: Props) {
     <button
       onClick={prompt}
       className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-      title={i18nT("auto.install_app", undefined, "Install app")}
+      title={i18nT("packages.installApp", undefined, "Install app")}
       data-testid="install-btn"
     >
       <Icon path={mdiDownload} size={0.6} />

@@ -81,13 +81,13 @@ export function InputRenderer({ params, status, result, onRespond, onCancel }: I
             onClick={submit}
             className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white transition-colors"
           >
-            {i18nT("auto.submit", undefined, "Submit")}
+            {i18nT("common.submit", undefined, "Submit")}
           </button>
           <button
             onClick={onCancel}
             className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
           >
-            {i18nT("auto.cancel", undefined, "Cancel")}
+            {i18nT("common.cancel", undefined, "Cancel")}
           </button>
         </div>
       </div>

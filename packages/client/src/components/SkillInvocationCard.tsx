@@ -119,29 +119,29 @@ export function SkillInvocationCard({
         <CopyButton
           getText={() => rawContent}
           icon={<Icon path={mdiContentCopy} size={0.6} />}
-          title={i18nT("auto.copy_as_markdown", undefined, "Copy as Markdown")}
+          title={i18nT("common.copyAsMarkdown", undefined, "Copy as Markdown")}
         />
         <CopyButton
           getText={getPlainText}
           icon={<Icon path={mdiTextBox} size={0.6} />}
-          title={i18nT("auto.copy_as_plain_text", undefined, "Copy as plain text")}
+          title={i18nT("common.copyAsPlainText", undefined, "Copy as plain text")}
         />
         <CopyButton
           getText={() => skill.condensed}
           icon={<Icon path={mdiSlashForward} size={0.6} />}
-          title={i18nT("auto.copy_as_skill_command", undefined, "Copy as /skill: command")}
+          title={i18nT("common.copyAsSkillCommand", undefined, "Copy as /skill: command")}
         />
         {skill.args && (
           <CopyButton
             getText={() => skill.args ?? ""}
             icon={<Icon path={mdiMessageOutline} size={0.6} />}
-            title={i18nT("auto.copy_as_message", undefined, "Copy as message")}
+            title={i18nT("session.copyAsMessage", undefined, "Copy as message")}
           />
         )}
         {entryId && onFork && (
           <button
             onClick={() => onFork(entryId)}
-            title={i18nT("auto.fork_from_here", undefined, "Fork from here")}
+            title={i18nT("session.forkFromHere", undefined, "Fork from here")}
             className="p-0.5 rounded hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
           >
             <Icon path={mdiSourceFork} size={0.6} />

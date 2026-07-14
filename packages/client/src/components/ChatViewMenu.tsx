@@ -100,15 +100,15 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded"
-        title={i18nT("auto.view_options", undefined, "View options")}
+        title={i18nT("common.viewOptions", undefined, "View options")}
       >
         <Icon path={mdiCog} size={0.6} />
-        <span>{i18nT("auto.view", undefined, "View")}</span>
+        <span>{i18nT("common.view", undefined, "View")}</span>
         {hasAnyOverride && (
           <span
             data-testid="chat-view-modified-pill"
             className="ml-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-medium"
-            title={i18nT("auto.this_session_has_its_own_view", undefined, "This session has its own view preferences")}
+            title={i18nT("session.thisSessionHasItsOwnView", undefined, "This session has its own view preferences")}
           >
             modified
           </span>
@@ -122,22 +122,22 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             flipUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
-          <Row label={i18nT("auto.token_stats_bar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} marked={isOverridden("tokenStatsBar")} onChange={(v) => patch({ tokenStatsBar: v })} />
-          <Row label={i18nT("auto.context_usage_bar", undefined, "Context usage bar")} value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
-          <Row label={i18nT("auto.reasoning_blocks", undefined, "Reasoning blocks")} value={prefs.reasoning} marked={isOverridden("reasoning")} onChange={(v) => patch({ reasoning: v })} />
-          <Row label={i18nT("auto.keep_reasoning_open_until_turn_ends", undefined, "Keep reasoning open until turn ends")} value={prefs.keepReasoningOpenUntilTurnEnds} marked={isOverridden("keepReasoningOpenUntilTurnEnds")} onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })} />
-          <Row label={i18nT("auto.keep_tool_groups_collapsed", undefined, "Keep tool groups collapsed")} value={prefs.toolGroupDefaultCollapsed} marked={isOverridden("toolGroupDefaultCollapsed")} onChange={(v) => patch({ toolGroupDefaultCollapsed: v })} />
-          <Row label={i18nT("auto.tool_result_bodies", undefined, "Tool result bodies")} value={prefs.toolResults} marked={isOverridden("toolResults")} onChange={(v) => patch({ toolResults: v })} />
-          <Row label={i18nT("auto.turn_metadata", undefined, "Turn metadata")} value={prefs.turnMetadata} marked={isOverridden("turnMetadata")} onChange={(v) => patch({ turnMetadata: v })} />
-          <Row label={i18nT("auto.change_summary_table", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} marked={isOverridden("changeSummaryTable")} onChange={(v) => patch({ changeSummaryTable: v })} />
-          <Row label={i18nT("auto.debug_events", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
+          <Row label={i18nT("common.tokenStatsBar", undefined, "Token stats bar")} value={prefs.tokenStatsBar} marked={isOverridden("tokenStatsBar")} onChange={(v) => patch({ tokenStatsBar: v })} />
+          <Row label={i18nT("common.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
+          <Row label={i18nT("session.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} marked={isOverridden("reasoning")} onChange={(v) => patch({ reasoning: v })} />
+          <Row label={i18nT("session.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")} value={prefs.keepReasoningOpenUntilTurnEnds} marked={isOverridden("keepReasoningOpenUntilTurnEnds")} onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })} />
+          <Row label={i18nT("common.keepToolGroupsCollapsed", undefined, "Keep tool groups collapsed")} value={prefs.toolGroupDefaultCollapsed} marked={isOverridden("toolGroupDefaultCollapsed")} onChange={(v) => patch({ toolGroupDefaultCollapsed: v })} />
+          <Row label={i18nT("common.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} marked={isOverridden("toolResults")} onChange={(v) => patch({ toolResults: v })} />
+          <Row label={i18nT("session.turnMetadata", undefined, "Turn metadata")} value={prefs.turnMetadata} marked={isOverridden("turnMetadata")} onChange={(v) => patch({ turnMetadata: v })} />
+          <Row label={i18nT("common.changeSummaryTable", undefined, "Per-turn change summary")} value={prefs.changeSummaryTable} marked={isOverridden("changeSummaryTable")} onChange={(v) => patch({ changeSummaryTable: v })} />
+          <Row label={i18nT("common.debugEvents", undefined, "Debug events")} value={prefs.debugTools} marked={isOverridden("debugTools")} onChange={(v) => patch({ debugTools: v })} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
-          <div className="text-[var(--text-tertiary)] mb-1">{i18nT("auto.tool_calls", undefined, "Tool calls")}</div>
-          <Row label={i18nT("auto.read", undefined, "Read")} value={prefs.toolCalls.read} marked={isToolCallOverridden("read")} onChange={(v) => patch({ toolCalls: { read: v } })} />
-          <Row label={i18nT("auto.bash", undefined, "Bash")} value={prefs.toolCalls.bash} marked={isToolCallOverridden("bash")} onChange={(v) => patch({ toolCalls: { bash: v } })} />
-          <Row label={i18nT("auto.edit_write", undefined, "Edit / Write")} value={prefs.toolCalls.edit} marked={isToolCallOverridden("edit")} onChange={(v) => patch({ toolCalls: { edit: v } })} />
-          <Row label={i18nT("auto.agent", undefined, "Agent")} value={prefs.toolCalls.agent} marked={isToolCallOverridden("agent")} onChange={(v) => patch({ toolCalls: { agent: v } })} />
-          <Row label={i18nT("auto.other", undefined, "Other")} value={prefs.toolCalls.generic} marked={isToolCallOverridden("generic")} onChange={(v) => patch({ toolCalls: { generic: v } })} />
+          <div className="text-[var(--text-tertiary)] mb-1">{i18nT("common.toolCalls", undefined, "Tool calls")}</div>
+          <Row label={i18nT("common.read", undefined, "Read")} value={prefs.toolCalls.read} marked={isToolCallOverridden("read")} onChange={(v) => patch({ toolCalls: { read: v } })} />
+          <Row label={i18nT("terminal.bash", undefined, "Bash")} value={prefs.toolCalls.bash} marked={isToolCallOverridden("bash")} onChange={(v) => patch({ toolCalls: { bash: v } })} />
+          <Row label={i18nT("common.editWrite", undefined, "Edit / Write")} value={prefs.toolCalls.edit} marked={isToolCallOverridden("edit")} onChange={(v) => patch({ toolCalls: { edit: v } })} />
+          <Row label={i18nT("common.agent", undefined, "Agent")} value={prefs.toolCalls.agent} marked={isToolCallOverridden("agent")} onChange={(v) => patch({ toolCalls: { agent: v } })} />
+          <Row label={i18nT("common.other", undefined, "Other")} value={prefs.toolCalls.generic} marked={isToolCallOverridden("generic")} onChange={(v) => patch({ toolCalls: { generic: v } })} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <button
             type="button"
@@ -145,7 +145,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             onClick={clearOverride}
             className="w-full text-left px-2 py-1 rounded text-blue-400 hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {i18nT("auto.use_global_settings", undefined, "Use global settings")}
+            {i18nT("settings.useGlobalSettings", undefined, "Use global settings")}
           </button>
         </div>
       )}
@@ -168,7 +168,7 @@ function Row({
     <label className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-[var(--bg-hover)] cursor-pointer">
       <span className="flex items-center gap-1 text-[var(--text-secondary)]">
         {marked && (
-          <span title={i18nT("auto.overrides_global", undefined, "Overrides global")} className="text-amber-400 inline-flex">
+          <span title={i18nT("common.overridesGlobal", undefined, "Overrides global")} className="text-amber-400 inline-flex">
             <Icon path={mdiCircleSmall} size={0.7} />
           </span>
         )}

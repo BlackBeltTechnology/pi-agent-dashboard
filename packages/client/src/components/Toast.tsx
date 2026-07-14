@@ -72,8 +72,8 @@ function ToastItem({ message, onDismiss }: {
       <button
         onClick={handleDismiss}
         className={`${styles.close} flex-shrink-0 leading-none`}
-        title={i18nT("auto.dismiss", undefined, "Dismiss")}
-        aria-label={i18nT("auto.dismiss", undefined, "Dismiss")}
+        title={i18nT("common.dismiss", undefined, "Dismiss")}
+        aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
       >
         ×
       </button>

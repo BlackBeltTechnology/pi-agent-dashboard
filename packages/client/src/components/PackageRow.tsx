@@ -197,7 +197,7 @@ export function PackageRow({
 							<Icon path={mdiCheckCircle} size={0.45} className="text-green-500" />
 							{currentVersion}
 							{latestVersion === null && (
-								<span className="italic">{i18nT("auto.registry_unreachable", undefined, "(registry unreachable)")}</span>
+								<span className="italic">{i18nT("providers.registryUnreachable", undefined, "(registry unreachable)")}</span>
 							)}
 						</span>
 					) : null}
@@ -235,7 +235,7 @@ export function PackageRow({
 							data-testid={testId ? `${testId}-update` : undefined}
 						>
 							{busy ? <Icon path={mdiLoading} size={0.45} spin /> : <Icon path={mdiArrowUpBold} size={0.45} />}
-							{i18nT("auto.update", undefined, "Update")}
+							{i18nT("common.update", undefined, "Update")}
 						</button>
 					)}
 					{hasMenu && (
@@ -244,7 +244,7 @@ export function PackageRow({
 								ref={menuTriggerRef}
 								onClick={() => setMenuOpen((v) => !v)}
 								className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-								title={i18nT("auto.more_actions", undefined, "More actions")}
+								title={i18nT("common.moreActions", undefined, "More actions")}
 								data-testid={testId ? `${testId}-menu` : undefined}
 							>
 								<Icon path={mdiDotsVertical} size={0.55} />
@@ -273,7 +273,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
 											onClick={() => { setMenuOpen(false); onViewReadme(); }}
 										>
-											{i18nT("auto.view_readme", undefined, "View README")}
+											{i18nT("common.viewReadme", undefined, "View README")}
 										</button>
 									)}
 									{onReset && (
@@ -281,7 +281,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
 											onClick={() => { setMenuOpen(false); onReset(); }}
 										>
-											{i18nT("auto.reset_reinstall", undefined, "Reset (reinstall)")}
+											{i18nT("packages.resetReinstall", undefined, "Reset (reinstall)")}
 										</button>
 									)}
 									{canUninstall && onUninstall && (
@@ -289,7 +289,7 @@ export function PackageRow({
 											className="block w-full text-left px-3 py-1.5 hover:bg-red-400/10 text-red-400"
 											onClick={() => { setMenuOpen(false); onUninstall(); }}
 										>
-											{i18nT("auto.uninstall", undefined, "Uninstall")}
+											{i18nT("packages.uninstall", undefined, "Uninstall")}
 										</button>
 									)}
 								</div>

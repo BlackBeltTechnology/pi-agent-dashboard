@@ -181,7 +181,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
                       <div className="space-y-0.5">{dg.entries.map(renderEntryRow)}</div>
                     </div>
                   ))
-                : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("auto.no_entries_in_this_group", undefined, "No entries in this group")}</p>}
+                : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("common.noEntriesInThisGroup", undefined, "No entries in this group")}</p>}
             </OpenSpecGroupSection>
           );
         })}
@@ -204,7 +204,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
                     <div className="space-y-0.5">{dg.entries.map(renderEntryRow)}</div>
                   </div>
                 ))
-              : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("auto.no_ungrouped_entries", undefined, "No ungrouped entries")}</p>}
+              : <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">{i18nT("common.noUngroupedEntries", undefined, "No ungrouped entries")}</p>}
           </OpenSpecGroupSection>
         )}
       </div>
@@ -235,7 +235,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
           <Icon path={mdiArrowLeft} size={0.8} />
         </button>
         <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-          {i18nT("auto.archive", undefined, "Archive")}
+          {i18nT("openspec.archive", undefined, "Archive")}
         </h2>
         <span className="text-[10px] text-[var(--text-muted)]">
           {entries.length} changes
@@ -260,7 +260,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder={i18nT("auto.search_archived_changes", undefined, "Search archived changes...")}
+          placeholder={i18nT("openspec.searchArchivedChanges", undefined, "Search archived changes...")}
           className="flex-1 text-xs bg-transparent border-none outline-none text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
           data-testid="archive-search-input"
         />
@@ -274,7 +274,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
       {/* Content */}
       <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-2" data-testid="archive-list">
         {isLoading ? (
-          <p className="text-xs text-[var(--text-muted)] py-4 text-center">{i18nT("auto.loading_archive", undefined, "Loading archive...")}</p>
+          <p className="text-xs text-[var(--text-muted)] py-4 text-center">{i18nT("openspec.loadingArchive", undefined, "Loading archive...")}</p>
         ) : error ? (
           <p className="text-xs text-red-400 py-4 text-center">{error}</p>
         ) : pillFiltered.length === 0 ? (

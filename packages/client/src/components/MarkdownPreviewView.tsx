@@ -44,7 +44,7 @@ export function MarkdownPreviewView({
           onClick={onBack}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
           data-testid="preview-back"
-          title={i18nT("auto.back_to_chat", undefined, "Back to chat")}
+          title={i18nT("session.backToChat", undefined, "Back to chat")}
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>

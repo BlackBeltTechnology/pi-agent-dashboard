@@ -88,11 +88,11 @@ export function FolderActionBar({
       <button
         onClick={(e) => { e.stopPropagation(); onOpenTerminals(); }}
         className="text-[10px] px-1.5 py-0.5 rounded border text-cyan-400 border-cyan-500/40 bg-cyan-500/5 hover:text-cyan-300 hover:border-cyan-500/70"
-        title={i18nT("auto.open_terminals_view", undefined, "Open terminals view")}
+        title={i18nT("terminal.openTerminalsView", undefined, "Open terminals view")}
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiConsoleLine} size={0.5} />
-          {i18nT("auto.terminals", undefined, "Terminals(")}{terminalCount})
+          {i18nT("terminal.terminals", undefined, "Terminals(")}{terminalCount})
         </span>
       </button>
 
@@ -112,7 +112,7 @@ export function FolderActionBar({
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCodeBraces} size={0.5} />
-          {i18nT("auto.editor", undefined, "Editor")}
+          {i18nT("editor.editor", undefined, "Editor")}
           {editorAvailable === false && (
             <Icon path={mdiAlertCircleOutline} size={0.4} className="text-yellow-400" />
           )}
@@ -152,7 +152,7 @@ export function FolderActionBar({
           title={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists`}
         >
           <span className="inline-flex items-center gap-0.5">
-            <Icon path={mdiBroom} size={0.5} /> {i18nT("auto.clean_up_broken", undefined, "Clean up broken (")}{brokenSessionCount})
+            <Icon path={mdiBroom} size={0.5} /> {i18nT("common.cleanUpBroken", undefined, "Clean up broken (")}{brokenSessionCount})
           </span>
         </button>
       )}
@@ -160,7 +160,7 @@ export function FolderActionBar({
         <Confirm
           open
           testId="cleanup-broken-confirm"
-          title={i18nT("auto.hide_broken_sessions", undefined, "Hide broken sessions?")}
+          title={i18nT("session.hideBrokenSessions", undefined, "Hide broken sessions?")}
           message={`Hide ${brokenSessionCount} session${brokenSessionCount === 1 ? "" : "s"} whose cwd no longer exists?`}
           confirmLabel="Hide"
           onConfirm={() => { setConfirmCleanUpOpen(false); onCleanUpBroken?.(); }}
@@ -172,8 +172,8 @@ export function FolderActionBar({
       <button
         onClick={(e) => { e.stopPropagation(); onOpenPiResources(); }}
         className="focus-ring ml-auto text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-secondary)] text-[var(--text-muted)] hover:text-purple-400 hover:border-purple-500/50"
-        title={i18nT("auto.directory_settings", undefined, "Directory Settings")}
-        aria-label={i18nT("auto.directory_settings", undefined, "Directory Settings")}
+        title={i18nT("folders.directorySettings", undefined, "Directory Settings")}
+        aria-label={i18nT("folders.directorySettings", undefined, "Directory Settings")}
       >
         <Icon path={mdiCog} size={0.5} />
       </button>

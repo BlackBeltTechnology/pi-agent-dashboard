@@ -59,10 +59,10 @@ export function DiffFileTree({
         )}
         {summed && (
           <span
-            title={i18nT("auto.summed_badge_hint", undefined, "Summed per-turn deltas (non-git), not git-net")}
+            title={i18nT("common.summedBadgeHint", undefined, "Summed per-turn deltas (non-git), not git-net")}
             className="ml-auto rounded bg-[var(--bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]"
           >
-            {i18nT("auto.summed", undefined, "summed")}
+            {i18nT("common.summed", undefined, "summed")}
           </span>
         )}
       </div>
@@ -128,9 +128,9 @@ function TreeNodeView({
   const changeCount = file.changes.length;
   const hasEdits = file.changes.some((c) => c.type === "edit");
   const statusIndicator = hasEdits ? (
-    <span className="text-yellow-400 text-xs font-bold" title={i18nT("auto.modified", undefined, "Modified")}>●</span>
+    <span className="text-yellow-400 text-xs font-bold" title={i18nT("common.modified", undefined, "Modified")}>●</span>
   ) : (
-    <span className="text-green-400 text-xs font-bold" title={i18nT("auto.added", undefined, "Added")}>+</span>
+    <span className="text-green-400 text-xs font-bold" title={i18nT("common.added", undefined, "Added")}>+</span>
   );
 
   return (

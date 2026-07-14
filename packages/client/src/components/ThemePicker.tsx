@@ -31,7 +31,7 @@ export function ThemePicker() {
         ref={triggerRef}
         onClick={() => setOpen(!open)}
         className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-        title={i18nT("auto.color_theme", undefined, "Color theme")}
+        title={i18nT("common.colorTheme", undefined, "Color theme")}
         data-testid="theme-picker-trigger"
       >
         <Icon path={mdiPalette} size={0.5} />

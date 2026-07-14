@@ -30,7 +30,7 @@ export function BashToolRenderer({ args, status, result, images, context }: Tool
       </div>
 
       {status === "running" && !result && !hasImages && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.running", undefined, "Running…")}</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("status.running", undefined, "Running…")}</div>
       )}
 
       {hasImages && <ToolResultImages images={images!} />}

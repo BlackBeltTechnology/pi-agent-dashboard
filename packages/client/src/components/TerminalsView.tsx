@@ -72,13 +72,13 @@ export function TerminalsView({
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)] gap-4 p-8">
         <Icon path={mdiConsoleLine} size={2} className="opacity-30" />
-        <p>{i18nT("auto.no_terminals_click_new_to_create", undefined, "No terminals. Click + New to create one.")}</p>
+        <p>{i18nT("terminal.noTerminalsClickNewToCreate", undefined, "No terminals. Click + New to create one.")}</p>
         <button
           onClick={() => onCreateTerminal(cwd)}
           className="px-4 py-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm"
         >
           <span className="inline-flex items-center gap-1">
-            <Icon path={mdiPlus} size={0.6} /> {i18nT("auto.new_terminal", undefined, "New Terminal")}
+            <Icon path={mdiPlus} size={0.6} /> {i18nT("terminal.newTerminal", undefined, "New Terminal")}
           </span>
         </button>
       </div>
@@ -121,7 +121,7 @@ export function TerminalsView({
               <button
                 onClick={(e) => handleClose(t.id, e)}
                 className="ml-1 p-0.5 text-[var(--text-tertiary)] hover:text-red-400 opacity-0 group-hover:opacity-100"
-                title={i18nT("auto.close_terminal", undefined, "Close terminal")}
+                title={i18nT("terminal.closeTerminal", undefined, "Close terminal")}
               >
                 <Icon path={mdiClose} size={0.35} />
               </button>
@@ -131,7 +131,7 @@ export function TerminalsView({
         <button
           onClick={() => onCreateTerminal(cwd)}
           className="px-2 py-1.5 text-xs text-[var(--text-muted)] hover:text-cyan-400"
-          title={i18nT("auto.new_terminal_2", undefined, "New terminal")}
+          title={i18nT("terminal.newTerminal2", undefined, "New terminal")}
         >
           <Icon path={mdiPlus} size={0.5} />
         </button>

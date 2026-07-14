@@ -170,7 +170,7 @@ export function BranchListbox({
       role="listbox"
     >
       {displayItems.length === 0 && (
-        <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("auto.no_branches_found", undefined, "No branches found")}</div>
+        <div className="px-3 py-2 text-sm text-[var(--text-secondary)]">{i18nT("git.noBranchesFound", undefined, "No branches found")}</div>
       )}
       {displayItems.map((item, i) => {
         if (item.type === "separator") {
@@ -180,7 +180,7 @@ export function BranchListbox({
               data-branch-item
               className="px-3 py-1 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-secondary)] uppercase tracking-wider"
             >
-              {i18nT("auto.remote", undefined, "Remote")}
+              {i18nT("git.remote", undefined, "Remote")}
             </div>
           );
         }

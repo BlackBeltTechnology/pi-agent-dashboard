@@ -39,6 +39,6 @@ export function MarkdownPreview({ target }: Props) {
   }, [target.cwd, target.path]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
-  if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("auto.loading", undefined, "Loading…")}</div>;
+  if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return <MarkdownContent content={content} frontmatter="properties" />;
 }

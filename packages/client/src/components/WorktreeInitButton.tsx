@@ -129,7 +129,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
         onClick={(e) => { e.stopPropagation(); void doRun(); }}
         data-testid="worktree-init-btn"
         className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
-        title={i18nT("auto.initialize_this_checkout_run_its_declared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
+        title={i18nT("common.initializeThisCheckoutRunItsDeclared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
         <span className="inline-flex items-center gap-0.5">
           <Icon path={mdiCogPlayOutline} size={0.5} />
@@ -140,7 +140,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
       {confirm && (
         <Confirm
           open
-          title={i18nT("auto.run_worktree_init_hook", undefined, "Run worktree-init hook?")}
+          title={i18nT("worktree.runWorktreeInitHook", undefined, "Run worktree-init hook?")}
           message={
             `Run this project's worktree-init hook?\n\ngate: ${confirm.hook.gate}\n${describeRun(confirm.hook)}\n\n` +
             `This executes repo-provided code on your machine.`

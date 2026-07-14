@@ -60,13 +60,13 @@ function DiscardConfirm({
       open={open}
       testId={testId}
       intent="danger"
-      title={i18nT("auto.discard_unsaved_changes", undefined, "Discard unsaved changes?")}
+      title={i18nT("common.discardUnsavedChanges", undefined, "Discard unsaved changes?")}
       message={i18nT(
-        "auto.discard_unsaved_to_file",
+        "common.discardUnsavedToFile",
         undefined,
         `Discard unsaved changes to ${fileLabel}?`,
       )}
-      confirmLabel={i18nT("auto.discard", undefined, "Discard")}
+      confirmLabel={i18nT("common.discard", undefined, "Discard")}
       onConfirm={onConfirm}
       onClose={onClose}
     />
@@ -274,7 +274,7 @@ export function InstructionsPage({ cwd }: Props) {
         setLoadedContent(buffer);
         setLoadedMtime(body.data.mtime);
         setConflict(false);
-        setMessage({ type: "success", text: i18nT("auto.saved", undefined, "Saved") });
+        setMessage({ type: "success", text: i18nT("common.saved", undefined, "Saved") });
         return;
       }
       if (handle409 && status === 409) {
@@ -377,7 +377,7 @@ export function InstructionsPage({ cwd }: Props) {
         <div
           data-testid="tree-gutter"
           onMouseDown={startResize}
-          title={i18nT("auto.drag_to_resize", undefined, "Drag to resize")}
+          title={i18nT("common.dragToResize", undefined, "Drag to resize")}
           className="hidden md:block w-1.5 shrink-0 cursor-col-resize hover:bg-blue-500/30 active:bg-blue-500/50"
         />
       )}
@@ -387,7 +387,7 @@ export function InstructionsPage({ cwd }: Props) {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {!selected ? (
             <div className="p-4 text-sm text-[var(--text-tertiary)]">
-              {i18nT("auto.select_a_file_to_edit", undefined, "Select a file to edit")}
+              {i18nT("common.selectAFileToEdit", undefined, "Select a file to edit")}
             </div>
           ) : (
             <InstructionsEditorPane

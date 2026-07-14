@@ -31,7 +31,7 @@ export function ReadToolRenderer({ args, status, result, images, context }: Tool
       </div>
 
       {status === "running" && !result && !hasImages && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.reading", undefined, "Reading…")}</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("common.reading", undefined, "Reading…")}</div>
       )}
 
       {hasImages && (

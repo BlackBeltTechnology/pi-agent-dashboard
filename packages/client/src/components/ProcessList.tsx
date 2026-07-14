@@ -210,7 +210,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact, on
                 className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]"
                 title={overflowTitle}
               >
-                <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
+                <span className="truncate flex-1">+{overflow.length} {i18nT("common.moreProcesses", undefined, "more processes")}</span>
               </div>
             )}
           </>
@@ -232,7 +232,7 @@ export function ProcessList({ processes, onKill, expanded, onToggle, compact, on
               className="flex items-center gap-1.5 text-[11px] ml-1 pl-2 border-l border-[var(--border-subtle)] text-[var(--text-tertiary)]"
               title={overflowTitle}
             >
-              <span className="truncate flex-1">+{overflow.length} {i18nT("auto.more_processes", undefined, "more processes")}</span>
+              <span className="truncate flex-1">+{overflow.length} {i18nT("common.moreProcesses", undefined, "more processes")}</span>
             </div>
           )}
         </>

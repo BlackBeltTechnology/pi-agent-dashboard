@@ -19,7 +19,7 @@ export function GenericToolRenderer({ args, result, images, context }: ToolRende
       {hasImages && <ToolResultImages images={images!} />}
       {result && (
         <>
-          <div className="text-[var(--text-tertiary)] font-medium text-xs">{i18nT("auto.output", undefined, "Output:")}</div>
+          <div className="text-[var(--text-tertiary)] font-medium text-xs">{i18nT("common.output", undefined, "Output:")}</div>
           <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)]">
             <LinkifiedText text={result} context={context} />
           </pre>

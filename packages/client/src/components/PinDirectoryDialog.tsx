@@ -14,7 +14,7 @@ interface Props {
 
 export function PinDirectoryDialog({ onPin, onCancel, onOpenServers }: Props) {
   return (
-    <Dialog open onClose={onCancel} title={i18nT("auto.pin_directory", undefined, "Pin Directory")} size="lg" testId="pin-directory-dialog">
+    <Dialog open onClose={onCancel} title={i18nT("folders.pinDirectory", undefined, "Pin Directory")} size="lg" testId="pin-directory-dialog">
         <PathPicker
           onSelect={(p) => {
             const trimmed = p.trim();

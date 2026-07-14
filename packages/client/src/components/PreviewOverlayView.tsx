@@ -26,8 +26,8 @@ export function PreviewOverlayView({ target, onBack }: Props) {
           onClick={onBack}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
           data-testid="preview-overlay-back"
-          title={i18nT("auto.back", undefined, "Back")}
-          aria-label={i18nT("auto.back", undefined, "Back")}
+          title={i18nT("common.back2", undefined, "Back")}
+          aria-label={i18nT("common.back2", undefined, "Back")}
         >
           <Icon path={mdiArrowLeft} size={0.7} />
         </button>

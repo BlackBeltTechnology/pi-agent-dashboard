@@ -68,8 +68,8 @@ export function BashOutputCard({ command, output, exitCode, excludeFromContext, 
               data-testid="bash-show-full-output"
             >
               {showFull
-                ? i18nT("auto.collapse_output", undefined, "Collapse output")
-                : i18nT("auto.show_full_output", undefined, "Show full output")}
+                ? i18nT("common.collapseOutput", undefined, "Collapse output")
+                : i18nT("common.showFullOutput", undefined, "Show full output")}
             </button>
           </div>
         )}

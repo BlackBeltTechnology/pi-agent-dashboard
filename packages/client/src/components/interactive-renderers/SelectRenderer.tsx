@@ -76,7 +76,7 @@ export function SelectRenderer({ params, status, result, onRespond, onCancel }: 
           );
         })}
         {!hasCancelOption && (
-          <OptionRow title={i18nT("auto.cancel", undefined, "Cancel")} cancel onClick={onCancel} />
+          <OptionRow title={i18nT("common.cancel", undefined, "Cancel")} cancel onClick={onCancel} />
         )}
       </div>
     </div>

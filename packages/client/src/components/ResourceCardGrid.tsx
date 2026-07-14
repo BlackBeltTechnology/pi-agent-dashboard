@@ -100,7 +100,7 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
             data-testid="resource-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={i18nT("auto.filter_n_type", { n: String(items.length), type }, `Filter ${items.length} ${type}…`)}
+            placeholder={i18nT("common.filterNType", { n: String(items.length), type }, `Filter ${items.length} ${type}…`)}
             className="w-full pl-7 pr-2 py-1.5 text-xs rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           />
         </div>
@@ -129,8 +129,8 @@ export function ResourceCardGrid({ data, type, scopes, showScopeFilter, onView, 
       {filtered.length === 0 ? (
         <p data-testid="resource-grid-empty" className="text-xs text-[var(--text-muted)] italic py-6 text-center">
           {items.length === 0
-            ? i18nT("auto.no_resources_of_type", { type }, `No ${type} resources.`)
-            : i18nT("auto.no_matches", undefined, "No matches.")}
+            ? i18nT("common.noResourcesOfType", { type }, `No ${type} resources.`)
+            : i18nT("common.noMatches", undefined, "No matches.")}
         </p>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(288px, 1fr))" }}>

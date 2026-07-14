@@ -220,7 +220,7 @@ export function PackageBrowser({
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleUrlInstall(); }}
-            placeholder={i18nT("auto.npm_scope_pkg_or_git_github", undefined, "npm:@scope/pkg or git:github.com/user/repo")}
+            placeholder={i18nT("git.npmScopePkgOrGitGithub", undefined, "npm:@scope/pkg or git:github.com/user/repo")}
             className="w-full pl-7 pr-2 py-1.5 text-xs bg-[var(--bg-surface)] border border-[var(--border-secondary)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
             data-testid="package-url-input"
           />

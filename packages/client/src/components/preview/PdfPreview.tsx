@@ -97,7 +97,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum <= 1 || pageCount === 0}
           onClick={() => setPageNum((n) => Math.max(1, n - 1))}
         >
-          {i18nT("auto.prev", undefined, "Prev")}
+          {i18nT("common.prev", undefined, "Prev")}
         </button>
         <span className="text-[var(--text-muted)]">
           {pageCount === 0 ? "Loading…" : `Page ${pageNum} of ${pageCount}`}
@@ -107,7 +107,7 @@ export function PdfPreview({ target }: Props) {
           disabled={pageNum >= pageCount || pageCount === 0}
           onClick={() => setPageNum((n) => Math.min(pageCount, n + 1))}
         >
-          {i18nT("auto.next_2", undefined, "Next")}
+          {i18nT("common.next2", undefined, "Next")}
         </button>
       </div>
       <div className="flex-1 overflow-auto p-2 bg-[var(--bg-canvas)] flex justify-center">

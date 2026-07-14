@@ -228,7 +228,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             ref={sheetTriggerRef}
             type="button"
             onClick={() => setSheetOpen((s) => !s)}
-            title={i18nT("auto.worktree_actions", undefined, "Worktree actions")}
+            title={i18nT("worktree.worktreeActions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
             className="inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >

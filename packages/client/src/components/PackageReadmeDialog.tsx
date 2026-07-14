@@ -67,7 +67,7 @@ export function PackageReadmeDialog({
             onClick={onUninstall}
             className="text-[11px] px-3 py-1 rounded text-red-400 border border-red-400/30 hover:bg-red-400/10"
           >
-            {i18nT("auto.uninstall", undefined, "Uninstall")}
+            {i18nT("packages.uninstall", undefined, "Uninstall")}
           </button>
         ) : (
           <button
@@ -75,7 +75,7 @@ export function PackageReadmeDialog({
             className="text-[11px] px-3 py-1 rounded bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/80 font-medium"
           >
             <Icon path={mdiDownload} size={0.4} className="inline mr-1" />
-            {i18nT("auto.install", undefined, "Install")}
+            {i18nT("common.install2", undefined, "Install")}
           </button>
         )}
       </div>

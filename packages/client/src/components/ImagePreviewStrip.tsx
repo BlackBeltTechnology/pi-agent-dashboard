@@ -53,7 +53,7 @@ export function ImagePreviewStrip({ images, error, onRemove }: Props) {
 							<button
 								onClick={() => onRemove(i)}
 								className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-								title={i18nT("auto.remove_image", undefined, "Remove image")}
+								title={i18nT("common.removeImage", undefined, "Remove image")}
 							>
 								<Icon path={mdiClose} size={0.45} />
 							</button>

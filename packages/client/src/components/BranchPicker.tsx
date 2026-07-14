@@ -78,7 +78,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={i18nT("auto.filter_branches", undefined, "Filter branches…")}
+        placeholder={i18nT("git.filterBranches", undefined, "Filter branches…")}
         className="w-full bg-[var(--bg-tertiary)] rounded px-3 py-2 text-sm border border-[var(--border-secondary)] focus:border-blue-500 focus:outline-none font-mono"
         autoFocus
       />
@@ -87,7 +87,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
           className="overflow-y-auto border border-[var(--border-secondary)] rounded bg-[var(--bg-tertiary)] px-3 py-2 text-sm text-[var(--text-secondary)]"
           style={{ height: rows * 32 }}
         >
-          {i18nT("auto.loading", undefined, "Loading…")}
+          {i18nT("common.loading2", undefined, "Loading…")}
         </div>
       ) : error ? (
         <div
@@ -112,7 +112,7 @@ export function BranchPicker({ cwd, onSelect, onCancel, onNotGitRepo, rows = 10 
           onClick={onCancel}
           className="px-4 py-2 rounded text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
         >
-          {i18nT("auto.cancel", undefined, "Cancel")}
+          {i18nT("common.cancel", undefined, "Cancel")}
         </button>
       </div>
     </div>

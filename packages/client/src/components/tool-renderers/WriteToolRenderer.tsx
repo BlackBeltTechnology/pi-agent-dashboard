@@ -22,7 +22,7 @@ export function WriteToolRenderer({ args, status, result, context }: ToolRendere
       </div>
 
       {status === "running" && !content && (
-        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("auto.writing", undefined, "Writing…")}</div>
+        <div className="text-xs text-[var(--text-muted)] italic">{i18nT("common.writing", undefined, "Writing…")}</div>
       )}
 
       {content && (
