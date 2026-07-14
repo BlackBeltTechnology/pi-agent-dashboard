@@ -24,7 +24,7 @@ declares it as a runtime dependency).
 
 1. **Dry-run the miner** (no writes) for this project:
    ```bash
-   npx distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)"
+   npx --no distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)"
    ```
    Add `--n <k>` to change the recurrence threshold (default 3). Add `--json` to
    emit the full routing plan as JSON for programmatic review.
@@ -41,7 +41,7 @@ declares it as a runtime dependency).
 3. **Apply** once the plan looks right — persists the watermark + below-threshold
    candidates store and prints the final plan:
    ```bash
-   npx distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)" --apply --json
+   npx --no distill-session-knowledge --cwd "$(git rev-parse --show-toplevel)" --apply --json
    ```
 
 4. **Execute the routed writes** from the plan, using your tools (this is the
@@ -66,7 +66,7 @@ declares it as a runtime dependency).
 
 ## Verification
 
-- `npx distill-session-knowledge --cwd "$(pwd)"` prints a routing plan and
+- `npx --no distill-session-knowledge --cwd "$(pwd)"` prints a routing plan and
   mutates nothing (dry-run default; no watermark advance).
 - Re-running the dry-run over the same corpus yields the same plan (idempotent).
 - After apply + routed writes, `ctx_search` returns a freshly distilled doc.
