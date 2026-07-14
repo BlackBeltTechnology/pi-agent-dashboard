@@ -1054,9 +1054,18 @@ describe("CommandInput v2 — morphing action button (T1)", () => {
     expect(container.querySelector('[data-testid="killing-button"]')).not.toBeNull();
   });
 
-  it("every action-button state carries an aria-label", () => {
-    const { container } = renderInput({ draft: "x", onDraftChange: vi.fn() });
-    expect(container.querySelector('[data-testid="send-button"]')!.getAttribute("aria-label")).toBeTruthy();
+  it("every action-button state (send/stop/force/killing) carries an aria-label", () => {
+    // send
+    const send = renderInput({ draft: "x", onDraftChange: vi.fn() });
+    expect(send.container.querySelector('[data-testid="send-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    cleanup();
+    // stop → force → killing
+    const { container } = renderInput({ sessionStatus: "streaming", onAbort: vi.fn(), onForceKill: vi.fn() });
+    expect(container.querySelector('[data-testid="stop-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    fireEvent.click(container.querySelector('[data-testid="stop-button"]')!);
+    expect(container.querySelector('[data-testid="force-stop-button"]')!.getAttribute("aria-label")).toBeTruthy();
+    fireEvent.click(container.querySelector('[data-testid="force-stop-button"]')!);
+    expect(container.querySelector('[data-testid="killing-button"]')!.getAttribute("aria-label")).toBeTruthy();
   });
 });
 
@@ -1129,18 +1138,34 @@ describe("CommandInput v2 — ＋ attach menu (T1)", () => {
     expect(getByTestId("attach-preview")).toBeTruthy();
   });
 
-  it("Preview inline seeds the /view local-interception path", () => {
+  it("Preview inline seeds the /view local-interception path on an empty draft", () => {
     const { getByTestId, textarea } = renderInput();
     fireEvent.click(getByTestId("attach-button"));
     fireEvent.click(getByTestId("attach-preview"));
     expect((textarea as HTMLTextAreaElement).value).toBe("/view ");
   });
 
-  it("Attach file seeds the @ file-mention flow", () => {
+  it("Preview inline does NOT clobber a non-empty draft (data-loss guard)", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.change(textarea, { target: { value: "my draft" } });
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-preview"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("my draft");
+  });
+
+  it("Attach file seeds @ (empty draft → bare @)", () => {
     const { getByTestId, textarea } = renderInput();
     fireEvent.click(getByTestId("attach-button"));
     fireEvent.click(getByTestId("attach-file"));
     expect((textarea as HTMLTextAreaElement).value).toBe("@");
+  });
+
+  it("Attach file seeds @ at a token boundary on a non-empty draft", () => {
+    const { getByTestId, textarea } = renderInput();
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.click(getByTestId("attach-button"));
+    fireEvent.click(getByTestId("attach-file"));
+    expect((textarea as HTMLTextAreaElement).value).toBe("hello @");
   });
 });
 

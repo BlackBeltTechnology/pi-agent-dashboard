@@ -622,7 +622,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     // are plain closures (see comment at their definition) and recomputed
     // every render anyway, so listing them would only cause unnecessary
     // handler-identity churn without affecting correctness.
-    [dropdownMode, dropdownLength, filteredCommands, fileItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, pendingImages, deliveryMode]
+    [dropdownMode, dropdownLength, filteredCommands, fileItems, urlItems, selectedIndex, handleSend, setText, text, pendingPrompt, onCancelPending, historyIndex, historyList, pendingImages, deliveryMode]
   );
 
   // Close ＋ attach / ⋯ overflow popovers on outside click.
@@ -643,17 +643,21 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   }, []);
   const handleAttachFile = useCallback(() => {
     setAttachOpen(false);
-    // Reuse the `@` file-mention flow: seed `@` and focus so the existing
-    // autocomplete drives selection.
-    setText(`${text}@`);
+    // Reuse the `@` file-mention flow: seed `@` at a token boundary so the
+    // existing autocomplete (which only matches `@` after whitespace/start)
+    // opens reliably even when the draft is non-empty.
+    const needsSep = text.length > 0 && !/\s$/.test(text);
+    setText(`${text}${needsSep ? " " : ""}@`);
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [text, setText]);
   const handlePreviewInline = useCallback(() => {
     setAttachOpen(false);
-    // Reuse the `/view` local-interception path: seed `/view ` and focus.
-    setText("/view ");
+    // Reuse the `/view` local-interception path. `/view` must be the whole
+    // line, so only auto-seed when the draft is empty — never clobber an
+    // in-progress draft (data-loss guard).
+    if (text.trim().length === 0) setText("/view ");
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [setText]);
+  }, [text, setText]);
 
   // Clipboard paste + preview-strip are delegated to the shared hook +
   // component (useImagePaste / ImagePreviewStrip) so the OpenSpec

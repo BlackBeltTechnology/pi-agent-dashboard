@@ -116,6 +116,10 @@ export function useImagePaste(opts?: UseImagePasteOptions): UseImagePasteResult 
 			}
 			writeImages((prev) => [...prev, { type: "image", data: base64, mimeType }]);
 		};
+		reader.onerror = () => {
+			setImageError("Failed to read image");
+			setTimeout(() => setImageError(null), 3000);
+		};
 		reader.readAsDataURL(blob);
 	}, [writeImages]);
 

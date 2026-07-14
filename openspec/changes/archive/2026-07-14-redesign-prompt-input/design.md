@@ -14,7 +14,7 @@ Grounded reference research and interactive mocks: `mockups/prompt-input-v2/` �
 | Model/thinking inside the composer | ChatGPT, Gemini | toolbar chips; StatusBar model row retired |
 | Send morphs to stop | ChatGPT, Gemini | one MDI button: `mdiSendVariant → mdiStop → mdiAlertOctagon` |
 | `＋` attach/tools menu | ChatGPT, Gemini | image · file · screenshot · `/view` |
-| Delivery/approval chip | Codex approvals | `Steer | Queue` maps `Enter` / `Alt+Enter` |
+| Delivery/approval chip | Codex approvals | `Steer \| Queue` maps `Enter` / `Alt+Enter` |
 | Footer hint line + context-left | Codex CLI, Gemini CLI | `⏎ · ⇧⏎ · / · @ · !`, focus-revealed |
 | Slash menu with arg hints | Codex `/model` | grouped, `<name>` hints, source badges |
 
