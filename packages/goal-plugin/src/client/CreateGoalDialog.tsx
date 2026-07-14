@@ -15,9 +15,9 @@
  * See change: redesign-goal-create-dialog (tasks 1.1–1.3). Mockup screen A.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import React from "react";
-import { createGoal } from "./goals-api.js";
+import type React from "react";
 import { GoalForm, type GoalFormPayload } from "./GoalForm.js";
+import { createGoal } from "./goals-api.js";
 
 export interface CreateGoalDialogProps {
   /** Folder cwd the goal is created for. */

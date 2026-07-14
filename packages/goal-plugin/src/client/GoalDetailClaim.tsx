@@ -11,24 +11,26 @@
  *
  * See change: add-goals-folder-page (tasks 4.1, 4.3, 4.4).
  */
-import React, { useMemo, useState } from "react";
-import { useLocation } from "wouter";
+
+import { sendPluginAction, useAllSessions, useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { GoalCriterion, GoalRecordStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft, mdiBroom, mdiCheck, mdiClose, mdiLinkVariant, mdiOpenInNew, mdiPause, mdiPlay, mdiPlus, mdiRefresh, mdiTrashCanOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiRefresh, mdiPlus, mdiClose, mdiOpenInNew, mdiLinkVariant, mdiPause, mdiPlay, mdiCheck, mdiBroom, mdiTrashCanOutline } from "@mdi/js";
-import { useAllSessions, useSessionEvents, sendPluginAction, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { GoalRecordStatus, GoalCriterion } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useGoals, statusMeta } from "./useGoals.js";
-import { deriveSnapshot } from "./goal-state.js";
+import type React from "react";
+import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
+import { deriveSnapshot } from "./goal-state.js";
 import {
   decodeFolderPath,
-  goalsBoardUrl,
-  updateGoal,
   deleteGoal,
-  spawnSession,
+  goalsBoardUrl,
   linkSession,
+  spawnSession,
   unlinkSession,
+  updateGoal,
 } from "./goals-api.js";
+import { statusMeta, useGoals } from "./useGoals.js";
 
 const STATUS_ACTIONS: { status: GoalRecordStatus; label: string }[] = [
   { status: "pursuing", label: "Pursuing" },

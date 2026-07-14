@@ -13,10 +13,11 @@
  *
  * See change: route-flow-asks-to-upper-slot.
  */
-import React, { useState } from "react";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { Icon } from "@mdi/react";
 import { mdiClose, mdiHelpCircleOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useState } from "react";
 
 export interface FlowQuestionCardProps {
   sessionId: string;

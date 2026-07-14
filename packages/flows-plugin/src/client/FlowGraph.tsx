@@ -8,8 +8,8 @@ import { mdiCallSplit, mdiCodeTags, mdiRobotOutline, mdiSourceBranch } from "@md
 import { graphlib } from "dagre-d3-es";
 import { layout as dagreLayout } from "dagre-d3-es/src/dagre/index.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deriveFlowEdges, type FlowEdge, type FlowEdgeKind, type FlowEdgeStep } from "./flow-edges.js";
 import { FLOW_SHOW_ERROR_ROUTES_KEY, usePersistedToggle } from "./flow-collapse-storage.js";
+import { deriveFlowEdges, type FlowEdge, type FlowEdgeKind, type FlowEdgeStep } from "./flow-edges.js";
 
 /** Per-kind visual identity for graph nodes, mirroring the FlowAgentCard badges:
  *  code/code-decision = cyan, fork/agent-decision = amber, agent = green/status.

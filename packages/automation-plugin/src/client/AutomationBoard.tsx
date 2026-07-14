@@ -14,36 +14,37 @@
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing,
  * redesign-automation-editor-and-board, automation-ui-mockup-parity.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "@mdi/react";
+
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import {
-  listAutomations,
-  listRuns,
-  deleteAutomation,
-  runAutomationNow,
-  stopAutomationRun,
-  getAutomationDefinition,
-  updateAutomation,
-  getRunResult,
-} from "./api.js";
-import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
-import { decodeFolderPath } from "./folder-encoding.js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 import { nextFire } from "../shared/cron.js";
 import {
+  deleteAutomation,
+  getAutomationDefinition,
+  getRunResult,
+  listAutomations,
+  listRuns,
+  runAutomationNow,
+  stopAutomationRun,
+  updateAutomation,
+} from "./api.js";
+import {
   deriveCardState,
-  railBgClass,
   dotClass,
-  pillLabel,
-  pillClass,
-  stripeFxClass,
-  headlessSourceIcon,
   GLOW_FX_CLASS,
   GLOW_FX_OUTER_CLASS,
+  headlessSourceIcon,
+  pillClass,
+  pillLabel,
   RING_FX_CLASS,
+  railBgClass,
+  stripeFxClass,
 } from "./automation-card-visuals.js";
-import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
+import { decodeFolderPath } from "./folder-encoding.js";
 
 export interface AutomationBoardProps {
   params?: Record<string, string>;

@@ -10,10 +10,12 @@
  *
  * See change: add-automation-plugin.
  */
-import React, { useEffect, useState } from "react";
+
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { getRunResult } from "./api.js";
 
 export interface AutomationRunMonitorProps {

@@ -9,10 +9,11 @@
  *
  * See change: rework-flows-plugin-for-new-pi-flows.
  */
-import React, { useMemo, useState } from "react";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { parseFlowYaml, flowToMermaid } from "./flow-yaml-parse.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import React, { useMemo, useState } from "react";
+import { flowToMermaid, parseFlowYaml } from "./flow-yaml-parse.js";
 
 interface FlowWriteResult {
   written?: boolean;

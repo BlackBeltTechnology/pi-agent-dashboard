@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiEyeOutline, mdiEyeOffOutline, mdiFileDocumentOutline, mdiCodeTags, mdiCodeBraces, mdiCallSplit, mdiSourceBranch } from "@mdi/js";
-import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // AgentMetricSlot is a slot CONSUMER (Phase-2 decorator slot), not a primitive
 // — it stays as a direct import. See add-plugin-ui-primitive-registry Decision 4.
 import { AgentMetricSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/AgentMetricSlot";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCallSplit, mdiCodeBraces, mdiCodeTags, mdiEyeOffOutline, mdiEyeOutline, mdiFileDocumentOutline, mdiRefresh, mdiSourceBranch } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect, useState } from "react";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
 
 /**

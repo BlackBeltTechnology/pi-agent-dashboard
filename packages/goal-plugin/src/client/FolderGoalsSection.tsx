@@ -11,14 +11,15 @@
  * redesign-goal-create-dialog (task 2.1).
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import React, { useState } from "react";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
-import { mdiArrowRight, mdiPlus, mdiRefresh } from "@mdi/js";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { useGoals } from "./useGoals.js";
-import { goalsBoardUrl } from "./goals-api.js";
+import { mdiArrowRight, mdiPlus, mdiRefresh } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useState } from "react";
+import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
+import { goalsBoardUrl } from "./goals-api.js";
+import { useGoals } from "./useGoals.js";
 
 export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): React.ReactElement | null {
   const t = useT();

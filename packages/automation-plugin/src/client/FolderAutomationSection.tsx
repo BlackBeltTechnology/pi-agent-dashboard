@@ -11,16 +11,18 @@
  * the create entry point; absent entirely only when the plugin is disabled.
  * See change: add-automation-plugin, fix-automation-slot-parity-and-routing.
  */
-import React, { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { Icon } from "@mdi/react";
-import { mdiRefresh, mdiArrowRight } from "@mdi/js";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
+import { mdiArrowRight, mdiRefresh } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
+import type { DiscoveredAutomation } from "../shared/automation-types.js";
 import { listAutomations } from "./api.js";
 import { CreateAutomationDialog } from "./CreateAutomationDialog.js";
 import { encodeFolderPath } from "./folder-encoding.js";
-import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 export function FolderAutomationSection({
   folder,

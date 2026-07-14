@@ -10,14 +10,15 @@
  * See change: sophisticate-goal-authoring-and-control (task 5.4).
  * Original demoted link chip: see change add-goals-folder-page (task 2.2).
  */
-import React from "react";
-import { useLocation } from "wouter";
-import { Icon } from "@mdi/react";
-import { mdiPause, mdiOpenInNew } from "@mdi/js";
+
+import { sendPluginAction, useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useSessionEvents, sendPluginAction, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { deriveSnapshot } from "./goal-state.js";
+import { mdiOpenInNew, mdiPause } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useLocation } from "wouter";
 import { GOAL_PLUGIN_ID } from "../shared/goal-types.js";
+import { deriveSnapshot } from "./goal-state.js";
 import { goalDetailUrl } from "./goals-api.js";
 
 export function GoalControl({

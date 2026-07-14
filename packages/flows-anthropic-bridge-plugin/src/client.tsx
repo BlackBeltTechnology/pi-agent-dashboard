@@ -4,12 +4,13 @@
  * Single contribution at v1: a settings-section that shows peer-probe state
  * across reporting pi sessions and exposes the two env-var toggles.
  */
-import React, { useEffect, useState } from "react";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   usePluginConfig,
   usePluginSend,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import React, { useEffect, useState } from "react";
 
 export { catalog } from "./i18n.js";
 

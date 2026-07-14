@@ -1,13 +1,14 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Icon } from "@mdi/react";
-import { mdiPlay } from "@mdi/js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 // GateSlot is a slot CONSUMER and aggregateGateState is a pure helper —
 // neither qualifies as a primitive. Direct import. See add-plugin-ui-primitive-
 // registry Decision 4.
-import { GateSlot, aggregateGateState } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/GateSlot";
+import { aggregateGateState, GateSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/GateSlot";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiPlay } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 
 // Registry lookup hoisted into the exported component below — see body.
 export function FlowLaunchDialog({

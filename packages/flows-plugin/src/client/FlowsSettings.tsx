@@ -9,9 +9,11 @@
  * Uses the unified buffered-draft save contract (commits via the host Settings
  * panel's Save). See change: rework-flows-plugin-for-new-pi-flows.
  */
-import React, { useCallback, useRef, useState } from "react";
-import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+
 import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type React from "react";
+import { useCallback, useRef, useState } from "react";
 
 export interface FlowsPluginConfig {
   /** Global default for pi-flows `flows.editFlow`. Default off. */

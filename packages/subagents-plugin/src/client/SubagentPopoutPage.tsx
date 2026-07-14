@@ -9,11 +9,12 @@
  *
  * See change: add-subagent-inspector.
  */
-import React, { useEffect } from "react";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft, mdiClose } from "@mdi/js";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { SubagentDetailView, type SessionStateLike } from "./SubagentDetailView.js";
+import { mdiArrowLeft, mdiClose } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { useEffect } from "react";
+import { type SessionStateLike, SubagentDetailView } from "./SubagentDetailView.js";
 
 export interface SubagentPopoutPageProps {
   sessionId: string;

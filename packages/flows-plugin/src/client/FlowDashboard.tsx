@@ -1,8 +1,8 @@
 import {
   type InteractiveUiRequestSnapshot,
-  useT,
   usePluginSend,
   useSessionInteractiveRequests,
+  useT,
   useUiPrimitiveOrNull,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { BreadcrumbSlot } from "@blackbelt-technology/pi-dashboard-client-utils/extension-ui/BreadcrumbSlot";

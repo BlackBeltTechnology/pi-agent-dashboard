@@ -10,6 +10,7 @@
  * See change: add-kb-folder-slot.
  */
 
+import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   mdiArrowDown,
   mdiArrowLeft,
@@ -19,7 +20,6 @@ import {
   mdiRefresh,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { KbConfig, SourceConfig } from "../shared/kb-plugin-types.js";

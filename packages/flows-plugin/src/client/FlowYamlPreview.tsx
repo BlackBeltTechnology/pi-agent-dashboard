@@ -10,13 +10,14 @@
  * See change: pluginize-flows-via-registry (design.md Decision 3
  * RECONSIDERED — predicates over routes).
  */
-import React from "react";
-import { Icon } from "@mdi/react";
-import { mdiArrowLeft } from "@mdi/js";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { useFlowsUiState, useFlowsUiActions } from "./FlowsUiStateContext.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiArrowLeft } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
+import { useFlowsUiActions, useFlowsUiState } from "./FlowsUiStateContext.js";
 
 /**
  * Slot-consumer wrapper for the `content-view` claim. Reads the

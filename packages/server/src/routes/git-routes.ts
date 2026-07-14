@@ -101,16 +101,16 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const cwd = request.query.cwd;
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd parameter required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd parameter required" } satisfies ApiResponse;
       }
       if (!isGitRepo(cwd)) {
-        return { success: false, error: "not a git repository" } satisfies ApiResponse;
+        return { success: false, code: "not_a_repo", error: "not a git repository" } satisfies ApiResponse;
       }
       try {
         const data = listBranches(cwd);
         return { success: true, data } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "failed to list branches" } satisfies ApiResponse;
+        return { success: false, code: "list_branches_failed", error: err.message ?? "failed to list branches" } satisfies ApiResponse;
       }
     },
   );
@@ -122,7 +122,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd, branch, stash } = request.body ?? {};
       if (!cwd || !branch) {
         reply.code(400);
-        return { success: false, error: "cwd and branch required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_and_branch_required", error: "cwd and branch required" } satisfies ApiResponse;
       }
       try {
         const result = checkoutBranch(cwd, branch, stash ?? false);
@@ -132,7 +132,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         }
         return { success: true, data: { stashed: result.stashed } } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "checkout failed" } satisfies ApiResponse;
+        return { success: false, code: "checkout_failed", error: err.message ?? "checkout failed" } satisfies ApiResponse;
       }
     },
   );
@@ -144,13 +144,13 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd } = request.body ?? {};
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd required" } satisfies ApiResponse;
       }
       try {
         gitInit(cwd);
         return { success: true } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "init failed" } satisfies ApiResponse;
+        return { success: false, code: "git_init_failed", error: err.message ?? "init failed" } satisfies ApiResponse;
       }
     },
   );
@@ -864,13 +864,13 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       const { cwd } = request.body ?? {};
       if (!cwd) {
         reply.code(400);
-        return { success: false, error: "cwd required" } satisfies ApiResponse;
+        return { success: false, code: "cwd_required", error: "cwd required" } satisfies ApiResponse;
       }
       try {
         const result = stashPop(cwd);
         return { success: true, data: result } satisfies ApiResponse;
       } catch (err: any) {
-        return { success: false, error: err.message ?? "stash pop failed" } satisfies ApiResponse;
+        return { success: false, code: "stash_pop_failed", error: err.message ?? "stash pop failed" } satisfies ApiResponse;
       }
     },
   );

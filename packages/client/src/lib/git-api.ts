@@ -6,6 +6,7 @@ import type { GitBranchesResult, GitChangedFile, GitCommitResult, GitStashPopRes
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getApiBase } from "./api-context.js";
 import { fetchJson, fetchJsonResponse } from "./fetch-json.js";
+import { resolveServerMessage } from "./server-error.js";
 
 // ── Uncommitted-indicator + commit (session-uncommitted-indicator-and-commit) ─
 
@@ -70,7 +71,8 @@ export async function draftCommitMessage(params: {
 
 export async function fetchBranches(cwd: string): Promise<GitBranchesResult> {
   const json = await fetchJson(`${getApiBase()}/api/git/branches?cwd=${encodeURIComponent(cwd)}`);
-  if (!json.success) throw new Error(json.error ?? "failed to list branches");
+  if (!json.success)
+    throw new Error(resolveServerMessage({ code: json.code, message: json.error ?? "failed to list branches" }));
   return json.data;
 }
 
@@ -100,7 +102,8 @@ export async function checkoutBranch(
   if (res.status === 409 && json.dirty) {
     return { success: false, dirty: true, files: json.files };
   }
-  if (!json.success) throw new Error(json.error ?? "checkout failed");
+  if (!json.success)
+    throw new Error(resolveServerMessage({ code: json.code, message: json.error ?? "checkout failed" }));
   return { success: true, stashed: json.data?.stashed };
 }
 
@@ -110,7 +113,8 @@ export async function gitInit(cwd: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd }),
   });
-  if (!json.success) throw new Error(json.error ?? "init failed");
+  if (!json.success)
+    throw new Error(resolveServerMessage({ code: json.code, message: json.error ?? "init failed" }));
 }
 
 export async function stashPop(cwd: string): Promise<GitStashPopResult> {
@@ -119,7 +123,8 @@ export async function stashPop(cwd: string): Promise<GitStashPopResult> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd }),
   });
-  if (!json.success) throw new Error(json.error ?? "stash pop failed");
+  if (!json.success)
+    throw new Error(resolveServerMessage({ code: json.code, message: json.error ?? "stash pop failed" }));
   return json.data;
 }
 

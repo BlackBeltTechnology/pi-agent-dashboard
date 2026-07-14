@@ -17,8 +17,10 @@
  *
  * See change: wire-flow-inputs-in-automation.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /** The canonical trigger-binding token (mirrors pi-flows `${{…}}` syntax). */
 const TRIGGER_TOKEN = "${{trigger}}";

@@ -11,10 +11,12 @@
  *
  * See change: add-goal-continuation-plugin (mockups/ui-plan.md).
  */
-import React, { useEffect, useState } from "react";
-import { useLocation } from "wouter";
-import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { useSessionEvents, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type React from "react";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { deriveSnapshot } from "./goal-state.js";
 import { goalDetailUrl } from "./goals-api.js";
 

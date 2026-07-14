@@ -5,9 +5,10 @@
  *
  * See change: add-automation-plugin.
  */
-import React from "react";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type React from "react";
 
 export function AutomationBadge({
   session,

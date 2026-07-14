@@ -9,11 +9,12 @@
  *
  * See change: fix-flows-plugin-polish (A5).
  */
-import React, { type ReactNode } from "react";
+
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { Icon } from "@mdi/react";
-import { mdiLoading, mdiCheckCircle, mdiAlertCircle, mdiStopCircle, mdiStop } from "@mdi/js";
 import type { FlowStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiAlertCircle, mdiCheckCircle, mdiLoading, mdiStop, mdiStopCircle } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React, { type ReactNode } from "react";
 
 const statusConfig: Record<string, { icon: ReactNode; color: string }> = {
   running: { icon: <Icon path={mdiLoading} size={0.45} className="animate-spin" />, color: "text-blue-400" },

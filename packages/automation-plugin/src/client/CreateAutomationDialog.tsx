@@ -14,25 +14,19 @@
  *
  * See change: add-automation-plugin, redesign-automation-editor-and-board.
  */
-import React, { useEffect, useMemo, useState } from "react";
-import { Icon } from "@mdi/react";
-import {
-  mdiCalendarClock,
-  mdiSourceBranch,
-  mdiClipboardTextOutline,
-  mdiFlashOutline,
-} from "@mdi/js";
-import { useT, useUiPrimitive, AutomationActionEditorSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+
+import { AutomationActionEditorSlot, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { getPluginConfig } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
-  createAutomation,
-  updateAutomation,
-  listTriggerKinds,
-  isGitCapable,
-  listActions,
-} from "./api.js";
-import { nextFire } from "../shared/cron.js";
+  mdiCalendarClock,
+  mdiClipboardTextOutline,
+  mdiFlashOutline,
+  mdiSourceBranch,
+} from "@mdi/js";
+import { Icon } from "@mdi/react";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ActionDescriptor,
   ActionPayloadField,
@@ -41,9 +35,17 @@ import type {
   Concurrency,
   RunMode,
   Sandbox,
-  Visibility,
   TriggerCategoryDescriptor,
+  Visibility,
 } from "../shared/automation-types.js";
+import { nextFire } from "../shared/cron.js";
+import {
+  createAutomation,
+  isGitCapable,
+  listActions,
+  listTriggerKinds,
+  updateAutomation,
+} from "./api.js";
 
 /** Built-in actions shown before/if `listActions` returns nothing. */
 const BUILTIN_ACTIONS: ActionDescriptor[] = [

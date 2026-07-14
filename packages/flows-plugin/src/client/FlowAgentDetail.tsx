@@ -7,19 +7,20 @@
  *
  * See change: extract-minimal-chat-view.
  */
-import React from "react";
+
+import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  type MinimalChatEntry,
+  type MinimalChatStatus,
+  MinimalChatView,
+} from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type {
   FlowAgentState,
   FlowAgentStatus,
   FlowDetailEntry,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
-import {
-  MinimalChatView,
-  type MinimalChatEntry,
-  type MinimalChatStatus,
-} from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import React from "react";
 import { formatCost } from "./FlowAgentCard.js";
 
 function mapFlowStatus(status: FlowAgentStatus): MinimalChatStatus {

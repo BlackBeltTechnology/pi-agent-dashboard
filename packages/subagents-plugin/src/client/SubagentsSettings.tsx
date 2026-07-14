@@ -15,8 +15,9 @@
  *
  * See change: add-subagent-inspector §16.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+
 import { usePluginConfig, useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 interface SubagentsPluginConfig {
 	inheritContext?: boolean;

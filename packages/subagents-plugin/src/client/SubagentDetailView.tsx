@@ -17,14 +17,15 @@
  * See change: extract-minimal-chat-view (shim over MinimalChatView);
  * see change: add-subagent-inspector (tier structure).
  */
-import React from "react";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+
 import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
-  MinimalChatView,
   type MinimalChatEntry,
   type MinimalChatStatus,
+  MinimalChatView,
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type React from "react";
 import type { SubagentState, SubagentTimelineEntry } from "./types.js";
 
 /** Minimal session-state shape this component cares about. */
