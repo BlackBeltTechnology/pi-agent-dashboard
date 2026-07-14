@@ -63,7 +63,7 @@ export function GatewayPage() {
   return (
     <div className="mx-auto max-w-3xl" data-testid="gateway-page">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">Gateway</h2>
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t("gateway.title", undefined, "Gateway")}</h2>
         <p className="text-sm text-[var(--text-muted)]">
           {t("gateway.page.subtitle", undefined, "Expose this dashboard beyond localhost — public proxy or private mesh.")}
         </p>

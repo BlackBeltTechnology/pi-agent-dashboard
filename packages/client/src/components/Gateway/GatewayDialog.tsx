@@ -75,7 +75,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <Dialog open onClose={onClose} title="Gateway" size="lg" testId="gateway-dialog">
+    <Dialog open onClose={onClose} title={t("gateway.title", undefined, "Gateway")} size="lg" testId="gateway-dialog">
       <div className="mb-3 flex gap-1 border-b border-[var(--border)]">
         <TabButton id="setup" label={t("gateway.tab.setup", undefined, "Setup")} />
         <TabButton id="access" label={t("gateway.tab.access", undefined, "Access & QR")} />

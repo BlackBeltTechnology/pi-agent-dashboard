@@ -383,7 +383,7 @@ export function ComposerSessionActions({
       {showStatus && (
         <>
           <Divider />
-          <GroupLabel testId="composer-status-group-label">STATUS</GroupLabel>
+          <GroupLabel testId="composer-status-group-label">{i18nT("session.subcardStatus", undefined, "STATUS")}</GroupLabel>
           {/* <fieldset disabled> natively disables every <button>/<input>
               inside per HTML spec. Used here to gate plugin-rendered
               actions while the session is streaming, without coupling

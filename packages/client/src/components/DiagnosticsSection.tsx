@@ -164,12 +164,12 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
       const body = await res.json().catch(() => null);
       if (!res.ok || body?.success === false) {
         const msg = body?.error || `HTTP ${res.status}`;
-        setError({ status: res.status, excerpt: "", message: `Failed to set git source: ${msg}` });
+        setError({ status: res.status, excerpt: "", message: i18nT("err.setGitSource", { detail: msg }, "Failed to set git source: {detail}") });
         return;
       }
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
-      setError({ status: null, excerpt: "", message: `Failed to set git source: ${e.message}` });
+      setError({ status: null, excerpt: "", message: i18nT("err.setGitSource", { detail: e.message }, "Failed to set git source: {detail}") });
       return;
     }
     await run();

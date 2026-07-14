@@ -1062,7 +1062,7 @@ export default function App() {
             ...current,
             pendingPrompt: undefined,
             lastError: {
-              message: "No response from session — the prompt may not have been received.",
+              message: t("session.noResponse", undefined, "No response from session — the prompt may not have been received."),
               timestamp: Date.now(),
             },
           });

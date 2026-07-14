@@ -34,7 +34,7 @@ async function fetchStatus(): Promise<ProviderAuthStatus[]> {
 /** Provider ids the dashboard can actually complete a login flow for. */
 async function fetchHandlerIds(): Promise<Set<string>> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/handlers`);
-  if (!res.ok) throw new Error("Failed to load provider auth handlers");
+  if (!res.ok) throw new Error(i18nT("err.loadProviderAuthHandlers", undefined, "Failed to load provider auth handlers"));
   const data: ProviderAuthHandlerIdsResponse = await res.json();
   return new Set(data.ids ?? []);
 }

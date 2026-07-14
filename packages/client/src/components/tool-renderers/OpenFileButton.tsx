@@ -4,6 +4,7 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { isLocalhost, openEditor } from "../../lib/editor-api.js";
+import { useI18n } from "../../lib/i18n";
 import { buildEditorUrl } from "../../lib/route-builders.js";
 import { FilePreviewOverlay } from "../FilePreviewOverlay.js";
 import { useOptionalSplitWorkspace } from "../SplitWorkspaceContext.js";
@@ -30,6 +31,7 @@ interface Props {
  * See change: add-internal-monaco-editor-pane (spec: open-in-editor).
  */
 export function OpenFileButton({ filePath, line, context }: Props) {
+  const { t } = useI18n();
   const { cwd, sessionId, editors } = context;
   const [, navigate] = useLocation();
   const { openFile, hostManaged, previewTarget, closePreview } = useFileOpenRouting(context);
@@ -71,7 +73,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
     if (res.success) {
       setMenuOpen(false);
     } else {
-      setLaunchError(res.error ?? "Failed to open in editor");
+      setLaunchError(res.error ?? t("editor.failedToOpenInEditor", undefined, "Failed to open in editor"));
     }
   };
 
@@ -98,10 +100,10 @@ export function OpenFileButton({ filePath, line, context }: Props) {
         type="button"
         onClick={openInternal}
         className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] transition-colors hover:text-blue-400"
-        title={`Open ${filePath}`}
+        title={t("editor.openFileTitle", { path: filePath }, "Open {path}")}
       >
         <Icon path={mdiEyeOutline} size={0.45} />
-        <span>Open</span>
+        <span>{t("editor.openExternal", undefined, "Open")}</span>
       </button>
       {nativeEditors.length > 0 && (
         <button
@@ -112,7 +114,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
           }}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          aria-label="More open options"
+          aria-label={t("editor.moreOpenOptions", undefined, "More open options")}
           className="ml-0.5 text-[var(--text-tertiary)] transition-colors hover:text-blue-400"
         >
           <Icon path={mdiChevronDown} size={0.45} />
@@ -144,7 +146,7 @@ export function OpenFileButton({ filePath, line, context }: Props) {
                 i === activeItem ? "bg-[var(--bg-hover)] text-[var(--text-primary)]" : "text-[var(--text-secondary)]",
               ].join(" ")}
             >
-              Open in {ed.name}
+              {t("editor.openInEditor", { name: ed.name }, "Open in {name}")}
             </li>
           ))}
         </ul>

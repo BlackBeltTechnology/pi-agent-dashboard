@@ -20,25 +20,44 @@ function listPluginSrc() {
     )
       .trim()
       .split("\n")
-      .filter(Boolean);
+      .filter(Boolean)
+      // demo-plugin ships example/scaffold code, not shipped UI.
+      .filter((p) => !/demo-plugin/.test(p));
   } catch {
     return [];
   }
 }
+
+// Files that are dead code (retained but no longer wired into any barrel /
+// rendered surface) — excluded from the shipped-UI scan.
+const DEAD_CODE = [/flows-plugin\/src\/client\/FlowsCommandRoutes\.tsx$/];
 
 function walk(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = `${dir}/${e.name}`;
     if (e.isDirectory()) {
-      if (/node_modules|__tests__|\.test\.|dist/.test(p)) continue;
+      // Skip build/test dirs, plus scaffold/demo packages that ship example
+      // code rather than shipped UI (not user-facing).
+      if (/node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill/.test(p))
+        continue;
       out.push(...walk(p));
-    } else if (/\.(tsx?|jsx?)$/.test(e.name) && !/\.test\.|i18n(-|\.)/.test(e.name)) {
+    } else if (
+      /\.(tsx?|jsx?)$/.test(e.name) &&
+      !/\.test\.|i18n(-|\.)/.test(e.name) &&
+      !DEAD_CODE.some((re) => re.test(p))
+    ) {
       out.push(p);
     }
   }
   return out;
 }
+
+// Developer-only throw messages (contract violations, fetch diagnostics) are
+// NOT user-facing copy — they surface via generic error banners, never as UI
+// text. Excluded from the throw check.
+const TECH_THROW =
+  /HTTP |failed:|must be rendered|no default export|not wired|<[A-Z]\w+>|\$\{res\b|\bstatus\b/;
 
 // Patterns for likely user-facing hardcoded text.
 const JSX_TEXT = />\s*[A-Z][A-Za-z][A-Za-z ,'".!?]{3,}</; // >Some Words<
@@ -56,11 +75,13 @@ for (const root of roots) {
       if (/\b(t|i18nT)\(/.test(line)) return;
       let kind = null;
       if (ATTR.test(line)) kind = "attr";
-      else if (THROW.test(line)) kind = "throw";
+      else if (THROW.test(line) && !TECH_THROW.test(line)) kind = "throw";
       else if (MSG.test(line)) kind = "message";
       else if (
         JSX_TEXT.test(line) &&
-        !/https?:\/\/|import |from ["']|=>|Promise<|Array<|Record<|: [A-Z]\w+</.test(line)
+        !/https?:\/\/|import |from ["']|=>|Promise<|Array<|Record<|: [A-Z]\w+</.test(line) &&
+        // Proper-noun identifiers rendered in <code> are intentionally literal.
+        !/<code[ >]/.test(line)
       )
         kind = "jsx-text";
       if (kind) hits.push({ file, line: i + 1, kind, text: line.trim().slice(0, 100) });

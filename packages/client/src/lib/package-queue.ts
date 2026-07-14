@@ -22,6 +22,7 @@
  */
 
 import { getApiBase } from "./api-context.js";
+import { t as i18nT } from "./i18n";
 
 export type PackageScope = "global" | "local";
 export type PackageAction = "install" | "remove" | "update";
@@ -171,7 +172,7 @@ class PackageQueue {
       action: op.action,
       scope: op.scope,
       cwd: op.cwd,
-      message: "Starting…",
+      message: i18nT("status.starting", undefined, "Starting…"),
       retries: op.retries,
     };
     if (op.onComplete) this.pendingCompleteCallbacks.push(op.onComplete);

@@ -973,7 +973,7 @@ export function SessionCard({
             ? true
             : Boolean(openspecInitialized) || Boolean(openspecPending)
       ) && (
-        <SessionSubcard title="OPENSPEC">
+        <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
           <SessionOpenSpecActions
             session={session}
             changes={openspecChanges}
@@ -1102,7 +1102,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
   const { expanded, onToggle } = useDrawerExpansion(collapsed, onSetCollapsed);
   if (!hasActivity && !hasProcesses) return null;
   return (
-    <SessionSubcard title="PROCESS">
+    <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")}>
       {hasActivity && onAbortTool ? (
         <SessionActivityBar tools={[...activity]} onAbort={onAbortTool} now={now} />
       ) : null}
@@ -1185,7 +1185,7 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { 
   const hasWorktreeActions = !!session.gitWorktree;
   if (!renderGitInfo && !hasWorktreeActions) return null;
   return (
-    <SessionSubcard title="GIT">
+    <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")}>
       {renderGitInfo ? <GitInfo session={session} /> : null}
       {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
     </SessionSubcard>
@@ -1201,7 +1201,7 @@ function BadgeSubcard({ session }: { session: DashboardSession }) {
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
   if (!hasBadge) return null;
   return (
-    <SessionSubcard title="STATUS">
+    <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")}>
       <SessionCardBadgeSlot session={session} />
     </SessionSubcard>
   );
@@ -1215,7 +1215,7 @@ function MemorySubcard({ session }: { session: DashboardSession }) {
   const hasMemory = useSlotHasClaimsForSession("session-card-memory", session);
   if (!hasMemory) return null;
   return (
-    <SessionSubcard title="MEMORY">
+    <SessionSubcard title={i18nT("session.subcardMemory", undefined, "MEMORY")}>
       <SessionCardMemorySlot session={session} />
     </SessionSubcard>
   );
@@ -1230,7 +1230,7 @@ function FlowsSubcard({ session }: { session: DashboardSession }) {
   const hasFlows = useSlotHasClaimsForSession("session-card-flows", session);
   if (!hasFlows) return null;
   return (
-    <SessionSubcard title="FLOWS">
+    <SessionSubcard title={i18nT("session.subcardFlows", undefined, "FLOWS")}>
       <SessionCardFlowsSlot session={session} />
     </SessionSubcard>
   );

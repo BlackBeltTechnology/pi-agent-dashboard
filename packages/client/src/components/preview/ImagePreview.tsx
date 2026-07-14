@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
+import { useI18n } from "../../lib/i18n";
 import { rawUrl } from "./raw-url.js";
 
 interface Props {
@@ -29,13 +30,14 @@ export function ImagePreview({ target, variant = "inline" }: Props) {
 
 /** Full-tab image with pan/zoom + zoom controls (ex-`ImageViewer`). */
 function FullImage({ target }: Props) {
+  const { t } = useI18n();
   const { state, handlers, zoomIn, zoomOut, reset } = useZoomPan();
   const [failed, setFailed] = useState(false);
 
   if (failed) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-sm text-[var(--text-secondary)]">
-        Couldn't load image: {target.path}
+        {t("preview.couldntLoadImage", { path: target.path }, "Couldn't load image: {path}")}
       </div>
     );
   }
@@ -59,13 +61,13 @@ function FullImage({ target }: Props) {
         />
       </div>
       <div className="absolute bottom-2 right-2 flex gap-1 rounded bg-[var(--bg-secondary)] p-1 text-xs">
-        <button type="button" onClick={zoomOut} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Zoom out">
+        <button type="button" onClick={zoomOut} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.zoomOut", undefined, "Zoom out")}>
           −
         </button>
-        <button type="button" onClick={reset} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Reset zoom">
+        <button type="button" onClick={reset} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.resetZoom", undefined, "Reset zoom")}>
           {Math.round(state.scale * 100)}%
         </button>
-        <button type="button" onClick={zoomIn} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label="Zoom in">
+        <button type="button" onClick={zoomIn} className="px-2 py-0.5 hover:bg-[var(--bg-hover)]" aria-label={t("preview.zoomIn", undefined, "Zoom in")}>
           +
         </button>
       </div>

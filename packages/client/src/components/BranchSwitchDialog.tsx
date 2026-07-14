@@ -30,7 +30,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
       }
       onClose();
     } catch (err: any) {
-      setStep({ type: "error", message: err.message ?? "Checkout failed" });
+      setStep({ type: "error", message: err.message ?? i18nT("err.checkout_failed", undefined, "Checkout failed") });
     }
   };
 
@@ -39,7 +39,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
     try {
       const result = await checkoutBranch(cwd, branch, true);
       if (!result.success) {
-        setStep({ type: "error", message: "Checkout failed even after stash" });
+        setStep({ type: "error", message: i18nT("err.checkoutFailedAfterStash", undefined, "Checkout failed even after stash") });
         return;
       }
       if (result.stashed) {
@@ -48,7 +48,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
         onClose();
       }
     } catch (err: any) {
-      setStep({ type: "error", message: err.message ?? "Stash & checkout failed" });
+      setStep({ type: "error", message: err.message ?? i18nT("err.stashCheckoutFailed", undefined, "Stash & checkout failed") });
     }
   };
 
@@ -56,17 +56,17 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
     try {
       const result = await stashPop(cwd);
       if (result.conflicts) {
-        setStep({ type: "error", message: "Stash popped with merge conflicts. Please resolve them manually." });
+        setStep({ type: "error", message: i18nT("err.stashPopConflicts", undefined, "Stash popped with merge conflicts. Please resolve them manually.") });
       } else {
         onClose();
       }
     } catch (err: any) {
-      setStep({ type: "error", message: err.message ?? "Stash pop failed" });
+      setStep({ type: "error", message: err.message ?? i18nT("err.stash_pop_failed", undefined, "Stash pop failed") });
     }
   };
 
   return (
-    <Dialog open onClose={onClose} ariaLabel="Switch branch" size="sm" testId="branch-switch-dialog">
+    <Dialog open onClose={onClose} ariaLabel={i18nT("git.switchBranch", undefined, "Switch branch")} size="sm" testId="branch-switch-dialog">
           {step.type === "pick" && (
             <>
               <h3 className="text-sm font-medium mb-3">{i18nT("git.switchBranch2", undefined, "Switch Branch")}</h3>
@@ -98,7 +98,7 @@ export function BranchSwitchDialog({ cwd, onClose }: Props) {
                       await gitInit(cwd);
                       onClose();
                     } catch (err: any) {
-                      setStep({ type: "error", message: err.message ?? "Init failed" });
+                      setStep({ type: "error", message: err.message ?? i18nT("err.initFailed", undefined, "Init failed") });
                     }
                   }}
                   className="px-3 py-1.5 rounded text-sm bg-[var(--accent-primary)] text-white hover:opacity-90"

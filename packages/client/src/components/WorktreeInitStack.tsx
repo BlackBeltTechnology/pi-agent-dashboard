@@ -11,6 +11,7 @@
  * Reads the same store as the per-row chips, so stack + cards stay in sync.
  * See change: friendlier-worktree-init.
  */
+import { t as i18nT } from "../lib/i18n";
 import { initStore, useAllInitRuns } from "../lib/worktree-init-store.js";
 
 const MAX_ROWS = 4;
@@ -42,8 +43,8 @@ export function WorktreeInitStack() {
   const overflow = runs.length - visible.length;
 
   const headParts: string[] = [];
-  if (done) headParts.push(`${done} done`);
-  if (failed) headParts.push(`${failed} failed`);
+  if (done) headParts.push(i18nT("status.nDone", { count: done }, "{count} done"));
+  if (failed) headParts.push(i18nT("status.nFailed", { count: failed }, "{count} failed"));
 
   return (
     <div
@@ -53,7 +54,7 @@ export function WorktreeInitStack() {
       <div className="flex items-center gap-2 px-3 py-2.5 bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)]">
         {running > 0 && <Spinner />}
         <span className="text-[12.5px] font-semibold text-[var(--text-primary)]">
-          Initializing {running || runs.length} worktree{(running || runs.length) === 1 ? "" : "s"}
+          {i18nT("worktree.initializingCount", { count: running || runs.length, s: (running || runs.length) === 1 ? "" : "s" }, "Initializing {count} worktree{s}")}
         </span>
         {headParts.length > 0 && (
           <span className="ml-auto text-[11px] text-[var(--text-muted)]">{headParts.join(" · ")}</span>
@@ -73,7 +74,7 @@ export function WorktreeInitStack() {
           {r.phase === "running" && (
             <span className="flex-1 text-[var(--text-muted)] font-mono text-[11px] truncate">{r.lastLine ?? "…"}</span>
           )}
-          {r.phase === "done" && <span className="flex-1 text-green-400">Initialized</span>}
+          {r.phase === "done" && <span className="flex-1 text-green-400">{i18nT("worktree.initialized", undefined, "Initialized")}</span>}
           {r.phase === "failed" && (
             <span className="flex-1 text-red-400 font-mono text-[10.5px] truncate">{r.code ?? "failed"}</span>
           )}
@@ -84,17 +85,17 @@ export function WorktreeInitStack() {
               data-testid="worktree-init-stack-dismiss"
               className="text-[11px] px-2 py-0.5 rounded-md border border-amber-500/40 bg-amber-500/[0.06] text-amber-400 hover:text-amber-300"
             >
-              Dismiss
+              {i18nT("common.dismiss", undefined, "Dismiss")}
             </button>
           ) : (
             <span className="text-[11px] text-[var(--text-muted)]">
-              {r.phase === "running" ? `${Math.round((Date.now() - r.startedAt) / 1000)}s` : "· fading"}
+              {r.phase === "running" ? `${Math.round((Date.now() - r.startedAt) / 1000)}s` : i18nT("status.fading", undefined, "· fading")}
             </span>
           )}
         </div>
       ))}
       {overflow > 0 && (
-        <div className="px-3 py-1.5 text-[11px] text-[var(--text-muted)]">+{overflow} more</div>
+        <div className="px-3 py-1.5 text-[11px] text-[var(--text-muted)]">{i18nT("common.overflowMore", { count: overflow }, "+{count} more")}</div>
       )}
     </div>
   );

@@ -100,9 +100,9 @@ export function WorkspaceHeader({
         <div
           {...dragHandleProps}
           className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] shrink-0 cursor-grab active:cursor-grabbing"
-          title="Drag to reorder workspace"
+          title={i18nT("folders.dragToReorderWorkspace", undefined, "Drag to reorder workspace")}
           data-testid={`workspace-drag-handle-${id}`}
-          aria-label="Drag to reorder workspace"
+          aria-label={i18nT("folders.dragToReorderWorkspace", undefined, "Drag to reorder workspace")}
         >
           <Icon path={mdiDrag} size={0.6} />
         </div>

@@ -7,6 +7,7 @@
  * calls `onOpenFile(path)` (opens the file's diff tab in the split pane).
  */
 import { useState } from "react";
+import { useI18n } from "../lib/i18n";
 import type { TurnSummary } from "../lib/lineDelta.js";
 import { CountBadges } from "./CountBadges.js";
 
@@ -19,6 +20,7 @@ export function ChangeSummaryBlock({
   onOpenFile?: (path: string) => void;
   defaultExpanded?: boolean;
 }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const fileCount = summary.files.length;
   if (fileCount === 0) return null;
@@ -37,7 +39,7 @@ export function ChangeSummaryBlock({
       <span className="text-[var(--text-tertiary)]">·</span>
       <CountBadges additions={summary.totalAdditions} deletions={summary.totalDeletions} />
       {!expanded && (
-        <span className="ml-auto text-[var(--text-tertiary)] italic">Changed this turn</span>
+        <span className="ml-auto text-[var(--text-tertiary)] italic">{t("diff.changedThisTurn", undefined, "Changed this turn")}</span>
       )}
     </button>
   );

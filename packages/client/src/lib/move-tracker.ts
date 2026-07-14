@@ -16,6 +16,7 @@
  *
  * See change: unify-package-management-ui.
  */
+import { t as i18nT } from "./i18n";
 import type { PackageScope } from "./packages-api.js";
 
 export type MovePhase = "running" | "success" | "error" | "partial-success";
@@ -53,7 +54,7 @@ class MoveTracker {
 		this.byMoveId.set(state.moveId, {
 			...state,
 			phase: "running",
-			message: "Moving…",
+			message: i18nT("status.moving", undefined, "Moving…"),
 		});
 		this.notify();
 	}
@@ -120,7 +121,7 @@ class MoveTracker {
 				this.byMoveId.set(msg.moveId, {
 					...state,
 					phase: "success",
-					message: "Move complete",
+					message: i18nT("status.moveComplete", undefined, "Move complete"),
 				});
 				const t = setTimeout(() => {
 					this.byMoveId.delete(msg.moveId);

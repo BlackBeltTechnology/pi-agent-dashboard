@@ -7,6 +7,7 @@
 
 import { normalizeTags } from "@blackbelt-technology/pi-dashboard-shared/tags.js";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useI18n } from "../../lib/i18n";
 import { TagChip } from "./TagChip.js";
 
 interface TagEditorProps {
@@ -19,6 +20,7 @@ interface TagEditorProps {
 }
 
 export function TagEditor({ tags, allTags, onChange }: TagEditorProps) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +68,7 @@ export function TagEditor({ tags, allTags, onChange }: TagEditorProps) {
       <div className="relative">
         <button
           type="button"
-          aria-label="Add tag"
+          aria-label={t("tags.addTag", undefined, "Add tag")}
           aria-expanded={open}
           onClick={() => {
             setOpen((v) => !v);
@@ -74,21 +76,21 @@ export function TagEditor({ tags, allTags, onChange }: TagEditorProps) {
           }}
           className="inline-flex items-center gap-1 rounded-full border border-dashed border-[var(--border-secondary)] bg-transparent px-2 py-0.5 text-[11px] leading-tight text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--text-muted)] cursor-pointer"
         >
-          + tag
+          {t("tags.addTagShort", undefined, "+ tag")}
         </button>
 
         {open ? (
           <div
             role="dialog"
-            aria-label="Add tag"
+            aria-label={t("tags.addTag", undefined, "Add tag")}
             className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] p-3 shadow-xl"
           >
             <input
               ref={inputRef}
               type="text"
               value={query}
-              placeholder="Add tag…"
-              aria-label="Tag name"
+              placeholder={t("tags.addTagPlaceholder", undefined, "Add tag…")}
+              aria-label={t("tags.tagName", undefined, "Tag name")}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -119,7 +121,7 @@ export function TagEditor({ tags, allTags, onChange }: TagEditorProps) {
                     onClick={() => addTag(query)}
                     className="flex w-full items-center rounded-md px-1.5 py-1 text-left text-xs text-[var(--accent-green,#86efac)] hover:bg-[var(--bg-surface)]"
                   >
-                    + Create “{normalizedQuery}”
+                    {t("tags.createTag", { name: normalizedQuery }, "+ Create “{name}”")}
                   </button>
                 ) : null}
               </div>
